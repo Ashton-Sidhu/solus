@@ -627,11 +627,20 @@ export class SessionRuntime extends EventEmitter {
    * the agent's turn is already settled, so this is not an interrupt. Each task
    * settles through the provider's own events, and the session leaves
    * 'background' through the usual turn that follows.
+   * A session that waits only on the sessions it sent work to stops the
+   * children that work for it and stops waiting; it settles as `completed`.
    */
   async stopBackgroundTasks(sessionId: string): Promise<boolean> {
     const session = this.activeSessions.get(sessionId)
     const agentSessionId = session?.agentSessionId
     const taskIds = [...(session?.backgroundTaskIds ?? [])]
+    if (session?.status === 'background' && taskIds.length === 0) {
+      // Read first: stopping the wait settles the messages that name the children.
+      const children = this.orchestration?.childrenAtWork(sessionId) ?? []
+      const stoppedWaiting = !!this.orchestration?.cancelSentBy(sessionId)
+      if (children.length) this.orchestration?.stopChildren(sessionId, children)
+      return stoppedWaiting
+    }
     if (!session || !agentSessionId || taskIds.length === 0) return false
     const backend = this.backendFor(session.backendId)
     const stopBackgroundTask = backend.stopBackgroundTask?.bind(backend)
@@ -695,10 +704,7 @@ export class SessionRuntime extends EventEmitter {
 
     // Nothing of its own is running: a session held open only by waiting on
     // the sessions it sent work to stops waiting.
-    if (this.orchestration?.cancelSentBy(sessionId)) {
-      stopped()
-      return true
-    }
+    if (this.stopWaitingOnReports(sessionId, stopped)) return true
 
     // A session parked on a rate limit has no run, only a prompt held for the
     // reset. Stop releases nothing at the reset.
@@ -709,6 +715,17 @@ export class SessionRuntime extends EventEmitter {
     }
 
     return !!moveController
+  }
+
+  /** Settles the messages the session sent and waits on, as `stopped` says.
+   *  A session that waited in 'background' for them has no run whose exit
+   *  would release its record, so the record goes here. */
+  private stopWaitingOnReports(sessionId: string, stopped: () => void): boolean {
+    const isWaitingOnReports = this.statuses.isWaitingOnReports(sessionId)
+    if (!this.orchestration?.cancelSentBy(sessionId)) return false
+    stopped()
+    if (isWaitingOnReports) this.activeSessions.delete(sessionId)
+    return true
   }
 
   /** The session an IPC context is acting on. A client resuming a thread it

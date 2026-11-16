@@ -79,7 +79,7 @@ export interface TurnOrganizationDeps {
  */
 export interface TurnAdmissionContext {
   session: Pick<SessionCtx, 'sessionId' | 'agentSessionId' | 'forked' | 'organizationId' | 'workingDirectory'> & { provider?: AgentId | null }
-  /** The session that starts this one on this host (`start_session`): a child follows its record, as a fork follows its source. */
+  /** The session that starts this one on this host (`start_sessions`): a child follows its record, as a fork follows its source. */
   parentSessionId?: string
 }
 

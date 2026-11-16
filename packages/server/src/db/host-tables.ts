@@ -5,9 +5,9 @@ import { bigint, defineTable, integer, json, text } from './schema/define-table'
  * execution ledger, the delivery queues, and host-local settings. They live in
  * `solus.db` on every machine whatever its records engine, and are read
  * synchronously through `getDb()`. Declared here once; drizzle-kit generates
- * their baseline into `packages/server/drizzle/sqlite` through `./schema/host.ts`.
- * `session_fts`, an FTS5 virtual table, is hand-written in
- * `./schema/custom/host.sql` and appended to that baseline.
+ * their migrations into `packages/server/drizzle/sqlite` through `./schema/host.ts`.
+ * `session_fts`, an FTS5 virtual table, is hand-written in that folder's
+ * `0000_baseline.sql`.
  */
 
 // --- Transcript index -------------------------------------------------------

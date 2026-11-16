@@ -3,7 +3,8 @@ import type { CheckoutService } from '../../git/checkout-service'
 import type { HandlerCtx, SolusServer } from '../server'
 import { BrowserRuntimeInstaller } from '../../browser/browser-runtime'
 import type { HostEventPublisher } from '../events/host-event-publisher'
-import { initBrowserRegistry, type BrowserRegistry } from '../../browser/browser-registry'
+import { browserUploadBucket, initBrowserRegistry, type BrowserRegistry } from '../../browser/browser-registry'
+import { createUploadToken } from './attachment-handlers'
 import type { BrowserFrameChannel } from '../../browser/browser-frame-channel'
 import { discoverBrowserTargets, forgetDiscoveredTargets } from '../../browser/target-scanner'
 import { captureEvidence, evidenceOptions, stopAndFileRecording } from '../../browser/browser-evidence'
@@ -130,6 +131,15 @@ export function registerBrowserHandlers(
   server.register('browserNavigate', async (args) => { drives(args[0]); return registry.navigate(args[0], args[1]) })
   server.register('browserSetViewport', async (args) => { drives(args[0]); return registry.setViewport(args[0], args[1]) })
   server.register('browserSetAppearance', async (args) => { drives(args[0]); return registry.setAppearance(args[0], args[1]) })
+  server.register('browserSetZoom', async (args) => { drives(args[0]); return registry.setZoom(args[0], args[1]) })
+  server.register('browserAnswerDialog', async (args) => { drives(args[0]); return registry.answerDialog(args[0], args[1]) })
+  server.register('browserFileUploadToken', async (args) => {
+    drives(args[0])
+    if (!registry.get(args[0])?.fileChooser) throw new Error('This page is not asking for files now.')
+    // The page shows the name of the file it was given, so the name is kept.
+    return createUploadToken(browserUploadBucket(args[0]), args[1], { keepName: true })
+  })
+  server.register('browserAnswerFileChooser', async (args) => { drives(args[0]); return registry.answerFileChooser(args[0], args[1]) })
   server.register('browserSnapshot', async (args) => { drives(args[0]); return registry.snapshot(args[0], args[1]) })
   server.register('browserInteract', async (args) => { drives(args[0]); return registry.interact(args[0], args[1]) })
   server.register('browserAttachSurface', async (args) => { drives(args[0]); return registry.attachSurface(args[0], args[1]) })

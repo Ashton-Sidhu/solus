@@ -1,3 +1,4 @@
+import { hostReferenceContext } from '@solus/contracts/host-link'
 import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind, videoMimeType } from '@solus/contracts/media-types'
 import type { IpcContext, PromptImageRef } from '@solus/contracts/types'
@@ -117,9 +118,12 @@ export interface ComposedPrompt {
  */
 export function composePrompt(text: string, attachments: readonly UploadedAttachment[], hostReadsImageRefs: boolean): ComposedPrompt {
   const files = attachments.filter((attachment) => attachment.kind === 'file')
+  // A host chip in the text gets the same note for the agent as on desktop (host-fleet.md D12).
+  const hostContext = hostReferenceContext(text)
+  const typed = hostContext ? `${text}\n\n${hostContext}` : text
   const prompt = files.length
-    ? `${files.map((attachment) => `[Attached file: ${attachment.hostPath}]`).join('\n')}\n\n${text}`
-    : text
+    ? `${files.map((attachment) => `[Attached file: ${attachment.hostPath}]`).join('\n')}\n\n${typed}`
+    : typed
   const composed: ComposedPrompt = { prompt }
   const refs: PromptImageRef[] = []
   const inline: Array<{ mimeType: string; dataUrl: string }> = []

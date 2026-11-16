@@ -6,6 +6,7 @@ import {
   appTimeCounts,
   applyAppFilter,
   calls24hText,
+  failed24hText,
   buildWorkspaceAppItems,
   groupAppItems,
   sortAppItems,
@@ -62,6 +63,7 @@ describe('an app card of the Workspace page', () => {
       for (const field of missing) Reflect.deleteProperty(source.app, field)
       const [item] = buildWorkspaceAppItems([source], sources)
       expect(calls24hText(item!)).toBe('Call counts unavailable')
+      expect(failed24hText(item!)).toBeNull()
     }
   })
 
@@ -86,9 +88,11 @@ describe('an app card of the Workspace page', () => {
       lastCallAt: NOW.getTime() - 60_000,
       problems: [{ kind: 'secret-missing', tone: 'warning', section: 'secrets' }],
     })
-    expect(calls24hText(item!)).toBe('12 calls in 24 hours, 2 failed')
-    expect(calls24hText({ calls24h: 1, failed24h: 0 })).toBe('1 call in 24 hours')
-    expect(calls24hText({ calls24h: 0, failed24h: 0 })).toBe('No calls in 24 hours')
+    expect(calls24hText(item!)).toBe('12 calls')
+    expect(failed24hText(item!)).toBe('2 failed')
+    expect(calls24hText({ calls24h: 1, failed24h: 0 })).toBe('1 call')
+    expect(failed24hText({ calls24h: 1, failed24h: 0 })).toBeNull()
+    expect(calls24hText({ calls24h: 0, failed24h: 0 })).toBe('No calls')
   })
 
   test('the state is running, stopped, with no version, or building', () => {

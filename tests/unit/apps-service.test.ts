@@ -40,7 +40,7 @@ describeWithNode('an app on a host', () => {
 
     expect(existsSync(join(dataDir, 'apps', 'data', id, 'app.sqlite'))).toBe(true)
     expect((await apps.ui(owner, id))?.html).toContain('<title>Notes</title>')
-    expect((await apps.versions(owner, id))[0]).toMatchObject({ number: 1, state: 'active', revision: saved.revision, protocol: 3, message: 'A change' })
+    expect((await apps.versions(owner, id))[0]).toMatchObject({ number: 1, state: 'active', revision: saved.revision, protocol: 4, message: 'A change' })
     expect(await apps.revisions(owner, id)).toEqual([expect.objectContaining({ commit: saved.revision, message: 'A change', versions: [1] })])
   })
 
@@ -165,6 +165,39 @@ describeWithNode('an app on a host', () => {
     const state = await apps.activate(owner, app.id, 1)
     expect(state.app).toMatchObject({ activeVersion: 1, name: 'Notes', slug: 'notes' })
     expect(await call(apps, app.id, appOperationCallName('list'))).toEqual([{ id: 1, text: 'written by version 2' }])
+    // WHY: a rollback is history. The version keeps each time it became active and the version it replaced,
+    // so the Versions section says "Rolled back to v1 from v2" and not only which one runs now.
+    const [second, first] = await apps.versions(owner, app.id)
+    expect(second?.activations.map((entry) => entry.previous)).toEqual([1])
+    expect(first?.activations.map((entry) => entry.previous)).toEqual([null, 2])
+    expect(first!.activations[1]!.at).toBeGreaterThanOrEqual(second!.activations[0]!.at)
+    // The rollback's change is the two revisions it moved between.
+    const [newer, older] = await apps.revisions(owner, app.id)
+    expect(newer?.stats).toMatchObject({ files: 1, additions: 1, deletions: 1 })
+    const rollback = await apps.revisionDiff(owner, app.id, older!.commit, newer!.commit)
+    expect(rollback.base).toBe(newer!.commit)
+    expect(rollback.patch).toContain("-  name: 'Notes two'")
+  })
+
+  test('the owner renames, describes, and colours an app, and a deploy does not undo it', async () => {
+    // WHY: the manifest names the app on each deploy. A name the owner gave must not
+    // change back when an agent ships a new version.
+    const apps = await service()
+    const folder = project(NOTES)
+    const { app } = await ship(apps, folder)
+    const renamed = await apps.update(owner, app.id, { name: '  Team notes ', description: 'Notes for the team.', colorHue: 210 })
+    expect(renamed.app).toMatchObject({ name: 'Team notes', description: 'Notes for the team.', manifestName: 'Notes', colorHue: 210, slug: 'notes' })
+
+    const shipped = await change(apps, folder, { ...NOTES, app: NOTES.app.replace("name: 'Notes'", "name: 'Notes two'") })
+    expect(shipped.app).toMatchObject({ name: 'Team notes', description: 'Notes for the team.', manifestName: 'Notes two', colorHue: 210 })
+
+    // A field left out stays; null goes back to the manifest and to the colour from the id.
+    expect((await apps.update(owner, app.id, { colorHue: null })).app).toMatchObject({ name: 'Team notes', colorHue: null })
+    expect((await apps.update(owner, app.id, { name: null, description: '' })).app).toMatchObject({ name: 'Notes two', description: 'Keeps notes.' })
+    // Typing the manifest's own name keeps no copy of it, so the next rename in the manifest shows.
+    await apps.update(owner, app.id, { name: 'Notes two' })
+    expect((await change(apps, folder, NOTES)).app.name).toBe('Notes')
+    await expect(apps.update(member, app.id, { name: 'Mine' })).rejects.toThrow('Only the owner of this host can use its apps.')
   })
 
   test('a stopped app runs no operation until it is started', async () => {
@@ -187,7 +220,7 @@ describeWithNode('an app on a host', () => {
     const state = await apps.secretSet(owner, app.id, 'token', 's3cret')
     expect(state.secrets).toEqual([{ name: 'token', label: 'API token', description: '', isSet: true }])
     expect(JSON.stringify(state)).not.toContain('s3cret')
-    expect(await call(apps, app.id, appOperationCallName('whoAndWhat'))).toEqual({ caller: { kind: 'ui' }, token: 's3cret' })
+    expect(await call(apps, app.id, appOperationCallName('whoAndWhat'))).toEqual({ caller: { kind: 'ui', role: 'owner' }, token: 's3cret' })
     await expect(apps.secretSet(owner, app.id, 'other', 'x')).rejects.toThrow('This app declares no secret named other.')
     await apps.secretSet(owner, app.id, 'token', null)
     expect((await call(apps, app.id, appOperationCallName('whoAndWhat'))).token).toBeNull()
@@ -253,9 +286,9 @@ export default defineApp({
     expect(connectionCalls).toEqual([{ provider: 'github', input: { path: '/repos/acme/web/pulls' } }])
     await expect(call(apps, app.id, 'github/list_pulls')).rejects.toThrow('GitHub has one tool for an app: request.')
     expect((await apps.read(owner, app.id)).roles).toEqual([
-      { slug: 'linear', name: 'Linear', connected: true },
-      { slug: 'github', name: 'GitHub', connected: true },
-      { slug: 'atlassian', name: 'Atlassian', connected: false },
+      { slug: 'linear', scope: 'user', name: 'Linear', connected: true },
+      { slug: 'github', scope: 'user', name: 'GitHub', connected: true },
+      { slug: 'atlassian', scope: 'user', name: 'Atlassian', connected: false },
     ])
     // The person's own MCP integration with that slug comes first.
     expect(await call(apps, app.id, 'linear/list_issues', { team: 'OPS' })).toEqual({ issues: ['ENG-1'] })

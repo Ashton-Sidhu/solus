@@ -58,15 +58,19 @@ where it runs, as a tab; in the cloud console it opens the session's record.
 
 ## Apps
 
-An app card shows the app's name, its host, its state (running, stopped, no
-version, or building), its active version (`v3`), its calls and failed calls
-of the last 24 hours, the name of the folder it was first saved from, when it
-was last called, a mark when a save waits for a deploy, and what needs the
-reader: a version that failed, a secret that is not set, or a schedule or a
-workflow whose last run failed. Each of those is a button to the section of
-the app's Manage page where the reader acts. A card opens the app as the
-destination, and its Manage button opens the Manage page (`docs/apps.md`).
-The address `/folio/apps` opens the page on this tab.
+An app card leads with the app's name and its description. Below them is the
+first thing that needs the reader, with a count of any others: a version that
+failed, a secret that is not set, or a schedule or a workflow whose last run
+failed. It is a button to the section of the app's Manage page where the reader
+acts; its tooltip lists every problem. The foot shows the state as a dot (a
+state other than running is also named: stopped, no version, or building), the
+host, when the app last moved, and its calls and failed calls of the last 24
+hours. The tooltip on the dot names the active version (`v3`). An "Undeployed"
+mark beside the name says that a save waits for a deploy. A card opens the app
+as the destination. Its Manage control (a settings icon that shows under the
+pointer, on the selected card, and always on touch) opens the Manage page
+(`docs/apps.md`). The search also matches the folder the app was first saved
+from. The address `/folio/apps` opens the page on this tab.
 If the host omits call counts, the card shows “Call counts unavailable”. It
 does not treat missing counts as zero. Mobile uses the same text in Activity.
 The tab reads the apps store (`contexts/apps/apps.store.svelte.ts`), which

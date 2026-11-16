@@ -1,21 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 import type { DirectoryEntry, SetupGithubRepo } from '@solus/contracts/types'
-import { cloneUrlFromInput, folderEntries, folderNameOf, matchingRepos, newProjectLocationText } from '../../apps/mobile/src/features/projects/lib/open-project'
+import { cloneDestinationPath, openExistingProjectFolder, cloneUrlFromInput, folderEntries, folderNameOf, matchingRepos, newProjectLocationText } from '../../apps/mobile/src/features/projects/lib/open-project'
 
-// "Open project" on the phone is for people who do not think in paths. These
-// rules keep it that way: the line under the name says where the folder goes
-// in words, the folder named is the one the host creates, a short GitHub name
+// Project names stay readable, and an explicit folder path is resolved by
+// its host. These rules keep the selected project clear: the line under the name says where the folder goes
+// with the host path, the folder named is the one the host creates, a short GitHub name
 // clones the repository it names, and a file never offers itself as a project.
 
 describe('new project location line', () => {
   test('before typing, it names the projects folder and the host', () => {
-    expect(newProjectLocationText('', 'projects', 'Studio Mac')).toBe('Creates a folder in projects on Studio Mac')
-    expect(newProjectLocationText('   ', 'projects', 'Studio Mac')).toBe('Creates a folder in projects on Studio Mac')
+    expect(newProjectLocationText('', '/Users/ana/projects', 'Studio Mac')).toBe('Goes in /Users/ana/projects on Studio Mac')
+    expect(newProjectLocationText('   ', '/Users/ana/projects', 'Studio Mac')).toBe('Goes in /Users/ana/projects on Studio Mac')
   })
 
   test('after typing, it names the folder the host will create, not what was typed', () => {
-    expect(newProjectLocationText('My Website', 'projects', 'Studio Mac')).toBe('Creates the folder My-Website in projects on Studio Mac')
-    expect(newProjectLocationText(' Notes / 2026 ', 'code', 'Box')).toBe('Creates the folder Notes-2026 in code on Box')
+    expect(newProjectLocationText('My Website', '/Users/ana/projects', 'Studio Mac')).toBe('Creates /Users/ana/projects/My-Website on Studio Mac')
+    expect(newProjectLocationText(' Notes / 2026 ', 'C:\\code', 'Box')).toBe('Creates C:\\code\\Notes-2026 on Box')
   })
 
   test('the projects folder reads as its last segment, never a full path', () => {
@@ -28,6 +28,11 @@ describe('new project location line', () => {
 })
 
 describe('clone from a URL', () => {
+  test('browsing a destination preserves the repository folder name for POSIX and Windows hosts', () => {
+    expect(cloneDestinationPath('~/projects', 'https://github.com/me/my-app.git')).toBe('~/projects/my-app')
+    expect(cloneDestinationPath('/other/folder', 'git@github.com:me/my-app.git')).toBe('/other/folder/my-app')
+    expect(cloneDestinationPath('C:\\code', 'https://gitlab.com/team/my-app.git')).toBe('C:\\code\\my-app')
+  })
   test('owner/repo means a GitHub repository', () => {
     expect(cloneUrlFromInput('solus-sh/solus')).toBe('https://github.com/solus-sh/solus.git')
     expect(cloneUrlFromInput(' solus-sh/solus.git ')).toBe('https://github.com/solus-sh/solus.git')
@@ -63,5 +68,39 @@ describe('repository search', () => {
     expect(matchingRepos(repos, 'notes').map((r) => r.fullName)).toEqual(['ana/Notes'])
     expect(matchingRepos(repos, 'ANA').map((r) => r.fullName)).toEqual(['ana/website', 'ana/Notes'])
     expect(matchingRepos(repos, '  ')).toEqual(repos)
+  })
+})
+
+
+describe('opening the selected host folder', () => {
+  test('uses the host-resolved path for both the project and recent history', async () => {
+    const reads: string[] = []
+    const recent: string[] = []
+    const path = await openExistingProjectFolder({
+      listDirectory: async (input) => {
+        reads.push(input)
+        return { entries: [], parentPath: '/Users/ana', currentPath: '/Users/ana/project', error: null }
+      },
+      trackRecentProject: async (input) => { recent.push(input) },
+    }, '  ~/project  ')
+    expect(reads).toEqual(['~/project'])
+    expect(path).toBe('/Users/ana/project')
+    expect(recent).toEqual(['/Users/ana/project'])
+  })
+
+  test('does not open or remember a folder the host rejects', async () => {
+    const recent: string[] = []
+    await expect(openExistingProjectFolder({
+      listDirectory: async () => ({ entries: [], parentPath: null, currentPath: '', error: 'Folder does not exist' }),
+      trackRecentProject: async (path) => { recent.push(path) },
+    }, '~/missing')).rejects.toThrow('Folder does not exist')
+    expect(recent).toEqual([])
+  })
+
+  test('a recent-history write failure does not block a valid project', async () => {
+    await expect(openExistingProjectFolder({
+      listDirectory: async () => ({ entries: [], parentPath: null, currentPath: 'C:\\code', error: null }),
+      trackRecentProject: async () => { throw new Error('History unavailable') },
+    }, 'C:\\code')).resolves.toBe('C:\\code')
   })
 })

@@ -132,7 +132,7 @@ For one dial to host B, host A uses:
    plane issues a token for host B.
 2. **Local reach**, when host A holds an introduced token for host B.
 
-If neither applies, `start_session` fails with a message that names both ways
+If neither applies, `start_sessions` fails with a message that names both ways
 in: link both hosts to your Solus account, or connect to both hosts from one
 of your devices.
 
@@ -144,7 +144,7 @@ of your devices.
   "<host> (Solus host)", where it can be revoked.
 - **Run on picker:** no change in this plan.
 - **Providers:** no change. Claude and Codex both start cross-host sessions
-  through `start_session`.
+  through `start_sessions`.
 
 ## 7. Tests
 

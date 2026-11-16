@@ -36,9 +36,22 @@ export function groupProjectScopes(projects: readonly SolusProjectShell[]): Proj
   }))
 }
 
-/** The project on the preferred host, else the scope's first. */
-export function getProjectScopeSelectionTarget(scope: ProjectScope, preferredHostId: string | null): SolusProjectShell {
-  return scope.projects.find((project) => project.hostId === preferredHostId) ?? scope.representative
+/** Prefer a connected checkout, then the preferred host; retain cached projects during a reconnect. */
+export function getProjectScopeSelectionTarget(scope: ProjectScope, preferredHostId: string | null, readyHostIds?: ReadonlySet<string>): SolusProjectShell {
+  const ready = readyHostIds ? scope.projects.filter((project) => readyHostIds.has(project.hostId)) : scope.projects
+  return ready.find((project) => project.hostId === preferredHostId)
+    ?? ready[0]
+    ?? scope.projects.find((project) => project.hostId === preferredHostId)
+    ?? scope.representative
+}
+
+/** A scratch task and Add Project use a ready host before a cached preference. */
+export function preferredProjectHostId(hostIds: readonly string[], preferredHostId: string | null, readyHostIds: ReadonlySet<string>): string | null {
+  if (preferredHostId && hostIds.includes(preferredHostId) && readyHostIds.has(preferredHostId)) return preferredHostId
+  return hostIds.find((hostId) => readyHostIds.has(hostId))
+    ?? hostIds.find((hostId) => hostId === preferredHostId)
+    ?? hostIds[0]
+    ?? null
 }
 
 export function filterProjectScopes(scopes: readonly ProjectScope[], searchText: string): readonly ProjectScope[] {

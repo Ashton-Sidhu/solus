@@ -13,7 +13,7 @@ export type AgentConversationCardState = 'dispatching' | 'replying' | 'waiting' 
 
 const OPEN_STATUSES = new Set<AgentExchangeStatus>(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'waiting_for_children', 'answered'])
 
-/** A start_session card before its provider started — nothing to open, track or
+/** A start_sessions card before its provider started — nothing to open, track or
  *  interrupt yet. */
 export function isPendingAgent(ref: AgentConversationRef): boolean {
   return ref.starting === true

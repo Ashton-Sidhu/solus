@@ -1,5 +1,7 @@
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useCallback, useLayoutEffect, useState } from "react";
+import { recentArtifacts } from "@solus/client-core/recent-artifacts";
+import { ownedArtifacts } from "@solus/client-core/session-overview";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -12,7 +14,10 @@ import { ListSection } from "../../../components/ListSection";
 import { ScreenScrollView } from "../../../components/ScreenScrollView";
 import { cn } from "../../../lib/cn";
 import type { ScreenProps } from "../../../navigation/routes";
+import { useApp } from "../../../app/app-context";
 import { HostStatusBanner } from "../../hosts/HostStatusBanner";
+import { artifactOpenLog } from "./artifact-opens";
+import { RecentArtifactsRow } from "./RecentArtifactsRow";
 import {
   artifactFilterChips,
   artifactIcon,
@@ -25,7 +30,9 @@ import { useOpenArtifact } from "./use-open-artifact";
 import { useSessionArtifacts } from "./use-session-artifacts";
 
 /**
- * What a session produced or linked (docs/plans/session-artifacts.md). Pull
+ * The Threads screen: what a session produced or linked
+ * (docs/plans/session-artifacts.md). A row of the works, apps, files, and
+ * images comes first, pinned and latest first; the list follows. Pull
  * requests open their screen, or the browser when no project of the host
  * reads them; files and images open the file screen of their host; an app
  * opens its screen. Works and automations have no screen on the phone, so
@@ -50,6 +57,9 @@ export function ArtifactsScreen({ navigation, route }: ScreenProps<"ThreadArtifa
       },
     });
   }, [navigation]);
+  const app = useApp();
+  // The row's order and ages move while the screen is away (an item opened, time passed): draw again on return.
+  useIsFocused();
   // Open clears the unread mark, and keeps it clear while open.
   useFocusEffect(useCallback(() => feed.view(), [feed]));
 
@@ -78,6 +88,8 @@ export function ArtifactsScreen({ navigation, route }: ScreenProps<"ThreadArtifa
     // A kind that is gone after a reload has no chip: show all.
     const activeFilter = chips.some((chip) => chip.filter === filter) ? filter : "all";
     const sections = artifactSections(state.artifacts, activeFilter, searchQuery);
+    const openLog = artifactOpenLog(app);
+    const recent = recentArtifacts(ownedArtifacts(state.artifacts, sessionId), (artifact) => openLog.openedAt(artifact));
     body =
       chips[0].count === 0 ? (
         <EmptyState
@@ -87,6 +99,7 @@ export function ArtifactsScreen({ navigation, route }: ScreenProps<"ThreadArtifa
         />
       ) : (
         <>
+          {recent.length > 0 ? <RecentArtifactsRow hostId={hostId} items={recent} opener={{ open, opens }} /> : null}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-2">
             {chips.map((chip) => (
               <Pressable

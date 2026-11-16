@@ -2,11 +2,12 @@
 import { useNavigation } from '@react-navigation/native'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Keyboard, Platform, Pressable, RefreshControl, ScrollView, View, type ScrollViewProps } from 'react-native'
 import { ScrollViewMarker } from 'react-native-screens'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BoundedPageFill } from '@solus/client-core/bounded-page-fill'
+import { NativePrimaryColumnContext } from '../../native/v5-workspace-context'
 import { useApp, useListened } from '../../app/app-context'
 import { AppText as Text } from '../../components/AppText'
 import { EmptyState } from '../../components/EmptyState'
@@ -15,7 +16,10 @@ import { resolvePullRequestListScope, type PullRequestListPreferences } from '..
 import { PullRequestCardGroup, PullRequestCardRow } from './detail/pull-request-ui'
 import { prUnavailableTitle } from './lib/pr-presentation'
 import { filterPullRequestRows, hostNoticesSummary, pullRequestHostQuery, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
-import { PullRequestListFilters, type PullRequestFilterProject } from './PullRequestListFilters'
+import { PullRequestListFilters } from './PullRequestListFilters'
+import { pullRequestListFilterMenus, type PullRequestFilterProject } from './lib/filter-menus'
+import { PullRequestsHeader } from './PullRequestsHeader'
+import { MaterialScreenContent } from '../../components/MaterialScreenContent'
 import { PullRequestListLoading } from './PullRequestListLoading'
 import { PullRequestListRow } from './PullRequestListRow'
 import { shownValue } from './pull-request-reads'
@@ -116,10 +120,15 @@ function HostNotices(props: { readonly notices: readonly HostNotice[]; readonly 
  */
 export function PullRequestsScreen(props: {
   readonly query: string
+  readonly onSearchQueryChange: (query: string) => void
+  readonly onOpenEnvironments: () => void
   readonly preferences: PullRequestListPreferences
   readonly onPreferencesChange: (preferences: PullRequestListPreferences) => void
 }) {
   const app = useApp()
+  const primaryColumn = use(NativePrimaryColumnContext)
+  const sidebar = primaryColumn !== null
+  const selected = primaryColumn?.selectedPullRequest
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>()
   const insets = useSafeAreaInsets()
   const registryHosts = useListened(app.registry.changes, app.registry.hosts)
@@ -199,100 +208,109 @@ export function PullRequestsScreen(props: {
     if (project.kind === 'error') return [{ key: `${host.hostId}:${project.projectPath}`, text: `${project.folderName}: ${project.message}` }]
     return []
   }))
+  const filters = pullRequestListFilterMenus({
+    hosts: hostOptions, hostId: scope.hostId, project: scope.project,
+    value: preferences, onChange: onPreferencesChange,
+    authors: facets.authors, labels: facets.labels, projects,
+    onSearch: (field) => navigation.navigate('PullRequestFilterSearch', { field }),
+  })
   const waiting = rows.length === 0 && list.reading
 
   return (
-    <FlatList
-      className="flex-1 bg-screen"
-      renderScrollComponent={Platform.OS === 'ios' ? renderPullRequestScrollView : undefined}
-      contentInsetAdjustmentBehavior="never"
-      contentInset={Platform.OS === 'ios' ? { top: insets.top } : undefined}
-      scrollIndicatorInsets={Platform.OS === 'ios' ? { top: insets.top } : undefined}
-      contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 24) + 16 : Math.max(insets.bottom, 16) + 16 }}
-      data={rows}
-      keyExtractor={pullRequestRowKey}
-      renderItem={({ item }) => (
-        <PullRequestListRow row={item} hostLabel={showsHost ? (hostLabels.get(item.hostId) ?? null) : null} onSelect={openPullRequest} />
-      )}
-      keyboardDismissMode="on-drag"
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-      onEndReached={() => void list.loadMore()}
-      onEndReachedThreshold={0.5}
-      refreshControl={
-        <RefreshControl
-          refreshing={list.refreshing}
-          onRefresh={() => void list.refresh()}
-          // Place the native refresh control in the revealed pull-down space under the bar.
-          progressViewOffset={Platform.OS === 'ios' ? 60 : undefined}
+    <>
+      <PullRequestsHeader
+        searchQuery={props.query}
+        onSearchQueryChange={props.onSearchQueryChange}
+        onOpenEnvironments={props.onOpenEnvironments}
+        filterMenu={pairedHostIds.length ? filters.headerMenu : null}
+      />
+      <MaterialScreenContent>
+        <FlatList
+          className={sidebar ? "flex-1 bg-drawer" : "flex-1 bg-screen"}
+          renderScrollComponent={Platform.OS === 'ios' ? renderPullRequestScrollView : undefined}
+          contentInsetAdjustmentBehavior="never"
+          contentInset={Platform.OS === 'ios' ? { top: insets.top } : undefined}
+          scrollIndicatorInsets={Platform.OS === 'ios' ? { top: insets.top } : undefined}
+          contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 24) + 16 : Math.max(insets.bottom, 16) + 16 }}
+          data={rows}
+          extraData={selected}
+          keyExtractor={pullRequestRowKey}
+          renderItem={({ item }) => (
+            <PullRequestListRow row={item} hostLabel={showsHost ? (hostLabels.get(item.hostId) ?? null) : null} onSelect={openPullRequest} sidebar={sidebar} selected={selected?.hostId === item.hostId && selected.projectPath === item.projectPath && selected.number === item.pr.number} />
+          )}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          onEndReached={() => void list.loadMore()}
+          onEndReachedThreshold={0.5}
+          refreshControl={
+            <RefreshControl
+              refreshing={list.refreshing}
+              onRefresh={() => void list.refresh()}
+              // Place the native refresh control in the revealed pull-down space under the bar.
+              progressViewOffset={Platform.OS === 'ios' ? 60 : undefined}
+            />
+          }
+          ListHeaderComponent={pairedHostIds.length > 0 ? (
+            <>
+              <PullRequestListFilters
+                refreshing={list.reading && rows.length > 0 && !list.loadingMore}
+                filters={filters}
+              />
+              <HostNotices
+                // A new scope starts folded again.
+                key={`${scope.hostIds.join(',')}\u0000${scope.project?.hostId ?? ''}\u0000${scope.project?.projectPath ?? ''}`}
+                notices={notices}
+                summary={hostNoticesSummary(notices.length, rows.length)}
+              />
+            </>
+          ) : undefined}
+          ListEmptyComponent={
+            pairedHostIds.length === 0 ? (
+              <EmptyState
+                variant="plain"
+                title="Connect a host"
+                detail="Pull requests of your hosts’ projects appear here."
+                actionLabel="Connect a host"
+                onAction={() => navigation.navigate('PairHost')}
+              />
+            ) : waiting ? (
+              <PullRequestListLoading />
+            ) : allNeedGithub ? (
+              <EmptyState
+                variant="plain"
+                title="Connect GitHub to see pull requests"
+                detail={`${reads[0]!.label} reads pull requests with its own GitHub connection.`}
+                actionLabel="Connect GitHub"
+                onAction={() => navigation.navigate('GitHubConnection', { hostId: reads[0]!.hostId })}
+              />
+            ) : reads.every((host) => host.state.kind === 'error') ? undefined : (
+              <EmptyState
+                variant="plain"
+                title={typed ? 'No results' : 'No matching pull requests'}
+                detail={typed ? 'No pull request matches this search.' : 'Pull requests of the selected hosts’ projects appear here. Pull to refresh.'}
+              />
+            )
+          }
+          ListFooterComponent={
+            <>
+              {list.loadingMore ? (
+                <View className="items-center py-5">
+                  <ActivityIndicator colorClassName="accent-icon" accessibilityLabel="Loading more pull requests" />
+                </View>
+              ) : null}
+              {notShown.length > 0 ? (
+                <View className="gap-1 px-5 pt-6">
+                  <Text accessibilityRole="header" className="pb-1 text-xs font-t3-medium tracking-[0.5px] uppercase text-foreground-muted">Not shown</Text>
+                  {notShown.map((entry) => (
+                    <Text key={entry.key} className="text-xs leading-snug text-foreground-tertiary">{entry.text}</Text>
+                  ))}
+                </View>
+              ) : null}
+            </>
+          }
         />
-      }
-      ListHeaderComponent={pairedHostIds.length > 0 ? (
-        <>
-          <PullRequestListFilters
-            refreshing={list.reading && rows.length > 0 && !list.loadingMore}
-            hosts={hostOptions}
-            hostId={scope.hostId}
-            project={scope.project}
-            value={preferences}
-            onChange={onPreferencesChange}
-            authors={facets.authors}
-            labels={facets.labels}
-            onSearch={(field) => navigation.navigate('PullRequestFilterSearch', { field })}
-            projects={projects}
-          />
-          <HostNotices
-            // A new scope starts folded again.
-            key={`${scope.hostIds.join(',')}\u0000${scope.project?.hostId ?? ''}\u0000${scope.project?.projectPath ?? ''}`}
-            notices={notices}
-            summary={hostNoticesSummary(notices.length, rows.length)}
-          />
-        </>
-      ) : undefined}
-      ListEmptyComponent={
-        pairedHostIds.length === 0 ? (
-          <EmptyState
-            variant="plain"
-            title="Connect a host"
-            detail="Pull requests of your hosts’ projects appear here."
-            actionLabel="Connect a host"
-            onAction={() => navigation.navigate('PairHost')}
-          />
-        ) : waiting ? (
-          <PullRequestListLoading />
-        ) : allNeedGithub ? (
-          <EmptyState
-            variant="plain"
-            title="Connect GitHub to see pull requests"
-            detail={`${reads[0]!.label} reads pull requests with its own GitHub connection.`}
-            actionLabel="Connect GitHub"
-            onAction={() => navigation.navigate('GitHubConnection', { hostId: reads[0]!.hostId })}
-          />
-        ) : reads.every((host) => host.state.kind === 'error') ? undefined : (
-          <EmptyState
-            variant="plain"
-            title={typed ? 'No results' : 'No matching pull requests'}
-            detail={typed ? 'No pull request matches this search.' : 'Pull requests of the selected hosts’ projects appear here. Pull to refresh.'}
-          />
-        )
-      }
-      ListFooterComponent={
-        <>
-          {list.loadingMore ? (
-            <View className="items-center py-5">
-              <ActivityIndicator colorClassName="accent-icon" accessibilityLabel="Loading more pull requests" />
-            </View>
-          ) : null}
-          {notShown.length > 0 ? (
-            <View className="gap-1 px-5 pt-6">
-              <Text accessibilityRole="header" className="pb-1 text-xs font-t3-medium tracking-[0.5px] uppercase text-foreground-muted">Not shown</Text>
-              {notShown.map((entry) => (
-                <Text key={entry.key} className="text-xs leading-snug text-foreground-tertiary">{entry.text}</Text>
-              ))}
-            </View>
-          ) : null}
-        </>
-      }
-    />
+      </MaterialScreenContent>
+    </>
   )
 }

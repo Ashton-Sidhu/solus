@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { chatSettings as settingItems } from "./lib/settings-search-data";
-  import type { ResponseStreamingMode } from "@solus/contracts/settings";
+  import type { ArtifactChipSize, ResponseStreamingMode } from "@solus/contracts/settings";
   import { getSettingsContext } from "../../contexts";
   import { Switch } from "../ui/switch";
   import SettingsSelect from "./SettingsSelect.svelte";
@@ -12,16 +14,17 @@
     { value: "buffered", label: "Buffered" },
     { value: "paragraph", label: "Streaming" },
   ] satisfies Array<{ value: ResponseStreamingMode; label: string }>;
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    return settingItems.find((item) => item.id === id)?.keywords.some((word) => word.includes(searchQuery.toLowerCase())) ?? false;
-  }
+  const artifactChipSizes = [
+    { value: "small", label: "Small" },
+    { value: "medium", label: "Medium" },
+    { value: "large", label: "Large" },
+  ] satisfies Array<{ value: ArtifactChipSize; label: string }>;
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 </script>
 
-<SettingsSection label="Conversation" visible={settingItems.some((item) => isVisible(item.id))}>
+<SettingsSection {...settingsDefinitions["chat.section-conversation"]} visible={settingItems.some((item) => isVisible(item.id))}>
   <SettingsRow
-    label="Response streaming"
-    description="Show paragraphs and code blocks as they finish, or wait for each segment."
+    {...settingsDefinitions["chat.response-streaming"]}
     visible={isVisible("response-streaming")}
   >
     {#snippet control()}
@@ -35,8 +38,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Show changed files after turns"
-    description="Show a diff summary after each turn."
+    {...settingsDefinitions["chat.turn-diff-summary"]}
     visible={isVisible("turn-diff-summary")}
   >
     {#snippet control()}
@@ -51,8 +53,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Keep changed files on earlier turns"
-    description="Off shows the summary for the latest turn only."
+    {...settingsDefinitions["chat.keep-turn-diff-summary"]}
     visible={isVisible("keep-turn-diff-summary")}
   >
     {#snippet control()}
@@ -68,8 +69,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Open artifacts automatically"
-    description="Open Artifacts beside the conversation when new items arrive."
+    {...settingsDefinitions["chat.auto-open-artifacts"]}
     visible={isVisible("auto-open-artifacts")}
   >
     {#snippet control()}
@@ -83,8 +83,21 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Show tool calls"
-    description="Off shows only the agent's messages, questions, and cards."
+    {...settingsDefinitions["chat.artifact-chip-size"]}
+    visible={isVisible("artifact-chip-size")}
+  >
+    {#snippet control()}
+      <SettingsSelect
+        options={artifactChipSizes}
+        value={theme.artifactChipSize}
+        onSelect={(value) => theme.setPersonal("artifactChipSize", value)}
+        ariaLabel="Artifact chip size"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    {...settingsDefinitions["chat.show-tool-calls"]}
     visible={isVisible("show-tool-calls")}
   >
     {#snippet control()}
@@ -98,8 +111,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Collapse the input bar when idle"
-    description="Hide the toolbar until the input bar has focus."
+    {...settingsDefinitions["chat.collapse-composer"]}
     visible={isVisible("collapse-composer")}
   >
     {#snippet control()}

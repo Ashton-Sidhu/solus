@@ -1,14 +1,14 @@
 import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
 import { isQuestionTool } from '@solus/contracts/question-history'
 import { isSecretTool, secretOutcomesFromResult } from '@solus/contracts/secret-request'
-import { parseExchangeTag, parseOrchestrationItems } from '@solus/contracts/session-exchange'
+import { isSessionStartTool, parseExchangeTags, parseOrchestrationItems } from '@solus/contracts/session-exchange'
 import type { ExchangeProgress, NormalizedEvent, WireNormalizedEvent } from '@solus/contracts/types'
 import type { AgentConversationResultProjection, SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 
 export const ERROR_HEAD_MAX_BYTES = 2 * 1024
 
 interface AgentConversationProjection {
-  agentConversationResult?: AgentConversationResultProjection
+  agentConversationResults?: AgentConversationResultProjection[]
 }
 
 export function serializedBytes<T>(value: T): number {
@@ -111,9 +111,12 @@ export function withExchangeProgress(
   progressOf: (exchangeId: string) => ExchangeProgress | undefined,
 ): WireSessionLoadMessage[] {
   return messages.map((message) => {
-    const result = message.agentConversationResult
-    const progress = result?.messageId ? progressOf(result.messageId) : undefined
-    return progress ? { ...message, agentConversationResult: { ...result, progress } } : message
+    const results = message.agentConversationResults
+    if (!results?.some((result) => result.messageId && progressOf(result.messageId))) return message
+    return { ...message, agentConversationResults: results.map((result) => {
+      const progress = result.messageId ? progressOf(result.messageId) : undefined
+      return progress ? { ...result, progress } : result
+    }) }
   })
 }
 
@@ -151,26 +154,30 @@ function isSubagentTool(message: Pick<SessionLoadMessage, 'isSubagent' | 'toolNa
     || name === 'claude_subagent' || name === 'codex_subagent'
 }
 
-/** The exchange a start_session or send_session result opened, read with
- *  the one codec the host writes it with. */
+/** The exchanges a session-starting or send_session result opened, read
+ *  with the one codec the host writes them with. */
 function agentConversationProjection(
   toolName: string | undefined,
   content: string,
 ): AgentConversationProjection {
-  if (!toolName?.endsWith('delegate_task') && !toolName?.endsWith('start_session') && !toolName?.endsWith('send_session')) return {}
-  const tag = parseExchangeTag(content)
-  if (!tag) return {}
+  const starts = isSessionStartTool(toolName)
+  if (!starts && !toolName?.endsWith('send_session')) return {}
   // A created session's card needs the session the tool started; a prompt names it in its input.
-  if ((toolName.endsWith('start_session') || toolName.endsWith('delegate_task')) && !tag.sessionId) return {}
-  const agentConversationResult: AgentConversationResultProjection = {}
-  if (tag.sessionId) agentConversationResult.sessionId = tag.sessionId
-  if (tag.messageId) agentConversationResult.messageId = tag.messageId
-  if (tag.provider) agentConversationResult.provider = tag.provider
-  if (tag.serverId) agentConversationResult.serverId = tag.serverId
-  // A call that waited may carry the exchange's report: no report turn follows.
-  const report = parseOrchestrationItems(content)?.find((item) => item.type === 'report' && item.report.messageId === tag.messageId)
-  if (report?.type === 'report') agentConversationResult.report = report.report
-  return { agentConversationResult }
+  const tags = parseExchangeTags(content).filter((tag) => !starts || tag.sessionId)
+  if (!tags.length) return {}
+  const items = parseOrchestrationItems(content) ?? []
+  return { agentConversationResults: tags.map((tag) => {
+    const result: AgentConversationResultProjection = {}
+    if (tag.sessionId) result.sessionId = tag.sessionId
+    if (tag.messageId) result.messageId = tag.messageId
+    if (tag.provider) result.provider = tag.provider
+    if (tag.serverId) result.serverId = tag.serverId
+    if (tag.item !== undefined) result.item = tag.item
+    // A call that waited may carry the exchange's report: no report turn follows.
+    const report = items.find((item) => item.type === 'report' && item.report.messageId === tag.messageId)
+    if (report?.type === 'report') result.report = report.report
+    return result
+  }) }
 }
 
 function utf8Head(content: string): string {

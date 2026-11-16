@@ -1,3 +1,4 @@
+import { formSheetDetents } from "../native/sheet-detents";
 // Adapted from T3 Code apps/mobile/src/components/AppSheet.tsx (MIT, see UPSTREAM.md).
 import { useId, useState, type ReactNode } from "react";
 import { Platform, View } from "react-native";
@@ -19,22 +20,24 @@ export function AppSheet(props: {
   readonly title: string;
   readonly children: ReactNode;
   readonly onClose: () => void;
+  readonly dismissDisabled?: boolean;
 }) {
   const containerStyle = useResolveClassNames("bg-sheet");
   const screenId = useId();
   const [isOpen, setIsOpen] = useState(true);
-  const close = () => setIsOpen(false);
+  const close = () => { if (!props.dismissDisabled) setIsOpen(false); };
 
   return (
     <FormSheet
       isOpen={isOpen}
-      detents={[0.5, 0.9]}
+      detents={formSheetDetents(Platform.OS, 0.5, 0.9)}
+      preventNativeDismiss={props.dismissDisabled}
       prefersGrabberVisible
       nativeContainerStyle={containerStyle}
       onDismiss={props.onClose}
       onNativeDismiss={props.onClose}
     >
-      <View collapsable={false} className="flex-1 bg-sheet">
+      <View collapsable={false} className="absolute inset-0 bg-sheet">
         {Platform.OS === "ios" ? (
           <ScreenStack style={{ flex: 1 }}>
             <NativeScreen
@@ -64,6 +67,7 @@ export function AppSheet(props: {
                     icon: { type: "sfSymbol", name: "xmark" },
                     accessibilityLabel: `Close ${props.title}`,
                     identifier: `app-sheet-close-${screenId}`,
+                    disabled: props.dismissDisabled,
                     onPress: close,
                   },
                 ]}
@@ -72,7 +76,7 @@ export function AppSheet(props: {
           </ScreenStack>
         ) : (
           <>
-            <AndroidSheetHeader title={props.title} onBack={close} />
+            <AndroidSheetHeader title={props.title} onBack={props.dismissDisabled ? undefined : close} />
             {props.children}
           </>
         )}

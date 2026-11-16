@@ -3,9 +3,10 @@
 // src/features/pull-requests/pullRequestMediaSource.test.ts (MIT, see apps/mobile/UPSTREAM.md).
 import { describe, expect, it } from "bun:test";
 
+import { markdownImageGallery } from "../../apps/mobile/src/features/threads/markdown-image-gallery";
 import type { FilePreviewItem } from "../../apps/mobile/src/components/FilePreview.types";
 import { pullRequestImageGallery } from "../../apps/mobile/src/features/prs/lib/pull-request-markdown";
-import { resolveSvgImageSize } from "../../apps/mobile/src/features/threads/markdownImageSize";
+import { resolveMarkdownImageDisplaySize, resolveSvgImageSize } from "../../apps/mobile/src/features/threads/markdownImageSize";
 import { filePreviewGallery, filePreviewName } from "../../apps/mobile/src/lib/filePreviewGallery";
 import {
   resolveMarkdownMediaPreview,
@@ -156,5 +157,35 @@ describe("resolveSvgImageSize", () => {
     ).toEqual({ width: 120, height: 240 });
     expect(resolveSvgImageSize({ viewBox: "0 0 100 NaN" })).toBeNull();
     expect(resolveSvgImageSize({ viewBox: "0 0 0 100" })).toBeNull();
+  });
+});
+
+describe("inline image sizing", () => {
+  it("fits the original aspect ratio without enlarging small images, as T3 does", () => {
+    const portrait = resolveMarkdownImageDisplaySize({ sourceWidth: 390, sourceHeight: 844, availableWidth: 360 });
+    expect(portrait?.height).toBe(480);
+    expect(portrait?.width).toBeCloseTo(390 * 480 / 844);
+    expect(resolveMarkdownImageDisplaySize({ sourceWidth: 1600, sourceHeight: 900, availableWidth: 320 })).toEqual({ width: 320, height: 180 });
+    expect(resolveMarkdownImageDisplaySize({ sourceWidth: 80, sourceHeight: 60, availableWidth: 360 })).toEqual({ width: 80, height: 60 });
+  });
+});
+
+describe("message image galleries", () => {
+  it("keeps each message's image order without duplicates or code examples", async () => {
+    const markdown = "![Before](shots/before.png)\n\n![After](shots/after.png)\n\n![Before again](shots/before.png)\n\n`![Code](shots/code.png)`";
+    const gallery = markdownImageGallery(markdown, hostContext);
+    expect(gallery.map((item) => item.key)).toEqual(["host:shots/before.png", "host:shots/after.png"]);
+    expect(await gallery[1]!.resolveUri()).toContain("shots%2Fafter.png");
+    expect(markdownImageGallery("![Other](shots/other.png)", hostContext).map((item) => item.key)).toEqual(["host:shots/other.png"]);
+  });
+
+  it("groups stored assets and external images without resolving them until opening", () => {
+    const requested: string[] = [];
+    const gallery = markdownImageGallery("![Capture](asset://capture.png)\n\n![Web](https://example.com/shot.png)\n\n[Video](clip.mp4)", {
+      hostFile: () => null,
+      assetUrl: async (assetId) => { requested.push(assetId); return assetId; },
+    });
+    expect(gallery.map((item) => item.key)).toEqual(["asset://capture.png", "https://example.com/shot.png"]);
+    expect(requested).toEqual([]);
   });
 });

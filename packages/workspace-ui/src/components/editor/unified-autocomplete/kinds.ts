@@ -12,7 +12,8 @@ export type RefKind =
   | "pr"
   | "session"
   | "task"
-  | "automation";
+  | "automation"
+  | "host";
 
 export interface KindSpec {
   key: RefKind;
@@ -34,6 +35,7 @@ export const GLYPH = {
     "M12 8.2a1.8 1.8 0 01-1.8 1.8H5.4L2.6 12.4V3.6a1.8 1.8 0 011.8-1.8h5.8A1.8 1.8 0 0112 3.6z",
   task: "M2.4 3.6a1.2 1.2 0 011.2-1.2h6.8a1.2 1.2 0 011.2 1.2v6.8a1.2 1.2 0 01-1.2 1.2H3.6a1.2 1.2 0 01-1.2-1.2z M4.9 7l1.6 1.6 2.9-3.2",
   automation: "M7.7 1.9L3.5 8h3.1l-.6 4.1L10.5 6H7.3z",
+  host: "M2.4 2.8a1 1 0 011-1h7.2a1 1 0 011 1v2.2a1 1 0 01-1 1H3.4a1 1 0 01-1-1z M2.4 9a1 1 0 011-1h7.2a1 1 0 011 1v2.2a1 1 0 01-1 1H3.4a1 1 0 01-1-1z M4.4 3.9h.7 M4.4 10.1h.7",
   person:
     "M7 7.2a2.4 2.4 0 100-4.8 2.4 2.4 0 000 4.8M2.6 12.2a4.4 4.4 0 018.8 0",
   chevron: "M5.4 3.6L8.8 7l-3.4 3.4",
@@ -52,6 +54,7 @@ export const KINDS: readonly KindSpec[] = [
     label: "Automations",
     icon: GLYPH.automation,
   },
+  { key: "host", slug: "hosts", label: "Hosts", icon: GLYPH.host },
 ];
 
 /** Singular noun used when a row has to say what it is ("Pull request · open"). */
@@ -62,6 +65,7 @@ export const KIND_NOUN = {
   session: "Session",
   task: "Task",
   automation: "Automation",
+  host: "Host",
 } satisfies Record<RefKind, string>;
 
 /** Both the slug and the singular kind key resolve, so `#pr/` works like `#prs/`. */

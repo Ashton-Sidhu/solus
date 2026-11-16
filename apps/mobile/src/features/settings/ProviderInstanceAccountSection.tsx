@@ -1,3 +1,4 @@
+import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 import { useState } from "react";
 import { Alert, Linking, TextInput, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
@@ -15,8 +16,8 @@ export function ProviderInstanceAccountSection({ instanceId, client, view }: { i
   const [code, setCode] = useState("");
   const [reveal, setReveal] = useState(false);
   return <View className="gap-3">
-    <SettingsSection title="Status and account">
-      <SettingsValueRow icon="checkmark" label="Status" value={providerStatusLabel(status)} />
+    <SettingsSection title={settingsDefinitions["providers.section-status-and-account"].label}>
+      <SettingsValueRow icon="checkmark" label={settingsDefinitions["providers.status"].label} value={providerStatusLabel(status)} />
       {status?.version ? <SettingsValueRow icon="info.circle" label="Version" value={status.version} /> : null}
       {status?.account ? <SettingsActionRow icon="person.crop.circle" label={reveal ? status.account : "Show account details"} onPress={() => setReveal(!reveal)} /> : null}
       <SettingsActionRow icon="arrow.clockwise" label="Refresh status" onPress={() => { void client.inspect(instanceId); }} />

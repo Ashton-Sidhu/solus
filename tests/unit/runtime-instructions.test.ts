@@ -160,7 +160,7 @@ describe('runtime instructions', () => {
   })
 
   test('shared orchestration guidance is present for both providers only with session tools', async () => {
-    const tools = ['start_session', 'send_session', 'list_agent_targets', 'read_session_exchange'].map(tool)
+    const tools = ['start_sessions', 'send_session', 'list_agent_targets', 'read_session_exchange'].map(tool)
     const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools)
     const claude = await claudeAppend(tools)
     for (const prompt of [codex, claude]) {
@@ -173,21 +173,39 @@ describe('runtime instructions', () => {
     }
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Solus orchestration')
     expect(await claudeAppend([])).not.toContain('## Solus orchestration')
-    const partial = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_session')])
+    const partial = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_sessions')])
     expect(partial).not.toContain('call list_agent_targets')
     expect(partial).toContain('Use send_session')
     expect(partial).not.toContain('Use read_session_exchange')
   })
 
-  test('one delegation tool covers both providers and keeps independent starts separate', async () => {
-    const tools = [tool('delegate_task'), tool('list_agent_targets')]
+  // WHY: Meta mode must start without a choice the person makes first. The
+  // agent decides, so every session that can call become_lead must know when:
+  // the work divides into independent parts.
+  test('both providers learn when to become a lead, only when the tool is available and not in a chat', async () => {
+    const tools = [tool('start_sessions'), tool('become_lead')]
     for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
-      expect(prompt).toContain('Use delegate_task for child work on the same provider or another provider')
-      expect(prompt).toContain('Use start_session only for an independent conversation')
+      expect(prompt).toContain('divides into two or more independent parts, call become_lead before you start the parts')
+      expect(prompt).toContain('Do not call it for work that is one part')
+    }
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_sessions')])).not.toContain('become_lead')
+    expect(await claudeAppend([tool('start_sessions')])).not.toContain('become_lead')
+    // A chat is refused by the tool, so it is not told to call it.
+    const chatFolder = '/Users/me/.solus/solus-chats/session-1'
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime, workingDirectory: chatFolder }, tools)).not.toContain('become_lead')
+  })
+
+  test('one start tool covers both providers, parallel work, and independent starts', async () => {
+    const tools = [tool('start_sessions'), tool('list_agent_targets')]
+    for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
+      expect(prompt).toContain('Use start_sessions for child work on the same provider or another provider')
+      // WHY: one call starts its sessions together; separate calls can run one after another.
+      expect(prompt).toContain('put every session in one start_sessions call')
+      expect(prompt).toContain('Set independent=true on a session only for an independent conversation')
       // WHY: Claude's own Agent tool runs in the background by default, and that
       // agent has no exchange, no report, and no stop_session.
-      expect(prompt).toContain('For background agent work, use delegate_task, never a background native subagent')
-      expect(prompt).toContain('A local child inherits')
+      expect(prompt).toContain('For background agent work, use start_sessions, never a background native subagent')
+      expect(prompt).not.toContain('Solus task')
       expect(prompt).toContain('Permission mode may stay the same or become narrower')
       expect(prompt).not.toContain('claude_subagent')
       expect(prompt).not.toContain('codex_subagent')
@@ -257,12 +275,12 @@ describe('runtime instructions', () => {
     // session, a stacked branch that starts without its local commits, a
     // requested reasoning level that is silently lowered, and a session named
     // by id where the user cannot open it.
-    const prompt = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_session')])
+    const prompt = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_sessions')])
     expect(prompt).toContain('Reuse request_id only to retry the same request')
     expect(prompt).toContain("isolation='worktree'")
     expect(prompt).toContain('Never substitute an unsupported level')
     expect(prompt).toContain('copy the link returned by its tool')
-    expect(prompt).toContain('Use start_session only for an independent conversation')
+    expect(prompt).toContain('Set independent=true on a session only for an independent conversation')
   })
 
   test('an agent is told to link the plan files it writes', () => {

@@ -46,6 +46,7 @@
         <input
           name="pair-address"
           bind:value={address}
+          {@attach (element) => element.focus()}
           placeholder="192.168.1.42:4317, or paste a pair link"
           class="h-8 rounded-lg border border-border/60 bg-background px-2.5 font-mono text-[0.8125rem] outline-none placeholder:font-sans placeholder:text-muted-foreground focus:border-(--solus-status-running)/50 max-sm:text-base"
         />

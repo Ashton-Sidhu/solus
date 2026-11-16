@@ -166,6 +166,10 @@ function describePage(page: BrowserPage): string {
   if (page.problem) lines.push(`  problem: ${page.problem.kind} — ${page.problem.message}`)
   const dialog = browserRegistry().openDialog(page.browserPageId)
   if (dialog) lines.push(`  dialog: ${dialog.type} "${dialog.message}" is open — answer it with browser_dialog`)
+  if (page.fileChooser) lines.push(`  file chooser: open — give it files with browser_upload on the file input`)
+  if (page.zoomFactor && page.zoomFactor !== 1) lines.push(`  zoom: ${Math.round(page.zoomFactor * 100)}%`)
+  const download = page.downloads?.at(-1)
+  if (download) lines.push(`  last download: ${download.fileName} (${download.sizeBytes} bytes)`)
   // The one page state that makes every other verb fail, so it is stated where
   // an agent reads the page rather than discovered by a refused command.
   if (page.devToolsOpen) {

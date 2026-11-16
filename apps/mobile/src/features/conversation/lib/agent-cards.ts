@@ -1,5 +1,6 @@
+import { z } from 'zod'
 import type { AgentConversationResultProjection } from '@solus/contracts/session-history'
-import { parseOrchestrationItems, promptTitle, type ExchangeOutcome, type SessionReport } from '@solus/contracts/session-exchange'
+import { isSessionStartTool, parseOrchestrationItems, promptTitle, type ExchangeOutcome, type SessionReport } from '@solus/contracts/session-exchange'
 import type { AgentConversationUpdate, AgentExchangeStatus, AgentId, ExchangeProgress } from '@solus/contracts/types'
 
 /**
@@ -8,7 +9,7 @@ import type { AgentConversationUpdate, AgentExchangeStatus, AgentId, ExchangePro
  * desktop card index (`workspace-ui/.../agent-conversation-cards.ts`): live,
  * the host's `agent_conversation_update`s drive a card; on reload, an
  * orchestration tool row opens an exchange at the state the host stamped on it
- * (`agentConversationResult`), and a `[session report]` turn settles it.
+ * (`agentConversationResults`), and a `[session report]` turn settles it.
  */
 
 export interface AgentExchangeState {
@@ -38,7 +39,7 @@ export interface AgentItem {
  *  names). read/list/search only observe; they open no exchange. */
 export function isAgentConversationTool(name: string | undefined): boolean {
   if (!name) return false
-  return name.endsWith('delegate_task') || name.endsWith('start_session') || name.endsWith('send_session') || name.endsWith('stop_session')
+  return isSessionStartTool(name) || name.endsWith('send_session') || name.endsWith('stop_session')
 }
 
 const OPEN_STATUSES: ReadonlySet<AgentExchangeStatus> = new Set([
@@ -85,25 +86,24 @@ export interface AgentCardStore {
   update(item: AgentItem): void
 }
 
-const sessionToolInput = (input: string | undefined): {
-  session_id?: string; prompt?: string; title?: string; message?: string; model_id?: string; agent_provider?: AgentId
-} => {
+// Fields degrade alone, so an unexpected value from a newer host drops that field, not the input.
+const startedSessionInputSchema = z.object({
+  prompt: z.string().optional().catch(undefined),
+  title: z.string().trim().min(1).optional().catch(undefined),
+  model_id: z.string().optional().catch(undefined),
+  agent_provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional().catch(undefined),
+})
+
+/** A send_session or stop_session call names its session; a start_sessions call lists its sessions. */
+const sessionToolInputSchema = z.object({
+  session_id: z.string().optional().catch(undefined),
+  message: z.string().optional().catch(undefined),
+  sessions: z.array(startedSessionInputSchema).optional().catch(undefined),
+})
+
+const sessionToolInput = (input: string | undefined): z.infer<typeof sessionToolInputSchema> => {
   try {
-    const parsed: unknown = JSON.parse(input || '{}')
-    if (!parsed || typeof parsed !== 'object') return {}
-    const read = (key: string) => {
-      const value = (parsed as { [key: string]: unknown })[key]
-      return typeof value === 'string' ? value : undefined
-    }
-    const provider = read('agent_provider')
-    return {
-      session_id: read('session_id'),
-      prompt: read('prompt'),
-      title: read('title')?.trim() || undefined,
-      message: read('message'),
-      model_id: read('model_id'),
-      agent_provider: provider === 'claude-code' || provider === 'codex' || provider === 'opencode' || provider === 'replay' ? provider : undefined,
-    }
+    return sessionToolInputSchema.catch({}).parse(JSON.parse(input || '{}'))
   } catch {
     return {}
   }
@@ -159,20 +159,37 @@ export class AgentCards {
     }
   }
 
-  /** One acting orchestration tool row from history. */
-  applyToolRow(toolName: string, toolInput: string | undefined, result: AgentConversationResultProjection | undefined, timestamp: number): void {
+  /** One acting orchestration tool row from history, with one result for
+   *  each exchange it opened. */
+  applyToolRow(toolName: string, toolInput: string | undefined, results: readonly AgentConversationResultProjection[], timestamp: number): void {
     const input = sessionToolInput(toolInput)
     if (toolName.endsWith('stop_session')) {
       if (input.session_id) this.stop(input.session_id)
       return
     }
-    const sessionId = (toolName.endsWith('start_session') || toolName.endsWith('delegate_task')) ? result?.sessionId : input.session_id
-    if (!sessionId) return
+    if (isSessionStartTool(toolName)) {
+      for (const result of results) {
+        // Each result names its place in the call's list of sessions.
+        const session = result.item === undefined ? undefined : input.sessions?.[result.item]
+        if (result.sessionId && session) this.openFromRow(result.sessionId, result, { prompt: session.prompt ?? '', title: session.title }, session, timestamp)
+      }
+      return
+    }
+    if (input.session_id) this.openFromRow(input.session_id, results[0], { prompt: input.message ?? '' }, {}, timestamp)
+  }
+
+  private openFromRow(
+    sessionId: string,
+    result: AgentConversationResultProjection | undefined,
+    sent: { prompt: string; title?: string },
+    input: { agent_provider?: AgentId; model_id?: string },
+    timestamp: number,
+  ): void {
     const card = this.open(sessionId, {
       messageId: result?.messageId,
-      prompt: ((toolName.endsWith('start_session') || toolName.endsWith('delegate_task')) ? input.prompt : input.message) ?? '',
+      prompt: sent.prompt,
       provider: result?.provider ?? input.agent_provider,
-      title: (toolName.endsWith('start_session') || toolName.endsWith('delegate_task')) ? input.title : undefined,
+      title: sent.title,
       model: input.model_id,
       timestamp,
     })

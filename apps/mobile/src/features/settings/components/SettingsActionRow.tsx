@@ -1,58 +1,31 @@
-// Adapted from T3 Code apps/mobile/src/features/settings/components/SettingsActionRow.tsx (MIT, see UPSTREAM.md).
-import type { ComponentProps } from "react";
-import { ActivityIndicator, Platform, Pressable } from "react-native";
+// Adapted from T3 Code apps/mobile/src/components/ui/ListActionRow.tsx (MIT, see UPSTREAM.md).
+import { ActivityIndicator, Platform } from "react-native";
+import { useResolveClassNames } from "uniwind";
+import { ListRowLayout, type ListRowContentProps } from "../../../components/ListRowLayout";
+import { RowPressable } from "../../../components/RowPressable";
 
-import { SymbolView } from "../../../components/AppSymbol";
-import { AppText as Text } from "../../../components/AppText";
-import { MaterialListRow } from "../../../components/MaterialListRow";
-import { cn } from "../../../lib/cn";
-
-export function SettingsActionRow(props: {
-  readonly icon: ComponentProps<typeof SymbolView>["name"];
-  readonly label: string;
+export function SettingsActionRow(props: ListRowContentProps & {
   readonly tone?: "default" | "danger";
-  readonly disabled?: boolean;
   readonly loading?: boolean;
   readonly onPress: () => void;
 }) {
-  const danger = props.tone === "danger";
-  const textClassName = danger ? "tabular-nums text-danger-foreground" : "text-foreground";
-  const iconColorClassName = danger ? "accent-danger-foreground" : "accent-icon";
-  const icon = (
-    <SymbolView
-      name={props.icon}
-      size={Platform.OS === "android" ? 24 : 22}
-      tintColorClassName={iconColorClassName}
-      type="monochrome"
-      weight="regular"
-    />
-  );
-  const spinner = props.loading ? <ActivityIndicator colorClassName={iconColorClassName} /> : null;
-
-  if (Platform.OS === "android") {
-    return (
-      <MaterialListRow
-        className="bg-grouped-card"
-        title={props.label}
-        titleClassName={textClassName}
-        leading={icon}
-        trailing={spinner}
-        disabled={props.disabled}
-        onPress={props.onPress}
-      />
-    );
-  }
-
+  const rippleStyle = useResolveClassNames("bg-subtle-strong");
+  const disabled = Boolean(props.disabled || props.loading);
   return (
-    <Pressable
+    <RowPressable
       accessibilityRole="button"
-      disabled={props.disabled}
+      accessibilityLabel={props.label}
+      accessibilityHint={props.description}
+      accessibilityState={{ disabled, busy: Boolean(props.loading) }}
+      disabled={disabled}
       onPress={props.onPress}
-      className="flex-row items-center gap-4 p-4 disabled:opacity-40"
+      android_ripple={{ color: rippleStyle.backgroundColor }}
+      unstable_pressDelay={Platform.OS === "android" ? 50 : undefined}
+      className="bg-grouped-card"
     >
-      {icon}
-      <Text className={cn("flex-1 text-lg", textClassName)}>{props.label}</Text>
-      {spinner}
-    </Pressable>
+      <ListRowLayout {...props} disabled={disabled} accessory={props.loading ? (
+        <ActivityIndicator colorClassName={props.tone === "danger" ? "accent-danger-foreground" : "accent-icon"} />
+      ) : undefined} />
+    </RowPressable>
   );
 }

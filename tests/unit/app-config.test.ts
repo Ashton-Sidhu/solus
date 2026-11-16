@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { configDefaultText, configRangeHint, parseConfigDraft } from '@solus/client-core/app-config'
+import { configCommit, configRangeHint, configValueText, parseConfigDraft } from '@solus/client-core/app-config'
 import { appConfigCallName, appDescriptorSchema, parseAppCallName, resolveAppConfig, type AppConfigField } from '@solus/contracts/apps'
 import { AppStorage } from '@solus/server/apps/app-storage'
 import { defineApp } from '../../resources/plugins/solus/skills/visual-artifacts/assets/react/src/solus-app-backend'
@@ -75,7 +75,24 @@ describe('the Manage page', () => {
     expect(parseConfigDraft(hour, '7.5')).toEqual({ value: null, problem: 'Hour takes a whole number.' })
     expect(parseConfigDraft(hour, '24')).toEqual({ value: null, problem: 'Hour is at most 23.' })
     expect(configRangeHint(hour)).toBe('A whole number from 0 to 23.')
-    expect(configDefaultText(team)).toBe('Engineering')
+  })
+
+  test('leaving a field saves only a new value the field takes', () => {
+    // WHY: a field saves when the owner leaves it. Leaving an untouched field
+    // must not write the value again, and a value the field refuses must stay
+    // in the field with its problem rather than be sent to the host.
+    const current = { ...hour, value: 7, isDefault: false }
+    expect(configCommit(current, '8')).toEqual({ kind: 'save', value: 8 })
+    expect(configCommit(current, '7')).toEqual({ kind: 'unchanged' })
+    expect(configCommit(current, ' 7 ')).toEqual({ kind: 'unchanged' })
+    expect(configCommit(current, '24')).toEqual({ kind: 'invalid', problem: 'Hour is at most 23.' })
+  })
+
+  test('a value reads as the owner says it', () => {
+    expect(configValueText(team, 'ops')).toBe('Operations')
+    expect(configValueText({ name: 'loud', label: 'Loud', description: '', type: 'boolean', default: false }, true)).toBe('On')
+    expect(configValueText({ name: 'model', label: 'Model', description: '', type: 'model', default: '' }, '')).toBe('Solus default')
+    expect(configValueText({ name: 'note', label: 'Note', description: '', type: 'text', default: '', multiline: false }, '')).toBe('Empty')
   })
 })
 

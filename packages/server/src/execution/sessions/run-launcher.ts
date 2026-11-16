@@ -829,10 +829,11 @@ export class RunLauncher {
     } else {
       setForeignTaskSnapshot(sessionId, null)
     }
-    // A lead is chosen before the first message and fixed from then on
-    // (docs/plans/lead-session.md): the first prompt of a new provider
-    // conversation marks the session, and every run of a lead carries the lead
-    // contract in its system prompt, after the task packet when there is one.
+    // A lead is fixed once it is one (docs/plans/lead-session.md). The first
+    // prompt of a new provider conversation marks a session the person chose
+    // as a lead; `become_lead` marks one in the middle of a turn. Every run of
+    // a lead carries the lead contract in its system prompt, after the task
+    // packet when there is one.
     if (options.isLead && !dispatchAgentSessionId) {
       await markSessionLead(sessionId, (await this.rt.turnOrganization(sessionId)) ?? undefined)
     }

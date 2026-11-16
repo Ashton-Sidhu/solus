@@ -53,14 +53,19 @@
   import { runHost } from "../../contexts/workspace/run-location";
   import { measureMount } from "../../lib/mount-timing";
   import SettledMarkdown from "./SettledMarkdown.svelte";
+  import ReplyPullRequestCard from "./ReplyPullRequestCard.svelte";
+  import type { ReplySegment } from "@solus/client-core/reply-pull-requests";
   import { untrack } from "svelte";
   measureMount("TranscriptItem");
 
-  let { item, skipMotion, burst, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
+  let { item, skipMotion, burst, replySegments, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
     navigateToSourceSession }: {
     item: GroupedItem; skipMotion: boolean;
     /** A prompt's place in a burst of one person's messages. */
-    burst?: UserBurst; tabId: string; linkContext: TaskLinkContext;
+    burst?: UserBurst;
+    /** A finished turn's final reply, split around its pull request cards. */
+    replySegments?: ReplySegment[];
+    tabId: string; linkContext: TaskLinkContext;
     activeHandoffDivider?: Message; activeHandoffTargetModel: string | null;
     navigateToSourceSession: (sessionId: string) => Promise<void>;
   } = $props();
@@ -111,9 +116,25 @@
 {#snippet assistantBody(displayContent: string, streaming: boolean)}
   <div
     class="prose prose-transcript-main min-w-0 response-markdown"
+    data-slot="assistant-message"
     data-streaming={streaming ? "" : undefined}
   >
-    {#if !rendersSettled}
+    {#if replySegments}
+      <!-- The turn is over, so its reply is settled: each part renders on its own. -->
+      {#each replySegments as segment, index (index)}
+        {#if segment.kind === "text"}
+          <SettledMarkdown
+            source={segment.text}
+            options={assistantMarkdownOptions}
+            renderers={markdownRenderers}
+            extensions={assistantMarkdownExtensions(segment.text)}
+            sanitizeUrl={markdownSanitizeUrl}
+          />
+        {:else}
+          <ReplyPullRequestCard link={segment.link} {tabId} />
+        {/if}
+      {/each}
+    {:else if !rendersSettled}
       <SvelteMarkdown
         source={displayContent}
         streaming

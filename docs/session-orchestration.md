@@ -7,15 +7,16 @@ orchestrator in `packages/server/src/execution/orchestration/`.
 
 ## What the user sees
 
-- **A card for each other session.** When an agent calls `delegate_task`, `start_session`, or
-  `send_session`, a card appears in its conversation before the other session
-  can answer. The card shows each message and its reply. On a reload, every
+- **A card for each other session.** When an agent calls `start_sessions` or
+  `send_session`, a card appears in its conversation for each session before
+  that session can answer. One `start_sessions` call that starts seven
+  sessions makes seven cards. The card shows each message and its reply. On a reload, every
   client rebuilds the same card from the transcript.
 - **Several sessions are one card.** When one turn talks to more than one
   session, their cards fold behind one header: the providers' avatars, "7
   agents", a status line such as "3 working · 1 waiting · 3 done", and the
   time. Opening it lists one row per session. A session that waits on a person
-  opens the group, so its request is not hidden. The `start_session`,
+  opens the group, so its request is not hidden. The `start_sessions`,
   `send_session` and `stop_session` calls themselves show only when they fail;
   the card shows what they did. Desktop, web, and mobile show the same group.
 - **Requests come to the card.** When the other session needs a person — a
@@ -102,25 +103,33 @@ review it, the host links B's request to the specific A-to-B exchange. It does
 not link all work in B's session. Unrelated requests and `report=false` messages
 can finish independently.
 
-B can be running, waiting for its children, or finished. Ending B's provider
-turn while C is open does not finish A's request. C's report carries A's
+B can be running, waiting for its children, or finished. While B's turn has
+ended and a report from C is still to come, B's status is `background`, as for
+other work an agent waits on (`docs/background-work.md`). Every client sees
+that wait. C's report wakes B. Ending B's provider turn while C is open does
+not finish A's request. C's report carries A's
 exchange ID into B's follow-up. B must read the result and complete that turn
 before A receives B's final result. Queued child reports also keep the parent
 request open. Reported requests to an ancestor are refused to prevent a cycle;
 use `report=false` for an ordinary update to an ancestor.
 
-`delegate_task`, `start_session`, and `send_session` accept an optional `request_id`. A retry
-with the same ID and the same work returns the original exchange. Different
+`start_sessions` and `send_session` accept an optional `request_id`. A retry
+with the same ID and the same work returns the original exchange. For
+`start_sessions`, each session in the list gets the key `<request_id>#<place in
+the list>`, so a retry returns every session the first call started. Different
 work with the same ID is refused. The key belongs to the calling session and
 is kept for thirty days after a closed request. Use a new key for each review
 round. The wait duration can change on a retry.
 
-Use `delegate_task` for child work on either provider. Native subagents remain
+Use `start_sessions` for child work on either provider. To run work in
+parallel, put every session in one call: the sessions start together, and a
+wait covers all of them. Separate calls may run one after another. Native subagents remain
 available for provider-specific features such as context inheritance. Use
-`start_session` for an independent conversation. Give each child the full brief,
-choose its checkout before starting it, and inspect its result before reporting
-completion. Critical guidance is loaded with `delegate_task`; workers also get
-these completion rules in their system instruction.
+`independent: true` for an independent conversation. Give each child the full
+brief, choose its checkout before starting it, and inspect its result before
+reporting completion. Each session in the call has its own provider, model,
+host, workspace, permission mode, and reports. Critical guidance is loaded with `start_sessions`;
+workers also get these completion rules in their system instruction.
 
 Both providers receive shared orchestration guidance when session tools are
 available. Claude receives it in its system prompt append. Codex receives it
@@ -138,9 +147,10 @@ subagents use their provider's own result delivery.
 ## The lead session
 
 A **lead** is a parent that coordinates workers and keeps its own thread small.
-A lead does not come from a task: the person chooses it in the composer before
-the first message (`docs/plans/lead-session.md`). The parts below apply to
-every lead.
+A lead does not come from a task. A session becomes one in two ways: its agent
+calls `become_lead` when the work divides into independent parts, or the person
+chooses it in the composer before the first message
+(`docs/plans/lead-session.md`). The parts below apply to every lead.
 
 The **lead contract** (`formatLeadContract` in
 `data/sessions/lead-contract.ts`) says: coordinate, do not implement beyond
@@ -156,7 +166,9 @@ then reach it as one prompt, so it tells the user once that the work is done.
 Notices never reach a lead's model: the person answers on the card, and a rate
 limit resumes on its own. Stopping the lead drops the reports held for it. The
 orchestrator asks `isLead` (an argument of `orchestrateSessions`, false for
-every session by default) which sessions get this rule.
+every session by default) which sessions get this rule. It asks when each
+report arrives, so a session that became a lead in the middle of a turn gets
+the rule for the workers it starts after that.
 
 A lead is a parent in the orchestration layer's sense. A parent is not always
 a lead: any session that starts another is its parent.
@@ -172,9 +184,8 @@ for the user or another session. A host stop (an accepted plan) and an agent's
 
 | Tool | Does |
 | --- | --- |
-| `delegate_task` | Creates a durable child session on either provider. Reports default on; the parent waits for reported child work and Stop reaches its active children. `isolation` selects a shared checkout or a new worktree. Local children inherit an existing task; `task_id: null` opts out. Use `send_session` for follow-up. |
-| `start_session` | Creates an independent conversation. Reports default off. It does not hold its caller open or belong to the caller's stop tree. Optional `task: attempt` joins an existing task; the default is `none`. Both launch tools accept `title`, attachments, `request_id`, `wait_seconds` (up to 600), and `host`. Models inherit on the same provider; another provider uses its default model. Permission mode can be inherited or narrowed. |
-| `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on `start_session`) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
+| `start_sessions` | Starts 1 to 10 durable sessions at once, on either provider. Each entry in `sessions` has its own settings: `prompt`, and optional `title`, `independent`, `agent_provider`, `model_id`, `reasoning_effort`, `permission_mode`, `host`, `cwd`, `isolation`, `worktree_base_branch`, `report`, and attachments. So one call can start a Codex implementer in its own worktree and a Claude reviewer in plan mode. Only two fields belong to the call: `wait_seconds` (up to 600, for all sessions at once) and `request_id`. Every entry is checked before any session starts, so one bad entry starts none. By default each session is a child: reports default on, the parent waits for reported child work, and Stop reaches its active children. With `independent: true`, a session is an independent conversation: reports default off, and it does not hold its caller open or belong to the caller's stop tree. A started session joins no task; a session that works on a task links it with `link` and `kind: 'task'`. `isolation` selects a shared checkout or a new worktree for each session. Models inherit on the same provider; another provider uses its default model. Permission mode can be inherited or narrowed. |
+| `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on each `start_sessions` entry) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
 | `read_session` | A session's status, task, pending input and timeline, in T3 Code's thread-read model. Every item has a fixed `position` and an `itemId`; a tool call and its result are one item, and rows inside a subagent are not on the timeline. `view` `messages` (default) gives the user and assistant messages and plans; `activity` gives every item, with tool input and output, reasoning and notices. A read starts at the beginning; `after_position=nextPosition` reads on. `limit` (default 50, at most 100) and `max_chars_per_item` (default 20,000, at most 50,000) keep a read small; a value over the bound reads the bound. A cut item continues with `item_id` and `text_offset=nextTextOffset`. The result is JSON. Beside the requested `model`, `executedModel` names the model the provider reported running for the session's latest report, when one did. |
@@ -184,7 +195,7 @@ for the user or another session. A host stop (an accepted plan) and an agent's
 
 ### Sessions on another host
 
-Both `delegate_task` and `start_session` can take `host`: a host id or name from `list_agent_targets`.
+`start_sessions` can take `host`: a host id or name from `list_agent_targets`.
 The session starts on that host as if the owner started it there. The other
 host shows "Started by an agent on <host>" at the top of the session, on every
 client. This host reaches the other host in one of two ways:
@@ -218,7 +229,7 @@ pass one as `cwd`. After a restart of this host, an
 open request to another host is reported as interrupted.
 
 `read_session` reads a session that is not on this host. It asks the turn's
-person's other hosts (the same reach as `start_session`) and the Solus APIs of
+person's other hosts (the same reach as `start_sessions`) and the Solus APIs of
 their organizations at the same time. A host that has the session wins over an
 API, because the host has the provider transcript with its tools and the API has
 only the stored text. The result names where the session was found and links to
@@ -299,7 +310,7 @@ With `wait_seconds`, a report that arrives in time is the call's result and is
 not queued again; a notice ends the wait at once; when the time runs out the
 call returns and the session keeps going.
 
-How to orchestrate is described once, in `delegate_task`'s description, next to
+How to orchestrate is described once, in `start_sessions`' description, next to
 the capability (the rule in `agents/system-hint.ts`). A turn that answers
 another session's message is asked, in its system prompt, to end with a summary
 of what it did, what it produced and what is still open.

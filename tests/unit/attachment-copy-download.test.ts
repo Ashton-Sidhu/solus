@@ -9,7 +9,7 @@ import {
 import { reattachedAttachment } from '@solus/workspace-ui/lib/attachment-clipboard'
 import { attachmentDownloadName } from '@solus/workspace-ui/components/conversation/lib/attachment-download'
 import { copyableImage } from '../../apps/mobile/src/features/conversation/lib/message-attachments'
-import { mayCarryAttachmentRefs, referencedAttachments, refsOnHost, withoutPastedText } from '../../apps/mobile/src/features/conversation/lib/pasted-attachments'
+import { referencedAttachments, refsOnHost, withoutPastedText } from '../../apps/mobile/src/features/conversation/lib/pasted-attachments'
 import { base64OfDataUrl } from '../../apps/mobile/src/lib/dataUrlBase64'
 
 const image: Attachment = { id: 'a1', type: 'image', name: 'shot.png', path: '/h/u/0-0123456789ab-shot.png', hostPath: '/h/u/0-0123456789ab-shot.png', hostServerId: 'host-1', mimeType: 'image/png', size: 2048 }
@@ -98,13 +98,6 @@ describe('pasting a copy on the host that holds it', () => {
   test('the phone attaches the same host files, with nothing to upload', () => {
     const [attached] = referencedAttachments([{ ...ref, type: 'image', name: 'shot.png' }], () => 'id-1')
     expect(attached).toEqual({ id: 'id-1', kind: 'image', name: 'shot.png', hostPath: '/h/spec.pdf', mimeType: 'image/png', size: 0, dataUrl: null })
-  })
-
-  test('only a paste that could be a copy reads the clipboard HTML', () => {
-    expect(mayCarryAttachmentRefs({ type: 'images' })).toBe(true)
-    expect(mayCarryAttachmentRefs({ type: 'text', value: 'shot.png, Pasted text' })).toBe(true)
-    expect(mayCarryAttachmentRefs({ type: 'text', value: 'fix the login bug' })).toBe(false)
-    expect(mayCarryAttachmentRefs({ type: 'unsupported' })).toBe(false)
   })
 
   test('the names the field pasted come back out of the draft', () => {

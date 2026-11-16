@@ -70,6 +70,7 @@
     : 'h-[3.875rem]'}"
   role="treeitem"
   tabindex="0"
+  data-slot="session-row"
   aria-selected="false"
   aria-label="{row.title} — unsent draft"
   onclick={onSelect}

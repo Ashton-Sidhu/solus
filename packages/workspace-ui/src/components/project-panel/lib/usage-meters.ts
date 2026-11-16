@@ -3,7 +3,7 @@ import { DAY, HOUR, MINUTE } from '../../../lib/duration'
 
 /** How much of one quota window is still available, ready to render. */
 export interface UsageMeter {
-  key: 'fiveHour' | 'weekly'
+  key: 'fiveHour' | 'weekly' | 'monthly'
   label: string
   remainingPercent: number
   /** Drives the bar tint — a nearly-spent window has to read as one at a glance. */
@@ -157,6 +157,8 @@ export function providerUsage(
       // length reads as a second duration ("5h · 50m").
       meter('fiveHour', 'Session', limits.fiveHour, now),
       meter('weekly', 'Weekly', limits.weekly, now),
+      // An Enterprise seat's spend cap; it has no reset time to count down to.
+      meter('monthly', 'Monthly', limits.monthly ?? null, now),
     ].filter((entry): entry is UsageMeter => entry !== null)
     if (limits.usageMode === 'api' || limits.usageMode === 'signed_out') {
       rows.push({ provider: agent.id, label: agent.label, stale: false, meters: [], status: limits.usageMode })

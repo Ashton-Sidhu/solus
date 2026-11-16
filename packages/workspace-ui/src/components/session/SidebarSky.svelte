@@ -1,10 +1,10 @@
 <script lang="ts">
   /** The sky behind the sidebar's title bar. One static picture for each
    *  scene of the day; it is opaque behind the title bar's controls and then
-   *  thins on an eased curve, gone just below where the sidebar's content
-   *  starts, so it has no lower edge and only its last trace touches the
-   *  search field. The Solus mark is the sun of every scene, so
-   *  the glow and the orbit lines centre on it. Nothing here animates
+   *  thins on a long eased curve, gone at the top of the search field, so it
+   *  has no lower edge and the search field stays on the plain surface. The
+   *  Solus mark is the sun of every scene, so the glow and the orbit lines
+   *  centre on it. Nothing here animates
    *  (docs/plans/sidebar-places-and-sky.md). */
   import { isDarkSkyScene, type SkyScene } from "../../lib/sky-scene";
   import {
@@ -87,24 +87,32 @@
     --sidebar-sky-bar: calc(
       var(--solus-chrome-row-h, 2.5rem) + var(--sidebar-sky-drop)
     );
-    /* Where the fall ends: a little below the start of the content, so the
-       last of the sky reaches the top of the search field. */
-    --sidebar-sky-foot: calc(var(--sidebar-sky-bar) + 1.25rem);
+    /* Where the fall ends: at the top of the search field, which is the
+       first row of the content. Only the faintest trace reaches its top
+       edge, so the field reads on the plain surface. */
+    --sidebar-sky-foot: calc(var(--sidebar-sky-bar) + 0.5rem);
     top: 0;
     height: var(--sidebar-sky-foot);
-    /* Opaque behind the title bar's controls, then a smoothstep fall to
-       nothing at the foot. The curve is flat at both ends, so
-       the picture has no edge at the top of the fall or at its foot. */
+    /* Opaque behind the title bar's controls, then a fall to nothing at the
+       foot. The stops are solved so that night over the light surface gets
+       lighter on a smoothstep curve: a dark sky over a light surface shows an
+       edge wherever its lightness changes fast, and alpha alone is not
+       lightness. The curve is flat at both ends, so the picture has no edge
+       at the top of the fall or at its foot. */
     mask-image: linear-gradient(
       to bottom,
-      black calc(var(--sidebar-sky-foot) * 0.4),
-      rgb(0 0 0 / 0.957) calc(var(--sidebar-sky-foot) * 0.475),
-      rgb(0 0 0 / 0.844) calc(var(--sidebar-sky-foot) * 0.55),
-      rgb(0 0 0 / 0.684) calc(var(--sidebar-sky-foot) * 0.625),
-      rgb(0 0 0 / 0.5) calc(var(--sidebar-sky-foot) * 0.7),
-      rgb(0 0 0 / 0.316) calc(var(--sidebar-sky-foot) * 0.775),
-      rgb(0 0 0 / 0.156) calc(var(--sidebar-sky-foot) * 0.85),
-      rgb(0 0 0 / 0.043) calc(var(--sidebar-sky-foot) * 0.925),
+      black calc(var(--sidebar-sky-foot) * 0.297),
+      rgb(0 0 0 / 0.982) calc(var(--sidebar-sky-foot) * 0.356),
+      rgb(0 0 0 / 0.939) calc(var(--sidebar-sky-foot) * 0.414),
+      rgb(0 0 0 / 0.873) calc(var(--sidebar-sky-foot) * 0.473),
+      rgb(0 0 0 / 0.791) calc(var(--sidebar-sky-foot) * 0.532),
+      rgb(0 0 0 / 0.689) calc(var(--sidebar-sky-foot) * 0.590),
+      rgb(0 0 0 / 0.571) calc(var(--sidebar-sky-foot) * 0.649),
+      rgb(0 0 0 / 0.444) calc(var(--sidebar-sky-foot) * 0.707),
+      rgb(0 0 0 / 0.315) calc(var(--sidebar-sky-foot) * 0.766),
+      rgb(0 0 0 / 0.195) calc(var(--sidebar-sky-foot) * 0.824),
+      rgb(0 0 0 / 0.098) calc(var(--sidebar-sky-foot) * 0.883),
+      rgb(0 0 0 / 0.028) calc(var(--sidebar-sky-foot) * 0.941),
       transparent var(--sidebar-sky-foot)
     );
   }
@@ -193,9 +201,11 @@
       );
   }
 
-  /* The sunset's horizon sits under the mark. The colours below it get
-     lighter as the picture thins, so the fall reads as afterglow and not as
-     grey. */
+  /* The sunset's horizon sits under the mark. It is muted, so it stays
+     behind the list and does not pull the eye. Below it the colours go toward
+     the sidebar's surface as the picture thins, so the fall reads as
+     afterglow and not as grey in the light theme, and as no band in the
+     dark theme. */
   .sidebar-sky[data-scene="dusk"] {
     /* Stars only in the dark sky above the sunset. */
     --sidebar-sky-star-depth: calc(var(--sidebar-sky-bar) * 0.32);
@@ -203,19 +213,18 @@
       radial-gradient(
         10rem calc(var(--sidebar-sky-bar) * 0.55) at var(--sidebar-sky-sun-x)
           calc(var(--sidebar-sky-bar) * 0.62),
-        rgb(255 214 150 / 0.92),
-        rgb(240 150 104 / 0.5) 50%,
+        rgb(250 205 160 / 0.55),
+        rgb(226 146 116 / 0.26) 50%,
         transparent 80%
       ),
       linear-gradient(
         to bottom,
         #120f25 0,
-        #241a3a calc(var(--sidebar-sky-foot) * 0.22),
-        #5a2a45 calc(var(--sidebar-sky-foot) * 0.4),
-        #b9563f calc(var(--sidebar-sky-foot) * 0.56),
-        #e9955f calc(var(--sidebar-sky-foot) * 0.72),
-        #f3c58a calc(var(--sidebar-sky-foot) * 0.86),
-        #fbe6c8 var(--sidebar-sky-foot)
+        #211a38 calc(var(--sidebar-sky-bar) * 0.3),
+        #44284a calc(var(--sidebar-sky-bar) * 0.55),
+        #85494f calc(var(--sidebar-sky-bar) * 0.78),
+        #c08670 var(--sidebar-sky-bar),
+        color-mix(in oklch, #dfb196 70%, var(--card)) var(--sidebar-sky-foot)
       );
   }
 
@@ -241,8 +250,8 @@
       linear-gradient(
         to bottom,
         #04051a 0,
-        #0a0d2c calc(var(--sidebar-sky-foot) * 0.4),
-        #1c2160 calc(var(--sidebar-sky-foot) * 0.7),
+        #0a0d2c calc(var(--sidebar-sky-bar) * 0.55),
+        #1c2160 calc(var(--sidebar-sky-bar) * 0.95),
         #3a44a8 var(--sidebar-sky-foot)
       );
   }

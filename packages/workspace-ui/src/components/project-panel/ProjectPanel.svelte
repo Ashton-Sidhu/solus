@@ -374,6 +374,7 @@
 
 <SidePanel
   side="right"
+  region="project-panel"
   {open}
   flush
   width={panelWidth}

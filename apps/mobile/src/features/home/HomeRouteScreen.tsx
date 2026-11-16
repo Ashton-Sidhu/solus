@@ -1,3 +1,4 @@
+import { ThreadListFilters } from "./ThreadListFilters";
 // Adapted from T3 Code apps/mobile/src/features/home/HomeRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -12,8 +13,6 @@ import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { useAdaptiveWorkspaceLayout, useWorkspacePaneState } from "../layout/AdaptiveWorkspaceLayout";
 import { WorkspaceEmptyDetail } from "../layout/WorkspaceEmptyDetail";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import { MaterialScreenContent } from "../../components/MaterialScreenContent";
-import { PullRequestsHeader } from "../prs/PullRequestsHeader";
 import { PullRequestsScreen } from "../prs/PullRequestsScreen";
 import { pullRequestPreferencesForHost } from "../workspace/list-preferences";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
@@ -30,10 +29,9 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { HomeHeader } from "./HomeHeader";
 import { ThreadUndoNotice } from "./ThreadUndoNotice";
-import { ThreadListFilters } from "./ThreadListFilters";
 import { useHomeListOptions } from "./home-list-options";
 import { useHomeThreadSelection } from "./home-thread-navigation";
-import { buildHomeProjectScopes } from "./homeThreadList";
+import { buildHomeProjectScopes, homeProjectFilterOptions } from "./homeThreadList";
 import { confirmRemoveProject } from "./confirm-remove-project";
 import { useThreadListActions } from "./useThreadListActions";
 import { useWorkspaceState } from "./use-workspace-state";
@@ -130,11 +128,7 @@ export function HomeRouteScreen() {
     useHomeListOptions(availableEnvironmentIds);
   const selectedEnvironmentId = listOptions.selectedEnvironmentId;
   const projectFilterOptions = useMemo(
-    () =>
-      buildHomeProjectScopes({ projects, hostId: selectedEnvironmentId }).map((scope) => ({
-        key: scope.key,
-        label: scope.title,
-      })),
+    () => homeProjectFilterOptions(buildHomeProjectScopes({ projects, hostId: selectedEnvironmentId })),
     [projects, selectedEnvironmentId],
   );
   // A saved project its host has not listed yet is kept, not cleared.
@@ -165,13 +159,13 @@ export function HomeRouteScreen() {
   // A retained, hidden tab (WorkspaceTabPanes) does not follow the shown tab's search.
   const queryOf = (tab: WorkspaceTab) => (tab === tabs.selectedTab ? searchQuery : "");
   const pullRequests = (
-    <MaterialScreenContent>
-      <PullRequestsScreen
-        query={queryOf("pullRequests")}
-        preferences={pullRequestPreferences}
-        onPreferencesChange={setPullRequestPreferences}
-      />
-    </MaterialScreenContent>
+    <PullRequestsScreen
+      query={queryOf("pullRequests")}
+      onSearchQueryChange={setSearchQuery}
+      onOpenEnvironments={openEnvironments}
+      preferences={pullRequestPreferences}
+      onPreferencesChange={setPullRequestPreferences}
+    />
   );
 
   // The iPad primary column's header is only as wide as the column.
@@ -179,7 +173,7 @@ export function HomeRouteScreen() {
   // iOS: one toolbar owns the header of both tabs; Android draws each tab's header.
   const workspaceToolbar =
     Platform.OS === "ios" ? (
-      <WorkspaceToolbar onOpenSettings={openSettings} onAddProject={addProject} />
+      <WorkspaceToolbar onOpenSettings={openSettings} />
     ) : null;
 
   // A split layout drawn in React Native (Android, or an iPad before iOS 26)
@@ -203,12 +197,6 @@ export function HomeRouteScreen() {
             tab === "pullRequests" ? (
               <>
                 {workspaceToolbar}
-                <PullRequestsHeader
-                  searchQuery={queryOf(tab)}
-                  onSearchQueryChange={setSearchQuery}
-                  onOpenSettings={openSettings}
-                  onOpenEnvironments={openEnvironments}
-                />
                 {pullRequests}
               </>
             ) : (
@@ -281,12 +269,6 @@ export function HomeRouteScreen() {
         renderTab={(tab) =>
           tab === "pullRequests" ? (
             <>
-              <PullRequestsHeader
-                searchQuery={queryOf(tab)}
-                onSearchQueryChange={setSearchQuery}
-                onOpenSettings={openSettings}
-                onOpenEnvironments={openEnvironments}
-              />
               {pullRequests}
             </>
           ) : (
@@ -313,19 +295,18 @@ export function HomeRouteScreen() {
                   environments={environments}
                   facts={facts}
                   shelfExpansion={shelfExpansion}
-                  listFilters={
-                    Platform.OS === "ios" ? (
-                      <ThreadListFilters
-                        environments={environments}
-                        projects={projectFilterOptions}
-                        selectedEnvironmentId={selectedEnvironmentId}
-                        selectedProjectKey={selectedProjectKey}
-                        onEnvironmentChange={setSelectedEnvironmentId}
-                        onProjectChange={setSelectedProjectKey}
-                        onRemoveProject={removeProject}
-                      />
-                    ) : undefined
-                  }
+                  listFilters={Platform.OS === "ios" ? (
+                    <ThreadListFilters
+                      environments={environments}
+                      projects={projectFilterOptions}
+                      selectedEnvironmentId={selectedEnvironmentId}
+                      selectedProjectKey={selectedProjectKey}
+                      onEnvironmentChange={setSelectedEnvironmentId}
+                      onProjectChange={setSelectedProjectKey}
+                      onRemoveProject={removeProject}
+                      onAddProject={addProject}
+                    />
+                  ) : undefined}
                   onAddConnection={addConnection}
                   onRetryHosts={retryHosts}
                   onOpenHosts={openEnvironments}

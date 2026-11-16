@@ -8,15 +8,14 @@ import {
   callerText,
   appProblems,
   appSurfaceView,
+  manageToggleHint,
   problemsTone,
   showsAppViews,
-  scheduleLastRunText,
-  scheduleNextRunText,
   scheduleTriggerText,
   versionLabel,
   type AppSurfaceFacts,
 } from '@solus/workspace-ui/components/app/lib/app-view'
-import { adjacentManageSection, manageSectionOf, manageSections } from '@solus/workspace-ui/components/app/lib/app-manage'
+import { adjacentManageSection, manageSectionCounts, manageSectionGroups, manageSectionOf, manageSections } from '@solus/workspace-ui/components/app/lib/app-manage'
 import { opensBesideConversation } from '@solus/workspace-ui/components/app/lib/app-deploy'
 import { APP_MANAGE_SECTIONS } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
@@ -108,6 +107,17 @@ describe('what the app surface shows', () => {
     expect(problemsTone(appProblems(app({})))).toBeNull()
   })
 
+  test('a run that failed on an older version is a warning with its run, so the owner retries or dismisses it in place', () => {
+    // WHY: a deploy that fixed the bug left the old failure in red, as if the new code were broken.
+    // The fix works; only the work waits. The row needs the run to act on it without opening Workflows.
+    const stale = { kind: 'workflow-stale', detail: 'The last sync run failed on v1. v5 has not run it yet.', runId: 'run-1' } as const
+    expect(appProblems(app({ attention: [stale] }))).toEqual([
+      { kind: 'workflow-stale', detail: stale.detail, tone: 'warning', section: 'workflows', action: 'Open Workflows', runId: 'run-1' },
+    ])
+    expect(problemsTone(appProblems(app({ attention: [stale] })))).toBe('warning')
+    expect(problemsTone(appProblems(app({ attention: [stale, { kind: 'workflow-failed', detail: 'A run failed.', runId: 'run-2' }] })))).toBe('error')
+  })
+
   test('an app with no UI has no frame: its Manage page is what the owner sees', () => {
     const headless = app({ hasUi: false })
     // The state is not needed to say that: the surface does not wait for it.
@@ -174,25 +184,19 @@ describe('the view the app surface opens on', () => {
 })
 
 describe('the sections of the Manage page', () => {
-  test('the rail and the strip list the same sections, in the order of the plan', () => {
-    // WHY: the strip replaces the rail in a narrow pane. A section that one of them lacks cannot be reached there.
-    expect(manageSections().map((section) => section.id)).toEqual([...APP_MANAGE_SECTIONS])
+  test('the section list and the strip list the same sections, under four headings, in the order of the plan', () => {
+    // WHY: the strip replaces the list in a narrow pane, and the arrow keys walk the route's order.
+    // A section that a group lacks, or a group order that differs from the route's, cannot be reached in order.
     expect(manageSections().map((section) => section.label)).toEqual([
-      'Overview', 'Activity', 'Workflows', 'Versions', 'Schedules', 'Webhooks', 'Signals', 'Secrets', 'Files', 'Operations', 'Sessions', 'Source',
+      'Overview', 'Activity', 'Workflows', 'Sessions', 'Schedules', 'Webhooks', 'Signals', 'Operations', 'Versions', 'Deployment', 'Secrets', 'Config', 'Files',
     ])
+    const groups = manageSectionGroups()
+    expect(groups.map((group) => group.label)).toEqual(['Run', 'Triggers', 'Build', 'Settings'])
+    expect(groups.flatMap((group) => group.sections.map((section) => section.id))).toEqual([...APP_MANAGE_SECTIONS])
   })
 
-  test('a section has the mark of the worst problem that leads to it', () => {
-    const problems = appProblems(app({ attention: [
-      { kind: 'secret-missing', detail: 'A is not set.' },
-      { kind: 'workflow-failed', detail: 'A run failed.' },
-      { kind: 'stopped', detail: 'The app is stopped.' },
-    ] }))
-    const marks = Object.fromEntries(manageSections(problems).map((section) => [section.id, section.problemTone]))
-    expect(marks.secrets).toBe('warning')
-    expect(marks.workflows).toBe('error')
-    expect(marks.overview).toBeNull()
-    expect(marks.versions).toBeNull()
+  test('Source is not a section: its facts are on Overview', () => {
+    expect((APP_MANAGE_SECTIONS as readonly string[]).includes('source')).toBe(false)
   })
 
   test('the page opens on Overview, and the arrow keys stop at each end', () => {
@@ -200,7 +204,34 @@ describe('the sections of the Manage page', () => {
     expect(manageSectionOf('files')).toBe('files')
     expect(adjacentManageSection('overview', 1)).toBe('activity')
     expect(adjacentManageSection('overview', -1)).toBe('overview')
-    expect(adjacentManageSection('source', 1)).toBe('source')
+    expect(adjacentManageSection('sessions', 1)).toBe('schedules')
+    expect(adjacentManageSection('files', 1)).toBe('files')
+  })
+
+  test('a row counts what the app has, and a problem count replaces it in the colour of the worst problem', () => {
+    // WHY: the owner scans the list for what needs them. A plain count in the place of a problem hides it.
+    const descriptor = { workflows: [{}, {}], schedules: [{}], webhooks: [], signals: [{}] } as unknown as NonNullable<AppState['descriptor']>
+    const state = { descriptor, secrets: [{}, {}] } as unknown as AppState
+    const app = { failed24h: 3, operationCount: 6, latestVersion: 14 }
+    const counts = manageSectionCounts(app, state, [
+      { section: 'secrets', tone: 'warning' },
+      { section: 'workflows', tone: 'warning' },
+      { section: 'workflows', tone: 'error' },
+    ])
+    expect(counts.activity).toEqual({ count: 3, tone: 'error' })
+    expect(counts.workflows).toEqual({ count: 2, tone: 'error' })
+    expect(counts.secrets).toEqual({ count: 1, tone: 'warning' })
+    expect(counts.schedules).toEqual({ count: 1, tone: null })
+    expect(counts.operations).toEqual({ count: 6, tone: null })
+    expect(counts.versions).toEqual({ count: 14, tone: null })
+    // A section with none has no figure, not a zero.
+    expect(counts.webhooks).toBeUndefined()
+    expect(counts.overview).toBeUndefined()
+  })
+
+  test('before the host answers with the state, only the summary counts show, and no failed call is no figure', () => {
+    const counts = manageSectionCounts({ failed24h: 0, operationCount: 2, latestVersion: null }, undefined, [])
+    expect(counts).toEqual({ operations: { count: 2, tone: null } })
   })
 })
 
@@ -236,19 +267,8 @@ describe('the words of the app surface', () => {
     expect(versionLabel(null)).toBe('No version')
   })
 
-  test('a schedule says when it runs next, unless it is paused or the app is stopped', () => {
-    // WHY: a next run time on a schedule that cannot fire is a lie.
-    expect(scheduleNextRunText(schedule({}), false, NOW)).toBe('Next run in 30 min')
-    expect(scheduleNextRunText(schedule({ enabled: false }), false, NOW)).toBe('Paused')
-    expect(scheduleNextRunText(schedule({}), true, NOW)).toBe('The app is stopped')
-    expect(scheduleNextRunText(schedule({ nextRunAt: null }), false, NOW)).toBe('No next run')
+  test('a schedule names its trigger in words', () => {
     expect(scheduleTriggerText(schedule({}))).toBe('Every hour')
-  })
-
-  test('a schedule says how its last run ended, and nothing before it ran', () => {
-    expect(scheduleLastRunText(schedule({}), NOW)).toBeNull()
-    expect(scheduleLastRunText(schedule({ lastRunAt: NOW - 5 * 60_000, lastOutcome: 'ok' }), NOW)).toBe('Last run OK 5 min ago')
-    expect(scheduleLastRunText(schedule({ lastRunAt: NOW - 5 * 60_000, lastOutcome: 'failed' }), NOW)).toBe('Last run failed 5 min ago')
   })
 
   test('the call log names each caller in words', () => {
@@ -266,5 +286,10 @@ describe('the words of the app surface', () => {
   test('the delete confirmation names everything that goes with the app', () => {
     const text = appDeleteConfirmText('Notes')
     for (const lost of ['Notes', 'data', 'repository', 'schedules', 'secrets', 'webhooks']) expect(text).toContain(lost)
+  })
+  test('the Manage button says what a press does and names the problems the header no longer marks with a dot', () => {
+    expect(manageToggleHint({ isManage: false, shortcut: '⌥M', problemCount: 0 })).toBe('Manage (⌥M)')
+    expect(manageToggleHint({ isManage: true, shortcut: '⌥M', problemCount: 0 })).toBe('Back to the app (⌥M)')
+    expect(manageToggleHint({ isManage: false, shortcut: '', problemCount: 2 })).toBe('Manage · 2 problems')
   })
 })

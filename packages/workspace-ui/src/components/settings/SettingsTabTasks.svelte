@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { taskSettings as settingItems } from "./lib/settings-search-data";
   import type { AgentTaskLifecyclePolicy } from "@solus/contracts/types";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
@@ -50,25 +52,18 @@
   // ─── Search ───
 
 
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    const item = settingItems.find((s) => s.id === id);
-    if (!item) return true;
-    const q = searchQuery.toLowerCase();
-    return item.keywords.some((k) => k.includes(q));
-  }
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
   const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)));
 </script>
 
 <SettingsSection
-  label="Task behavior"
+  {...settingsDefinitions["tasks.section-task-behavior"]}
   visible={["task-lifecycle", "completed-retention"].some(isVisible)}
 >
   <SettingsRow
-    label="Task lifecycle control"
+    {...settingsDefinitions["tasks.task-lifecycle"]}
     managed={managedSetting("agentTaskLifecyclePolicy")}
-    description="None: no changes. Moderate: Done is yours. Autonomous: full control."
     visible={isVisible("task-lifecycle")}
   >
     {#snippet control()}
@@ -113,8 +108,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Completed task history"
-    description="Days to keep completed tasks in the sidebar."
+    {...settingsDefinitions["tasks.completed-retention"]}
     visible={isVisible("completed-retention")}
   >
     {#snippet control()}

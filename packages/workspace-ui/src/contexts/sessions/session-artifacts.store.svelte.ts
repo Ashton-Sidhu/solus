@@ -1,9 +1,10 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { allSessionArtifacts, type SessionArtifacts } from '@solus/contracts/session-artifacts'
+import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from '@solus/contracts/session-pull-requests'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { keepEqual } from '@solus/client-core/keep-equal'
-import { listsSession, newestAddedKey } from './session-artifacts'
+import { listsSession, listsWork, newestAddedKey } from './session-artifacts'
 
 /** What one read of a session's artifacts changed. */
 export interface SessionArtifactsChange {
@@ -21,7 +22,9 @@ export interface SessionArtifactsChange {
  * What each session produced or linked (docs/plans/session-artifacts.md), by
  * Solus session id. A surface asks for a session with `ensure`; the store reads
  * it from the host that runs it and reads it again on every
- * `session.artifactsChanged` that names it or one of the sessions it started.
+ * `session.artifactsChanged` that names it or one of the sessions it started,
+ * and on every `works.changed` for a work it lists, whose pin, time, and
+ * preview the Threads row shows.
  * A read that a newer read overtook, or that answered from a connection since
  * replaced, is dropped.
  */
@@ -35,7 +38,7 @@ export class SessionArtifactsStore {
   private readonly serverIds = new Map<string, string>()
   private readonly reads = new Map<string, number>()
   private readonly listeners = new Set<(change: SessionArtifactsChange) => void>()
-  private stopWatching: (() => void) | null = null
+  private stopWatching: (() => void)[] | null = null
 
   /** Read a session once; later changes arrive as events. */
   ensure(serverId: string, sessionId: string): void {
@@ -57,6 +60,19 @@ export class SessionArtifactsStore {
   /** Read a session again: the retry after a failed read. */
   reload(sessionId: string): void {
     void this.refresh(sessionId)
+  }
+
+  /**
+   * Watch one of a session's pull requests, or stop (docs/plans/pr-watch.md).
+   * A watch is a record of the host that runs the session, which is the host
+   * this list is read from. Answers what the host did once the list shows it.
+   */
+  async setPullRequestWatch(link: Pick<SessionPullRequestLink, 'sessionId' | 'repository' | 'number'>, watching: boolean): Promise<SessionPullRequestWatchOutcome> {
+    const serverId = this.serverIds.get(link.sessionId)
+    if (!serverId) throw new Error('This session is not shown here.')
+    const outcome = await serverConnections.apiFor(serverId).sessionPullRequestWatch(link.sessionId, link.repository, link.number, watching)
+    await this.refresh(link.sessionId)
+    return outcome
   }
 
   /** Whether the first read of a session has answered. */
@@ -82,11 +98,18 @@ export class SessionArtifactsStore {
 
   private watch(): void {
     if (this.stopWatching) return
-    this.stopWatching = subscribeAllHosts('session.artifactsChanged', (_serverId, { sessionId }) => {
-      for (const owner of this.serverIds.keys()) {
-        if (listsSession(owner, this.lists.get(owner), sessionId)) void this.refresh(owner)
-      }
-    })
+    this.stopWatching = [
+      subscribeAllHosts('session.artifactsChanged', (_serverId, { sessionId }) => {
+        for (const owner of this.serverIds.keys()) {
+          if (listsSession(owner, this.lists.get(owner), sessionId)) void this.refresh(owner)
+        }
+      }),
+      subscribeAllHosts('works.changed', (_serverId, { workId }) => {
+        for (const owner of this.serverIds.keys()) {
+          if (listsWork(this.lists.get(owner), workId)) void this.refresh(owner)
+        }
+      }),
+    ]
   }
 
   private async refresh(sessionId: string): Promise<void> {

@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import { BrowserFrameSubscriber } from '@solus/client-core/browser-frame-subscriber'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { DialError } from '@solus/client-core/host-diagnostics'
 import type { DialOutcome } from '@solus/client-core/host-supervisor'
@@ -44,6 +45,7 @@ export class FakeApi {
 
 export class FakeTransport implements HostTransport {
   readonly events = new HostEventSubscriber()
+  readonly frames = new BrowserFrameSubscriber()
   serverUrl: string
   dials = 0
   destroyed = false

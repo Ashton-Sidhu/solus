@@ -218,7 +218,7 @@ describe('the link transition', () => {
 describe('every new session passes the turn admission', () => {
   // N1 (verify-multiplayer TRIAGE): `createHeadlessSession` — a cross-host child, a
   // client's background start — is a new root like a first prompt. A local child
-  // (`start_session` on this machine) is new work too. Both are admitted inside
+  // (`start_sessions` on this machine) is new work too. Both are admitted inside
   // `PromptDispatch.createSession`, so an attached machine never starts a Local root,
   // and a person whose authority was removed starts no new child run (organization-vms §4).
   type Handler = (args: unknown[], handlerCtx: { principal: Principal; clientId?: string }) => Promise<unknown>
@@ -260,7 +260,7 @@ describe('every new session passes the turn admission', () => {
     )
     const start = (principal: Principal, organizationId?: string) => handlers.get('createHeadlessSession')!([{ prompt: 'Go.', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: dataDir, organizationId }], { principal })
     const promptFromHost = (principal: Principal, sessionId: string) => handlers.get('promptHeadlessSession')!([{ sessionId, prompt: 'More.', delivery: 'queue', promptId: `p-${sessionId}` }], { principal })
-    /** `start_session` from a running parent on this machine, as the orchestrator calls it: no actor of its own. */
+    /** `start_sessions` from a running parent on this machine, as the orchestrator calls it: no actor of its own. */
     const startChild = (parentSessionId = 'parent-a') => dispatch.createSession({ prompt: 'Help.', provider: 'claude-code', modelId: 'opus', reasoningEffort: 'medium', contextWindow: null, cwd: dataDir, delegation: { parentSessionId, messageId: 'exchange-1', intent: 'delegate', createdAt: 1 } })
     return { start, promptFromHost, startChild, runs, prompted, authorities, actors, activeSessions }
   }

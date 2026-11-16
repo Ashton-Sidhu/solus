@@ -1,4 +1,4 @@
-import type { HostConnectionCheck } from './host-connection-check'
+import { routeAnswerText, type HostConnectionCheck } from './host-connection-check'
 import { lastSeenText, type HostReadinessState } from './host-readiness'
 
 /** How the last dial to a host failed, as the transport saw it. */
@@ -66,6 +66,9 @@ export function hostDiagnosticRows(diagnostics: HostDiagnostics, now = Date.now(
   if (diagnostics.lastDialError) {
     const { message, code, at } = diagnostics.lastDialError
     rows.push({ label: 'Last error', value: `${code ? `${code}: ` : ''}${message} (${clockTime(at)})` })
+  }
+  for (const route of diagnostics.connectionCheck?.routes ?? []) {
+    rows.push({ label: 'Address check', value: `${route.url} (${route.kind}): ${routeAnswerText(route.answer)}` })
   }
   rows.push(
     { label: 'Host version', value: diagnostics.hostVersion ?? 'Unknown' },

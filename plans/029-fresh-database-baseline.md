@@ -1,5 +1,9 @@
 # 029 Fresh database baseline — the one data model plan
 
+Note (2026-11-14): decision 1 was a one-time consolidation. Each schema change
+after `0000_baseline.sql` is a new migration that a database applies in place
+(docs/database-schema.md).
+
 Status: IMPLEMENTED in the worktree branch `solus/fresh-database-baseline`
 (2026-11-02; not merged to main, not deployed). Every section below is built:
 one `0000_baseline.sql` per database (`solus.db`, Postgres, `metrics.db`), the

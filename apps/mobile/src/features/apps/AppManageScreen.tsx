@@ -12,8 +12,7 @@ import { RowPressable } from "../../components/RowPressable";
 import { cn } from "../../lib/cn";
 import type { ScreenProps } from "../../navigation/routes";
 import { SettingsSection } from "../settings/components/SettingsSection";
-import { WebhookListRow } from "../webhooks/webhook-rows";
-import { AppPage, AppStateBody } from "./app-rows";
+import { AppListRow, AppPage, AppStateBody } from "./app-rows";
 import { runsRequest } from "./app-runs";
 import { appProblems, appSectionRows, appSectionTitle, type AppSectionId, type AppSectionRow } from "./app-sections";
 import { useAppRead, useAppState } from "./use-app";
@@ -40,7 +39,7 @@ export function AppManageScreen({ navigation, route }: ScreenProps<"AppManage">)
       <AppStateBody state={state} connected={connected} isDeleted={isDeleted} onRetry={reload}>
         {(app) => (
           <>
-            <Problems app={app.app} onOpen={open} />
+            <Problems app={app.app} onOpen={open} onOpenRun={(runId) => navigation.navigate("AppRun", { hostId, appId: app.app.id, runId })} />
             <SettingsSection title="Manage">
               {appSectionRows(app, runs.state.kind === "loaded" ? runs.state.value : null).map((row, index) => (
                 <SectionRow key={row.id} row={row} first={index === 0} onPress={() => open(row.id)} />
@@ -53,19 +52,20 @@ export function AppManageScreen({ navigation, route }: ScreenProps<"AppManage">)
   );
 }
 
-/** What needs the owner. A row opens the section where they act on it. */
-function Problems(props: { readonly app: AppSummary; readonly onOpen: (section: AppSectionId) => void }) {
+/** What needs the owner. A row opens the section where they act on it, or the run that failed on an older version. */
+function Problems(props: { readonly app: AppSummary; readonly onOpen: (section: AppSectionId) => void; readonly onOpenRun: (runId: string) => void }) {
   const problems = appProblems(props.app);
   if (problems.length === 0) return null;
   return (
     <SettingsSection title={problems.length === 1 ? "Needs you" : `Needs you · ${problems.length}`}>
       {problems.map((problem, index) => (
-        <WebhookListRow
+        <AppListRow
           key={`${problem.section}:${problem.detail}`}
           first={index === 0}
+          mark={{ state: "warning" }}
           title={appSectionTitle(problem.section)}
-          lines={[{ text: problem.detail, tone: "danger" }]}
-          onPress={() => props.onOpen(problem.section)}
+          lines={[{ text: problem.detail, tone: problem.tone }]}
+          onPress={() => (problem.runId ? props.onOpenRun(problem.runId) : props.onOpen(problem.section))}
         />
       ))}
     </SettingsSection>

@@ -35,18 +35,10 @@ function actionFor(app: AppRecord, declared: AppWebhookDeclaration): WebhookCrea
 
 const bodySchema = z.json()
 
-/** A webhook's request as the input of the mutation it runs. */
-export interface AppWebhookInput {
-  /** Header names are lower case. */
-  headers: { [name: string]: string }
-  query: { [name: string]: string }
-  /** The body as JSON when it is JSON, else its text; null for an empty body. */
-  body: z.infer<typeof bodySchema>
-}
-
-export function webhookInput(data: WebhookRequestData): AppWebhookInput {
+/** A webhook's request as the input of the mutation it runs. Header names are lower case. */
+export function webhookInput(data: WebhookRequestData) {
   const text = data.rawBody.toString('utf8')
-  let body: AppWebhookInput['body'] = text
+  let body: z.infer<typeof bodySchema> = text
   try {
     body = bodySchema.parse(JSON.parse(text))
   } catch {
@@ -106,6 +98,20 @@ export class AppWebhooks implements AppLifecyclePart {
         problem: webhook.url.url ? null : 'This host has no URL for webhooks. Link it to Solus Cloud, or set its public URL in host settings.',
       }
     }))
+  }
+
+  /** A new signing secret for one webhook the app declares: the old one stops working at once, so the sender needs the new one. */
+  async rotateSecret(authority: AppAuthority, idOrSlug: string, name: string): Promise<AppWebhookView[]> {
+    const app = await this.apps.record(authority, idOrSlug)
+    const version = app.activeVersion === null ? null : await loadVersion(app.id, app.activeVersion)
+    const declared = version?.descriptor.webhooks.find((webhook) => webhook.name === name)
+    const webhookId = app.webhookIds[name]
+    if (!declared || !webhookId) throw new Error(`This app has no webhook named ${name}.`)
+    if (!SECRET_SCHEMES.includes(declared.verify.scheme)) throw new Error('This webhook has no signing secret to rotate.')
+    const updated = await this.webhooks.update(webhookId, { verification: { ...declared.verify, secret: newSecret(declared.verify.scheme) } })
+    if (!updated) throw new Error('This webhook could not be changed. Deploy the app again.')
+    log.info('app_webhook_secret_rotated', { appId: app.id, webhookId })
+    return this.list(authority, app.id)
   }
 }
 

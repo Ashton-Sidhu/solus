@@ -10,15 +10,13 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // WHY: the acting session tools are thin adapters over the orchestrator. What
 // matters is that each hands the orchestrator the order the agent asked for,
-// names the calling session as the sender, files a started session under the
-// task the agent chose — a forgotten task puts the child outside the parent's
-// view — and returns a result the host can read back after a reload: the card
-// rebuilt from history must find the same message id the live card used. The
-// retired tools must be gone, not stubbed.
+// names the calling session as the sender, and returns a result the host can
+// read back after a reload: the card rebuilt from history must find the same
+// message id the live card used. The retired tools must be gone, not stubbed.
 
 let sessionTools: typeof import('@solus/server/execution/agents/tools/session-tools')
+let startTool: typeof import('@solus/server/execution/agents/tools/start-sessions-tool')['startSessionsAgentTool']
 let projection: typeof import('@solus/server/data/sessions/result-projection')
-let attachments: typeof import('@solus/server/data/tasks/task-attachments')
 let closeDb: typeof import('@solus/server/db')['closeDb']
 
 /** The peer's transcript. Messages 3 and 4 share one timestamp. */
@@ -38,8 +36,8 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-tools-'))
   process.env.SOLUS_DATA_DIR = dataDir
   sessionTools = await import('@solus/server/execution/agents/tools/session-tools')
+  startTool = (await import('@solus/server/execution/agents/tools/start-sessions-tool')).startSessionsAgentTool
   projection = await import('@solus/server/data/sessions/result-projection')
-  attachments = await import('@solus/server/data/tasks/task-attachments')
   ;({ closeDb } = await import('@solus/server/db'))
   sessionTools.setSessionController({
     getSessionInfo: async (sessionId: string) => ({ sessionId, provider: 'codex', cwd: '/repo', slug: 'peer' }),
@@ -57,7 +55,7 @@ beforeAll(async () => {
     }],
   } as never)
   sessionTools.setSessionOrchestration({
-    spawn: async (...args) => { calls.push({ method: 'spawn', args }); return { exchangeId: 'm-created', sessionId: 'solus-child', starting: startingReceipt, taskId: 'task-child', waited: startupOutcome } },
+    spawn: async (...args) => { calls.push({ method: 'spawn', args }); return { exchangeId: 'm-created', sessionId: 'solus-child', starting: startingReceipt, waited: startupOutcome } },
     send: async (...args) => {
       calls.push({ method: 'send', args })
       const waitMs = (args[2] as { waitMs?: number }).waitMs ?? 0
@@ -85,7 +83,12 @@ afterAll(() => {
 })
 
 const deps = (sessionId = 'solus-parent') => ({ ctx: { agentProvider: 'codex' as const, cwd: '/repo', sessionId } })
-const start = { prompt: 'build it', model_id: 'gpt-test' }
+const start = { sessions: [{ prompt: 'build it', model_id: 'gpt-test' }] }
+/** start_sessions from the calling session, as the agent calls it. */
+const startSessions = (input: object, sessionId = 'solus-parent') => startTool.execute(input, {
+  provider: 'codex', cwd: '/repo', sessionId: () => sessionId, emit: () => {},
+  abortSignal: new AbortController().signal, parentToolUseId: () => undefined,
+})
 
 test('each session tool rejects invalid input before running its handler', async () => {
   calls.length = 0
@@ -96,7 +99,6 @@ test('each session tool rejects invalid input before running its handler', async
     { name: 'search_sessions', args: { query: 42 } },
     { name: 'send_session', args: { session_id: 'solus-peer', message: 42 } },
     { name: 'stop_session', args: { session_id: 42 } },
-    { name: 'start_session', args: { ...start, task: 'none', title: 42 } },
   ]
   for (const { name, args } of invalidCalls) {
     const result = await sessionTools.executeSessionTool(name, args, deps())
@@ -113,13 +115,9 @@ function reloaded(toolName: string, result: string) {
     { role: 'tool', toolName, toolId: 't1', content: '', timestamp: 1 },
     { role: 'tool_result', toolResultForId: 't1', content: result, timestamp: 2 },
   ]
-  return projection.projectSessionHistory(rows)[1]!.agentConversationResult
+  return projection.projectSessionHistory(rows)[1]!.agentConversationResults
 }
 
-/** A calling session bound to `taskId` as its working task. */
-async function bind(sessionId: string, taskId: string): Promise<void> {
-  await attachments.linkTaskSession('local', taskId, sessionId, 'working')
-}
 
 describe('the acting session tools', () => {
   test('send_session sends from the calling session and returns the message it opened', async () => {
@@ -127,10 +125,10 @@ describe('the acting session tools', () => {
     const result = await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'next step', delivery: 'steer', report: true }, deps())
     expect(result.ok).toBe(true)
     expect(calls).toEqual([{ method: 'send', args: ['solus-parent', 'solus-peer', { prompt: 'next step', delivery: 'steer', notify: true, waitMs: 0 }] }])
-    expect(reloaded('mcp__solus__send_session', result.text)).toEqual({ sessionId: 'solus-peer', messageId: 'm-sent', provider: 'codex' })
+    expect(reloaded('mcp__solus__send_session', result.text)).toEqual([{ sessionId: 'solus-peer', messageId: 'm-sent', provider: 'codex' }])
   })
 
-  test('send_session and start_session pass the files they attach as paths on this host', async () => {
+  test('send_session passes the files it attaches as paths on this host', async () => {
     // WHY: the orchestrator uploads the files to the host that runs the
     // session, so the tool only checks them. Relative paths are the agent's
     // working directory; a retry with the same request_id names the same paths.
@@ -140,9 +138,7 @@ describe('the acting session tools', () => {
     calls.length = 0
     const caller = { ctx: { ...deps().ctx, cwd: source } }
     await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'look', attachments: ['shot.png', join(source, 'log.txt')] }, caller)
-    await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', attachments: ['log.txt'] }, caller)
     expect(calls[0]!.args[2]).toMatchObject({ prompt: 'look', attachments: [join(source, 'shot.png'), join(source, 'log.txt')] })
-    expect(calls[1]!.args[1]).toMatchObject({ prompt: 'build it', attachments: [join(source, 'log.txt')] })
     rmSync(source, { recursive: true, force: true })
   })
 
@@ -165,10 +161,10 @@ describe('the acting session tools', () => {
     expect(calls[0]!.args[2]).toMatchObject({ waitMs: 30_000 })
     expect(result.text).toContain('It finished while you waited')
     expect(result.text.endsWith('Reply:\nchecked')).toBe(true)
-    expect(reloaded('send_session', result.text)).toEqual({
+    expect(reloaded('send_session', result.text)).toEqual([{
       sessionId: 'solus-peer', messageId: 'm-sent', provider: 'codex',
       report: { messageId: 'm-sent', sessionId: 'solus-peer', status: 'completed', outputs: [{ kind: 'work', workId: 'w1', title: 'Notes', workType: 'doc' }], reply: 'checked' },
-    })
+    }])
   })
 
   test('wait_seconds past the limit is refused', async () => {
@@ -177,69 +173,18 @@ describe('the acting session tools', () => {
     expect(calls).toEqual([])
   })
 
-  test('start_session with task=none starts a session with no task', async () => {
-    // WHY: a session makes no task of its own, so the order names none.
+  test('start_sessions hands the orchestrator each order and returns results a reload reads back', async () => {
     calls.length = 0
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', report: false }, deps())
+    const result = await startSessions({ sessions: [{ ...start.sessions[0], report: false }] })
     expect(result.ok).toBe(true)
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ method: 'spawn', args: ['solus-parent', { prompt: 'build it', provider: 'codex', modelId: 'gpt-test', cwd: '/repo', taskId: null }, false, 0, undefined] })
-    expect(reloaded('start_session', result.text)).toEqual({ sessionId: 'solus-child', messageId: 'm-created', provider: 'codex' })
-  })
-
-  test('start_session with task=attempt and no task_id runs on the caller\'s own task, never a new subtask', async () => {
-    // WHY: a task holds its sessions directly. A started session that minted a
-    // subtask filed its works there, out of sight of the task the user opened.
-    // A session link needs no copy of the task: the task key is what the child runs on.
-    const root = { id: 'github:I_root' }
-    await bind('solus-on-root', root.id)
-
-    calls.length = 0
-    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('solus-on-root'))).ok).toBe(true)
-    expect(calls[0]!.args[1]).toMatchObject({ taskId: root.id })
-    expect(calls[0]!.args[1]).not.toHaveProperty('parentTaskId')
-    expect(calls[0]!.args[2]).toBe(false)
-  })
-
-  test('start_session with task=attempt from a session with no task and no task_id is refused, not filed at the top', async () => {
-    calls.length = 0
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('solus-without-task'))
-    expect(result.ok).toBe(false)
-    expect(result.text).toContain("task='none'")
-    expect(calls).toEqual([])
-  })
-
-  test('start_session with task=attempt and task_id runs on that task', async () => {
-    calls.length = 0
-    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt', task_id: 'task-7' }, deps())).ok).toBe(true)
-    expect(calls[0]!.args[1]).toMatchObject({ taskId: 'task-7' })
-  })
-
-  test('start_session no longer accepts task=subtask', async () => {
-    calls.length = 0
-    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'subtask' }, deps())).ok).toBe(false)
-    expect(calls).toEqual([])
-  })
-
-  test('start_session defaults to an independent session without task membership', async () => {
-    calls.length = 0
-    const result = await sessionTools.executeSessionTool('start_session', start, deps())
-    expect(result.ok).toBe(true)
-    expect(calls[0]?.args[1]).toMatchObject({ independent: true, taskId: null })
-    expect(calls[0]?.args[2]).toBe(false)
-  })
-
-  test('a contradictory task choice is refused before a session starts', async () => {
-    calls.length = 0
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', task_id: 'task-7' }, deps())
-    expect(result.ok).toBe(false)
-    expect(result.text).toContain("Omit task_id with task='none'")
-    expect(calls).toEqual([])
+    expect(calls[0]).toMatchObject({ method: 'spawn', args: ['solus-parent', { prompt: 'build it', provider: 'codex', modelId: 'gpt-test', cwd: '/repo' }, false, 0, undefined, undefined] })
+    expect(reloaded('start_sessions', result.text)).toEqual([{ sessionId: 'solus-child', messageId: 'm-created', provider: 'codex', item: 0 }])
   })
 
   test('invalid start fields identify the value to correct without starting work', async () => {
     calls.length = 0
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', wait_seconds: 601 }, deps())
+    const result = await startSessions({ ...start, wait_seconds: 601 })
     expect(result.ok).toBe(false)
     expect(result.text).toContain('wait_seconds')
     expect(result.text).toContain('600')
@@ -268,10 +213,10 @@ describe('the acting session tools', () => {
 // one as often as not, and the list grows with each release. It sees only the
 // current models, but a superseded id it already knows still starts a session.
 describe('list_agent_targets', () => {
-  test('leaves superseded models out and counts them; start_session still accepts their ids', async () => {
+  test('leaves superseded models out and counts them; start_sessions still accepts their ids', async () => {
     const listed = JSON.parse((await sessionTools.executeSessionTool('list_agent_targets', {}, deps())).text)
     expect(listed.targets).toEqual([expect.objectContaining({ provider: 'codex', models: [expect.objectContaining({ id: 'gpt-test' })], legacyModelsOmitted: 1 })])
-    const started = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', model_id: 'gpt-5.6-sol' }, deps())
+    const started = await startSessions({ sessions: [{ ...start.sessions[0], model_id: 'gpt-5.6-sol' }] })
     expect(started.ok).toBe(true)
   })
 })
@@ -314,8 +259,8 @@ test('retry keys reach both orchestration commands', async () => {
   calls.length = 0
   await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'retry me', request_id: 'send-1' }, deps())
   expect(calls[0]!.args[2]).toMatchObject({ requestId: 'send-1', waitMs: 0, notify: true })
-  await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', request_id: 'start-1' }, deps())
-  expect(calls[1]!.args[4]).toBe('start-1')
+  await startSessions({ ...start, request_id: 'start-1' })
+  expect(calls[1]!.args[4]).toBe('start-1#0')
 })
 
 test('saved exchange reads expose a result without consuming its queued report', async () => {
@@ -330,26 +275,19 @@ test('saved exchange reads expose a result without consuming its queued report',
   expect((await sessionTools.executeSessionTool('read_session_exchange', {}, deps())).ok).toBe(false)
 })
 
-test('the start tool directs child work to delegation', () => {
-  expect(sessionTools.startSessionAgentTool.alwaysLoad).toBe(true)
-  expect(sessionTools.startSessionAgentTool.description).toContain('independent')
-  expect(sessionTools.startSessionAgentTool.description).toContain('delegate_task')
-  expect(sessionTools.startSessionAgentTool.description).toContain('Reports default off')
-})
-
 // WHY: a session's id is chosen before its provider starts, so a receipt
 // accepted during startup already names the session a reloaded card opens. It
 // links nothing yet: there is no transcript to open until the provider starts.
 test('an accepted creation names its session and exchange, and links no transcript yet', async () => {
   startingReceipt = true
   try {
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none' }, deps())
+    const result = await startSessions(start)
     expect(result.ok).toBe(true)
     expect(result.text).toContain('Startup continues in the background')
     expect(result.text).toContain('read_session_exchange with exchange_id=m-created')
     expect(result.text).not.toContain('session://open')
-    expect(result.text).toContain('Accepted session solus-child')
-    expect(reloaded('start_session', result.text)).toMatchObject({ sessionId: 'solus-child', messageId: 'm-created' })
+    expect(result.text).toContain('1. Session solus-child.')
+    expect(reloaded('start_sessions', result.text)).toEqual([expect.objectContaining({ sessionId: 'solus-child', messageId: 'm-created' })])
   } finally { startingReceipt = false }
 })
 
@@ -357,11 +295,11 @@ test('a startup failure received during an explicit wait is included in the pend
   startingReceipt = true
   startupOutcome = { type: 'report', report: { messageId: 'm-created', sessionId: 'solus-child', status: 'failed', outputs: [], reply: 'Provider unavailable' } }
   try {
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', wait_seconds: 10 }, deps())
+    const result = await startSessions({ ...start, wait_seconds: 10 })
     expect(result.text).toContain('Provider startup ended')
     expect(result.text).toContain('Provider unavailable')
     expect(result.text).not.toContain('Startup continues in the background')
-    expect(reloaded('start_session', result.text)?.report?.status).toBe('failed')
+    expect(reloaded('start_sessions', result.text)?.[0]?.report?.status).toBe('failed')
   } finally { startingReceipt = false; startupOutcome = undefined }
 })
 

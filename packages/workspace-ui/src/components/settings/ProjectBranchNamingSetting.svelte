@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   /** A project's override of your worktree branch naming. It is saved
    *  in the project's `.solus/config.json`, so a team can commit it. */
   import { untrack } from "svelte";
@@ -52,8 +53,7 @@
 </script>
 
 <SettingsRow
-  label="Override branch names"
-  description="Use a different naming for this project. Saved in .solus/config.json, so you can commit it."
+  {...settingsDefinitions["source-control.override-branch-names"]}
 >
   {#snippet control()}
     <Switch
@@ -66,7 +66,7 @@
 </SettingsRow>
 {#if override}
   <WorktreeBranchNamingRow
-    label="Project branch names"
+    {...settingsDefinitions["source-control.project-branch-names"]}
     naming={override}
     disabled={saving}
     onSave={(naming) => void save(naming)}

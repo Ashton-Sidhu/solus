@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** The three databases, one generated baseline each: `solus.db`, the Postgres
+/** The three databases, one migration folder each: `solus.db`, the Postgres
  *  records database, and `metrics.db` (docs/database-schema.md). */
 export type MigrationSchema = 'sqlite' | 'postgres' | 'metrics'
 
 /**
- * Where the generated Drizzle baseline of one schema lives at runtime.
+ * Where the generated Drizzle migrations of one schema live at runtime.
  *
  * drizzle-kit writes it to `packages/server/drizzle/<schema>`; the main
  * build copies that folder beside the bundle as `dist/main/drizzle`. Rollup

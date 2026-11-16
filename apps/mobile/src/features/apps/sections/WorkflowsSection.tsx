@@ -3,17 +3,20 @@ import { useCallback, useState } from "react";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { AppRunState } from "@solus/contracts/apps";
 
+import { relativeTime } from "../../../lib/time";
 import { SettingsNote } from "../../settings/components/SettingsNote";
-import { WebhookListRow } from "../../webhooks/webhook-rows";
-import { FilterChips, LoadedSection } from "../app-rows";
+import { AppListRow, FilterChips, LoadedSection } from "../app-rows";
 import { RUN_STATE_CHOICES, runLines, runsRequest, runStateLabel } from "../app-runs";
+// The section's own `runState` is the state the list is narrowed to.
+import { runState as runItemState } from "../app-states";
 import { useAppRead } from "../use-app";
 import type { AppSectionProps } from "./section-props";
 
 /**
  * Workflows (docs/plans/apps.md §8.3, §9.2): the runs of the app's
- * workflows, newest first, narrowed by state. A run opens its steps, where
- * the owner terminates it or starts it again.
+ * workflows, newest first, narrowed by state. The mark of a row says how the
+ * run stands. A run opens its steps, where the owner terminates it or starts
+ * it again.
  */
 export function WorkflowsSection({ hostId, appId, state, connected, navigation }: AppSectionProps) {
   const [runState, setRunState] = useState<AppRunState | null>(null);
@@ -42,12 +45,12 @@ export function WorkflowsSection({ hostId, appId, state, connected, navigation }
       >
         {(items) =>
           items.map((run, index) => (
-            <WebhookListRow
+            <AppListRow
               key={run.id}
               first={index === 0}
+              mark={{ state: runItemState(run.state) }}
               title={run.workflow}
-              trailing={runStateLabel(run.state)}
-              trailingTone={run.state === "failed" ? "danger" : "muted"}
+              trailing={relativeTime(new Date(run.startedAt).toISOString(), now)}
               lines={runLines(run, now)}
               onPress={() => navigation.navigate("AppRun", { hostId, appId, runId: run.id })}
             />

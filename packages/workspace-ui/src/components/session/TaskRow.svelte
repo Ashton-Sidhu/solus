@@ -604,6 +604,8 @@
   class="group/task relative isolate -mx-2 rounded-lg px-2 before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-lg before:bg-card before:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] before:transition-opacity before:duration-150 before:content-[''] motion-reduce:before:transition-none dark:before:bg-[color-mix(in_oklch,var(--card)_94%,white)] {isCardRaised
     ? 'before:opacity-100'
     : 'before:opacity-0'}"
+  data-slot="session-row"
+  data-active={isCurrentSession || undefined}
   onpointerdown={(event) => { if (event.button === 0) onPressStart?.(); }}>
   <TooltipUI.Root disabled={isTooltipQuiet}>
     <TooltipUI.Trigger>
@@ -823,15 +825,19 @@
 
   {#if shownSessions.length > 0}
     <!-- Every session the row's session started, one step in under its title,
-         behind a guide that runs down from the title's first letter so the
-         sessions read as the row's own and not as its neighbours. The row's
-         title sits at 2.1875rem in a folder and 0.625rem elsewhere, less the
-         row's 0.5rem pull; the guide stands there, and a child row pads its
-         title 0.625rem past it. -->
+         behind a guide so the sessions read as the row's own and not as their
+         neighbours. Outside a folder the guide hangs from the centre of the
+         project mark (0.125rem in, 1rem wide, less half the 1px rule), and a
+         child title lands under the project name. A folder row has no mark,
+         so there the guide runs down from the title's first letter
+         (2.1875rem, less the row's 0.5rem pull). A child row pads its title
+         0.625rem past the guide. The guide is drawn, not a border, so it stops
+         at the last row while the list keeps its padding inside the raised
+         card. -->
     <div
-      class="border-l border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] mt-0.5 pb-2 pl-1 {inFolder
+      class="relative mt-0.5 pb-2 pl-[calc(0.25rem+1px)] before:absolute before:top-0 before:bottom-2 before:left-0 before:w-px before:bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] before:content-[''] {inFolder
         ? 'ml-[1.6875rem]'
-        : 'ml-[0.125rem]'}"
+        : 'ml-[calc(0.625rem-0.5px)]'}"
     >
       {#each shownSessions as listed (listed.tabId ?? listed.sessionId)}
         <TaskSessionRow

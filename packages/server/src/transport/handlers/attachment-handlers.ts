@@ -6,7 +6,7 @@ import type { AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentU
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
-import { assertAttachmentMime, assertGuestAttachment, attachmentFileMode, guestImageSignature, attachmentUploadPath, reserveAttachmentSlot, storeAttachment } from '../../data/assets/attachment-store'
+import { assertAttachmentMime, assertGuestAttachment, attachmentFileMode, guestImageSignature, attachmentUploadPath, namedUploadPath, reserveAttachmentSlot, storeAttachment } from '../../data/assets/attachment-store'
 import type { SolusServer } from '../server'
 import { getAssetSigningSecret, readSignedToken, signToken } from '../../admission/signed-token'
 
@@ -77,6 +77,15 @@ export async function createAttachmentUploadToken(
   request: AttachmentUploadTokenRequest,
   deps: AttachmentHandlerDeps & { secret?: Buffer; now?: number; fromGuest?: boolean } = {},
 ): Promise<AttachmentUploadTokenResult> {
+  return createUploadToken(requireBucket(ctx), request, deps)
+}
+
+/** The same capability for an upload folder that is not a conversation's, such as a browser page's. */
+export async function createUploadToken(
+  bucketId: string,
+  request: AttachmentUploadTokenRequest,
+  deps: AttachmentHandlerDeps & { secret?: Buffer; now?: number; fromGuest?: boolean; keepName?: boolean } = {},
+): Promise<AttachmentUploadTokenResult> {
   assertAttachmentMime(request.mime)
   // A guest's image is checked when its bytes arrive; a type it may never send is refused now.
   if (deps.fromGuest) guestImageSignature(request.mime)
@@ -86,7 +95,9 @@ export async function createAttachmentUploadToken(
   if (request.size > limit) {
     throw new Error(`${isVideo ? 'Videos' : 'Attachments'} can be up to ${limit / 1024 / 1024} MB.`)
   }
-  const filePath = await attachmentUploadPath(requireBucket(ctx), request.name, request.mime, deps.attachmentsDir)
+  const filePath = deps.keepName
+    ? await namedUploadPath(bucketId, request.name, deps.attachmentsDir)
+    : await attachmentUploadPath(bucketId, request.name, request.mime, deps.attachmentsDir)
   const expiresAt = (deps.now ?? Date.now()) + ATTACHMENT_UPLOAD_TOKEN_TTL_MS
   const payload: AttachmentUploadTokenPayload = { kind: 'upload', path: filePath, size: request.size, mime: request.mime, expiresAt }
   if (deps.fromGuest) payload.fromGuest = true

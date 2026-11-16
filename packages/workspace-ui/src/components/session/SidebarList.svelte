@@ -168,7 +168,7 @@
       {:else if item.kind === "folder"}
         {@render folderHeader?.(item.folder)}
       {:else if item.kind === "pinned"}
-        <div data-sidebar-section="pinned" class="-mx-2 px-2">
+        <div data-sidebar-section="pinned" data-slot="session-row" class="-mx-2 px-2">
           {@render pinnedRow(item.pin)}
         </div>
       {:else}

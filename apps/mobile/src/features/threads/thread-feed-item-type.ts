@@ -34,7 +34,7 @@ export function threadFeedItemType(
 }
 
 /** Rows that can follow the reply the agent is still writing. */
-const LIVE_TAIL_ROWS: ReadonlySet<ThreadFeedRow["type"]> = new Set(["thinking", "handoff-pending", "turn-images"]);
+const LIVE_TAIL_ROWS: ReadonlySet<ThreadFeedRow["type"]> = new Set(["thinking", "handoff-pending", "image"]);
 
 /** The agent reply still growing at the end of an active turn, if any. */
 export function streamingMessageRowId(rows: readonly ThreadFeedRow[], turnActive: boolean): string | null {

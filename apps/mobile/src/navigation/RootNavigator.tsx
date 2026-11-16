@@ -16,6 +16,7 @@ import { deriveLayout } from '../lib/layout'
 import { useMobileNavigationTheme } from '../lib/useMobileNavigationTheme'
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from '../native/native-glass'
 import { nativeHeaderScrollEdgeEffects } from '../native/StackHeader'
+import { formSheetDetents } from '../native/sheet-detents'
 import { FORM_SHEET_PRESENTATION_OPTIONS } from '../native/sheet-surface'
 import { CloudHostsScreen } from '../features/account/CloudHostsScreen'
 import { CloudSignInScreen } from '../features/account/CloudSignInScreen'
@@ -42,7 +43,7 @@ import { settingsPagesOnTop } from '../features/workspace/workspace-destinations
 import { WelcomeScreen } from '../features/onboarding/WelcomeScreen'
 import { OpenProjectScreen } from '../features/projects/OpenProjectScreen'
 import { NewProjectScreen } from '../features/projects/NewProjectScreen'
-import { OpenFolderScreen } from '../features/projects/OpenFolderScreen'
+import { CloneDestinationScreen, OpenFolderScreen } from '../features/projects/OpenFolderScreen'
 import { ProjectFromGithubScreen } from '../features/projects/ProjectFromGithubScreen'
 import { CloneProjectScreen } from '../features/projects/CloneProjectScreen'
 import { NotificationsScreen } from '../features/notifications/NotificationsScreen'
@@ -53,6 +54,8 @@ import { AgentProfileScreen } from '../features/settings/AgentProfileScreen'
 import { PolicyScreen } from '../features/policy/PolicyScreen'
 import { DeviceSettingsScreen } from '../features/devices/DeviceSettingsScreen'
 import { DevicesScreen } from '../features/devices/DevicesScreen'
+import { DevicePreviewRouteScreen } from '../features/devices/DevicePreviewRouteScreen'
+import { BrowserPreviewRouteScreen } from '../features/browser/BrowserPreviewRouteScreen'
 import { HostSettingsScreen } from '../features/settings/HostSettingsScreen'
 import { HostAccessScreen } from '../features/settings/HostAccessScreen'
 import { HostRoutesScreen } from '../features/hosts/HostRoutesScreen'
@@ -86,6 +89,7 @@ import { AppManageScreen } from '../features/apps/AppManageScreen'
 import { AppSectionScreen } from '../features/apps/AppSectionScreen'
 import { AppCallScreen } from '../features/apps/AppCallScreen'
 import { AppRunScreen } from '../features/apps/AppRunScreen'
+import { AppModelCallScreen } from '../features/apps/AppModelCallScreen'
 import { AppBuildLogScreen } from '../features/apps/AppBuildLogScreen'
 import { AppOperationScreen } from '../features/apps/AppOperationScreen'
 import { FileScreen } from '../features/files/FileScreen'
@@ -150,28 +154,25 @@ export const SHEET_GLASS_HEADER_OPTIONS: AppScreenOptions = {
 const PULL_REQUEST_SHEET_HEADER_OPTIONS: AppScreenOptions =
   Platform.OS === 'ios' ? SHEET_GLASS_HEADER_OPTIONS : { headerShown: false }
 
-/** Settings and the new-task flow, which T3 presents as sheets. */
-const SHEET_ROUTES = new Set<keyof RootStackParamList>(['Settings', 'NewTask'])
-
 /** Pairing and the Solus Cloud sign-in: a centered form sheet on a wide iPad, not a full-width page. */
 const CONNECT_SHEET_ROUTES = new Set<keyof RootStackParamList>(['PairHost', 'CloudSignIn', 'CloudHosts'])
 
 // Routes presented as sheets/overlays ON TOP of the workspace. They must not
-// influence the adaptive workspace layout: opening Settings over Home should
+// influence the adaptive workspace layout: opening Settings from Home should
 // not flip the sidebar in or change the active thread. Settings pages pushed
-// from the Settings sheet stay in it.
+// from a sheet stay in that presentation group.
 const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
-  'NewTask',
   'PairHost',
   'AddSshHost',
   'ChooseSshKey',
   'AddWslHost',
   'CloudSignIn',
   'CloudHosts',
-  'NewTaskEnvironment',
   'ThreadAgents',
   'ThreadQueue',
   'ThreadSettings',
+  'ThreadDevicePreview',
+  'ThreadBrowserPreview',
   'Settings',
   'AccountSync',
   'AgentProfile',
@@ -288,18 +289,13 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             const base: NativeStackNavigationOptions = {
               contentStyle: { backgroundColor: themeVariables['--color-screen'] },
             }
-            if (!CONNECT_SHEET_ROUTES.has(route.name) && !SHEET_ROUTES.has(route.name)) return base
+            if (!CONNECT_SHEET_ROUTES.has(route.name)) return base
             let usesFlowScreen = flowPresentations.current.get(route.key)
             if (usesFlowScreen === undefined) {
               usesFlowScreen = usesWorkspaceFlowScreens
               flowPresentations.current.set(route.key, usesFlowScreen)
             }
-            if (CONNECT_SHEET_ROUTES.has(route.name)) {
-              return Platform.OS === 'ios' && usesFlowScreen ? { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS } : base
-            }
-            return usesFlowScreen
-              ? { ...base, presentation: 'card' }
-              : { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.92], sheetGrabberVisible: true }
+            return Platform.OS === 'ios' && usesFlowScreen ? { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS } : base
           }}
         >
           <Stack.Screen
@@ -318,13 +314,13 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             name="ThreadAgents"
             component={ThreadAgentsSheet}
             // T3 Code's Agents sheet (Stack.tsx): half height, drawn up to 0.9.
-            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.5, 0.9], sheetGrabberVisible: true }}
+            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.5, 0.9), sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="ThreadQueue"
             component={ThreadQueueSheet}
             // T3 Code's Queue sheet (Stack.tsx): 0.65 of the height, drawn up to 0.95.
-            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.65, 0.95], sheetGrabberVisible: true }}
+            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.65, 0.95), sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="ThreadSettings"
@@ -342,7 +338,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen
             name="NewTask"
             component={NewTaskRouteScreen}
-            options={{ ...SHEET_GLASS_HEADER_OPTIONS, title: 'Choose project', gestureEnabled: true }}
+            options={{ ...GLASS_HEADER_OPTIONS, title: 'Choose project', gestureEnabled: true }}
           />
           {/* T3 Code's Environment screen (Stack.tsx), pushed in the new-task sheet. */}
           <Stack.Screen
@@ -358,15 +354,16 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="CloudSignIn" component={CloudSignInScreen} options={{ title: 'Solus Cloud' }} />
           <Stack.Screen name="CloudHosts" component={CloudHostsScreen} options={{ title: 'Your hosts' }} />
           <Stack.Screen name="Hosts" component={HostsScreen} options={{ title: 'Hosts', headerLargeTitle: true }} />
-          <Stack.Screen name="OpenProject" component={OpenProjectScreen} options={{ title: 'Open project' }} />
-          <Stack.Screen name="NewProject" component={NewProjectScreen} options={{ title: 'Start a new project' }} />
-          <Stack.Screen name="OpenFolder" component={OpenFolderScreen} options={{ title: 'Open an existing folder' }} />
-          <Stack.Screen name="ProjectFromGithub" component={ProjectFromGithubScreen} options={{ title: 'Get a project from GitHub' }} />
-          <Stack.Screen name="CloneProject" component={CloneProjectScreen} options={{ title: 'Clone from a URL' }} />
+          <Stack.Screen name="OpenProject" component={OpenProjectScreen} options={{ ...GLASS_HEADER_OPTIONS, title: 'Add project' }} />
+          <Stack.Screen name="NewProject" component={NewProjectScreen} options={{ ...GLASS_HEADER_OPTIONS, title: 'New project' }} />
+          <Stack.Screen name="OpenFolder" component={OpenFolderScreen} options={{ ...GLASS_HEADER_OPTIONS, title: 'Local folder' }} />
+          <Stack.Screen name="ProjectFromGithub" component={ProjectFromGithubScreen} options={{ ...GLASS_HEADER_OPTIONS, title: 'GitHub' }} />
+          <Stack.Screen name="CloneProject" component={CloneProjectScreen} options={{ ...GLASS_HEADER_OPTIONS, title: 'Git URL' }} />
+          <Stack.Screen name="CloneDestination" component={CloneDestinationScreen} options={{ ...GLASS_HEADER_OPTIONS, title: 'Clone destination' }} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications', headerLargeTitle: true }} />
           {/* Settings and its pages (SETTINGS_PAGE_ROUTES). An Android phone keeps the
               navigation bar under them when Settings was chosen from it. */}
-          <Stack.Group screenLayout={({ children }) => <WorkspaceSettingsFrame>{children}</WorkspaceSettingsFrame>}>
+          <Stack.Group screenLayout={({ children }) => <WorkspaceSettingsFrame>{children}</WorkspaceSettingsFrame>} screenOptions={SHEET_GLASS_HEADER_OPTIONS}>
             <Stack.Screen
               name="Settings"
               component={SettingsScreen}
@@ -408,44 +405,58 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen
             name="PullRequestReview"
             component={PullRequestReviewSheet}
-            options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="PullRequestAsk"
             component={PullRequestAskScreen}
-            options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="PullRequestInlineComment"
             component={PullRequestInlineCommentScreen}
             options={Platform.OS === 'android'
               ? { presentation: 'fullScreenModal', headerShown: false }
-              : { ...SHEET_GLASS_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+              : { ...SHEET_GLASS_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
           />
           <Stack.Screen name="PullRequestDiscussion" component={PullRequestDiscussionScreen} options={{ ...SOLID_HEADER_OPTIONS, title: 'Discussion' }} />
           <Stack.Screen
             name="PullRequestReviewers"
             component={PullRequestReviewersScreen}
-            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Request review', headerBackVisible: false, headerShown: Platform.OS !== 'android', sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Request review', headerBackVisible: false, headerShown: Platform.OS !== 'android', sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="PullRequestLabels"
             component={PullRequestLabelsScreen}
-            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Labels', headerBackVisible: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Labels', headerBackVisible: false, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="PullRequestEdit"
             component={PullRequestEditSheet}
-            options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="PullRequestFilterSearch"
             component={PullRequestFilterSearchScreen}
-            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Search', headerBackVisible: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Search', headerBackVisible: false, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
           />
           <Stack.Screen name="Files" component={FilesScreen} options={{ title: 'Files' }} />
           <Stack.Screen name="File" component={FileScreen} options={{ title: 'File' }} />
-          <Stack.Screen name="ThreadArtifacts" component={ArtifactsScreen} options={{ title: 'Artifacts' }} />
+          <Stack.Screen name="ThreadArtifacts" component={ArtifactsScreen} options={{ title: 'Threads' }} />
+          {/* T3 Code's device and browser viewers (Stack.tsx): the device full screen with no
+              bars and no swipe to dismiss, because a drag on it is input to the device; the
+              browser under a solid header. The browser keeps the edge swipe: with gestures off,
+              the v5 stack also ignores its Back button. */}
+          <Stack.Screen
+            name="ThreadDevicePreview"
+            component={DevicePreviewRouteScreen}
+            options={{ presentation: 'fullScreenModal', headerShown: false, gestureEnabled: false, statusBarHidden: true, navigationBarHidden: true }}
+          />
+          <Stack.Screen
+            name="ThreadBrowserPreview"
+            component={BrowserPreviewRouteScreen}
+            options={{ ...SOLID_HEADER_OPTIONS, title: 'Browser', presentation: 'modal' }}
+          />
           {/* The app frame scrolls inside its web view, so the header is solid. */}
           <Stack.Screen name="App" component={AppScreen} options={{ ...SOLID_HEADER_OPTIONS, title: 'App' }} />
           {/* The Manage screen and its pages are pushed on the app, as the pages of a pull request are. */}
@@ -453,6 +464,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="AppSection" component={AppSectionScreen} options={{ title: 'Manage' }} />
           <Stack.Screen name="AppCall" component={AppCallScreen} options={{ title: 'Call' }} />
           <Stack.Screen name="AppRun" component={AppRunScreen} options={{ title: 'Run' }} />
+          <Stack.Screen name="AppModelCall" component={AppModelCallScreen} options={{ title: 'Model call' }} />
           <Stack.Screen name="AppBuildLog" component={AppBuildLogScreen} options={{ title: 'Build log' }} />
           <Stack.Screen name="AppOperation" component={AppOperationScreen} options={{ title: 'Operation' }} />
         </Stack.Navigator>

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
+import { appAccessModeSchema, appPlatformKindSchema, appVisitorRoleSchema } from '@solus/contracts/app-deployments'
 import { appSignalActionSchema, appSignalNameSchema, type AppCallView, type AppCaller, type AppOperation, type AppSummary } from '@solus/contracts/apps'
 import type { AppModelCallView } from '@solus/contracts/app-models'
 import { integrationToolName } from '@solus/contracts/integration-types'
@@ -14,6 +15,7 @@ import type { AppModelCalls } from '../../../apps/app-model-calls'
 import type { AppSignals } from '../../../apps/app-signals'
 import type { AppWorkflows } from '../../../apps/app-workflows'
 import { mayUseApps, type AppAuthority, type Apps } from '../../../apps/apps'
+import type { AppDeployments } from '../../../apps/deployments/app-deployments'
 import { APP_PREVIEW_DEFAULT_WIDTH, APP_PREVIEW_HEIGHT, previewArtifactHtml, type HtmlPreview } from '../../../data/works/artifact-preview'
 import { linkSessionItem } from '../../../data/sessions/session-links'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
@@ -31,7 +33,8 @@ const log = createLogger('apps', 'app-tools.ts')
  * make it the active version, `preview_app` shows the agent the project's UI
  * and saves nothing, `checkout_app` writes a revision's source into a folder,
  * `list_apps` says what the host has, `inspect_app` reads what an agent needs
- * to repair an app, and `set_app_signal_action` makes a signal do something.
+ * to repair an app, `retry_app_run` starts a failed workflow run again on the
+ * active version, and `set_app_signal_action` makes a signal do something.
  * Each operation of a running app is also a tool of its own, named
  * `<slug>__<operation>` as an integration's tools are.
  */
@@ -43,6 +46,8 @@ export interface AppToolParts {
   workflows: AppWorkflows
   signals: AppSignals
   modelCalls: AppModelCalls
+  /** Where an app is published (docs/plans/app-deploy.md). Absent on a host that cannot publish. */
+  deployments?: AppDeployments
 }
 
 let parts: AppToolParts | null = null
@@ -220,9 +225,110 @@ export const deployAppAgentTool: AgentTool<typeof deployFields> = {
       if (deployed.permissionsNotice) lines.push(deployed.permissionsNotice)
       if (deployed.secretsMissing.length) lines.push(`Not set: ${deployed.secretsMissing.join(', ')}. Tell the user to set ${deployed.secretsMissing.length === 1 ? 'it' : 'them'} on the app's Manage page, under Secrets. An operation that needs one fails until then.`)
       if (app.operationCount > 0) lines.push(app.agentAccess ? `Its operations are tools named ${app.slug}__<operation> from the next turn.` : 'The owner turned off agent access for this app, so its operations are not tools.')
+      // A fix is proven when the run that failed passes on it: the deploy alone leaves that failure in front of the owner.
+      const stale = app.attention.filter((item) => item.kind === 'workflow-stale')
+      if (stale.length) {
+        lines.push(`Failed on an older version: ${stale.map((item) => `${item.detail} (run ${item.runId})`).join(' ')}`)
+        lines.push(`If this version fixes ${stale.length === 1 ? 'it' : 'them'}, run ${stale.length === 1 ? 'it' : 'each'} again with retry_app_run and check the result with inspect_app before you tell the user it is fixed.`)
+      }
       return { ok: true, text: lines.join('\n') }
     } catch (error) {
       return refusal('deploy_app', thrown(error instanceof Error ? error : String(error)))
+    }
+  },
+}
+
+const retryRunFields = {
+  app: z.string().describe('The slug of the app.'),
+  run_id: z.string().describe('The id of the failed run, from deploy_app or inspect_app.'),
+} as const
+
+const publishFields = {
+  app: z.string().describe('The slug of the app.'),
+  platform: appPlatformKindSchema.optional().describe('Where the copy runs, on a first publish: "docker" is a container (the default), "solus-cloud" is Solus Cloud, where it runs while this host is off.'),
+  host: z.string().optional().describe('On a first publish to "docker": the id or the name of another host of the user that runs the container. Omit it to run the container on this host.'),
+  access: appAccessModeSchema.optional().describe('Who the published copy answers: "link" is each person who has its link (the default of a first publish; private until the link is given), "public" is each person, "people" is only the people that the user names in the Deployment section of the Manage page, who each sign in to Solus. Omit it to keep what the copy has.'),
+  role: appVisitorRoleSchema.optional().describe('What a visitor may do: "editor" runs queries and mutations (the default of a first publish), "viewer" runs queries only. Omit it to keep what the copy has.'),
+  new_link: z.boolean().optional().describe('True makes a new link: the old one stops.'),
+} as const
+
+function requireDeployments(): AppDeployments {
+  const { deployments } = requireParts()
+  if (!deployments) throw new Error('This host cannot publish an app.')
+  return deployments
+}
+
+export const publishAppAgentTool: AgentTool<typeof publishFields> = {
+  name: 'publish_app',
+  description: 'Publish the active version of an app: it runs as a copy in a container of its own, with its own data and an address that other people open in a browser. The app in Solus does not change. Deploy the version with deploy_app first. A published copy uses only the app\'s `appIntegrations`.',
+  inputFields: publishFields,
+  requiresApproval: true,
+  execute: async (input) => {
+    try {
+      const published = await requireDeployments().publish(toolAuthority(), { appId: input.app.trim(), platform: input.platform, hostId: input.host?.trim() || undefined, access: input.access, role: input.role, newLink: input.new_link })
+      const { deployment } = published
+      if (!published.active) return { ok: false, text: `Version of "${input.app}" did not start in its deployment: ${published.error} Version ${deployment.version} still runs there. Fix the app, deploy it with deploy_app, and publish again.` }
+      const who = { public: 'It is public: each person who has the address can open it.', link: 'It is private: only a person who has the link can open it.', people: 'Only the user and the people they named can open it, after a sign-in to Solus. The user names them in the Deployment section of the Manage page.' }[deployment.access]
+      const lines = [`Published version ${deployment.version} of "${input.app}". ${who}`]
+      lines.push(`Give the user this ${deployment.access === 'link' ? 'link' : 'address'}, exactly as it is: ${deployment.link}`)
+      lines.push('The published copy has its own data. What the user did in the app in Solus is not there.')
+      return { ok: true, text: lines.join('\n') }
+    } catch (error) {
+      return refusal('publish_app', thrown(error instanceof Error ? error : String(error)))
+    }
+  },
+}
+
+const exportFields = {
+  app: z.string().describe('The slug of the app.'),
+  path: z.string().describe('The absolute path of a new or empty folder for the build context.'),
+} as const
+
+export const exportAppAgentTool: AgentTool<typeof exportFields> = {
+  name: 'export_app',
+  description: 'Write the build context of a self-contained Docker image of an app\'s active version into a folder: a Dockerfile, the version, and a README with the docker commands and the env vars. Use it when the user wants to run the app on a platform of their own. The image has no Solus: integrations and signals do not work in it.',
+  inputFields: exportFields,
+  requiresApproval: false,
+  execute: async (input) => {
+    try {
+      const exported = await requireDeployments().exportImage(toolAuthority(), input.app.trim(), resolveHomePath(input.path.trim()))
+      return { ok: true, text: `Wrote the build context of version ${exported.version} to ${exported.folder}. Its README has the commands.${exported.env.length ? ` The app needs these env vars: ${exported.env.join(', ')}.` : ''}` }
+    } catch (error) {
+      return refusal('export_app', thrown(error instanceof Error ? error : String(error)))
+    }
+  },
+}
+
+const unpublishFields = {
+  app: z.string().describe('The slug of the app.'),
+} as const
+
+export const unpublishAppAgentTool: AgentTool<typeof unpublishFields> = {
+  name: 'unpublish_app',
+  description: 'Remove the published copy of an app, with all the data that copy holds. The app in Solus does not change. Ask the user before you call this: the data cannot come back.',
+  inputFields: unpublishFields,
+  requiresApproval: true,
+  execute: async (input) => {
+    try {
+      await requireDeployments().unpublish(toolAuthority(), input.app.trim())
+      return { ok: true, text: `The app ${input.app.trim()} is not published now. Its container and the data in it are gone.` }
+    } catch (error) {
+      return refusal('unpublish_app', thrown(error instanceof Error ? error : String(error)))
+    }
+  },
+}
+
+export const retryAppRunAgentTool: AgentTool<typeof retryRunFields> = {
+  name: 'retry_app_run',
+  description: 'Start a failed workflow run of an app again on its active version: its failed step runs again, and its finished steps answer from their receipts. Use it after a deploy that fixes the failure, then read the run with inspect_app.',
+  inputFields: retryRunFields,
+  requiresApproval: false,
+  execute: async (input) => {
+    try {
+      const run = await requireParts().workflows.retry(toolAuthority(), input.app.trim(), input.run_id.trim())
+      return { ok: true, text: `The run ${run.id} of ${run.workflow} runs again${run.version === null ? '' : ` on version ${run.version}`}. Read its result with inspect_app, view "run", id "${run.id}".` }
+    } catch (error) {
+      return refusal('retry_app_run', thrown(error instanceof Error ? error : String(error)))
     }
   },
 }
@@ -318,7 +424,9 @@ function callerText(caller: AppCaller): string {
 }
 
 function callLine(call: AppCallView): string {
-  return `- ${call.id} ${time(call.startedAt)} ${call.operation} (${callerText(call.caller)}, v${call.version}): ${call.outcome}, ${ms(call.durationMs)}${call.error ? ` — ${call.error}` : ''}`
+  // A model call goes by its setting; its id opens it with the view `model`.
+  const what = call.kind === 'model' ? `model call ${call.operation}` : call.operation
+  return `- ${call.id} ${time(call.startedAt)} ${what} (${callerText(call.caller)}, v${call.version}): ${call.outcome}, ${ms(call.durationMs)}${call.error ? ` — ${call.error}` : ''}`
 }
 
 type InspectInput = z.output<z.ZodObject<typeof inspectFields>>
@@ -367,7 +475,7 @@ async function inspectCall(slug: string, input: InspectInput): Promise<string> {
 
 async function inspectRuns(slug: string, input: InspectInput): Promise<string> {
   const runs = await requireParts().workflows.list(toolAuthority(), slug, { limit: input.limit ?? 20 })
-  return runs.length ? runs.map((run) => `- ${run.id} ${run.workflow}: ${run.state}, started ${time(run.startedAt)}, ${run.stepCount} steps${run.wakeAt ? `, wakes ${time(run.wakeAt)}` : ''}${run.error ? ` — ${run.error}` : ''}`).join('\n') : 'This app has no run.'
+  return runs.length ? runs.map((run) => `- ${run.id} ${run.workflow}: ${run.state}${run.version === null ? '' : ` on version ${run.version}`}${run.dismissedAt ? ' (dismissed)' : ''}, started ${time(run.startedAt)}, ${run.stepCount} steps${run.wakeAt ? `, wakes ${time(run.wakeAt)}` : ''}${run.error ? ` — ${run.error}` : ''}`).join('\n') : 'This app has no run.'
 }
 
 async function inspectRun(slug: string, input: InspectInput): Promise<string> {

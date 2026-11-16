@@ -10,7 +10,7 @@ import { isRepositoryKey } from '@solus/contracts/repository-key'
 import type { AgentId, SessionMeta, SessionRecordListFilter, SessionSearchResult } from '@solus/contracts/types'
 import { isChat } from '@solus/contracts/chat'
 import { localProjectParts } from '@solus/client-core/project-identity'
-import { projectsStore } from '../../../../contexts/projects/projects.store.svelte'
+import { CHATS_GROUP_KEY, projectsStore } from '../../../../contexts/projects/projects.store.svelte'
 import { hosts } from '../../../../contexts/hosts/hosts.svelte'
 import { serversStore } from '../../../../contexts/connections/servers.store.svelte'
 import { toasts } from '../../../../lib/toasts'
@@ -159,6 +159,8 @@ export class ConversationSearch {
     const homes = this.hosts.searchServerIds().flatMap((serverId): SessionSearchHome[] => {
       if (options.serverId && serverId !== options.serverId && !isSolusApiId(serverId)) return []
       if (!projectRoot) return [{ serverId }]
+      // The chats scope asks each home for its chats alone.
+      if (projectRoot === CHATS_GROUP_KEY) return [{ serverId, scope: CHATS }]
       const scope = this.scopeOnHost(serverId, projectRoot)
       const requests: SessionSearchHome[] = scope ? [{ serverId, scope }] : []
       if (!isChat(projectRoot)) requests.push({ serverId, scope: CHATS })
@@ -254,11 +256,13 @@ export class RecentSessions {
     const serverIds = this.hosts.searchServerIds()
     const perHost = await Promise.all(
       serverIds.map(async (serverId): Promise<{ sessions: SessionMeta[]; indexing: boolean; error?: string; passedOver?: boolean }> => {
-        const scope = projectRoot ? this.scopeOnHost(serverId, projectRoot) : undefined
+        const chatsOnly = projectRoot === CHATS_GROUP_KEY
+        const scope = projectRoot && !chatsOnly ? this.scopeOnHost(serverId, projectRoot) : undefined
         const filters: SessionRecordListFilter[] = []
-        if (scope !== null) {
+        if (scope !== null && !chatsOnly) {
           filters.push(!scope ? { scope: 'all' } : 'repositoryKey' in scope ? { repositoryKey: scope.repositoryKey, scope: 'all' } : { projectPath: scope.projectRoot, includeWorktrees: true, scope: 'all' })
         }
+        // The chats scope lists the chats alone.
         if (projectRoot && !isChat(projectRoot)) filters.push({ ...CHATS, scope: 'all' })
         if (!filters.length) return { sessions: [], indexing: false, passedOver: true }
         try {

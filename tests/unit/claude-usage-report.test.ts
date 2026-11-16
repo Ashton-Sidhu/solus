@@ -100,4 +100,57 @@ describe('claudeUsageFromApi', () => {
     expect(usage?.fiveHour).toEqual({ usedPercent: 0, resetsAt: null, resetsLabel: null })
     expect(usage?.weekly).toBeNull()
   })
+
+  // An Enterprise seat has no 5h or weekly window; its limit is a monthly spend
+  // cap. Reading that as "no data" left the meter marked unavailable for good.
+  test('reads an Enterprise seat\'s monthly spend cap when no window is reported', () => {
+    const usage = claudeUsageFromApi(apiResponse({
+      subscription_type: 'enterprise',
+      rate_limits: {
+        five_hour: null,
+        seven_day: null,
+        extra_usage: { is_enabled: true, monthly_limit: 100000, used_credits: 31459, utilization: 31.459 },
+      },
+    }))
+    expect(usage).toEqual({
+      fiveHour: null,
+      weekly: null,
+      monthly: { usedPercent: 31.459, resetsAt: null, resetsLabel: null },
+      planType: 'enterprise',
+    })
+  })
+
+  test('works out the spend cap percent from credits when utilization is missing', () => {
+    const usage = claudeUsageFromApi(apiResponse({
+      rate_limits: {
+        five_hour: null,
+        seven_day: null,
+        extra_usage: { is_enabled: true, monthly_limit: 200, used_credits: 50, utilization: null },
+      },
+    }))
+    expect(usage?.monthly?.usedPercent).toBe(25)
+  })
+
+  // On a Pro or Max seat, extra usage is overage beyond the windows, not the
+  // limit, so it must not appear as one.
+  test('ignores extra usage on a seat that reports windows', () => {
+    const usage = claudeUsageFromApi(apiResponse({
+      rate_limits: {
+        five_hour: { utilization: 10, resets_at: null },
+        seven_day: null,
+        extra_usage: { is_enabled: true, monthly_limit: 5000, used_credits: 100, utilization: 2 },
+      },
+    }))
+    expect(usage?.monthly).toBeUndefined()
+  })
+
+  test('reports no data when there is neither a window nor a spend limit', () => {
+    expect(claudeUsageFromApi(apiResponse({
+      rate_limits: {
+        five_hour: null,
+        seven_day: null,
+        extra_usage: { is_enabled: false, monthly_limit: null, used_credits: null, utilization: null },
+      },
+    }))).toBeNull()
+  })
 })

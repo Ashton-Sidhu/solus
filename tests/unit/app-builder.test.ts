@@ -87,7 +87,7 @@ describeWithTools('the host\'s build of a revision', () => {
   test('a build with a protocol this host does not run is refused, with the protocols it runs', async () => {
     // WHY (decision 22): a build names its protocol. A host must never run a build with a `ctx` it does not know.
     await expect(builder().buildRevision('app-3', revision({ 'package.json': '{}', 'build.json': descriptor({ solusApp: 9 }) })))
-      .rejects.toThrow('This build has protocol 9. This host runs the protocols 2 and 3.')
+      .rejects.toThrow('This build has protocol 9. This host runs the protocols 2 and 3 and 4.')
   })
 
   test('two builds of one app run one after the other', async () => {

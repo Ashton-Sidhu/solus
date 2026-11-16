@@ -250,6 +250,7 @@
   tabindex="-1"
   data-tab-id={session.tabId}
   data-nested-session=""
+  data-slot="session-row"
 
   aria-selected={isCurrent}
   aria-label={session.label}

@@ -1,6 +1,6 @@
 import { untrack } from 'svelte'
 import type { TurnSnapshot } from '@solus/contracts/git-types'
-import type { SessionArtifacts } from '@solus/contracts/session-artifacts'
+import type { SessionArtifact, SessionArtifacts } from '@solus/contracts/session-artifacts'
 import type { Session } from '@solus/contracts/types'
 import type { TurnSpan } from '@solus/client-core/session-artifact-chips'
 import {
@@ -15,6 +15,8 @@ import {
   type ScopedArtifacts,
 } from '@solus/client-core/session-overview'
 import type { TimelineTurn } from '@solus/client-core/turn-timeline'
+import { recentArtifacts, type RecentArtifact } from '@solus/client-core/recent-artifacts'
+import { artifactOpensStore } from '../../../contexts/sessions/artifact-opens.store.svelte'
 import { sessionArtifactsStore } from '../../../contexts/sessions/session-artifacts.store.svelte'
 import { projectRoot } from '../../../contexts/workspace/run-location'
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
@@ -25,7 +27,7 @@ import { diffSummaryStore, type DiffSummaryScope } from '../../conversation/diff
 import { runIsLive } from '../../conversation/lib/turns'
 import { railAgentList, type RailAgentRow } from '../../project-panel/lib/rail-agents'
 import { artifactMatchesQuery } from './lib/artifact-list'
-import { agentLinkCounts, overviewTiles, textMatchesQuery, type AgentLinkCounts, type OverviewKind, type OverviewTile } from './lib/overview-view'
+import { textMatchesQuery } from './lib/overview-view'
 import { scanSessionActivity, turnMessages, type SessionActivity } from './lib/session-activity'
 
 type OverviewWorkspace = Pick<WorkspaceContext, 'sessions' | 'lifecycle' | 'tabIdForSession'>
@@ -33,22 +35,19 @@ type OverviewWorkspace = Pick<WorkspaceContext, 'sessions' | 'lifecycle' | 'tabI
 const NO_ACTIVITY: SessionActivity = { turns: [], toolCallTimes: [], promptIndexes: [], agentMessages: [] }
 
 /**
- * What the Artifacts surface shows for one session, and the scope it shows it
+ * What the Threads surface shows for one session, and the scope it shows it
  * in (docs/plans/session-artifacts.md). The timeline and the agents come from
  * the session's transcript, so they need the conversation open in this
  * workspace. The linked artifacts come from the host's read, so they show for
  * any session. The changed files come from git, through the session's turn
  * checkpoints.
  *
- * The scope is a turn or the whole session; the kind narrows the cards to one
- * tile; the query narrows the rows. The tiles count the scope, not the query:
- * a search looks for a row, it does not change how much the turn did.
+ * The scope is a turn or the whole session, and the query narrows the rows.
+ * The row of recent artifacts at the top is the whole session's, in neither.
  */
 export class SessionOverview {
   /** The turn the surface is scoped to, by its prompt's id, so it holds when earlier history loads. */
   scopeTurnId = $state<string | null>(null)
-  /** The one kind whose card shows. Null shows every kind. */
-  kind = $state<OverviewKind | null>(null)
   query = $state('')
   /** The present moment, which a live turn ends at and a running agent counts to. The surface ticks it. */
   now = $state(Date.now())
@@ -128,11 +127,10 @@ export class SessionOverview {
     ].join('\n'),
   )
 
-  /** What a started session linked. Null for a sub-agent, and until the artifacts are read. */
-  linksOf(row: RailAgentRow): AgentLinkCounts | null {
-    if (row.kind !== 'session') return null
-    const items = this.artifacts?.children.find((group) => group.sessionId === row.id)?.items
-    return items ? agentLinkCounts(items) : null
+  /** What a started session linked, newest first. Empty for a sub-agent, and until the artifacts are read. */
+  linksOf(row: RailAgentRow): readonly SessionArtifact[] {
+    if (row.kind !== 'session') return []
+    return this.artifacts?.children.find((group) => group.sessionId === row.id)?.items ?? []
   }
 
   // ─── Changes ───
@@ -165,18 +163,16 @@ export class SessionOverview {
   // ─── Linked artifacts ───
 
   private readonly owned: OwnedArtifact[] = $derived.by(() => (this.artifacts ? ownedArtifacts(this.artifacts, this.sessionId()) : []))
-  private readonly scopedLinked: ScopedArtifacts = $derived.by(() => scopedArtifacts(this.owned, this.scope, () => true))
   readonly linked: ScopedArtifacts = $derived.by(() =>
     scopedArtifacts(this.owned, this.scope, (artifact) => artifactMatchesQuery(artifact, this.query)),
   )
 
+  /** The works, apps, files, and images to show first: pinned, then the latest opened, changed, or linked. */
+  readonly recent: RecentArtifact[] = $derived.by(() => recentArtifacts(this.owned, (artifact) => artifactOpensStore.openedAt(artifact)))
+
   // ─── The whole ───
 
-  readonly tiles: OverviewTile[] = $derived.by(() =>
-    overviewTiles(this.scopedChanges, this.scopedAgents, this.scopedLinked.pullRequests, this.scopedLinked.items),
-  )
-
-  /** Whether the session has anything at all to show: before any scope, kind, or search. */
+  /** Whether the session has anything at all to show: before any scope or search. */
   readonly hasAnything: boolean = $derived.by(
     () =>
       this.activity.turns.length > 0 ||
@@ -185,15 +181,9 @@ export class SessionOverview {
       (this.session?.sessionChangedFiles.length ?? 0) > 0,
   )
 
-  /** Whether the kind's card shows: the kind is not narrowed away, and it has rows. */
-  shows(kind: OverviewKind, rowCount: number): boolean {
-    return rowCount > 0 && (this.kind === null || this.kind === kind)
-  }
-
-  /** Back to everything: the whole session, every kind, no search. */
+  /** Back to everything: the whole session, no search. */
   clear(): void {
     this.scopeTurnId = null
-    this.kind = null
     this.query = ''
   }
 }

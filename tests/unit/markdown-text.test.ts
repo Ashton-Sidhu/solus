@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   fileChipParts,
   fileMentionTarget,
+  linkChipCopyParts,
   tokenizeMarkdownText,
 } from "@solus/workspace-ui/components/conversation/lib/markdown-text";
+import { parseReferenceTokens } from "@solus/workspace-ui/components/editor/reference-tokens";
 
 describe("user message inline tokens", () => {
   test("keeps a colon-qualified slash command in one chip", () => {
@@ -84,5 +86,31 @@ describe("user message inline tokens", () => {
       label: "renderer",
       suffix: "/",
     });
+  });
+});
+
+describe("a chip drawn from a link", () => {
+  test("copies as the whole link, so a paste into the composer is the same chip", () => {
+    // WHY: a chip shows only its label. A copy that carried only the label
+    // would paste a bare name: a host chip would name no host, and a session
+    // chip no session.
+    for (const [label, href, kind] of [
+      ["studio-mini", "host://ref?serverId=install-1&state=online", "host"],
+      ["Editor research", "session://ref?provider=codex&sessionId=s2&cwd=%2Frepo", "session"],
+      ["Architecture", "work://ref?workId=w1&type=doc", "work"],
+      ["#42 Make typing fast", "pr://ref?number=42", "pr"],
+      ["Ship plan", "plan://ref?planId=p1&sessionId=s1&planToolUseId=t1&status=pending", "plan"],
+    ] as const) {
+      const parts = linkChipCopyParts(href);
+      const copied = `${parts.open}${label}${parts.close}`;
+
+      expect(copied).toBe(`[${label}](${href})`);
+      expect(parseReferenceTokens(copied).map((range) => range.token.kind)).toEqual([kind]);
+    }
+  });
+
+  test("an image embed copies as an image, not as a link", () => {
+    const parts = linkChipCopyParts("asset://a1", true);
+    expect(`${parts.open}diagram${parts.close}`).toBe("![diagram](asset://a1)");
   });
 });

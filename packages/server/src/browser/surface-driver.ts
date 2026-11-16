@@ -1,7 +1,10 @@
 import type {
   BrowserAppearance,
   BrowserConsoleEntry,
+  BrowserDialogAnswer,
+  BrowserFileChooser,
   BrowserHostKind,
+  BrowserPageDialog,
   BrowserNavigateOp,
   BrowserNetworkEntry,
   BrowserSurfaceReport,
@@ -55,6 +58,15 @@ export interface BrowserSurfaceDriver {
   answerDialog(answer: BrowserDialogAnswer): Promise<BrowserDialog | null>
   /** The dialog open now and the last one that opened, answered or not. */
   dialogs(): BrowserDialogState
+  /**
+   * Hear what the guest asks of a person: a dialog, a file chooser, or a
+   * finished download. One listener per driver; the registry sets it when it
+   * takes the driver and publishes each on the page.
+   */
+  watchGuest(events: BrowserGuestEvents): void
+  /** Give the open file chooser these host files, or cancel it with null.
+   *  False when no chooser is open. */
+  answerFileChooser(paths: string[] | null): Promise<boolean>
   insertText(text: string): Promise<void>
   pressKey(key: string): Promise<void>
   scrollAt(x: number, y: number, deltaY: number): Promise<void>
@@ -76,11 +88,17 @@ export interface BrowserSurfaceDriver {
   dispose(): Promise<void>
 }
 
-export interface BrowserDialog {
-  type: 'alert' | 'confirm' | 'prompt' | 'beforeunload'
-  message: string
-  /** Counts up per guest, so a caller sees whether its action opened one. */
-  sequence: number
+/** The `sequence` counts up per guest, so a caller sees whether its action opened one. */
+export type BrowserDialog = BrowserPageDialog
+export type { BrowserDialogAnswer }
+
+/** What a guest asks of a person, as the driver hears it. */
+export interface BrowserGuestEvents {
+  dialog(open: BrowserDialog | null): void
+  fileChooser(open: BrowserFileChooser | null): void
+  /** A finished download at a temporary path. The listener copies it before it
+   *  returns; the driver deletes the file afterwards. */
+  downloaded(file: { fileName: string; path: string }): Promise<void>
 }
 
 const DIALOG_TYPES: readonly BrowserDialog['type'][] = ['alert', 'confirm', 'prompt', 'beforeunload']
@@ -88,12 +106,6 @@ const DIALOG_TYPES: readonly BrowserDialog['type'][] = ['alert', 'confirm', 'pro
 /** A dialog type as the guest named it. An unknown name reads as an alert. */
 export function browserDialogType(raw: string): BrowserDialog['type'] {
   return DIALOG_TYPES.find((type) => type === raw) ?? 'alert'
-}
-
-export interface BrowserDialogAnswer {
-  accept: boolean
-  /** The text a `prompt` returns when accepted. */
-  promptText?: string
 }
 
 export interface BrowserDialogState {
@@ -111,6 +123,8 @@ export class BrowserDialogTracker {
   private waiting: BrowserDialogAnswer | null = null
   private current: { dialog: BrowserDialog; respond: (answer: BrowserDialogAnswer) => Promise<void> } | null = null
   private last: BrowserDialogState['last'] = null
+  /** Told when the open dialog changes, so a person can be asked. */
+  listener: ((open: BrowserDialog | null) => void) | null = null
 
   /** A dialog opened. A waiting answer settles it at once; else `fallback`
    *  does, when the driver has one; else it stays open for `answer`. */
@@ -119,13 +133,19 @@ export class BrowserDialogTracker {
     message: string,
     respond: (answer: BrowserDialogAnswer) => Promise<void>,
     fallback: BrowserDialogAnswer | null,
+    defaultPrompt?: string,
   ): Promise<void> {
     const dialog: BrowserDialog = { type, message, sequence: ++this.sequence }
+    if (type === 'prompt' && defaultPrompt) dialog.defaultPrompt = defaultPrompt
     this.last = { ...dialog, answer: null }
     const answer = this.waiting ?? fallback
     this.waiting = null
-    if (answer) await this.settle(dialog, respond, answer)
-    else this.current = { dialog, respond }
+    if (answer) {
+      await this.settle(dialog, respond, answer)
+      return
+    }
+    this.current = { dialog, respond }
+    this.listener?.(dialog)
   }
 
   /** The guest closed the open dialog, for example because a person answered it. */
@@ -133,6 +153,7 @@ export class BrowserDialogTracker {
     if (!this.current) return
     if (this.last?.sequence === this.current.dialog.sequence) this.last.answer = accepted ? 'accepted' : 'dismissed'
     this.current = null
+    this.listener?.(null)
   }
 
   async answer(answer: BrowserDialogAnswer): Promise<BrowserDialog | null> {
@@ -142,6 +163,7 @@ export class BrowserDialogTracker {
       return null
     }
     this.current = null
+    this.listener?.(null)
     await this.settle(current.dialog, current.respond, answer)
     return current.dialog
   }
@@ -160,11 +182,61 @@ export class BrowserDialogTracker {
   }
 }
 
+/**
+ * The file chooser a guest opened, which waits for files. Both drivers keep
+ * one: a new chooser replaces the last, and a navigation forgets it.
+ */
+export class BrowserFileChooserSlot {
+  private sequence = 0
+  private current: { chooser: BrowserFileChooser; respond: (paths: string[]) => Promise<void> } | null = null
+  listener: ((open: BrowserFileChooser | null) => void) | null = null
+
+  opened(multiple: boolean, respond: (paths: string[]) => Promise<void>): void {
+    this.current = { chooser: { multiple, sequence: ++this.sequence }, respond }
+    this.listener?.(this.current.chooser)
+  }
+
+  /** Give the chooser files, or cancel it with null: the page then gets no change. */
+  async answer(paths: string[] | null): Promise<boolean> {
+    const current = this.current
+    if (!current) return false
+    this.forget()
+    if (paths) await current.respond(current.chooser.multiple ? paths : paths.slice(0, 1))
+    return true
+  }
+
+  forget(): void {
+    if (!this.current) return
+    this.current = null
+    this.listener?.(null)
+  }
+}
+
 export interface BrowserEmulation {
   viewport: BrowserViewport
   appearance: BrowserAppearance
   /** Absent keeps the host browser's own agent — correct for desktop presets. */
   userAgent?: string
+  /** The page's zoom. Absent is 1. */
+  zoom?: number
+}
+
+/**
+ * The metrics a guest emulates for a zoomed page: its viewport divided by the
+ * zoom, as a browser's own zoom lays a page out. A headless screencast is the
+ * size of that CSS viewport, so the frame a client fits into its pane already
+ * shows the page zoomed. A guest a person sees in a pane is drawn at the
+ * pane's size, so its view is scaled back up by the zoom (`scale`).
+ */
+export function guestMetrics(emulation: BrowserEmulation, kind: Exclude<BrowserHostKind, 'none'>): {
+  width: number
+  height: number
+  scale?: number
+} {
+  const zoom = emulation.zoom ?? 1
+  const width = Math.max(1, Math.round(emulation.viewport.width / zoom))
+  const height = Math.max(1, Math.round(emulation.viewport.height / zoom))
+  return zoom !== 1 && kind === 'webview' ? { width, height, scale: zoom } : { width, height }
 }
 
 /** The caps a stream is started with. Device-pixel bounds and a JPEG quality:
@@ -200,7 +272,7 @@ export interface AppliedEmulation {
 export function emulationRecord(emulation: BrowserEmulation, hostUserAgent: string): AppliedEmulation {
   const { viewport } = emulation
   return {
-    metrics: `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}${viewport.hasTouch ? 'm' : ''}`,
+    metrics: `${viewport.width}x${viewport.height}@${viewport.deviceScaleFactor}${viewport.hasTouch ? 'm' : ''}*${emulation.zoom ?? 1}`,
     hasTouch: viewport.hasTouch,
     userAgent: emulation.userAgent ?? hostUserAgent,
     appearance: emulation.appearance,

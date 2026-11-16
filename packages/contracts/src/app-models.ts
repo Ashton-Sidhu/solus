@@ -36,8 +36,10 @@ export const appModelRequestSchema = z.object({
   tools: z.array(declaredNameSchema).max(APP_MODEL_MAX_TOOLS).default([]),
   /** The JSON Schema of the result; the runner made it from the app's zod schema. Without one, the result is the text. */
   output: appJsonSchemaSchema.optional(),
-  effort: z.enum(APP_MODEL_EFFORTS).default('low'),
-  timeoutSeconds: z.number().int().min(10).max(APP_MODEL_MAX_TIMEOUT_SECONDS).default(APP_MODEL_DEFAULT_TIMEOUT_SECONDS),
+  effort: z.string().transform((effort) => effort.toLowerCase()).pipe(z.enum(APP_MODEL_EFFORTS)).default('low'),
+  /** Held to 10 to 900 seconds, as a workflow step's timeout is held to its range. */
+  timeoutSeconds: z.number().default(APP_MODEL_DEFAULT_TIMEOUT_SECONDS)
+    .transform((seconds) => Math.min(Math.max(Math.round(seconds), 10), APP_MODEL_MAX_TIMEOUT_SECONDS)),
 })
 export type AppModelRequest = z.infer<typeof appModelRequestSchema>
 

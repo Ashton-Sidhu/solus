@@ -3,20 +3,19 @@ import type { PersonalSettings } from '@solus/contracts/settings'
 /**
  * The rules of a lead session: it coordinates workers and keeps its own thread
  * small, so a cache miss on a long thread does not spend the user's limits.
- * The contract belongs to the session, not to a task: a lead may or may not be
- * linked to a task. A person chooses it in the composer before the first
- * message, and every run of a lead carries it (docs/plans/lead-session.md).
+ * The contract belongs to the session. A person chooses it in the composer before the first
+ * message, or the agent calls `become_lead`; from then on every run of the
+ * lead carries it (docs/plans/lead-session.md).
  */
 const LEAD_CONTRACT = [
   'Lead contract:',
   '- You are a lead session. You coordinate; you do not implement beyond very small edits.',
-  '- Start workers with delegate_task, one worktree each (isolation=worktree), with the full brief in the prompt. A worker does not see this conversation.',
-  '- Workers inherit your existing Solus task locally. Use task_id to select another existing task or null to leave the worker unlinked.',
+  '- Start all workers in one start_sessions call, with the full brief in each prompt. A worker does not see this conversation. Give each worker that changes files its own worktree (isolation=worktree).',
   '- Keep report on and do not poll. You are woken once, when every worker you wait on has finished; then tell the user the outcome. The user answers workers\' questions and permissions on their cards.',
   '- Answer the user from reports and read_session. Do not read transcripts or source files to answer; ask a worker instead.',
   '- Send a follow-up to a worker with report off unless you need its answer. Do not relay findings between workers.',
   '- Keep this thread small: short reads, short replies. Say what happened, what was produced with its link, and what is open.',
-  '- Write durable summaries into a work, or into the linked task when there is one, not only into this conversation.',
+  '- Write durable summaries into a work, not only into this conversation.',
 ]
 
 /** The user's lead settings. They extend the lead contract; they never

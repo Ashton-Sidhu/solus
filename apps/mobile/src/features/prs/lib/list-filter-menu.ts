@@ -69,7 +69,7 @@ const CHOICES = {
     if (next === '') return { ...value, hostId: null }
     return hostIds.includes(next) ? pullRequestPreferencesForHost(value, next) : null
   },
-  reset: (_next, { value }) => ({ ...DEFAULT_PULL_REQUEST_LIST_PREFERENCES, hostId: value.hostId }),
+  reset: (next, { value }) => ({ ...DEFAULT_PULL_REQUEST_LIST_PREFERENCES, hostId: next === 'host' ? null : value.hostId }),
   state: (next, { value }) => {
     const state = oneOf(STATES, next)
     return state ? { ...value, state } : null

@@ -1,3 +1,4 @@
+import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 import { useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { MODEL_PROFILES } from "@solus/contracts/types";
@@ -44,7 +45,7 @@ export function ProviderInstanceModelsSection({ instance, onChange }: { instance
     close();
   }
   function close() { setId(""); setLabel(""); setCopyFrom(""); setError(""); setAdding(false); }
-  return <SettingsSection title="Models">
+  return <SettingsSection title={settingsDefinitions["providers.section-models"].label}>
     <ModelField label="Filter models" value={query} onChange={setQuery} />
     <SettingsActionRow icon="eye" label={instance.hiddenModels.length ? "Show all models" : "Hide all models"} onPress={() => onChange({ ...instance, hiddenModels: instance.hiddenModels.length ? [] : Object.keys(MODEL_PROFILES[instance.provider] ?? {}) })} />
     {"auto".includes(query.trim().toLowerCase()) ? <View className="flex-row items-center gap-2 px-4 py-3">
@@ -57,7 +58,7 @@ export function ProviderInstanceModelsSection({ instance, onChange }: { instance
     <SettingsActionRow icon="plus" label={adding ? "Cancel custom model" : "Add custom model"} onPress={() => (adding ? close() : setAdding(true))} />
     {adding ? <View className="gap-2">
       <ModelField label="Model ID" value={id} placeholder="Exact ID the provider accepts" onChange={setId} />
-      <ModelField label="Display name" value={label} placeholder="Same as model ID" onChange={setLabel} />
+      <ModelField label={settingsDefinitions["providers.display-name"].label} value={label} placeholder="Same as model ID" onChange={setLabel} />
       <AppText className="px-4 pt-3 text-base text-foreground">Copy reasoning levels and context window from</AppText>
       <SettingsChoiceRow label="Standard options" selected={!copyFrom} onPress={() => setCopyFrom("")} />
       {Object.entries(MODEL_PROFILES[instance.provider] ?? {}).filter(([, profile]) => !profile.isLegacy).map(([modelId, profile]) => <SettingsChoiceRow key={modelId} label={profile.label} selected={copyFrom === modelId} onPress={() => setCopyFrom(modelId)} />)}
@@ -83,8 +84,8 @@ function ModelRow({ instance, model, isLegacy, isDefault, onChange, onMovedToLeg
       <SettingsActionRow icon="arrow.up" label="Move up" onPress={() => change("up")} />
       <SettingsActionRow icon="arrow.down" label="Move down" onPress={() => change("down")} />
       {custom ? <>
-        <ModelField label="Display name" value={custom.label} onChange={(label) => onChange({ ...instance, customModels: instance.customModels.map((item) => item.id === model.id ? { ...item, label } : item) })} />
-        <ModelField label="Context window" value={String(custom.defaultContextWindow)} onChange={(value) => onChange({ ...instance, customModels: instance.customModels.map((item) => item.id === model.id ? { ...item, defaultContextWindow: Number(value), contextWindows: [Number(value)] } : item) })} />
+        <ModelField label={settingsDefinitions["providers.display-name"].label} value={custom.label} onChange={(label) => onChange({ ...instance, customModels: instance.customModels.map((item) => item.id === model.id ? { ...item, label } : item) })} />
+        <ModelField label={settingsDefinitions["providers.context-window"].label} value={String(custom.defaultContextWindow)} onChange={(value) => onChange({ ...instance, customModels: instance.customModels.map((item) => item.id === model.id ? { ...item, defaultContextWindow: Number(value), contextWindows: [Number(value)] } : item) })} />
         {custom.reasoningLevels.map((effort) => <SettingsChoiceRow key={effort} label={`${effort} reasoning`} selected={custom.defaultReasoningEffort === effort} onPress={() => onChange({ ...instance, customModels: instance.customModels.map((item) => item.id === model.id ? { ...item, defaultReasoningEffort: effort } : item) })} />)}
         {instance.provider === "codex" ? <SettingsSwitchRow label="Fast mode supported" value={custom.supportsFastMode} onValueChange={(supportsFastMode) => onChange({ ...instance, customModels: instance.customModels.map((item) => item.id === model.id ? { ...item, supportsFastMode } : item) })} /> : null}
         <SettingsActionRow icon="trash" label="Remove custom model" tone="danger" onPress={() => onChange({ ...instance, customModels: instance.customModels.filter((item) => item.id !== model.id) })} />

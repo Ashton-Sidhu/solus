@@ -73,10 +73,13 @@ device with. `device_install` records an app build and installs it on a
 simulator, emulator or connected phone. See
 [Device previews](native-devices.md).
 
-The Sessions group holds the orchestration tools: `delegate_task`, `start_session`,
+The Sessions group holds the orchestration tools: `start_sessions`,
 `send_session`, `stop_session`, `read_session`,
 `search_sessions`, and `list_agent_targets`. See
-[Session orchestration](session-orchestration.md). It also holds
+[Session orchestration](session-orchestration.md). `become_lead` makes the
+calling session a lead (Meta mode) when its work divides into independent
+parts; turn it off to keep Meta mode a choice the person makes in the composer
+([Lead session](plans/lead-session.md)). The group also holds
 `move_to_worktree`, which moves the calling session into a new or an existing
 worktree of its repository, so the diff, Git status, and branch follow. A
 sub-agent cannot call it for its parent. `worktree_status` reports the
@@ -86,13 +89,16 @@ checkout of its repository. See
 
 The Sessions group holds `link`, `list_links`,
 `unlink`, and `watch_pull_request`. `link` attaches a work,
-automation, pull request, or file to the calling session. It does not accept
-`task_id`, task session membership, or Solus plan links. An agent that writes a
-plan file links it with `kind=file` and `path`. Task links remain available
-through the task interface.
+automation, pull request, or file to the calling session. With `kind=task` and
+the task key as `target_id`, it links the calling session to a GitHub or Jira
+task as a working session, so the task page lists it. This is the only way an
+agent puts a session on a task: `start_sessions` joins no task. `link` does not
+accept Solus plan links. An agent that writes a plan file links it with
+`kind=file` and `path`.
 `unlink` removes a link using the same `kind`, `target_id`, or `path` as `link`;
 it does not delete the target. It can remove a file link after the file is gone.
 `list_links` lists this session's works, automations, files, and pull requests.
+A task's link belongs to the task, so `read_session` names the session's task.
 Use the optional `kind` filter to select one type. PRs include their last known
 state. Removed PRs stay excluded from automatic linking until explicitly linked again. See [Session pull requests](plans/session-pull-requests.md).
 
@@ -155,8 +161,11 @@ source of a revision into a folder, so a later session can change the app.
 `list_apps` lists the apps of the host with their operations. `inspect_app`
 reads what the host kept of an app: its state and instructions, its call log
 with each call's input, log lines, and trace, its workflow runs, its signals,
-and its build logs. `set_app_signal_action` makes or changes what one signal
-of an app does; it needs approval.
+and its build logs. When a deploy leaves a workflow run that failed on an
+older version, `deploy_app` lists it; `retry_app_run` takes `app` and `run_id`
+and starts that run again on the active version, with no approval.
+`set_app_signal_action` makes or changes what one signal of an app does; it
+needs approval.
 
 Each operation of a running app is also a tool, named `<slug>__<operation>`,
 in every run that starts after the deploy, while the app's agent access is on.

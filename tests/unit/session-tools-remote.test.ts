@@ -8,7 +8,7 @@ import type { RemoteTarget } from '@solus/server/execution/orchestration/session
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-// WHY: `start_session` with `host` starts the work on another host the turn's person
+// WHY: `start_sessions` with `host` starts the work on another host the turn's person
 // reaches, as if they started it there (docs/plans/cross-host-sessions.md,
 // docs/plans/host-reach.md). The tool must refuse what it cannot honour — no way to
 // reach other hosts here, a task across hosts, a turn whose person reaches no other
@@ -20,6 +20,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // looks on the person's other hosts, then on their organizations' Solus APIs.
 
 let sessionTools: typeof import('@solus/server/execution/agents/tools/session-tools')
+let startTool: typeof import('@solus/server/execution/agents/tools/start-sessions-tool')['startSessionsAgentTool']
 let hostDisplayName: typeof import('@solus/server/platform/host-display-name')['hostDisplayName']
 let closeDb: typeof import('@solus/server/db')['closeDb']
 
@@ -59,12 +60,19 @@ const remoteHosts = {
 }
 
 const ctx = { agentProvider: 'codex' as const, cwd: '/repo/on/a', sessionId: 'solus-parent' }
-const start = (args: Record<string, string | boolean>) => sessionTools.executeSessionTool('start_session', { model_id: 'model-on-b', prompt: 'Run the suite on B.', task: 'none', host: 'Host B', ...args }, { ctx })
+const toolContext = {
+  provider: ctx.agentProvider, cwd: ctx.cwd, sessionId: () => ctx.sessionId, emit: () => {},
+  abortSignal: new AbortController().signal, parentToolUseId: () => undefined,
+}
+/** start_sessions with one session on Host B, with `session`'s fields. */
+const start = (session: object = {}) =>
+  startTool.execute({ sessions: [{ prompt: 'Run the suite on B.', model_id: 'model-on-b', host: 'Host B', ...session }] }, toolContext)
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-tools-remote-'))
   process.env.SOLUS_DATA_DIR = dataDir
   sessionTools = await import('@solus/server/execution/agents/tools/session-tools')
+  startTool = (await import('@solus/server/execution/agents/tools/start-sessions-tool')).startSessionsAgentTool
   ;({ hostDisplayName } = await import('@solus/server/platform/host-display-name'))
   ;({ closeDb } = await import('@solus/server/db'))
   sessionTools.setSessionController({
@@ -94,17 +102,16 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-describe('start_session on another host', () => {
+describe('start_sessions on another host', () => {
   test('is refused on a host that cannot reach other hosts', async () => {
     sessionTools.setRemoteHosts(null)
     const result = await start({})
-    expect(result).toEqual({ ok: false, text: 'This host cannot reach other hosts.' })
+    expect(result).toEqual({ ok: false, text: 'sessions[0]: This host cannot reach other hosts. No session was started.' })
     expect(spawned).toHaveLength(0)
   })
 
-  test('refuses a task across hosts and a turn whose person reaches no other host', async () => {
+  test('refuses a turn whose person reaches no other host', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
-    expect((await start({ task: 'attempt' })).text).toContain("Use task='none'")
     turnReach = null
     expect((await start({})).text).toContain('Only a person with access to this host')
     turnReach = OWNER_REACH
@@ -120,7 +127,7 @@ describe('start_session on another host', () => {
     expect(spawned).toHaveLength(0)
   })
 
-  test('starts in a new chat folder there, with no task, naming the session that started it', async () => {
+  test('starts in a new chat folder there, naming the session that started it', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     const result = await start({})
     expect(result.ok).toBe(true)
@@ -128,7 +135,7 @@ describe('start_session on another host', () => {
     expect(result.text).toContain('serverId=install-b')
     const [sender, order, , , , target] = spawned.at(-1)!
     expect(sender).toBe('solus-parent')
-    expect(order).toMatchObject({ cwd: NEW_CHAT_DIRECTORY, modelId: 'model-on-b', taskId: null })
+    expect(order).toMatchObject({ cwd: NEW_CHAT_DIRECTORY, modelId: 'model-on-b' })
     expect((target as RemoteTarget).host.hostId).toBe('host-b')
     expect((target as RemoteTarget).origin).toEqual({ kind: 'session', hostLabel: hostDisplayName(), sessionId: 'solus-parent' })
   })
@@ -265,14 +272,12 @@ describe('read_session of a session this host does not hold', () => {
   })
 })
 
-test('delegation across hosts retains child ownership, isolation, and permission limits', async () => {
+test('a child across hosts retains child ownership, isolation, and permission limits', async () => {
   sessionTools.setRemoteHosts(remoteHosts as never)
-  const { delegateTaskAgentTool } = await import('@solus/server/execution/agents/tools/delegate-task-tool')
-  const result = await delegateTaskAgentTool.execute({ prompt: 'Review on B', host: 'Host B', agent_provider: 'codex', isolation: 'worktree', cwd: '~/code/app', worktree_base_branch: 'main' }, {
-    provider: 'claude-code', cwd: '/repo/on/a', sessionId: () => 'solus-parent', emit: () => {},
-    abortSignal: new AbortController().signal, parentToolUseId: () => undefined,
+  const result = await startTool.execute({ sessions: [{ prompt: 'Review on B', cwd: '~/code/app', worktree_base_branch: 'main', host: 'Host B', agent_provider: 'codex', isolation: 'worktree' }] }, {
+    ...toolContext, provider: 'claude-code',
   })
   expect(result.ok).toBe(true)
-  expect(spawned.at(-1)?.[1]).toMatchObject({ independent: false, provider: 'codex', modelId: 'model-on-b', cwd: '~/code/app', worktreeBaseBranch: 'main', permissionMode: 'supervised', taskId: null })
+  expect(spawned.at(-1)?.[1]).toMatchObject({ independent: false, provider: 'codex', modelId: 'model-on-b', cwd: '~/code/app', worktreeBaseBranch: 'main', permissionMode: 'supervised' })
   expect(spawned.at(-1)?.[2]).toBe(true)
 })

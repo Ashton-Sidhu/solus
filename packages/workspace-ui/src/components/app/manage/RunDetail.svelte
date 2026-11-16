@@ -1,176 +1,152 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import type { AppRunDetail, AppWebhookView } from "@solus/contracts/apps";
   import { appsStore } from "../../../contexts/apps/apps.store.svelte";
-  import { requestInputFocus } from "../../../lib/inputFocus";
-  import { toasts } from "../../../lib/toasts";
   import { Button } from "../../ui/button";
   import CallRows from "./CallRows.svelte";
+  import RunFlowCanvas from "./RunFlowCanvas.svelte";
+  import RunTimeline from "./RunTimeline.svelte";
+  import StepInspector from "./StepInspector.svelte";
   import { appTime, callerText } from "../lib/app-view";
   import { prettyJson } from "./lib/activity";
-  import { attemptsText, canRetryRun, canTerminateRun, runDurationText, stepDurationText, stepKindLabel, stepStateLabel } from "./lib/runs";
+  import { runDurationText } from "./lib/runs";
+  import { focusStep, runGraph, runTimeline, triggerDetailText } from "./lib/run-graph";
 
   /**
-   * One run of a workflow (docs/plans/apps.md §8.3): its input, its steps with
-   * their receipts, its result or its error, and its log. The owner terminates
-   * a run that has not ended, and starts a failed run again.
+   * One run of a workflow (docs/plans/apps.md §8.3, §9.2): its graph in the
+   * one card of the section, the selected step beside it, the run on a time
+   * axis under it, then the run's facts, its result, and its log.
    */
   interface Props {
     serverId: string;
     appId: string;
-    runId: string;
+    run: AppRunDetail;
+    /** The newest run of the workflow that succeeded, for the steps this run did not reach. */
+    lastGood: AppRunDetail | null;
+    webhooks: AppWebhookView[];
+    now: number;
   }
-  let { serverId, appId, runId }: Props = $props();
+  let { serverId, appId, run, lastGood, webhooks, now }: Props = $props();
 
   $effect(() => {
     const hostId = serverId;
     const id = appId;
-    const run = runId;
-    return untrack(() => {
-      const releaseRun = appsStore.runDetail.watch(hostId, id, run);
-      const releaseCalls = appsStore.runCalls.watch(hostId, id, run);
-      if (!appsStore.webhooks.get(hostId, id)) void appsStore.webhooks.load(hostId, id);
-      return () => {
-        releaseRun();
-        releaseCalls();
-      };
-    });
+    const runId = run.id;
+    return untrack(() => appsStore.runCalls.watch(hostId, id, runId));
   });
-  const read = $derived(appsStore.runDetail.get(serverId, appId));
-  // The store holds one run of an app at a time: the answer for another run is not this one's.
-  const run = $derived(read && read.id === runId ? read : null);
-  const isMissing = $derived(read === null && appsStore.runDetail.queryFor(serverId, appId) === runId);
-  const error = $derived(appsStore.runDetail.errorFor(serverId, appId));
-  const calls = $derived(appsStore.runCalls.queryFor(serverId, appId) === runId ? appsStore.runCalls.get(serverId, appId) : undefined);
-  const webhooks = $derived(appsStore.webhooks.get(serverId, appId) ?? []);
+  const calls = $derived(appsStore.runCalls.queryFor(serverId, appId) === run.id ? appsStore.runCalls.get(serverId, appId) : undefined);
 
-  let isBusy = $state(false);
+  const graph = $derived(runGraph(run, lastGood));
+  const timeline = $derived(runTimeline(run, now));
+  let chosenStep = $state<string | null>(null);
+  // A step the person chose stays chosen while the run has it; else the graph picks the failed or open one.
+  const selectedStep = $derived(chosenStep !== null && graph.steps.some((entry) => entry.name === chosenStep) ? chosenStep : focusStep(graph));
+  const selectedIndex = $derived(graph.steps.findIndex((entry) => entry.name === selectedStep));
   let openCallId = $state<string | null>(null);
+  let logSection = $state<HTMLElement | null>(null);
 
-  async function act(action: () => Promise<void>, failure: string) {
-    if (isBusy) return;
-    isBusy = true;
-    try {
-      await action();
-    } catch (cause) {
-      toasts.error(failure, { description: cause instanceof Error ? cause.message : String(cause) });
-    } finally {
-      isBusy = false;
-      requestInputFocus();
-    }
-  }
-
-  function terminate() {
-    if (!confirm("Terminate this run? Its finished steps stay done, and it does not continue.")) return;
-    void act(() => appsStore.terminateRun(serverId, appId, runId), "The run did not stop");
+  function showLog() {
+    logSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+    logSection?.focus({ preventScroll: true });
   }
 </script>
 
-<div class="flex min-w-0 flex-col gap-3 border-t border-border/40 px-3 py-3" data-testid="app-run-detail">
-  {#if run}
-    <dl class="m-0 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-      <div class="flex gap-1.5"><dt>Started</dt><dd class="m-0 text-foreground">{new Date(run.startedAt).toLocaleString()}</dd></div>
-      <div class="flex gap-1.5"><dt>By</dt><dd class="m-0 text-foreground">{callerText(run.startedBy, webhooks)}</dd></div>
-      <div class="flex gap-1.5"><dt>Time</dt><dd class="m-0 tabular-nums text-foreground">{runDurationText(run)}</dd></div>
-      {#if run.wakeAt !== null && run.state === "sleeping"}
-        <div class="flex gap-1.5"><dt>Wakes</dt><dd class="m-0 text-foreground" title={new Date(run.wakeAt).toLocaleString()}>{appTime(run.wakeAt)}</dd></div>
-      {/if}
-      {#if run.key}
-        <div class="flex min-w-0 gap-1.5"><dt>Key</dt><dd class="m-0 min-w-0 truncate font-mono text-foreground">{run.key}</dd></div>
-      {/if}
-    </dl>
+<div class="flex min-w-0 flex-col gap-3.5" data-testid="app-run-detail">
+  <div class="flex min-w-0 gap-3.5 @max-[48rem]/pane:flex-col">
+    <RunFlowCanvas
+      runId={run.id}
+      {graph}
+      caller={run.startedBy}
+      triggerName={callerText(run.startedBy, webhooks)}
+      triggerDetail={triggerDetailText(run)}
+      {selectedStep}
+      onSelectStep={(name) => (chosenStep = name)}
+      {now}
+    />
+    {#if selectedIndex !== -1}
+      {@const entry = graph.steps[selectedIndex]}
+      <StepInspector
+        {serverId}
+        {appId}
+        workflow={run.workflow}
+        version={run.version}
+        {entry}
+        position={selectedIndex + 1}
+        count={graph.steps.length}
+        input={run.input}
+        lastGood={lastGood?.steps.find((step) => step.name === entry.name) ?? null}
+        {now}
+        onShowLog={showLog}
+      />
+    {:else}
+      <aside class="flex w-65 shrink-0 flex-col gap-1 pt-1.5 @max-[48rem]/pane:w-full">
+        <span class="text-xs text-(--solus-text-tertiary)">No step yet</span>
+        <p class="m-0 text-[13px] text-(--solus-text-secondary)">The run has not started a step.</p>
+      </aside>
+    {/if}
+  </div>
 
-    {#if canTerminateRun(run) || canRetryRun(run)}
-      <div class="flex flex-wrap items-center gap-2">
-        {#if canTerminateRun(run)}
-          <Button size="xs" variant="outline" disabled={isBusy} onclick={terminate}>Terminate</Button>
-        {/if}
-        {#if canRetryRun(run)}
-          <Button size="xs" variant="outline" disabled={isBusy} onclick={() => void act(() => appsStore.retryRun(serverId, appId, runId), "The run did not start again")}>Run again</Button>
-          <span class="text-xs text-muted-foreground">The failed step runs again. The finished steps do not.</span>
-        {/if}
+  {#if timeline.lanes.length > 0}
+    <RunTimeline {timeline} {selectedStep} onSelectStep={(name) => (chosenStep = name)} />
+  {/if}
+
+  <dl class="m-0 grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-x-6 gap-y-3 px-1 text-[13px]">
+    <div class="flex min-w-0 flex-col gap-0.5">
+      <dt class="text-xs text-(--solus-text-tertiary)">Started</dt>
+      <dd class="m-0 truncate tabular-nums" title={new Date(run.startedAt).toLocaleString()}>{appTime(run.startedAt, now)}</dd>
+    </div>
+    <div class="flex min-w-0 flex-col gap-0.5">
+      <dt class="text-xs text-(--solus-text-tertiary)">Time</dt>
+      <dd class="m-0 truncate tabular-nums">{runDurationText(run, now)}</dd>
+    </div>
+    {#if run.wakeAt !== null && run.state === "sleeping"}
+      <div class="flex min-w-0 flex-col gap-0.5">
+        <dt class="text-xs text-(--solus-text-tertiary)">Wakes</dt>
+        <dd class="m-0 truncate tabular-nums" title={new Date(run.wakeAt).toLocaleString()}>{appTime(run.wakeAt, now)}</dd>
       </div>
     {/if}
-
-    {#if run.error}
-      <p class="m-0 text-sm text-destructive text-pretty" role="alert">{run.error}</p>
+    {#if run.version !== null}
+      <div class="flex min-w-0 flex-col gap-0.5">
+        <dt class="text-xs text-(--solus-text-tertiary)">Version</dt>
+        <dd class="m-0 truncate tabular-nums">{run.version}</dd>
+      </div>
     {/if}
-
-    <section class="flex min-w-0 flex-col gap-1" aria-label="Input">
-      <h4 class="m-0 text-xs font-medium text-muted-foreground">Input</h4>
-      <pre class="m-0 max-h-40 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-xs whitespace-pre">{prettyJson(run.input)}</pre>
-    </section>
-
-    {#if run.result !== null}
-      <section class="flex min-w-0 flex-col gap-1" aria-label="Result">
-        <h4 class="m-0 text-xs font-medium text-muted-foreground">Result</h4>
-        <pre class="m-0 max-h-40 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-xs whitespace-pre">{prettyJson(run.result)}</pre>
-      </section>
+    {#if run.key}
+      <div class="flex min-w-0 flex-col gap-0.5">
+        <dt class="text-xs text-(--solus-text-tertiary)">Key</dt>
+        <dd class="m-0 truncate font-mono text-xs leading-5" title={run.key}>{run.key}</dd>
+      </div>
     {/if}
+  </dl>
 
-    <section class="flex min-w-0 flex-col gap-1.5" aria-label="Steps">
-      <h4 class="m-0 text-xs font-medium text-muted-foreground">Steps</h4>
-      {#if run.steps.length === 0}
-        <p class="m-0 text-xs text-muted-foreground">The run has no step yet.</p>
-      {:else}
-        <ol class="m-0 flex list-none flex-col gap-1.5 p-0" data-testid="app-run-steps">
-          {#each run.steps as step (step.name)}
-            {@const duration = stepDurationText(step)}
-            <li class="flex min-w-0 flex-col gap-1 rounded-lg border border-border/50 px-3 py-2 text-xs">
-              <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <code class="min-w-0 truncate font-mono text-(--solus-text-primary)">{step.name}</code>
-                <span class="shrink-0 text-muted-foreground">{stepKindLabel(step.kind)}</span>
-                <span class="shrink-0 {step.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'}">{stepStateLabel(step.state)}</span>
-                <span class="min-w-0 flex-1"></span>
-                <span class="shrink-0 text-muted-foreground">{attemptsText(step.attempts)}</span>
-                {#if duration}
-                  <span class="shrink-0 tabular-nums text-muted-foreground">{duration}</span>
-                {/if}
-                {#if step.wakeAt !== null && step.state === "sleeping"}
-                  <span class="shrink-0 text-muted-foreground" title={new Date(step.wakeAt).toLocaleString()}>Wakes {appTime(step.wakeAt)}</span>
-                {/if}
-              </div>
-              {#if step.error}
-                <p class="m-0 text-destructive text-pretty">{step.error}</p>
-              {/if}
-              {#if step.result !== null}
-                <details class="min-w-0">
-                  <summary class="cursor-pointer text-muted-foreground">Result{step.resultTruncated ? " (its start)" : ""}</summary>
-                  <pre class="mt-1 mb-0 max-h-40 overflow-auto rounded-md bg-muted/50 p-2 font-mono whitespace-pre">{step.resultTruncated ? step.result : prettyJson(step.result)}</pre>
-                </details>
-              {/if}
-            </li>
-          {/each}
-        </ol>
-      {/if}
-    </section>
-
-    <section class="flex min-w-0 flex-col gap-1.5" aria-label="Log of the run">
-      <h4 class="m-0 text-xs font-medium text-muted-foreground">Log of the run</h4>
-      {#if calls === undefined}
-        {@const callsError = appsStore.runCalls.errorFor(serverId, appId)}
-        {#if callsError}
-          <div class="flex flex-wrap items-center gap-2" role="alert">
-            <span class="text-xs text-destructive">{callsError}</span>
-            <Button size="xs" variant="outline" onclick={() => void appsStore.runCalls.load(serverId, appId, runId)}>Try again</Button>
-          </div>
-        {:else}
-          <p class="m-0 text-xs text-muted-foreground" role="status" aria-busy="true">Loading the log…</p>
-        {/if}
-      {:else if calls.length === 0}
-        <p class="m-0 text-xs text-muted-foreground">The call log holds no row of this run.</p>
-      {:else}
-        <!-- Each execution of the run's function, with its log lines and the spans of its steps, and each call a step made. -->
-        <CallRows {serverId} {appId} {calls} {webhooks} bind:openCallId />
-      {/if}
-    </section>
-  {:else if error}
-    <div class="flex flex-wrap items-center gap-2" role="alert">
-      <span class="text-sm text-destructive">{error}</span>
-      <Button size="xs" variant="outline" onclick={() => void appsStore.runDetail.load(serverId, appId, runId)}>Try again</Button>
-    </div>
-  {:else if isMissing}
-    <p class="m-0 text-sm text-muted-foreground">The host no longer keeps this run.</p>
-  {:else}
-    <p class="m-0 text-sm text-muted-foreground" role="status" aria-busy="true">Loading the run…</p>
+  {#if run.error}
+    <p class="m-0 px-1 text-sm text-pretty text-(--failure)" role="alert">{run.error}</p>
   {/if}
+
+  {#if run.result !== null}
+    <section class="flex min-w-0 flex-col gap-2 px-1" aria-label="Result">
+      <h3 class="m-0 text-[15px] font-semibold text-foreground">Result</h3>
+      <pre class="m-0 max-h-48 overflow-auto rounded-[10px] bg-[var(--wash-2)] px-3 py-2.5 font-mono text-xs whitespace-pre">{prettyJson(run.result)}</pre>
+    </section>
+  {/if}
+
+  <section class="flex min-w-0 scroll-mt-4 flex-col gap-2 px-1 outline-none" aria-label="Log of the run" tabindex="-1" bind:this={logSection}>
+    <h3 class="m-0 text-[15px] font-semibold text-foreground">Log of the run</h3>
+    {#if calls === undefined}
+      {@const callsError = appsStore.runCalls.errorFor(serverId, appId)}
+      {#if callsError}
+        <div class="flex flex-wrap items-center gap-2" role="alert">
+          <span class="text-[13px] text-destructive">{callsError}</span>
+          <Button size="xs" variant="outline" onclick={() => void appsStore.runCalls.load(serverId, appId, run.id)}>Try again</Button>
+        </div>
+      {:else}
+        <p class="m-0 text-[13px] text-muted-foreground" role="status" aria-busy="true">Loading the log…</p>
+      {/if}
+    {:else if calls.length === 0}
+      <p class="m-0 text-[13px] text-muted-foreground">The call log holds no row of this run.</p>
+    {:else}
+      <!-- Each execution of the run's function, with its log lines and the spans of its steps, and each call a step made. -->
+      <CallRows {serverId} {appId} {calls} {webhooks} bind:openCallId />
+    {/if}
+  </section>
 </div>

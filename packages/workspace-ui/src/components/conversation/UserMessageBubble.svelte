@@ -455,6 +455,7 @@
            tabindex is the point of the pattern, not an oversight. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <div
+        data-slot="user-message"
         data-delivery={deliveryState}
         role={hasControls ? "group" : undefined}
         aria-label={hasControls ? "Queued prompt" : undefined}

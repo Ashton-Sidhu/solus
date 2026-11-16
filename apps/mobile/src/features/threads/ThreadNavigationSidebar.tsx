@@ -20,7 +20,7 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useHomeListOptions } from "../home/home-list-options";
 import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
-import { buildHomeProjectScopes, sortHomeProjectScopes } from "../home/homeThreadList";
+import { buildHomeProjectScopes, homeProjectFilterOptions, sortHomeProjectScopes } from "../home/homeThreadList";
 import { SessionSearchResults } from "../home/SessionSearchResults";
 import { confirmRemoveProject } from "../home/confirm-remove-project";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
@@ -49,6 +49,7 @@ import {
 } from "./thread-list-v2-items";
 import {
   buildThreadListV2Items,
+  CHATS_SCOPE_KEY,
   buildThreadListV2ListItems,
   isThreadListV2ListItem,
   threadListV2ListItemsAreEqual,
@@ -190,14 +191,7 @@ function ThreadNavigationSidebarPane(
       }),
     [knownProjectKeys, options.selectedEnvironmentId, projects, threads],
   );
-  const projectFilterOptions = useMemo(
-    () =>
-      projectScopes.map((scope) => ({
-        key: scope.key,
-        label: scope.title,
-      })),
-    [projectScopes],
-  );
+  const projectFilterOptions = useMemo(() => homeProjectFilterOptions(projectScopes), [projectScopes]);
   const projectTitleByProjectKey = useMemo(
     () =>
       new Map(
@@ -210,8 +204,10 @@ function ThreadNavigationSidebarPane(
   // A saved project its host has not listed yet is kept, not cleared.
   const { selectedProjectScope, selectedProjectKey } = useMemo(() => {
     const scope = projectScopes.find((candidate) => candidate.key === options.selectedProjectKey);
-    return { selectedProjectScope: scope ?? null, selectedProjectKey: scope?.key ?? null };
+    const chats = options.selectedProjectKey === CHATS_SCOPE_KEY;
+    return { selectedProjectScope: scope ?? null, selectedProjectKey: scope?.key ?? (chats ? CHATS_SCOPE_KEY : null) };
   }, [projectScopes, options.selectedProjectKey]);
+  const chatsOnly = selectedProjectKey === CHATS_SCOPE_KEY;
   const removeProject = useCallback(
     (projectKey: string) =>
       confirmRemoveProject(app, projects, projectKey, () => setSelectedProjectKey(null)),
@@ -261,6 +257,7 @@ function ThreadNavigationSidebarPane(
         facts,
         hostId: options.selectedEnvironmentId,
         projectKeys: selectedProjectScope === null ? null : selectedProjectScope.projectKeys,
+        chatsOnly,
         knownProjectKeys,
         searchQuery: props.searchQuery,
         settledLimit: settledVisibleCount,
@@ -364,7 +361,7 @@ function ThreadNavigationSidebarPane(
                   title: project.label,
                   state: selectedProjectKey === project.key ? ("on" as const) : ("off" as const),
                 })),
-                ...(selectedProjectKey === null
+                ...(selectedProjectScope === null
                   ? []
                   : [
                       {
@@ -641,7 +638,9 @@ function ThreadNavigationSidebarPane(
             ? "No matching threads"
             : selectedProjectScope !== null
               ? `No threads in ${selectedProjectScope.title}`
-              : "No threads yet"}
+              : chatsOnly
+                ? "No chats yet"
+                : "No threads yet"}
     </Text>
   );
 
@@ -653,6 +652,7 @@ function ThreadNavigationSidebarPane(
       threads={threads}
       unlistedThreads={unlistedThreads}
       projectKeys={selectedProjectScope?.projectKeys ?? null}
+      chatsOnly={chatsOnly}
       header={<View style={{ height: props.nativeChrome || Platform.OS === "android" ? 6 : topListInset }} />}
       onSelect={handleSelectThread}
     />

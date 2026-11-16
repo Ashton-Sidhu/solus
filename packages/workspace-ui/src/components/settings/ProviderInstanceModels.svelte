@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { MODEL_PROFILES, REASONING_EFFORT_LABELS } from "@solus/contracts/types";
   import { instanceModelCatalog, changeModelPreference, modelNeighbor } from "@solus/contracts/provider-instance-models";
   import { providerDefaultModel } from "@solus/contracts/provider-model-settings";
@@ -124,7 +125,7 @@
   </div>
 {/snippet}
 
-<SettingsSection label="Models" description="Choose the models in the model picker, their order, and which ones sit under Legacy models. Add a custom model ID for a gateway, proxy, or cloud model that is not in the list.">
+<SettingsSection {...settingsDefinitions["providers.section-models"]}>
   <div class="flex flex-col gap-4 p-4">
     <div class="flex items-center gap-2">
       <Input aria-label="Filter provider models" placeholder="Filter models" bind:value={query} class="min-w-0 flex-1" />

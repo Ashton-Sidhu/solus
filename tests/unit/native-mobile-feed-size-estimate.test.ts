@@ -178,7 +178,7 @@ describe('a reply that streams', () => {
     const tools: ThreadFeedRow = { type: 'work-toggle', id: 'work', groupId: 'g', toolIds: ['t'], expanded: false, live: true, continuesWorkLog: false }
     expect(streamingMessageRowId([message('u', 'user'), message('a', 'assistant'), thinking], true)).toBe('a')
     // The feed puts the turn's image row after its reply, before the live slot.
-    const images: ThreadFeedRow = { type: 'turn-images', id: 'images:turn', itemIds: ['a'] }
+    const images: ThreadFeedRow = { type: 'image', id: 'screenshot' }
     expect(streamingMessageRowId([message('u', 'user'), message('a', 'assistant'), images, thinking], true)).toBe('a')
     expect(streamingMessageRowId([message('u', 'user'), message('a', 'assistant'), thinking], false)).toBeNull()
     // Tool work after the reply: the reply is finished.

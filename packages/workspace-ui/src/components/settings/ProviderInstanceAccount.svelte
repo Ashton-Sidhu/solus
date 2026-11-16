@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { providerStatusCheckedLabel, providerStatusLabel } from "@solus/client-core/provider-instances";
   import type { ProviderInstancesClient, ProviderInstancesView } from "@solus/client-core/provider-instances";
@@ -22,8 +23,8 @@
   useScope("modal-dialog", { exclusive: true, pre: true, active: () => confirmSignOut });
 </script>
 
-<SettingsSection label="Status and account">
-  <SettingsRow label="Status" description={statusDescription} bodyVisible={Boolean(status?.account || status?.error)}>
+<SettingsSection {...settingsDefinitions["providers.section-status-and-account"]}>
+  <SettingsRow {...settingsDefinitions["providers.status"]} description={statusDescription} bodyVisible={Boolean(status?.account || status?.error)}>
     {#snippet control()}<Button variant="ghost" size="sm" onclick={() => void client.inspect(instanceId)}>Refresh status</Button>{/snippet}
     {#snippet body()}
       <div class="flex flex-col items-start gap-2 text-sm">
@@ -32,7 +33,7 @@
       </div>
     {/snippet}
   </SettingsRow>
-  <SettingsRow label="Account" description="The provider CLI saves its login in this instance's home on the host.">
+  <SettingsRow {...settingsDefinitions["providers.account"]}>
     {#snippet control()}
       <div class="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={view.action !== null || status?.phase === "connecting"} onclick={() => void client.signIn(instanceId)}>{status?.authenticated ? "Change account" : "Sign in"}</Button>

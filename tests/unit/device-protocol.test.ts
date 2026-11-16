@@ -79,6 +79,21 @@ describe('AVCC demuxer', () => {
 })
 
 describe('SEMU packets', () => {
+  test('hub 0.22 v2 metadata is removed before H.264 decoding, including a sliced buffer', () => {
+    const storage = new Uint8Array(36)
+    const packet = storage.subarray(4, 32)
+    const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength)
+    view.setUint32(0, 0x53454d55, false)
+    view.setUint8(4, 2)
+    view.setUint8(5, 1)
+    view.setBigUint64(8, 1234n, false)
+    view.setBigUint64(16, 987654321n, false)
+    packet.set([0, 0, 1, 0x65], 24)
+    expect(parseSemuPacket(packet)).toEqual({ data: new Uint8Array([0, 0, 1, 0x65]), isKey: true, timestamp: 1234 })
+    view.setUint8(5, 0)
+    expect(parseSemuPacket(packet).isKey).toBe(false)
+  })
+
   test('a keyframe header is parsed and stripped', () => {
     const packet = new Uint8Array(20)
     const view = new DataView(packet.buffer)

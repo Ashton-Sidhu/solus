@@ -158,6 +158,11 @@ export interface StoredStrip {
      as a surface. Example: tasks page → task surface → its session opens as a
      surface to the right of the task.
    - `mod+click` on a session row opens it as a surface.
+   - A session row dragged from the sidebar onto the right half of the
+     workspace opens as a surface (`SessionSplitDropZone`). When the
+     companion pane is open, a drop on the pane adds the session to its strip.
+     A drop on a composer still inserts the session's chip. Touch has no drag;
+     "Open in Split" in the row's menu does the same thing.
    - "Move to main" makes a chat surface the destination. It replaces
      `promoteSplitToMainTab`.
 7. **`mod+click` opens a surface in the background.** The active surface does

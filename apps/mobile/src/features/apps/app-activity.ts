@@ -15,7 +15,7 @@ import { agoText, callerKindLabel, callOutcomeLabel, countText, durationText } f
 
 /**
  * The Activity section and the numbers of the Overview (docs/plans/apps.md
- * §9.2): the call log with its filters, one call with what the host kept of
+ * §9.2): the call log with its search and filters, one call with what the host kept of
  * it (decision 21), and the calls of the last 24 hours.
  */
 
@@ -26,9 +26,11 @@ export interface CallFilters {
   readonly operation: string | null
   readonly callerKind: AppCallerKind | null
   readonly outcome: AppCallOutcome | null
+  /** Text the call holds; the host searches the whole log for it. */
+  readonly search: string | null
 }
 
-export const NO_CALL_FILTERS: CallFilters = { operation: null, callerKind: null, outcome: null }
+export const NO_CALL_FILTERS: CallFilters = { operation: null, callerKind: null, outcome: null, search: null }
 
 export const CALL_PAGE_SIZE = 50
 /** The most calls the host gives in one read. */
@@ -58,7 +60,12 @@ export function operationChoices(descriptor: AppDescriptor | null): FilterChoice
 }
 
 export function hasCallFilters(filters: CallFilters): boolean {
-  return filters.operation !== null || filters.callerKind !== null || filters.outcome !== null
+  return filters.operation !== null || filters.callerKind !== null || filters.outcome !== null || filters.search !== null
+}
+
+/** The search a typed text asks for: none for spaces alone, and never the spaces around it. */
+export function searchOf(text: string): string | null {
+  return text.trim() || null
 }
 
 /** The read of the call log: the newest `limit` calls that pass every filter that is set. */
@@ -67,6 +74,7 @@ export function callsRequest(appId: string, filters: CallFilters, limit: number)
   if (filters.operation !== null) request.operation = filters.operation
   if (filters.callerKind !== null) request.callerKind = filters.callerKind
   if (filters.outcome !== null) request.outcome = filters.outcome
+  if (filters.search !== null) request.search = filters.search
   return request
 }
 
@@ -197,4 +205,10 @@ export function operationMetricLines(operation: AppOperationMetrics, now: number
   }
   if (operation.lastAt !== null) lines.push({ text: `Last call ${agoText(operation.lastAt, now)}` })
   return lines
+}
+
+/** "12 calls", or "No calls": one operation's calls of the last 24 hours, for its row in Operations. The metrics list only the operations that were called. */
+export function operationCallsText(metrics: AppMetrics, operation: string): string {
+  const calls = metrics.operations.find((entry) => entry.operation === operation)?.calls ?? 0
+  return calls === 0 ? 'No calls' : countText(calls, 'call')
 }

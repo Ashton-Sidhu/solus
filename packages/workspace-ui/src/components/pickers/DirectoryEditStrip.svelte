@@ -56,7 +56,7 @@
   {@const message = edits.error ?? edits.nameProblem}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
-    class="mt-2 flex flex-col gap-1.5 rounded-lg bg-card px-2.5 py-2 shadow-[shadow:var(--elev-ring)]"
+    class="mb-3 flex flex-col gap-1.5 rounded-lg bg-[var(--wash-2)] px-2.5 py-2"
     role="group"
     aria-label={edit.kind === "create" ? "New folder" : edit.kind === "rename" ? "Rename folder" : "Remove folder"}
     onkeydown={handleKeyDown}

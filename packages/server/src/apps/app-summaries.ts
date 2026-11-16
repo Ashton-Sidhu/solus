@@ -31,8 +31,11 @@ export async function appSummary(app: AppRecord, facts: AppSummaryFacts): Promis
   return {
     id: app.id,
     slug: app.slug,
-    name: app.name,
-    description: app.description,
+    name: app.customName ?? app.name,
+    description: app.customDescription ?? app.description,
+    manifestName: app.name,
+    manifestDescription: app.description,
+    colorHue: app.colorHue,
     organizationId: app.organizationId,
     activeVersion: app.activeVersion,
     latestVersion: latest?.number ?? null,
@@ -52,7 +55,13 @@ export async function appSummary(app: AppRecord, facts: AppSummaryFacts): Promis
   }
 }
 
-/** What needs the owner (§9): the app is stopped, its newest version failed, a secret is not set, or the last run of a schedule or a workflow failed. */
+/**
+ * What needs the owner (§9): the app is stopped, its newest version failed, a
+ * secret is not set, or the last run of a schedule or a workflow failed on the
+ * active version. A workflow run that failed on an older version waits for a
+ * retry on the active version, so it is `workflow-stale`. A schedule that failed
+ * on an older version runs again by itself, so it needs no one.
+ */
 async function attentionOf(app: AppRecord, active: AppVersionRecord | null, latest: AppVersionRecord | null): Promise<AppAttention[]> {
   const attention: AppAttention[] = []
   if (app.stopped) attention.push({ kind: 'stopped', detail: 'This app is stopped.' })
@@ -63,12 +72,28 @@ async function attentionOf(app: AppRecord, active: AppVersionRecord | null, late
   for (const secret of active?.descriptor.secrets ?? []) {
     if (!secrets[secret.name]) attention.push({ kind: 'secret-missing', detail: `${secret.label} is not set.` })
   }
+  if (!active) return attention
+  const activeSince = active.activations.at(-1)?.at ?? active.createdAt
   for (const schedule of await listSchedules(app.id)) {
-    if (schedule.lastOutcome === 'failed') attention.push({ kind: 'schedule-failed', detail: `The schedule ${schedule.name} failed: ${schedule.lastError ?? 'no reason was recorded'}` })
+    if (schedule.lastOutcome !== 'failed' || (schedule.lastRunAt ?? 0) < activeSince) continue
+    attention.push({ kind: 'schedule-failed', detail: `The schedule ${schedule.name} failed: ${schedule.lastError ?? 'no reason was recorded'}` })
   }
-  if ((active?.descriptor.workflows.length ?? 0) > 0) {
-    for (const run of await lastFinishedRuns(app.id)) {
-      if (run.state === 'failed') attention.push({ kind: 'workflow-failed', detail: `The workflow ${run.workflow} failed: ${run.error ?? 'no reason was recorded'}` })
+  if (active.descriptor.workflows.length > 0) attention.push(...await workflowAttention(app.id, active, activeSince))
+  return attention
+}
+
+/** The last run of each workflow that failed and is not dismissed: on the active version, or on an older one. */
+async function workflowAttention(appId: string, active: AppVersionRecord, activeSince: number): Promise<AppAttention[]> {
+  const attention: AppAttention[] = []
+  for (const run of await lastFinishedRuns(appId)) {
+    if (run.state !== 'failed' || run.dismissedAt !== null) continue
+    // A run from before the host kept its version ran on the active one when it finished after the activation.
+    const ranOnActive = run.version === null ? (run.finishedAt ?? 0) >= activeSince : run.version === active.number
+    if (ranOnActive) {
+      attention.push({ kind: 'workflow-failed', detail: `The workflow ${run.workflow} failed: ${run.error ?? 'no reason was recorded'}`, runId: run.id })
+    } else {
+      const older = run.version === null ? 'an older version' : `v${run.version}`
+      attention.push({ kind: 'workflow-stale', detail: `The last ${run.workflow} run failed on ${older}. v${active.number} has not run it yet.`, runId: run.id })
     }
   }
   return attention

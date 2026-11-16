@@ -50,11 +50,29 @@ merges them.
 5. When the card ends on the phone, or the token changes, the phone calls
    `liveActivityUnregister`.
 
+Reports are serialized in the host, with the newest pending state sent after an
+in-flight report completes. A refused report or network failure stays pending and
+retries after 30 seconds, including a terminal result; it does not depend on another
+session event. Persisted cards are reported at host startup. The cloud returns
+`503 push_delivery_failed` when APNs refuses a push, so the host can retain it.
+After a cloud restart, the first report uses the original card's update time to
+decide whether a freshness push is due, rather than treating receipt of an old
+card as a fresh update on the phone.
+
 The phone continues to update the card while the app runs. A push and a local update can
 both arrive; they carry the same content.
 
 ## Decisions
 
+- **Expiry offers a quiet refresh action.** At the ten-minute stale date, unfinished
+  rows show "Check status" and the Lock Screen headline becomes "Tap to refresh".
+  Compact and minimal Dynamic Island presentations show the refresh symbol; expanded
+  count labels become "Refresh". A tap opens an unconfirmed session in Solus, where
+  the normal foreground refresh renews the card. Confirmed Done and Failed rows keep
+  their outcomes. This is an approved departure from T3's "Out of date" wording.
+  The freshness deadline remains: an old card must not claim work is still running.
+  This is a fallback for interrupted delivery, not the normal update flow. The
+  host and cloud must update the card automatically while the app is suspended.
 - **The relay merges rows by host.** One host does not know the other hosts' sessions.
   If each host sent the full card, a host could overwrite another host's newer row. A
   host changes only rows with its id (`hostId` is the phone's id for the host).
@@ -75,6 +93,11 @@ both arrive; they carry the same content.
 
 ## Limits
 
+- The Lock Screen card uses ActivityKit's system background material and hierarchical
+  text colors, as T3 does on hosts without its Liquid Glass extension. Solus's default
+  light and dark palette still supplies the status colors. The widget extension does
+  not follow the app's appearance override. A white card can be the system's light
+  appearance; it does not by itself indicate a stale card.
 - A host that is not registered with the control plane (no `HostRegistration`) cannot
   report. Its rows go stale as before.
 - Without APNs credentials the relay answers `503 push_not_configured`, and the card

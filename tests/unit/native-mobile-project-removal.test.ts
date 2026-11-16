@@ -8,6 +8,9 @@ import {
   removeProjectCheckouts,
 } from '../../apps/mobile/src/features/home/project-removal'
 import type { SolusProjectShell } from '../../apps/mobile/src/features/threads/thread-directory'
+import { homeProjectFilterOptions } from '../../apps/mobile/src/features/home/homeThreadList'
+import { groupProjectScopes } from '../../apps/mobile/src/features/threads/new-task-project-selection'
+import { CHATS_SCOPE_KEY } from '../../apps/mobile/src/features/threads/threadListV2'
 
 function project(hostId: string, path: string, repositoryKey: string | null): SolusProjectShell {
   const entry: ProjectEntry = { key: path, path, folderName: path.split('/').at(-1)!, addedAt: '2026-01-01T00:00:00Z', lastUsedAt: '2026-01-01T00:00:00Z', repositoryKey }
@@ -66,7 +69,7 @@ describe('remove project from the Home filter', () => {
     const removed: string[] = []
     const menu = (selectedProjectKey: string | null) => buildHomeListFilterMenu({
       environments: [],
-      projects: [{ key: 'github.com/o/app', label: 'app' }],
+      projects: homeProjectFilterOptions(groupProjectScopes(projects.filter((entry) => entry.project.repositoryKey === 'github.com/o/app'))),
       selectedEnvironmentId: null,
       selectedProjectKey,
       onEnvironmentChange: () => {},
@@ -82,5 +85,7 @@ describe('remove project from the Home filter', () => {
     expect(remove.title).toBe('Remove from projects')
     remove.onPress()
     expect(removed).toEqual(['github.com/o/app'])
+    // Chats is a scope, not a project: there is nothing to remove.
+    expect(projectItems(CHATS_SCOPE_KEY).some((item) => item.destructive)).toBe(false)
   })
 })

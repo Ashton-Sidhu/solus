@@ -1,3 +1,4 @@
+import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsEnvironmentDetailRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
@@ -29,6 +30,7 @@ import { useHostUpdateStatus } from "./use-host-update-status";
 import { hostLockMessage, updatesLockMessage } from "../policy/lib/policy-view";
 import { PolicyLockNote } from "../policy/PolicyLockNote";
 import { useHostPolicy } from "../policy/use-host-policy";
+import { TailscaleKeySection } from "../apps/TailscaleKeySection";
 
 /**
  * One host: its connection, a way into its Access screen, its Solus version, and its own settings, which
@@ -175,6 +177,8 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               />
             </SettingsSection>
 
+            <TailscaleKeySection hostId={hostId} />
+
             <View className="gap-3">
               <SettingsSection title="Solus">
                 <SettingsValueRow
@@ -262,7 +266,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                   </SettingsNote>
                 </View>
                 <View className="gap-3">
-                  <SettingsSection title="Delete unfiled recordings after">
+                  <SettingsSection title={settingsDefinitions["host.delete-unfiled-recordings-after"].label}>
                     {retentionDayChoices(state.settings.unfiledRecordingRetentionDays).map((days, index) => (
                       <SettingsChoiceRow
                         key={days}
@@ -305,7 +309,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               <SettingsSection title="Source control">
                 <SettingsRow
                   icon="arrow.triangle.branch"
-                  label="GitHub"
+                  label={settingsDefinitions["source-control.github"].label}
                   value={githubValue}
                   onPress={() => navigation.navigate("GitHubConnection", { hostId })}
                 />

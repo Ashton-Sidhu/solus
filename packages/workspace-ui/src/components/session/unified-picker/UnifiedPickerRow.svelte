@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { MessagesSquare as ChatsIcon } from "@lucide/svelte";
   import { snippetRuns } from "@solus/contracts/search-snippet";
   import { highlightWordRuns, type TextRun } from "../../../lib/searchHighlight";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
@@ -12,6 +11,8 @@
   import { serversStore } from "../../../contexts/connections/servers.store.svelte";
   import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "../../servers/lib/managed-host";
+  import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
+  import { groupKeyFor } from "../../../contexts";
   import { peopleOnSessions, pickerRowSessions } from "./lib/picker-presence";
   import { recordTimestamp, recordTitle } from "./lib/picker-records";
   import { recordDetail } from "./lib/picker-record-view";
@@ -20,6 +21,7 @@
   import {
     pickerSessionTitle,
     pickerSessionProject,
+    pickerSessionFolder,
     pickerSessionActivity,
     pickerSessionServerId,
     pickerSessionTaskTitle,
@@ -88,11 +90,19 @@
     const host = serversStore.hostFor(pickerSessionServerId(row));
     return host && !host.local ? host : null;
   });
+
+  // The project a session ran in, as the sidebar keys it, for its logo: a
+  // list of every project is read by its marks.
+  const sessionProjectKey = $derived(
+    row.kind === "session" || row.kind === "conversation"
+      ? groupKeyFor(pickerSessionServerId(row) ?? "", pickerSessionFolder(row))
+      : null,
+  );
 </script>
 
 {#snippet marked(runs: TextRun[])}
   {#each runs as run, i (i)}{#if run.hit}<mark
-        class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"
+        class="bg-(--solus-diff-find-bg) text-(--solus-diff-find-text)"
         >{run.text}</mark
       >{:else}{run.text}{/if}{/each}
 {/snippet}
@@ -269,14 +279,10 @@
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
     >
-      <!-- A session with a live state shows it, as a nested row does, so a
-           running session reads as running in a flat list too. -->
-      <span class="flex size-[1.625rem] shrink-0 items-center justify-center text-(--solus-text-tertiary)">
-        {#if attention}
-          <SessionStatusGlyph {attention} />
-        {:else}
-          <ChatsIcon size={13} />
-        {/if}
+      <!-- The project's logo leads, so a list of every project tells its rows
+           apart; a chat wears a chat bubble. -->
+      <span class="flex size-[1.625rem] shrink-0 items-center justify-center" title={pickerSessionProject(row)}>
+        {#if sessionProjectKey}<ProjectFavicon projectKey={sessionProjectKey} class="size-3.5" />{/if}
       </span>
       <span class="min-w-0 flex-1">
         <span class="block truncate {attention === 'running' || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
@@ -287,6 +293,9 @@
         >
       </span>
       <PresenceStack {people} size={16} max={3} />
+      <!-- A session with a live state shows it, as a task row does, so a
+           running session reads as running in a flat list too. -->
+      {#if attention}<SessionStatusGlyph {attention} />{/if}
       <!-- Its task, so two sessions with one name under two tasks can be told apart. -->
       {@render byline(pickerSessionTaskTitle(row), relativeTime(pickerSessionActivity(row)))}
     </button>

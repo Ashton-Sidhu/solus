@@ -16,7 +16,7 @@ function present(entries: FeedSourceEntry[], options: { turnActive?: boolean; wo
   })
 }
 
-const shape = (rows: ThreadFeedRow[]) => rows.filter((row) => row.type !== 'turn-images' && row.type !== 'turn-artifacts').map((row) => row.type === 'message' ? `${row.role}:${row.id}` : row.type === 'work-toggle' ? `work:${row.toolIds.join(',')}${row.live ? ':live' : ''}` : row.type)
+const shape = (rows: ThreadFeedRow[]) => rows.filter((row) => row.type !== 'turn-artifacts').map((row) => row.type === 'message' ? `${row.role}:${row.id}` : row.type === 'work-toggle' ? `work:${row.toolIds.join(',')}${row.live ? ':live' : ''}` : row.type)
 
 describe('native thread feed', () => {
   test('a finished turn folds its work and progress notes behind "Worked", keeping the final answer', () => {
@@ -54,15 +54,13 @@ describe('native thread feed', () => {
     expect(shape(rows)).toEqual(['user:u1', 'run-fold', 'assistant:a2'])
   })
 
-  test("a turn's screenshots follow its reply, as on desktop", () => {
-    // The row keeps all image sources below the reply while the calls stay in
-    // the work log. Each source subscribes separately to its own images.
-    const rows = present([user('u1'), assistant('a1'), tool('s1'), tool('t1'), tool('s2'), tool('s3'), assistant('a2')], { turnActive: true })
-    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'work:s1,t1,s2,s3', 'assistant:a2'])
-    expect(rows[4]?.type === 'turn-images' && rows[4].itemIds).toEqual(['a1', 'a2'])
-    // A new turn starts a new group.
-    const next = present([user('u1'), tool('s1'), user('u2'), tool('s2')])
-    expect(next.filter((row) => row.type === 'turn-images').map((row) => row.type === 'turn-images' && row.itemIds)).toEqual([])
+  test('images stay with their source instead of repeating assistant replies in a separate strip', () => {
+    const rows = present([user('u1'), assistant('a1'), { id: 'image1', kind: 'image' }, { id: 'snapshot1', kind: 'browser_snapshot' }, assistant('a2')], { turnActive: true })
+    expect(rows.map((row) => [row.type, row.id])).toEqual([
+      ['message', 'u1'], ['message', 'a1'], ['image', 'image1'], ['image', 'snapshot1'], ['message', 'a2'],
+    ])
+    // A reply renders its own embedded images; no second image row is made for it.
+    expect(present([user('u1'), assistant('a1')], { turnActive: true }).map((row) => row.type)).toEqual(['message', 'message'])
   })
 
   test('a finished turn names its prompts for the chips at its end; a running one shows none', () => {
@@ -74,6 +72,17 @@ describe('native thread feed', () => {
     expect(settled.at(-1)).toMatchObject({ type: 'turn-artifacts', promptId: 'u1', nextPromptId: null })
   })
 
+  test('a settled turn\'s final reply names its turn, so its pull request cards go in the reply', () => {
+    // WHY: a pull request the reply mentions shows as a card in the reply and
+    // so takes no chip; both rows must name the same reply and the same turn.
+    const rows = present([user('u1'), assistant('a1'), tool('t1'), assistant('a2'), user('u2'), assistant('a3')], { turnActive: true })
+    expect(rows.find((row) => row.type === 'message' && row.id === 'a2')).toMatchObject({ replyOf: { promptId: 'u1', nextPromptId: 'u2' } })
+    expect(rows.find((row) => row.type === 'turn-artifacts')).toMatchObject({ replyId: 'a2', promptId: 'u1', nextPromptId: 'u2' })
+    // A progress note and a running turn's reply are not final replies.
+    const notes = rows.filter((row) => row.type === 'message' && row.role === 'assistant' && row.replyOf)
+    expect(notes.map((row) => row.id)).toEqual(['a2'])
+  })
+
   test('a turn that failed stays open so its error is read in place', () => {
     const rows = present([user('u1'), tool('t1'), { id: 'n1', kind: 'notice', tone: 'error' }])
     expect(shape(rows)).toEqual(['user:u1', 'work:t1', 'notice'])
@@ -81,7 +90,7 @@ describe('native thread feed', () => {
 
   test('an expanded group lists its calls under the toggle, and adjacent work rows join one log', () => {
     const rows = present([user('u1'), tool('t1'), tool('t2')], { turnActive: true, expandedWorkGroupIds: ['work-group:t1'] })
-    expect(rows.filter((row) => row.type !== 'turn-images').map((row) => row.type)).toEqual(['message', 'work-toggle', 'work-details'])
+    expect(rows.map((row) => row.type)).toEqual(['message', 'work-toggle', 'work-details'])
     expect(rows[1]?.type === 'work-toggle' && rows[1].continuesWorkLog).toBe(true)
     expect(rows[2]?.type === 'work-details' && rows[2].continuesWorkLog).toBe(false)
   })

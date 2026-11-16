@@ -93,8 +93,8 @@ function isReviewView(value: string): value is ReviewView {
 
 /** The sections of an app's Manage page (docs/plans/apps.md §9.2), in the order the page lists them. */
 export const APP_MANAGE_SECTIONS = [
-  'overview', 'activity', 'workflows', 'versions', 'schedules', 'webhooks',
-  'signals', 'models', 'secrets', 'config', 'files', 'operations', 'sessions', 'source',
+  'overview', 'activity', 'workflows', 'sessions', 'schedules', 'webhooks',
+  'signals', 'operations', 'versions', 'deployment', 'secrets', 'config', 'files',
 ] as const
 export type AppManageSection = (typeof APP_MANAGE_SECTIONS)[number]
 
@@ -487,7 +487,7 @@ export const ROUTES: RouteTable = {
     // destination. An open that names no target must say `companion`.
     placement: 'either',
     surfaceKey: (p) => p.sessionId,
-    defaultWeight: 0.26,
+    defaultWeight: 0.30,
     component: () => import('../../../components/session/artifacts/ArtifactsSurface.svelte'),
   },
   app: {
@@ -499,6 +499,8 @@ export const ROUTES: RouteTable = {
       if (view === 'manage') {
         params.view = 'manage'
         if (section && isAppManageSection(section)) params.section = section
+        // The Source section moved into Overview. An old link opens Overview.
+        else if (section === 'source') params.section = 'overview'
       }
       return params
     },

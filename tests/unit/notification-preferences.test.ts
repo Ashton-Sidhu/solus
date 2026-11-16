@@ -1,3 +1,4 @@
+import { settingMatches } from '@solus/client-core/settings-search'
 import { describe, expect, test } from 'bun:test'
 import {
   APP_NOTICE_EVENTS,
@@ -15,7 +16,6 @@ import {
   DELIVERY_SITUATIONS,
   NOTIFICATION_CHANNEL_ROWS,
   SESSION_EVENT_ROWS,
-  notificationRowMatches,
   notificationSettingsCoverContract,
 } from '@solus/workspace-ui/components/settings/lib/notification-settings'
 
@@ -121,9 +121,9 @@ describe('the Notifications settings page', () => {
 
   test('search matches a row by label or keyword', () => {
     const approval = SESSION_EVENT_ROWS.find((row) => row.id === 'needs_approval')!
-    expect(notificationRowMatches(approval, 'permission')).toBe(true)
-    expect(notificationRowMatches(approval, 'Needs')).toBe(true)
-    expect(notificationRowMatches(approval, 'diagram')).toBe(false)
-    expect(notificationRowMatches(approval, '')).toBe(true)
+    expect(settingMatches('permission', approval)).toBe(true)
+    expect(settingMatches('Needs', approval)).toBe(true)
+    expect(settingMatches('diagram', approval)).toBe(false)
+    expect(settingMatches('', approval)).toBe(true)
   })
 })

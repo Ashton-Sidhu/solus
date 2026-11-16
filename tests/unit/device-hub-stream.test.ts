@@ -61,7 +61,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 function harness(options: { platform?: 'ios' | 'android'; format?: 'h264' | 'jpeg'; serveSimOnly?: boolean; video?: boolean; openUrl?: () => Promise<string> } = {}) {
   const hub = new FakeHub()
   // Timers run when the test says so, never by a clock.
-  const timers: { callback: () => void; cancelled: boolean }[] = []
+  const timers: { callback: () => void; cancelled: boolean; ms: number }[] = []
   const elapse = () => {
     for (const timer of timers.splice(0)) if (!timer.cancelled) timer.callback()
   }
@@ -77,8 +77,8 @@ function harness(options: { platform?: 'ios' | 'android'; format?: 'h264' | 'jpe
     upstream: hub,
     // A retry waits for the test, never for a clock.
     delay: () => { retries++; return new Promise(() => {}) },
-    setTimer: (callback) => {
-      const timer = { callback, cancelled: false }
+    setTimer: (callback, ms) => {
+      const timer = { callback, cancelled: false, ms }
       timers.push(timer)
       return () => { timer.cancelled = true }
     },
@@ -89,13 +89,52 @@ function harness(options: { platform?: 'ios' | 'android'; format?: 'h264' | 'jpe
     .map((message) => JSON.parse(typeof message === 'string' ? message : new TextDecoder().decode(message.subarray(1))) as { type?: string; action?: string; x?: number; y?: number })
     .map((message) => message.type === 'touch' ? { ...message, type: message.action === 'down' ? 'begin' : message.action === 'up' ? 'end' : message.action } : message)
     .filter((message) => message.type === 'begin' || message.type === 'move' || message.type === 'end')
-  return { hub, stream, packets, kinds, touches, elapse, retries: () => retries }
+  return { hub, stream, packets, kinds, touches, elapse, timers, retries: () => retries }
 }
 
 const screenConfig = (config: { width: number; height: number; orientation: string }) =>
   new Uint8Array([0x82, ...new TextEncoder().encode(JSON.stringify(config))])
 
 describe('device hub stream', () => {
+  test('an open iOS stream that stops sending data is aborted and retried', async () => {
+    const { hub, stream, timers, elapse, retries } = harness()
+    await hub.prime()
+    const body = hub.body('video.avcc')!
+    const firstDeadline = timers.find((timer) => !timer.cancelled)!
+    expect(firstDeadline.ms).toBe(15_000)
+    body.push(DESCRIPTION)
+    expect(firstDeadline.cancelled).toBe(true)
+    expect(body.aborted).toBe(false)
+    elapse()
+    await flush()
+    expect(body.aborted).toBe(true)
+    expect(retries()).toBe(1)
+    stream.close()
+  })
+
+  test('a stalled JPEG feed is aborted and reports reconnecting instead of keeping a frozen frame', async () => {
+    const { hub, stream, packets, elapse, retries } = harness({ format: 'jpeg' })
+    await hub.prime()
+    const body = hub.body('video.mjpeg')!
+    body.push(new Uint8Array([0xff, 0xd8, 1, 2, 0xff, 0xd9]))
+    elapse()
+    await flush()
+    expect(body.aborted).toBe(true)
+    expect(retries()).toBe(1)
+    expect(packets.at(-1)?.kind).toBe('connecting')
+    stream.close()
+  })
+
+  test('closing cancels the video stall deadline', async () => {
+    const { hub, stream, timers, elapse, retries } = harness()
+    await hub.prime()
+    stream.close()
+    await flush()
+    expect(timers.every((timer) => timer.cancelled)).toBe(true)
+    elapse()
+    expect(retries()).toBe(0)
+  })
+
   test('arbitrary chunk splits reach the decoder as whole packets', async () => {
     const { hub, kinds, packets } = harness()
     await flush()
@@ -104,6 +143,14 @@ describe('device hub stream', () => {
     for (let i = 0; i < bytes.length; i += 3) body.push(bytes.subarray(i, i + 3))
     expect(kinds()).toEqual(['config', 'key', 'delta'])
     expect(packets[0]).toMatchObject({ codec: 'avc1.640033', format: 'avcc' })
+  })
+
+  test('AVCC bootstrap images stay distinct from the live MJPEG feed', async () => {
+    const { hub, stream, kinds } = harness()
+    await hub.prime()
+    hub.body('video.avcc')!.push(envelope(4, [0xff, 0xd8, 0xff, 0xd9]))
+    expect(kinds()).toEqual(['seed'])
+    stream.close()
   })
 
   test('a client without WebCodecs reads MJPEG', async () => {
@@ -216,7 +263,7 @@ describe('keyframe requests', () => {
     stream.requestKeyframe()
     await flush()
     hub.body('video.avcc')!.push(new Uint8Array([...DESCRIPTION, ...KEY]))
-    expect(packets.map((packet) => `${packet.kind}:${packet.streamGeneration}`)).toEqual(['config:0', 'key:0', 'config:1', 'key:1'])
+    expect(packets.map((packet) => `${packet.kind}:${packet.streamGeneration}`)).toEqual(['config:0', 'key:0', 'connecting:1', 'config:1', 'key:1'])
   })
 })
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   /**
    * The MCP page (docs/integrations.md): the servers installed on one host, and
    * the integrations.sh catalog to connect more from, filtered by a rail of
@@ -199,7 +200,7 @@
 {/snippet}
 
 {#snippet installedSection()}
-  <SettingsSection label="Installed" description="Their tools reach every agent on {hostLabel}. Servers with sign-in use your own account.">
+  <SettingsSection {...settingsDefinitions["mcp.section-installed"]} description="Their tools reach every agent on {hostLabel}. Servers with sign-in use your own account.">
     {#if hostState?.error}
       <div class="flex flex-wrap items-center justify-between gap-3 p-4">
         <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{hostState.error}</p>
@@ -323,7 +324,7 @@
 
       <div class="flex min-w-0 flex-col gap-8">
         {#if typedUrl}
-          <SettingsSection label="Connect by address">
+          <SettingsSection {...settingsDefinitions["mcp.section-connect-by-address"]}>
             <div class="flex flex-col gap-2 px-4 py-3">
               <div class="flex min-w-0 items-center gap-3">
                 <McpServerIcon name={urlHost(typedUrl)} url={typedUrl} />

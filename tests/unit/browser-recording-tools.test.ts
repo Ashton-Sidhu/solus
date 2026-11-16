@@ -104,6 +104,8 @@ class FakeDriver implements BrowserSurfaceDriver {
     return []
   }
   async dispose(): Promise<void> {}
+  watchGuest(): void {}
+  async answerFileChooser(): Promise<boolean> { return false }
 }
 
 let encoderCount = 0

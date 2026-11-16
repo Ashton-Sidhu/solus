@@ -1,4 +1,4 @@
-import { appSignalActionSchema, type AppSignalAction, type AppSignalActionType, type AppSignalActionView, type AppSignalDelivery, type AppSignalOccurrence } from '@solus/contracts/apps'
+import { appSignalActionSchema, type AppSignalAction, type AppSignalActionType, type AppSignalActionView } from '@solus/contracts/apps'
 import type { DraftResult } from '../../../webhooks/lib/webhook-draft'
 
 /**
@@ -95,20 +95,4 @@ export function signalActionSummary(action: AppSignalAction, automationName: (au
     case 'run_automation':
       return `Run ${automationName(action.automationId) ?? 'an automation'}`
   }
-}
-
-const DELIVERY_STATUS_LABELS = {
-  delivered: 'Delivered',
-  failed: 'Failed',
-  throttled: 'Over the limit',
-} satisfies { [Status in AppSignalDelivery['status']]: string }
-
-/** How one action ended for one occurrence: "Notify me · Delivered". */
-export function deliveryText(delivery: AppSignalDelivery): string {
-  return `${ACTION_TYPE_LABELS[delivery.type]} · ${DELIVERY_STATUS_LABELS[delivery.status]}`
-}
-
-/** The newest occurrences of one signal, from the read of every signal of the app. */
-export function occurrencesOf(occurrences: readonly AppSignalOccurrence[], signal: string, limit: number): AppSignalOccurrence[] {
-  return occurrences.filter((occurrence) => occurrence.name === signal).sort((a, b) => b.emittedAt - a.emittedAt).slice(0, limit)
 }

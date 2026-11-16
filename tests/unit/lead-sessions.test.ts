@@ -6,9 +6,9 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 
 /**
- * A lead is chosen before the first message and fixed from then on
- * (docs/plans/lead-session.md). The runner marks the session once, and every
- * later ask — each run, each report the orchestrator delivers — reads the mark.
+ * A lead is fixed once it is one (docs/plans/lead-session.md). The session is
+ * marked once, by the runner or by `become_lead`, and every later ask — each
+ * run, each report the orchestrator delivers — reads the mark.
  */
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -45,5 +45,27 @@ describe('lead sessions', () => {
     await leads.markSessionLead('s-twice')
     await expect(leads.markSessionLead('s-twice', 'org-1')).resolves.toBeUndefined()
     expect(await leads.isLeadSession('s-twice')).toBe(true)
+  })
+
+  test('a session asked before its mark is a lead after it', async () => {
+    // WHY: an agent makes its session a lead in the middle of a turn, after
+    // the run and the orchestrator already asked. A remembered "no" would keep
+    // the lead wake rule and the lead contract away from it.
+    expect(await leads.isLeadSession('s-late')).toBe(false)
+    await leads.markSessionLead('s-late')
+    expect(await leads.isLeadSession('s-late')).toBe(true)
+  })
+
+  test('a new mark is announced once, also when the mark was written before a restart', async () => {
+    // WHY: a session can become a lead in the middle of a turn, and its row
+    // must show the mark then. A repeat is not a change, so it is silent.
+    const heard: string[] = []
+    const stop = leads.onSessionBecameLead((sessionId) => { heard.push(sessionId) })
+    try {
+      await leads.markSessionLead('s-announced')
+      leads.resetLeadSessionCache()
+      await leads.markSessionLead('s-announced')
+      expect(heard).toEqual(['s-announced'])
+    } finally { stop() }
   })
 })

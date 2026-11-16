@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { hosts } from '../../contexts/hosts/hosts.svelte';
   import type { ServerItem } from '../../contexts/connections/servers.store.svelte';
   import { modelProfilesStore } from '../../contexts/updates/model-profiles.store.svelte';
@@ -12,7 +13,7 @@
 </script>
 
 {#if hosts.get(host.id)?.supports('modelProfiles')}
-  <SettingsRow label="Model list" description={modelProfilesLine(status)} bodyVisible={!!error}>
+  <SettingsRow {...settingsDefinitions["providers.model-list"]} description={modelProfilesLine(status)} bodyVisible={!!error}>
     {#snippet control()}
       <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || busy} onclick={() => void modelProfilesStore.refresh(host.id)}>
         {busy ? 'Refreshing…' : 'Clear cache and refresh'}

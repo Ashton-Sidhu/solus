@@ -1,3 +1,4 @@
+import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 import { useState } from "react";
 import { TextInput, View } from "react-native";
 import { addVoiceTerms, filterVoiceDictionary, VOICE_DICTIONARY_LIMIT } from "@solus/contracts/voice-dictionary";
@@ -26,7 +27,7 @@ export function VoiceSettingsScreen({ navigation }: ScreenProps<"VoiceSettings">
     <SettingsScreen title="Voice">
       <ScreenScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerClassName="gap-4 px-5 pt-4 pb-12">
         <SettingsNote>Mobile dictation uses your keyboard. This dictionary applies to desktop and web dictation. It follows settings sync.</SettingsNote>
-        <SettingsSection title="Custom dictionary">
+        <SettingsSection title={settingsDefinitions["voice.section-custom-dictionary"].label}>
           <View className="p-4">
             <TextInput
               accessibilityLabel="Add terms"

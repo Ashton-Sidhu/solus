@@ -1,13 +1,15 @@
 <script lang="ts">
-  import type {
-    BrowserInteractOp,
-    BrowserPage,
+  import {
+    browserGuestViewport,
+    type BrowserInteractOp,
+    type BrowserPage,
   } from "@solus/contracts/browser-types";
   import { untrack } from "svelte";
   import {
     browserStore,
     type BrowserFrameWatch,
   } from "../../contexts/browser/browser.store.svelte";
+  import BrowserPageRequests from "./BrowserPageRequests.svelte";
   import BrowserSkeleton from "./BrowserSkeleton.svelte";
   import { FramePainter, paneFrameCaps } from "./lib/frame-painter";
   import {
@@ -40,6 +42,9 @@
   }
 
   let { pageKey, page, active }: Props = $props();
+  /** The guest's own CSS viewport: the page's viewport divided by its zoom.
+   *  Input and ink are in the guest's coordinates. */
+  const guestViewport = $derived(browserGuestViewport(page));
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   /** The focusable, keyboard-driven wrapper around the canvas. */
@@ -99,7 +104,7 @@
       event.clientX,
       event.clientY,
       canvas.getBoundingClientRect(),
-      page.viewport,
+      guestViewport,
     );
   }
 
@@ -285,7 +290,7 @@
       touch.clientX,
       touch.clientY,
       canvas.getBoundingClientRect(),
-      page.viewport,
+      guestViewport,
     );
     panFrom = { x: touch.clientX, y: touch.clientY };
     if (point) send({ kind: "scrollAt", x: point.x, y: point.y, deltaY });
@@ -379,7 +384,7 @@
   {#if inkPath || inkRect}
     <svg
       class="pointer-events-none absolute inset-0 h-full w-full"
-      viewBox="0 0 {page.viewport.width} {page.viewport.height}"
+      viewBox="0 0 {guestViewport.width} {guestViewport.height}"
       preserveAspectRatio="none"
       aria-hidden="true"
     >
@@ -407,6 +412,10 @@
         />
       {/if}
     </svg>
+  {/if}
+
+  {#if !streamError && hasFrame}
+    <BrowserPageRequests {pageKey} {page} />
   {/if}
 
   {#if streamError}

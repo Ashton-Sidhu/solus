@@ -40,7 +40,7 @@ const cloneFields = {
 
 export const createProjectAgentTool: AgentTool = {
   name: 'create_project',
-  description: 'Create a new folder and Git repository on this host, and register it as a Solus project. Returns path and projectKey. An existing folder is refused. This does not move this session. To work there, pass the returned path as cwd to start_session.',
+  description: 'Create a new folder and Git repository on this host, and register it as a Solus project. Returns path and projectKey. An existing folder is refused. This does not move this session. To work there, pass the returned path as cwd to start_sessions.',
   inputFields: createFields,
   strictInput: true,
   requiresApproval: true,
@@ -62,7 +62,7 @@ export const createProjectAgentTool: AgentTool = {
 
 export const cloneProjectAgentTool: AgentTool = {
   name: 'clone_project',
-  description: 'Clone a Git repository on this host and register it as a Solus project, using the same service as Add project. Returns path, projectKey, and auth status. Uses the turn author\'s credentials. Registration is included. This does not move this session. To work there, pass the returned path as cwd to start_session.',
+  description: 'Clone a Git repository on this host and register it as a Solus project, using the same service as Add project. Returns path, projectKey, and auth status. Uses the turn author\'s credentials. Registration is included. This does not move this session. To work there, pass the returned path as cwd to start_sessions.',
   inputFields: cloneFields,
   strictInput: true,
   requiresApproval: true,

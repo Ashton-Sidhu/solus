@@ -28,7 +28,7 @@ describe('readAddress', () => {
   })
 
   test('nothing at the address is no answer', async () => {
-    expect(await readAddress(browserFetch(false), 'https://h.solus.sh/health', signal())).toEqual({ kind: 'no-answer' })
+    expect(await readAddress(browserFetch(false), 'https://h.solus.sh/health', signal())).toEqual({ kind: 'no-answer', error: 'Failed to fetch' })
   })
 
   test('a read that ran out of time says so, and does not read again', async () => {
@@ -46,6 +46,22 @@ describe('readAddress', () => {
 
 describe('runConnectionCheck', () => {
   const routes: HostRoute[] = [{ kind: 'lan', url: 'http://10.0.0.2:4000' }, { kind: 'tunnel', url: 'https://h.solus.sh' }]
+
+  test('retains a platform error for each address rather than retrying through fetch', async () => {
+    const checked: string[] = []
+    const check = await runConnectionCheck({
+      routes,
+      cloudUrl: null,
+      fetchImpl: async () => { throw new Error('The native reader must be used') },
+      readAddress: async (url) => {
+        checked.push(url)
+        return { kind: 'no-answer', error: 'The Internet connection appears to be offline.' }
+      },
+      answersAsHost: async () => { throw new Error('There is no answer to verify') },
+    })
+    expect(checked).toEqual(routes.map((route) => `${route.url}/health`))
+    expect(check.routes.every((route) => route.answer.kind === 'no-answer' && route.answer.error === 'The Internet connection appears to be offline.')).toBe(true)
+  })
 
   test('a 200 is the host only when the saved identity says so', async () => {
     // WHY: a captive page answers 200 too. Only the identity check names the host.

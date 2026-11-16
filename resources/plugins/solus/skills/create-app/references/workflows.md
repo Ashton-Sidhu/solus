@@ -30,6 +30,7 @@ workflows: {
 - `retries: { limit, delay, backoff }` runs a failed step again. `backoff` is `'constant'`, `'linear'`, or `'exponential'`. Throw `NonRetryableError` when more attempts cannot help. `timeout` is 5 minutes by default and 30 at most.
 - `step.runQuery(name, operation, input)` and `step.runMutation(name, operation, input)` call an operation of the app. A workflow has no `sql`: it changes app data through a mutation.
 - `step.sleep(name, '2 hours')` and `step.sleepUntil(name, date)` wait. A long wait holds no process.
+- `step.model(name, setting, request)` waits for one model call and keeps its result ([models](models.md)).
 - A duration is milliseconds, or text such as `'30 seconds'`, `'5 minutes'`, `'2 hours'`, `'1 day'`.
 
 ## How a run stays alive

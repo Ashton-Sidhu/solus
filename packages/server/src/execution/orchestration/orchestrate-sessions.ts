@@ -46,6 +46,7 @@ export function orchestrateSessions(
     invalidatePlanCaches: (sessionId) => sessionRuntime.history.invalidatePlanCaches(sessionId),
     recordActivity: (subject, actor, kind) => sessionRuntime.recordActivity(subject, actor, kind),
     trackWork: (work) => sessionRuntime.trackUpdateWork(work),
+    repliesEnded: (senderSessionId) => sessionRuntime.providerEvents.endBackgroundWait(senderSessionId),
   }, {
     findPullRequest: async (checkout, projectScope) => {
       if (!checkout.branch) return null

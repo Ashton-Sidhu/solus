@@ -25,6 +25,8 @@ import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import { ControlPill } from "../../components/ControlPill";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
+import { BrowserPreviewButton } from "../browser/browser-preview-button";
+import { DevicePreviewButton } from "../devices/device-preview-button";
 import { formatWorkingDuration, type FloatingWorkingStatus } from "./floating-working-status";
 import { ShimmeringWorkContent } from "./thread-work-log";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
@@ -72,6 +74,9 @@ export function FloatingWorkingControl(props: {
   /** The newest turn's agents: "2/3" while some run, "3 done" after. */
   readonly agents?: { readonly label: string; readonly accessibilityLabel: string } | null;
   readonly onOpenAgents?: () => void;
+  /** The devices this session shows, and the browser pages on its host (T3's preview segment). */
+  readonly devicePreview?: { readonly count: number; readonly onPress: () => void } | null;
+  readonly browserPreview?: { readonly count: number; readonly onPress: () => void } | null;
   /** Extra distance to rise above the anchor, e.g. an overlay card's coverage. */
   readonly lift?: SharedValue<number>;
 }) {
@@ -84,6 +89,10 @@ export function FloatingWorkingControl(props: {
   const hasQueue = props.queuedCount > 0;
   const agents = props.agents ?? null;
   const hasAgents = agents !== null && props.onOpenAgents !== undefined;
+  const devicePreview = props.devicePreview ?? null;
+  const browserPreview = props.browserPreview ?? null;
+  const hasPreview = devicePreview !== null || browserPreview !== null;
+  const [previewWidth, setPreviewWidth] = useState(0);
   // Segments keep their measured width; only the status label absorbs the
   // remainder, so a long "Working 12m 04s" truncates before a count does.
   const labelWidth = Math.max(
@@ -93,7 +102,8 @@ export function FloatingWorkingControl(props: {
       32 -
       (action !== null ? actionWidth : 0) -
       (hasQueue ? queueWidth : 0) -
-      (hasAgents ? agentsWidth : 0),
+      (hasAgents ? agentsWidth : 0) -
+      (hasPreview ? previewWidth : 0),
   );
   const separationProgress = useSharedValue(props.showScrollToEnd ? 1 : 0);
 
@@ -130,7 +140,7 @@ export function FloatingWorkingControl(props: {
   // Forget the width while no label is shown so the next one appears at its
   // own size instead of animating from the previous label's.
   const hasStatus = props.status !== null;
-  const hasCapsule = hasStatus || hasQueue || hasAgents;
+  const hasCapsule = hasStatus || hasQueue || hasAgents || hasPreview;
   useEffect(() => {
     if (!hasStatus) {
       measuredWidthRef.current = null;
@@ -151,7 +161,9 @@ export function FloatingWorkingControl(props: {
   }
 
   // The queue, agents, and background Stop controls have separate tap targets.
-  const capsuleInteractive = action !== null || hasQueue || hasAgents;
+  const capsuleInteractive = action !== null || hasQueue || hasAgents || hasPreview;
+  // Alone, one preview button names what it opens; beside anything else it is an icon.
+  const previewCompact = hasStatus || hasAgents || hasQueue || (devicePreview !== null && browserPreview !== null);
   // The host stays centered on the capsule, but its measurement constraint
   // comes from the overlay, independent of the capsule's current width.
   const statusContent =
@@ -195,6 +207,13 @@ export function FloatingWorkingControl(props: {
           </Text>
         </Pressable>
       ) : null}
+      {hasPreview ? (
+        <View className="h-11 flex-row items-center" onLayout={(event) => setPreviewWidth(event.nativeEvent.layout.width)}>
+          {hasStatus ? <View className="h-4 w-px bg-border" /> : null}
+          {devicePreview !== null ? <DevicePreviewButton {...devicePreview} compact={previewCompact} /> : null}
+          {browserPreview !== null ? <BrowserPreviewButton {...browserPreview} compact={previewCompact} /> : null}
+        </View>
+      ) : null}
       {hasQueue ? (
         <Pressable
           accessibilityRole="button"
@@ -205,7 +224,7 @@ export function FloatingWorkingControl(props: {
           style={{ maxWidth: Math.min(overlayWidth, windowWidth) * 0.45 }}
           className="h-11 flex-row items-center gap-2 px-3 active:opacity-70"
         >
-          {hasStatus ? <View className="mr-1 h-4 w-px bg-border" /> : null}
+          {hasStatus || hasPreview ? <View className="mr-1 h-4 w-px bg-border" /> : null}
           <SymbolView name="list.number" size={13} tintColorClassName="accent-foreground-muted" />
           <Text className="shrink font-t3-medium text-xs tabular-nums" numberOfLines={1}>
             {props.queuedCount} queued
@@ -220,7 +239,7 @@ export function FloatingWorkingControl(props: {
           onLayout={(event) => setAgentsWidth(event.nativeEvent.layout.width)}
           className="h-11 flex-row items-center gap-2 px-3 active:opacity-70"
         >
-          {hasStatus || hasQueue ? <View className="mr-1 h-4 w-px bg-border" /> : null}
+          {hasStatus || hasPreview || hasQueue ? <View className="mr-1 h-4 w-px bg-border" /> : null}
           <SymbolView name="person.2" size={13} tintColorClassName="accent-foreground-muted" />
           <Text className="shrink font-t3-medium text-xs tabular-nums" numberOfLines={1}>
             {agents.label}

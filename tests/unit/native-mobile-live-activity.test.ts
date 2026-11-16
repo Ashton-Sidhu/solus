@@ -120,6 +120,7 @@ describe('Live Activity lifecycle', () => {
       enabled: true,
       foreground: options.foreground ?? true,
       ready: true,
+      now: 1_000,
     }
     const controller = new AgentLiveActivityController({
       bridge,
@@ -127,7 +128,7 @@ describe('Live Activity lifecycle', () => {
       read: () => ({ threads: state.threads, liveStatus: state.status, projectTitleOf: () => 'solus' }),
       enabled: () => state.enabled,
       foreground: () => state.foreground,
-      now: () => 1_000,
+      now: () => state.now,
       storage,
       relay: {
         register: (pushToken, generation, card) => { relayed.push(`register:${pushToken}:${generation}:${card.activeCount}`) },
@@ -152,6 +153,23 @@ describe('Live Activity lifecycle', () => {
     state.status = live([['a', 'running']])
     controller.sync()
     expect(calls).toEqual([])
+  })
+
+  test('returning to the app or refreshing quiet work renews the card and its relay registration', () => {
+    const { calls, state, controller, relayed, issueToken } = harness()
+    state.status = live([['a', 'running']])
+    controller.sync()
+    issueToken('new', 'aa11')
+    state.now += 5 * 60_000
+    controller.refresh()
+    state.now += 10 * 60_000
+    controller.refresh()
+    expect(calls).toEqual([
+      `start:1:${1_000 + AGENT_ACTIVITY_STALE_AFTER_MS}`,
+      `new:update:1:${301_000 + AGENT_ACTIVITY_STALE_AFTER_MS}`,
+      `new:update:1:${901_000 + AGENT_ACTIVITY_STALE_AFTER_MS}`,
+    ])
+    expect(relayed).toEqual(['register:aa11:1000:1', 'register:aa11:301000:1', 'register:aa11:901000:1'])
   })
 
   test('changes update the card; when all work settles it shows the outcome and ends', async () => {

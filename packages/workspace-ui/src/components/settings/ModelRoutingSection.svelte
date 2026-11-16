@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   /** Model routing: the models Auto routes a new session's first prompt to, one
    *  per category. Lives under Sessions; each provider chooses Auto in Providers. */
   import { untrack } from "svelte";
@@ -43,15 +44,14 @@
 </script>
 
 <SettingsSection
-  label="Model routing"
+  {...settingsDefinitions["sessions.section-model-routing"]}
   {visible}
 >
   {#if state && (state.agents.length > 0 || (!state.loading && !state.error))}
     {@const config = settings.modelRouting}
     {#if keyMissing}
       <SettingsRow
-        label="TypeSafe key required"
-        description="Needs a TypeSafe key. Until then, Auto uses General use."
+        {...settingsDefinitions["sessions.typesafe-key-required"]}
       >
         {#snippet control()}
           <Button variant="outline" size="sm" class="text-workspace-chrome [@media(pointer:coarse)]:min-h-11" onclick={() => workspace.selectSettingsTab("tools")}>Add key</Button>

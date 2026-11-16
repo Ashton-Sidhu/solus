@@ -5,11 +5,11 @@ import { finishedSummary } from '../../attention/finished-summary'
 import type { AttentionKind } from '@solus/contracts/attention-types'
 import { hasPendingAsyncQuestion, pendingAsyncQuestions } from '../../data/sessions/async-questions'
 import { ANY_ORGANIZATION } from '../../admission/principal'
-import { sessionRecordStatusOf, setSessionRecordStatus } from '../../data/sessions/session-records'
+import { setSessionRecordStatus } from '../../data/sessions/session-records'
 import { clearForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { getIndexedSession } from '../../db/session-indexer'
 import type { BackendSession, SessionStatus, NormalizedEvent, SessionRecordStatus, ThreadGoal } from '@solus/contracts/types'
-import { isSessionBusyStatus } from '@solus/contracts/types'
+import { isSessionBusyStatus, sessionRecordStatusOf } from '@solus/contracts/types'
 import type { SessionRuntime } from '../session-runtime'
 import { backgroundWorkHolds } from './background-work'
 import { deriveSessionStatus, turnOfStatus } from './derived-status'
@@ -54,6 +54,12 @@ export class SessionStatuses {
   isSessionBusy(sessionId: string): boolean {
     const status = this.rt.activeSessions.get(sessionId)?.status
     return status !== undefined && isSessionBusyStatus(status)
+  }
+
+  /** True while the session's turn has ended and it waits in 'background' on
+   *  reports from the sessions it sent work to. It has no run by design. */
+  isWaitingOnReports(sessionId: string): boolean {
+    return this.rt.activeSessions.get(sessionId)?.status === 'background' && !!this.rt.orchestration?.isAwaitingReplies(sessionId)
   }
 
   liveSessionStatus(sessionId: string): SessionStatus | null {
@@ -107,7 +113,7 @@ export class SessionStatuses {
       // A completed provider turn can leave commands or children running.
       // Their lifecycle events own completion; no active turn is required.
       const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
-      if (alive || hasPendingRun || (hasBackgroundWork && !isSessionBusyStatus(session.status))) {
+      if (alive || hasPendingRun || this.isWaitingOnReports(sessionId) || (hasBackgroundWork && !isSessionBusyStatus(session.status))) {
         this.rt.missingRunCounts.delete(sessionId)
         continue
       }
@@ -337,7 +343,7 @@ export class SessionStatuses {
       turn: turnOfStatus(newStatus),
       pendingInput: input === 'awaiting_input' || input === 'awaiting_plan' ? input : null,
       rateLimitParked: !!parked && parked.deferCurrentRun !== true,
-      backgroundHolds: backgroundWorkHolds(session),
+      backgroundHolds: backgroundWorkHolds(session) || !!this.rt.orchestration?.isAwaitingReplies(sessionId),
     }
     const derived = deriveSessionStatus(facts)
     if (derived === newStatus) return

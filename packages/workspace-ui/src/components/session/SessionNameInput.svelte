@@ -73,7 +73,7 @@
 >
   <input
     bind:this={input}
-    class="relative h-full min-w-0 flex-1 bg-transparent px-[0.3125rem] py-0 text-foreground caret-(--solus-accent) outline-none selection:bg-[color:Highlight] {className}"
+    class="relative h-full min-w-0 flex-1 bg-transparent px-[0.3125rem] py-0 text-foreground outline-none selection:bg-[color:Highlight] {className}"
     bind:value={draft}
     name="session-name"
     aria-label="Name"

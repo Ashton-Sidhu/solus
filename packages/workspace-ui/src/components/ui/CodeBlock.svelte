@@ -92,7 +92,10 @@
   }
 </script>
 
-<div class={showHeader ? "solus-code-block group/code" : "solus-code-block group/code !m-0 !rounded-none !shadow-none"}>
+<div
+  class={showHeader ? "solus-code-block group/code" : "solus-code-block group/code !m-0 !rounded-none !shadow-none"}
+  data-slot="code-block"
+>
   {#if showHeader}
   <div class="solus-code-head">
     <span class="solus-code-lang">{lang || "text"}</span>

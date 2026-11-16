@@ -19,8 +19,8 @@ describe('found machines', () => {
     expect(found.map((machine) => [machine.kind, machine.source, machine.zone, machine.name])).toEqual([
       ['server', 'lan', 'own', "Mia's iMac"],
       ['server', 'tailnet', 'own', 'nas-01'],
-      ['wsl', 'wsl', 'forwarded', 'Debian'],
-      ['ssh', 'ssh-config', 'forwarded', 'devbox'],
+      ['wsl', 'wsl', 'own', 'Debian'],
+      ['ssh', 'ssh-config', 'own', 'devbox'],
     ])
     expect(found[0]).toMatchObject({ os: 'macos', detail: '192.168.1.42:4317' })
     expect(found[2]).toMatchObject({ os: 'linux', detail: 'On gaming-pc' })

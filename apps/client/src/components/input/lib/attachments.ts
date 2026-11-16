@@ -17,16 +17,28 @@ export function createWebAttachments(session: WorkspaceContext) {
     // Capture the host and prompt before a picker or upload can yield to navigation.
     const api = serverConnections.apiFor(serverId);
     const ctx = targetId ? session.ctxFor(targetId) : session.ctx;
+    const refuseHost = () => {
+      const hostLabel = serversStore.hostFor(serverId)?.label
+        ?? serverConnections.connectionFor(serverId)?.target.label ?? 'this host';
+      toasts.info(unsupportedOnHost('File attachments', hostLabel));
+    };
+    // The picker opens before anything is awaited: iOS Safari opens it only
+    // inside the tap that asked for it. A host whose capabilities are not
+    // known yet is checked once the picker is open.
+    const knownCapabilities = serverConnections.cachedCapabilitiesFor(serverId);
+    if (knownCapabilities && knownCapabilities.attachUpload !== true) {
+      refuseHost();
+      return;
+    }
+    const picking = files ? Promise.resolve(files) : pickFiles();
     try {
-      const capabilities = await serverConnections.capabilitiesFor(serverId);
+      const capabilities = knownCapabilities ?? await serverConnections.capabilitiesFor(serverId);
       if (capabilities.attachUpload !== true) {
-        const hostLabel = serversStore.hostFor(serverId)?.label
-          ?? serverConnections.connectionFor(serverId)?.target.label ?? 'this host';
-        toasts.info(unsupportedOnHost('File attachments', hostLabel));
+        refuseHost();
         return;
       }
       // The shared upload path, so a video streams and its chip shows progress.
-      const picked = files ?? await pickFiles();
+      const picked = await picking;
       if (picked.length === 0) return;
       const attachments = await uploadFileObjects(api, ctx, serverId, picked);
       if (draft) draft.prompt.attachments.push(...attachments);

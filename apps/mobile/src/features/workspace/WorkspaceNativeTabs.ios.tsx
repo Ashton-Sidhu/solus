@@ -1,6 +1,18 @@
 // Adapted from T3 Code apps/mobile/src/features/workspace/WorkspaceNativeTabs.ios.tsx (MIT, see UPSTREAM.md).
-import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Keyboard, Platform, View, type NativeSyntheticEvent } from "react-native";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  Keyboard,
+  Platform,
+  View,
+  type NativeSyntheticEvent,
+} from "react-native";
 import {
   Tabs,
   type TabSelectedEvent,
@@ -8,34 +20,47 @@ import {
   type TabSelectionRejectedEvent,
 } from "react-native-screens";
 
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeWorkspaceTabActivityContext } from "../../native/v5-workspace-context";
 import { useSidebarWorkspaceTabs } from "./use-sidebar-workspace-tabs";
 import { WorkspaceTabsContext, useWorkspaceTabs } from "./WorkspaceTabsContext";
-import { WORKSPACE_TAB_LABELS, type WorkspaceTab } from "./workspace-tabs-state";
+import type { WorkspaceDestination } from "./workspace-destinations";
+import { WORKSPACE_TAB_LABELS } from "./workspace-tabs-state";
 
 // Tabler's git-pull-request geometry, rasterized at 1x/2x/3x for UIKit template images.
 const PULL_REQUEST_ICON = require("../../../assets/icons/pull-request.png");
 const COMPOSE_TAB = "compose";
-const TABS = ["chats", "pullRequests"] as const;
+const TABS = ["chats", "pullRequests", "settings"] as const;
 
 /** Retain each native controller tree; removing its root can leave RNS's stack empty. */
 function RetainedWorkspaceTab(props: {
-  readonly tab: WorkspaceTab;
+  readonly tab: WorkspaceDestination;
   readonly active: boolean;
   readonly children: ReactNode;
 }) {
   const workspace = useWorkspaceTabs();
-  const { isTabActive } = workspace;
-  const isActive = useCallback(() => isTabActive(props.tab), [isTabActive, props.tab]);
-  const activity = useMemo(() => ({ active: props.active, isActive }), [props.active, isActive]);
+  const activeRef = useRef(props.active);
+  useLayoutEffect(() => {
+    activeRef.current = props.active;
+  }, [props.active]);
+  const isActive = useCallback(() => activeRef.current, []);
+  const activity = useMemo(
+    () => ({ active: props.active, isActive }),
+    [props.active, isActive],
+  );
   const [content, setContent] = useState(
     props.active ? { workspace, children: props.children } : null,
   );
-  if (props.active && (content?.workspace !== workspace || content?.children !== props.children))
+  if (
+    props.active &&
+    (content?.workspace !== workspace || content?.children !== props.children)
+  )
     setContent({ workspace, children: props.children });
   return content ? (
     <NativeWorkspaceTabActivityContext value={activity}>
-      <WorkspaceTabsContext value={content.workspace}>{content.children}</WorkspaceTabsContext>
+      <WorkspaceTabsContext value={content.workspace}>
+        {content.children}
+      </WorkspaceTabsContext>
     </NativeWorkspaceTabActivityContext>
   ) : null;
 }
@@ -52,11 +77,16 @@ export function WorkspaceNativeTabs(props: {
   readonly hidden: boolean;
   readonly onSelect: () => void;
   readonly onNewTask: () => void;
+  readonly settingsOpen: boolean;
+  readonly onOpenSettings: () => void;
 }) {
   const workspace = useWorkspaceTabs();
+  const colors = useUniwindTheme();
   const sidebarTabs = useSidebarWorkspaceTabs();
   const [provenance, setProvenance] = useState(0);
-  const selectedTab = workspace.state.selectedTab;
+  const selectedTab = props.settingsOpen
+    ? "settings"
+    : workspace.state.selectedTab;
   const request = useMemo(
     () => ({ selectedScreenKey: selectedTab, baseProvenance: provenance }),
     [selectedTab, provenance],
@@ -66,7 +96,11 @@ export function WorkspaceNativeTabs(props: {
       <Tabs.Host
         navStateRequest={request}
         tabBarHidden={props.hidden || sidebarTabs}
-        ios={{ tabBarControllerMode: "tabBar", tabBarMinimizeBehavior: "never" }}
+        ios={{
+          tabBarControllerMode: "tabBar",
+          tabBarMinimizeBehavior: "never",
+          tabBarTintColor: colors["--color-primary"],
+        }}
         onTabSelectionPrevented={({
           nativeEvent,
         }: NativeSyntheticEvent<TabSelectionPreventedEvent>) => {
@@ -77,29 +111,48 @@ export function WorkspaceNativeTabs(props: {
         }: NativeSyntheticEvent<TabSelectionRejectedEvent>) => {
           setProvenance(nativeEvent.provenance);
         }}
-        onTabSelected={({ nativeEvent }: NativeSyntheticEvent<TabSelectedEvent>) => {
+        onTabSelected={({
+          nativeEvent,
+        }: NativeSyntheticEvent<TabSelectedEvent>) => {
           const tab = nativeEvent.selectedScreenKey;
-          if (tab !== "chats" && tab !== "pullRequests") return;
+          if (tab !== "chats" && tab !== "pullRequests" && tab !== "settings")
+            return;
           setProvenance(nativeEvent.provenance);
-          if (nativeEvent.actionOrigin === "programmatic-js" || tab === selectedTab) return;
+          if (
+            nativeEvent.actionOrigin === "programmatic-js" ||
+            tab === selectedTab
+          )
+            return;
           Keyboard.dismiss();
-          props.onSelect();
-          workspace.dispatch({ type: "select", tab });
+          if (tab === "settings") props.onOpenSettings();
+          else {
+            props.onSelect();
+            workspace.dispatch({ type: "select", tab });
+          }
         }}
       >
         {TABS.map((tab) => (
           <Tabs.Screen
             key={tab}
             screenKey={tab}
-            title={WORKSPACE_TAB_LABELS[tab]}
-            tabBarItemAccessibilityLabel={WORKSPACE_TAB_LABELS[tab]}
+            title=""
+            tabBarItemAccessibilityLabel={
+              tab === "settings" ? "Settings" : WORKSPACE_TAB_LABELS[tab]
+            }
             ios={{
               icon:
                 tab === "chats"
                   ? { type: "sfSymbol", name: "text.bubble" }
-                  : { type: "templateSource", templateSource: PULL_REQUEST_ICON },
+                  : tab === "settings"
+                    ? { type: "sfSymbol", name: "gearshape" }
+                    : {
+                        type: "templateSource",
+                        templateSource: PULL_REQUEST_ICON,
+                      },
               selectedIcon:
-                tab === "chats" ? { type: "sfSymbol", name: "text.bubble.fill" } : undefined,
+                tab === "chats"
+                  ? { type: "sfSymbol", name: "text.bubble.fill" }
+                  : undefined,
               overrideScrollViewContentInsetAdjustmentBehavior: false,
             }}
           >
@@ -112,7 +165,7 @@ export function WorkspaceNativeTabs(props: {
           <Tabs.Screen
             key={COMPOSE_TAB}
             screenKey={COMPOSE_TAB}
-            title="New session"
+            title=""
             tabBarItemAccessibilityLabel="New session"
             preventNativeSelection
             ios={{

@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/home/homeThreadList.ts (MIT, see UPSTREAM.md).
 import type { SolusProjectShell, SolusThreadShell } from "../threads/thread-directory";
 import { groupProjectScopes, type ProjectScope } from "../threads/new-task-project-selection";
-import { threadProjectKey } from "../threads/threadListV2";
+import { CHATS_SCOPE_KEY, threadProjectKey } from "../threads/threadListV2";
 
 /** The Home project filter's scopes: every project, or only those on one host. */
 export function buildHomeProjectScopes(input: {
@@ -13,6 +13,17 @@ export function buildHomeProjectScopes(input: {
       ? input.projects
       : input.projects.filter((project) => project.hostId === input.hostId),
   );
+}
+
+/** The project filter's choices: each project, then the chats, which belong
+    to none. Chats is not a project, so it is never removed from projects. */
+export function homeProjectFilterOptions(
+  scopes: ReadonlyArray<ProjectScope>,
+): Array<{ readonly key: string; readonly label: string; readonly removable: boolean }> {
+  return [
+    ...scopes.map((scope) => ({ key: scope.key, label: scope.title, removable: true })),
+    { key: CHATS_SCOPE_KEY, label: "Chats", removable: false },
+  ];
 }
 
 /** Most recently active project first; a project with no thread sorts by its last use. */

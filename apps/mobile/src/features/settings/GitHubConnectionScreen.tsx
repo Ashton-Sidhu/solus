@@ -1,3 +1,4 @@
+import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsEnvironmentDetailRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { Alert, RefreshControl, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -52,7 +53,7 @@ export function GitHubConnectionScreen({ route }: ScreenProps<"GitHubConnection"
     );
 
   return (
-    <SettingsScreen title="GitHub">
+    <SettingsScreen title={settingsDefinitions["source-control.github"].label}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -64,7 +65,7 @@ export function GitHubConnectionScreen({ route }: ScreenProps<"GitHubConnection"
         <View className="gap-3">
           {view.kind === "account" ? (
             <>
-              <SettingsSection title="GitHub">
+              <SettingsSection title={settingsDefinitions["source-control.github"].label}>
                 <SettingsValueRow
                   icon={view.status?.kind === "connected" ? "person.crop.circle" : "info.circle"}
                   label="Status"
@@ -116,7 +117,7 @@ export function GitHubConnectionScreen({ route }: ScreenProps<"GitHubConnection"
               </SettingsNote>
             </>
           ) : (
-            <SettingsSection title="GitHub">
+            <SettingsSection title={settingsDefinitions["source-control.github"].label}>
               {view.kind === "connected" ? (
                 <>
                   <SettingsValueRow

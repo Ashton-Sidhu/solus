@@ -157,7 +157,7 @@ function input(agentSessionId: string | null): SessionRunInput {
   }
 }
 
-/** A started session, as the start_session tool orders it. */
+/** A started session, as the start_sessions tool orders it. */
 function spawnOrder() {
   return { prompt: 'target', provider: 'codex' as const, modelId: 'gpt-requested', reasoningEffort: 'medium' as const, contextWindow: null, cwd: process.cwd() }
 }

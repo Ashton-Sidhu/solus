@@ -110,6 +110,7 @@ function receiver() {
     hostId: () => 'host-1',
     forwarderSecret: () => FORWARDER_SECRET,
     isPausedByAdmin: () => false,
+    organizationRefusal: () => null,
     allowsUnverifiedWebhooks: () => false,
     runDelivery: async (delivery) => { ran.push(delivery.deliveryId) },
   })

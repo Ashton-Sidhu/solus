@@ -141,13 +141,56 @@ describeWithNode('an app as a runtime', () => {
     }, 'the run failed')
     expect(failed).toMatchObject({ error: 'the source is gone' })
     expect(failed.steps.map((step) => [step.name, step.state, step.error])).toEqual([['count', 'failed', 'the source is gone']])
-    expect((await apps.read(owner, app.id)).app.attention).toContainEqual({ kind: 'workflow-failed', detail: 'The workflow build failed: the source is gone' })
+    expect((await apps.read(owner, app.id)).app.attention).toContainEqual({ kind: 'workflow-failed', detail: 'The workflow build failed: the source is gone', runId: started.id })
     await expect(workflows.terminate(owner, app.id, started.id)).resolves.toMatchObject({ state: 'failed' })
 
     // The failed step runs again; it fails again, because its input did not change.
     expect(await workflows.retry(owner, app.id, started.id)).toMatchObject({ state: 'running', steps: [] })
     await eventually(async () => ((await workflows.read(owner, app.id, started.id))?.state === 'failed' ? true : null), 'the run failed again')
     await expect(workflows.retry(owner, app.id, 'no-such-run')).rejects.toThrow('This app has no run with this id.')
+  })
+
+  test('a run that failed on an older version waits for a retry on the new one, and the owner can dismiss it', async () => {
+    // WHY: a deploy that fixed the bug left the old failure in red, as if the
+    // new code were broken. The owner must see that the code is fixed and the
+    // work is not done, and must be able to finish it or let it go.
+    const { apps, workflows } = await host()
+    const { app } = await ship(apps, project(REPORTS))
+    const started = await call(apps, app.id, appOperationCallName('request'), { title: 'Bad', fail: true })
+    const failed = await eventually(async () => {
+      const detail = await workflows.read(owner, app.id, started.id)
+      return detail?.state === 'failed' ? detail : null
+    }, 'the run failed')
+    const first = failed.version ?? 0
+    expect(first).toBe((await apps.read(owner, app.id)).app.activeVersion ?? -1)
+    const attentionOf = async () => (await apps.read(owner, app.id)).app.attention.filter((item) => item.kind.startsWith('workflow'))
+
+    await apps.deploy(owner, { app: app.id, createdBy: by })
+    const second = first + 1
+    expect(await attentionOf()).toEqual([{ kind: 'workflow-stale', detail: `The last build run failed on v${first}. v${second} has not run it yet.`, runId: started.id }])
+    // A run from before the host kept versions is judged by when it finished: before the activation, so it is stale too.
+    const { getDatabase } = await import('@solus/server/db/database')
+    await getDatabase().run(sql`UPDATE app_workflow_runs SET version = NULL WHERE id = ${started.id}`)
+    expect(await attentionOf()).toEqual([{ kind: 'workflow-stale', detail: `The last build run failed on an older version. v${second} has not run it yet.`, runId: started.id }])
+
+    // Dismiss takes it off what needs the owner. The run stays in the history, marked.
+    const changed: string[] = []
+    const stop = events.onAppsChanged((event) => { if (event.kind === 'saved') changed.push(event.app.id) })
+    expect((await workflows.dismiss(owner, app.id, started.id)).dismissedAt).not.toBeNull()
+    stop()
+    expect(await attentionOf()).toEqual([])
+    expect(changed).toContain(app.id)
+    expect((await workflows.list(owner, app.id, {})).map((run) => [run.id, run.state, run.dismissedAt !== null])).toEqual([[started.id, 'failed', true]])
+
+    // A retry runs on the active version. It fails again with the same input, now as a failure of this version.
+    expect(await workflows.retry(owner, app.id, started.id)).toMatchObject({ state: 'running', dismissedAt: null })
+    const again = await eventually(async () => {
+      const detail = await workflows.read(owner, app.id, started.id)
+      return detail?.state === 'failed' ? detail : null
+    }, 'the run failed on the new version')
+    expect(again.version).toBe(second)
+    expect(await attentionOf()).toEqual([{ kind: 'workflow-failed', detail: 'The workflow build failed: the source is gone', runId: started.id }])
+    await expect(workflows.dismiss(owner, app.id, 'no-such-run')).rejects.toThrow('This app has no run with this id.')
   })
 
   test('a run that sleeps leaves the runner, and wakes when its time comes: also after a deploy', async () => {
@@ -183,6 +226,20 @@ describeWithNode('an app as a runtime', () => {
     }, 'the run woke and ended')
     expect(done.steps.map((step) => [step.name, step.state])).toEqual([['before', 'done'], ['wait', 'done'], ['after', 'done']])
     expect(await call(apps, app.id, appOperationCallName('list'))).toEqual([{ title: 'after the sleep', rows: 2 }, { title: 'before the sleep', rows: 1 }])
+  })
+
+  test('the Code button of a step reads where the step is in the source of the version', async () => {
+    // WHY: the host keeps no map from a step to its code, so the place comes
+    // from the revision the version was built from, not from the folder an
+    // agent may have changed since.
+    const apps = await service()
+    const { app } = await ship(apps, project(REPORTS))
+    const place = await apps.stepSource(owner, app.id, { workflow: 'build', step: 'count' })
+    expect(place).toMatchObject({ version: 1, path: 'app.ts', line: 26, column: 30 })
+    expect(place?.text.split('\n')[25]).toContain("ctx.step.do('count'")
+    // A step that runs a mutation is not a `step.do` call, so it has no place.
+    expect(await apps.stepSource(owner, app.id, { workflow: 'later', step: 'before' })).toBeNull()
+    await expect(apps.stepSource(owner, app.id, { workflow: 'build', step: 'count', version: 9 })).rejects.toThrow('This app has no version 9.')
   })
 
   test('a run of a stopped app waits, and the owner can end a run', async () => {

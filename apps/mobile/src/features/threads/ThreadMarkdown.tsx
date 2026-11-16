@@ -7,15 +7,13 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
-import { imageFileChips, replyImages } from "@solus/client-core/reply-images";
-import { Pressable, View } from "react-native";
-import { AppText as Text } from "../../components/AppText";
+import { View } from "react-native";
 import { createContext, memo, useCallback, useContext, useMemo, useState } from "react";
 import { Linking } from "react-native";
 
 import { useApp } from "../../app/app-context";
 import type { FilePreviewSource } from "../../components/FilePreview.types";
-import { FilePreviewGallery, useFilePreviewGallery } from "../../components/FilePreviewGallery";
+import { FilePreviewGallery } from "../../components/FilePreviewGallery";
 import { FilePreviewModal } from "../../components/FilePreviewModal";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
 import type { RootStackParamList } from "../../navigation/routes";
@@ -48,6 +46,7 @@ import { usePullRequestLinkActions } from "../prs/use-pull-request-link-actions"
 import { ReviewCommentCard } from "../review/ReviewCommentCard";
 import { resolveArtifactTitle } from "@solus/contracts/work-preview";
 import { ArtifactPage } from "./ThreadArtifact";
+import { markdownImageGallery } from "./markdown-image-gallery";
 import { replySegments } from "./reply-html-fences";
 
 /** A path the host resolves without the working directory: `~` is its home. */
@@ -72,27 +71,22 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
   readonly markdown: string;
   readonly tone: MarkdownTone;
   readonly store: ConversationStore;
-  readonly imagesOnly?: boolean;
-  readonly imageLabel?: string;
 }) {
   // A reply can hold live HTML pages between its prose.
   const htmlSegments = useMemo(
-    () => (props.tone === "assistant" && !props.imagesOnly ? replySegments(props.markdown) : []),
-    [props.markdown, props.tone, props.imagesOnly],
+    () => (props.tone === "assistant" ? replySegments(props.markdown) : []),
+    [props.markdown, props.tone],
   );
   const hasHtmlBlocks = htmlSegments.some((segment) => segment.kind === "html");
-  const markdown = useMemo(() => props.tone === "assistant" && !props.imagesOnly ? imageFileChips(props.markdown) : props.markdown, [props.markdown, props.tone, props.imagesOnly]);
+  const markdown = props.markdown;
   // A user message can hold review cards between its prose.
   const reviewSegments = useMemo(
     () => (props.tone === "user" ? parseReviewCommentMessageSegments(markdown) : []),
     [markdown, props.tone],
   );
   const hasReviewComments = reviewSegments.some((segment) => segment.kind === "review-comment");
-  const fileChipHrefs = useMemo(() => props.tone === "assistant" && !props.imagesOnly ? replyImages(props.markdown).map((image) => image.href) : [], [props.markdown, props.tone, props.imagesOnly]);
-  const images = useMemo(() => props.imagesOnly ? replyImages(props.markdown) : [], [props.markdown, props.imagesOnly]);
-  const gallery = useContext(FilePreviewGallery);
+  const inheritedGallery = useContext(FilePreviewGallery);
   const quoteInReply = useContext(QuoteInReplyContext);
-  const withGallery = useFilePreviewGallery();
   const app = useApp();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const textStyle = useNativeMarkdownTextStyle(props.tone);
@@ -135,6 +129,8 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
     [app, hostId, hostRequest, workingDirectory],
   );
 
+  const gallery = useMemo(() => inheritedGallery.length > 0 ? inheritedGallery : markdownImageGallery(markdown, media), [inheritedGallery, markdown, media]);
+
   const pullRequestLinkActions = usePullRequestLinkActions();
 
   const openMarkdownLink = useCallback(
@@ -175,11 +171,17 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
         navigation.navigate("Thread", { hostId: presentation.serverId ?? hostId, sessionId: presentation.sessionId });
         return;
       }
+      // A host link opens the hosts of this app: the mobile host page follows (host-fleet.md D10).
+      if (presentation.kind === "host") {
+        void Haptics.selectionAsync();
+        navigation.navigate("Hosts");
+        return;
+      }
       if (presentation.href) void Linking.openURL(presentation.href);
     },
     [app, hostId, media, navigation, pullRequestLinkActions, workingDirectory],
   );
-  const onLinkPress = useCallback((href: string) => openMarkdownLink(href, fileChipHrefs.includes(href)), [openMarkdownLink, fileChipHrefs]);
+  const onLinkPress = useCallback((href: string) => openMarkdownLink(href, false), [openMarkdownLink]);
   const onImagePress = useCallback((href: string) => openMarkdownLink(href, true), [openMarkdownLink]);
 
   /** An image Enriched draws itself: its own URL, or a URL the host signs for a host file. */
@@ -196,7 +198,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
   const renderImage = useCallback<MarkdownImageRenderer>(
     (image) => {
       if (image.href.startsWith("asset://")) {
-        return <ThreadMarkdownImage connection={app.connections.connection(hostId)} request={{ assetId: image.href.slice(8) }} preview={gallery.find((item) => item.key === image.href)} alt={image.alt} thumbnail={props.imagesOnly} onPressPreview={setFilePreview} />;
+        return <ThreadMarkdownImage connection={app.connections.connection(hostId)} request={{ assetId: image.href.slice(8) }} preview={gallery.find((item) => item.key === image.href)} alt={image.alt} onPressPreview={setFilePreview} />;
       }
       const preview = resolveMarkdownMediaPreview(image.href, media, true);
       const presentation = resolveMarkdownLinkPresentation(image.href);
@@ -211,7 +213,6 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       if (presentation.kind === "external") {
         return (
           <ThreadMarkdownImageView
-            thumbnail={props.imagesOnly}
             uri={presentation.href}
             sourceKey={presentation.href}
             unavailable={false}
@@ -227,7 +228,6 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       if (!request || !preview) return <ThreadMarkdownImageUnavailable alt={image.alt} />;
       return (
         <ThreadMarkdownImage
-          thumbnail={props.imagesOnly}
           connection={app.connections.connection(hostId)}
           request={request}
           alt={image.alt}
@@ -236,11 +236,11 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
         />
       );
     },
-    [app, gallery, hostId, hostRequest, media, props.imagesOnly],
+    [app, gallery, hostId, hostRequest, media],
   );
 
   return (
-    <>
+    <FilePreviewGallery value={gallery}>
       {hasHtmlBlocks ? (
         <View className="w-full gap-2">
           {htmlSegments.map((segment) =>
@@ -262,31 +262,11 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
             ),
           )}
         </View>
-      ) : props.imagesOnly ? images.map((image, index) => (
-        <Pressable
-          key={index}
-          accessibilityRole="imagebutton"
-          accessibilityLabel={`Open ${props.imageLabel ?? image.label}`}
-          onPress={() => {
-            const resolved = resolveMarkdownMediaPreview(image.href, media, true);
-            const preview = gallery.find((item) => item.key === image.href) ?? (resolved?.kind === "image" ? resolved.source : undefined);
-            if (preview) setFilePreview(withGallery(preview));
-          }}
-          className="my-1 rounded-lg border border-border-subtle bg-subtle p-2"
-          style={{ width: 128 }}
-        >
-          <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          {renderImage({ href: image.href, alt: props.imageLabel ?? image.label, title: null })}
-          <Text numberOfLines={1} className="mt-1.5 text-xs text-foreground">{props.imageLabel ?? image.label}</Text>
-          <Text className="text-xs text-foreground-muted">{image.format}</Text>
-          </View>
-        </Pressable>
-      )) : <SelectableMarkdownText
+      ) : <SelectableMarkdownText
         markdown={markdown}
         textStyle={textStyle}
         preserveSoftBreaks={props.tone === "user"}
         recognizeFileMentions={props.tone === "user"}
-        fileChipHrefs={fileChipHrefs}
         onLinkPress={onLinkPress}
         renderImage={renderImage}
         resolveImageSource={resolveImageSource}
@@ -295,6 +275,6 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       />}
       <FilePreviewModal source={filePreview} onRequestClose={() => setFilePreview(null)} />
       <VideoPreviewModal source={videoPreview} onRequestClose={() => setVideoPreview(null)} />
-    </>
+    </FilePreviewGallery>
   );
 });

@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
-  APP_MODEL_INPUT_MAX_BYTES, APP_MODEL_TEXT_MAX_CHARS, appModelCallArgumentsSchema, appModelCallRecordSchema, appModelRequestSchema, isFinishedModelCall,
+  APP_MODEL_CALL_STATES, APP_MODEL_INPUT_MAX_BYTES, APP_MODEL_TEXT_MAX_CHARS, appModelCallArgumentsSchema, appModelCallRecordSchema, appModelRequestSchema, isFinishedModelCall,
   type AppModelCallRecord, type AppModelCallView, type AppModelRequest, type AppModelStep,
 } from '@solus/contracts/app-models'
 import type { AppCaller, AppConfigValue, AppDescriptor, AppModelOperation } from '@solus/contracts/apps'
@@ -19,6 +19,7 @@ import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { renameRetrying } from '../platform/rename-retry'
 import { emitAppActivity } from './app-events'
+import type { ModelCallLog } from './app-observability'
 import type { StoredValue } from './app-storage'
 import type { AppAuthority } from './apps'
 
@@ -58,6 +59,14 @@ export interface AppModelCallsDeps {
   /** The folder of the apps' data. */
   root?: () => string
   now?: () => number
+  /** Where each call also writes its row of the app's call log. `modelCallLog` on a host. */
+  callLog: ModelCallLog
+}
+
+/** What `submit_result` received; `given` is false until the model calls it. */
+interface SubmittedResult {
+  value: StoredValue
+  given: boolean
 }
 
 interface LiveCall {
@@ -68,6 +77,8 @@ interface LiveCall {
   run: AgentRun | null
   waiters: ((record: AppModelCallRecord) => void)[]
   writtenAt: number
+  /** The writes of one call run in order: two at once would race on its file. */
+  saving: Promise<void>
 }
 
 export class AppModelCalls {
@@ -78,6 +89,13 @@ export class AppModelCalls {
 
   private now(): number {
     return (this.deps.now ?? Date.now)()
+  }
+
+  /** Writes a call's row of the call log. The record is what the call is: a row that fails to write is only logged. */
+  private async logCall(step: 'begin' | 'end', record: AppModelCallRecord, version = 0): Promise<void> {
+    const callLog = this.deps.callLog
+    await (step === 'begin' ? callLog.begin(record, version) : callLog.end(record))
+      .catch((error) => log.warn('app_model_call_log_failed', { appId: record.appId, callId: record.id, step, error: String(error) }))
   }
 
   private folder(appId: string): string {
@@ -91,18 +109,18 @@ export class AppModelCalls {
   async hostRequest(app: AppRecord, descriptor: AppDescriptor, config: { readonly [name: string]: AppConfigValue }, method: string, input: StoredValue, caller: AppCaller): Promise<StoredValue> {
     switch (method) {
       case 'models.start':
-        return { id: (await this.start(app, descriptor, config, appModelRequestSchema.parse(input), caller)).id }
+        return { id: (await this.start(app, descriptor, config, parsed(appModelRequestSchema, input, 'model call'), caller)).id }
       case 'models.run': {
-        const ended = await this.wait(app.id, (await this.start(app, descriptor, config, appModelRequestSchema.parse(input), caller)).id)
+        const ended = await this.wait(app.id, (await this.start(app, descriptor, config, parsed(appModelRequestSchema, input, 'model call'), caller)).id)
         if (ended.status !== 'done') throw new Error(ended.error ?? `The model call was ${ended.status}.`)
         return ended.result
       }
       case 'models.get':
-        return jsonOf(await this.get(app.id, appModelCallArgumentsSchema.parse(input).id))
+        return jsonOf(await this.get(app.id, parsed(appModelCallArgumentsSchema, input, 'model call id').id))
       case 'models.list':
-        return (await this.list(app.id, listOptionsSchema.parse(input))).map(jsonOf)
+        return (await this.list(app.id, parsed(listOptionsSchema, input, 'list of model calls'))).map(jsonOf)
       case 'models.cancel':
-        return jsonOf(viewOf(await this.cancel(app.id, appModelCallArgumentsSchema.parse(input).id), 0))
+        return jsonOf(viewOf(await this.cancel(app.id, parsed(appModelCallArgumentsSchema, input, 'model call id').id), 0))
       default:
         throw new Error(`The host does not answer ${method} here.`)
     }
@@ -110,7 +128,7 @@ export class AppModelCalls {
 
   /** What the app's UI asks for: `@models/get` with the text it does not have yet, and `@models/cancel`. */
   async uiCall(app: AppRecord, operation: AppModelOperation, input: StoredValue): Promise<StoredValue> {
-    const { id, textFrom } = appModelCallArgumentsSchema.parse(input)
+    const { id, textFrom } = parsed(appModelCallArgumentsSchema, input, 'model call id')
     if (operation === 'cancel') return jsonOf(viewOf(await this.cancel(app.id, id), 0))
     const view = await this.get(app.id, id, textFrom)
     if (!view) throw new Error(`This app has no model call ${id}.`)
@@ -147,9 +165,10 @@ export class AppModelCalls {
       status: 'queued', prompt: request.prompt, tools: request.tools, text: '', steps: [], result: null, error: null, usage: null,
       caller, createdAt: this.now(), startedAt: null, endedAt: null,
     }
-    const call: LiveCall = { record, app, descriptor, request, run: null, waiters: [], writtenAt: 0 }
+    const call: LiveCall = { record, app, descriptor, request, run: null, waiters: [], writtenAt: 0, saving: Promise.resolve() }
     this.live.set(record.id, call)
     await this.write(call)
+    await this.logCall('begin', record, app.activeVersion ?? 0)
     log.info('app_model_call_queued', { appId: app.id, callId: record.id, setting: request.setting })
     const queue = this.waiting.get(app.id) ?? []
     queue.push(call)
@@ -212,7 +231,9 @@ export class AppModelCalls {
       for (const id of await this.ids(appId).catch((): string[] => [])) {
         const record = await this.read(appId, id)
         if (!record || isFinishedModelCall(record.status)) continue
-        await this.save({ ...record, status: 'failed', error: HOST_STOPPED, endedAt: this.now() })
+        const failed: AppModelCallRecord = { ...record, status: 'failed', error: HOST_STOPPED, endedAt: this.now() }
+        await this.save(failed)
+        await this.logCall('end', failed)
         log.warn('app_model_call_interrupted', { appId, callId: id })
       }
     }
@@ -258,7 +279,7 @@ export class AppModelCalls {
     await this.write(call)
     log.info('app_model_call_started', { appId: app.id, callId: record.id, provider: selection.provider, model: selection.model })
 
-    const submitted: { value: StoredValue; given: boolean } = { value: null, given: false }
+    const submitted: SubmittedResult = { value: null, given: false }
     const tools = this.toolsFor(call, (value) => {
       submitted.value = value
       submitted.given = true
@@ -371,6 +392,7 @@ export class AppModelCalls {
     call.record.error = error
     call.record.endedAt = this.now()
     await this.write(call, true)
+    await this.logCall('end', call.record)
     this.live.delete(call.record.id)
     log.info('app_model_call_finished', { appId: call.app.id, callId: call.record.id, status, error })
     for (const waiter of call.waiters.splice(0)) waiter(call.record)
@@ -384,7 +406,8 @@ export class AppModelCalls {
   private async write(call: LiveCall, now = call.record.status !== 'running'): Promise<void> {
     if (!now && this.now() - call.writtenAt < WRITE_EVERY_MS) return
     call.writtenAt = this.now()
-    await this.save(call.record)
+    call.saving = call.saving.then(() => this.save(call.record)).catch((error) => log.warn('app_model_call_write_failed', { appId: call.app.id, callId: call.record.id, error: String(error) }))
+    await call.saving
     // At most once a second while the model writes: a Manage page that shows the call reads it again.
     emitAppActivity(call.app.id, 'models')
   }
@@ -420,9 +443,16 @@ export class AppModelCalls {
 }
 
 const listOptionsSchema = z.object({
-  status: appModelCallRecordSchema.shape.status.optional(),
-  limit: z.number().int().min(1).max(100).optional(),
+  status: z.enum(APP_MODEL_CALL_STATES).optional(),
+  limit: z.number().transform((limit) => Math.min(Math.max(Math.round(limit), 1), 100)).optional(),
 })
+
+/** The request, or an error that says in one line what is wrong with it: the app shows the message. */
+function parsed<Schema extends z.ZodType>(schema: Schema, input: StoredValue, what: string): z.output<Schema> {
+  const result = schema.safeParse(input)
+  if (result.success) return result.data
+  throw new Error(`This is not a ${what} the host takes: ${z.prettifyError(result.error).replaceAll('\n', ' ')}`)
+}
 
 /** A view as the JSON a runner or a UI gets. */
 function jsonOf(view: AppModelCallView | null): StoredValue {

@@ -1,22 +1,12 @@
 // Adapted from T3 Code apps/mobile/src/components/ComposerEditor.tsx (MIT, see UPSTREAM.md).
-import { TextInputWrapper, type PasteEventPayload } from "expo-paste-input";
-import { useImperativeHandle, useRef, type Ref } from "react";
-import { Platform, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputInstance, type TextStyle, type ViewStyle } from "react-native";
+import { type Ref } from "react";
+import { Platform, Text, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 
 import type { ClipboardAttachmentRef } from "@solus/client-core/attachment-clipboard";
-import { mayCarryAttachmentRefs } from "../features/conversation/lib/pasted-attachments";
-import { readClipboardAttachmentRefs } from "../lib/pastedAttachmentRefs";
+import { parseAttachmentClipboardHtml } from "@solus/client-core/attachment-clipboard";
+import { ComposerEditor as NativeComposerEditor } from "../native/T3ComposerEditor";
 import { MOBILE_FONTS } from "../lib/typography";
 
-/**
- * T3's composer runs on its own native text editor (`t3-composer-editor`),
- * which this app does not ship. This is the same surface on a React Native
- * TextInput: the props the thread and new-task composers pass and the
- * imperative handle they hold. A hardware Return sends through the app's
- * `send` keyboard command. As in T3, `expo-paste-input` hands images pasted
- * with the system Paste command to `onPasteImages`; text pastes natively.
- * Context chips and skills are not part of it.
- */
 export interface ComposerEditorSelection {
   readonly start: number;
   readonly end: number;
@@ -26,6 +16,7 @@ export interface ComposerEditorHandle {
   focus(): void;
   blur(): void;
   isFocused(): boolean;
+  flushPendingInput(): Promise<void>;
   setSelection(selection: ComposerEditorSelection): void;
 }
 
@@ -33,6 +24,7 @@ export interface ComposerEditorProps {
   readonly ref?: Ref<ComposerEditorHandle>;
   readonly value: string;
   readonly onChangeText: (value: string) => void;
+  readonly onContentSizeChange?: (size: { readonly width: number; readonly height: number }) => void;
   readonly placeholder?: string;
   readonly multiline?: boolean;
   readonly autoFocus?: boolean;
@@ -55,6 +47,17 @@ export interface ComposerEditorProps {
    * to take back out.
    */
   readonly onPasteAttachmentRefs?: (refs: ClipboardAttachmentRef[], pastedText: string | null) => Promise<boolean>;
+  readonly readResetGeneration?: () => number;
+  readonly enterBehavior?: "send" | "newline";
+  readonly submitTitle?: string;
+  readonly alternateSubmitTitle?: string;
+  readonly onSubmit?: (alternate: boolean) => void;
+  readonly autoCorrect?: boolean;
+  readonly spellCheck?: boolean;
+  readonly clipboardFragment?: string;
+  readonly onContextPress?: (selection: ComposerEditorSelection & { source: string }) => void;
+  readonly onPasteText?: (paste: { value: string; text: string; selection: ComposerEditorSelection }) => void;
+  readonly onPasteContext?: (paste: { value: string; text: string; html: string; fragment: string; selection: ComposerEditorSelection }) => void;
   readonly style?: StyleProp<ViewStyle>;
   readonly textStyle?: TextStyle;
 }
@@ -69,96 +72,13 @@ function editorFont(textStyle: TextStyle | undefined): TextStyle {
 }
 
 export function ComposerEditor(props: ComposerEditorProps) {
-  // Read apart from the other props: the React Compiler treats every read of
-  // an object that holds a ref as a ref read during render.
-  const { ref } = props;
-  const inputRef = useRef<TextInputInstance>(null);
-  const inputStyle = {
-    paddingHorizontal: 0,
-    paddingTop: props.contentInsetVertical ?? 0,
-    paddingBottom: props.contentInsetVertical ?? 0,
-    ...editorFont(props.textStyle),
-    ...StyleSheet.flatten(props.style),
-  };
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      focus: () => inputRef.current?.focus(),
-      blur: () => inputRef.current?.blur(),
-      isFocused: () => inputRef.current?.isFocused() ?? false,
-      setSelection: (selection) => inputRef.current?.setSelection(selection.start, selection.end),
-    }),
-    [],
-  );
-
-  const onPasteImages = props.onPasteImages;
-  const onPasteAttachmentRefs = props.onPasteAttachmentRefs;
-  const onPaste = (payload: PasteEventPayload) => {
-    const pastedImages = payload.type === "images" && payload.uris.length > 0 ? payload.uris : null;
-    if (!onPasteAttachmentRefs || !mayCarryAttachmentRefs(payload)) {
-      if (pastedImages) onPasteImages?.(pastedImages);
-      return;
-    }
-    const pastedText = payload.type === "text" ? payload.value : null;
-    void readClipboardAttachmentRefs()
-      .then((refs) => (refs ? onPasteAttachmentRefs(refs, pastedText) : false))
-      .then((attached) => {
-        if (!attached && pastedImages) onPasteImages?.(pastedImages);
-      });
-  };
-
-  return (
-    <TextInputWrapper onPaste={onPaste}>
-      <View>
-        <TextInput
-          ref={inputRef}
-          accessibilityLabel={props.placeholder ?? "Message"}
-          autoFocus={props.autoFocus}
-          editable={props.editable !== false && props.readOnly !== true}
-          multiline={props.multiline}
-          scrollEnabled={props.scrollEnabled}
-          value={props.value}
-          onChangeText={props.onChangeText}
-          selection={props.selection}
-          onSelectionChange={(event) => props.onSelectionChange?.(event.nativeEvent.selection)}
-          onFocus={props.onFocus}
-          onBlur={props.onBlur}
-          textAlignVertical={props.singleLineCentered ? "center" : "top"}
-          style={inputStyle}
-        />
-        {props.value.length === 0 && props.placeholder ? (
-          <View
-            pointerEvents="none"
-            accessible={false}
-            style={[StyleSheet.absoluteFill, {
-              justifyContent: props.singleLineCentered ? "center" : "flex-start",
-              paddingTop: inputStyle.paddingVertical ?? inputStyle.paddingTop,
-              paddingBottom: inputStyle.paddingVertical ?? inputStyle.paddingBottom,
-              paddingHorizontal: inputStyle.paddingHorizontal,
-            }]}
-          >
-            <Text
-              className="text-placeholder"
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              accessible={false}
-              style={{
-                fontFamily: inputStyle.fontFamily,
-                fontSize: inputStyle.fontSize,
-                fontWeight: inputStyle.fontWeight,
-                lineHeight: inputStyle.lineHeight,
-                letterSpacing: inputStyle.letterSpacing,
-                includeFontPadding: inputStyle.includeFontPadding,
-              }}
-            >
-              {props.placeholder}
-            </Text>
-          </View>
-        ) : null}
-      </View>
-    </TextInputWrapper>
-  );
+  return <NativeComposerEditor {...props} onPasteContext={(paste) => {
+    // Insert text before asynchronous attachment work so later typing is preserved.
+    const next = paste.value.slice(0, paste.selection.start) + paste.text + paste.value.slice(paste.selection.end);
+    props.onChangeText(next);
+    const refs = parseAttachmentClipboardHtml(paste.html);
+    if (refs) void props.onPasteAttachmentRefs?.(refs, paste.text);
+  }} />;
 }
 
 /**

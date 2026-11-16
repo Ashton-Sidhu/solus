@@ -48,6 +48,8 @@ import { hostDisplayName } from '../platform/host-display-name'
 import { hostIdentity } from '../host/host-identity'
 import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_OUTCOME_HEADER } from '@solus/contracts/webhooks'
 import type { WebhookReceiver } from '../execution/webhooks/receiver'
+import type { AppServiceApi } from '../apps/deployments/app-service-api'
+import { APP_SERVICE_PATH_PREFIX } from '@solus/contracts/app-deployments'
 import { couldBeForgedByWebPage } from './web-page-requests'
 
 const log = createLogger('main', 'http')
@@ -103,7 +105,12 @@ export interface HttpServerOptions {
   completeIntegrationOAuth?: (params: URLSearchParams) => Promise<{ status: 200 | 400 | 500; html: string }>
   /** The webhook receiver (docs/plans/webhooks.md §3.4). The URL token is the credential, then verification. */
   webhookReceiver?: Pick<WebhookReceiver, 'receive'>
+  /** The service API for deployed apps (docs/plans/app-deploy.md §5.2). The app key is the credential. */
+  appService?: Pick<AppServiceApi, 'answer'>
 }
+
+/** One call of a deployed app to the service API: a tool's input, or the payloads of its signals. */
+const APP_SERVICE_MAX_BODY_BYTES = 1024 * 1024
 
 /** The Node req/res the @hono/node-server adapter exposes as `c.env`. */
 type NodeBindings = { incoming: IncomingMessage; outgoing: ServerResponse }
@@ -212,7 +219,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.use('*', async (c, next) => {
     if (!viaTunnel(c)) return next()
     const { pathname } = new URL(c.req.url)
-    const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/') || pathname === '/oauth/integration/callback' || pathname === '/oauth/google/callback' || pathname.startsWith('/hooks/')
+    const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/') || pathname === '/oauth/integration/callback' || pathname === '/oauth/google/callback' || pathname.startsWith('/hooks/') || pathname.startsWith(APP_SERVICE_PATH_PREFIX)
     return offered ? next() : c.notFound()
   })
   const establishDelegation = opts.establishDelegation
@@ -296,6 +303,27 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     return hookAnswer(c, result.status, result.outcome, result.body)
   })
   app.all('/hooks/*', (c) => hookAnswer(c, 404, 'not_found', { error: 'not found' }))
+
+  // The service API (docs/plans/app-deploy.md §5.2): a deployed app asks for what Solus owns.
+  const appService = opts.appService
+  app.post(`${APP_SERVICE_PATH_PREFIX}*`, async (c) => {
+    if (!appService) return c.json({ ok: false, error: 'This Solus has no deployed app.' }, 404)
+    let body: Buffer
+    try {
+      body = await readLimitedBody(c.env.incoming, APP_SERVICE_MAX_BODY_BYTES)
+    } catch (err) {
+      if (err instanceof BodyTooLargeError) return c.json({ ok: false, error: 'The request is larger than 1 MiB.' }, 413)
+      throw err
+    }
+    let request: z.infer<ReturnType<typeof z.json>>
+    try {
+      request = z.json().parse(JSON.parse(body.toString('utf8')))
+    } catch {
+      return c.json({ ok: false, error: 'The request is not JSON.' }, 400)
+    }
+    const answer = await appService.answer({ path: new URL(c.req.url).pathname, authorization: c.req.header('authorization'), body: request })
+    return c.json(answer.body, answer.status)
+  })
 
   app.get('/oauth/google/callback', async (c) => {
     const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)

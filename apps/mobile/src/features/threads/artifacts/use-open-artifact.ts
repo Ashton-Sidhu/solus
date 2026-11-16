@@ -7,6 +7,7 @@ import type { RootStackParamList } from "../../../navigation/routes";
 import { openPullRequestLink } from "../../prs/lib/pull-request-link";
 import { usePullRequestLinkActions } from "../../prs/use-pull-request-link-actions";
 import { newThreadTarget } from "../new-thread-targets";
+import { artifactOpenLog } from "./artifact-opens";
 
 export interface ArtifactOpener {
   /** Whether the phone can open the item: works and automations have no screen here. An app has one. */
@@ -18,7 +19,7 @@ export interface ArtifactOpener {
  * Open what a session linked. Pull requests open their screen, or the browser
  * when no project of the host reads them; files and images open the file
  * screen of their host; an app opens its screen on its host
- * (docs/plans/apps.md §9). The Artifacts screen and the session cards share it.
+ * (docs/plans/apps.md §9). The Threads screen and the session cards share it.
  */
 export function useOpenArtifact(hostId: string, sessionId: string): ArtifactOpener {
   const app = useApp();
@@ -31,6 +32,8 @@ export function useOpenArtifact(hostId: string, sessionId: string): ArtifactOpen
     "";
 
   const open = (item: SessionArtifact) => {
+    // Recorded on this phone for the Threads screen's row. A work or an automation does not open here.
+    if (item.kind !== "work" && item.kind !== "automation") artifactOpenLog(app).record(item);
     switch (item.kind) {
       case "pull-request":
         if (openPullRequestLink(item.link.url, { hostId, workingDirectory }, pullRequestLinkActions) === null) {

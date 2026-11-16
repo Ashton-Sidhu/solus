@@ -1,22 +1,31 @@
 <script lang="ts">
-  import { Button } from "../ui/button";
+  import { Link2 } from "@lucide/svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
+  import type { FoundMachine } from "./lib/discover";
   import { routeHops, type FleetMachine, type TileColorMode } from "./lib/fleet-model";
 
   /** Below the map, at one height, so pointing at a host never moves the page:
-   *  the host under the pointer and its route, or the legend. */
+   *  the host under the pointer and its route, the found machine under it and
+   *  how to add it (D7), or the legend. The height fits the host and its route,
+   *  and a legend that wraps to two lines; the legend sits in its middle, so the
+   *  spare room is even above and below it. */
   interface Props {
     machine: FleetMachine | null;
+    found: FoundMachine | null;
     colorMode: TileColorMode;
-    onOpen: (serverId: string) => void;
   }
 
-  let { machine, colorMode, onOpen }: Props = $props();
+  let { machine, found, colorMode }: Props = $props();
 
   const hops = $derived(machine ? routeHops(machine) : []);
+  const howToAdd = {
+    server: "It runs Solus. Click it, then enter the code it shows.",
+    wsl: "A WSL distro. Click it, and Solus installs itself there.",
+    ssh: "A machine in your SSH config. Click it to add it over SSH.",
+  } satisfies Record<FoundMachine["kind"], string>;
 </script>
 
-<div class="flex h-[6.75rem] flex-col justify-between gap-2 border-t border-border/40 px-4 py-3.5" aria-live="polite">
+<div class="flex h-24 flex-col gap-2.5 border-t border-border/40 px-4 py-3.5 {machine || found ? 'justify-between' : 'justify-center'}" aria-live="polite">
   {#if machine}
     <div class="flex items-start justify-between gap-4">
       <div class="flex min-w-0 flex-col gap-0.5">
@@ -30,7 +39,6 @@
           {#if machine.cpu !== null}CPU {machine.cpu}%{/if}{#if machine.memory !== null} · memory {machine.memory}%{/if}{#if machine.latencyMs !== null} · {machine.latencyMs} ms{/if}
         </p>
       </div>
-      <Button variant="outline" size="sm" class="shrink-0" onclick={() => onOpen(machine.serverId)}>Open</Button>
     </div>
     <ol class="flex min-w-0 items-center overflow-hidden font-mono text-[0.6875rem] whitespace-nowrap text-muted-foreground">
       {#each hops as hop, index (index)}
@@ -40,13 +48,20 @@
         </li>
       {/each}
     </ol>
+  {:else if found}
+    <div class="flex min-w-0 flex-col gap-0.5">
+      <p class="truncate text-workspace-chrome font-medium">{found.name}</p>
+      <p class="truncate font-mono text-chrome-dense text-muted-foreground">{found.detail}</p>
+    </div>
+    <p class="truncate text-chrome-dense text-muted-foreground">{howToAdd[found.kind]}</p>
   {:else}
-    <p class="text-[0.8125rem] text-(--solus-text-secondary)">Point at a host to see how this device reaches it.</p>
+    <p class="text-[0.8125rem] text-(--solus-text-secondary)">Point at a host to see how this device reaches it. Click it to open it.</p>
     <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-chrome-dense text-muted-foreground">
       <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-(--success)/80"></span>Connected</span>
       <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-(--solus-status-running)"></span>Sessions moving</span>
       <span class="flex items-center gap-1.5"><span class="w-4 border-t-2 border-dotted border-(--warning)"></span>Reconnecting</span>
       <span class="flex items-center gap-1.5"><span class="w-4 border-t-2 border-dotted border-(--solus-status-error)"></span>Unreachable</span>
+      <span class="flex items-center gap-1.5"><Link2 size={12} class="text-(--success)" />Solus tunnel</span>
       {#if colorMode === "status"}
         <span class="flex items-center gap-1.5"><span class="size-2 rounded-[2px] bg-(--success)/80"></span>Idle<span class="ml-1.5 size-2 rounded-[2px] bg-(--solus-status-running)/60"></span>Running</span>
       {:else if colorMode === "cpu"}

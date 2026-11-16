@@ -1,106 +1,36 @@
-import type { SessionArtifact } from '@solus/contracts/session-artifacts'
-import type { OverviewChange, OwnedArtifact } from '@solus/client-core/session-overview'
-import { changeTotals } from '@solus/client-core/session-overview'
 import type { RailAgentRow } from '../../../project-panel/lib/rail-agents'
-import { pullRequestState } from './artifact-list'
+import type { AgentLinkTone } from '../../../conversation/lib/agent-link'
 
-/** The four kinds the surface counts and shows a card for. */
-export type OverviewKind = 'changes' | 'agents' | 'pull-requests' | 'items'
+/** A group of the Agents card: how its agents stand, or that their sessions are snoozed. */
+export type AgentGroupKey = AgentLinkTone | 'snoozed'
 
-export interface OverviewTile {
-  kind: OverviewKind
-  /** The kind's name on the tile. */
+/** One group of the Agents card: its rows, newest first. */
+export interface AgentGroup {
+  key: AgentGroupKey
+  /** `Working`, `Done`, `Failed`, `Stopped`, `Snoozed`. */
   label: string
-  /** The name on a pane too narrow for the full one. */
-  shortLabel: string
-  count: number
-  /** The line totals, on the changes tile, once git has answered. */
-  lines: { additions: number; deletions: number } | null
-  /** How the tile's rows stand, in words: "1 running · 2 done". Null when there is nothing to say. */
-  detail: string | null
+  rows: RailAgentRow[]
 }
 
-/** The parts with something to count, as words: "1 open · 1 merged". */
-function detail(parts: [number, string][]): string | null {
-  const shown = parts.filter(([count]) => count > 0).map(([count, word]) => `${count} ${word}`)
-  return shown.length > 0 ? shown.join(' · ') : null
-}
-
-function count<Item>(items: readonly Item[], test: (item: Item) => boolean): number {
-  return items.filter(test).length
-}
+/** What still runs first, then the outcomes, then what waits until later. */
+const AGENT_GROUPS: readonly { key: AgentGroupKey; label: string }[] = [
+  { key: 'live', label: 'Working' },
+  { key: 'done', label: 'Done' },
+  { key: 'failed', label: 'Failed' },
+  { key: 'idle', label: 'Stopped' },
+  { key: 'snoozed', label: 'Snoozed' },
+]
 
 /**
- * The scope's four numbers. A tile names its kind and says how many of it the
- * scope holds, and its detail says how those stand, so a reader sees
- * "4 agents, 1 running" without opening the card.
+ * The Agents card's rows by how they stand. A snoozed session waits in its own
+ * group, whatever its agent did, as the sidebar's Snoozed shelf holds it. A
+ * group with no rows is left out.
  */
-export function overviewTiles(
-  changes: readonly OverviewChange[],
-  agents: readonly RailAgentRow[],
-  pullRequests: readonly OwnedArtifact[],
-  items: readonly OwnedArtifact[],
-): OverviewTile[] {
-  const states = pullRequests.map(({ artifact }) => (artifact.kind === 'pull-request' ? pullRequestState(artifact.link) : null))
-  const kindCount = (...kinds: SessionArtifact['kind'][]) => count(items, ({ artifact }) => kinds.includes(artifact.kind))
-  const works = kindCount('work')
-  const files = kindCount('file', 'image')
-  const automations = kindCount('automation')
-  return [
-    { kind: 'changes', label: 'Changes', shortLabel: 'Changes', count: changes.length, lines: changeTotals(changes), detail: null },
-    {
-      kind: 'agents',
-      label: 'Agents',
-      shortLabel: 'Agents',
-      count: agents.length,
-      lines: null,
-      detail: detail([
-        [count(agents, (row) => row.tone === 'live'), 'running'],
-        [count(agents, (row) => row.tone === 'done'), 'done'],
-        [count(agents, (row) => row.tone === 'failed'), 'failed'],
-      ]),
-    },
-    {
-      kind: 'pull-requests',
-      label: 'Pull requests',
-      shortLabel: 'PRs',
-      count: pullRequests.length,
-      lines: null,
-      detail: detail([
-        [count(states, (state) => state === 'open'), 'open'],
-        [count(states, (state) => state === 'draft'), 'draft'],
-        [count(states, (state) => state === 'merged'), 'merged'],
-        [count(states, (state) => state === 'closed' || state === 'missing'), 'closed'],
-      ]),
-    },
-    {
-      kind: 'items',
-      label: 'Works and files',
-      shortLabel: 'Works',
-      count: items.length,
-      lines: null,
-      detail: detail([
-        [works, works === 1 ? 'work' : 'works'],
-        [files, files === 1 ? 'file' : 'files'],
-        [automations, automations === 1 ? 'automation' : 'automations'],
-      ]),
-    },
-  ]
-}
-
-/** What a started session linked, as counts for the chips on its agent row. */
-export interface AgentLinkCounts {
-  pullRequests: number
-  works: number
-  files: number
-}
-
-export function agentLinkCounts(items: readonly SessionArtifact[]): AgentLinkCounts {
-  return {
-    pullRequests: count(items, (item) => item.kind === 'pull-request'),
-    works: count(items, (item) => item.kind === 'work' || item.kind === 'automation'),
-    files: count(items, (item) => item.kind === 'file' || item.kind === 'image'),
-  }
+export function agentGroups(rows: readonly RailAgentRow[], isSnoozed: (row: RailAgentRow) => boolean): AgentGroup[] {
+  const keyOf = (row: RailAgentRow): AgentGroupKey => (isSnoozed(row) ? 'snoozed' : row.tone)
+  return AGENT_GROUPS.map(({ key, label }) => ({ key, label, rows: rows.filter((row) => keyOf(row) === key) })).filter(
+    (group) => group.rows.length > 0,
+  )
 }
 
 const CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -111,6 +41,13 @@ const WEEKDAY = new Intl.DateTimeFormat(undefined, { weekday: 'short' })
 /** The time of day a turn started. */
 export function clockTime(timestamp: number): string {
   return CLOCK.format(timestamp)
+}
+
+/** When a snoozed session wakes: the time today, else its day too. `10:14 AM`, `Fri 9:00 AM`. */
+export function wakeTimeLabel(wakesAt: number, now: number): string {
+  return new Date(wakesAt).toDateString() === new Date(now).toDateString()
+    ? CLOCK.format(wakesAt)
+    : `${WEEKDAY.format(wakesAt)} ${CLOCK.format(wakesAt)}`
 }
 
 function clockPart(timestamp: number, type: Intl.DateTimeFormatPartTypes): string {

@@ -1,4 +1,9 @@
-import type { Debugger, WebContents } from 'electron'
+import { randomBytes } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
+import { unlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
+import type { Debugger, DownloadItem, Event as ElectronEvent, WebContents } from 'electron'
 import { z } from 'zod'
 import {
   BROWSER_RING_LIMIT,
@@ -10,15 +15,18 @@ import {
 import { cutText } from '@solus/contracts/text-cut'
 import {
   BrowserDialogTracker,
+  BrowserFileChooserSlot,
   browserDialogType,
   emulationChanges,
   emulationRecord,
+  guestMetrics,
   type AppliedEmulation,
   type BrowserDialog,
   type BrowserDialogAnswer,
   type BrowserDialogState,
   type BrowserEmulation,
   type BrowserFrameListener,
+  type BrowserGuestEvents,
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
 } from '@solus/server/browser/surface-driver'
@@ -57,7 +65,8 @@ const DOMAINS = ['Runtime.enable', 'Log.enable', 'Network.enable', 'Page.enable'
  * the guest quietly ignores.
  */
 type CdpCommandParams =
-  | { width: number; height: number; deviceScaleFactor: number; mobile: boolean; screenWidth: number; screenHeight: number }
+  | { width: number; height: number; deviceScaleFactor: number; mobile: boolean; screenWidth: number; screenHeight: number; scale?: number }
+  | { files: string[]; backendNodeId: number }
   | { enabled: boolean; maxTouchPoints?: number }
   | { userAgent: string }
   | { features: { name: string; value: string }[] }
@@ -117,7 +126,9 @@ const remoteObjectResultSchema = z.object({
   exceptionDetails: z.object({ text: z.string().optional() }).optional(),
 })
 
-const dialogOpeningSchema = z.object({ type: z.string(), message: z.string().default('') })
+const dialogOpeningSchema = z.object({ type: z.string(), message: z.string().default(''), defaultPrompt: z.string().optional() })
+
+const fileChooserOpenedSchema = z.object({ mode: z.string(), backendNodeId: z.number().optional() })
 
 const dialogClosedSchema = z.object({ result: z.boolean().default(false) })
 
@@ -130,6 +141,7 @@ type CdpEventParams =
   | z.input<typeof screencastFrameSchema>
   | z.input<typeof dialogOpeningSchema>
   | z.input<typeof dialogClosedSchema>
+  | z.input<typeof fileChooserOpenedSchema>
 
 /**
  * Who owns the Chromium guest a page is being driven through, and therefore what
@@ -181,6 +193,10 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   /** A dialog a person answers in the pane stays theirs; an agent's answer
    *  settles it through CDP. */
   private readonly dialogTracker = new BrowserDialogTracker()
+  /** A headless guest's file chooser, which a person watching answers. A pane's
+   *  guest shows the system picker instead. */
+  private readonly fileChooser = new BrowserFileChooserSlot()
+  private guestEvents: BrowserGuestEvents | null = null
   /** The left button between a `down` and an `up`. */
   private mouseButtons = 0
 
@@ -231,6 +247,10 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     })
     const driver = new ChromiumBrowserDriver(contents, cdp, ownership)
     cdp.on('message', driver.onProtocolMessage)
+    // Downloads land on the host and every client offers them, the pane's own
+    // guest included: one place for a page's files, whoever is watching.
+    contents.session.on('will-download', driver.onWillDownload)
+    contents.on('did-start-navigation', driver.onNavigationStart)
     // Log and Network give the retroactive rings a snapshot reads: what the page
     // said before anyone thought to look at it.
     await driver.enableDomains()
@@ -306,6 +326,11 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     await Promise.all(
       DOMAINS.map((method) => withTimeout(this.cdp.sendCommand(method), method, CDP_TIMEOUT_MS)),
     )
+    // A hidden window has no picker a person could see, so its file chooser
+    // waits for the files a client sends instead.
+    if (this.kind === 'headless') {
+      await withTimeout(this.cdp.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true }), 'Page.setInterceptFileChooserDialog', CDP_TIMEOUT_MS)
+    }
   }
 
   /** A command whose reply nobody reads, with the one guarantee the raw debugger
@@ -349,14 +374,18 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     const changed = emulationChanges(this.appliedEmulation, next)
 
     if (changed.metrics) {
-      await this.send('Emulation.setDeviceMetricsOverride', {
-        width: viewport.width,
-        height: viewport.height,
+      const metrics = guestMetrics(emulation, this.kind)
+      const override: Extract<CdpCommandParams, { deviceScaleFactor: number }> = {
+        width: metrics.width,
+        height: metrics.height,
         deviceScaleFactor: viewport.deviceScaleFactor,
         mobile: viewport.hasTouch,
-        screenWidth: viewport.width,
-        screenHeight: viewport.height,
-      })
+        screenWidth: metrics.width,
+        screenHeight: metrics.height,
+      }
+      // A pane's guest is drawn at the pane's size, so a zoomed one scales its view back up.
+      if (metrics.scale !== undefined) override.scale = metrics.scale
+      await this.send('Emulation.setDeviceMetricsOverride', override)
     }
 
     if (changed.touch) {
@@ -406,7 +435,8 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
       return
     }
     if (op.kind === 'reload') {
-      this.contents.reload()
+      if (op.ignoreCache) this.contents.reloadIgnoringCache()
+      else this.contents.reload()
       return
     }
     // `navigationHistory` is the supported form; the old goBack/goForward pair
@@ -653,6 +683,16 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     return this.dialogTracker.state()
   }
 
+  watchGuest(events: BrowserGuestEvents): void {
+    this.guestEvents = events
+    this.dialogTracker.listener = events.dialog
+    this.fileChooser.listener = events.fileChooser
+  }
+
+  answerFileChooser(paths: string[] | null): Promise<boolean> {
+    return this.fileChooser.answer(paths)
+  }
+
   async insertText(text: string): Promise<void> {
     await this.send('Input.insertText', { text })
   }
@@ -695,8 +735,13 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     // migrated). Drop the listener before the debugger detaches so no frame is
     // forwarded to a page that is going away.
     this.screencastFrame = null
+    this.guestEvents = null
+    this.dialogTracker.listener = null
+    this.fileChooser.listener = null
     this.cdp.off('message', this.onProtocolMessage)
     if (this.contents.isDestroyed()) return
+    this.contents.session.off('will-download', this.onWillDownload)
+    this.contents.off('did-start-navigation', this.onNavigationStart)
     try {
       await this.ownership.releaseGuest()
       this.appliedEmulation = null
@@ -716,6 +761,38 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
     else if (method === 'Page.screencastFrame') this.forwardScreencastFrame(params)
     else if (method === 'Page.javascriptDialogOpening') this.recordDialogOpening(params)
     else if (method === 'Page.javascriptDialogClosed') this.recordDialogClosed(params)
+    else if (method === 'Page.fileChooserOpened') this.recordFileChooser(params)
+  }
+
+  private recordFileChooser(params: CdpEventParams): void {
+    const parsed = fileChooserOpenedSchema.safeParse(params)
+    if (!parsed.success || parsed.data.backendNodeId === undefined) return
+    const { mode, backendNodeId } = parsed.data
+    this.fileChooser.opened(mode === 'selectMultiple', (files) => this.send('DOM.setFileInputFiles', { files, backendNodeId }))
+  }
+
+  /** A new document has no chooser open. */
+  private onNavigationStart = (_event: ElectronEvent, _url: string, isInPlace: boolean, isMainFrame: boolean): void => {
+    if (isMainFrame && !isInPlace) this.fileChooser.forget()
+  }
+
+  /** The session is the profile's, shared by its pages, so only this guest's downloads are taken. */
+  private onWillDownload = (_event: ElectronEvent, item: DownloadItem, source: WebContents): void => {
+    if (source !== this.contents) return
+    const directory = join(tmpdir(), 'solus-browser-downloads')
+    // Made before the path is set: Chromium writes to it as soon as it is set.
+    mkdirSync(directory, { recursive: true })
+    const path = join(directory, `${randomBytes(8).toString('hex')}-${basename(item.getFilename()) || 'download'}`)
+    item.setSavePath(path)
+    item.once('done', (_done, state) => {
+      if (state !== 'completed' || !this.guestEvents) {
+        void unlink(path).catch(() => {})
+        return
+      }
+      void this.guestEvents.downloaded({ fileName: item.getFilename(), path })
+        .catch(() => {})
+        .finally(() => { void unlink(path).catch(() => {}) })
+    })
   }
 
   private recordDialogOpening(params: CdpEventParams): void {
@@ -729,6 +806,7 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
         answer.promptText === undefined ? { accept: answer.accept } : { accept: answer.accept, promptText: answer.promptText },
       ),
       null,
+      parsed.data.defaultPrompt,
     ).catch(() => {})
   }
 

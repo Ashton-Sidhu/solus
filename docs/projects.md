@@ -82,12 +82,37 @@ outside the project.
 
 ## The folder browser
 
-The folder browser opens a folder and saves a file. It has the same folder
-operations for the two tasks:
+The folder browser opens a folder and saves a file. It has the layout of a
+file manager:
+
+- The toolbar has **Back**, **Forward**, and **Up one folder**, then the path
+  of the folder that is open, then the filter. Click a part of the path to go
+  to that folder.
+- The sidebar shows the places of the host (the projects folder, Home, the
+  filesystem root, Desktop, Documents, Downloads) and the recent projects.
+- The list shows the folders with their **Branch** and **Kind**: a project
+  that Solus knows, a Git repository, or a folder.
+
+Click a folder to select it. Double-click a folder to open it. On a touch
+screen, one tap opens the folder. The button at the bottom right shows the
+name of the folder that it takes: the selected folder, or the open folder when
+no folder is selected. Click the empty space of the list to clear the
+selection. When the browser saves a file, the file always goes into the open
+folder.
+
+| Movement | Key |
+|---|---|
+| Select the next or the previous folder | `↓` and `↑` |
+| Open the selected folder | `↵` or `→` |
+| Go up one folder | `←`, or `⌫` when the filter is empty |
+| Go back and go forward | `⌘[` and `⌘]` |
+| Take the folder that the button shows | `⌘↵`, or `↵` when no folder is selected |
+
+The folder operations are the same for the two tasks:
 
 | Operation | Button or menu | Key |
 |---|---|---|
-| New folder | **New folder** beside the filter, or the context menu | `⌥N` |
+| New folder | **New folder** at the bottom left, or the context menu | `⌥N` |
 | Rename | Context menu on a folder | `F2` |
 | Move to Trash | Context menu on a folder | `⌘⌫` on the highlighted folder |
 | Copy path | Context menu | — |
@@ -215,4 +240,4 @@ project in the same call; no second registration is required.
 
 Both tools return `path` and `projectKey`. Paths name folders on that host.
 The current session keeps its folder. To start work in the project, call
-`start_session` with the returned path as `cwd`.
+`start_sessions` with the returned path as `cwd`.

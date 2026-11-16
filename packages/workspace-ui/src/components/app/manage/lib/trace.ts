@@ -1,57 +1,59 @@
-import type { AppSpan } from '@solus/contracts/apps'
+import type { AppCallDetail, AppSpan } from '@solus/contracts/apps'
+import type { MetricsSpan } from '@solus/contracts/observability-types'
+import { buildTraceView, type TraceView } from '../../../insights/lib/waterfall'
 
 /**
- * The trace of one call as a waterfall (docs/plans/apps.md §9.2): each span is
- * a bar on the call's own time line. Pure, so the math is tested.
+ * The trace of one call (docs/plans/apps.md §9.2), in the shape the Insights
+ * waterfall draws: the call is the root, and each thing it waited for is a
+ * span under it. Pure, so the mapping is tested.
  */
 
-export interface WaterfallRow {
-  span: AppSpan
-  /** Where the bar starts and how wide it is, in percent of the line. */
-  leftPercent: number
-  widthPercent: number
-}
-
-export interface Waterfall {
-  /** The time the line covers, in milliseconds. */
-  totalMs: number
-  rows: WaterfallRow[]
-}
-
-/** The least width of a bar, so a span of no time still shows. */
-const MIN_BAR_PERCENT = 0.75
-
-/**
- * The spans of a call, the earliest first, on a line that covers the call. A
- * call that still runs has no time yet, and a span can end after the time the
- * host recorded: the line then ends where the last span ends.
- */
-export function traceWaterfall(spans: readonly AppSpan[], callDurationMs: number | null): Waterfall {
-  const lastEnd = spans.reduce((end, span) => Math.max(end, span.startMs + span.durationMs), 0)
-  const totalMs = Math.max(callDurationMs ?? 0, lastEnd, 1)
-  const rows = [...spans]
-    .sort((a, b) => a.startMs - b.startMs)
-    .map((span): WaterfallRow => {
-      const leftPercent = Math.min(Math.max((span.startMs / totalMs) * 100, 0), 100 - MIN_BAR_PERCENT)
-      const widthPercent = Math.min(Math.max((span.durationMs / totalMs) * 100, MIN_BAR_PERCENT), 100 - leftPercent)
-      return { span, leftPercent, widthPercent }
-    })
-  return { totalMs, rows }
-}
-
-const SPAN_KIND_LABELS = {
-  fetch: 'Network',
-  tool: 'Tool',
-  sql: 'SQL',
-  file: 'File',
-  signal: 'Signal',
-  workflow: 'Workflow',
-  step: 'Step',
-  model: 'Model',
+/** Each kind of span keeps one hue of the art ramp, so a request reads as a request in every call. */
+const SPAN_KIND_COLORS = {
+  fetch: 'var(--solus-art-5)',
+  tool: 'var(--solus-art-4)',
+  sql: 'var(--solus-art-3)',
+  file: 'var(--solus-art-2)',
+  signal: 'var(--solus-art-6)',
+  workflow: 'var(--solus-art-1)',
+  step: 'var(--solus-art-1)',
+  model: 'var(--solus-art-2)',
 } satisfies { [Kind in AppSpan['kind']]: string }
 
-export function spanKindLabel(kind: AppSpan['kind']): string {
-  return SPAN_KIND_LABELS[kind]
+/**
+ * The call's spans as an Insights trace: the times of a span are from the start
+ * of the call, so they move onto the call's own clock. A call with no span has
+ * no trace.
+ */
+export function callTraceView(call: AppCallDetail): TraceView | null {
+  if (call.spans.length === 0) return null
+  const traceId = call.traceId ?? call.id
+  const rootSpanId = call.spanId ?? call.id
+  const status = call.outcome === 'failed' ? 'error' : call.outcome === 'running' ? 'running' : 'ok'
+  const lastEnd = call.spans.reduce((end, span) => Math.max(end, span.startMs + span.durationMs), 0)
+  const root: MetricsSpan = {
+    spanId: rootSpanId, parentSpanId: null, traceId, kind: 'app_call', name: call.operation, service: 'app',
+    sessionId: null, provider: null, model: null, projectRoot: null, origin: null,
+    startedAt: call.startedAt,
+    // A call that still runs ends, for the picture, where its last span ends.
+    endedAt: call.finishedAt ?? call.startedAt + lastEnd,
+    durationMs: call.durationMs, status, attrs: call.error ? { error: call.error } : {},
+  }
+  const spans: MetricsSpan[] = call.spans.map((span, index) => ({
+    spanId: `${rootSpanId}:${index}`, parentSpanId: rootSpanId, traceId, kind: span.kind, name: span.name, service: 'app',
+    sessionId: null, provider: null, model: null, projectRoot: null, origin: null,
+    startedAt: call.startedAt + span.startMs, endedAt: call.startedAt + span.startMs + span.durationMs, durationMs: span.durationMs,
+    status: span.ok ? 'ok' : 'error', attrs: span.detail ? { description: span.detail } : {},
+  }))
+  const colors = new Map(spans.map((span, index) => [span.spanId, SPAN_KIND_COLORS[call.spans[index].kind]]))
+  const view = buildTraceView({ traceId, spans: [root, ...spans], logEvents: [], providerWaitMs: null, gapSegments: [] })
+  if (!view) return null
+  // The waterfall names its root as a turn; here the root is the call.
+  for (const row of view.rows) {
+    if (row.spanId === rootSpanId) Object.assign(row, { label: call.operation, title: call.operation })
+    row.color = colors.get(row.spanId) ?? row.color
+  }
+  return view
 }
 
 /** When a log line was written, from the start of the call: "+12ms", "+1.4s". */

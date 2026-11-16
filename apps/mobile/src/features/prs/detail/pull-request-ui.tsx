@@ -1,4 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestControls.tsx, PullRequestPresentation.tsx, PullRequestSectionHeading.tsx, and pullRequestStatus.ts (MIT, see UPSTREAM.md).
+import IconAlertTriangle from '@tabler/icons-react-native/IconAlertTriangle'
+import { useResolveClassNames } from 'uniwind'
 import { Image } from 'expo-image'
 import { PierreEntryIcon } from '../../../components/PierreEntryIcon'
 import type { ReactNode } from 'react'
@@ -28,7 +30,7 @@ export function pullRequestStatus(pr: Pick<PullRequest, 'state' | 'draft'>) {
 }
 
 export function PullRequestCardGroup(props: { readonly children: ReactNode }) {
-  return <View className="overflow-hidden rounded-[22px] border border-pr-card-border border-continuous bg-pr-card">{props.children}</View>
+  return <View className="overflow-hidden rounded-[22px] border border-composer-border border-continuous bg-grouped-card">{props.children}</View>
 }
 
 export function PullRequestCardRow(props: {
@@ -104,10 +106,10 @@ export function PullRequestDiffStats(props: { readonly additions: number; readon
   return (
     <View className="shrink-0 flex-row items-center gap-2">
       {!props.compact || props.additions > 0 ? (
-        <Text className={cn(textSize, 'font-t3-medium tabular-nums text-diff-added')}>+{props.additions.toLocaleString()}</Text>
+        <Text className={cn(textSize, 'font-t3-medium tabular-nums text-adaptive-emerald-600-400')}>+{props.additions.toLocaleString()}</Text>
       ) : null}
       {!props.compact || props.deletions > 0 ? (
-        <Text className={cn(textSize, 'font-t3-medium tabular-nums text-diff-removed')}>−{props.deletions.toLocaleString()}</Text>
+        <Text className={cn(textSize, 'font-t3-medium tabular-nums text-danger-foreground')}>−{props.deletions.toLocaleString()}</Text>
       ) : null}
     </View>
   )
@@ -125,7 +127,7 @@ export function PullRequestAvatar(props: { readonly login: string | null; readon
       cachePolicy="memory-disk"
     />
   ) : (
-    <View className="items-center justify-center rounded-full bg-subtle" style={{ width: size, height: size }}>
+    <View className="items-center justify-center rounded-full bg-grouped-card" style={{ width: size, height: size }}>
       <Text className="font-t3-medium text-foreground-muted" style={{ fontSize: size * 0.45 }}>{props.login?.slice(0, 1).toUpperCase() ?? '?'}</Text>
     </View>
   )
@@ -141,4 +143,16 @@ export function PullRequestReadStatus(props: { readonly pending: boolean; readon
 /** A short line that says why a control is off. */
 export function DisabledReason({ children }: { readonly children: string | null }) {
   return children ? <Text className="px-1 text-xs text-foreground-muted">{children}</Text> : null
+}
+
+/** Two strokes keep the warning legible against the row's current surface. */
+export function PullRequestConflictBadge(props: { readonly surfaceClassName: string }) {
+  const { color } = useResolveClassNames('text-danger-foreground')
+  const { color: surface } = useResolveClassNames(props.surfaceClassName)
+  return (
+    <View pointerEvents="none" className="absolute -right-1 -bottom-1">
+      <IconAlertTriangle size={15} strokeWidth={2.5} color={surface} fill={surface} />
+      <View className="absolute inset-0"><IconAlertTriangle size={15} strokeWidth={2.5} color={color} /></View>
+    </View>
+  )
 }

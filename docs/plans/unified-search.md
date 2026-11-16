@@ -120,7 +120,9 @@ pause in typing.
     on `searchSessions` and `listSessions`. A home with no checkout of the
     project is asked for chats too. Without this, a chat that another person
     shared from a cloud machine was found only with every project selected.
-    Desktop, web, and native Home do the same.
+    Desktop, web, and native Home do the same. The **Chats** scope, after All
+    projects in the scope menu, asks each home for its chats alone. On native
+    Home it also narrows the list to the chats.
 13. **Rebuild derived data only.** The local FTS index is rebuilt from stored
     messages. Mirrored messages get normalized search text and an engine index.
     Original messages stay intact. There is one session matching model, with

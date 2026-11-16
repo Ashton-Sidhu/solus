@@ -270,7 +270,7 @@
           {@const endMs = toolEndMs(step)}
           {@const Glyph = KIND_ICONS[activityKind(step.toolName)]}
           {@const failed = step.toolStatus === "error"}
-          <div class:tool-step--expanded={view.selectedToolId === step.id} class="tool-step">
+          <div class:tool-step--expanded={view.selectedToolId === step.id} class="tool-step" data-slot="tool-call">
             <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
               {#if failed}
                 <WarningCircleIcon size={13} />

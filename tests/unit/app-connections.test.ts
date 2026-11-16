@@ -10,7 +10,7 @@ import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 const linear: Pick<Integration, 'id' | 'name' | 'slug' | 'disabledTools'> = { id: 'int-linear', name: 'Linear', slug: 'linear', disabledTools: [] }
 // SAFETY: the integration calls read only the owner and organization of an app and the roles of a version.
 const app = { id: 'app-1', ownerKey: 'owner', organizationId: 'local' } as AppRecord
-const version = (integrations: string[]) => ({ descriptor: { integrations } }) as AppVersionRecord
+const version = (integrations: string[], appIntegrations: string[] = []) => ({ descriptor: { solusApp: 4, integrations, appIntegrations } }) as AppVersionRecord
 
 function setup(mcpSlugs: string[] = []) {
   const requests: { provider: ConnectionProvider; input: StoredValue; person: string | null }[] = []
@@ -49,7 +49,7 @@ test('a role with no MCP integration of that slug reaches the built-in connectio
 test('the host\'s own work reaches a built-in connection as the app owner', async () => {
   // WHY: a schedule, a webhook, or a workflow has no person in its call (docs/plans/apps.md §5).
   const { calls, requests } = setup()
-  await calls.call(app, version(['atlassian']), 'atlassian', 'request', { product: 'jira', path: '/rest/api/3/myself' }, null)
+  await calls.call(app, version(['atlassian'], ['atlassian']), 'atlassian', 'request', { product: 'jira', path: '/rest/api/3/myself' }, null)
   expect(requests[0]?.person).toBe('owner')
 })
 
@@ -69,10 +69,10 @@ test('a built-in connection has one tool, and only for an app that names it', as
 test('a built-in role reads as the connection, with whether the reader is connected', async () => {
   const { calls } = setup(['linear'])
   expect(await calls.roles(app, version(['linear', 'github', 'atlassian', 'notion']).descriptor, TEST_HANDLER_CTX)).toEqual([
-    { slug: 'linear', name: 'Linear', connected: true },
-    { slug: 'github', name: 'GitHub', connected: true },
-    { slug: 'atlassian', name: 'Atlassian', connected: false },
-    { slug: 'notion', name: null, connected: false },
+    { slug: 'linear', scope: 'user', name: 'Linear', connected: true },
+    { slug: 'github', scope: 'user', name: 'GitHub', connected: true },
+    { slug: 'atlassian', scope: 'user', name: 'Atlassian', connected: false },
+    { slug: 'notion', scope: 'user', name: null, connected: false },
   ])
 })
 

@@ -1,18 +1,20 @@
-# Database schema and baselines
+# Database schema and migrations
 
-Solus keeps its data in three databases. Each one is a single generated
-baseline, `0000_baseline.sql`, with no migration history
-(plans/029-fresh-database-baseline.md, decision 1).
-A database made by another version of the schema cannot be opened: Solus stops
-with a message that names the file to delete, and the file is recreated empty.
+Solus keeps its data in three databases. Each one has a folder of generated
+migrations. Each folder starts at `0000_baseline.sql`, the one-time
+consolidation of plans/029-fresh-database-baseline.md, and each schema change
+after it is a new migration that a database applies in place.
+A database whose applied migrations this folder does not know cannot be opened:
+Solus stops with a message that names the file to delete, and the file is
+recreated empty.
 
 ## The three databases
 
-| Database | Holds | Declared in | drizzle-kit entry | Baseline |
+| Database | Holds | Declared in | drizzle-kit entry | Migrations |
 |---|---|---|---|---|
-| `solus.db` (SQLite, every host) | the host tables, and the ported records when SQLite is the engine | host tables in `packages/server/src/db/host-tables.ts`; records in each domain's `schema.ts` | `db/schema/sqlite.ts` (re-exports `db/schema/host.ts`) | `packages/server/drizzle/sqlite/0000_baseline.sql` |
-| Postgres (`DATABASE_URL`) | the ported records when Postgres is the engine | the same `defineTable` declarations | `db/schema/postgres.ts` | `packages/server/drizzle/postgres/0000_baseline.sql` |
-| `metrics.db` (SQLite, every host) | this host's spans and log events | `packages/server/src/data/insights/metrics-schema.ts` | `db/schema/metrics.ts` | `packages/server/drizzle/metrics/0000_baseline.sql` |
+| `solus.db` (SQLite, every host) | the host tables, and the ported records when SQLite is the engine | host tables in `packages/server/src/db/host-tables.ts`; records in each domain's `schema.ts` | `db/schema/sqlite.ts` (re-exports `db/schema/host.ts`) | `packages/server/drizzle/sqlite/` |
+| Postgres (`DATABASE_URL`) | the ported records when Postgres is the engine | the same `defineTable` declarations | `db/schema/postgres.ts` | `packages/server/drizzle/postgres/` |
+| `metrics.db` (SQLite, every host) | this host's spans and log events | `packages/server/src/data/insights/metrics-schema.ts` | `db/schema/metrics.ts` | `packages/server/drizzle/metrics/` |
 
 On the Postgres engine `solus.db` still carries the record tables, empty:
 records are read through `getDatabase()`, which points at Postgres.
@@ -173,7 +175,7 @@ transcript search, the task and PR readers) project from. `session` is the
 replicated record, and on the Postgres engine it lives in Postgres. The two
 are not merged (plan 029 §4.2: the index is keyed by provider thread).
 
-## How a baseline is applied
+## How migrations are applied
 
 `runSqliteSchemaMigrations(db, schema, fileName)` (`db/sqlite-migrations.ts`)
 applies a database's folder to an open SQLite connection, synchronously, the
@@ -190,20 +192,20 @@ bookkeeping table holds a hash this folder does not know.
 1. Change the declaration: a domain's `schema.ts`, `db/host-tables.ts`, or
    `data/insights/metrics-schema.ts`. A new table is also exported from the
    database's drizzle-kit entry module (drizzle-kit reads named exports only).
-2. Run `bun run db:generate`. The script empties every `drizzle/<database>`
-   folder, lets drizzle-kit write `0000_baseline` from the entry module, and
-   appends that database's hand-written SQL from
-   `packages/server/src/db/schema/custom/<database>.sql`.
-3. Review the generated SQL. For the ported records, review both engines.
+2. Run `bun run db:generate --name <name>`. drizzle-kit compares each entry
+   module with the last snapshot of its folder and writes `NNNN_<name>.sql`
+   for each database whose schema changed.
+3. Review the generated SQL. For the ported records, review both engines. A
+   migration runs once on every database that exists: check that it keeps
+   their data.
 
 Hand-written SQL is for what `defineTable` cannot say: FTS5 virtual tables and
 their triggers on SQLite (`session_fts`, `works_fts` with `works_fts_rows`,
 `session_transcripts_fts`), and the generated `tsvector` columns with their GIN
-indexes on Postgres.
-
-There is no additive migration. While the product has no deployed data this is
-the whole story; when it does, the first additive migration is a new decision
-and a new section here.
+indexes on Postgres. The ones that exist are in each `0000_baseline.sql`. For a
+new one, run `bunx drizzle-kit generate --custom --config
+drizzle.<database>.config.ts --name <name>` in `packages/server` and write the
+SQL into the empty migration it makes.
 
 ## Operation receipts
 
@@ -272,7 +274,7 @@ owns it.
 
 Two columns name a person, and no other column does
 (plans/029-fresh-database-baseline.md decision 2; `tests/unit/data-model-identity.test.ts`
-checks every table of both baselines).
+checks every table of both engines, after all of their migrations).
 
 - `created_by TEXT NOT NULL`: the user id of who made the row, set from the
   verified acting identity (`ownerKeyOf`), never from a client value. Ownership

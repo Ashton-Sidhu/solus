@@ -18,6 +18,7 @@ function harness() {
     turnOrganization: async () => undefined, taskIdFor: async () => undefined, isLead: async () => false,
     emit: () => {}, invalidatePlanCaches: () => {}, recordActivity: async () => { throw new Error('No activity expected') },
     trackWork: promise => { work.push(promise); return promise },
+    repliesEnded: () => {},
   }
   const orchestrator = new SessionOrchestrator(runtime, { findPullRequest: async () => null })
   return { orchestrator, created, stopped, drain: () => Promise.all(work) }

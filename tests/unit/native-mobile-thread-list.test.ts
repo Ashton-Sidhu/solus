@@ -125,6 +125,12 @@ describe('thread list partition', () => {
     expect(run({ searchQuery: '#42' })).toEqual(['p'])
   })
 
+  test('the Chats scope lists only the sessions that have no project', () => {
+    const chat = shell('h1', 'c', { projectPath: '/data/solus-chats/c', place: 'chat' })
+    const layout = buildThreadListV2Items({ threads: [chat, shell('h1', 'p')], facts: facts(), hostId: null, chatsOnly: true, searchQuery: '', now: NOW })
+    expect(layout.items.map((item) => item.thread.record.sessionId)).toEqual(['c'])
+  })
+
   test('settled history pages and reports what it hid', () => {
     const many = Array.from({ length: 5 }, (_, index) => shell('h1', `s${index}`))
     const shelf = facts({ states: Object.fromEntries(many.map((thread, index) => [thread.key, { settledAt: NOW - index }])) })

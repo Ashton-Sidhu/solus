@@ -255,6 +255,7 @@
     class:command-palette-enter={open}
     role="dialog"
     aria-label="Command palette"
+    data-slot="command-palette"
     aria-modal="true"
   >
     <div

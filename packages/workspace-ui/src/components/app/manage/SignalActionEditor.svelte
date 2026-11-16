@@ -31,8 +31,10 @@
     saveLabel: string;
     onSave: () => void;
     onCancel: () => void;
+    /** Deletes the action; absent for a new one. */
+    onDelete?: () => void;
   }
-  let { draft = $bindable(), automations, error, disabled, saveLabel, onSave, onCancel }: Props = $props();
+  let { draft = $bindable(), automations, error, disabled, saveLabel, onSave, onCancel, onDelete }: Props = $props();
 
   const typeChoices = SIGNAL_ACTION_TYPES.map((type) => ({ value: type, label: signalActionTypeLabel(type) }));
   // A saved automation stays a choice while the list loads, or after it was deleted.
@@ -43,7 +45,7 @@
   ]);
 </script>
 
-<div class="flex min-w-0 flex-col gap-3 rounded-lg border border-border/60 p-3" data-testid="app-signal-action-editor">
+<div class="flex min-w-0 flex-col gap-3" data-testid="app-signal-action-editor">
   <div class="flex flex-wrap items-center gap-2">
     <SettingsSelect compact ariaLabel="Action type" options={typeChoices} value={draft.type} {disabled} onSelect={(type) => (draft.type = type)} />
     <label class="ml-1 flex items-center gap-2 text-sm">
@@ -79,7 +81,7 @@
     {/if}
     <label class="flex flex-col gap-1">
       <span class="text-xs text-muted-foreground">Prompt template</span>
-      <Textarea bind:value={draft.template} {disabled} rows={4} class="font-mono text-xs" aria-label="Prompt template" />
+      <Textarea bind:value={draft.template} {disabled} rows={4} aria-label="Prompt template" />
       <span class="text-xs text-muted-foreground text-pretty">{SIGNAL_TEMPLATE_HELP} {SIGNAL_EMPTY_TEMPLATE_TEXT}</span>
       <span class="text-xs text-muted-foreground text-pretty">{SIGNAL_PROMPT_WARNING} {SIGNAL_AGENT_LIMIT_TEXT}</span>
     </label>
@@ -91,5 +93,8 @@
   <div class="flex flex-wrap gap-2">
     <Button size="xs" {disabled} onclick={onSave}>{saveLabel}</Button>
     <Button size="xs" variant="outline" {disabled} onclick={onCancel}>Cancel</Button>
+    {#if onDelete}
+      <Button size="xs" variant="ghost" class="ml-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive" {disabled} onclick={onDelete}>Delete</Button>
+    {/if}
   </div>
 </div>

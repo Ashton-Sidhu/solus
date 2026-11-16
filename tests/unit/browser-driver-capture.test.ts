@@ -45,6 +45,7 @@ function fakeGuest() {
     on: () => {},
     isDestroyed: () => false,
     setWindowOpenHandler: () => {},
+    session: { on: () => {}, off: () => {} },
     getBackgroundThrottling: () => false,
     setBackgroundThrottling: () => {},
     capturePage: async () => ({ isEmpty: () => false, toDataURL: () => 'data:image/png;base64,V0lORE9X' }),

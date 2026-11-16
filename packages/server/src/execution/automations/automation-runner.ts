@@ -109,7 +109,7 @@ export interface AutomationRunOptions {
  * and are read back via the run-result tools.
  *
  * Recursion guard: the spawned run gets the full `solus` tool suite (works,
- * tasks, artifacts, start_session) EXCEPT the automation
+ * tasks, artifacts, start_sessions) EXCEPT the automation
  * CRUD/run tools, on both providers — so an automation cannot create or trigger
  * more automations. This is the fork-bomb guard; everything else is available.
  */

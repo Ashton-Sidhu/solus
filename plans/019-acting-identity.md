@@ -27,7 +27,7 @@ An audit (2026-10-07) found nine leaks of this kind. They have three causes:
    environment remove two variables and keep `HOME`, `SSH_AUTH_SOCK`,
    `GH_TOKEN`, `GITHUB_TOKEN` and, for Codex, `OPENAI_API_KEY`.
 3. **Work without an actor falls back to the host login.** Automations,
-   orchestration (`start_session`, `send_session`), `move_to_worktree`
+   orchestration (`start_sessions`, `send_session`), `move_to_worktree`
    (`HOST_ACTOR`), PR guide warming, and the PR sync timer.
 
 The same audit found the credential rules repeated:
@@ -81,7 +81,7 @@ above.
    the provider is not connected, the run stops with `SEAT_REQUIRED` and a
    clear message on the run. (Approved 2026-10-07.)
 5. **An orchestrated child session runs on its parent session's seat.** This
-   covers `start_session` and `send_session`. (Approved 2026-10-07.)
+   covers `start_sessions` and `send_session`. (Approved 2026-10-07.)
 6. **No short-term fixes.** The `gitSync` leak is fixed by stage 1 with the
    other git leaks, not by a separate patch. (Approved 2026-10-07.)
 7. **The scope, not a parameter.** An `identity` parameter on every launch is
@@ -415,7 +415,7 @@ This plan adds no daemon, no timer and no long-running process.
 ### Not done, or limited
 
 - Not run on a cloud host or with the desktop app.
-- `start_session` with no sender session (no parent) runs as the host.
+- `start_sessions` with no sender session (no parent) runs as the host.
 - `SessionRuntime.actorOfSession` is in memory. After a restart, a report or
   prompt into an idle session with no recorded actor runs as the host.
 - A host with neither the standalone entry nor the `solus` CLI writes no Solus

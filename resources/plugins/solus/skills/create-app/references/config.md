@@ -17,6 +17,7 @@ config: {
 | `number` | a number | `min`, `max`, `integer: true` |
 | `boolean` | on or off | |
 | `choice` | one of `options` | `options: [{ value, label }]` |
+| `model` | a model id; empty is Solus's default | `ctx.models` names it ([models](models.md)) |
 
 - Each field has a `label`, an optional one-sentence `description`, and a `default`. The default is the value until the user sets one, and in every preview. A default that the field does not take fails the deploy.
 - The backend reads `ctx.config.<name>` in an operation and `step.config.<name>` in a workflow step. A value is a `string`, a `number`, or a `boolean`: convert it where a type matters (`Number(ctx.config.pageSize)`).

@@ -1,7 +1,7 @@
-import { sql } from 'drizzle-orm'
+import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
-import { appCallerSchema, appDescriptorSchema, appLogLineSchema, appSpanSchema, type AppCallOutcome, type AppCaller, type AppCallerKind, type AppDescriptor, type AppLogLine, type AppSpan, type AppVersionState } from '@solus/contracts/apps'
-import type { Attribution } from '@solus/contracts/user'
+import { appCallerSchema, appDescriptorSchema, appLogLineSchema, appSpanSchema, type AppCallKind, type AppCallOutcome, type AppCallTerm, type AppCaller, type AppCallerKind, type AppDescriptor, type AppLogLine, type AppSpan, type AppVersionActivation, type AppVersionState } from '@solus/contracts/apps'
+import { attributionSchema, type Attribution } from '@solus/contracts/user'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase, type Db } from '../../db/database'
 import { scopeClause } from '../scope'
@@ -23,8 +23,14 @@ export interface AppRecord {
   organizationId: string
   ownerKey: string
   slug: string
+  /** The manifest's name and description: each deploy writes them. */
   name: string
   description: string
+  /** What the owner named and described the app; null shows the manifest's. */
+  customName: string | null
+  customDescription: string | null
+  /** The hue (0–359) of the app's tile; null takes one from the app's id. */
+  colorHue: number | null
   activeVersion: number | null
   stopped: boolean
   agentAccess: boolean
@@ -55,7 +61,13 @@ export interface AppVersionRecord {
   message: string
   createdBy: Attribution
   createdAt: number
+  activations: AppVersionActivation[]
 }
+
+/** A version keeps its newest activations: enough for any history a person reads. */
+export const MAX_ACTIVATIONS_PER_VERSION = 50
+
+const activationsSchema = z.array(z.object({ at: z.number(), by: attributionSchema, previous: z.number().nullable() }))
 
 export interface AppScheduleRecord {
   appId: string
@@ -71,6 +83,7 @@ export interface AppCallRecord {
   id: string
   appId: string
   version: number
+  kind: AppCallKind
   operation: string
   caller: AppCaller
   startedAt: number
@@ -110,6 +123,15 @@ export interface AppCallFilter {
   runId?: string
   /** Only calls that started before this time. */
   before?: number
+  /** Only calls that hold this text, in any case, in their operation, caller, error, input, or log lines. */
+  search?: string
+  kind?: AppCallKind
+  /** Only calls that started at this time or later. */
+  since?: number
+  /** Only calls that started before this time: the end of a time range. */
+  until?: number
+  /** Every group must match; a group matches when one of its terms does. */
+  match?: AppCallTerm[][]
 }
 
 const flagSchema = z.union([z.boolean(), z.number()]).transform((value) => value === true || value === 1)
@@ -128,6 +150,9 @@ const appRowSchema = z.object({
   slug: z.string(),
   name: z.string(),
   description: z.string(),
+  custom_name: z.string().nullable(),
+  custom_description: z.string().nullable(),
+  color_hue: nullableNumberSchema,
   active_version: nullableNumberSchema,
   stopped: flagSchema,
   agent_access: flagSchema,
@@ -148,6 +173,9 @@ function appFromRow(row: z.infer<typeof appRowSchema>): AppRecord {
     slug: row.slug,
     name: row.name,
     description: row.description,
+    customName: row.custom_name,
+    customDescription: row.custom_description,
+    colorHue: row.color_hue,
     activeVersion: row.active_version,
     stopped: row.stopped,
     agentAccess: row.agent_access,
@@ -163,9 +191,9 @@ function appFromRow(row: z.infer<typeof appRowSchema>): AppRecord {
 
 export async function insertApp(record: AppRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${apps} (id, organization_id, created_by, slug, name, description, active_version, stopped, agent_access, repository, latest_revision, project, author, webhook_ids, created_at, updated_at)
+    INSERT INTO ${apps} (id, organization_id, created_by, slug, name, description, custom_name, custom_description, color_hue, active_version, stopped, agent_access, repository, latest_revision, project, author, webhook_ids, created_at, updated_at)
     VALUES (
-      ${record.id}, ${record.organizationId}, ${record.ownerKey}, ${record.slug}, ${record.name}, ${record.description}, ${record.activeVersion},
+      ${record.id}, ${record.organizationId}, ${record.ownerKey}, ${record.slug}, ${record.name}, ${record.description}, ${record.customName}, ${record.customDescription}, ${record.colorHue}, ${record.activeVersion},
       ${flag(db, record.stopped)}, ${flag(db, record.agentAccess)}, ${record.repository}, ${record.latestRevision}, ${record.project}, ${attributionJson(record.createdBy)}, ${JSON.stringify(record.webhookIds)},
       ${record.createdAt}, ${record.updatedAt}
     )
@@ -178,6 +206,9 @@ export async function saveApp(record: AppRecord, db: Db = getDatabase()): Promis
     UPDATE ${apps} SET
       name = ${record.name},
       description = ${record.description},
+      custom_name = ${record.customName},
+      custom_description = ${record.customDescription},
+      color_hue = ${record.colorHue},
       active_version = ${record.activeVersion},
       stopped = ${flag(db, record.stopped)},
       agent_access = ${flag(db, record.agentAccess)},
@@ -235,6 +266,7 @@ const versionRowSchema = z.object({
   message: z.string(),
   author: z.string(),
   created_at: timeSchema,
+  activations: z.string(),
 })
 
 function versionFromRow(row: z.infer<typeof versionRowSchema>): AppVersionRecord {
@@ -253,16 +285,17 @@ function versionFromRow(row: z.infer<typeof versionRowSchema>): AppVersionRecord
     message: row.message,
     createdBy: parseStoredAttribution(row.author) ?? hostAttribution(),
     createdAt: row.created_at,
+    activations: activationsSchema.parse(JSON.parse(row.activations)),
   }
 }
 
 export async function insertVersion(record: AppVersionRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${appVersions} (app_id, number, source_commit, build_commit, descriptor, has_backend, has_ui, state, error, build_log, build_ms, message, author, created_at)
+    INSERT INTO ${appVersions} (app_id, number, source_commit, build_commit, descriptor, has_backend, has_ui, state, error, build_log, build_ms, message, author, created_at, activations)
     VALUES (
       ${record.appId}, ${record.number}, ${record.sourceCommit}, ${record.buildCommit}, ${JSON.stringify(record.descriptor)},
       ${flag(db, record.hasBackend)}, ${flag(db, record.hasUi)}, ${record.state}, ${record.error}, ${record.buildLog}, ${record.buildMs}, ${record.message},
-      ${attributionJson(record.createdBy)}, ${record.createdAt}
+      ${attributionJson(record.createdBy)}, ${record.createdAt}, ${JSON.stringify(record.activations)}
     )
   `)
 }
@@ -293,11 +326,21 @@ export async function latestVersionNumber(appId: string, db: Db = getDatabase())
   return row.number
 }
 
-/** Makes one version the active one: the version before it is superseded, in the same transaction as the app's pointer. */
-export async function activateVersion(app: AppRecord, number: number, db: Db = getDatabase()): Promise<void> {
+/**
+ * Makes one version the active one: the version before it is superseded, in
+ * the same transaction as the app's pointer. The version keeps when, by whom,
+ * and over which version it became active, so a rollback has a history.
+ */
+export async function activateVersion(app: AppRecord, number: number, by: Attribution, db: Db = getDatabase()): Promise<void> {
   await db.transaction(async (tx) => {
+    const row = z.object({ activations: z.string() }).optional().parse(await tx.get(sql`SELECT activations FROM ${appVersions} WHERE app_id = ${app.id} AND number = ${number}`))
+    const activations = row ? activationsSchema.parse(JSON.parse(row.activations)) : []
+    activations.push({ at: Date.now(), by, previous: app.activeVersion })
     await tx.run(sql`UPDATE ${appVersions} SET state = 'superseded' WHERE app_id = ${app.id} AND state = 'active'`)
-    await tx.run(sql`UPDATE ${appVersions} SET state = 'active', error = NULL WHERE app_id = ${app.id} AND number = ${number}`)
+    await tx.run(sql`
+      UPDATE ${appVersions} SET state = 'active', error = NULL, activations = ${JSON.stringify(activations.slice(-MAX_ACTIVATIONS_PER_VERSION))}
+      WHERE app_id = ${app.id} AND number = ${number}
+    `)
     await saveApp({ ...app, activeVersion: number }, tx)
   })
 }
@@ -384,6 +427,7 @@ const callRowSchema = z.object({
   app_id: z.string(),
   version: z.coerce.number(),
   operation: z.string(),
+  kind: z.enum(['operation', 'model']),
   caller: z.string(),
   started_at: timeSchema,
   finished_at: nullableTimeSchema,
@@ -409,6 +453,7 @@ function callFromRow(row: z.infer<typeof callRowSchema>): AppCallRecord {
     id: row.id,
     appId: row.app_id,
     version: row.version,
+    kind: row.kind,
     operation: row.operation,
     caller: appCallerSchema.parse(JSON.parse(row.caller)),
     startedAt: row.started_at,
@@ -429,11 +474,11 @@ function callFromRow(row: z.infer<typeof callRowSchema>): AppCallRecord {
 }
 
 /** A call that starts: its row has no log line and no span yet. */
-export async function insertCall(record: Pick<AppCallRecord, 'id' | 'appId' | 'version' | 'operation' | 'caller' | 'startedAt' | 'input' | 'inputTruncated' | 'runId' | 'traceId' | 'spanId'>, db: Db = getDatabase()): Promise<void> {
+export async function insertCall(record: Pick<AppCallRecord, 'id' | 'appId' | 'version' | 'kind' | 'operation' | 'caller' | 'startedAt' | 'input' | 'inputTruncated' | 'runId' | 'traceId' | 'spanId'>, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${appCalls} (id, app_id, version, operation, caller, caller_kind, started_at, outcome, input, input_truncated, run_id, trace_id, span_id)
+    INSERT INTO ${appCalls} (id, app_id, version, kind, operation, caller, caller_kind, started_at, outcome, input, input_truncated, run_id, trace_id, span_id)
     VALUES (
-      ${record.id}, ${record.appId}, ${record.version}, ${record.operation}, ${JSON.stringify(record.caller)}, ${record.caller.kind}, ${record.startedAt}, 'running',
+      ${record.id}, ${record.appId}, ${record.version}, ${record.kind}, ${record.operation}, ${JSON.stringify(record.caller)}, ${record.caller.kind}, ${record.startedAt}, 'running',
       ${record.input}, ${flag(db, record.inputTruncated)}, ${record.runId}, ${record.traceId}, ${record.spanId}
     )
   `)
@@ -449,15 +494,49 @@ export async function finishCall(id: string, end: AppCallEnd, db: Db = getDataba
   `)
 }
 
-/** The newest calls of an app that pass the filter. */
-export async function listCalls(appId: string, limit: number, filter: AppCallFilter = {}, db: Db = getDatabase()): Promise<AppCallRecord[]> {
+/** A LIKE pattern that finds `text` in any case: a wildcard of SQL in it is text to find. */
+function containsPattern(text: string): string {
+  return `%${text.toLowerCase().replace(/[\\%_]/g, (character) => `\\${character}`)}%`
+}
+
+// The log lines and the caller are JSON text; the host keeps at most 2,000 calls of an app, so a scan is cheap.
+const callText = sql`LOWER(operation || ' ' || caller || ' ' || COALESCE(error, '') || ' ' || COALESCE(input, '') || ' ' || logs)`
+
+/** One term of a query as SQL. A version that is not a whole number matches no call. */
+function termSql(term: AppCallTerm): SQL {
+  const value = term.value.trim()
+  switch (term.field) {
+    case 'operation': return sql`LOWER(operation) = ${value.toLowerCase()}`
+    case 'caller': return sql`caller_kind = ${value.toLowerCase()}`
+    case 'outcome': return sql`outcome = ${value.toLowerCase()}`
+    case 'version': return /^v?\d+$/i.test(value) ? sql`version = ${Number(value.replace(/^v/i, ''))}` : sql`1 = 0`
+    case 'run': return sql`run_id = ${value}`
+    case 'error': return sql`LOWER(COALESCE(error, '')) LIKE ${containsPattern(value)} ESCAPE '\\'`
+    case 'text': return sql`${callText} LIKE ${containsPattern(value)} ESCAPE '\\'`
+  }
+}
+
+/** What a filter keeps of the calls of an app, as the WHERE of a read. */
+function callWhere(appId: string, filter: AppCallFilter): SQL {
   const where = [sql`app_id = ${appId}`]
   if (filter.operation !== undefined) where.push(sql`operation = ${filter.operation}`)
   if (filter.outcome !== undefined) where.push(sql`outcome = ${filter.outcome}`)
   if (filter.callerKind !== undefined) where.push(sql`caller_kind = ${filter.callerKind}`)
   if (filter.runId !== undefined) where.push(sql`run_id = ${filter.runId}`)
+  if (filter.kind !== undefined) where.push(sql`kind = ${filter.kind}`)
+  if (filter.since !== undefined) where.push(sql`started_at >= ${filter.since}`)
   if (filter.before !== undefined) where.push(sql`started_at < ${filter.before}`)
-  const rows = await db.all(sql`SELECT * FROM ${appCalls} WHERE ${sql.join(where, sql` AND `)} ORDER BY started_at DESC, id DESC LIMIT ${limit}`)
+  if (filter.until !== undefined) where.push(sql`started_at < ${filter.until}`)
+  if (filter.search !== undefined) where.push(sql`${callText} LIKE ${containsPattern(filter.search)} ESCAPE '\\'`)
+  for (const group of filter.match ?? []) {
+    if (group.length > 0) where.push(sql`(${sql.join(group.map(termSql), sql` OR `)})`)
+  }
+  return sql.join(where, sql` AND `)
+}
+
+/** The newest calls of an app that pass the filter. */
+export async function listCalls(appId: string, limit: number, filter: AppCallFilter = {}, db: Db = getDatabase()): Promise<AppCallRecord[]> {
+  const rows = await db.all(sql`SELECT * FROM ${appCalls} WHERE ${callWhere(appId, filter)} ORDER BY started_at DESC, id DESC LIMIT ${limit}`)
   return z.array(callRowSchema).parse(rows).map(callFromRow)
 }
 
@@ -499,12 +578,46 @@ export async function callCountsSince(appIds: readonly string[], since: number, 
   return new Map(rows.map((row) => [row.app_id, { calls: row.calls, failed: row.failed }]))
 }
 
+/** One run of a schedule, as its calendar reads it. */
+export interface AppScheduleCallTime {
+  schedule: string
+  startedAt: number
+  outcome: AppCallOutcome
+}
+
+/** The calls of an app's schedules from `from` to before `to`. */
+export async function scheduleCallsBetween(appId: string, from: number, to: number, db: Db = getDatabase()): Promise<AppScheduleCallTime[]> {
+  const rows = z.array(z.object({ caller: z.string(), started_at: timeSchema, outcome: z.enum(['running', 'ok', 'failed']) })).parse(await db.all(sql`
+    SELECT caller, started_at, outcome FROM ${appCalls} WHERE app_id = ${appId} AND caller_kind = 'schedule' AND started_at >= ${from} AND started_at < ${to}
+  `))
+  return rows.flatMap((row) => {
+    const caller = appCallerSchema.parse(JSON.parse(row.caller))
+    return caller.kind === 'schedule' ? [{ schedule: caller.name, startedAt: row.started_at, outcome: row.outcome }] : []
+  })
+}
+
+/** When the oldest call the log keeps of an app started, when the log is full and so lost older calls; else null. */
+export async function callLogKeptSince(appId: string, db: Db = getDatabase()): Promise<number | null> {
+  const row = z.object({ count: z.coerce.number(), oldest: nullableTimeSchema }).parse(await db.get(sql`
+    SELECT COUNT(*) AS count, MIN(started_at) AS oldest FROM ${appCalls} WHERE app_id = ${appId}
+  `))
+  return row.count >= MAX_CALLS_PER_APP ? row.oldest : null
+}
+
 /** One call as the metrics read it: no input, no log line. */
 export interface AppCallTiming {
   operation: string
   startedAt: number
   finishedAt: number | null
   outcome: AppCallOutcome
+}
+
+/** The calls of an app that pass the filter, as the numbers read them, the oldest first. */
+export async function callTimings(appId: string, filter: AppCallFilter, db: Db = getDatabase()): Promise<AppCallTiming[]> {
+  const rows = z.array(z.object({ operation: z.string(), started_at: timeSchema, finished_at: nullableTimeSchema, outcome: z.enum(['running', 'ok', 'failed']) })).parse(await db.all(sql`
+    SELECT operation, started_at, finished_at, outcome FROM ${appCalls} WHERE ${callWhere(appId, filter)} ORDER BY started_at
+  `))
+  return rows.map((row) => ({ operation: row.operation, startedAt: row.started_at, finishedAt: row.finished_at, outcome: row.outcome }))
 }
 
 /** The calls of an app since a time, the oldest first. */

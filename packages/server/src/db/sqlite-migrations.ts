@@ -3,18 +3,16 @@ import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { migrationsFolder, type MigrationSchema } from './migration-files'
 
 /**
- * Apply a database's generated SQLite baseline to an open connection,
- * synchronously.
+ * Apply a database's SQLite migrations to an open connection, synchronously.
  *
  * This is the rule of `drizzle-orm/sqlite-proxy/migrator` — one bookkeeping
  * row per applied file, a file is due when it is newer than the last row — run
  * inline so the file is fully migrated the moment `getDb()` returns, and a
  * synchronous caller never sees half a schema.
  *
- * There is no migration history: every database is one generated baseline
- * (docs/database-schema.md). A file whose applied rows this folder does not
- * know was made by another version of the schema and cannot be opened; the
- * error names the file to delete.
+ * A file whose applied rows this folder does not know was made by a schema
+ * that is not in this history (docs/database-schema.md) and cannot be opened;
+ * the error names the file to delete.
  */
 export function runSqliteSchemaMigrations(db: DatabaseSync, schema: MigrationSchema, fileName: string): void {
   const migrations = readMigrationFiles({ migrationsFolder: migrationsFolder(schema) })

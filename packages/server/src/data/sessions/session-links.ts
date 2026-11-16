@@ -78,6 +78,14 @@ export async function unlinkAppFromSessions(appId: string): Promise<void> {
   for (const link of links) await emitSessionArtifactsChanged(link.sessionId)
 }
 
+/** The owner took one session off an app: its edge goes, whatever host id it names. A link that is not there changes nothing. */
+export async function unlinkAppSession(appId: string, sessionId: string): Promise<void> {
+  const removed = await getDatabase().run(sql`
+    DELETE FROM ${resourceLinks} WHERE source_kind = 'session' AND source_id = ${sessionId} AND target_kind = 'app' AND target_key = ${appId}
+  `)
+  if (removed.changes > 0) await emitSessionArtifactsChanged(sessionId)
+}
+
 /** The reverse of `linkSessionItem`. A link that is not there changes nothing. */
 export async function unlinkSessionItem(sessionId: string, raw: ItemTarget): Promise<void> {
   // Parsed as a link is, so the key is spelled the same.

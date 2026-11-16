@@ -5,7 +5,8 @@ import type {
   NativeStackHeaderItemMenu,
   NativeStackNavigationOptions,
 } from "@react-navigation/native-stack";
-import { isValidElement, useEffect, useRef, type RefObject } from "react";
+import { isValidElement, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import { useIsFocused } from "@react-navigation/native";
 import { Platform, StyleSheet } from "react-native";
 import { useMobileNavigationTheme } from "../lib/useMobileNavigationTheme";
 import {
@@ -32,6 +33,7 @@ type Options = NativeStackNavigationOptions & {
   readonly headerSubtitleStyle?: { color?: string; fontSize?: number; fontFamily?: string };
   readonly unstable_headerCenterItems?: () => NativeStackHeaderItem[];
   readonly unstable_headerToolbarItems?: () => ToolbarItem[];
+  readonly headerSearchValue?: string;
 };
 
 type MenuElementInput =
@@ -257,11 +259,27 @@ export function V5StackHeader(props: { readonly options: Options; readonly canGo
   const { options } = props;
   const theme = useMobileNavigationTheme();
   const ownSearchRef = useRef<SearchBarCommands>(null);
+  const nativeSearchValue = useRef<string | undefined>(undefined);
+  const isFocused = useIsFocused();
   const { leading, trailing } = barItems(options, props.canGoBack);
   const { bottom, mailSearch, bottomSearch } = toolbarItems(options);
   const { title, titleItem } = headerTitle(options);
   const searchOptions = options.headerSearchBarOptions;
   const searchRef = searchOptions?.ref ?? ownSearchRef;
+  // UIKit can rebuild the search bar after Back while the React page and its
+  // filter remain mounted. Restore the caller's value without resetting the
+  // selection on each native keystroke.
+  useLayoutEffect(() => {
+    if (!isFocused) {
+      nativeSearchValue.current = undefined;
+      return;
+    }
+    const value = options.headerSearchValue;
+    if (value !== undefined && value !== nativeSearchValue.current && searchRef.current) {
+      searchRef.current.setText(value);
+      nativeSearchValue.current = value;
+    }
+  }, [isFocused, options.headerSearchValue, searchRef]);
   const searchHasFocus = useSearchAutoFocus(searchOptions?.autoFocus, searchRef);
   const appearance = barAppearance(options, theme.colors.card);
   return (
@@ -289,6 +307,7 @@ export function V5StackHeader(props: { readonly options: Options; readonly canGo
                 searchOptions?.onFocus?.(event);
               }}
               onChangeText={(event) => {
+                nativeSearchValue.current = event.nativeEvent.text;
                 mailSearch?.onSearchTextChange?.(event.nativeEvent.text);
                 searchOptions?.onChangeText?.(event);
               }}

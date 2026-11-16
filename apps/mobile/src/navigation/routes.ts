@@ -14,7 +14,7 @@ export type RootStackParamList = {
   ThreadQueue: { hostId: string; conversationId: string }
   /** The model, reasoning, and permission mode for the next prompt, as T3 Code's form-sheet route over its thread or new-task draft. `conversationId` names the open conversation. */
   ThreadSettings: { hostId: string; conversationId: string }
-  /** T3 Code's new-task sheet; the pickers preselect a host and project. */
+  /** T3 Code's new-task page; the pickers preselect a host and project. */
   /**
    * `hostChoice` absent: Auto balance may still choose the host. `balanceRequest`
    * is the picker's Auto balance row: check now (docs/plans/resource-telemetry.md D8).
@@ -41,6 +41,7 @@ export type RootStackParamList = {
   OpenFolder: { hostId: string; path?: string }
   ProjectFromGithub: { hostId: string }
   CloneProject: { hostId: string }
+  CloneDestination: { hostId: string; remoteUrl: string; repositoryTitle?: string; path?: string }
   Notifications: undefined
   /** Android's third workspace destination beside Chats and Pull Requests; iOS opens it from the header. */
   Settings: undefined
@@ -67,6 +68,10 @@ export type RootStackParamList = {
   HostBalancing: undefined
   DeviceSettings: { hostId: string }
   Devices: { hostId: string; sessionId?: string }
+  /** T3 Code's immersive viewer of the devices a session shows. `deviceKey` (threadDevicePreviews) selects one. */
+  ThreadDevicePreview: { hostId: string; sessionId: string; deviceKey?: string }
+  /** T3 Code's viewer of the browser pages on a session's host. `browserPageId` selects one. */
+  ThreadBrowserPreview: { hostId: string; sessionId: string; browserPageId?: string }
   /** How one host is reached: Solus Cloud link, organizations, network, pairing, and devices. */
   HostAccess: { hostId: string }
   /** The routes this device has to one host: which is in use, and adding, moving, and removing one. */
@@ -92,6 +97,8 @@ export type RootStackParamList = {
   AppCall: { hostId: string; appId: string; callId: string }
   /** One run of a workflow, with its steps, Terminate, and Run again. */
   AppRun: { hostId: string; appId: string; runId: string }
+  /** One model call: what the model wrote, the operations it called, its result, and Cancel (docs/plans/app-models.md). */
+  AppModelCall: { hostId: string; appId: string; callId: string }
   /** The build log of one version. */
   AppBuildLog: { hostId: string; appId: string; version: number }
   /** One operation: its schemas, and a form to run it with a JSON input. */

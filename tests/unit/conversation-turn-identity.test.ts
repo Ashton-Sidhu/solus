@@ -38,6 +38,12 @@ test('ending a turn keeps every on-screen item mounted and folds the work in pla
         const ToolInputStatus = Stub, TurnImageGallery = Stub, ToolGroupItem = Stub;
         const describeBackgroundWait = () => null, settledBackgroundWait = () => null;
         const getSettingsContext = () => ({ showToolCalls: true });
+        const TurnArtifacts = Stub;
+        const NO_BURST = {};
+        // No pull request cards: the final reply renders as any other item.
+        const getWorkspaceContext = () => ({ sessionFor: () => null });
+        const sessionArtifactsStore = { artifactsFor: () => null };
+        const turnReplyCards = () => null;
       `)
     const turn = component(turnSource, 'turn')
     const fixture = component(`<script>

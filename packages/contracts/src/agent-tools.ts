@@ -60,10 +60,14 @@ export const SOLUS_TOOL_GROUPS = [
   { id: 'apps', label: 'Apps', tools: [
     'save_app',
     'deploy_app',
+    'publish_app',
+    'unpublish_app',
+    'export_app',
     'preview_app',
     'checkout_app',
     'list_apps',
     'inspect_app',
+    'retry_app_run',
     'set_app_signal_action',
   ] },
   { id: 'webhooks', label: 'Webhooks', tools: [
@@ -85,6 +89,7 @@ export const SOLUS_TOOL_GROUPS = [
   { id: 'config', label: 'Configuration', tools: [
     'read_config',
     'update_config',
+    'read_theme',
   ] },
   { id: 'browser', label: 'Browser', tools: [
     'browser_status',
@@ -121,8 +126,8 @@ export const SOLUS_TOOL_GROUPS = [
     'search_sessions',
     'read_session',
     'read_session_exchange',
-    'start_session',
-    'delegate_task',
+    'start_sessions',
+    'become_lead',
     'send_session',
     'stop_session',
     'organize_session',

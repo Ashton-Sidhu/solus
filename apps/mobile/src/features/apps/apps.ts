@@ -6,14 +6,12 @@ import type {
   AppOperation,
   AppRuntimeView,
   AppScheduleTrigger,
-  AppScheduleView,
   AppState,
   AppSummary,
-  AppVersionView,
   AppWebhookView,
 } from '@solus/contracts/apps'
-import { attributionLabel } from '@solus/contracts/user'
 import type { AppCallValue } from '@solus/client-core/app-calls'
+import type { SessionRecordStatus } from '@solus/contracts/types'
 import { z } from 'zod'
 import { relativeTime } from '../../lib/time'
 import type { RowLine } from '../webhooks/webhook-rows'
@@ -171,10 +169,6 @@ export function appBody(state: AppState): AppBody {
   return state.app.hasUi ? { kind: 'frame' } : { kind: 'operations', operations: state.descriptor.operations }
 }
 
-export function operationKindLabel(kind: AppOperation['kind']): string {
-  return kind === 'query' ? 'Query' : 'Mutation'
-}
-
 /** A JSON Schema or the value of a call as text a person reads. */
 export function jsonText(value: AppJsonSchema | AppCallValue): string {
   return JSON.stringify(value, null, 2)
@@ -230,69 +224,10 @@ export function triggerText(trigger: AppScheduleTrigger): string {
   return trigger.timezone ? `${text} (${trigger.timezone})` : text
 }
 
-/** The lines of one schedule: when it runs and what, its next run or that it is paused, and its last run. */
-export function scheduleLines(schedule: AppScheduleView, now: number): RowLine[] {
-  const lines: RowLine[] = [{ text: `${triggerText(schedule.trigger)} · runs ${schedule.run}` }]
-  if (!schedule.enabled) lines.push({ text: 'Paused' })
-  else if (schedule.nextRunAt !== null) lines.push({ text: `Next run ${untilText(schedule.nextRunAt, now)}` })
-  if (schedule.lastOutcome === null || schedule.lastRunAt === null) {
-    lines.push({ text: 'No run yet' })
-  } else if (schedule.lastOutcome === 'ok') {
-    lines.push({ text: `Last run completed ${agoText(schedule.lastRunAt, now)}` })
-  } else {
-    lines.push({ text: `Last run failed ${agoText(schedule.lastRunAt, now)}`, tone: 'danger' })
-    if (schedule.lastError) lines.push({ text: schedule.lastError, tone: 'danger' })
-  }
-  return lines
-}
-
-// ─── Versions ───
-
-export function versionStateLabel(state: AppVersionView['state']): string {
-  switch (state) {
-    case 'building': return 'Building'
-    case 'active': return 'Active'
-    case 'superseded': return 'Earlier'
-    case 'failed': return 'Failed'
-  }
-}
-
-/** Only a version that ran before can run again; a failed one never became active, and one that builds is not a version yet. */
-export function canMakeActive(version: Pick<AppVersionView, 'state'>): boolean {
-  return version.state === 'superseded'
-}
-
-/** The start of a revision's commit, as a person names it. */
-export function shortCommit(commit: string): string {
-  return commit.slice(0, 7)
-}
-
-/**
- * The lines of one version: its message, when and by whom and from which
- * revision, how long the build took, why it failed, and what it may use.
- */
-export function versionLines(version: AppVersionView, now: number): RowLine[] {
-  const facts = [agoText(version.createdAt, now), attributionLabel(version.createdBy), `revision ${shortCommit(version.revision)}`]
-  if (version.buildMs !== null) facts.push(`built in ${durationText(version.buildMs)}`)
-  const lines: RowLine[] = [{ text: version.message || 'No message' }, { text: facts.join(' · ') }]
-  if (version.state === 'building') lines.push({ text: 'The host builds this version now.' })
-  if (version.state === 'failed' && version.error) lines.push({ text: version.error, tone: 'danger' })
-  if (version.permissionsNotice) lines.push({ text: version.permissionsNotice })
-  return lines
-}
-
 /** A question the owner answers before a change runs. */
 export interface Confirmation {
   readonly title: string
   readonly message: string
-}
-
-/** The question before an earlier version runs again. A rollback does not rewind data (decision 8). */
-export function makeActiveConfirmation(version: number): Confirmation {
-  return {
-    title: `Make v${version} active?`,
-    message: `The app runs version ${version} from now. Its data is not rewound: what later versions wrote stays as it is.`,
-  }
 }
 
 /** The question before an app is deleted: everything that goes with it (§4.3). */
@@ -305,9 +240,17 @@ export function deleteConfirmation(name: string): Confirmation {
 
 // ─── Webhooks ───
 
+/** How a webhook stands, in one word: what the mark of its row says aloud. */
+export function webhookStateLabel(webhook: Pick<AppWebhookView, 'webhookId' | 'enabled'>): string {
+  if (webhook.webhookId === null) return 'Not made'
+  return webhook.enabled ? 'On' : 'Paused'
+}
+
+/** The lines of one webhook: the mutation it runs, then why it does not receive. The mark of the row says that it is on. */
 export function webhookLines(webhook: AppWebhookView): RowLine[] {
   const lines: RowLine[] = [{ text: `Runs ${webhook.run}` }]
   if (webhook.problem) lines.push({ text: webhook.problem, tone: 'danger' })
+  else if (webhook.webhookId === null) lines.push({ text: 'Not made', tone: 'danger' })
   else if (!webhook.enabled) lines.push({ text: 'Paused' })
   else if (webhook.url === null) lines.push({ text: 'No URL. Link this host to Solus Cloud, or set its public URL.', tone: 'danger' })
   return lines
@@ -364,12 +307,29 @@ export function callLines(call: AppCallView, webhooks: readonly AppWebhookView[]
   return lines
 }
 
+/** The title of a call's row: its operation, or for a model call the model setting it used. */
+export function callTitle(call: Pick<AppCallView, 'kind' | 'operation'>): string {
+  return call.kind === 'model' ? `Model · ${call.operation}` : call.operation
+}
+
 /** When a call started, for the trailing text of its row. */
 export function callAgeText(call: Pick<AppCallView, 'startedAt'>, now: number): string {
   return relativeTime(new Date(call.startedAt).toISOString(), now)
 }
 
-/** When a session was linked, for the line under its title. */
-export function linkedText(linkedAt: number, now: number): string {
-  return `Linked ${agoText(linkedAt, now)}`
+/** The line under a linked session's title: how its run stands, when the host keeps a record of it, and when it was linked. */
+export function sessionLine(status: SessionRecordStatus | null, linkedAt: number, now: number): string {
+  const linked = `Linked ${agoText(linkedAt, now)}`
+  const state = sessionStatusText(status)
+  return state ? `${state} · ${linked}` : linked
+}
+
+/** How a linked session's run stands, in the desktop Sessions page's words. Null when the host keeps no record of it. */
+function sessionStatusText(status: SessionRecordStatus | null): string | null {
+  switch (status) {
+    case 'running': return 'Running'
+    case 'idle': return 'Completed'
+    case 'interrupted': return 'Stopped'
+    case null: return null
+  }
 }

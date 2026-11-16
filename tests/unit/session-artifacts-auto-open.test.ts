@@ -60,7 +60,7 @@ test('automatic opening defaults off and is a valid personal preference', () => 
 test('Artifacts opens in a narrow companion pane and keeps a resized pane', () => {
   const location = initialLocation()
   openSurface(location, { name: 'artifacts', params: { sessionId: 's' } })
-  expect(companionOf(location)?.defaultSize).toBe(26)
+  expect(companionOf(location)?.defaultSize).toBe(30)
   companionOf(location)!.defaultSize = 42
   openSurface(location, { name: 'artifacts', params: { sessionId: 'other' } })
   expect(companionOf(location)?.defaultSize).toBe(42)

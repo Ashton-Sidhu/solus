@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { githubSetting } from "@solus/client-core/settings-source-control";
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
 import Icon from "@iconify/svelte";
   import { localApi } from "@solus/client-core/local-api";
@@ -123,7 +124,7 @@ import Icon from "@iconify/svelte";
 <!-- Named for the group, as on the Source Control page it sits on; the row
      carries the GitHub mark. -->
 <SettingsSection label="Source control providers">
-  <SettingsRow label="GitHub" description={accountDescription}>
+  <SettingsRow {...githubSetting} description={accountDescription}>
     {#snippet labelExtra()}
       <ProviderConnectedCheck connected={isConnected} provider="GitHub" />
     {/snippet}

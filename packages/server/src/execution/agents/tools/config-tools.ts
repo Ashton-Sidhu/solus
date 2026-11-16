@@ -11,6 +11,7 @@ import {
   type SshDeviceHostConfig,
 } from '@solus/contracts/device-types'
 import { personalSettingsDocumentSchema } from '@solus/contracts/settings'
+import { THEME_GUIDE } from '@solus/contracts/theme-css'
 import {
   AGENT_PROFILE_MAX_ENTRIES,
   AGENT_PROFILE_MAX_FILE_BYTES,
@@ -326,5 +327,22 @@ export const updateConfigAgentTool: AgentTool = {
     // The first refused value, named by its path: `section.key`.
     const issue = parsed.error.issues[0]
     return { ok: false, text: `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'invalid value'}` }
+  },
+}
+
+/** The guide comes with the current theme, so the agent edits the CSS the person has rather than replacing it blind. */
+export const readThemeAgentTool: AgentTool = {
+  name: 'read_theme',
+  description:
+    "Read how to restyle Solus itself: its color tokens, its stable CSS selectors, and the person's current `themeMode` and `themeCss`. Call it before you change `personal.themeCss` with update_config, and only when the person asks to change how Solus looks.",
+  inputFields: {} as const,
+  requiresApproval: false,
+  execute: async (_input, context) => {
+    if (!toolHost) return { ok: true, text: JSON.stringify({ current: { unavailable: NO_PERSON }, guide: THEME_GUIDE }) }
+    const { reply } = await toolHost.personal(context.sessionId(), {})
+    const current = reply.ok
+      ? { themeMode: reply.settings.themeMode ?? 'system', themeCss: reply.settings.themeCss ?? '' }
+      : { unavailable: reply.error }
+    return { ok: true, text: JSON.stringify({ current, guide: THEME_GUIDE }) }
   },
 }

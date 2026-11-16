@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { sessionSettings as settingItems } from "./lib/settings-search-data";
   import { PERMISSION_MODES } from "@solus/contracts/types";
   import { PROVIDERS } from "@solus/contracts/provider-model-settings";
@@ -16,26 +18,22 @@
   const theme = getSettingsContext();
   const session = getWorkspaceContext();
   const permissionModes = PERMISSION_MODES.map((value) => ({ value, label: PERMISSION_MODE_DISPLAY[value].label }));
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    return settingItems.find((item) => item.id === id)?.keywords.some((word) => word.includes(searchQuery.toLowerCase())) ?? false;
-  }
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 </script>
 
 <SettingsSection
-  label="New sessions"
+  {...settingsDefinitions["sessions.section-new-sessions"]}
   visible={["agent-model", "default-permission"].some(isVisible)}
 >
-  <SettingsRow label="Default provider" description="Provider for new sessions. Set each provider's model in Providers." visible={isVisible("agent-model")}>
+  <SettingsRow {...settingsDefinitions["sessions.agent-model"]} visible={isVisible("agent-model")}>
     {#snippet control()}
       <SettingsSelect options={PROVIDERS.map((provider) => ({ value: provider.id, label: provider.label }))} value={theme.activeAgent} onSelect={(value) => session.config.setDefaultAgent(value)} ariaLabel="Default provider" />
     {/snippet}
   </SettingsRow>
 
   <SettingsRow
-    label="Default permission mode"
+    {...settingsDefinitions["sessions.default-permission"]}
     managed={managedSetting("defaultPermissionMode")}
-    description="Mode for new sessions. Existing sessions keep theirs."
     visible={isVisible("default-permission")}
   >
     {#snippet control()}
@@ -53,10 +51,9 @@
 
 <LeadSessionsSection {isVisible} />
 
-<SettingsSection label="Sessions" visible={["auto-rename", "ratelimit"].some(isVisible)}>
+<SettingsSection {...settingsDefinitions["sessions.section-sessions"]} visible={["auto-rename", "ratelimit"].some(isVisible)}>
   <SettingsRow
-    label="Name sessions automatically"
-    description="Summarize the first prompt into a short session name."
+    {...settingsDefinitions["sessions.auto-rename"]}
     visible={isVisible("auto-rename")}
   >
     {#snippet control()}

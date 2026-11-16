@@ -27,7 +27,7 @@
     <Button
       variant="ghost"
       size="sm"
-      class="-my-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+      class="-my-1"
       disabled={setup.readinessLoading}
       onclick={() => void setup.refreshReadiness()}
     >

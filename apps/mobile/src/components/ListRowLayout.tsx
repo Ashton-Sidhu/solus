@@ -5,7 +5,8 @@ import { useWindowDimensions, View } from "react-native";
 import { cn } from "../lib/cn";
 import { AppText } from "./AppText";
 import type { AppSymbolName } from "./AppSymbol";
-import { RowLeadingSymbol } from "./RowLeadingSymbol";
+import { SymbolView } from "./AppSymbol";
+import { Platform } from "react-native";
 
 export interface ListRowContentProps {
   readonly icon?: AppSymbolName;
@@ -25,7 +26,8 @@ export function ListRowLayout({
   detail,
   disabled,
   accessory,
-}: ListRowContentProps & { readonly accessory?: ReactNode }) {
+  tone = "default",
+}: ListRowContentProps & { readonly accessory?: ReactNode; readonly tone?: "default" | "danger" }) {
   const { fontScale } = useWindowDimensions();
   // Leave the label room to wrap at accessibility text sizes.
   const stackDetail = fontScale >= 1.5;
@@ -39,11 +41,11 @@ export function ListRowLayout({
     >
       {leading || icon ? (
         <View className="size-6 items-center justify-center">
-          {leading ?? (icon ? <RowLeadingSymbol name={icon} /> : null)}
+          {leading ?? (icon ? <SymbolView name={icon} size={Platform.OS === "android" ? 24 : 22} tintColorClassName={tone === "danger" ? "accent-danger-foreground" : "accent-icon"} type="monochrome" weight="regular" /> : null)}
         </View>
       ) : null}
       <View className="min-w-0 flex-1 gap-1">
-        <AppText className="text-base text-foreground">{label}</AppText>
+        <AppText className={tone === "danger" ? "text-base text-danger-foreground" : "text-base text-foreground"}>{label}</AppText>
         {description ? (
           <AppText className="text-sm text-foreground-muted">{description}</AppText>
         ) : null}

@@ -30,13 +30,13 @@
   import PaneChrome from "../../ui/PaneChrome.svelte";
   import PageEmpty from "../../ui/PageEmpty.svelte";
   import TurnTimeline from "./TurnTimeline.svelte";
-  import AgentRow from "./AgentRow.svelte";
+  import AgentGroups from "./AgentGroups.svelte";
   import ArtifactCard from "./ArtifactCard.svelte";
   import ArtifactRow from "./ArtifactRow.svelte";
   import ChangeKinds from "./ChangeKinds.svelte";
   import ChangeTree from "./ChangeTree.svelte";
   import LineCounts from "./LineCounts.svelte";
-  import ScopeTiles from "./ScopeTiles.svelte";
+  import RecentArtifactsRow from "./RecentArtifactsRow.svelte";
   import { highlightedArtifactKey } from "./lib/auto-open";
   import { changeKindShares, changesOfKind } from "./lib/change-kinds";
   import { changeTree, OPEN_TREE_FILE_LIMIT } from "./lib/change-tree";
@@ -44,8 +44,9 @@
   import { SessionOverview } from "./session-overview.svelte";
 
   /**
-   * What happened in a session (docs/plans/session-artifacts.md): its turns as
-   * a timeline of tool calls, then its changed files, the agents it started,
+   * The Threads surface (docs/plans/session-artifacts.md): what a session made,
+   * as a row of pictures, pinned and latest first; its turns as a timeline of
+   * tool calls; then its changed files, the agents it started,
    * its pull requests, and its works and files. Selecting a turn scopes
    * everything below the timeline to that turn. A row opens its record as a
    * surface of its own.
@@ -104,7 +105,7 @@
     return () => releases.forEach((release) => release());
   });
 
-  const title = $derived(sess ? sessionTitle(sess) : "Artifacts");
+  const title = $derived(sess ? sessionTitle(sess) : "Threads");
   const statusLabel = $derived(sess ? getStatusLabel(sess.status) : null);
   const turnElapsed = $derived(
     overview.live && sess?.currentTurnStartedAt ? formatElapsed(overview.now - sess.currentTurnStartedAt) : null,
@@ -142,10 +143,10 @@
   const changeTreesOpen = $derived(treeChanges.length <= OPEN_TREE_FILE_LIMIT || overview.query.trim().length > 0);
   const runningAgents = $derived(overview.agents.filter((row) => row.tone === "live").length);
 
-  const showsChanges = $derived(overview.shows("changes", overview.changes.length));
-  const showsAgents = $derived(overview.shows("agents", overview.agents.length));
-  const showsPullRequests = $derived(overview.shows("pull-requests", overview.linked.pullRequests.length));
-  const showsItems = $derived(overview.shows("items", overview.linked.items.length));
+  const showsChanges = $derived(overview.changes.length > 0);
+  const showsAgents = $derived(overview.agents.length > 0);
+  const showsPullRequests = $derived(overview.linked.pullRequests.length > 0);
+  const showsItems = $derived(overview.linked.items.length > 0);
   const cardCount = $derived([showsChanges, showsAgents, showsPullRequests, showsItems].filter(Boolean).length);
 
   const highlightKey = $derived(highlightedArtifactKey(sessionArtifactsStore.lastChangeFor(params.sessionId), Date.now()));
@@ -162,7 +163,7 @@
     if (!row.ref || row.pending) return;
     void openAgentSession(
       row.ref,
-      row.provider,
+      row.provider ?? row.ref.provider,
       row.ref.serverId ?? serverId,
       {
         resume: (resumed, opts) => session.opening.resumeSession(resumed, opts),
@@ -170,6 +171,11 @@
       },
       { split },
     );
+  }
+
+  /** A started session's own Artifacts surface, where every item it linked is listed. */
+  function openAgentArtifacts(row: RailAgentRow) {
+    session.router.navigate({ name: "artifacts", params: { sessionId: row.id, serverId: row.ref?.serverId ?? serverId } });
   }
 
   function openLinked(entry: OwnedArtifact) {
@@ -266,10 +272,16 @@
         The session's turns, its changed files, the agents it starts, and the pull requests, works, and files it links appear here.
       </PageEmpty>
     {:else}
-      <!-- The scope, as one card: when, then how much of each kind. -->
-      <div class="px-3.5 pt-4">
-        <div class="rounded-2xl bg-(--solus-tx-card-bg) shadow-[shadow:var(--solus-tx-card-shadow)]">
-          {#if overview.turns.length > 0}
+      <!-- What the session made, pinned and latest first, as a card of its own: the whole session's, whatever the scope. -->
+      {#if overview.recent.length > 0}
+        <div class="px-3.5 pt-4">
+          <RecentArtifactsRow items={overview.recent} {serverId} onOpen={(item) => openLinked(item.owned)} />
+        </div>
+      {/if}
+      <!-- The scope: the timeline, whose turn narrows every card under it. -->
+      <div class="px-3.5 {overview.recent.length > 0 ? 'pt-2.5' : 'pt-4'}">
+        {#if overview.turns.length > 0}
+          <div class="rounded-2xl bg-(--solus-tx-card-bg) shadow-[shadow:var(--solus-tx-card-shadow)]">
             <TurnTimeline
               turns={overview.turns}
               toolCallTimes={overview.toolCallTimes}
@@ -279,10 +291,8 @@
               onLoadEarlier={sess?.historyTruncated && tabId ? () => void session.lifecycle.expandHistory(tabId, { full: true }) : undefined}
               loadingEarlier={sess?.loadingHistory ?? false}
             />
-            <div class="mx-4 h-px bg-[var(--hairline)]"></div>
-          {/if}
-          <ScopeTiles tiles={overview.tiles} selected={overview.kind} onSelect={(kind) => (overview.kind = kind)} />
-        </div>
+          </div>
+        {/if}
         {#if !sess}
           <p class="m-0 px-1.5 pt-2 text-xs text-muted-foreground">
             Open the conversation to see its timeline, its agents, and its changed files.
@@ -292,7 +302,7 @@
 
       {#if cardCount === 0}
         <PageEmpty compact title="Nothing in this view.">
-          This turn, kind, or search has no matches.
+          This turn or search has no matches.
           {#snippet actions()}
             <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => overview.clear()}>Show the whole session</button>
           {/snippet}
@@ -318,9 +328,14 @@
                   <span class="shrink-0 text-xs tabular-nums text-(--solus-status-running)">{runningAgents} running</span>
                 {/if}
               {/snippet}
-              {#each overview.agents as row (row.key)}
-                <AgentRow {row} links={overview.linksOf(row)} onOpen={(split) => openAgent(row, split)} />
-              {/each}
+              <AgentGroups
+                rows={overview.agents}
+                {serverId}
+                linksOf={(row) => overview.linksOf(row)}
+                onOpen={openAgent}
+                onOpenLink={(row, artifact) => openArtifact(session, artifact, row.id, row.ref?.serverId ?? serverId)}
+                onOpenAllLinks={openAgentArtifacts}
+              />
             </ArtifactCard>
           {/if}
           {#if showsPullRequests}
@@ -344,5 +359,5 @@
   onClose={pane.close}
   onToggleMaximize={pane.toggleMaximize}
   maximized={pane.maximized}
-  closeLabel="Close artifacts"
+  closeLabel="Close threads"
 />

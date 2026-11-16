@@ -61,16 +61,23 @@ Rules:
 - The mark is the sun of each scene. The glow and the orbit lines centre on it.
   `SidePanel` puts the lockup one gap after the macOS window buttons, or at the
   header's padding where there are none; `SidebarSky` computes the same point.
-- The sky is a band, not a tinted title bar. It keeps 1.5rem under the title
+- The sky is a band, not a tinted title bar. It keeps 2.25rem under the title
   bar row for itself (`SKY_HEADER_DROP_REM`): the sidebar's content starts that
   much lower.
-- The sky ends just below the start of the content. It is opaque only behind
-  the controls of the title bar. From there it thins on a smoothstep curve,
-  flat at both ends, so it has no edge at the top of the fall or at its foot.
-  It is gone 1.25rem below the start of the content: only its last trace
-  touches the top of the search field. The colours of dusk and night get
-  lighter and warmer or bluer as they thin, so the fall reads as afterglow and
-  not as grey.
+- The sky ends at the top of the search field. It is opaque only behind the controls
+  of the title bar. From there it thins over a long fall, flat at both ends,
+  so it has no edge at the top of the fall or at its foot. The stops of the
+  fall are solved so that night over the light surface gets lighter on an
+  even curve: a dark sky over a light surface shows an edge wherever its
+  lightness changes fast, and a short fall of alpha did that. It is gone
+  0.5rem below the start of the content: only its faintest trace touches the
+  top edge of the search field, and the field's text is on the plain surface.
+  The 2.25rem room above the content is what gives the fall its length. The colours of dusk and night get warmer or bluer as they thin,
+  so the fall reads as afterglow and not as grey. The tail of dusk mixes
+  toward the sidebar's surface, so in the dark theme it does not make a
+  light band.
+- The sunset of dusk is muted: a soft glow under the mark and dusty rose
+  bands, so it stays behind the list and does not pull the eye.
 - Stars fill the band and fade out above the scene's horizon: low in the band
   at night, high at dusk, above the sunset. A soft clearing keeps them off the
   lockup, so no star reads as punctuation.
@@ -132,9 +139,53 @@ Settings → Appearance → Sky has three controls:
 - Capability is unchanged: the six places before Sessions keep their
   shortcuts and command palette entries. Sessions has no shortcut of its own.
 
+## Customizing the column
+
+The person decides what the column shows, and in which order.
+
+- **Sessions** is always first. It cannot hide or move: it is the way back to
+  the conversation.
+- **Solus places** (Workspace, Automations, Insights, Pull requests, Tasks,
+  and Search) come next. Each can hide and move. A hidden place keeps its
+  shortcut and its command palette entry.
+- **Pinned apps** come below a horizontal divider. The divider separates the
+  Solus places from the person's own pages. It shows only while one pinned app
+  or more shows. An app has no icon, so its button shows the first letter of
+  its name. A click opens the app as the destination; a second click closes
+  it. A pinned app is selected while it is the destination, as its own view
+  or its Manage page. Many pins scroll below the divider; the places and the
+  footer stay.
+
+Ways to change it:
+
+| Where | What |
+|---|---|
+| Right-click anywhere in the column (a button, the empty space, or the footer), or the context-menu key (Shift+F10) on a button | The column's menu. On a place or an app it starts with Move up, Move down, and Hide or Unpin for that row. Then a checkbox for each place, a Pinned apps submenu with a checkbox for each app of every connected host, and Reset places to default. |
+| Drag a button | Moves it within its group: a place among the places, an app among the apps. The whole column takes the drop: the gap is the pointer's height against the middle of each button of the group, so a release below the last button makes it last. A line shows the gap. |
+| The app's menu (`AppMenu`) | Pin to sidebar or Unpin from sidebar. Delete also unpins the app. |
+| Settings → Appearance → Sidebar places | Opens the same menu, and Reset. |
+
+Storage: two personal settings, so the column follows the account to each
+client (`packages/contracts/src/settings.ts`).
+
+- `sidebarPlaces`: `{ order, hidden }`, place ids. A place that `order` does
+  not name follows in the default order. Ids that this client does not know
+  stay stored, so an older and a newer client never erase each other's
+  choices. Reset writes the default.
+- `sidebarApps`: an ordered list of `{ host, appId }`. `host` is the host's
+  installation id, because a server id names a host only on one client. A pin
+  whose host is not connected, or whose app is gone, does not show and stays
+  stored.
+
+The helpers are in `packages/workspace-ui/src/lib/sidebar-places.ts`; the
+column is `SidebarPlaces.svelte`, and its menu is `SidebarPlacesMenu.svelte`.
+A guest of a share link sees Search only and cannot open the menu.
+
 ## Mobile
 
 The native app has its own navigation, so the places column does not apply to
-it. The sky and the home mark are decoration with no new capability. They are not in
+it. This is a recorded exception for the column's customization too
+(2026-11-13): `sidebarPlaces` and `sidebarApps` sync to the mobile profile,
+but the native app does not read them. Its apps stay in the Apps list. The sky and the home mark are decoration with no new capability. They are not in
 the native app. A product decision is necessary: add them to the native home
 and new task screens, or record an exception here.

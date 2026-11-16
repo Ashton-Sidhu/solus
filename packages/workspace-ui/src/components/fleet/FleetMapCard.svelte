@@ -3,36 +3,39 @@
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
-  import { toneOf, type FleetMachine, type Point } from "./lib/fleet-model";
+  import { CARD_HEIGHT, toneOf, type FleetMachine, type Point } from "./lib/fleet-model";
 
-  /** One host as a card on the map: its OS logo in a CPU ring, its name, and its
-   *  state as an icon. A card on the local network side carries its latency, since
-   *  its link is too short for a label. */
+  /** One host as a card on the map: its OS logo in a CPU ring, its name, its
+   *  state as an icon, and its latency. `at` is the card's center and `width` its
+   *  width, both in percent of the map. `data-host-id` names the host to the
+   *  map's context menu (D12). */
   interface Props {
     machine: FleetMachine;
     at: Point;
-    isSelected: boolean;
+    width: number;
     isDimmed: boolean;
-    showsLatency: boolean;
     onPoint: (serverId: string | null) => void;
-    onSelect: (serverId: string) => void;
+    onOpen: (serverId: string) => void;
     onStart: (serverId: string) => void;
   }
 
-  let { machine, at, isSelected, isDimmed, showsLatency, onPoint, onSelect, onStart }: Props = $props();
+  let { machine, at, width, isDimmed, onPoint, onOpen, onStart }: Props = $props();
 
   const tone = $derived(toneOf(machine.state));
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  data-host-id={machine.serverId}
   onmouseenter={() => onPoint(machine.serverId)}
   onmouseleave={() => onPoint(null)}
-  class="absolute z-10 flex w-[9.75rem] -translate-1/2 items-center gap-2.5 rounded-xl border bg-background py-2 pr-3 pl-2 shadow-[shadow:var(--solus-card-shadow-collapsed)] transition-opacity duration-300 motion-reduce:transition-none dark:shadow-none
-    {tone === 'bad' ? 'border-(--solus-status-error)/45' : tone === 'warn' ? 'border-(--warning)/45' : 'border-border/60'}
-    {isSelected ? 'outline-2 outline-offset-2 outline-(--solus-status-running)/60' : ''}"
+  class="absolute z-10 flex -translate-1/2 items-center gap-2.5 rounded-xl border bg-card pr-3 pl-2 shadow-[0_1px_2px_-1px_rgb(0_0_0/0.08),0_2px_6px_-2px_rgb(0_0_0/0.06)] transition-opacity duration-300 motion-reduce:transition-none dark:shadow-none
+    {tone === 'bad' ? 'border-(--solus-status-error)/35' : tone === 'warn' ? 'border-(--warning)/40' : 'border-border/60'}
+    hover:border-foreground/25"
   style:left="{at.x}%"
   style:top="{at.y}%"
+  style:width="{width}%"
+  style:height="{CARD_HEIGHT}rem"
   style:opacity={isDimmed ? 0.35 : tone === "off" ? 0.75 : 1}
 >
   {#if machine.hasUpdate}
@@ -44,7 +47,7 @@
   <div class="flex min-w-0 flex-1 flex-col gap-0.5">
     <button
       type="button"
-      onclick={() => onSelect(machine.serverId)}
+      onclick={() => onOpen(machine.serverId)}
       onfocus={() => onPoint(machine.serverId)}
       onblur={() => onPoint(null)}
       class="truncate text-left text-[0.8125rem] font-medium outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
@@ -64,7 +67,7 @@
         <HostStateIcon state={machine.state} count={machine.state === "running" ? machine.sessions : undefined} />
       {/if}
       {#if machine.needsSetup}<HostStateIcon state="signin" />{/if}
-      {#if showsLatency && machine.latencyMs !== null}
+      {#if machine.latencyMs !== null}
         <span class="ml-auto shrink-0 text-[0.6875rem] whitespace-nowrap text-muted-foreground tabular-nums">{machine.latencyMs} ms</span>
       {/if}
     </div>

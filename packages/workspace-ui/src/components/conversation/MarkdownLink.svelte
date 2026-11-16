@@ -9,7 +9,7 @@
   import { webLinkIcon } from "@solus/client-core/web-link-icon";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { Globe as GlobeIcon, MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { Globe as GlobeIcon, MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon, Server as ServerIcon } from "@lucide/svelte";
   import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { filePreviewMediaKind, parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
@@ -17,10 +17,16 @@
   import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import { tokenClassName } from "../editor/tokenStyle";
   import { codeFileLinkLabel } from "./lib/assistant-markdown";
+  import { linkChipCopyParts } from "./lib/markdown-text";
   import { fileLinkTooltip } from "./lib/file-link-path";
   import { assetUrlCache } from "../artifact/lib/asset-url";
   import { getMarkdownImageContext, markdownAssetId } from "./lib/markdown-image";
   import { parseSessionHref } from "@solus/contracts/session-link";
+  import { parseHostHref } from "@solus/contracts/host-link";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import { connectionsNav } from "../connections/connections-nav.svelte";
+  import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
+  import { isManagedHost } from "../servers/lib/managed-host";
   import { resolveSessionLinkMeta } from "./lib/session-link";
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
@@ -56,6 +62,21 @@
   const isWorkRef = $derived(href.startsWith("work://"));
   const isPrRef = $derived(href.startsWith("pr://"));
   const sessionParams = $derived(parseSessionHref(href));
+  // A host chip (docs/plans/host-fleet.md D12). It opens the host's page when
+  // the host is one of this client's; a reader with no such host sees what the
+  // link says of it.
+  const copyParts = $derived(linkChipCopyParts(href, fileChip));
+  const hostRef = $derived(parseHostHref(href, text ?? ""));
+  // The link names the host by the identity every client knows. A host of this
+  // client shows the name and the mark this client has for it now.
+  const knownHost = $derived(
+    hostRef ? (serversStore.servers.find((server) => server.id === serverConnections.resolveId(hostRef.serverId)) ?? null) : null,
+  );
+  const hostSystem = $derived(knownHost?.os ?? hostRef?.system);
+  const isManagedHostRef = $derived(isManagedHost(knownHost?.uplink));
+  const hostFacts = $derived(
+    hostRef ? [knownHost ? null : "Not one of your hosts", hostRef.route, hostRef.address, hostRef.state].filter(Boolean).join(" · ") : undefined,
+  );
   const fileRef = $derived(parseFileHref(href));
   const assetId = $derived(markdownAssetId(href));
   let assetHref = $state("");
@@ -117,6 +138,12 @@
   const webIcon = $derived(webLinkIcon(href));
   const faviconUrl = $derived(webIcon?.kind === "favicon" ? webIcon.url : null);
 
+  function openHost() {
+    if (!session || !knownHost) return;
+    connectionsNav.open(knownHost.id);
+    session.showSettings("api-access", "click");
+  }
+
   function handleClick(e: MouseEvent) {
     const mediaKind = filePreviewMediaKind(fileRef?.path ?? href) ?? (fileChip ? "image" : null);
     if (mediaKind && session) {
@@ -159,6 +186,10 @@
   }
 </script>
 
+<!-- A chip shows its label; a copy of the prose keeps the whole link (`linkChipCopyParts`). -->
+{#snippet copyOpen()}<span class="solus-token__copy-only">{copyParts.open}</span>{/snippet}
+{#snippet copyClose()}<span class="solus-token__copy-only">{copyParts.close}</span>{/snippet}
+
 {#if isPlanRef && linkRoute}
   <button
     type="button"
@@ -172,7 +203,7 @@
       {:else}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>
       {/if}
-</span><span>{@render children?.()}</span>
+</span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
   </button>
 {:else if isWorkRef && linkRoute}
   <button
@@ -181,7 +212,7 @@
     class={tokenClassName('work')}
   ><span class="solus-token__icon">
       <FileTextIcon size={12} />
-</span><span>{@render children?.()}</span>
+</span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
   </button>
 {:else if isPrRef && linkRoute}
   <button
@@ -191,7 +222,7 @@
     class={tokenClassName('pr')}
   ><span class="solus-token__icon">
       <GitPullRequestIcon size={12} weight="bold" />
-</span><span>{@render children?.()}</span>
+</span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
   </button>
 {:else if sessionParams}
   <button
@@ -200,8 +231,23 @@
     class={tokenClassName('session')}
   ><span class="solus-token__icon">
       <ChatCircleDotsIcon size={12} />
-</span><span>{@render children?.()}</span>
+</span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
   </button>
+{:else if hostRef}
+  {#snippet hostChip()}
+    <span class="solus-token__icon">
+      {#if hostSystem || isManagedHostRef}
+        <HostOperatingSystemIcon os={hostSystem} managed={isManagedHostRef} size={12} />
+      {:else}
+        <ServerIcon size={12} />
+      {/if}
+</span><span>{@render copyOpen()}{#if knownHost}{knownHost.label}{:else}{@render children?.()}{/if}{@render copyClose()}</span>
+  {/snippet}
+  {#if session && knownHost}
+    <button type="button" onclick={openHost} title={hostFacts} class={tokenClassName('host')}>{@render hostChip()}</button>
+  {:else}
+    <span title={hostFacts} class={tokenClassName('host')}>{@render hostChip()}</span>
+  {/if}
 {:else if fileRef || fileChip}
   <button
     type="button"
@@ -211,7 +257,7 @@
   ><span class="solus-token__icon">
       <!-- Only trusted package SVG and static local symbols enter this markup. -->
       <FileIcon path={fileRef?.path ?? text ?? href} size={12} />
-</span><span>{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef?.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
+</span><span>{@render copyOpen()}{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef?.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}{@render copyClose()}</span>
   </button>
 {:else}
   {#snippet linkContents()}

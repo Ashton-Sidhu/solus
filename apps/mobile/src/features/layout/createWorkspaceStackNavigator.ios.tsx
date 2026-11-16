@@ -1,3 +1,4 @@
+import { settingsPagesOnTop } from "../workspace/workspace-destinations";
 // Adapted from T3 Code apps/mobile/src/features/layout/createWorkspaceStackNavigator.ios.tsx (MIT, see UPSTREAM.md).
 import {
   createNavigatorFactory,
@@ -37,6 +38,7 @@ import {
   NativeWorkspaceModeContext,
 } from "../../native/v5-workspace-context";
 import {
+  selectedWorkspacePullRequest,
   collapsedSplitTransition,
   nativeWorkspacePopAction,
   partitionStackPresentations,
@@ -57,14 +59,18 @@ function ColumnScreen(props: {
   readonly descriptor: Descriptor;
   readonly primary?: boolean;
   readonly selectedThreadKey?: string | null;
+  readonly selectedPullRequest?: RootStackParamList["PullRequest"] | null;
   readonly onDismiss: (routeKey: string) => void;
   readonly onAppearance: (type: "willAppear" | "didAppear" | "willDisappear", key: string) => void;
   readonly navigation: ViewProps["navigation"];
 }) {
   const { descriptor } = props;
   const primaryColumn = useMemo(
-    () => (props.primary ? { selectedThreadKey: props.selectedThreadKey ?? null } : null),
-    [props.primary, props.selectedThreadKey],
+    () => props.primary ? {
+      selectedThreadKey: props.selectedThreadKey ?? null,
+      selectedPullRequest: props.selectedPullRequest ?? null,
+    } : null,
+    [props.primary, props.selectedThreadKey, props.selectedPullRequest],
   );
   const key = descriptor.route.key;
   return (
@@ -187,6 +193,7 @@ function WorkspaceColumns(
             descriptor={primary}
             primary
             selectedThreadKey={selectedThreadKeyOf(props.detail)}
+            selectedPullRequest={selectedWorkspacePullRequest(props.detail)}
             onDismiss={handleNativeDismiss}
             onAppearance={followCollapsedSplit}
             navigation={props.navigation}
@@ -257,6 +264,7 @@ function WorkspaceStackView(props: ViewProps) {
   const primaryDescriptor = props.descriptors[primaryRoute.key]!;
   const baseRoute = { key: `${props.state.key}:workspace`, name: "Workspace" };
   const visibleRoute = projection.detail.at(-1) ?? primaryRoute;
+  const settingsOpen = settingsPagesOnTop(props.state) > 0;
   const baseDescriptor: Descriptor = {
     ...primaryDescriptor,
     navigation: props.descriptors[visibleRoute.key]!.navigation,
@@ -267,7 +275,9 @@ function WorkspaceStackView(props: ViewProps) {
     render: () => (
       <WorkspaceNativeTabs
         onNewTask={() => props.navigation.navigate("NewTask")}
-        hidden={projection.detail.length > 0 && !primaryVisible && !layout.usesSplitView}
+        settingsOpen={settingsOpen}
+        onOpenSettings={() => props.navigation.navigate("Settings")}
+        hidden={projection.detail.length > 0 && !primaryVisible && !layout.usesSplitView && !settingsOpen}
         onSelect={() => {
           if (props.state.index > 0)
             props.navigation.dispatch({ type: "POP_TO_TOP", target: props.state.key });

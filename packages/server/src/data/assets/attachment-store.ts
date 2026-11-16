@@ -145,6 +145,16 @@ export async function attachmentUploadPath(
   return join(bucketDir, `${randomBytes(12).toString('hex')}-${leaf}`)
 }
 
+/**
+ * A path for one upload that keeps the person's file name: a browser page
+ * shows the name of the file it was given, so the random part is a folder.
+ */
+export async function namedUploadPath(bucketId: string, name: string, attachmentsDir = attachmentsRoot()): Promise<string> {
+  const folder = join(attachmentsDir, uploadFolderName(bucketId), randomBytes(12).toString('hex'))
+  await mkdir(folder, { recursive: true })
+  return join(folder, safeFileName(name))
+}
+
 /** Reserve when bytes arrive. Release failed uploads, but keep the slot for
  * completed files. The exclusive lock enforces the cap across concurrent calls. */
 export async function reserveAttachmentSlot(bucketDir: string): Promise<() => Promise<void>> {

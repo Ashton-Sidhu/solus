@@ -3,8 +3,8 @@ import type { DeviceInput } from '@solus/contracts/device-types'
 /**
  * Pointer and keyboard input for a device surface. Coordinates are normalized
  * against the device screen as drawn (letterboxed inside the element), never
- * against browser viewport presets. Moves and wheel scrolls are batched per
- * frame; down, up and cancel flush at once and are never dropped.
+ * against browser viewport presets. Pointer input flushes at once; wheel
+ * scrolls are batched per frame. Down, up and cancel are never dropped.
  */
 
 export interface ScreenPoint {
@@ -66,15 +66,16 @@ export function scrollDelta(deltaX: number, deltaY: number, deltaMode: number, p
 }
 
 /**
- * Collects input and sends it in order. Moves wait for the next frame and
- * collapse to the latest; wheel scrolls wait too and add up, so a fast wheel
- * sends one scroll a frame. Anything else flushes the queue at once. One send
- * is in flight at a time, so batches arrive in order.
+ * Collects input and sends it in order. Wheel scrolls wait for the next frame
+ * and add up, so a fast wheel sends one scroll a frame. Pointer movement
+ * flushes at once so dragging does not wait for the display clock. One send
+ * is in flight at a time. While it is blocked, only the newest consecutive
+ * pointer move is kept; press and release events stay in order.
  */
 export class DeviceInputBatcher {
   private queue: DeviceInput[] = []
-  private scheduled = false
-  private sending: Promise<void> = Promise.resolve()
+  private scheduled: (() => void) | null = null
+  private sending: Promise<void> | null = null
 
   constructor(
     private readonly send: (inputs: DeviceInput[]) => Promise<void>,
@@ -93,30 +94,38 @@ export class DeviceInputBatcher {
     } else {
       this.queue.push(input)
     }
-    if ((input.kind === 'pointer' && input.phase === 'move') || input.kind === 'scroll') {
+    if (input.kind === 'scroll') {
       if (!this.scheduled) {
-        this.scheduled = true
-        this.schedule(() => {
-          this.scheduled = false
+        const flush = () => {
+          if (this.scheduled !== flush) return
+          this.scheduled = null
           this.flush()
-        })
+        }
+        this.scheduled = flush
+        this.schedule(flush)
       }
       return
     }
+    this.scheduled = null
     this.flush()
   }
 
   flush(): void {
-    if (this.queue.length === 0) return
+    if (this.queue.length === 0 || this.sending) return
     const batch = this.queue.splice(0, 64)
-    this.sending = this.sending.then(() => this.send(batch)).catch(this.onError)
-    if (this.queue.length > 0) this.flush()
+    this.sending = Promise.resolve().then(() => this.send(batch)).catch(this.onError).then(() => {
+      this.sending = null
+      if (!this.scheduled) this.flush()
+    })
   }
 
   /** Wait for everything queued so far to be sent. */
   async drained(): Promise<void> {
-    this.flush()
-    await this.sending
+    do {
+      this.scheduled = null
+      this.flush()
+      await this.sending
+    } while (this.queue.length > 0 || this.sending)
   }
 }
 

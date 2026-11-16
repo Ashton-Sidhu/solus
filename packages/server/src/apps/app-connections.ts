@@ -31,22 +31,43 @@ const GOOGLE_API = 'https://www.googleapis.com'
 
 /** A path on the provider's API: one leading `/`, so it cannot name another host. */
 const pathSchema = z.string().regex(/^\/(?!\/)/, 'A path starts with one /, for example /user.')
-const querySchema = z.record(z.string(), z.string()).optional()
+const queryScalarSchema = z.union([z.string(), z.number(), z.boolean()]).transform(String)
+/**
+ * A URL takes text: a number or a boolean such as `per_page: 100` is sent as
+ * its text, a list such as `fields: ['summary', 'status']` as one
+ * comma-separated value, and a null is left out.
+ */
+const querySchema = z.record(z.string(), z.union([queryScalarSchema, z.array(queryScalarSchema).transform((values) => values.join(',')), z.null()]))
+  .transform((query): { [key: string]: string } => Object.fromEntries(Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== null)))
+  .optional()
+
+/** `get` and `GET` are the same method. */
+function methodSchema<const Methods extends readonly [string, ...string[]]>(methods: Methods) {
+  return z.string().transform((method) => method.toUpperCase()).pipe(z.enum(methods)).default(methods[0])
+}
 
 const requestSchema = z.object({
-  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
+  method: methodSchema(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
   path: pathSchema,
   query: querySchema,
   body: z.json().optional(),
 })
 
+/** Confluence's paths start with `/wiki/`; a request that names no product and another path is for Jira. */
 const atlassianRequestSchema = z.object({
-  product: z.enum(['jira', 'confluence']),
-  method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
+  product: z.enum(['jira', 'confluence']).optional(),
+  method: methodSchema(['GET', 'POST', 'PUT', 'DELETE']),
   path: pathSchema,
   query: querySchema,
   body: z.json().optional(),
-})
+}).transform((request) => ({ ...request, product: request.product ?? (request.path.startsWith('/wiki/') ? 'confluence' as const : 'jira' as const) }))
+
+/** The request, or an error that says in one line what is wrong with it. */
+function parsed<Schema extends z.ZodType>(schema: Schema, input: StoredValue): z.output<Schema> {
+  const result = schema.safeParse(input)
+  if (result.success) return result.data
+  throw new Error(`This request is not one the ${CONNECTION_TOOL} tool takes: ${z.prettifyError(result.error).replaceAll('\n', ' ')}`)
+}
 
 function withQuery(path: string, query: { [key: string]: string } | undefined): string {
   const search = new URLSearchParams(query).toString()
@@ -54,7 +75,7 @@ function withQuery(path: string, query: { [key: string]: string } | undefined): 
 }
 
 async function githubCall(input: StoredValue): Promise<StoredValue> {
-  const { method, path, query, body } = requestSchema.parse(input)
+  const { method, path, query, body } = parsed(requestSchema, input)
   const clients = await githubCredentials().clients(GITHUB_HOST)
   const url = withQuery(path, query)
   const data = await runGithubRequest('app_request', GITHUB_HOST, clients, async (client) => (
@@ -64,14 +85,14 @@ async function githubCall(input: StoredValue): Promise<StoredValue> {
 }
 
 async function atlassianCall(input: StoredValue): Promise<StoredValue> {
-  const { product, method, path, query, body } = atlassianRequestSchema.parse(input)
+  const { product, method, path, query, body } = parsed(atlassianRequestSchema, input)
   const site = await connectedSite(product)
   if (!site) throw new Error(`Connect Atlassian with ${product} access in Settings → Integrations to use this app.`)
   return (await atlassianRequest({ product, cloudId: site.cloudId, method, path, query, body }, z.json().optional())) ?? null
 }
 
 async function googleCall(input: StoredValue): Promise<StoredValue> {
-  const { method, path, query, body } = requestSchema.parse(input)
+  const { method, path, query, body } = parsed(requestSchema, input)
   const token = await getGoogleAccessToken()
   if (!token) throw new Error(`Connect ${CONNECTION_LABELS.google} in Settings → Integrations to use this app.`)
   const headers = new Headers({ authorization: `Bearer ${token}`, accept: 'application/json' })

@@ -39,6 +39,8 @@ class FakeDriver implements BrowserSurfaceDriver {
   async setFileInputFiles(): Promise<void> {}
   async answerDialog(): Promise<null> { return null }
   dialogs() { return { open: null, last: null } }
+  watchGuest(): void {}
+  async answerFileChooser(): Promise<boolean> { return false }
   consoleEntries(): BrowserConsoleEntry[] { return [] }
   networkEntries(): BrowserNetworkEntry[] { return [] }
   async dispose(): Promise<void> {}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { CircleArrowUp, Plus, Search } from "@lucide/svelte";
+  import { CircleArrowUp, Pause, Plus, Radar, Radio, Search } from "@lucide/svelte";
   import { isSessionBusyStatus } from "@solus/contracts/types";
   import { getWorkspaceContext, serversStore } from "../../contexts";
   import { runHost } from "../../contexts/workspace/run-location";
@@ -9,20 +9,22 @@
   import { hostSetupStore } from "../servers/host-setup.store.svelte";
   import { Button } from "../ui/button";
   import FleetAttention from "./FleetAttention.svelte";
-  import FleetDiscover from "./FleetDiscover.svelte";
+  import FleetHostMenu from "./FleetHostMenu.svelte";
   import FleetMap from "./FleetMap.svelte";
   import FleetMapFooter from "./FleetMapFooter.svelte";
   import FleetRouteTree from "./FleetRouteTree.svelte";
   import FleetSummary from "./FleetSummary.svelte";
   import FleetZoneDetail from "./FleetZoneDetail.svelte";
+  import { askAgentAboutHosts } from "./ask-agent";
   import { discoverStore } from "./discover.store.svelte";
   import { fleetStore } from "./fleet.store.svelte";
   import { machineMatches, machinesByZone, ZONES, type FleetZoneId, type TileColorMode } from "./lib/fleet-model";
+  import { hostAskOf } from "./lib/host-agent";
 
   /**
    * Settings › Hosts (docs/plans/host-fleet.md): the summary, the map of how this
-   * device reaches every host, Discover, and what needs attention. List shows the
-   * same hosts as rows.
+   * device reaches every host and of the machines it found (D7), and what needs
+   * attention. List shows the same hosts as rows.
    */
   const workspace = getWorkspaceContext();
 
@@ -30,13 +32,12 @@
   let colorMode = $state<TileColorMode>("status");
   let query = $state("");
   let pointedId = $state<string | null>(null);
-  let selectedId = $state<string | null>(null);
+  let pointedFoundKey = $state<string | null>(null);
   let openZoneId = $state<FleetZoneId | null>(null);
   let isPaused = $state(false);
   let isInView = $state(true);
   let isWindowVisible = $state(document.visibilityState === "visible");
   let root = $state<HTMLElement | null>(null);
-  let discover = $state<HTMLElement | null>(null);
 
   // Sessions working on each host: only the workspace knows them.
   const busyByHost = $derived.by(() => {
@@ -49,8 +50,12 @@
     return busy;
   });
   const machines = $derived(fleetStore.machines(busyByHost));
-  const focusId = $derived(pointedId ?? selectedId);
+  const focusId = $derived(pointedId);
   const focused = $derived(machines.find((machine) => machine.serverId === focusId) ?? null);
+  /** The context menu of one host on the map (D12), and where it opened. */
+  let hostMenu = $state<{ serverId: string; x: number; y: number } | null>(null);
+  const menuMachine = $derived(machines.find((machine) => machine.serverId === hostMenu?.serverId) ?? null);
+  const pointedFound = $derived(discoverStore.found.find((machine) => machine.key === pointedFoundKey) ?? null);
   const openZone = $derived(ZONES.find((zone) => zone.id === openZoneId) ?? null);
   const withUpdate = $derived(machines.filter((machine) => machine.hasUpdate).map((machine) => machine.serverId));
   const matchCount = $derived(machines.filter((machine) => machineMatches(machine, query)).length);
@@ -81,8 +86,15 @@
     return untrack(() => fleetStore.hold(ids));
   });
 
-  function select(serverId: string) {
-    selectedId = selectedId === serverId ? null : serverId;
+  /** A host on the map names itself with `data-host-id`. The menu key gives no pointer place, so the menu opens on the host. */
+  function openHostMenu(event: MouseEvent) {
+    const hostElement = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-host-id]") : null;
+    const serverId = hostElement?.dataset.hostId;
+    if (!hostElement || !serverId) return;
+    event.preventDefault();
+    const box = hostElement.getBoundingClientRect();
+    const hasPointer = event.clientX !== 0 || event.clientY !== 0;
+    hostMenu = { serverId, x: hasPointer ? event.clientX : box.left + box.width / 2, y: hasPointer ? event.clientY : box.bottom };
   }
 </script>
 
@@ -131,10 +143,25 @@
           <button
             type="button"
             aria-pressed={!isPaused}
-            title={isPaused ? "Resume live updates" : "Pause live updates"}
+            aria-label={isPaused ? "Resume live updates" : "Pause live updates"}
+            title={isLive ? "Live. Select to pause." : isPaused ? "Paused. Select to resume." : "Paused off screen"}
             onclick={() => (isPaused = !isPaused)}
-            class="inline-flex h-[1.625rem] items-center rounded-full px-2.5 text-[0.8125rem] hover:bg-(--wash-1) {isLive ? 'text-(--success)' : 'text-muted-foreground'}"
-          >{isLive ? "Live" : isPaused ? "Paused" : "Paused off screen"}</button>
+            class="grid size-[1.625rem] place-items-center rounded-full hover:bg-(--wash-1) {isLive ? 'text-(--success)' : 'text-muted-foreground hover:text-foreground'}"
+          >{#if isLive}<Radio size={14} />{:else}<Pause size={14} />{/if}</button>
+          <!-- Discover (D7): the scan, and how many machines it found that are not added. -->
+          <button
+            type="button"
+            disabled={discoverStore.isScanning}
+            aria-label={discoverStore.isScanning ? "Scanning for machines" : "Scan for machines"}
+            title={discoverStore.isScanning
+              ? "Looking on your network, on Tailscale, on your Windows machines, and in your SSH config"
+              : `${discoverStore.found.length} found and not added. Select to scan again.`}
+            onclick={() => void discoverStore.scan()}
+            class="inline-flex h-[1.625rem] items-center gap-1.5 rounded-full px-2 text-[0.8125rem] text-muted-foreground tabular-nums hover:bg-(--wash-1) hover:text-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          >
+            <Radar size={14} class={discoverStore.isScanning ? "animate-pulse motion-reduce:animate-none" : ""} />
+            {#if discoverStore.found.length}{discoverStore.found.length}{/if}
+          </button>
         </div>
       </div>
       <label class="flex h-8 items-center gap-2 rounded-lg border border-border/60 bg-background px-2.5 text-muted-foreground focus-within:border-(--solus-status-running)/45">
@@ -150,7 +177,8 @@
       </label>
 
       <!-- The map below 37.5rem of its own width is a tree of the same routes: one rule, in CSS. -->
-      <div class="@container/fleet overflow-hidden rounded-xl border border-border/50 bg-background">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div oncontextmenu={openHostMenu} class="@container/fleet overflow-hidden rounded-xl border border-border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_12px_-6px_rgb(0_0_0/0.08)] dark:bg-card dark:shadow-none">
         {#if openZone}
           <FleetZoneDetail
             zone={openZone}
@@ -159,7 +187,7 @@
             {query}
             {focusId}
             onPoint={(serverId) => (pointedId = serverId)}
-            onSelect={select}
+            onOpen={(serverId) => connectionsNav.open(serverId)}
             onBack={() => (openZoneId = null)}
           />
         {:else}
@@ -170,14 +198,13 @@
               {colorMode}
               {query}
               {focusId}
-              {selectedId}
               {isLive}
               onPoint={(serverId) => (pointedId = serverId)}
-              onSelect={select}
+              onOpen={(serverId) => connectionsNav.open(serverId)}
               onOpenZone={(zone) => (openZoneId = zone)}
               onAdd={(way) => connectionsNav.openAdd(way)}
               onStart={(serverId) => fleetStore.startHosts([serverId])}
-              onShowFound={() => discover?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              onPointFound={(key) => (pointedFoundKey = key)}
             />
           </div>
           <div class="@min-[37.5rem]/fleet:hidden">
@@ -185,21 +212,37 @@
               {machines}
               {colorMode}
               {query}
-              {selectedId}
+              foundCount={discoverStore.found.length}
               onPoint={(serverId) => (pointedId = serverId)}
-              onSelect={select}
+              onOpen={(serverId) => connectionsNav.open(serverId)}
               onOpenZone={(zone) => (openZoneId = zone)}
+              onAddFound={() => connectionsNav.openAdd("nearby")}
             />
           </div>
         {/if}
-        <FleetMapFooter machine={focused} {colorMode} onOpen={(serverId) => connectionsNav.open(serverId)} />
+        <FleetMapFooter machine={focused} found={pointedFound} {colorMode} />
       </div>
     </section>
 
-    <div bind:this={discover} class="scroll-mt-6">
-      <FleetDiscover />
-    </div>
+    {#if hostMenu && menuMachine}
+      <FleetHostMenu
+        x={hostMenu.x}
+        y={hostMenu.y}
+        machine={menuMachine}
+        onAsk={() => askAgentAboutHosts(workspace, [menuMachine], hostAskOf(menuMachine))}
+        onOpen={() => connectionsNav.open(menuMachine.serverId)}
+        onNewSession={() => workspace.drafts.openSessionDraft({ freshTask: true, serverId: menuMachine.serverId, via: "click" })}
+        onRetry={() => fleetStore.retryHosts([menuMachine.serverId])}
+        onStart={() => fleetStore.startHosts([menuMachine.serverId])}
+        onUpdate={() => fleetStore.updateHosts([menuMachine.serverId])}
+        onClose={() => (hostMenu = null)}
+      />
+    {/if}
 
-    <FleetAttention {machines} onOpen={(serverId) => connectionsNav.open(serverId)} />
+    <FleetAttention
+      {machines}
+      onOpen={(serverId) => connectionsNav.open(serverId)}
+      onAsk={(row) => askAgentAboutHosts(workspace, machines.filter((machine) => row.serverIds.includes(machine.serverId)), row.kind)}
+    />
   {/if}
 </div>

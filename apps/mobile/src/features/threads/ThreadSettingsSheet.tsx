@@ -408,7 +408,7 @@ function ThreadSettingsOptionsItem(props: {
           insets.bottom + (USES_MAIL_SEARCH_TOOLBAR ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET : 0) + 12,
       }}
     >
-      <Text className="px-5 pb-2 pt-6 text-sm font-t3-medium text-foreground-muted">Options</Text>
+      <Text className="px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted">Options</Text>
       <Animated.View
         className="mx-4 overflow-hidden rounded-2xl bg-grouped-card"
         layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}
@@ -727,7 +727,7 @@ function ThreadSettingsModelsScreen() {
           onCancel={presentation.onClose}
           accessibilityLabel={closeLabel}
           title="Session settings"
-          confirm={session.pendingModel ? { label: "Save", onPress: commitAndClose } : undefined}
+          confirm={{ label: "Save", onPress: commitAndClose }}
         />
       ) : null}
       <NativeStackScreenOptions
@@ -786,11 +786,7 @@ function ThreadSettingsModelsScreen() {
           title="Session settings"
           onCancel={presentation.onClose}
           accessibilityLabel={closeLabel}
-          confirm={
-            session.pendingModel
-              ? { label: "Save session settings", onPress: commitAndClose }
-              : undefined
-          }
+          confirm={{ label: "Save session settings", onPress: commitAndClose }}
         />
       ) : null}
       {Platform.OS === "ios" && !USES_MAIL_SEARCH_TOOLBAR && session.hasLegacyModels ? (

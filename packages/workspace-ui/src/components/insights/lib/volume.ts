@@ -318,7 +318,7 @@ export function withinSelection(rows: TurnRow[], selection: TimeSelection | null
  * the bar beside the one it sits under. Evenly spaced *by index* instead, and
  * always including both ends so the axis names the window it draws.
  */
-export function bucketAxisTicks(buckets: VolumeBucket[], count = 5): number[] {
+export function bucketAxisTicks(buckets: readonly { at: number }[], count = 5): number[] {
   if (buckets.length <= count) return buckets.map((bucket) => bucket.at)
   const steps = Math.max(1, count - 1)
   const indexes = new Set(

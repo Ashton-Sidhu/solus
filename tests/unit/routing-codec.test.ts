@@ -183,6 +183,8 @@ describe('the location grammar', () => {
     expect(parseRoute('/app/notes/manage')).toEqual({ name: 'app', params: { slug: 'notes', view: 'manage' } })
     // A section that this client does not know opens the page on its first section.
     expect(parseRoute('/app/notes/manage/billing')).toEqual({ name: 'app', params: { slug: 'notes', view: 'manage' } })
+    // The Source section moved into Overview. A link to it opens Overview, where its facts are now.
+    expect(parseRoute('/app/notes/manage/source')).toEqual({ name: 'app', params: { slug: 'notes', view: 'manage', section: 'overview' } })
     // A section means nothing without the Manage page.
     expect(serializeRoute({ name: 'app', params: { slug: 'notes', section: 'files' } })).toBe('/app/notes')
     // The app and its Manage page are one surface: the switch does not open a second tab.

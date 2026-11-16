@@ -1,10 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { environmentViewFor, type EnvironmentViewFacts } from '@solus/client-core/environment-view'
 import { EnvironmentViewChoices } from '@solus/workspace-ui/components/project-panel/lib/environment-view'
-import { environmentViewMenu, phoneEnvironmentFacts } from '../../apps/mobile/src/features/threads/environment-view-menu'
 
 /**
- * The Environment card has one row for the browser, the builds, and the
+ * The Environment card has one row for the browser, the devices, and the
  * session's Artifacts surface. The row must open what the session is about
  * without a guess, and the user's choice must hold for that session only. The
  * artifact count is the one the Artifacts surface lists, the session's whole
@@ -18,15 +17,15 @@ describe('environment view rule', () => {
     expect(environmentViewFor(plain)).toBe('browser')
   })
 
-  test('a session that shows a device opens its builds, before its artifacts', () => {
-    expect(environmentViewFor({ ...plain, sessionShowsDevice: true, artifactCount: 2 })).toBe('builds')
+  test('a session that shows a device opens its devices, before its artifacts', () => {
+    expect(environmentViewFor({ ...plain, sessionShowsDevice: true, artifactCount: 2 })).toBe('devices')
   })
 
   test('the view waits for the artifacts instead of naming Browser first', () => {
     // WHY: the first panel open must not show Browser and then change to Artifacts.
     expect(environmentViewFor({ ...plain, artifactsKnown: false })).toBeNull()
     // A device or a choice already decides the view; nothing to wait for.
-    expect(environmentViewFor({ ...plain, artifactsKnown: false, sessionShowsDevice: true })).toBe('builds')
+    expect(environmentViewFor({ ...plain, artifactsKnown: false, sessionShowsDevice: true })).toBe('devices')
     expect(environmentViewFor({ ...plain, artifactsKnown: false, chosen: 'browser' })).toBe('browser')
   })
 
@@ -39,7 +38,7 @@ describe('environment view rule', () => {
     const facts = { ...plain, sessionShowsDevice: true, artifactCount: 1 }
     expect(environmentViewFor({ ...facts, chosen: 'browser' })).toBe('browser')
     expect(environmentViewFor({ ...plain, chosen: 'artifacts' })).toBe('artifacts')
-    expect(environmentViewFor({ ...plain, chosen: 'builds' })).toBe('builds')
+    expect(environmentViewFor({ ...plain, chosen: 'devices' })).toBe('devices')
   })
 })
 
@@ -53,26 +52,5 @@ describe('per-session choice', () => {
     expect(choices.chosenFor('host-b', 's1')).toBeUndefined()
     choices.choose('host-a', 's1', 'browser')
     expect(choices.chosenFor('host-a', 's1')).toBe('browser')
-  })
-})
-
-describe('phone environment menu', () => {
-  test('the menu lists all three views, each one can be chosen', () => {
-    const chosen: string[] = []
-    const menu = environmentViewMenu(phoneEnvironmentFacts({ artifactCount: 1, artifactsKnown: true }), (view) => chosen.push(view))
-    expect(menu.status).toBe('Artifacts')
-    const items = menu.items.flatMap((item) => ('items' in item ? [] : [item]))
-    expect(items.map((item) => [item.id, item.disabled ?? false, item.selected])).toEqual([
-      ['browser', false, false],
-      ['builds', false, false],
-      ['artifacts', false, true],
-    ])
-    for (const item of items) item.onPress()
-    expect(chosen).toEqual(['browser', 'builds', 'artifacts'])
-  })
-
-  test('a phone session without artifacts falls back to Browser, after its artifacts are read', () => {
-    expect(environmentViewMenu(phoneEnvironmentFacts({ artifactCount: 0, artifactsKnown: false }), () => {}).status).toBe('Checking session…')
-    expect(environmentViewMenu(phoneEnvironmentFacts({ artifactCount: 0, artifactsKnown: true }), () => {}).status).toBe('Browser')
   })
 })

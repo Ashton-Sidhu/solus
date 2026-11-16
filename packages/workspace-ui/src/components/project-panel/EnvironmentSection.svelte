@@ -17,7 +17,7 @@
     hosts,
   } from "../../contexts";
   import { devicesStore } from "../../contexts/devices/devices.store.svelte";
-  import { openRunApp } from "../devices/lib/device-view-state.svelte";
+  import { deviceViewState } from "../devices/lib/device-view-state.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { fileManagerNameFor } from "../../lib/file-manager";
@@ -31,7 +31,7 @@
   import FileManagerIcon from "./FileManagerIcon.svelte";
   import solusIcon from "../../../../../resources/icon.iconset/icon_32x32@2x.png";
   import UsageMeters from "./UsageMeters.svelte";
-  import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
+  import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
@@ -64,6 +64,7 @@
   const session = getWorkspaceContext();
   const pullRequests = getPullRequestsContext();
   const sectionRun = $derived(session.runFor(sourceId));
+  const inChat = $derived(isChat(checkoutPlace(sectionRun)?.path));
   const env = $derived(environmentStore.environmentFor(sectionRun));
   const detailServerId = $derived(
     serverConnections.serverIdForApi(session.apiFor(sourceId)),
@@ -137,13 +138,17 @@
   const view = $derived(environmentViewFor(viewFacts));
   /** A guest opens no browser or device on the host, as the rows before this one. */
   const mayUseHost = $derived(me?.may("host.use") ?? true);
-  const VIEW_ICON = { browser: GlobeIcon, builds: SmartphoneIcon, artifacts: ArtifactIcon } satisfies Record<EnvironmentView, ActionRowIcon>;
+  const VIEW_ICON = { browser: GlobeIcon, devices: SmartphoneIcon, artifacts: ArtifactIcon } satisfies Record<EnvironmentView, ActionRowIcon>;
   let viewMenuOpen = $state(false);
   let viewMenuAnchor = $state<HTMLElement | null>(null);
 
   function openView(target: EnvironmentView) {
     if (target === "browser") session.openBrowser();
-    else if (target === "builds") openRunApp(session, detailServerId, sessionId);
+    // Devices opens on the simulators, not on Builds.
+    else if (target === "devices") {
+      deviceViewState.showRunApp(detailServerId, false);
+      session.openDevices(sessionId, detailServerId);
+    }
     // A draft has no session, so it has no Artifacts surface yet.
     else if (sessionId) session.openArtifacts(sessionId);
     requestInputFocus();
@@ -157,10 +162,8 @@
 </script>
 
 <div class="env">
-  <!-- The project anchors the card and opens its files; the branch and its
-       changes live in the Git card below. A chat has no project, but the row
-       stays: it is the one place the panel names the host the chat runs on. -->
-  {#if projectShown && projectRoot}
+  <!-- The project anchors the card and opens its files; chats have no project. -->
+  {#if !inChat && projectShown && projectRoot}
     <!-- Split row in the Git rows' language: the row opens the folder in
          Solus, the caret offers the other places that can show it. -->
     {@const hasNoFolder = projectRoot === NEW_CHAT_DIRECTORY || !mayReadFiles}
@@ -208,7 +211,7 @@
     </div>
   {/if}
   <div class="menu-list">
-    {#if terminalShown}
+    {#if !inChat && terminalShown}
       <OpenInRow {sourceId} {active} openTerminal={() => actions.openTerminal()} />
     {/if}
     <!-- One row for what the environment shows. The row opens this session's

@@ -126,7 +126,13 @@ describe('the lead contract', () => {
     const contract = formatLeadContract({ leadInstructions: '', workerModel: null })
     expect(contract.split('\n')[0]).toBe('Lead contract:')
     expect(contract).toContain('you do not implement beyond very small edits')
-    expect(contract).toContain('Start workers with start_session, one worktree each')
+    // WHY: one call starts every worker at once; separate calls can start them one after another.
+    expect(contract).toContain('Start all workers in one start_sessions call')
+    // WHY: a session becomes a lead when the work divides into independent
+    // parts, and a part can be read-only. Only a worker that changes files
+    // gets a worktree.
+    expect(contract).toContain('Give each worker that changes files its own worktree (isolation=worktree)')
+    expect(contract).not.toContain('one worktree each')
     expect(contract).toContain('Keep this thread small')
     // Reports reach the lead together, when its workers are done.
     expect(contract).toContain('You are woken once, when every worker you wait on has finished')
@@ -134,15 +140,10 @@ describe('the lead contract', () => {
   })
 
   test('does not depend on a task', () => {
-    // WHY: a lead is a session the user opts in, not a role of a task. A lead
-    // with no task must not be told to read task sessions or to start workers
-    // on a task; a task joins only when the lead itself is linked to one.
+    // WHY: a lead is a session the user opts in, not a role of a task. It must
+    // not be told to read task sessions or to file workers or summaries on a task.
     const contract = formatLeadContract({ leadInstructions: '', workerModel: null })
-    expect(contract).not.toContain('read_task_sessions')
-    expect(contract).not.toContain('this task')
-    expect(contract).toContain("Start workers with task='none'.")
-    expect(contract).toContain("Only when you are linked to a task, start them with task='attempt'")
-    expect(contract.match(/task='attempt'/g)).toHaveLength(1)
+    expect(contract).not.toContain('task')
   })
 
   test("the user's lead settings follow the lead contract and do not replace it", () => {
@@ -163,7 +164,7 @@ describe('the lead contract', () => {
 
   test('a worker model saved without a reasoning level leaves the level to the model', () => {
     // WHY: a selection saved before reasoning was configurable must still
-    // parse, and start_session then uses the model's default level.
+    // parse, and start_sessions then uses the model's default level.
     const contract = formatLeadContract({ leadInstructions: '', workerModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: undefined } })
     expect(contract).toContain("agent_provider 'codex', model_id 'gpt-6'.")
     expect(contract).not.toContain('reasoning_effort')

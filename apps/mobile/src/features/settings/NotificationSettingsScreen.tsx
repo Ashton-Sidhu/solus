@@ -6,11 +6,12 @@ import {
   SESSION_NOTIFICATION_EVENTS,
 } from "@solus/contracts/notification-types";
 import type { PersonalSettings } from "@solus/contracts/settings";
-import { Platform, View } from "react-native";
+import { Linking, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
 import type { ScreenProps } from "../../navigation/routes";
+import { SettingsRow } from "./components/SettingsRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -29,7 +30,7 @@ type NotificationPreferences = PersonalSettings["notifications"];
  * its event is on and its channel is on. This device's permission to show
  * notifications stays with the device.
  */
-export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSettings">) {
+export function NotificationSettingsScreen({ navigation }: ScreenProps<"NotificationSettings">) {
   const app = useApp();
   const insets = useSafeAreaInsets();
   const liveActivities = useListened(app.liveActivity.changes, app.liveActivity.enabled);
@@ -43,6 +44,36 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
         contentContainerClassName="gap-6 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
+        <View className="gap-3">
+          <SettingsSection title="Agent activity">
+            <SettingsRow
+              icon="bell.badge"
+              label="Notification inbox"
+              value="From all your hosts"
+              onPress={() => navigation.navigate("Notifications")}
+            />
+            {Platform.OS === "ios" ? (
+              <SettingsSwitchRow
+                icon="bolt.circle"
+                label="Live Activity Updates"
+                subtitle="Show agent work on the Lock Screen and in the Dynamic Island."
+                value={liveActivities}
+                onValueChange={(on) => app.liveActivity.set(on)}
+              />
+            ) : null}
+            <SettingsRow
+              icon="gearshape"
+              label="Open system settings"
+              onPress={() => void Linking.openSettings()}
+            />
+          </SettingsSection>
+          <SettingsNote>
+            {Platform.OS === "ios"
+              ? "iOS must also allow Live Activities for Solus. Linked hosts update activity while the app is closed. After 10 minutes without an update, activity shows as out of date."
+              : "Your inbox shows notifications from connected hosts. Live Activities are available on iOS."}
+          </SettingsNote>
+        </View>
+
         <View className="gap-3">
           <SettingsSection title="Delivery">
             {NOTIFICATION_CHANNELS.map((channel) => (
@@ -91,22 +122,6 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
           <SettingsNote>Things that happen around your work. Always shown in the app.</SettingsNote>
         </View>
 
-        {Platform.OS === "ios" ? (
-          <View className="gap-3">
-            <SettingsSection title="This device">
-              <SettingsSwitchRow
-                label="Live Activities"
-                value={liveActivities}
-                onValueChange={(on) => app.liveActivity.set(on)}
-              />
-            </SettingsSection>
-            <SettingsNote>
-              Agent work on the Lock Screen and in the Dynamic Island: titles and status only. Hosts
-              linked to your Solus account update it while Solus is closed; after 10 minutes without
-              an update it shows as out of date.
-            </SettingsNote>
-          </View>
-        ) : null}
       </ScrollView>
     </SettingsScreen>
   );

@@ -6,7 +6,7 @@ import { ToolHistoryStore } from './tool-history.store'
 import { recordHomeOf } from './machine-references'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
-import type { AgentId, PermissionMode, Tab, Prompt, Session, SessionSpec, RunConfig, RunLocation, Attachment, PlanDescriptor, SessionCtx, IpcContext, ModelConfig, RuntimeSessionInfo, GitCheckout, ThreadGoal, ThreadGoalSetRequest, QuestionRequest } from '@solus/contracts/types'
+import type { AgentId, PermissionMode, Tab, Prompt, Session, SessionSpec, RunConfig, RunLocation, Attachment, PlanDescriptor, SessionCtx, IpcContext, ModelConfig, RuntimeSessionInfo, GitCheckout, ThreadGoal, ThreadGoalSetRequest, QuestionRequest, SessionReference } from '@solus/contracts/types'
 import { type RepoRef } from '@solus/contracts/providers'
 import { type ReviewTarget } from '@solus/contracts/review'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
@@ -1286,6 +1286,21 @@ export class WorkspaceContext implements SurfaceContext {
     this.openChatSurface(tab.sessionId, opts)
     track('tab_split_opened', {})
     if (!opts.background) requestInputFocus({ tabId })
+  }
+
+  /** Open sessions dropped beside the destination, each as a chat surface in
+   *  the strip; the last one takes the active surface. A session with no tab
+   *  here resumes in the background first. Answers how many opened. */
+  async openSessionsAsSurfaces(references: readonly SessionReference[]): Promise<number> {
+    let opened = 0
+    for (const [index, reference] of references.entries()) {
+      if (!reference.serverId) continue
+      const tabId = await this.revealSession(reference.sessionId, reference.serverId, { background: true })
+      if (!tabId) continue
+      this.openTabAsSurface(tabId, { background: index < references.length - 1 })
+      opened++
+    }
+    return opened
   }
 
   /** Open a conversation as a surface in the strip. It is addressed by

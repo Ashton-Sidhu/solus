@@ -49,7 +49,7 @@ function PullRequestLabels({ view }: { readonly view: PullRequestView }) {
       {labels.map((label) => {
         const color = pullRequestLabelColor(label.color)
         return (
-          <View key={label.name} className="flex-row items-center gap-1.5 rounded-full bg-grouped-card px-3 py-1">
+          <View key={label.name} className="max-w-full flex-row items-center gap-1.5 rounded-2xl bg-grouped-card px-3 py-1" style={color ? { backgroundColor: `${color}20` } : undefined}>
             {color ? <View className="size-2 rounded-full" style={{ backgroundColor: color }} /> : null}
             <Text className="text-2xs text-foreground-muted">{label.name}</Text>
           </View>

@@ -8,6 +8,8 @@ type SheetDismissAction =
 
 type SheetConfirmation = {
   readonly label: string;
+  readonly disabled?: boolean;
+  readonly loading?: boolean;
   readonly onPress: () => void;
 };
 

@@ -10,6 +10,7 @@
   import DocumentEditor from "./DocumentEditor.svelte";
   import { referenceExtensions } from "./referenceExtensions";
   import { UnifiedAutocompleteController } from "./autocomplete.svelte";
+  import { fleetStore } from "../fleet/fleet.store.svelte";
   import { createTiptapAutocompleteAdapter } from "./tiptap-autocomplete-adapter";
   import UnifiedAutocompleteMenu from "../input/UnifiedAutocompleteMenu.svelte";
   import { createReferenceNavigation } from "./reference-navigation";
@@ -99,6 +100,7 @@
     readOnly: () => readOnly,
     tabId: () => session.activeTabId,
     workingDirectory: () => workingDirectory,
+    hosts: () => fleetStore.machines(new Map()),
     useRelativeFilePaths: () => useRelativeFilePaths,
     provider: () => provider,
     includeSolusCommands: () => false,

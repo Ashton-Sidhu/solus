@@ -606,7 +606,11 @@ describe('the host socket protocol', () => {
     const harness = await createHarness(false)
     harness.server.register('connectionsGetServerInfo', async () => ({ installationId: 'server-1' }))
     const statuses: ConnectionStatus[] = []
-    const client = createClient(harness.url, { onStatusChange: (status) => statuses.push(status) })
+    const dropErrors: Array<string | undefined> = []
+    const client = createClient(harness.url, { onStatusChange: (status) => {
+      statuses.push(status)
+      if (status === 'reconnecting') dropErrors.push(client.lastDialError?.message)
+    } })
     client.start()
     await waitForStatus(client, 'connected')
     const firstSession = [...harness.transport.sessions.keys()][0]
@@ -617,6 +621,8 @@ describe('the host socket protocol', () => {
     expect(await api.connectionsGetServerInfo()).toEqual({ installationId: 'server-1' })
     expect([...harness.transport.sessions.keys()]).not.toContain(firstSession)
     expect(statuses).toEqual(['connecting', 'connected', 'reconnecting', 'connected'])
+    expect(dropErrors).toEqual(['test drop'])
+    expect(client.lastDialError).toBeNull()
   })
 
   test('a browser frame arrives as one binary frame with its header', async () => {

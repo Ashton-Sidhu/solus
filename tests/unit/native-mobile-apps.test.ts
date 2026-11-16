@@ -6,19 +6,19 @@ import {
   appNames,
   callerText,
   callLines,
-  canMakeActive,
   deleteConfirmation,
-  makeActiveConfirmation,
-  scheduleLines,
   sortApps,
   triggerText,
-  versionLines,
   webhookLines,
+  webhookStateLabel,
   appProblemCount,
   manageAppLabel,
   parseOperationInput,
   runtimeText,
 } from '../../apps/mobile/src/features/apps/apps'
+import { changeLogLines, deployEventLines, liveLines } from '../../apps/mobile/src/features/apps/app-version-lines'
+import { scheduleLastRunText, scheduleNextRunText, scheduleRunBars, scheduleRuns, scheduleTone } from '../../apps/mobile/src/features/apps/app-schedules'
+import { appItemState, changeLogState, deployEventState, scheduleState, webhookState } from '../../apps/mobile/src/features/apps/app-states'
 import { appDocument, appMessageScript, readAppCall, relayAppCall } from '../../apps/mobile/src/features/apps/app-frame'
 
 // The phone's app screens (docs/plans/apps.md §9). These pin what the owner
@@ -295,30 +295,39 @@ describe('schedules', () => {
     ...overrides,
   })
 
-  test('a schedule says when it runs, what it runs, its next run, and its last outcome', () => {
-    expect(scheduleLines(schedule(), NOW)).toEqual([
-      { text: 'Every hour · runs sendDigest' },
-      { text: 'Next run in 20m' },
-      { text: 'No run yet' },
-    ])
+  test('a schedule that cannot fire promises no next run time, and a failed last run is not "active"', () => {
+    // WHY: a next run time on a schedule that cannot fire is a lie, and a failed run does not retry (plan §8).
+    expect(scheduleNextRunText(schedule(), false, NOW)).toStartWith('in 20m · ')
+    expect(scheduleNextRunText(schedule({ enabled: false }), false, NOW)).toBe('Paused')
+    expect(scheduleNextRunText(schedule(), true, NOW)).toBe('When the app starts')
+    expect(scheduleTone(schedule({ lastOutcome: 'failed' }), false, [])).toBe('failing')
+    expect(scheduleTone(schedule(), true, [])).toBe('stopped')
+    // The mark of the row: a schedule that waits for a stopped app is not on, and is not paused by the owner.
+    expect(scheduleState(scheduleTone(schedule(), true, []))).toBe('stopped')
+    expect(scheduleState(scheduleTone(schedule({ enabled: false }), false, []))).toBe('paused')
+    expect(scheduleState(scheduleTone(schedule({ lastOutcome: 'failed' }), false, []))).toBe('failed')
+    expect(scheduleState(scheduleTone(schedule(), false, []))).toBe('ok')
+    expect(scheduleLastRunText(schedule(), NOW)).toBe('Never')
+    expect(scheduleLastRunText(schedule({ lastRunAt: NOW - 2 * 60 * MINUTE, lastOutcome: 'failed' }), NOW)).toBe('2h ago · Failed')
   })
 
-  test('a paused schedule promises no next run, and a failed run shows its error', () => {
-    // WHY: a failed run does not retry (plan §8), so the owner must see why it failed.
-    const lines = scheduleLines(schedule({ enabled: false, lastRunAt: NOW - 2 * 60 * MINUTE, lastOutcome: 'failed', lastError: 'The secret database is not set.' }), NOW)
-    expect(lines).toEqual([
-      { text: 'Every hour · runs sendDigest' },
-      { text: 'Paused' },
-      { text: 'Last run failed 2h ago', tone: 'danger' },
-      { text: 'The secret database is not set.', tone: 'danger' },
-    ])
+  test('the bars show the newest runs of their own schedule, the oldest at the left, sized by time', () => {
+    const run = (id: string, name: string, durationMs: number, outcome: AppCallView['outcome'] = 'ok'): AppCallView => ({
+      id, version: 1, operation: 'sendDigest', caller: { kind: 'schedule', name }, startedAt: NOW, finishedAt: NOW, outcome,
+      error: null, durationMs, logCount: 0, spanCount: 0, traceId: null, spanId: null,
+    })
+    const calls = [run('c1', 'digest', 400), run('c2', 'other', 900), run('c3', 'digest', 200, 'failed'), run('c4', 'digest', 10)]
+    const runs = scheduleRuns(calls, 'digest', 3)
+    expect(runs.map((entry) => entry.id)).toEqual(['c1', 'c3', 'c4'])
+    // A short run is floored, so it reads as a bar and not as a gap.
+    expect(scheduleRunBars(runs).map((bar) => [bar.id, bar.heightPct, bar.outcome])).toEqual([['c4', 18, 'ok'], ['c3', 50, 'failed'], ['c1', 100, 'ok']])
   })
 })
 
 describe('versions', () => {
   const version = (overrides: Partial<AppVersionView> = {}): AppVersionView => ({
     number: 2,
-    state: 'superseded',
+    state: 'active',
     error: null,
     message: 'Add tags',
     createdAt: NOW - 3 * 60 * MINUTE,
@@ -329,36 +338,56 @@ describe('versions', () => {
     revision: 'abc1234def'.padEnd(40, '0'),
     protocol: 3,
     buildMs: 4200,
+    activations: [{ at: NOW - 3 * 60 * MINUTE, by: owner, previous: 1 }],
     ...overrides,
   })
 
-  test('only an earlier version can be made active', () => {
-    // WHY: the active version already runs, a failed version never ran, and a version that builds is not one yet.
-    expect(canMakeActive(version())).toBe(true)
-    expect(canMakeActive(version({ state: 'active' }))).toBe(false)
-    expect(canMakeActive(version({ state: 'failed' }))).toBe(false)
-    expect(canMakeActive(version({ state: 'building' }))).toBe(false)
-  })
-
-  test('a version shows its message, when, by whom, from which revision, and how long the build took', () => {
-    expect(versionLines(version(), NOW)).toEqual([{ text: 'Add tags' }, { text: '3h ago · Ada · revision abc1234 · built in 4.2 s' }])
-  })
-
-  test('a failed version shows why, a version that builds says so, and each says what it may use', () => {
-    expect(versionLines(version({ state: 'failed', message: '', error: 'Migration 0002 failed.', buildMs: null }), NOW)).toEqual([
-      { text: 'No message' },
-      { text: '3h ago · Ada · revision abc1234' },
-      { text: 'Migration 0002 failed.', tone: 'danger' },
+  test('the live version says since when and by whom it runs, its revision, its build, and what it may use', () => {
+    // WHY: after a rollback the build is old, but it runs since the rollback: the owner reads the rollback's time.
+    const rolledBack = version({ activations: [{ at: NOW - 3 * 60 * MINUTE, by: owner, previous: 1 }, { at: NOW - 5 * MINUTE, by: owner, previous: 3 }], permissionsNotice: 'This app reaches api.example.com.' })
+    expect(liveLines(rolledBack, NOW)).toEqual([
+      { text: 'Since 5m ago · Ada' },
+      { text: 'Revision abc1234 · 2 operations · a UI · built in 4.2 s' },
+      { text: 'This app reaches api.example.com.' },
     ])
-    expect(versionLines(version({ state: 'building', buildMs: null }), NOW)[2]).toEqual({ text: 'The host builds this version now.' })
-    expect(versionLines(version({ permissionsNotice: 'This app reaches api.example.com.' }), NOW).at(-1)).toEqual({ text: 'This app reaches api.example.com.' })
   })
 
-  test('the question before a rollback says that data is not rewound', () => {
-    // WHY: decision 8. A person who expects a rollback of data would lose trust in what they see after it.
-    const confirmation = makeActiveConfirmation(2)
-    expect(confirmation.title).toBe('Make v2 active?')
-    expect(confirmation.message).toContain('data is not rewound')
+  test('a save says how much it changed and the versions built from it', () => {
+    const revision = { commit: 'abc1234def'.padEnd(40, '0'), message: 'Add tags', savedAt: NOW - 60 * MINUTE, versions: [2], stats: { files: 3, additions: 40, deletions: 2 } }
+    const entry = { revision, position: 'live' as const, versions: [version(), version({ number: 1, state: 'failed' })], canDeploy: false, restorable: null }
+    expect(changeLogLines(entry, NOW)).toEqual([{ text: 'abc1234 · Saved 1h ago · 3 files · +40 −2' }, { text: 'Built as v2 (live), v1 (failed)' }])
+  })
+
+  test('the mark of a save and of a deploy says what runs now, what failed, and what is only history', () => {
+    const entry = (position: 'ahead' | 'live' | 'behind', versions: AppVersionView[]) => ({ position, versions })
+    expect(changeLogState(entry('live', [version()]))).toBe('ok')
+    expect(changeLogState(entry('ahead', []))).toBe('idle')
+    expect(changeLogState(entry('ahead', [version({ state: 'failed' })]))).toBe('failed')
+    expect(changeLogState(entry('ahead', [version({ state: 'building' })]))).toBe('running')
+    expect(changeLogState(entry('behind', [version({ state: 'superseded' })]))).toBe('idle')
+    // The activation that put the live version in place is live, also when it was a rollback.
+    expect(deployEventState({ kind: 'rollback', isLive: true })).toBe('ok')
+    expect(deployEventState({ kind: 'rollback', isLive: false })).toBe('warning')
+    expect(deployEventState({ kind: 'failed', isLive: false })).toBe('failed')
+    expect(deployEventState({ kind: 'deploy', isLive: false })).toBe('idle')
+    const live = version()
+    expect(deployEventLines({ kind: 'deploy', at: live.createdAt, by: owner, version: live, previous: 1, previousRevision: null, isLive: true }, NOW)[0]).toEqual({ text: 'Live · Replaced v1', tone: 'muted' })
+  })
+
+  test('the mark of the app says a build first, then no version, stopped, or running', () => {
+    expect(appItemState(summary())).toBe('ok')
+    expect(appItemState(summary({ stopped: true }))).toBe('stopped')
+    expect(appItemState(summary({ activeVersion: null }))).toBe('idle')
+    expect(appItemState(summary({ buildingVersion: 4, stopped: true }))).toBe('running')
+  })
+
+  test('a failed build says why in the deploy history', () => {
+    const failed = version({ state: 'failed', error: 'Migration 0002 failed.', activations: [] })
+    expect(deployEventLines({ kind: 'failed', at: failed.createdAt, by: owner, version: failed, previous: null, previousRevision: null, isLive: false }, NOW)).toEqual([
+      { text: 'Migration 0002 failed.', tone: 'danger' },
+      { text: 'Ada · 3h ago' },
+      { text: 'abc1234 Add tags' },
+    ])
   })
 
   test('the question before a delete names everything that goes with the app', () => {
@@ -388,6 +417,17 @@ describe('webhooks and calls', () => {
       { text: 'The webhook could not be made.', tone: 'danger' },
     ])
     expect(webhookLines(webhook({ url: null, urlMode: 'none' }))[1]?.tone).toBe('danger')
+  })
+
+  test('the mark of a webhook says whether it receives: on, paused, not made, or in need of the owner', () => {
+    // WHY: the row has no On or Paused badge. The mark says it, and a webhook that cannot receive never shows the mark of one that can.
+    expect([webhookState(webhook()), webhookStateLabel(webhook())]).toEqual(['ok', 'On'])
+    expect([webhookState(webhook({ enabled: false })), webhookStateLabel(webhook({ enabled: false }))]).toEqual(['paused', 'Paused'])
+    expect(webhookState(webhook({ url: null, urlMode: 'none' }))).toBe('warning')
+    expect(webhookState(webhook({ problem: 'The signing secret is not in the secret store.' }))).toBe('warning')
+    const notMade = webhook({ webhookId: null, url: null, secret: null })
+    expect([webhookState(notMade), webhookStateLabel(notMade)]).toEqual(['failed', 'Not made'])
+    expect(webhookLines(notMade)[1]).toEqual({ text: 'Not made', tone: 'danger' })
   })
 
   test('each caller reads as words; a webhook is named when the app declares it', () => {

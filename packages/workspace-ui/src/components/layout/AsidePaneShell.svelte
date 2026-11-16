@@ -37,7 +37,6 @@
     centered?: boolean;
     /** False while the owning surface is mounted but hidden. */
     surfaceVisible?: boolean;
-    onOpenAsPage: () => void;
     onClose: () => void;
     closeLabel: string;
     body: Snippet;
@@ -49,7 +48,6 @@
     draft = null,
     centered = false,
     surfaceVisible = true,
-    onOpenAsPage,
     onClose,
     closeLabel,
     body,
@@ -120,7 +118,6 @@
           railRevealed,
         )}
         onProjectPanelToggle={toggleRail}
-        {onOpenAsPage}
         onClose={isLeading ? onClose : undefined}
         {closeLabel}
       />

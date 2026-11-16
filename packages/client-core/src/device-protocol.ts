@@ -8,7 +8,7 @@
  *   2 keyframe, 3 delta, 4 JPEG seed). Input goes over `helper/ws` as
  *   `[tag][json]` packets; the helper answers with screen-config packets.
  * - Android (serve-emu): one WebSocket carries H.264 access units with a
- *   16-byte "SEMU" header and accepts JSON gestures.
+ *   16-byte (v1) or 24-byte (v2) "SEMU" header and accepts JSON gestures.
  *
  * Clients speak both themselves, through the host's hub proxy
  * (docs/plans/native-devices.md, D2).
@@ -91,7 +91,8 @@ export class AvccDemuxer {
 }
 
 const SEMU_MAGIC = 0x53454d55
-const SEMU_HEADER_BYTES = 16
+const SEMU_V1_HEADER_BYTES = 16
+const SEMU_V2_HEADER_BYTES = 24
 const SEMU_FLAG_KEY = 1
 
 export interface SemuPacket {
@@ -103,12 +104,14 @@ export interface SemuPacket {
 
 /** Split serve-emu's SEMU-framed message into metadata and the Annex-B payload. */
 export function parseSemuPacket(bytes: Uint8Array): SemuPacket {
-  if (bytes.byteLength > SEMU_HEADER_BYTES) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, SEMU_HEADER_BYTES)
-    if (view.getUint32(0, false) === SEMU_MAGIC && view.getUint8(4) === 1) {
+  if (bytes.byteLength > SEMU_V1_HEADER_BYTES) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    const version = view.getUint8(4)
+    const headerBytes = version === 1 ? SEMU_V1_HEADER_BYTES : version === 2 ? SEMU_V2_HEADER_BYTES : null
+    if (view.getUint32(0, false) === SEMU_MAGIC && headerBytes !== null && bytes.byteLength > headerBytes) {
       const pts = view.getBigUint64(8, false)
       return {
-        data: bytes.subarray(SEMU_HEADER_BYTES),
+        data: bytes.subarray(headerBytes),
         isKey: (view.getUint8(5) & SEMU_FLAG_KEY) !== 0,
         timestamp: pts <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(pts) : null,
       }

@@ -1,3 +1,4 @@
+import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 import { useState } from "react";
 import { TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -89,24 +90,24 @@ export function ProviderSettingsScreen({ route }: ScreenProps<"ProviderSettings"
           <SettingsNote>Your choice stays saved. New sessions use the built-in default until you choose an available model.</SettingsNote>
         ) : null}
         {profile && modelId ? <>
-          <SettingsSection title="Reasoning">
+          <SettingsSection title={settingsDefinitions["providers.reasoning"].label}>
             {profile.reasoningLevels.map((effort, index) => (
               <SettingsChoiceRow key={effort} separated={index > 0} label={REASONING_EFFORT_LABELS[effort]} selected={options.reasoningEffort === effort} onPress={() => setOptions({ reasoningEffort: effort })} />
             ))}
           </SettingsSection>
-          <SettingsSection title="Context window">
+          <SettingsSection title={settingsDefinitions["providers.context-window"].label}>
             <SettingsChoiceRow label="Model default" selected={options.contextWindow === null} onPress={() => setOptions({ contextWindow: null })} />
             {profile.contextWindows.map((window) => (
               <SettingsChoiceRow key={window} separated label={`${window.toLocaleString()} tokens`} selected={options.contextWindow === window} onPress={() => setOptions({ contextWindow: window })} />
             ))}
           </SettingsSection>
           {profile.supportsFastMode ? <View className="gap-3">
-            <SettingsSection title="Speed"><SettingsSwitchRow label="Fast mode" value={options.fastMode} onValueChange={(fastMode) => setOptions({ fastMode })} /></SettingsSection>
+            <SettingsSection title="Speed"><SettingsSwitchRow label={settingsDefinitions["providers.fast-mode"].label} value={options.fastMode} onValueChange={(fastMode) => setOptions({ fastMode })} /></SettingsSection>
             <SettingsNote>Use the provider's fast service for this model. Provider charges can be higher.</SettingsNote>
           </View> : null}
           <ModelInstructions key={modelId} modelId={modelId} value={settings.modelInstructions[modelId] ?? ""} />
           <SettingsSection title="Reset">
-            <SettingsActionRow icon="arrow.clockwise" label="Reset model options" disabled={!savedOptions} onPress={resetOptions} />
+            <SettingsActionRow icon="arrow.clockwise" label={settingsDefinitions["providers.reset-model-options"].label} disabled={!savedOptions} onPress={resetOptions} />
           </SettingsSection>
           <SettingsNote>Reasoning, context window, and speed apply to new sessions. Model instructions apply whenever this model runs.</SettingsNote>
         </> : modelId === "auto" ? <SettingsNote>Auto selects a model from the first prompt and uses routing options. A TypeSafe key is required on the run host.</SettingsNote> : null}
@@ -129,7 +130,7 @@ function ModelInstructions({ modelId, value }: { modelId: string; value: string 
     setFailed(result === "invalid");
     if (result === "saved") setDraft(null);
   }
-  return <SettingsSection title="Model instructions">
+  return <SettingsSection title={settingsDefinitions["providers.model-instructions"].label}>
     <TextInput accessibilityLabel="Model instructions" value={draft ?? value} onChangeText={(value) => { setDraft(value); setFailed(false); }} onBlur={save}
       multiline maxLength={20000} placeholder="Instructions for this model…" textAlignVertical="top"
       className="min-h-32 px-4 py-3 text-base text-foreground" />

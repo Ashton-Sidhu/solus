@@ -1,4 +1,6 @@
-import { expect, test } from 'bun:test'
+import { DeviceInputGate } from "../../apps/mobile/src/features/devices/device-input-gate"
+import type { DeviceInput } from "@solus/contracts/device-types"
+import { describe, expect, test } from 'bun:test'
 import type { DeviceState, DeviceHostConfig } from '@solus/contracts/device-types'
 import { NativeDevices } from '../../apps/mobile/src/features/devices/native-devices'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
@@ -45,4 +47,27 @@ test('native device streams use the connected host origin', async () => {
   api.on('deviceStreamUrl', () => ({ path: '/api/device-hub/signed', platform: 'ios', cloud: true }))
   expect(await devices.streamUrl('inst-a', { deviceHostId: 'expo', deviceId: 'session-1' })).toBe('https://host.test/api/device-hub/signed')
   devices.forgetHost('inst-a')
+})
+
+describe('first device gesture control handoff', () => {
+  test('keeps a tap until control is granted, requests once, and sends it in order', () => {
+    const sent: DeviceInput[] = []
+    let requests = 0
+    const gate = new DeviceInputGate((input) => sent.push(input), () => requests++)
+    gate.push({ kind: 'pointer', phase: 'down', x: 0.2, y: 0.4 })
+    gate.push({ kind: 'pointer', phase: 'up', x: 0.2, y: 0.4 })
+    expect(requests).toBe(1)
+    expect(sent).toEqual([])
+    gate.setEnabled(true)
+    expect(sent.map((input) => input.kind === 'pointer' ? input.phase : input.kind)).toEqual(['down', 'up'])
+  })
+
+  test('refused control discards the gesture, so it cannot replay after a later grant', () => {
+    const sent: DeviceInput[] = []
+    const gate = new DeviceInputGate((input) => sent.push(input), () => {})
+    gate.push({ kind: 'button', button: 'home' })
+    gate.refused()
+    gate.setEnabled(true)
+    expect(sent).toEqual([])
+  })
 })

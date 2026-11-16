@@ -175,7 +175,7 @@ describe('the schemas the model reads for every Solus tool', () => {
   test('sample calls to real tools still parse against their full fields', () => {
     const samples: Array<[string, object]> = [
       ['create_automation', { name: 'Nightly', prompt: 'Check CI', model_id: null, trigger: { type: 'interval', every_minutes: 60 } }],
-      ['start_session', { prompt: 'Go', task: 'none', model_id: 'claude-opus-5' }],
+      ['start_sessions', { sessions: [{ prompt: 'Go', model_id: 'claude-opus-5' }, { prompt: 'Also go', agent_provider: 'codex', isolation: 'worktree' }] }],
       ['query_insights', { sql: 'select 1' }],
       ['list_tasks', {}],
     ]

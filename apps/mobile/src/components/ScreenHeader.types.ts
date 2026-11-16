@@ -23,6 +23,7 @@ export type ScreenHeaderMenuItem =
       readonly subtitle?: string;
       readonly disabled?: boolean;
       readonly selected?: boolean;
+      readonly destructive?: boolean;
       readonly onPress: () => void;
     }
   | {
@@ -62,6 +63,8 @@ export interface ScreenHeaderProps {
   readonly menus?: ReadonlyArray<ScreenHeaderMenu>;
   readonly search?: ScreenHeaderSearch;
   readonly onBack?: () => void;
+  /** A modal preview closes with an X instead of navigating back. */
+  readonly close?: { readonly accessibilityLabel: string; readonly onPress: () => void };
   readonly sidebar?: boolean;
   readonly backInSplitView?: {
     readonly accessibilityLabel: string;

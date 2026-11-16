@@ -1,0 +1,6 @@
+{
+  "name": "@solus/apps-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@solus/contracts": "workspace:*", "@solus/server": "workspace:*" }
+}

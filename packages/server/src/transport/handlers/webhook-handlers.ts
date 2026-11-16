@@ -15,6 +15,8 @@ import { readWebhookSecrets, verificationSecretOf } from '../../data/webhooks/we
 import { requestData } from '../../execution/webhooks/request-data'
 import { verifyRequest } from '../../execution/webhooks/verification'
 import type { WebhookActionRunner } from '../../execution/webhooks/action-runner'
+import type { WebhookReceiver } from '../../execution/webhooks/receiver'
+import { sendTestDelivery } from '../../execution/webhooks/test-delivery'
 import type { WebhookService } from '../../execution/webhooks/webhook-service'
 import { answerSecretRequest } from '../../execution/sessions/secret-requests'
 
@@ -29,6 +31,8 @@ export interface WebhookLinkSettings {
 export interface WebhookHandlerDeps {
   webhooks: WebhookService
   actions: WebhookActionRunner
+  /** Send test gives its signed request to the same receiver as a real delivery. */
+  receiver: WebhookReceiver
   link: WebhookLinkSettings
 }
 
@@ -38,7 +42,7 @@ export interface WebhookHandlerDeps {
  * caller may see. The token goes to the owner only.
  */
 export function registerWebhookHandlers(server: SolusServer, deps: WebhookHandlerDeps): void {
-  const { webhooks, actions, link } = deps
+  const { webhooks, actions, receiver, link } = deps
 
   function hostSettings(): HostWebhookSettings {
     return { publicUrl: getServerSettings().webhookPublicUrl ?? null, holdWhileOffline: link.holdWhileOffline(), linked: link.linked() }
@@ -73,6 +77,12 @@ export function registerWebhookHandlers(server: SolusServer, deps: WebhookHandle
     const webhook = await loadWebhook(id)
     if (!webhook) throw new Error('That webhook does not exist.')
     return actions.replay(webhook, deliveryId, actionId)
+  })
+
+  server.register('webhookSendTest', async ([id]) => {
+    const webhook = await loadWebhook(id)
+    if (!webhook) throw new Error('That webhook does not exist.')
+    return sendTestDelivery(receiver, webhook)
   })
 
   server.register('webhookDryRun', async ([rawRequest], ctx): Promise<WebhookDryRunResult> => {

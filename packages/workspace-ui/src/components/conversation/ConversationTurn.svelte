@@ -2,7 +2,10 @@
   import type { Snippet } from "svelte";
   import type { StatusCardState, TurnStartKind } from "@solus/contracts/types";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
-  import { getSettingsContext } from "../../contexts";
+  import type { ReplySegment } from "@solus/client-core/reply-pull-requests";
+  import { getSettingsContext, getWorkspaceContext } from "../../contexts";
+  import { sessionArtifactsStore } from "../../contexts/sessions/session-artifacts.store.svelte";
+  import { turnReplyCards } from "./lib/turn-reply-cards";
   import { NO_BURST, type UserBurst } from "./lib/user-burst";
   import { type Turn, type GroupedItem, itemKey, needsLiveRow, shouldAnimateTurnEntry, visibleTurnBody } from "./lib/turns";
   import { describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
@@ -29,7 +32,8 @@
     /** The session's turn ended, but a task it launched is still running. */
     hasBackgroundWork?: boolean; onStopBackgroundWork?: () => Promise<void>; history: ToolHistoryStore;
     onToggle: (expanded: boolean) => void; onRetry: () => void;
-    transcriptItem: Snippet<[GroupedItem, boolean, UserBurst?]>;
+    /** The fourth argument splits the final reply around its pull request cards. */
+    transcriptItem: Snippet<[GroupedItem, boolean, UserBurst?, ReplySegment[]?]>;
     /** The session's host, for naming who stopped a turn. */
     serverId?: string;
     /** The setup this turn's send ran, once it finished: drawn after the prompt. */
@@ -41,6 +45,13 @@
   const settings = getSettingsContext();
   const body = $derived(visibleTurnBody(turn, settings.showToolCalls));
   const items = $derived([...body, ...turn.tail]);
+  const session = getWorkspaceContext();
+  // A pull request the turn linked and its final reply mentions shows as a
+  // card in the reply; the rest stay chips at the turn's end.
+  const replyCards = $derived(
+    turn.live ? null : turnReplyCards(turn, sessionArtifactsStore.artifactsFor(session.sessionFor(tabId)?.id)?.own ?? [], nextStartedAt),
+  );
+  const NO_PLACED_PULL_REQUESTS: ReadonlySet<string> = new Set();
 </script>
 
 {#if turn}
@@ -119,7 +130,12 @@
                 : null}
             />
           {:else}
-            {@render transcriptItem(item, skipMotion)}
+            {@render transcriptItem(
+              item,
+              skipMotion,
+              undefined,
+              item.kind === "assistant" && item.message.id === replyCards?.replyId ? replyCards.segments : undefined,
+            )}
           {/if}
         </TurnBody>
       </div>
@@ -128,7 +144,7 @@
 {/if}
 <TurnImageGallery messages={turn.images} {serverId} />
 {#if !live}
-  <TurnArtifacts {turn} {nextStartedAt} {tabId} />
+  <TurnArtifacts {turn} {nextStartedAt} {tabId} placedPullRequests={replyCards?.placed ?? NO_PLACED_PULL_REQUESTS} />
 {/if}
 <!-- §17's transient endings, in the place they happened: after
    everything the turn produced, never in front of it. -->

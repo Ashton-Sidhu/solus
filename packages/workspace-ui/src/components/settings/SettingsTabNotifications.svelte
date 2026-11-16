@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingMatches } from "@solus/client-core/settings-search";
   import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
@@ -11,7 +12,6 @@
     DELIVERY_SITUATIONS,
     NOTIFICATION_CHANNEL_ROWS,
     SESSION_EVENT_ROWS,
-    notificationRowMatches,
   } from "./lib/notification-settings";
 
   interface Props {
@@ -24,7 +24,7 @@
   const browserPermission = new BrowserNotificationPermission();
 
   const channelRows = $derived(
-    NOTIFICATION_CHANNEL_ROWS.filter((row) => notificationRowMatches(row, searchQuery)),
+    NOTIFICATION_CHANNEL_ROWS.filter((row) => settingMatches(searchQuery, row)),
   );
   const situations = $derived(
     DELIVERY_SITUATIONS.map((situation) => ({
@@ -33,10 +33,10 @@
     })),
   );
   const sessionEventRows = $derived(
-    SESSION_EVENT_ROWS.filter((row) => notificationRowMatches(row, searchQuery)),
+    SESSION_EVENT_ROWS.filter((row) => settingMatches(searchQuery, row)),
   );
   const appNoticeRows = $derived(
-    APP_NOTICE_ROWS.filter((row) => notificationRowMatches(row, searchQuery)),
+    APP_NOTICE_ROWS.filter((row) => settingMatches(searchQuery, row)),
   );
   const noChannelOn = $derived(
     !settings.notifications.channels.sound &&

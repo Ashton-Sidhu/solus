@@ -870,16 +870,18 @@
               : canSteer
                 ? "Steer the live turn"
                 : "Send message"}
-            class="pointer-coarse:tap-area flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isTouch
+            class="group pointer-coarse:tap-area flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isTouch
               ? 'size-9'
               : 'size-[1.875rem]'} {stopsRun
-              ? 'bg-(--solus-stop-bg)/85 text-white hover:bg-(--solus-stop-bg)'
+              ? 'text-white'
               : canSend
                 ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
                 : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
           >
             {#if stopsRun}
-              <StopIcon size={12} fill="currentColor" strokeWidth={0} />
+              <span class="flex size-6 items-center justify-center rounded-md bg-(--solus-stop-bg)/85 transition-colors duration-150 group-hover:bg-(--solus-stop-bg)">
+                <StopIcon size={12} fill="currentColor" strokeWidth={0} />
+              </span>
             {:else if canSteer && canSend}
               <ArrowBendDownRightIcon size={14} strokeWidth={3} />
             {:else}

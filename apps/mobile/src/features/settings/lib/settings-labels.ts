@@ -1,5 +1,5 @@
 import type { AppNoticeEvent, NotificationChannel, SessionNotificationEvent } from '@solus/contracts/notification-types'
-import type { RateLimitBehavior, ResponseStreamingMode } from '@solus/contracts/settings'
+import type { ArtifactChipSize, RateLimitBehavior, ResponseStreamingMode } from '@solus/contracts/settings'
 import type { DocumentSyncState } from '@solus/client-core/document-sync'
 import type { AppearanceMode } from '../appearance'
 
@@ -15,6 +15,13 @@ export const APPEARANCE_LABELS = {
 export const STREAMING_CHOICES: readonly { mode: ResponseStreamingMode; label: string; description: string }[] = [
   { mode: 'paragraph', label: 'Streaming', description: 'Show paragraphs and code blocks as they finish.' },
   { mode: 'buffered', label: 'Buffered', description: 'Wait for each segment.' },
+]
+
+/** In the desktop's order and words (`SettingsTabChat.svelte`). */
+export const ARTIFACT_CHIP_SIZE_CHOICES: readonly { size: ArtifactChipSize; label: string }[] = [
+  { size: 'small', label: 'Small' },
+  { size: 'medium', label: 'Medium' },
+  { size: 'large', label: 'Large' },
 ]
 
 /** In the desktop's order and words (`RateLimitSetting.svelte`). */

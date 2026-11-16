@@ -36,6 +36,7 @@ CREATE TABLE "app_calls" (
 	"app_id" text NOT NULL,
 	"version" integer NOT NULL,
 	"operation" text NOT NULL,
+	"kind" text DEFAULT 'operation' NOT NULL,
 	"caller" text NOT NULL,
 	"caller_kind" text DEFAULT 'ui' NOT NULL,
 	"started_at" bigint NOT NULL,
@@ -110,6 +111,7 @@ CREATE TABLE "app_versions" (
 	"message" text DEFAULT '' NOT NULL,
 	"author" text NOT NULL,
 	"created_at" bigint NOT NULL,
+	"activations" text DEFAULT '[]' NOT NULL,
 	CONSTRAINT "app_versions_app_id_number_pk" PRIMARY KEY("app_id","number")
 );
 --> statement-breakpoint
@@ -151,6 +153,9 @@ CREATE TABLE "apps" (
 	"slug" text NOT NULL,
 	"name" text NOT NULL,
 	"description" text DEFAULT '' NOT NULL,
+	"custom_name" text,
+	"custom_description" text,
+	"color_hue" integer,
 	"active_version" integer,
 	"stopped" boolean DEFAULT false NOT NULL,
 	"agent_access" boolean DEFAULT true NOT NULL,

@@ -1,3 +1,4 @@
+import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsThreadsRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import type { PersonalSettingsDocument } from "@solus/contracts/settings";
@@ -45,7 +46,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
   };
 
   return (
-    <SettingsScreen title="Sessions">
+    <SettingsScreen title={settingsDefinitions["sessions.section-sessions"].label}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -53,7 +54,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
         contentContainerClassName="gap-6 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        <SettingsSection title="Default provider">
+        <SettingsSection title={settingsDefinitions["sessions.agent-model"].label}>
           {PROVIDERS.map((provider, index) => (
             <SettingsChoiceRow
               key={provider.id}
@@ -99,10 +100,10 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
           <SettingsNote>What your runs do when they hit a provider rate limit.</SettingsNote>
         </View>
 
-        <SettingsSection title="Sessions">
+        <SettingsSection title={settingsDefinitions["sessions.section-sessions"].label}>
           <SettingsSwitchRow
             icon="pencil"
-            label="Name sessions automatically"
+            label={settingsDefinitions["sessions.auto-rename"].label}
             subtitle="Summarize the first prompt into a short session name."
             value={autoRenameSessions}
             onValueChange={(next) => update({ autoRenameSessions: next })}

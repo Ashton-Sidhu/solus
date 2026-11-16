@@ -36,11 +36,11 @@ afterAll(() => {
 })
 
 describe('Solus tool settings', () => {
-  test('catalog covers every toolbox tool once, including unified delegation', async () => {
+  test('catalog covers every toolbox tool once, including the one start tool', async () => {
     const { solusToolbox } = await import('@solus/server/execution/agents/tools/solus-toolbox')
     const expected = Object.values(solusToolbox).flatMap((group) => Object.values(group).map((tool) => tool.name))
     expect([...CONFIGURABLE_SOLUS_TOOL_NAMES].sort()).toEqual(expected.sort())
-    expect(expected).toContain('delegate_task')
+    expect(expected).toContain('start_sessions')
     expect(expected).not.toContain('claude_subagent')
     expect(expected).not.toContain('codex_subagent')
     expect(expected).not.toContain('read_automation_run')

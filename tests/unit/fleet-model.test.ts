@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import type { FoundMachine } from '@solus/workspace-ui/components/fleet/lib/discover'
 import {
   fleetMachine,
   fleetStateOf,
   isZoneFull,
   isZoneTroubled,
   machinesByZone,
+  mapLayout,
   needsAttention,
-  recommendedAddWay,
   rollup,
   tileFill,
   travelSeconds,
@@ -36,9 +37,9 @@ const base: FleetMachineInput = {
 }
 
 describe('the zone of a host', () => {
-  test('is the route this device reaches it by', () => {
+  test('a machine of yours is in Your machines whatever its route: an SSH or WSL host is not a zone of its own', () => {
     expect(fleetMachine(base).zone).toBe('own')
-    expect(fleetMachine({ ...base, routeKind: 'forwarded' }).zone).toBe('forwarded')
+    expect(fleetMachine({ ...base, routeKind: 'forwarded' }).zone).toBe('own')
     expect(fleetMachine({ ...base, routeKind: 'tunnel' }).zone).toBe('own')
   })
 
@@ -106,6 +107,111 @@ describe('a zone', () => {
   })
 })
 
+describe('the layout of the map', () => {
+  // WHY: the map has one height and no scroll (D4), and its pane can be 37.5rem
+  // or twice that. A zone that leaves the map, covers its neighbor or this
+  // device, or holds a card outside itself hides a host from the person, so
+  // every count of hosts and every width must give a layout that fits.
+  const hosts = (count: number, zone: string, input: Partial<FleetMachineInput>) =>
+    Array.from({ length: count }, (_, i) => fleetMachine({ ...base, ...input, serverId: `${zone}${i}` }))
+  const fleet = (own: number, cloud: number, shared: number) =>
+    machinesByZone([
+      ...hosts(own, 'own', {}),
+      ...hosts(cloud, 'cloud', { isManaged: true }),
+      ...hosts(shared, 'shared', { principal: 'guest' }),
+    ])
+  const nearby: FoundMachine = { kind: 'ssh', key: 'ssh:lab', name: 'lab', source: 'ssh-config', detail: 'lab', zone: 'own', sshTarget: 'lab' }
+  const WIDTHS = [0, 37.5, 48, 72]
+
+  test('each zone stays in the map, clear of the zone below it, with each card inside it, for each count of hosts', () => {
+    for (const count of [0, 1, 2, 3, 4, 5, 6, 40]) {
+      const { zones } = mapLayout(fleet(count, count, count), [], 48)
+      for (const { zone, box, rows } of zones) {
+        expect(box.y).toBeGreaterThan(0)
+        expect(box.y + box.h).toBeLessThan(100)
+        const below = zones[zones.findIndex((other) => other.zone.id === zone.id) + 1]
+        if (below && below.zone.isViaTunnel === zone.isViaTunnel) expect(below.box.y).toBeGreaterThan(box.y + box.h)
+        for (const { at } of rows) {
+          expect(at.y).toBeGreaterThan(box.y)
+          expect(at.y).toBeLessThan(box.y + box.h)
+        }
+      }
+    }
+  })
+
+  test('at each width, the zones, this device, and the tunnel are in order across the map, with room for links between them', () => {
+    for (const width of WIDTHS) {
+      const { zones, hub, tunnel } = mapLayout(fleet(1, 1, 1), [], width)
+      const [own, cloud] = zones
+      expect(own!.box.x).toBeGreaterThan(0)
+      expect(own!.box.x + own!.box.w).toBeLessThan(hub.x - hub.w / 2)
+      expect(hub.x + hub.w / 2).toBeLessThan(tunnel.x)
+      expect(tunnel.x).toBeLessThan(cloud!.box.x)
+      expect(cloud!.box.x + cloud!.box.w).toBeLessThan(100)
+    }
+  })
+
+  test('a wider map gives its room to the links, not to wider cards', () => {
+    const narrow = mapLayout(fleet(1, 1, 0), [], 48)
+    const wide = mapLayout(fleet(1, 1, 0), [], 72)
+    const linkRoom = (layout: typeof narrow) => layout.zones[1]!.box.x - layout.zones[0]!.box.x - layout.zones[0]!.box.w - layout.hub.w
+    expect((wide.cardWidth * 72) / 100).toBeLessThan(15)
+    expect((linkRoom(wide) * 72) / 100).toBeGreaterThan(2 * ((linkRoom(narrow) * 48) / 100))
+  })
+
+  test('a zone grows with its rows, and its side stays centered on this device', () => {
+    const one = mapLayout(fleet(1, 0, 0), [], 48)
+    const three = mapLayout(fleet(3, 0, 0), [], 48)
+    expect(three.zones[0]!.box.h).toBeGreaterThan(one.zones[0]!.box.h)
+    for (const { zones, hub } of [one, three]) {
+      const [own, cloud, shared] = zones
+      expect(own!.box.y + own!.box.h / 2).toBeCloseTo(hub.y)
+      expect((cloud!.box.y + shared!.box.y + shared!.box.h) / 2).toBeCloseTo(hub.y)
+    }
+  })
+
+  test('a zone with room shows its hosts first, then a found machine where it would go, and never more rows than its capacity', () => {
+    const [own] = mapLayout(fleet(4, 0, 0), [nearby, { ...nearby, key: 'ssh:lab2' }], 48).zones
+    expect(own!.rows.map((row) => row.slot.kind)).toEqual(['host', 'host', 'host', 'host', 'found'])
+  })
+
+  test('a zone counts the found machines it has no row for, so the map never hides one that Discover found', () => {
+    // WHY: the map is the only place the fleet view shows found machines (D7).
+    const found = [nearby, { ...nearby, key: 'ssh:lab2' }, { ...nearby, key: 'ssh:lab3' }]
+    expect(mapLayout(fleet(4, 0, 0), found, 48).zones[0]!.moreFound).toBe(2)
+    expect(mapLayout(fleet(1, 0, 0), found, 48).zones[0]!.moreFound).toBe(0)
+    expect(mapLayout(fleet(40, 0, 0), found, 48).zones[0]!.moreFound).toBe(3)
+    expect(mapLayout(fleet(4, 0, 0), found, 48).zones[1]!.moreFound).toBe(0)
+  })
+
+  test('an empty zone says what it is for: a way to add a host, or that no host is shared', () => {
+    const [own, cloud, shared] = mapLayout(fleet(0, 0, 0), [], 48).zones.map((zone) => zone.rows.map((row) => row.slot))
+    expect(own).toEqual([{ kind: 'add', way: 'pair' }])
+    expect(cloud).toEqual([{ kind: 'add', way: 'cloud' }])
+    expect(shared).toEqual([{ kind: 'empty' }])
+  })
+
+  test('a full zone shows no cards, and keeps the height of its capacity for its tiles', () => {
+    const atCapacity = mapLayout(fleet(5, 0, 0), [], 48).zones[0]!
+    const full = mapLayout(fleet(40, 0, 0), [nearby], 48).zones[0]!
+    expect(full.isFull).toBe(true)
+    expect(full.rows).toEqual([])
+    expect(full.box.h).toBeCloseTo(atCapacity.box.h)
+  })
+
+  test('a link ends on the edge of its card that faces this device', () => {
+    for (const width of WIDTHS) {
+      const { zones, hub } = mapLayout(fleet(1, 1, 1), [], width)
+      for (const { zone, rows, linkStart } of zones) {
+        const { at, port } = rows[0]!
+        expect(port.y).toBeCloseTo(at.y)
+        expect(Math.abs(port.x - linkStart.x)).toBeLessThan(Math.abs(at.x - linkStart.x))
+        expect(port.x > hub.x).toBe(zone.isViaTunnel)
+      }
+    }
+  })
+})
+
 describe('color and motion', () => {
   test('a healthy host is green when idle and terracotta when running; a problem has its own color in every mode', () => {
     expect(tileFill(fleetMachine(base), 'status')).toContain('--success')
@@ -119,14 +225,6 @@ describe('color and motion', () => {
   test('a busier link moves its light faster, but never faster than 3.5 s a trip', () => {
     expect(travelSeconds(1)).toBeGreaterThan(travelSeconds(40))
     expect(travelSeconds(10_000)).toBe(3.5)
-  })
-})
-
-describe('the way the Add page recommends', () => {
-  test('a machine in reach first, then a cloud machine, then linking your own', () => {
-    expect(recommendedAddWay(2, true)).toBe('nearby')
-    expect(recommendedAddWay(0, true)).toBe('cloud')
-    expect(recommendedAddWay(0, false)).toBe('link')
   })
 })
 

@@ -49,8 +49,9 @@ test("a session's own list joins its pull requests, works, files, images, and au
 
   const made = await createWork('local', 'Made here', 'doc', '', '', 'lead', 'codex')
   // A work another session made, linked to this one afterwards.
-  const linked = await createWork('local', 'Linked later', 'slides', '# Deck', '', 'other', 'codex')
+  const linked = await createWork('local', 'Linked later', 'slides', '# Deck', 'Deck', 'other', 'codex')
   await linkSessionItem('lead', { target: { kind: 'work', targetId: linked.id } }, SYSTEM)
+  const pinned = await (await Work.find('local', linked.id))!.setPinned(true)
   // A work of an unrelated session is not this session's.
   await createWork('local', 'Not ours', 'doc', '', '', 'other', 'codex')
   await linkSessionPullRequest('lead', { url: 'https://github.com/acme/solus/pull/7', title: 'Fix', source: 'manual', by: SYSTEM })
@@ -61,7 +62,9 @@ test("a session's own list joins its pull requests, works, files, images, and au
   const { own } = await readSessionArtifacts('local', 'lead')
   expect(own.map((item) => item.kind).sort()).toEqual(['automation', 'file', 'image', 'pull-request', 'work', 'work'])
   expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: made.id, title: 'Made here', workType: 'doc' }))
-  expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: linked.id, workType: 'slides' }))
+  // WHY: the Threads row shows a work's pin, its last change, and the start of its text without reading the work.
+  expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: linked.id, workType: 'slides', pinned: true, preview: 'Deck', updatedAt: Date.parse(pinned.updatedAt) }))
+  expect(own).toContainEqual(expect.objectContaining({ kind: 'work', workId: made.id, pinned: false }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'image', path: '/tmp/Shot.PNG', title: 'Shot.PNG', hostId: 'host-1' }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'file', path: '/tmp/notes.md' }))
   expect(own).toContainEqual(expect.objectContaining({ kind: 'automation', automationId: 'auto-1', title: 'Nightly' }))

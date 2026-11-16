@@ -19,6 +19,8 @@ import { sessionTranscripts } from './transcript-schema'
 
 const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 
+const conversationResultSchema = z.object({ sessionId: z.string().optional(), messageId: z.string().optional(), provider: agentIdSchema.optional(), serverId: z.string().optional(), item: z.number().int().optional() })
+
 /** A mirrored row as the runner projected it; every field the wire contract names, nothing else. */
 const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
   messageId: z.string().optional(),
@@ -61,7 +63,7 @@ const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
   status: z.enum(['ok', 'error']).optional(),
   errorHead: z.string().optional(),
   contentBytes: z.number().optional(),
-  agentConversationResult: z.object({ sessionId: z.string().optional(), messageId: z.string().optional(), provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(), serverId: z.string().optional() }).optional(),
+  agentConversationResults: z.array(conversationResultSchema).optional(),
   artifactWorkRef: z.object({ workId: z.string(), title: z.string(), contentVersion: z.number().int().optional() }).optional(),
   workUpdateSucceeded: z.boolean().optional(),
 })

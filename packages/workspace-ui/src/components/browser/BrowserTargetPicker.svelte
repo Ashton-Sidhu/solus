@@ -11,7 +11,7 @@
   import { Skeleton } from "../ui/skeleton";
   import * as TooltipUI from "../ui/tooltip";
   import { MiddleTruncate } from "../ui/middle-truncate";
-  import { addressProblem, navigableAddress } from "./lib/address";
+  import { addressProblem, navigableAddress } from "@solus/client-core/browser-address";
 
   /**
    * Where a page is created: the pane's empty state, and the `+` in the page

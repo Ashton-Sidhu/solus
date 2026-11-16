@@ -75,7 +75,7 @@
   <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
     <div class="flex min-w-0 items-center gap-3.5">
       <FleetLoadRing cpu={machine.cpu} tone={toneOf(machine.state)} size={48}>
-        <HostOperatingSystemIcon os={host.os} managed={machine.isManaged} size={18} />
+        <HostOperatingSystemIcon os={host.os} managed={machine.isManaged} size={18} class="text-foreground" />
       </FleetLoadRing>
       <div class="flex min-w-0 flex-col gap-1.5">
         <h1 class="flex min-w-0 items-center gap-2.5 text-[1.375rem] font-medium tracking-[-0.01em] text-foreground">
@@ -106,13 +106,12 @@
   <HostGlance {machine} load={fleetStore.loads.get(host.id)} />
 
   <Tabs.Root bind:value={connectionsNav.tab}>
-    <Tabs.List variant="line" class="w-full justify-start gap-4 border-b border-border pb-1">
-      <Tabs.Trigger value="overview" class="flex-none px-0">Overview</Tabs.Trigger>
-      <Tabs.Trigger value="resources" class="flex-none px-0">Resources</Tabs.Trigger>
-      <Tabs.Trigger value="access" class="flex-none px-0">Access</Tabs.Trigger>
-      <Tabs.Trigger value="git" class="flex-none px-0">Git</Tabs.Trigger>
-      <Tabs.Trigger value="providers" class="flex-none px-0">AI providers</Tabs.Trigger>
-      <Tabs.Trigger value="environment" class="flex-none px-0">Environment</Tabs.Trigger>
+    <!-- The active tab colors its own segment of the list's hairline: same
+         thickness, same place, so the divider reads as one line. -->
+    <Tabs.List variant="line" class="w-full justify-start gap-5 border-b border-border p-0 group-data-horizontal/tabs:h-auto">
+      {#each [["overview", "Overview"], ["resources", "Resources"], ["access", "Access"], ["git", "Git"], ["providers", "AI providers"], ["environment", "Environment"]] as [value, label] (value)}
+        <Tabs.Trigger {value} class="h-auto flex-none rounded-none px-0 pt-0 pb-2.5 text-workspace-chrome group-data-[orientation=horizontal]/tabs:after:bottom-[-1px] group-data-[orientation=horizontal]/tabs:after:h-px data-active:text-foreground">{label}</Tabs.Trigger>
+      {/each}
     </Tabs.List>
 
     <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7">

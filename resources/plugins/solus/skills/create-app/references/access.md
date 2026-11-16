@@ -14,13 +14,24 @@ Declare a value the app needs from the user and must not show: a database URL, a
 integrations: ['linear', 'github'],
 ```
 
-Name each integration the app calls, by the slug `connection_status` shows. The backend calls `ctx.tools.<slug>.<tool>(input)`, and the UI can call `tools.<slug>.<tool>(input)` from `@solus/app`. Each call runs with the caller's own connection; a schedule, a webhook, and a workflow run with the owner's. A call answers the tool's structured content, or its text parsed as JSON. A call to an integration the user has not connected fails with a message that says to connect it; show that message.
+Name each integration the app calls, by the slug `connection_status` shows. The backend calls `ctx.tools.<slug>.<tool>(input)`, and the UI can call `tools.<slug>.<tool>(input)` from `@solus/app`. An integration has one of two scopes, and a name is in one of them only:
 
-`github`, `atlassian`, and `google` are also the built-in connections of Solus (Settings → Integrations). When the user has no MCP integration with that slug, the role is the built-in connection. It has one tool, `request`, that sends one REST call with the user's own sign-in. The host adds the credential, so the app needs no secret and no network permission for it. `path` starts with one `/`, `method` is `GET` when you leave it out, and the answer is the response body.
+- `integrations`: a **user connection**. Each call runs with the caller's own connection. A call with no person cannot use it: a schedule, a webhook, a workflow, and a visitor of a published app.
+- `appIntegrations`: an **app connection**. Each call runs with the owner's connection, whoever calls, and the app's background work uses it too. Use it for what the app itself needs, such as a team's tracker. In a published app, each visitor acts with it through your code, so expose only what a visitor may do.
+
+```ts
+integrations: ['linear'],        // the caller's own Linear
+appIntegrations: ['github'],     // the owner's GitHub, for each caller and each schedule
+```
+
+A call answers the tool's structured content, or its text parsed as JSON. A call to an integration the user has not connected fails with a message that says to connect it; show that message.
+
+`github`, `atlassian`, and `google` are also the built-in connections of Solus (Settings → Integrations). When the user has no MCP integration with that slug, the role is the built-in connection. It has one tool, `request`, that sends one REST call with the user's own sign-in. The host adds the credential, so the app needs no secret and no network permission for it. `path` starts with one `/`, `method` is `GET` when you leave it out, and the answer is the response body. A `query` value can be a string, a number, a boolean, or a list (sent as one comma-separated value). Atlassian's `product` is `confluence` for a path under `/wiki/` and `jira` for any other path when you leave it out.
 
 ```ts
 await ctx.tools.github.request({ method: 'GET', path: '/repos/acme/web/pulls', query: { state: 'open' } })   // api.github.com
-await ctx.tools.atlassian.request({ product: 'confluence', path: '/wiki/api/v2/pages/123' })                 // Confluence; product 'jira' for Jira
+await ctx.tools.atlassian.request({ path: '/wiki/api/v2/pages/123' })                                       // Confluence
+await ctx.tools.atlassian.request({ path: '/rest/api/3/search/jql', query: { jql: 'project = ENG', maxResults: 50 } })   // Jira
 await ctx.tools.google.request({ path: '/drive/v3/files', query: { q: "name contains 'Q3'" } })              // www.googleapis.com
 ```
 

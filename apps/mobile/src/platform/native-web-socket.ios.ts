@@ -36,6 +36,7 @@ const CLOSED = 3
 /** One socket through the native module, with the browser's states and event order. */
 class NativeWebSocket implements ClientWebSocket {
   readyState = CONNECTING
+  private failure: string | null = null
   private readonly listeners: SocketListeners = { open: [], message: [], close: [], error: [] }
 
   constructor(private readonly native: SolusWebSocketModule, private readonly id: number) {}
@@ -71,15 +72,17 @@ class NativeWebSocket implements ClientWebSocket {
     if (data !== undefined) this.dispatch('message', { data })
   }
 
-  failed(): void {
-    if (this.readyState !== CLOSED) this.dispatch('error', undefined)
+  failed(message: string): void {
+    if (this.readyState === CLOSED) return
+    this.failure = message
+    this.dispatch('error', undefined)
   }
 
   /** Reports the end once, with the code and reason the host sent. Later events are ignored. */
   ended(event: NativeEvents['close']): void {
     if (this.readyState === CLOSED) return
     this.readyState = CLOSED
-    this.dispatch('close', { code: event.code, reason: event.reason })
+    this.dispatch('close', { code: event.code, reason: event.reason || this.failure || '' })
   }
 
   private dispatch<K extends keyof SocketEvents>(type: K, event: SocketEvents[K]): void {
@@ -92,7 +95,7 @@ export function nativeWebSocketFactory(native: SolusWebSocketModule): WebSocketF
   const sockets = new Map<number, NativeWebSocket>()
   native.addListener('open', (event) => sockets.get(event.id)?.opened())
   native.addListener('message', (event) => sockets.get(event.id)?.received(event))
-  native.addListener('error', (event) => sockets.get(event.id)?.failed())
+  native.addListener('error', (event) => sockets.get(event.id)?.failed(event.message))
   native.addListener('close', (event) => {
     sockets.get(event.id)?.ended(event)
     sockets.delete(event.id)

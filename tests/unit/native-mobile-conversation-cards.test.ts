@@ -14,11 +14,11 @@ describe('native conversation card state', () => {
     expect(item).toMatchObject({ html: '', workId: 'w', contentVersion: 3, title: 'Chart' })
   })
 
-  test('a start_session card rebuilt from history keeps the name its starter gave it', () => {
+  test('a start_sessions card rebuilt from history keeps the name its starter gave it', () => {
     // WHY: workers started from one brief share its opening sentence, so the
     // given name is the only thing that tells their rows apart after a reload.
     const model = TranscriptModel.fromHistory('s', { before: null, messages: [
-      { role: 'tool', toolId: 't', toolName: 'mcp__solus__start_session', toolInput: '{"prompt":"You are a worker. Fix the server.","title":"Server fixes"}', content: '', timestamp: 1, agentConversationResult: { sessionId: 'child', messageId: 'x' } },
+      { role: 'tool', toolId: 't', toolName: 'mcp__solus__start_sessions', toolInput: '{"sessions":[{"prompt":"You are a worker. Fix the server.","title":"Server fixes"}]}', content: '', timestamp: 1, agentConversationResults: [{ sessionId: 'child', messageId: 'x', item: 0 }] },
     ] })
     const item = model.order.map((id) => model.items.get(id)).find((item) => item?.kind === 'agent')
     expect(item).toMatchObject({ kind: 'agent', title: 'Server fixes' })

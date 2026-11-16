@@ -48,6 +48,7 @@ import {
   deriveThreadFeedPresentation,
   type FeedSourceEntry,
   type ThreadFeedRow,
+  type TurnPromptIds,
 } from "./thread-feed-presentation";
 import { resolveThreadFeedLiveFollow, type ThreadFeedLiveFollowEvent } from "./thread-feed-live-follow";
 import { streamingMessageRowId, threadFeedItemType } from "./thread-feed-item-type";
@@ -60,16 +61,17 @@ import {
 } from "./thread-work-log";
 import { WorkLogBlock, WorkLogIconSlot, WorkLogPressable } from "./work-log-layout";
 import { ThreadMarkdown } from "./ThreadMarkdown";
+import { FinalReplyMarkdown } from "./FinalReplyMarkdown";
 import { MarkdownImageAvailableWidthContext } from "./ThreadMarkdownImage";
 import { UserMessageRow } from "./ThreadUserMessageRow";
 import { ThreadAgentGroup } from "./ThreadAgents";
 import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
-import { CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
+import { LeadPromotionDivider, CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionStarterFromHost } from "@solus/contracts/types";
 import { TurnArtifactChips } from "./AgentArtifactChips";
-import { ThreadTurnImages } from "./ThreadTurnImages";
+import { ThreadImage } from "./ThreadImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import { ThreadMcpApp } from "./ThreadMcpApp";
@@ -151,18 +153,38 @@ interface FeedRowContext {
 
 
 
+/** A row's turn prompts as primitives, so the row's memo holds across feed updates. */
+function finalReplyProps(replyOf: TurnPromptIds | undefined) {
+  return { isFinalReply: replyOf !== undefined, promptId: replyOf?.promptId ?? null, nextPromptId: replyOf?.nextPromptId ?? null };
+}
+
 /** Agent prose. The final message of a settled turn carries its copy control. */
 const AssistantMessageRow = memo(function AssistantMessageRow(props: {
   readonly store: ConversationStore;
   readonly id: string;
   readonly showMeta: boolean;
+  /** The final reply of a settled turn: it shows the turn's pull request cards. */
+  readonly isFinalReply: boolean;
+  /** The prompts around the final reply's turn. Primitives, so the memo holds. */
+  readonly promptId: string | null;
+  readonly nextPromptId: string | null;
   readonly iconSubtleColor: ColorValue;
 }) {
   const item = useTranscriptItem(props.store, props.id);
   if (item?.kind !== "assistant" || item.text.trim().length === 0) return null;
   return (
     <Animated.View className={props.showMeta ? "mb-5 px-1" : "mb-1 px-1"}>
-      <ThreadMarkdown markdown={item.text} tone="assistant" store={props.store} />
+      {props.isFinalReply ? (
+        <FinalReplyMarkdown
+          store={props.store}
+          replyId={props.id}
+          text={item.text}
+          promptId={props.promptId}
+          nextPromptId={props.nextPromptId}
+        />
+      ) : (
+        <ThreadMarkdown markdown={item.text} tone="assistant" store={props.store} />
+      )}
       {props.showMeta ? (
         <View className="mt-1 flex-row items-center gap-1">
           <CopyTextButton
@@ -430,6 +452,8 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
     return <CompactionDivider store={context.store} id={row.id} iconSubtleColor={context.iconSubtleColor} />;
   }
 
+  if (row.type === "lead-promotion") return <LeadPromotionDivider />;
+
   if (row.type === "handoff") {
     return <HandoffDivider store={context.store} id={row.id} iconSubtleColor={context.iconSubtleColor} />;
   }
@@ -447,11 +471,11 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   }
 
   if (row.type === "turn-artifacts") {
-    return <TurnArtifactChips store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} imageIds={row.imageIds} />;
+    return <TurnArtifactChips store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} replyId={row.replyId} imageIds={row.imageIds} />;
   }
 
-  if (row.type === "turn-images") {
-    return <ThreadTurnImages itemIds={row.itemIds} store={context.store} />;
+  if (row.type === "image") {
+    return <ThreadImage id={row.id} store={context.store} />;
   }
 
   if (row.type === "artifact") {
@@ -484,6 +508,7 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
       store={context.store}
       id={row.id}
       showMeta={row.showMeta}
+      {...finalReplyProps(row.replyOf)}
       iconSubtleColor={context.iconSubtleColor}
     />
   );

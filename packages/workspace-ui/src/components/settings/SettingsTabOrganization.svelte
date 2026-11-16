@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { organizationSearchWords as searchWords } from "./lib/settings-search-data";
   /** Organization: what an organization holds in Solus Cloud for its members.
    *  What its work may do — Insights, limits, locked settings — is its policy,
@@ -27,8 +28,8 @@
   {:else if organizations.length === 0}
     <p class="text-workspace-chrome text-muted-foreground" role="status">You are not a member of an organization.</p>
   {:else}
-    <SettingsSection label="Organization">
-      <SettingsRow label="Policy" description="Insights, limits, and locked settings of each organization's work.">
+    <SettingsSection {...settingsDefinitions["organization.section-organization"]}>
+      <SettingsRow {...settingsDefinitions["organization.policy"]}>
         {#snippet control()}
           <Button variant="outline" size="sm" onclick={() => session.showSettings("policy", "click")}>Open Policy</Button>
         {/snippet}

@@ -29,9 +29,6 @@ async function descendIntoFirstFolder(page: import('@playwright/test').Page) {
   await page.keyboard.press('ArrowDown')
   const selected = page.locator(`${OPTION}[aria-selected="true"]`)
   await expect(selected).toHaveCount(1)
-  if ((await selected.innerText()).trim() === '..') {
-    await page.keyboard.press('ArrowDown')
-  }
   const folderName = (await selected.innerText()).trim().split('\n')[0]
   await page.keyboard.press('Enter')
   await expect(page.locator(CRUMB).last()).toHaveText(folderName)

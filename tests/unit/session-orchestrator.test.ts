@@ -529,6 +529,78 @@ describe('session orchestration', () => {
     } finally { plane.shutdown() }
   })
 
+  // WHY: a parent whose turn ended while its children work is not finished and
+  // not idle. It waits in 'background', as for any other work it waits on: every
+  // client, and a client that joins later, sees the same wait; the watchdog does
+  // not call it dead; and only the last report, or a Stop, ends the wait.
+  describe('a sender that waits on reports', () => {
+    const review = { prompt: 'Review', provider: 'codex' as const, modelId: 'gpt-test', reasoningEffort: 'medium' as const, contextWindow: null }
+
+    /** The sender starts a child (thread-3) and ends its turn while the child works. */
+    async function waitingSender() {
+      const run = await sessions()
+      const statuses: string[] = []
+      run.plane.on('event', (sessionId: string, event: NormalizedEvent) => {
+        if (sessionId === 'solus-sender' && event.type === 'status_change') statuses.push(event.status)
+      })
+      const started = await run.orchestrator.spawn('solus-sender', { ...review, cwd: projectDir }, true)
+      await run.backend.started(3)
+      run.backend.complete('thread-2', 'waiting on the review')
+      await until(() => run.plane.activeSessions.get('solus-sender')?.status === 'background')
+      return { ...run, statuses, started }
+    }
+
+    test('waits in background, survives the watchdog, and the report wakes it', async () => {
+      const { backend, plane, statuses, started } = await waitingSender()
+      try {
+        const watched = plane.watchers.watchSession({ sessionId: 'solus-sender', attachRuntime: true }, 'client')
+        expect(watched.runtime?.status).toBe('background')
+        plane.statuses.checkActiveRuns()
+        plane.statuses.checkActiveRuns()
+        expect(plane.activeSessions.get('solus-sender')?.status).toBe('background')
+
+        backend.complete('thread-3', 'reviewed')
+        await backend.run(isReportFor('thread-2'))
+        await backend.started(4)
+        expect(reportsIn(reportRuns(backend, 'thread-2')[0]!).map((report) => report.messageId)).toEqual([started.exchangeId])
+        backend.complete('thread-2', 'all done')
+        await until(() => !plane.activeSessions.has('solus-sender'))
+        // The turn that waited never reads as completed: only the woken turn completes.
+        expect(statuses).toEqual(['background', 'running', 'completed'])
+      } finally {
+        plane.shutdown()
+      }
+    })
+
+    test('a Stop ends the wait as interrupted, and no report wakes the sender', async () => {
+      const { backend, plane, orchestrator, statuses, started } = await waitingSender()
+      try {
+        expect(plane.stopSession('solus-sender', decider())).toBe(true)
+        expect(plane.activeSessions.has('solus-sender')).toBe(false)
+        await until(() => orchestrator.readExchange('solus-sender', started.exchangeId)?.state === 'settled')
+        await until(() => !plane.statuses.isSessionBusy(started.sessionId))
+        expect(reportRuns(backend, 'thread-2')).toEqual([])
+        expect(statuses).toEqual(['background', 'interrupted'])
+      } finally {
+        plane.shutdown()
+      }
+    })
+
+    test('the background Stop stops the child and settles the sender as completed', async () => {
+      const { backend, plane, statuses, started } = await waitingSender()
+      try {
+        expect(await plane.stopBackgroundTasks('solus-sender')).toBe(true)
+        await until(() => !plane.activeSessions.has('solus-sender'))
+        await until(() => !plane.statuses.isSessionBusy(started.sessionId))
+        expect(backend.handles.has('thread-3')).toBe(false)
+        expect(reportRuns(backend, 'thread-2')).toEqual([])
+        expect(statuses).toEqual(['background', 'completed'])
+      } finally {
+        plane.shutdown()
+      }
+    })
+  })
+
   test('a turn that changed no files reports no changed-files output', async () => {
     const { backend, plane, orchestrator, updates } = await sessions()
     try {

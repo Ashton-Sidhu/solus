@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AppRevisionStats } from '@solus/contracts/apps'
 import { hostCliEnv } from '../cli-env'
 import { dataDir } from '../platform/paths'
 import { withUserScope } from '../vault/acting-scope'
@@ -27,6 +28,7 @@ export interface AppRevision {
   commit: string
   message: string
   savedAt: number
+  stats: AppRevisionStats
 }
 
 /** What a save wrote. */
@@ -50,6 +52,12 @@ const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const MAX_FILE_BYTES = 32 * 1024 * 1024
 const MAX_PATCH_BYTES = 512 * 1024
 const COMMIT = /^[a-f0-9]{40}$/
+
+/** The counts of git's `--shortstat` line: ` 3 files changed, 10 insertions(+), 2 deletions(-)`. No line is a revision that changed nothing. */
+export function revisionStats(shortstat: string): AppRevisionStats {
+  const count = (pattern: RegExp) => Number(pattern.exec(shortstat)?.[1] ?? 0)
+  return { files: count(/(\d+) files? changed/), additions: count(/(\d+) insertions?\(\+\)/), deletions: count(/(\d+) deletions?\(-\)/) }
+}
 
 function assertCommit(commit: string): void {
   if (!COMMIT.test(commit)) throw new Error('Invalid app commit reference.')
@@ -167,13 +175,15 @@ export class AppRepositories {
     return this.git(repository, ['merge-base', '--is-ancestor', commit, 'refs/heads/main']).then(() => true, () => false)
   }
 
-  /** The revisions, the newest first. */
+  /** The revisions, the newest first, each with how much it changed against the revision before it. */
   async revisions(repository: string, limit = 100): Promise<AppRevision[]> {
     if (!(await this.head(repository))) return []
-    const listed = await this.text(repository, ['log', `--max-count=${limit}`, '--format=%H%x1f%ct%x1f%s%x1e', 'refs/heads/main'])
+    // `--shortstat` writes its line after the commit's own line; a revision that changed nothing has none.
+    const listed = await this.text(repository, ['log', `--max-count=${limit}`, '--shortstat', '--format=%x1e%H%x1f%ct%x1f%s', 'refs/heads/main'])
     return listed.split('\x1e').map((entry) => entry.trim()).filter(Boolean).map((entry) => {
-      const [commit = '', seconds = '0', message = ''] = entry.split('\x1f')
-      return { commit, message, savedAt: Number(seconds) * 1000 }
+      const [line = '', ...rest] = entry.split('\n')
+      const [commit = '', seconds = '0', message = ''] = line.split('\x1f')
+      return { commit, message, savedAt: Number(seconds) * 1000, stats: revisionStats(rest.join(' ')) }
     })
   }
 

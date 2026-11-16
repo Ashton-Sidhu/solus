@@ -5,6 +5,18 @@ the mouse, keyboard or touch, and let the agent drive and screenshot the same
 device. Desktop, web, and native mobile clients show the devices. On mobile, open
 **Environment → Devices** in a session, or **Host settings → Devices**.
 
+On the phone, a session that shows a device has a phone button in the floating
+control above the composer. It opens the device full screen, without the status
+bar (T3 Code's device viewer). The glass bar at the top has Close, the device
+name, Home, and an options menu: the other devices of the session, Take or
+Release control, Resume agent, Reload stream, Back and Recents (Android), App
+switcher, Rotate (iOS), Type text, Screenshot, Close preview (Return to pool for
+a cloud device), and Shut down device. Input reaches the device only while the
+phone holds the control lease, as on desktop; the viewer renews the lease while
+it is visible and gives it back when it closes. While the phone has control, a
+tap outside the bar hides the controls, and the small pill at the top shows them
+again. The viewer closes by itself when the session has no device left.
+
 ## Set up
 
 Go to **Settings → Devices**, or open the command palette and choose
@@ -20,7 +32,7 @@ If a change fails, the page shows the error and the switch stays at the value
 that the host stored.
 
 1. **Device support.** Turn it on. The first time, Solus installs
-   `expo-device-hub` 0.12.0 into the host's data directory and starts it on
+   `expo-device-hub` 0.22.1 into the host's data directory and starts it on
    loopback. Opening setup installs and starts nothing.
 2. **Agent access** is on by default: once device support is on, agents can
    drive devices with `agent-device` 0.21.31. Turn it off to keep agents away
@@ -42,6 +54,8 @@ that the host stored.
   Command-line Tools (latest). Solus looks in `ANDROID_HOME`,
   `ANDROID_SDK_ROOT`, `~/Library/Android/sdk`, `~/Android/Sdk`, and next to
   `adb` on the PATH.
+- **Android video:** FFmpeg with the `libx264` encoder on the device host's
+  PATH, or set `SERVE_EMU_FFMPEG` to that executable on the device host.
 
 The client you view from needs none of this.
 
@@ -254,11 +268,23 @@ Solus does not rewrite `localhost`.
 
 ## Video
 
+Drag movement is sent as it arrives on desktop, web, and native mobile.
+Desktop and web group wheel input once per display frame.
+If an input send is blocked, desktop and web keep the newest pending drag
+position and combine pending wheel input. Press and release events stay in
+order, so a slow connection does not replay a queue of old movement.
+
 Desktop and web over HTTPS decode H.264 with WebCodecs. Without WebCodecs (a
 plain-HTTP remote origin, some mobile browsers), iOS falls back to JPEG
 frames and Android shows that this client cannot decode the stream. A hidden
 pane stops its subscription; the host stops reading a device's video when
 nobody watches it.
+
+The decoder keeps the first keyframe while it checks codec support. After
+a decode error or an excessive decode queue, it restores the decoder and
+requests a new keyframe. An iOS H.264 connection that receives no data for
+15 seconds reconnects. These rules apply to desktop, web, and the mobile
+device viewer. Android supports both v1 and v2 SEMU video headers.
 
 ## Turn things off
 

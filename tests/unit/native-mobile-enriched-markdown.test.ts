@@ -56,6 +56,13 @@ describe("resolveMarkdownLinkPresentation", () => {
     // An unknown provider or a missing id is not a session the app can open.
     expect(resolveMarkdownLinkPresentation("session://open?provider=other&sessionId=s3")).toEqual({ kind: "link", href: null });
     expect(resolveMarkdownLinkPresentation("session://open?provider=codex")).toEqual({ kind: "link", href: null });
+    // A host chip an "Ask an agent" prompt wrote names a host; a link with no server id names none.
+    expect(resolveMarkdownLinkPresentation("host://ref?serverId=h1&route=Tailscale&state=unreachable")).toEqual({
+      kind: "host",
+      href: "host://ref?serverId=h1&route=Tailscale&state=unreachable",
+      serverId: "h1",
+    });
+    expect(resolveMarkdownLinkPresentation("host://ref?route=Tailscale")).toEqual({ kind: "link", href: null });
   });
 
   it("treats protocol-relative media as an external URL, not a filesystem path", () => {

@@ -27,6 +27,7 @@ export function accountSyncStateLabel(summary: AccountSyncSummary): string {
 /** Readable names for the keys a conflict or a warning lists. */
 const KEY_LABELS = new Map<PersonalSettingKey, string>([
   ['themeMode', 'Theme'],
+  ['themeCss', 'Custom CSS'],
   ['activeAgent', 'Default agent'],
   ['defaultPermissionMode', 'Default permission mode'],
   ['notifications', 'Notifications'],

@@ -18,6 +18,7 @@ function renderMenuItems(items: ReadonlyArray<ScreenHeaderMenuItem>) {
         icon={item.icon}
         subtitle={item.subtitle}
         disabled={item.disabled}
+        destructive={item.destructive}
         isOn={item.selected}
         onPress={item.onPress}
       >

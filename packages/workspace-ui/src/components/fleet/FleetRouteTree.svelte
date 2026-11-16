@@ -1,34 +1,36 @@
 <script lang="ts">
-  import { ChevronRight, Laptop } from "@lucide/svelte";
+  import { ChevronRight, Laptop, Plus } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
   import { isZoneFull, machineMatches, machinesByZone, rollup, tileFill, toneOf, ZONES, type FleetMachine, type FleetZoneId, type TileColorMode } from "./lib/fleet-model";
 
   /** The map in a narrow pane (D4): the same routes as a tree, with this device
-   *  at the top. A full zone is one row of small tiles that opens the zone. */
+   *  at the top. A full zone is one row of small tiles that opens the zone. The
+   *  found machines (D7) are one row at the end, which opens the Add page. */
   interface Props {
     machines: FleetMachine[];
     colorMode: TileColorMode;
     query: string;
-    selectedId: string | null;
+    foundCount: number;
     onPoint: (serverId: string | null) => void;
-    onSelect: (serverId: string) => void;
+    onOpen: (serverId: string) => void;
     onOpenZone: (zone: FleetZoneId) => void;
+    onAddFound: () => void;
   }
 
-  let { machines, colorMode, query, selectedId, onPoint, onSelect, onOpenZone }: Props = $props();
+  let { machines, colorMode, query, foundCount, onPoint, onOpen, onOpenZone, onAddFound }: Props = $props();
 
   const byZone = $derived(machinesByZone(machines));
   const device = $derived(machines.find((machine) => machine.zone === "device") ?? null);
 </script>
 
 <div class="flex flex-col gap-1 p-3">
-  <div class="flex items-center gap-2.5 rounded-xl border border-(--solus-status-running)/30 bg-background py-2 pr-3 pl-2">
+  <div data-host-id={device?.serverId} class="flex items-center gap-2.5 rounded-xl border border-border/70 bg-background py-2 pr-3 pl-2">
     <FleetLoadRing cpu={device?.cpu ?? null} tone="ok"><Laptop size={13} /></FleetLoadRing>
     <span class="flex min-w-0 flex-1 flex-col">
       <span class="truncate text-[0.8125rem] font-medium">{device?.label ?? "This browser"}</span>
-      <span class="text-chrome-dense text-(--solus-status-running)">This device</span>
+      <span class="text-chrome-dense text-muted-foreground">This device</span>
     </span>
     {#if device?.sessions}<HostStateIcon state="running" count={device.sessions} />{/if}
   </div>
@@ -63,11 +65,11 @@
               <li>
                 <button
                   type="button"
-                  onclick={() => onSelect(machine.serverId)}
+                  data-host-id={machine.serverId}
+                  onclick={() => onOpen(machine.serverId)}
                   onmouseenter={() => onPoint(machine.serverId)}
                   onmouseleave={() => onPoint(null)}
-                  class="flex w-full items-center gap-2.5 overflow-hidden rounded-xl border border-border/60 bg-background py-2 pr-3 pl-2 text-left
-                    {selectedId === machine.serverId ? 'outline-2 outline-offset-2 outline-(--solus-status-running)/60' : ''}"
+                  class="flex w-full items-center gap-2.5 overflow-hidden rounded-xl border border-border/60 bg-background py-2 pr-3 pl-2 text-left hover:bg-(--wash-1)"
                   style:opacity={machineMatches(machine, query) ? 1 : 0.35}
                 >
                   <FleetLoadRing cpu={machine.cpu} tone={toneOf(machine.state)}>
@@ -86,4 +88,17 @@
       </li>
     {/each}
   </ul>
+  {#if foundCount}
+    <button
+      type="button"
+      onclick={onAddFound}
+      class="mt-2 flex h-[3.25rem] items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--hairline-strongest) pr-3 pl-2 text-left text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+    >
+      <span class="grid size-[30px] shrink-0 place-items-center"><Plus size={13} /></span>
+      <span class="flex min-w-0 flex-col gap-0.5">
+        <span class="truncate text-[0.8125rem] font-medium">{foundCount} found nearby</span>
+        <span class="truncate text-chrome-dense">Not added yet</span>
+      </span>
+    </button>
+  {/if}
 </div>

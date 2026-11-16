@@ -14,7 +14,7 @@ export function ThreadListFilters(
     | "onEnvironmentChange"
     | "onProjectChange"
     | "onRemoveProject"
-  >,
+  > & { readonly onAddProject?: () => void },
 ) {
   const selectedEnvironment = props.environments.find(
     (environment) => environment.environmentId === props.selectedEnvironmentId,
@@ -26,7 +26,12 @@ export function ThreadListFilters(
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 10, gap: 8 }}
+      contentContainerStyle={{
+        paddingHorizontal: 16,
+        paddingTop: 2,
+        paddingBottom: 10,
+        gap: 8,
+      }}
     >
       <ListFilterMenu
         label={selectedEnvironment?.label ?? "All hosts"}
@@ -53,7 +58,8 @@ export function ThreadListFilters(
             const environment = props.environments.find(
               (candidate) => JSON.stringify(candidate.environmentId) === id,
             );
-            if (environment) props.onEnvironmentChange(environment.environmentId);
+            if (environment)
+              props.onEnvironmentChange(environment.environmentId);
           }
         }}
       />
@@ -70,9 +76,21 @@ export function ThreadListFilters(
           ...props.projects.map((project) => ({
             id: JSON.stringify(project.key),
             title: project.label,
-            state: project.key === props.selectedProjectKey ? ("on" as const) : ("off" as const),
+            state:
+              project.key === props.selectedProjectKey
+                ? ("on" as const)
+                : ("off" as const),
           })),
-          ...(selectedProject === undefined
+          ...(props.onAddProject
+            ? [
+                {
+                  id: "add-project",
+                  title: "Add project",
+                  image: "folder.badge.plus",
+                },
+              ]
+            : []),
+          ...(!selectedProject?.removable
             ? []
             : [
                 {
@@ -84,10 +102,10 @@ export function ThreadListFilters(
         ]}
         onSelect={(id) => {
           if (id === "all") props.onProjectChange(null);
+          else if (id === "add-project") props.onAddProject?.();
           else if (id === "remove") {
             if (selectedProject) props.onRemoveProject(selectedProject.key);
-          }
-          else {
+          } else {
             const project = props.projects.find(
               (candidate) => JSON.stringify(candidate.key) === id,
             );
@@ -95,7 +113,8 @@ export function ThreadListFilters(
           }
         }}
       />
-      {props.selectedEnvironmentId !== null || props.selectedProjectKey !== null ? (
+      {props.selectedEnvironmentId !== null ||
+      props.selectedProjectKey !== null ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Reset chat filters"
@@ -105,7 +124,11 @@ export function ThreadListFilters(
             props.onProjectChange(null);
           }}
         >
-          <SymbolView name="xmark.circle.fill" size={18} tintColorClassName="accent-icon-muted" />
+          <SymbolView
+            name="xmark.circle.fill"
+            size={18}
+            tintColorClassName="accent-icon-muted"
+          />
         </Pressable>
       ) : null}
     </ScrollView>

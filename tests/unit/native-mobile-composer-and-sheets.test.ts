@@ -6,6 +6,7 @@ import {
   measuredDraftText,
   ONE_ROW_MEASURE_LIMIT,
   oneRowEditorHeight,
+  oneRowEditorInset,
   oneRowMeasureFrame,
   oneRowVerdict,
 } from '../../apps/mobile/src/features/threads/composer-layout'
@@ -58,10 +59,25 @@ describe('compact-until-wrap composer rules (T3 #20812)', () => {
     expect(oneRowVerdict('', [])).toBe(true)
   })
 
-  test('the row keeps the 36-point pill and grows for one full line at large text sizes', () => {
+  test('the editor keeps T3’s 36-point minimum and leaves room for the text insets', () => {
     expect(oneRowEditorHeight(23)).toBe(36)
-    expect(oneRowEditorHeight(41.5)).toBe(42)
+    expect(oneRowEditorHeight(41.5)).toBe(50)
   })
+  test('compact text uses the system-font baseline inset and fits at larger text sizes', () => {
+    const normal = { fontSize: 16, lineHeight: 23 }
+    const large = { fontSize: 24, lineHeight: 35 }
+    expect(oneRowEditorInset(normal, 'ios')).toBe(4)
+    expect(oneRowEditorInset(normal, 'android')).toBe(6)
+    for (const platform of ['ios', 'android'] as const) {
+      const inset = oneRowEditorInset(large, platform)
+      expect(inset).toBeGreaterThanOrEqual(0)
+      expect(oneRowEditorHeight(large.lineHeight, inset)).toBeGreaterThanOrEqual(large.lineHeight + 2 * inset)
+    }
+    const composer = read('src/features/threads/ThreadComposer.tsx')
+    expect(composer).toContain('contentInsetVertical={usesCard ? 4 : rowInset}')
+    expect(composer).not.toContain('rowLineHeight')
+  })
+
 })
 
 /**
@@ -313,12 +329,12 @@ describe('sheet close and apply affordances (T3 #21319)', () => {
     expect(sheet).toContain('onDismiss={props.onClose}')
   })
 
-  test('session settings: X never says Cancel; the confirmation exists only for a staged model', () => {
+  test('session settings: Close dismisses; Save applies a staged model or closes the unchanged picker', () => {
     const settings = read('src/features/threads/ThreadSettingsSheet.tsx')
     expect(settings).not.toContain('Cancel session settings')
     // T3 #21978: both platforms use SheetHeader; iOS shows the checkmark, Android the Save label.
-    expect(settings).toMatch(/session\.pendingModel\s*\?\s*\{ label: "Save session settings", onPress: commitAndClose \}\s*:\s*undefined/)
-    expect(settings).toMatch(/session\.pendingModel \? \{ label: "Save", onPress: commitAndClose \} : undefined/)
+    expect(settings).toContain('confirm={{ label: "Save session settings", onPress: commitAndClose }}')
+    expect(settings).toContain('confirm={{ label: "Save", onPress: commitAndClose }}')
   })
 })
 
@@ -335,7 +351,10 @@ describe('shared sheet header (T3 #21978)', () => {
   test('Android: an X and a labeled confirmation; inline sheets use the embedded bar', () => {
     const header = read('src/components/SheetHeader.android.tsx')
     expect(header).toContain('icon="xmark"')
-    expect(header).toContain('<MaterialButton label={confirmation.label} tone="text" onPress={confirmation.onPress} />')
+    expect(header).toContain('loading={confirmation.loading}')
+    expect(header).toContain('disabled={confirmation.disabled}')
+    expect(header).toContain('onPress={confirmation.onPress}')
+    expect(header).toContain('gestureEnabled: !props.dismissDisabled')
     expect(header).toContain('embedded={props.presentation === "inline"}')
   })
 
@@ -352,8 +371,8 @@ describe('new-thread draft and composer alignment (T3 #23206, #23355, #23366)', 
   test('the draft hero scrolls in the native-marked view and takes its top inset from UIKit, not a fixed iPhone bar height', () => {
     const draft = read('src/features/threads/NewTaskRouteScreen.tsx')
     expect(draft).not.toContain('ios:pt-[72px]')
-    expect(draft).toMatch(/<ScreenScrollView\s+className="flex-1"\s+contentInsetAdjustmentBehavior="automatic"\s+contentContainerClassName="grow items-center pb-\[236px\] pt-12"/)
-    // The title sits beside the X, as T3's editor-style item.
+    expect(draft).toMatch(/<ScreenScrollView\s+className="flex-1"\s+contentInsetAdjustmentBehavior="automatic"\s+contentContainerClassName="grow items-center justify-center pb-\[236px\] pt-12"/)
+    // The title sits beside Back, as T3's draft page does.
     expect(draft).toContain('unstable_navigationItemStyle: "editor"')
   })
 
@@ -367,7 +386,7 @@ describe('new-thread draft and composer alignment (T3 #23206, #23355, #23366)', 
   test('iPad composes from the empty detail or the conversation header, not the sidebar toolbar', () => {
     expect(read('src/features/workspace/WorkspaceToolbar.ios.tsx')).not.toContain('placement="bottom"')
     expect(read('src/features/layout/createWorkspaceStackNavigator.ios.tsx')).toContain('<WorkspaceEmptyDetail onStartNewTask=')
-    expect(read('src/features/threads/useThreadHeaderOptions.tsx')).toContain('accessibilityLabel: "New session"')
+    expect(read('src/features/threads/ThreadRouteScreen.tsx')).toContain('accessibilityLabel="New session"')
   })
 
   test('the iOS composer inset leaves only for a keyboard with height; the iPad takes the composer gutter out of it once', () => {

@@ -742,7 +742,7 @@
 
   <div class="min-h-0 flex-1 overflow-auto" data-sb bind:this={listElement}>
     <Table.Root
-      containerClass="overflow-visible rounded-none border-0 bg-transparent"
+      containerClass="overflow-visible rounded-none border-0 bg-transparent shadow-none dark:bg-transparent"
       class="min-w-full border-separate border-spacing-0 [&_td]:bg-none"
     >
       <Table.Header
@@ -870,7 +870,7 @@
                   class="p-0"
                 >
                   <Table.Root
-                    containerClass="rounded-none border-0 bg-transparent scrollbar-on-hover max-h-30 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [@media(min-height:1000px)]:max-h-50"
+                    containerClass="rounded-none border-0 bg-transparent shadow-none dark:bg-transparent scrollbar-on-hover max-h-30 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [@media(min-height:1000px)]:max-h-50"
                     class="w-[calc(100%+0.5rem)] border-separate border-spacing-0"
                   >
                     <Table.Body class="select-text">

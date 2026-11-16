@@ -110,14 +110,14 @@ describe('session task shortcuts', () => {
     expect(KEYBINDINGS['global.toggle-files'].web).toBeUndefined()
   })
 
-  test('opens Artifacts from the conversation with a key free on desktop and web', () => {
+  test('opens Threads from the conversation with a key free on desktop and web', () => {
     // WHY: what a session produced is a repeated look-up beside the
     // conversation. On web ⌥⇧E belongs to the organization switcher, so the
     // web default must be a different key.
     expect(KEYBINDINGS['conversation.open-artifacts']).toMatchObject({
       combo: { alt: true, shift: true, code: 'KeyE' },
       scope: 'global',
-      label: 'Open artifacts',
+      label: 'Open threads',
       group: 'Conversation',
     })
     expect(KEYBINDINGS['conversation.open-artifacts'].web).not.toEqual(KEYBINDINGS['global.switch-organization'].web)

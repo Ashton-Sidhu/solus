@@ -85,6 +85,12 @@ export async function listOccurrences(appId: string, limit: number, signal?: str
   return z.array(occurrenceRowSchema).parse(rows).map(occurrenceFromRow)
 }
 
+/** The occurrences of an app since a time, newest first: at most `MAX_OCCURRENCES_PER_APP`, so a scan is cheap. */
+export async function listOccurrencesSince(appId: string, since: number, db: Db = getDatabase()): Promise<AppOccurrenceRecord[]> {
+  const rows = await db.all(sql`SELECT * FROM ${appSignals} WHERE app_id = ${appId} AND emitted_at >= ${since} ORDER BY emitted_at DESC, id DESC`)
+  return z.array(occurrenceRowSchema).parse(rows).map(occurrenceFromRow)
+}
+
 /** For each signal of an app: when it was last emitted, and how many times since a time. */
 export async function occurrenceCounts(appId: string, since: number, db: Db = getDatabase()): Promise<Map<string, { lastEmittedAt: number; countSince: number }>> {
   const rows = z.array(z.object({ name: z.string(), last: z.coerce.number(), recent: z.coerce.number() })).parse(await db.all(sql`

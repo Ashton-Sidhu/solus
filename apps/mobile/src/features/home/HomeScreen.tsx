@@ -2,7 +2,15 @@
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -19,9 +27,12 @@ import { cn } from "../../lib/cn";
 import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
-import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
+import { ScreenScrollView } from "../../components/ScreenScrollView";
 import { NativePrimaryColumnContext } from "../../native/v5-workspace-context";
-import type { SolusProjectShell, SolusThreadShell } from "../threads/thread-directory";
+import type {
+  SolusProjectShell,
+  SolusThreadShell,
+} from "../threads/thread-directory";
 import {
   ThreadListV2ArchivedSectionHeader,
   ThreadListV2Row,
@@ -35,6 +46,7 @@ import {
   buildThreadListV2ListItems,
   threadListV2ListItemsAreEqual,
   threadFaviconRoot,
+  CHATS_SCOPE_KEY,
   threadProjectFallbackTitle,
   threadProjectKey,
   THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
@@ -46,9 +58,15 @@ import {
 import { ThreadListClock } from "../threads/thread-list-clock";
 import type { ThreadListShelfExpansion } from "../threads/thread-list-state";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
-import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
+import {
+  buildHomeProjectScopes,
+  sortHomeProjectScopes,
+} from "./homeThreadList";
 import { createSwipeRowActivation } from "./swipe-row-activation";
-import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
+import {
+  SwipeableScrollGateProvider,
+  useSwipeableScrollGate,
+} from "./thread-swipe-actions";
 import { useMaterialFabScroll } from "./MaterialFabScrollContext";
 import { deriveHomeEmptyState } from "./home-empty-state";
 import { SessionSearchResults } from "./SessionSearchResults";
@@ -77,12 +95,19 @@ interface HomeScreenProps {
   readonly onSelectThread: (thread: SolusThreadShell) => void;
   /** Resolves true iff the settle was dispatched and succeeded. */
   readonly onSettleThread: (thread: SolusThreadShell) => Promise<boolean>;
-  readonly onSnoozeThread: (thread: SolusThreadShell, snoozedUntil: number) => Promise<boolean>;
+  readonly onSnoozeThread: (
+    thread: SolusThreadShell,
+    snoozedUntil: number,
+  ) => Promise<boolean>;
   readonly onUnsnoozeThread: (thread: SolusThreadShell) => Promise<boolean>;
   readonly onUnsettleThread: (thread: SolusThreadShell) => void;
   readonly onArchiveThread: (thread: SolusThreadShell) => void;
   readonly onUnarchiveThread: (thread: SolusThreadShell) => void;
-  readonly onSetPullRequestWatch: (thread: SolusThreadShell, target: ThreadPrWatchTarget, watching: boolean) => void;
+  readonly onSetPullRequestWatch: (
+    thread: SolusThreadShell,
+    target: ThreadPrWatchTarget,
+    watching: boolean,
+  ) => void;
   readonly onRenameThread: (thread: SolusThreadShell) => void;
   readonly onToggleShelf: (shelf: keyof ThreadListShelfExpansion) => void;
 }
@@ -117,7 +142,9 @@ function HomeEmptyButton(props: {
       <Text
         className={cn(
           "text-sm font-t3-bold",
-          props.tone === "primary" ? "text-primary-foreground" : "text-primary-text",
+          props.tone === "primary"
+            ? "text-primary-foreground"
+            : "text-primary-text",
         )}
       >
         {props.label}
@@ -163,21 +190,28 @@ export function HomeScreen(props: HomeScreenProps) {
       const state = listRef.current?.getState();
       if (state === undefined || !(state.end >= 0)) return;
       swipeRowActivation.activate(
-        rows.slice(Math.max(0, state.start - 2), state.end + 3).map((row) => row.key),
+        rows
+          .slice(Math.max(0, state.start - 2), state.end + 3)
+          .map((row) => row.key),
       );
     },
     [swipeRowActivation],
   );
   // Status-bar, accessibility and programmatic scrolls never arm the scroll
   // gate, so every scroll also activates the visible rows once it settles.
-  const activationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const activationTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   useEffect(() => () => clearTimeout(activationTimerRef.current), []);
   const handleListScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       onMaterialFabScroll?.(event);
       clearTimeout(activationTimerRef.current);
       activationTimerRef.current = setTimeout(
-        () => activateVisibleRows((listRef.current?.getState().data ?? []) as ThreadListV2ListItem[]),
+        () =>
+          activateVisibleRows(
+            (listRef.current?.getState().data ?? []) as ThreadListV2ListItem[],
+          ),
         200,
       );
     },
@@ -212,7 +246,12 @@ export function HomeScreen(props: HomeScreenProps) {
         threads: props.threads,
         knownProjectKeys,
       }),
-    [knownProjectKeys, props.projects, props.selectedEnvironmentId, props.threads],
+    [
+      knownProjectKeys,
+      props.projects,
+      props.selectedEnvironmentId,
+      props.threads,
+    ],
   );
   const hasSearchQuery = props.searchQuery.trim().length > 0;
   const projectByKey = useMemo(() => {
@@ -226,14 +265,19 @@ export function HomeScreen(props: HomeScreenProps) {
     () =>
       v2ProjectScopeKey === null
         ? null
-        : (projectScopes.find((scope) => scope.key === v2ProjectScopeKey) ?? null),
+        : (projectScopes.find((scope) => scope.key === v2ProjectScopeKey) ??
+          null),
     [v2ProjectScopeKey, projectScopes],
   );
+  const chatsOnly = v2ProjectScopeKey === CHATS_SCOPE_KEY;
   const v2ProjectTitleByProjectKey = useMemo(
     () =>
       new Map(
         projectScopes.flatMap((scope) =>
-          Array.from(scope.projectKeys, (projectKey) => [projectKey, scope.title] as const),
+          Array.from(
+            scope.projectKeys,
+            (projectKey) => [projectKey, scope.title] as const,
+          ),
         ),
       ),
     [projectScopes],
@@ -243,7 +287,8 @@ export function HomeScreen(props: HomeScreenProps) {
   const handleSettleThread = props.onSettleThread;
   // Called as plain functions: a call through `props.` makes all of props the
   // dependency, which the React Compiler cannot match to these callbacks.
-  const { onSnoozeThread, onUnsnoozeThread, onRenameThread, onToggleShelf } = props;
+  const { onSnoozeThread, onUnsnoozeThread, onRenameThread, onToggleShelf } =
+    props;
   const handleSnoozeThread = useCallback(
     (thread: SolusThreadShell, snoozedUntil: number) => {
       void onSnoozeThread(thread, snoozedUntil);
@@ -267,19 +312,29 @@ export function HomeScreen(props: HomeScreenProps) {
     THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   );
   const settledResetKey = `${props.selectedEnvironmentId ?? "all"}:${v2ProjectScopeKey ?? "all"}:${props.searchQuery.trim()}`;
-  const [lastSettledResetKey, setLastSettledResetKey] = useState(settledResetKey);
+  const [lastSettledResetKey, setLastSettledResetKey] =
+    useState(settledResetKey);
   if (lastSettledResetKey !== settledResetKey) {
     setLastSettledResetKey(settledResetKey);
     setSettledVisibleCount(THREAD_LIST_V2_SETTLED_INITIAL_COUNT);
   }
   const showMoreSettled = useCallback(
-    () => setSettledVisibleCount((count) => count + THREAD_LIST_V2_SETTLED_PAGE_COUNT),
+    () =>
+      setSettledVisibleCount(
+        (count) => count + THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+      ),
     [],
   );
   const settledShelfExpanded = props.shelfExpansion.settled;
   const snoozedShelfExpanded = props.shelfExpansion.snoozed;
-  const toggleSettledShelf = useCallback(() => onToggleShelf("settled"), [onToggleShelf]);
-  const toggleSnoozedShelf = useCallback(() => onToggleShelf("snoozed"), [onToggleShelf]);
+  const toggleSettledShelf = useCallback(
+    () => onToggleShelf("settled"),
+    [onToggleShelf],
+  );
+  const toggleSnoozedShelf = useCallback(
+    () => onToggleShelf("snoozed"),
+    [onToggleShelf],
+  );
   // Rows read their times and snooze menus from this clock while the list is focused.
   const [clock] = useState(() => new ThreadListClock());
   // Snooze wake times are second-precise; a counter bumped exactly at the
@@ -294,7 +349,11 @@ export function HomeScreen(props: HomeScreenProps) {
         unlistedThreads: props.unlistedThreads,
         facts: props.facts,
         hostId: props.selectedEnvironmentId,
-        projectKeys: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectKeys,
+        projectKeys:
+          v2ScopedProjectGroup === null
+            ? null
+            : v2ScopedProjectGroup.projectKeys,
+        chatsOnly,
         knownProjectKeys,
         searchQuery: props.searchQuery,
         settledLimit: settledVisibleCount,
@@ -316,6 +375,7 @@ export function HomeScreen(props: HomeScreenProps) {
       props.threads,
       props.unlistedThreads,
       v2ScopedProjectGroup,
+      chatsOnly,
     ],
   );
   // Re-partition the moment the earliest snooze expires (clamped to the
@@ -323,8 +383,14 @@ export function HomeScreen(props: HomeScreenProps) {
   const nextSnoozeWakeAt = threadListV2Layout.nextSnoozeWakeAt;
   useEffect(() => {
     if (nextSnoozeWakeAt === null) return;
-    const delayMs = Math.min(Math.max(0, nextSnoozeWakeAt - Date.now()) + 50, 2_147_483_647);
-    const id = setTimeout(() => bumpSnoozeWakeTick((tick) => tick + 1), delayMs);
+    const delayMs = Math.min(
+      Math.max(0, nextSnoozeWakeAt - Date.now()) + 50,
+      2_147_483_647,
+    );
+    const id = setTimeout(
+      () => bumpSnoozeWakeTick((tick) => tick + 1),
+      delayMs,
+    );
     return () => clearTimeout(id);
     // snoozeWakeTick must re-arm the timer even when nextSnoozeWakeAt is
     // unchanged: after a clamped fire the boundary is identical and the chain
@@ -348,7 +414,12 @@ export function HomeScreen(props: HomeScreenProps) {
         archivedCount: threadListV2Layout.archivedCount,
         archivedHeaderIndex: threadListV2Layout.archivedHeaderIndex,
       }),
-    [props.facts, settledShelfExpanded, snoozedShelfExpanded, threadListV2Layout],
+    [
+      props.facts,
+      settledShelfExpanded,
+      snoozedShelfExpanded,
+      threadListV2Layout,
+    ],
   );
 
   useEffect(() => {
@@ -356,7 +427,8 @@ export function HomeScreen(props: HomeScreenProps) {
   }, [activateVisibleRows, swipeEnabled, threadListV2Items]);
 
   const environmentLabelFor = useCallback(
-    (thread: SolusThreadShell) => (props.environments.length > 1 ? thread.hostLabel : null),
+    (thread: SolusThreadShell) =>
+      props.environments.length > 1 ? thread.hostLabel : null,
     [props.environments.length],
   );
 
@@ -411,9 +483,13 @@ export function HomeScreen(props: HomeScreenProps) {
           showTrailingDivider={item.showTrailingDivider}
           pane={primaryColumn ? "sidebar" : "screen"}
           selected={thread.key === selectedThreadKey}
-          projectPath={threadFaviconRoot(thread.record, project?.project.path ?? null)}
+          projectPath={threadFaviconRoot(
+            thread.record,
+            project?.project.path ?? null,
+          )}
           projectTitle={
-            v2ProjectTitleByProjectKey.get(projectKey) ?? threadProjectFallbackTitle(thread.record)
+            v2ProjectTitleByProjectKey.get(projectKey) ??
+            threadProjectFallbackTitle(thread.record)
           }
           environmentLabel={environmentLabelFor(thread)}
           onSelectThread={props.onSelectThread}
@@ -454,7 +530,10 @@ export function HomeScreen(props: HomeScreenProps) {
       v2ProjectTitleByProjectKey,
     ],
   );
-  const v2KeyExtractor = useCallback((item: ThreadListV2ListItem) => item.key, []);
+  const v2KeyExtractor = useCallback(
+    (item: ThreadListV2ListItem) => item.key,
+    [],
+  );
 
   // FlatList/LegendList treat a changed extraData identity as "re-render every
   // visible row", so an inline object literal would invalidate all rows on
@@ -467,7 +546,12 @@ export function HomeScreen(props: HomeScreenProps) {
       environmentCount: props.environments.length,
       selectedThreadKey,
     }),
-    [projectByKey, props.environments.length, selectedThreadKey, v2ProjectTitleByProjectKey],
+    [
+      projectByKey,
+      props.environments.length,
+      selectedThreadKey,
+      v2ProjectTitleByProjectKey,
+    ],
   );
 
   /* Empty states */
@@ -481,7 +565,8 @@ export function HomeScreen(props: HomeScreenProps) {
     props.selectedEnvironmentId === null
       ? null
       : (props.environments.find(
-          (environment) => environment.environmentId === props.selectedEnvironmentId,
+          (environment) =>
+            environment.environmentId === props.selectedEnvironmentId,
         )?.label ?? "this host");
   // Connection state surfaces in the header title slot
   // (WorkspaceConnectionTitle) — nothing renders inside the list, so
@@ -491,57 +576,79 @@ export function HomeScreen(props: HomeScreenProps) {
     projectCount: props.projects.length,
   });
 
+  const contentBackground = primaryColumn ? "bg-drawer" : "bg-screen";
+
   if (!hasAnyThreads) {
     return (
-      <View className="flex-1 bg-drawer">
-        <View
-          className={cn(
-            "flex-1 items-center justify-center bg-drawer px-8",
-            Platform.OS === "android" && "overflow-hidden rounded-t-[28px]",
-          )}
-          style={{
-            paddingBottom: Math.max(insets.bottom, 24),
-            paddingTop: NATIVE_LIQUID_GLASS_SUPPORTED ? insets.top + 72 : 0,
-          }}
+      <View className={cn("flex-1", contentBackground)}>
+        <ScreenScrollView
+          className="flex-1"
+          contentContainerClassName="grow"
+          contentInsetAdjustmentBehavior="automatic"
         >
-          <View className="w-full max-w-[430px]">
-            <EmptyState
-              title={emptyState.title}
-              detail={emptyState.detail}
-              action={
-                emptyState.action === "add-host" ? (
-                  Platform.OS === "android" ? (
-                    <MaterialFloatingActionButton
-                      label="Add host"
-                      icon="plus"
-                      variant="extended"
-                      tone="primary"
-                      onPress={props.onAddConnection}
-                    />
-                  ) : (
-                    <HomeEmptyButton label="Add host" tone="primary" onPress={props.onAddConnection} />
-                  )
-                ) : emptyState.action === "retry-hosts" ? (
-                  <View className="items-center gap-2">
-                    <HomeEmptyButton label="Try again" tone="primary" onPress={props.onRetryHosts} />
-                    <HomeEmptyButton label="Manage hosts" tone="plain" onPress={props.onOpenHosts} />
-                  </View>
-                ) : undefined
-              }
-              variant="plain"
-            />
-            {emptyState.loading ? (
-              <View className="mt-4 items-center">
-                <ActivityIndicator colorClassName="accent-icon-muted" />
-              </View>
-            ) : null}
+          {props.listFilters}
+          <View
+            className={cn(
+              "flex-1 items-center justify-center px-8",
+              contentBackground,
+              Platform.OS === "android" && "overflow-hidden rounded-t-[28px]",
+            )}
+            style={{
+              paddingBottom: Math.max(insets.bottom, 24),
+            }}
+          >
+            <View className="w-full max-w-[430px]">
+              <EmptyState
+                title={emptyState.title}
+                detail={emptyState.detail}
+                action={
+                  emptyState.action === "add-host" ? (
+                    Platform.OS === "android" ? (
+                      <MaterialFloatingActionButton
+                        label="Add host"
+                        icon="plus"
+                        variant="extended"
+                        tone="primary"
+                        onPress={props.onAddConnection}
+                      />
+                    ) : (
+                      <HomeEmptyButton
+                        label="Add host"
+                        tone="primary"
+                        onPress={props.onAddConnection}
+                      />
+                    )
+                  ) : emptyState.action === "retry-hosts" ? (
+                    <View className="items-center gap-2">
+                      <HomeEmptyButton
+                        label="Try again"
+                        tone="primary"
+                        onPress={props.onRetryHosts}
+                      />
+                      <HomeEmptyButton
+                        label="Manage hosts"
+                        tone="plain"
+                        onPress={props.onOpenHosts}
+                      />
+                    </View>
+                  ) : undefined
+                }
+                variant="plain"
+              />
+              {emptyState.loading ? (
+                <View className="mt-4 items-center">
+                  <ActivityIndicator colorClassName="accent-icon-muted" />
+                </View>
+              ) : null}
+            </View>
           </View>
-        </View>
+        </ScreenScrollView>
       </View>
     );
   }
 
-  const listHeader = Platform.OS === "ios" ? undefined : <HomeTopContentSpacer />;
+  const listHeader =
+    Platform.OS === "ios" ? undefined : <HomeTopContentSpacer />;
 
   // Project scoping lives in the header filter menu on Android and in the
   // filter pills above the list on iOS.
@@ -566,6 +673,12 @@ export function HomeScreen(props: HomeScreenProps) {
       detail="Choose another project or start a new session."
       variant={Platform.OS === "android" ? "plain" : undefined}
     />
+  ) : chatsOnly ? (
+    <EmptyState
+      title="No chats"
+      detail="Choose a project or start a new chat."
+      variant={Platform.OS === "android" ? "plain" : undefined}
+    />
   ) : selectedEnvironmentLabel ? (
     <EmptyState
       title={`No sessions in ${selectedEnvironmentLabel}`}
@@ -580,13 +693,29 @@ export function HomeScreen(props: HomeScreenProps) {
     />
   );
 
-  if (hasSearchQuery) return <SessionSearchResults query={props.searchQuery} hostId={props.selectedEnvironmentId} projects={props.projects} threads={props.threads} unlistedThreads={props.unlistedThreads} projectKeys={v2ScopedProjectGroup?.projectKeys ?? null} header={v2ListHeader} onSelect={props.onSelectThread} />;
+  if (hasSearchQuery)
+    return (
+      <SessionSearchResults
+        query={props.searchQuery}
+        hostId={props.selectedEnvironmentId}
+        projects={props.projects}
+        threads={props.threads}
+        unlistedThreads={props.unlistedThreads}
+        projectKeys={v2ScopedProjectGroup?.projectKeys ?? null}
+        chatsOnly={chatsOnly}
+        header={v2ListHeader}
+        onSelect={props.onSelectThread}
+      />
+    );
 
   if (Platform.OS === "android" && threadListV2Items.length === 0) {
     return (
-      <View className="flex-1 bg-drawer">
+      <View className={cn("flex-1", contentBackground)}>
         <View
-          className="flex-1 items-center justify-center overflow-hidden rounded-t-[28px] bg-drawer px-4"
+          className={cn(
+            "flex-1 items-center justify-center overflow-hidden rounded-t-[28px] px-4",
+            contentBackground,
+          )}
           style={{ paddingBottom: insets.bottom }}
         >
           {v2ListEmpty}
@@ -596,18 +725,21 @@ export function HomeScreen(props: HomeScreenProps) {
   }
 
   return (
-    <View className="flex-1 bg-drawer">
+    <View className={cn("flex-1", contentBackground)}>
       <View
         className={
           Platform.OS === "android"
-            ? "flex-1 overflow-hidden rounded-t-[28px] bg-drawer"
-            : "flex-1 bg-drawer"
+            ? cn("flex-1 overflow-hidden rounded-t-[28px]", contentBackground)
+            : cn("flex-1", contentBackground)
         }
       >
         {/* Shared with the iPad sidebar: cells are reused across data
             rebuilds and `itemsAreEqual` keeps a minute tick (or an unrelated
             shell update) from re-rendering untouched rows. */}
-        <SwipeableScrollGateProvider enabled={swipeEnabled} activation={swipeRowActivation}>
+        <SwipeableScrollGateProvider
+          enabled={swipeEnabled}
+          activation={swipeRowActivation}
+        >
           <LegendList
             ref={listRef}
             onLoad={() => activateVisibleRows(threadListV2Items)}
@@ -625,7 +757,8 @@ export function HomeScreen(props: HomeScreenProps) {
             extraData={v2ExtraData}
             ListHeaderComponent={v2ListHeader}
             ListFooterComponent={
-              settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0 ? (
+              settledShelfExpanded &&
+              threadListV2Layout.hiddenSettledCount > 0 ? (
                 <ThreadListV2ShowMoreRow
                   hiddenCount={threadListV2Layout.hiddenSettledCount}
                   onPress={showMoreSettled}
@@ -635,7 +768,9 @@ export function HomeScreen(props: HomeScreenProps) {
             ListEmptyComponent={v2ListEmpty}
             style={{ flex: 1 }}
             automaticallyAdjustsScrollIndicatorInsets={Platform.OS === "ios"}
-            contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "automatic" : "never"}
+            contentInsetAdjustmentBehavior={
+              Platform.OS === "ios" ? "automatic" : "never"
+            }
             showsVerticalScrollIndicator={false}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
@@ -645,7 +780,8 @@ export function HomeScreen(props: HomeScreenProps) {
               paddingBottom:
                 Platform.OS === "ios"
                   ? Math.max(insets.bottom, 24) + 16
-                  : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? fabClearance : 88),
+                  : Math.max(insets.bottom, 16) +
+                    (Platform.OS === "android" ? fabClearance : 88),
             }}
           />
         </SwipeableScrollGateProvider>

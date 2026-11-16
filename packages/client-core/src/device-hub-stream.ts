@@ -41,6 +41,7 @@ const RETRY_DELAY_MS = 1_000
 const SOCKET_OPEN_TIMEOUT_MS = 5_000
 const KEYFRAME_REQUEST_INTERVAL_MS = 2_000
 const PRIME_TIMEOUT_MS = 2_000
+const VIDEO_STALL_TIMEOUT_MS = 15_000
 /** A signed URL opens connections for a minute; reuse it for half of that. */
 const URL_REUSE_MS = 30_000
 /** Android wheel bursts use a finger drag, lifted shortly after the wheel stops. */
@@ -59,12 +60,13 @@ export type DeviceVideoFormat = 'h264' | 'jpeg'
  * - `config`: decoder configuration. `format: 'avcc'` carries the avcC record
  *   as bytes; `annexb` carries no bytes (parameter sets ride in keyframes).
  * - `key` / `delta`: one encoded access unit.
- * - `jpeg`: one whole image (MJPEG fallback and iOS seed frames).
+ * - `jpeg`: one whole live image from the MJPEG fallback.
+ * - `seed`: a cached bootstrap JPEG, which must not overwrite live video.
  * - `screen`: no bytes; the device screen changed.
  * - `ended`: no bytes; the stream cannot continue (reason in `detail`).
  */
 export interface DeviceVideoPacket {
-  kind: 'config' | 'key' | 'delta' | 'jpeg' | 'screen' | 'ended'
+  kind: 'config' | 'key' | 'delta' | 'jpeg' | 'seed' | 'screen' | 'ended' | 'connecting'
   /** Increases whenever the hub stream restarts: nothing decodable carries over. */
   streamGeneration: number
   codec?: string
@@ -171,14 +173,25 @@ export class DeviceHubStream {
   }
 
   /** Read one long-lived body until it ends, the stream closes, or `onChunk` stops it. */
-  private async read(route: string, onChunk: (chunk: Uint8Array, stop: () => void) => void, timeoutMs?: number, onStart?: (abort: AbortController) => void): Promise<void> {
+  private async read(route: string, onChunk: (chunk: Uint8Array, stop: () => void) => void, timeoutMs?: number, onStart?: (abort: AbortController) => void, idleTimeoutMs?: number): Promise<void> {
     const abort = new AbortController()
     this.aborts.add(abort)
     onStart?.(abort)
     const timer = timeoutMs === undefined ? null : setTimeout(() => abort.abort(), timeoutMs)
+    let cancelIdle: (() => void) | undefined
+    const watch = () => {
+      cancelIdle?.()
+      if (idleTimeoutMs !== undefined) cancelIdle = this.setTimer(() => abort.abort(), idleTimeoutMs)
+    }
     try {
-      await this.upstream.readBody(`${await this.base()}/${route}`, abort.signal, (chunk) => onChunk(chunk, () => abort.abort()))
+      const url = `${await this.base()}/${route}`
+      watch()
+      await this.upstream.readBody(url, abort.signal, (chunk) => {
+        watch()
+        onChunk(chunk, () => abort.abort())
+      })
     } finally {
+      cancelIdle?.()
       if (timer) clearTimeout(timer)
       this.aborts.delete(abort)
     }
@@ -193,16 +206,16 @@ export class DeviceHubStream {
           const splitter = new MjpegSplitter()
           await this.read(route, (chunk) => {
             for (const image of splitter.push(chunk)) this.emit({ kind: 'jpeg' }, image)
-          })
+          }, undefined, (abort) => { this.videoRead = abort }, VIDEO_STALL_TIMEOUT_MS)
         } else {
           const demuxer = new AvccDemuxer()
           await this.read(route, (chunk) => {
             for (const envelope of demuxer.push(chunk)) {
               if (envelope.type === 'description') this.emit({ kind: 'config', codec: avcCodecString(envelope.payload), format: 'avcc' }, envelope.payload)
-              else if (envelope.type === 'seed') this.emit({ kind: 'jpeg' }, envelope.payload)
+              else if (envelope.type === 'seed') this.emit({ kind: 'seed' }, envelope.payload)
               else this.emit({ kind: envelope.type === 'keyframe' ? 'key' : 'delta' }, envelope.payload)
             }
-          }, undefined, (abort) => { this.videoRead = abort })
+          }, undefined, (abort) => { this.videoRead = abort }, VIDEO_STALL_TIMEOUT_MS)
         }
       } catch (error) {
         if (error instanceof DeviceStreamEnded) return this.end(error)
@@ -211,6 +224,7 @@ export class DeviceHubStream {
       if (this.closed) return
       // The hub stream restarted: everything decodable before it is gone.
       this.streamGeneration++
+      this.emit({ kind: 'connecting' })
       // A keyframe request ended the read on purpose: read again at once.
       if (this.restartVideo) {
         this.restartVideo = false

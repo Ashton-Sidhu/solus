@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { appearanceSettings as settingItems } from "./lib/settings-search-data";
   /** Theme and type are personal: no host frame, and they follow the person to
    *  every host (and every client, with sync on). An installed font is this
@@ -21,6 +23,7 @@
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import ThemeModeTiles from "./ThemeModeTiles.svelte";
+  import ThemeCssField from "./ThemeCssField.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   // Each font pair (family, then size) closes with the surface it changes, so
   // a choice is judged on the real thing rather than on the picker's label.
@@ -29,6 +32,8 @@
   import DocumentFontPreview from "./DocumentFontPreview.svelte";
   import CodeFontPreview from "./CodeFontPreview.svelte";
   import ProjectPanelItemsMenu from "../project-panel/ProjectPanelItemsMenu.svelte";
+  import SidebarPlacesMenu from "../session/SidebarPlacesMenu.svelte";
+  import { isPlacesLayoutChanged } from "../../lib/sidebar-places";
   import FontSizeSelect from "./FontSizeSelect.svelte";
 
   interface Props {
@@ -56,6 +61,8 @@
 
   let panelItemsMenuOpen = $state(false);
   let panelItemsTrigger = $state<HTMLElement | null>(null);
+  let placesMenuOpen = $state(false);
+  let placesTrigger = $state<HTMLElement | null>(null);
 
   const conversationWidths: ReadonlyArray<{ value: ConversationWidth; label: string }> = [
     { value: "narrow", label: "Narrow" },
@@ -64,13 +71,7 @@
   ];
 
 
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    const item = settingItems.find((s) => s.id === id);
-    if (!item) return true;
-    const q = searchQuery.toLowerCase();
-    return item.keywords.some((k) => k.includes(q));
-  }
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
   const FONT_LABELS = {
     fontFamily: "Interface font",
@@ -107,17 +108,24 @@
   const showAdvanced = $derived(theme.typographyAdvanced || searchQuery.length > 0);
 </script>
 
-<SettingsSection label="Theme" visible={isVisible("theme")} plain>
+<SettingsSection {...settingsDefinitions["appearance.section-theme"]} visible={isVisible("theme")} plain>
   <ThemeModeTiles
     value={theme.themeMode}
     onSelect={(mode) => theme.setPersonal("themeMode", mode)}
   />
 </SettingsSection>
 
-<SettingsSection label="Layout" visible={["conversation-width", "sidebar-view", "project-panel-items"].some(isVisible)}>
+<SettingsSection {...settingsDefinitions["appearance.section-custom-theme"]} visible={isVisible("custom-css")}>
+  <SettingsRow {...settingsDefinitions["appearance.custom-css"]} visible={isVisible("custom-css")}>
+    {#snippet body()}
+      <ThemeCssField />
+    {/snippet}
+  </SettingsRow>
+</SettingsSection>
+
+<SettingsSection {...settingsDefinitions["appearance.section-layout"]} visible={["conversation-width", "sidebar-view", "sidebar-places", "project-panel-items"].some(isVisible)}>
   <SettingsRow
-    label="Conversation width"
-    description="How wide messages run in the conversation pane. Narrow panes always fill their width."
+    {...settingsDefinitions["appearance.conversation-width"]}
     visible={isVisible("conversation-width")}
   >
     {#snippet control()}
@@ -131,8 +139,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Sidebar view"
-    description="Group sessions by status, or in one folder per project."
+    {...settingsDefinitions["appearance.sidebar-view"]}
     visible={isVisible("sidebar-view")}
   >
     {#snippet control()}
@@ -146,8 +153,37 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Project panel"
-    description="The sections the project panel shows, and the rows in each. Right-click the panel to change them there."
+    {...settingsDefinitions["appearance.sidebar-places"]}
+    visible={isVisible("sidebar-places")}
+  >
+    {#snippet control()}
+      {#if isPlacesLayoutChanged(theme.sidebarPlaces)}
+        <Button variant="ghost" size="sm" onclick={() => theme.setPersonal("sidebarPlaces", { order: [], hidden: [] })}>
+          Reset
+        </Button>
+      {/if}
+      <Button
+        bind:ref={placesTrigger}
+        variant="outline"
+        size="sm"
+        aria-haspopup="menu"
+        aria-expanded={placesMenuOpen}
+        onclick={() => (placesMenuOpen = !placesMenuOpen)}
+      >
+        Choose…
+      </Button>
+      <SidebarPlacesMenu
+        bind:open={placesMenuOpen}
+        anchor={placesTrigger}
+        side="bottom"
+        align="end"
+        focusOnClose="anchor"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    {...settingsDefinitions["appearance.project-panel-items"]}
     visible={isVisible("project-panel-items")}
   >
     {#snippet control()}
@@ -178,10 +214,9 @@
 </SettingsSection>
 
 <!-- Decoration on this device: layout keys, not synced (docs/plans/sidebar-places-and-sky.md). -->
-<SettingsSection label="Sky" visible={["sky-scene", "sidebar-sky", "draft-mark"].some(isVisible)}>
+<SettingsSection {...settingsDefinitions["appearance.section-sky"]} visible={["sky-scene", "sidebar-sky", "draft-mark"].some(isVisible)}>
   <SettingsRow
-    label="Scene"
-    description="Time of day changes the scene at 05:00, 09:00, 17:00, and 21:00 on this device's clock. Or keep one scene."
+    {...settingsDefinitions["appearance.sky-scene"]}
     visible={isVisible("sky-scene")}
   >
     {#snippet control()}
@@ -195,8 +230,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Sky in the sidebar"
-    description="The picture behind the title bar of the session sidebar."
+    {...settingsDefinitions["appearance.sidebar-sky"]}
     visible={isVisible("sidebar-sky")}
   >
     {#snippet control()}
@@ -210,8 +244,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Mark on the new-tab home"
-    description="The Solus mark in dots behind the input bar of a new session, in the colours of the scene."
+    {...settingsDefinitions["appearance.draft-mark"]}
     visible={isVisible("draft-mark")}
   >
     {#snippet control()}
@@ -226,7 +259,7 @@
 </SettingsSection>
 
 <SettingsSection
-  label="Typography"
+  {...settingsDefinitions["appearance.section-typography"]}
   visible={[
     "font-family",
     "font-size",
@@ -255,8 +288,7 @@
   {/snippet}
 
   <SettingsRow
-    label="Interface font"
-    description="Everything outside code blocks and diffs."
+    {...settingsDefinitions["appearance.font-family"]}
     visible={isVisible("font-family") || isVisible("font-size")}
   >
     {#snippet control()}
@@ -280,8 +312,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Prompt font"
-    description="The prompt box only. Mono works well."
+    {...settingsDefinitions["appearance.prompt-font-family"]}
     visible={showAdvanced && (isVisible("prompt-font-family") || isVisible("prompt-font-size"))}
   >
     {#snippet control()}
@@ -305,8 +336,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Document font"
-    description="Document and plan editors."
+    {...settingsDefinitions["appearance.document-font-family"]}
     visible={showAdvanced &&
       (isVisible("document-font-family") || isVisible("document-font-size"))}
   >
@@ -331,8 +361,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Code font"
-    description="Diffs and code blocks."
+    {...settingsDefinitions["appearance.code-font-family"]}
     visible={isVisible("code-font-family") || isVisible("code-font-size")}
   >
     {#snippet control()}
@@ -357,8 +386,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Reply text opacity"
-    description="How strong the agent's reply text reads. Headings stay at full strength."
+    {...settingsDefinitions["appearance.reply-opacity"]}
     visible={isVisible("reply-opacity")}
   >
     {#snippet control()}
@@ -379,8 +407,7 @@
   <!-- Only macOS engines honor -webkit-font-smoothing, so the switch would be
        inert anywhere else. -->
   <SettingsRow
-    label="Font smoothing"
-    description="Thinner grayscale smoothing than the macOS default."
+    {...settingsDefinitions["appearance.font-smoothing"]}
     visible={showAdvanced && IS_MAC_OS && isVisible("font-smoothing")}
   >
     {#snippet control()}
@@ -396,8 +423,7 @@
 
 <!-- Only when a font installed on this device masks a synced choice. -->
 <SettingsSection
-  label="Installed fonts"
-  description="A font installed on this device stays here. Other devices keep your synced choice."
+  {...settingsDefinitions["appearance.section-installed-fonts"]}
   visible={fontOverrides.length > 0 && isVisible("installed-fonts")}
 >
   {#each fontOverrides as override (override.key)}

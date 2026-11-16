@@ -72,6 +72,10 @@ class FakeDriver implements BrowserSurfaceDriver {
   dialogs() {
     return { open: null, last: null }
   }
+  watchGuest(): void {}
+  async answerFileChooser(): Promise<boolean> {
+    return false
+  }
 
   screencasts: BrowserScreencastOptions[] = []
   screencastStops = 0

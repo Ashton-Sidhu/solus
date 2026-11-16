@@ -13,6 +13,10 @@ for the status, the "finished" notification, the restart record, and the
 power-save blocker:
 
 - A sub-agent always holds.
+- A Solus session that the agent sent work to with a report (`start_sessions`
+  or `send_session`, not `independent`) holds until it reports. The session
+  has no provider run while it waits, so the orchestrator's open messages are
+  the fact (`isAwaitingReplies`), not a task id.
 - A Codex command holds by default. The agent can call `background_wait` with
   `waiting: false` to leave a dev server or watcher running without holding
   the turn. Tests, builds, and commands whose results are needed keep holding.
@@ -66,11 +70,12 @@ that must outlive the session is an automation (`create_automation`). See
 |---|---|
 | A turn ends while held work runs | `background`. The turn does not settle and does not notify. A Codex turn that failed shows its error at once, then waits in `background` too. |
 | A background task finishes on its own | The agent wakes with the result in a new turn. That turn settles once, as usual. A nested Codex native sub-agent (one that another sub-agent started) wakes nobody: when the last task has ended, the session settles. |
-| The person stops the work from the background row, or Stop on mobile | Only the tasks stop, and the session settles as `completed`. Claude's SDK first gives the agent a turn to react; Codex does not wake the agent. |
+| A session the agent sent work to reports | The report wakes the agent in a new turn. While other sessions have still to report, that turn ends in `background` again. When the last message settles with no report to deliver, the session settles as `completed`. |
+| The person stops the work from the background row, or Stop on mobile | Only the tasks stop, and the session settles as `completed`. Claude's SDK first gives the agent a turn to react; Codex does not wake the agent. A session that waits on reports stops the sessions it started for that work, stops waiting, and settles as `completed` without a wake. |
 | The background work of a failed Codex turn ends | The session settles as `failed`, once. |
 | The person stops the session (Stop shortcut, `stop_session`) | The tasks stop and the session settles as `interrupted`. |
 | A turn ends while only unmarked shells, Monitors, or Codex commands run | `completed`. The turn settles and notifies. The background row and its Stop stay until the work ends. |
-| The host restarts | The work is lost. A session that waited in `background` gets the restart prompt, which names the tools that were running. |
+| The host restarts | The work is lost. A session that waited in `background` gets the restart prompt, which names the tools that were running. A session that waited only on reports gets no restart prompt: its messages recover on their own, and a report wakes it as usual. |
 
 `background` is not busy. A new prompt is accepted and runs as the next turn.
 

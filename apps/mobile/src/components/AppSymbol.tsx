@@ -1,3 +1,7 @@
+import IconCircleDashed from "@tabler/icons-react-native/IconCircleDashed";
+import IconCircleDot from "@tabler/icons-react-native/IconCircleDot";
+import IconMessageCircleQuestion from "@tabler/icons-react-native/IconMessageCircleQuestion";
+import IconShieldQuestion from "@tabler/icons-react-native/IconShieldQuestion";
 import type { Icon } from "@tabler/icons-react-native/types";
 import { ICON_DEFAULTS } from "@solus/client-core/icon-defaults";
 /*
@@ -123,6 +127,10 @@ import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { withUniwind } from "uniwind";
 
 const ANDROID_ICON_BY_SF_SYMBOL = {
+  "circle.dashed": IconCircleDashed,
+  "circle.dashed.inset.filled": IconCircleDot,
+  "questionmark.bubble": IconMessageCircleQuestion,
+  "exclamationmark.shield": IconShieldQuestion,
   "arrow.branch": IconGitBranch,
   // Permission modes (`PERMISSION_MODE_ICON`), as the desktop's Lucide set.
   checklist: IconListCheck,
@@ -189,6 +197,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   scalemass: IconScale,
   globe: IconWorld,
   hammer: IconHammer,
+  iphone: IconDeviceMobile,
   house: IconHome,
   "info.circle": IconInfoCircle,
   internaldrive: IconDatabase,

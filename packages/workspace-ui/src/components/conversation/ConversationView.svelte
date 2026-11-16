@@ -67,6 +67,7 @@
   } from "./lib/turns";
   import { TranscriptTurns } from "./lib/transcript-turns.svelte";
   import type { UserBurst } from "./lib/user-burst";
+  import type { ReplySegment } from "@solus/client-core/reply-pull-requests";
   import { ConversationViewState } from "./lib/conversation-view-state.svelte";
   import { provideConversationVisibility } from "./lib/conversation-visibility";
   import SessionActionRow from "../layout/SessionActionRow.svelte";
@@ -755,6 +756,7 @@
     onmouseenter={() => (hovered = true)}
     onmouseleave={() => (hovered = false)}
     class="flex h-full min-h-0 flex-col"
+    data-slot="conversation"
   >
     <div class="cv-root relative min-h-0 flex-1">
       {#if find.isOpen}
@@ -779,6 +781,7 @@
       {/if}
       <div
         bind:this={scrollEl}
+        data-slot="transcript"
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
         class="conversation-selectable h-full overflow-y-auto overflow-x-hidden px-4 pt-1 pb-[var(--solus-composer-inset,0px)] transition-opacity duration-300 motion-reduce:transition-none"
@@ -872,8 +875,8 @@
 
           <PendingHandoffDivider session={sess} />
 
-          {#snippet transcriptItem(item: GroupedItem, skipMotion: boolean, burst?: UserBurst)}
-            <TranscriptItem {item} {skipMotion} {burst} {tabId} {linkContext}
+          {#snippet transcriptItem(item: GroupedItem, skipMotion: boolean, burst?: UserBurst, replySegments?: ReplySegment[])}
+            <TranscriptItem {item} {skipMotion} {burst} {replySegments} {tabId} {linkContext}
               {activeHandoffDivider} {activeHandoffTargetModel}
               navigateToSourceSession={navigateToSourceSession} />
           {/snippet}

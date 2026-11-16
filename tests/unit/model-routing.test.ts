@@ -127,7 +127,7 @@ describe('default lead instructions', () => {
     expect(instructions).toContain("General use (General assistance, explanation, routine work, or no clear specialist category.): agent_provider 'codex', model_id 'gpt-6-sol'.")
   })
 
-  // WHY: a lead that waits inside start_session holds its turn and the user's
+  // WHY: a lead that waits inside start_sessions holds its turn and the user's
   // attention; a lead that reuses old workers pays for their long threads.
   test('the default lead instructions start workers async and fresh', () => {
     const instructions = DEFAULT_PERSONAL_SETTINGS.leadInstructions

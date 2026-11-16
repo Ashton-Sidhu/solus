@@ -19,8 +19,10 @@
     BrowserViewport,
     BrowserViewportRequest,
   } from "@solus/contracts/browser-types";
-  import { addressParts, addressProblem, navigableAddress } from "./lib/address";
+  import { addressProblem, navigableAddress } from "@solus/client-core/browser-address";
+  import { addressParts } from "./lib/address";
   import * as TooltipUI from "../ui/tooltip";
+  import BrowserPageMenu from "./BrowserPageMenu.svelte";
   import BrowserViewportChip from "./BrowserViewportChip.svelte";
 
   /**
@@ -34,6 +36,7 @@
    */
 
   interface Props {
+    pageKey: string;
     page: BrowserPage;
     /** The size being steered right now, which leads the host's answer during a
      *  drag. The chip states it; the stage still renders what the host confirmed. */
@@ -67,6 +70,7 @@
   }
 
   let {
+    pageKey,
     page,
     statedViewport,
     scale,
@@ -379,6 +383,10 @@
       />
     </TooltipUI.Root>
   {/if}
+
+  <!-- Hard reload, zoom, and downloads. Never hidden: it is the only way to
+       reset a zoomed page or reach the files the page downloaded. -->
+  <BrowserPageMenu {pageKey} {page} />
 
   <!-- Hanging off the toolbar's own bottom edge, so progress is stated in the
        chrome and never painted over the page. -->

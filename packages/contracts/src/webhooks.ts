@@ -287,6 +287,8 @@ export interface WebhookActionResult {
   error?: string
   sessionId?: string
   automationRunId?: string
+  /** How long the action took to start or answer, in milliseconds. A `call_app` action waits for the mutation's answer. */
+  durationMs?: number
 }
 
 /** The stored request: redacted headers and query, and the body as text (1 MiB maximum). */
@@ -298,6 +300,9 @@ export interface WebhookStoredRequest {
   /** The body was not valid UTF-8 text; `body` is base64. */
   bodyIsBase64: boolean
 }
+
+/** A test request that the host signs and sends to its own receiver has this header (`webhookSendTest`). It is a label, not a proof: a sender can set it too. */
+export const WEBHOOK_TEST_HEADER = 'x-solus-hook-test'
 
 export interface WebhookDeliverySummary {
   id: string

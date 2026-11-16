@@ -21,7 +21,7 @@ export type DeviceVideoStatus =
 export type DrawableFrame = VideoFrameLike | ImageBitmapLike
 
 export interface DeviceVideoEvents {
-  present(source: DrawableFrame, width: number, height: number): void
+  present(source: DrawableFrame, width: number, height: number, kind: 'video' | 'jpeg' | 'seed'): void
   status(status: DeviceVideoStatus): void
   screen(screen: DeviceScreenConfig | null): void
   /** The decoder drops frames until a keyframe; the stream should ask for one. */
@@ -120,11 +120,16 @@ export class DeviceVideoDecoder {
   private awaitingKey = true
   private generation = -1
   private configuring: Promise<void> | null = null
+  private config: DecoderConfig | null = null
+  private readonly pending: { isKey: boolean; data: Uint8Array; timestamp: number | undefined }[] = []
+  private pendingOverflow = false
   private closed = false
   private streaming = false
   private timestamp = 0
   private epoch = 0
   private jpegInFlight = false
+  private imageEpoch = 0
+  private videoGeneration: number | null = null
 
   constructor(
     private readonly events: DeviceVideoEvents,
@@ -139,19 +144,27 @@ export class DeviceVideoDecoder {
     if (header.streamGeneration !== this.generation) {
       // The host restarted its upstream: nothing decodable carries over.
       this.generation = header.streamGeneration
-      this.awaitingKey = true
+      this.videoGeneration = null
+      this.resetImages()
+      this.resetDecoder()
     }
     switch (header.kind) {
+      case 'connecting':
+        this.streaming = false
+        this.events.status({ kind: 'connecting' })
+        return
       case 'screen':
         this.events.screen(header.screen ?? null)
         return
       case 'ended':
+        this.resetImages()
         this.resetDecoder()
         this.streaming = false
         this.events.status({ kind: 'ended', detail: header.detail ?? 'The device stream ended.' })
         return
       case 'jpeg':
-        this.paintJpeg(data)
+      case 'seed':
+        this.paintJpeg(data, header.kind === 'seed')
         return
       case 'config':
         this.configure(header.codec ?? 'avc1.42E01E', header.format === 'avcc' ? data : undefined)
@@ -164,14 +177,15 @@ export class DeviceVideoDecoder {
 
   private configure(codec: string, description: Uint8Array | undefined): void {
     this.resetDecoder()
+    const config: DecoderConfig = { codec, optimizeForLatency: true }
+    if (description) config.description = description
+    this.config = config
     const codecs = this.codecs
     if (!codecs) {
       this.events.status({ kind: 'unsupported', codec })
       return
     }
     const epoch = ++this.epoch
-    const config: DecoderConfig = { codec, optimizeForLatency: true }
-    if (description) config.description = description
     this.configuring = codecs.isConfigSupported(config)
       .catch(() => ({ supported: false }))
       .then((support) => {
@@ -183,32 +197,61 @@ export class DeviceVideoDecoder {
         const decoder = codecs.createDecoder({
           output: (frame) => {
             try {
-              if (this.decoder === decoder && !this.closed) this.presented(frame, frame.displayWidth, frame.displayHeight)
+              if (this.decoder === decoder && !this.closed) {
+                this.videoGeneration = this.generation
+                this.presented(frame, frame.displayWidth, frame.displayHeight, 'video')
+              }
             } finally {
               frame.close()
             }
           },
           error: () => {
             if (this.decoder !== decoder) return
-            this.resetDecoder()
-            this.events.needsKeyframe()
+            this.recover()
           },
         })
         try {
           decoder.configure(config)
           this.decoder = decoder
           this.awaitingKey = true
+          const pending = this.pending.splice(0)
+          const overflow = this.pendingOverflow
+          this.pendingOverflow = false
+          for (const frame of pending) {
+            if (epoch !== this.epoch) break
+            this.decode(frame.isKey, frame.data, frame.timestamp)
+          }
+          if (overflow) this.events.needsKeyframe()
         } catch {
           decoder.close()
           this.events.status({ kind: 'unsupported', codec })
         }
       })
       .finally(() => {
-        if (epoch === this.epoch) this.configuring = null
+        if (epoch === this.epoch) {
+          this.configuring = null
+          this.pending.length = 0
+        }
       })
   }
 
   private decode(isKey: boolean, data: Uint8Array, timestamp: number | undefined): void {
+    if (this.configuring && !this.decoder) {
+      // A description and its keyframe can arrive in the same network read.
+      // Keep their order while the asynchronous codec check completes.
+      if (isKey) {
+        this.pending.length = 0
+        this.pendingOverflow = false
+      }
+      if (!isKey && this.pending.length === 0) return
+      if (this.pending.length >= SOFT_DECODE_QUEUE) {
+        this.pending.length = 0
+        this.pendingOverflow = true
+        return
+      }
+      this.pending.push({ isKey, data, timestamp })
+      return
+    }
     const decoder = this.decoder
     if (!decoder || decoder.state !== 'configured' || !this.codecs) return
     if (this.awaitingKey) {
@@ -221,44 +264,67 @@ export class DeviceVideoDecoder {
     if (decoder.decodeQueueSize > SOFT_DECODE_QUEUE) {
       // Falling behind: skip to the next keyframe instead of growing a queue.
       // iOS sends one only when its stream starts, so ask for it.
-      this.awaitingKey = true
-      this.events.needsKeyframe()
+      this.recover()
       return
     }
     try {
       decoder.decode(this.codecs.createChunk({ type: isKey ? 'key' : 'delta', timestamp: timestamp ?? this.timestamp, data }))
       this.timestamp += FRAME_DURATION_US
     } catch {
-      this.resetDecoder()
+      this.recover()
     }
   }
 
-  private paintJpeg(data: Uint8Array): void {
+  private recover(): void {
+    const config = this.config
+    // Android can send the next keyframe without repeating its codec config.
+    if (config) this.configure(config.codec, config.description)
+    else this.resetDecoder()
+    this.streaming = false
+    this.events.status({ kind: 'connecting' })
+    this.events.needsKeyframe()
+  }
+
+  private paintJpeg(data: Uint8Array, seed: boolean): void {
+    if (seed && this.videoGeneration === this.generation) return
     // Latest image wins: a frame that arrives while one decodes is skipped.
     if (this.jpegInFlight) return
     this.jpegInFlight = true
+    const imageEpoch = this.imageEpoch
     void this.decodeImage(new Blob([new Uint8Array(data)], { type: 'image/jpeg' }))
       .then((bitmap) => {
         try {
-          if (!this.closed) this.presented(bitmap, bitmap.width, bitmap.height)
+          // A cached bootstrap image can finish after live video or after a reconnect.
+          // It must never replace the newer screen, even when that screen is idle.
+          if (!this.closed && imageEpoch === this.imageEpoch && (!seed || this.videoGeneration !== this.generation)) {
+            this.presented(bitmap, bitmap.width, bitmap.height, seed ? 'seed' : 'jpeg')
+          }
         } finally {
           bitmap.close()
         }
       })
       .catch(() => {})
-      .finally(() => { this.jpegInFlight = false })
+      .finally(() => { if (imageEpoch === this.imageEpoch) this.jpegInFlight = false })
   }
 
-  private presented(source: DrawableFrame, width: number, height: number): void {
-    this.events.present(source, width, height)
+  private presented(source: DrawableFrame, width: number, height: number, kind: 'video' | 'jpeg' | 'seed'): void {
+    this.events.present(source, width, height, kind)
     if (!this.streaming) {
       this.streaming = true
       this.events.status({ kind: 'streaming' })
     }
   }
 
+  private resetImages(): void {
+    this.imageEpoch++
+    this.jpegInFlight = false
+  }
+
   private resetDecoder(): void {
     this.epoch++
+    this.configuring = null
+    this.pending.length = 0
+    this.pendingOverflow = false
     try {
       this.decoder?.close()
     } catch {
@@ -271,6 +337,7 @@ export class DeviceVideoDecoder {
   /** Release the decoder and every frame. The surface calls this when hidden. */
   close(): void {
     this.closed = true
+    this.resetImages()
     this.resetDecoder()
   }
 

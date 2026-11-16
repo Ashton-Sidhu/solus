@@ -201,6 +201,9 @@ export class PullRequestDirectory {
   /** The checks PR sync reported for a review interest, by `detailKey`: a
    *  detail read takes them from here, since it reads none itself. */
   private readonly checksHeard = new Map<string, Settled<PrChecksSummary>>()
+  /** Pull requests a session links, as PR sync pushed them while a card
+   *  wanted them, by host, repository (`host/owner/repo`), and number. */
+  private readonly linked = new Map<string, PullRequest>()
   private readonly unsent = new Set<ProjectInterest>()
   private sending = false
   /** The `pr.changed` subscription of each host's current connection. */
@@ -406,6 +409,16 @@ export class PullRequestDirectory {
     }
   }
 
+  /** Keep a pull request a session links fresh while a card shows it. The
+   *  host reads a `host/owner/repo` scope as that repository. */
+  wantLinked(hostId: string, repository: string, number: number): () => void {
+    return this.want(hostId, repository, [{ kind: 'pull-request', number }])
+  }
+
+  /** What PR sync last pushed for a pull request a card wants; null before it answers. */
+  linkedOf = (hostId: string, repository: string, number: number): PullRequest | null =>
+    this.linked.get(`${projectKey(hostId, repository)}\u0000${number}`) ?? null
+
   /**
    * The list is on a screen until the returned function is called. While it
    * is, a host that says a repository's list changed is read again; after,
@@ -425,6 +438,7 @@ export class PullRequestDirectory {
     this.reads.forgetHost(this.hosts, hostId)
     this.reads.forgetHost(this.details, hostId)
     this.reads.forgetHost(this.viewed, hostId)
+    for (const key of Array.from(this.linked.keys())) if (key.startsWith(`${hostId}\u0000`)) this.linked.delete(key)
     for (const key of Array.from(this.readAt.keys())) if (key.startsWith(`${hostId}\u0000`)) this.readAt.delete(key)
     for (const key of Array.from(this.checksHeard.keys())) if (key.startsWith(`${hostId}\u0000`)) this.checksHeard.delete(key)
     for (const [key, interest] of Array.from(this.interests)) if (interest.hostId === hostId) this.interests.delete(key)
@@ -551,13 +565,25 @@ export class PullRequestDirectory {
     if (change.listChanged) this.listChanged(hostId, change.repo)
     if (change.pullRequests.length === 0 && change.checks.length === 0) return
     const pushed = new Map(change.pullRequests.map((pr) => [pr.number, pr]))
+    // A card wants its pull request by repository, so a push for that
+    // repository is the card's.
+    const linkedProject = projectKey(hostId, change.repo)
+    let changed = false
+    if (this.interests.has(linkedProject)) {
+      for (const pr of change.pullRequests) {
+        const key = `${linkedProject}\u0000${pr.number}`
+        const shown = this.linked.get(key)
+        if (shown && !isNotOlder(pr, shown)) continue
+        this.linked.set(key, pr)
+        changed = true
+      }
+    }
     const checks = new Map(change.checks.map((entry) => [entry.number, entry.summary]))
     // Kept for a detail read that has nothing on screen yet to patch.
     for (const [key, repo] of this.repositories) {
       if (!key.startsWith(`${hostId}\u0000`) || repo !== change.repo) continue
       for (const [number, summary] of checks) this.checksHeard.set(`${key}\u0000${number}`, { ok: true, value: summary })
     }
-    let changed = false
     for (const [key, state] of this.hosts) {
       if (!key.startsWith(`${hostId}\u0000`)) continue
       const filter = this.listFilters.get(key)

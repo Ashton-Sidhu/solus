@@ -40,6 +40,7 @@
       <input
         name="cloud-machine-name"
         bind:value={name}
+        {@attach (element) => element.focus()}
         placeholder={organization ? `${organization.name} cloud host` : "Cloud host"}
         class="h-8 rounded-lg border border-border/60 bg-background px-2.5 text-workspace-chrome outline-none focus:border-(--solus-status-running)/50 max-sm:text-base"
       />

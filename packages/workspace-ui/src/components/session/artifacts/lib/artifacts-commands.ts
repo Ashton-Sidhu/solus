@@ -5,15 +5,15 @@ import { comboHint } from '../../../../lib/keybindings/manifest'
 
 type ArtifactsShell = Pick<WorkspaceContext, 'focusedChatTabId' | 'sessionFor' | 'openArtifacts'>
 
-/** "Open artifacts", beside the focused conversation or as the destination.
+/** "Open threads", beside the focused conversation or as the destination.
  *  Offered only while a conversation has focus. */
 export function artifactsPaletteCommands(shell: ArtifactsShell): Command[] {
   const sessionId = shell.focusedChatTabId ? shell.sessionFor(shell.focusedChatTabId)?.id : undefined
   if (!sessionId) return []
-  const keywords = ['artifacts', 'outputs', 'linked', 'pull requests', 'works', 'apps', 'files', 'images', 'automations']
+  const keywords = ['threads', 'artifacts', 'outputs', 'linked', 'pull requests', 'works', 'apps', 'files', 'images', 'automations']
   return [{
     id: 'open-artifacts',
-    label: 'Open artifacts',
+    label: 'Open threads',
     group: 'View',
     icon: Boxes,
     hint: comboHint('conversation.open-artifacts'),
@@ -21,7 +21,7 @@ export function artifactsPaletteCommands(shell: ArtifactsShell): Command[] {
     run: () => shell.openArtifacts(sessionId),
   }, {
     id: 'open-artifacts-main',
-    label: 'Open artifacts in main pane',
+    label: 'Open threads in main pane',
     group: 'View',
     icon: Boxes,
     keywords,

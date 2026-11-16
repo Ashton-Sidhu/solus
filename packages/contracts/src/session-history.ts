@@ -117,6 +117,8 @@ export interface SessionLoadMessage {
 export interface AgentConversationResultProjection {
   /** The session the tool started or messaged. */
   sessionId?: string
+  /** The position in a `start_sessions` call's `sessions` list of the session it started. */
+  item?: number
   /** The exchange the tool opened; live updates and reports name the same id. */
   messageId?: string
   provider?: AgentId
@@ -143,8 +145,9 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
   status?: 'ok' | 'error'
   errorHead?: string
   contentBytes?: number
-  /** Structured correlation facts extracted before tool output is discarded. */
-  agentConversationResult?: AgentConversationResultProjection
+  /** Structured correlation facts extracted before tool output is discarded:
+   *  one for each exchange the row opened. A `start_sessions` call opens one for each session. */
+  agentConversationResults?: AgentConversationResultProjection[]
   /** Stable work identity from a successful artifact tool result, and the
    *  content version the call wrote, when the receipt names one. */
   artifactWorkRef?: { workId: string; title: string; contentVersion?: number }

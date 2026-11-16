@@ -42,22 +42,19 @@ export function AgentActivity(
   // (T3 patches it in); hierarchical styles already follow tinted hosts.
   const monochrome = false;
 
-  // The Lock Screen card always wears the app's dark theme
-  // (src/theme/theme-colors.ts SOLUS_DARK_THEME_COLORS: canvas, text,
-  // textMuted), in light and dark system appearance alike, instead of
-  // the default black material. The Dynamic Island is always black, so it
-  // keeps the hierarchical styles.
-  const cardBackground = "#262522";
-  const cardForeground: Foreground = "#f0ede5";
-  const cardMutedForeground: Foreground = "#9a978f";
+  // ActivityKit owns the Lock Screen material and its light/dark foregrounds.
+  // Keep Solus's palette for status tints without painting an opaque card over it.
+  const isLightScheme = environment.colorScheme === "light";
+  const cardForeground: Foreground = primaryForeground;
+  const cardMutedForeground: Foreground = secondaryForeground;
 
-  // Status tints are the app thread list's dark ones (thread-list-v2-items.tsx,
+  // Status tints are the app thread list's light and dark ones (thread-list-v2-items.tsx,
   // generated-uniwind-theme.css): amber for approval and limits, the
   // accent for input, red for failures, blue for working, and the workspace's
   // complete green for done.
   const phaseTint = (phase: AgentActivityPhase | undefined): Foreground => {
     if (environment.isLuminanceReduced) {
-      return cardMutedForeground;
+      return secondaryForeground;
     }
     if (monochrome) {
       return primaryForeground;
@@ -65,19 +62,19 @@ export function AgentActivity(
     switch (phase) {
       case "waiting_for_approval":
       case "limited":
-        return "#fbbf24"; // dark amber
+        return isLightScheme ? "#f59e0b" : "#fbbf24";
       case "waiting_for_input":
-        return "#e68e6b"; // dark accent
+        return isLightScheme ? "#d97757" : "#e68e6b";
       case "failed":
         return "#ef4444"; // dark red
       case "completed":
-        return "#6fc884"; // dark --solus-status-complete
+        return isLightScheme ? "#5a9e6f" : "#6fc884";
       case "stale":
         return cardMutedForeground;
       case "starting":
       case "running":
       default:
-        return "#83a2ec"; // dark --color-adaptive-sky-600-400 (Working)
+        return isLightScheme ? "#3c67c6" : "#83a2ec";
     }
   };
 
@@ -92,13 +89,11 @@ export function AgentActivity(
   // Past the stale date the system stops vouching for the content, so every
   // in-flight row degrades to "stale" rather than claiming an agent is still
   // working. Terminal phases keep their own state.
-  const activities: ReadonlyArray<AgentActivityRow> = environment.isStale
-    ? props.activities.map((row) =>
-        row.phase === "completed" || row.phase === "failed"
-          ? row
-          : { ...row, phase: "stale", status: "Out of date" },
-      )
-    : props.activities;
+  const activities: ReadonlyArray<AgentActivityRow> = props.activities.map((row) =>
+    row.phase === "stale" || (environment.isStale && row.phase !== "completed" && row.phase !== "failed")
+      ? { ...row, phase: "stale", status: "Check status" }
+      : row,
+  );
   const ordered = [...activities].sort((a, b) => phasePriority(a.phase) - phasePriority(b.phase));
   const row0 = ordered[0];
   const row1 = ordered[1];
@@ -111,10 +106,12 @@ export function AgentActivity(
   );
   const attentionRow = attentionRows[0];
   const failedRow = activities.find((row) => row.phase === "failed");
-  const heroRow = attentionRow ?? failedRow ?? row0;
+  const refreshRow = activities.find((row) => row.phase === "stale");
+  const needsRefresh = props.activeCount > 0 && (environment.isStale === true || refreshRow !== undefined);
+  const heroRow = needsRefresh ? refreshRow ?? row0 : attentionRow ?? failedRow ?? row0;
   const tint = phaseTint(heroRow?.phase);
   // Headline count leans on the accent when a human is actually blocked.
-  const headerTint = attentionRow
+  const headerTint = needsRefresh ? secondaryForeground : attentionRow
     ? phaseTint(attentionRow.phase)
     : failedRow
       ? phaseTint(failedRow.phase)
@@ -137,8 +134,8 @@ export function AgentActivity(
   const agentWord = props.activeCount === 1 ? "agent" : "agents";
   const agentsLabel = allDone
     ? outcomeLabel
-    : environment.isStale
-      ? "Agent status out of date"
+    : needsRefresh
+      ? "Tap to refresh"
       : `${props.activeCount} active ${agentWord}`;
   const attentionSuffix =
     attentionRows.length > 0
@@ -146,21 +143,23 @@ export function AgentActivity(
       : "";
   const activeLabel = allDone
     ? doneLabel
-    : environment.isStale
-      ? "Out of date"
+    : needsRefresh
+      ? "Refresh"
       : `${props.activeCount} active`;
   // While agents only work, the compact slot shows the Working glyph, not a
   // count. The accessibility label keeps the full count.
-  const showCompactGlyph = !attentionRow && !failedRow && !allDone && !environment.isStale;
+  const showCompactGlyph = needsRefresh || (!attentionRow && !failedRow && !allDone);
   const summary = attentionSuffix || activeLabel;
 
   // Taps open the app's `solus://` scheme at the session that needs the
   // person, else the first row's.
-  const deepLinkRow = attentionRow ?? row0;
+  const deepLinkRow = needsRefresh ? refreshRow ?? row0 : attentionRow ?? row0;
   const deepLink =
     deepLinkRow && deepLinkRow.deepLink.startsWith("/") && !deepLinkRow.deepLink.startsWith("//")
       ? `solus://${deepLinkRow.deepLink.slice(1)}`
       : null;
+
+  const linkModifiers = deepLink ? [widgetURL(deepLink)] : [];
 
   // A scannable status glyph per phase — reads faster than colored words and
   // ties the compact / expanded / banner / watch presentations together.
@@ -190,8 +189,8 @@ export function AgentActivity(
 
   // SF Symbols, like the logo, ignore frame/foregroundStyle applied directly to
   // the image; size + tint them through a container the resizable symbol fills.
-  const renderGlyph = (systemName: SFName, size: number, color: Foreground) => (
-    <HStack modifiers={[frame({ width: size, height: size }), foregroundStyle(color)]}>
+  const renderGlyph = (systemName: SFName, size: number, color: Foreground, modifiers: typeof linkModifiers = []) => (
+    <HStack modifiers={[frame({ width: size, height: size }), foregroundStyle(color), ...modifiers]}>
       <Image systemName={systemName} modifiers={[resizable()]} />
     </HStack>
   );
@@ -243,8 +242,8 @@ export function AgentActivity(
   // (plugins/withWidgetLogoAsset.cjs); it renders as the original image, so
   // it takes no tint. Image views only honor `resizable` directly, so it is
   // sized through a container frame. The mark is square.
-  const renderLogo = (height: number) => (
-    <HStack modifiers={[frame({ width: height, height })]}>
+  const renderLogo = (height: number, modifiers: typeof linkModifiers = []) => (
+    <HStack modifiers={[frame({ width: height, height }), ...modifiers]}>
       <Image assetName="SolusMark" modifiers={[resizable()]} />
     </HStack>
   );
@@ -256,7 +255,7 @@ export function AgentActivity(
         spacing={6}
         modifiers={[
           padding({ all: 14 }),
-          activityBackgroundTint(cardBackground),
+          activityBackgroundTint(null),
           ...(deepLink ? [widgetURL(deepLink)] : []),
         ]}
       >
@@ -308,7 +307,7 @@ export function AgentActivity(
     // Compact card for the watchOS Smart Stack + CarPlay (the `.small` family):
     // brand + count, then the single most important agent with its status glyph.
     bannerSmall: (
-      <VStack alignment="leading" spacing={5} modifiers={[padding({ all: 10 })]}>
+      <VStack alignment="leading" spacing={5} modifiers={[padding({ all: 10 }), ...linkModifiers]}>
         <HStack spacing={7} alignment="center">
           {renderLogo(14)}
           <Text
@@ -341,7 +340,7 @@ export function AgentActivity(
         ) : null}
       </VStack>
     ),
-    compactLeading: renderLogo(14),
+    compactLeading: renderLogo(14, linkModifiers),
     // While agents only work, stay quiet: the thread list's Working glyph
     // marks the activity without a count. Labels appear only for attention
     // or outcomes.
@@ -351,6 +350,7 @@ export function AgentActivity(
           padding({ trailing: 2 }),
           accessibilityElement("ignore"),
           accessibilityLabel(agentsLabel),
+          ...linkModifiers,
         ]}
       >
         {renderGlyph(phaseSymbol(heroRow?.phase ?? "running"), 14, tint)}
@@ -362,6 +362,7 @@ export function AgentActivity(
           foregroundStyle(tint),
           lineLimit(1),
           minimumScaleFactor(0.5),
+          ...linkModifiers,
         ]}
       >
         {attentionRow
@@ -376,13 +377,13 @@ export function AgentActivity(
     // The shared/minimal form is a ~22pt circle — a single signal reads there,
     // the wordmark does not. Show the hero row's phase glyph, else the mark.
     minimal: heroRow
-      ? renderGlyph(phaseSymbol(heroRow.phase), 13, phaseTint(heroRow.phase))
-      : renderLogo(11),
+      ? renderGlyph(phaseSymbol(heroRow.phase), 13, phaseTint(heroRow.phase), linkModifiers)
+      : renderLogo(11, linkModifiers),
     expandedLeading: (
-      <HStack spacing={5} alignment="center" modifiers={[padding({ leading: 4, vertical: 4 })]}>
+      <HStack spacing={5} alignment="center" modifiers={[padding({ leading: 4, vertical: 4 }), ...linkModifiers]}>
         {renderLogo(15)}
         <Text modifiers={[font({ weight: "bold", size: 13 }), foregroundStyle(tint)]}>
-          {allDone ? doneLabel : `${props.activeCount}`}
+          {allDone ? doneLabel : needsRefresh ? activeLabel : `${props.activeCount}`}
         </Text>
       </HStack>
     ),

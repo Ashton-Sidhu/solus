@@ -12,6 +12,16 @@ export type WorkspaceDestination = WorkspaceTab | 'settings'
 /** Settings and the pages it pushes. */
 export const SETTINGS_PAGE_ROUTES: ReadonlySet<string> = new Set([
   'Settings',
+  'SettingsScope',
+  'ProviderInstances',
+  'Providers',
+  'ProviderSettings',
+  'ChatSettings',
+  'DeviceSettings',
+  'Devices',
+  'HostResources',
+  'HostBalancing',
+  'HostRoutes',
   'AccountSync',
   'AgentProfile',
   'AppearanceSettings',

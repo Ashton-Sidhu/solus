@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { APP_MODEL_MAX_TIMEOUT_SECONDS } from '@solus/contracts/app-models'
 import type { AppCaller, AppDescriptor, AppRunDetail, AppRunState, AppRunView, AppStepKind, AppStepView } from '@solus/contracts/apps'
-import type { AppRecord, AppVersionRecord } from '../data/apps/app-store'
+import { listCalls, type AppRecord, type AppVersionRecord } from '../data/apps/app-store'
 import {
   countSteps,
   deleteUnfinishedSteps,
@@ -22,6 +22,7 @@ import {
 import { createLogger } from '../logger'
 import { emitAppActivity } from './app-events'
 import { beginCall } from './app-observability'
+import { stepTries, type AppRunCallSpans } from './app-step-tries'
 import { AppOperationError, RUN_QUIET_MS, type AppExecution, type AppRun, type AppRunners } from './app-runners'
 import type { AppArrivedSignal } from './app-signals'
 import type { StoredValue } from './app-storage'
@@ -47,6 +48,8 @@ const MAX_INTERRUPTIONS = 5
 const OPERATION_STEP_MS = 15 * 60_000
 const WAIT_IN_PROCESS_MS = 60_000
 const RESULT_PREVIEW_CHARACTERS = 4096
+/** The calls of one run that its detail reads for the tries of its steps. */
+const RUN_LOG_CALLS = 200
 const PRUNE_EVERY_RUNS = 50
 
 /** An app that can run now, with what its runner runs. */
@@ -67,6 +70,8 @@ export interface AppWorkflowHost {
   hostRequest(app: AppRecord, version: AppVersionRecord, method: string, input: StoredValue, caller: AppCaller): Promise<StoredValue>
   /** Gives the signals of a step that succeeded to their signal actions. */
   signalsEmitted(app: AppRecord, descriptor: AppDescriptor, signals: readonly AppArrivedSignal[], runId: string): Promise<void>
+  /** A run finished, ran again, or was dismissed: what needs the owner can differ. */
+  runsChanged(appId: string): void
 }
 
 /** One run as an operation of the app reads it (`ctx.workflows`). */
@@ -95,11 +100,12 @@ function face(run: AppRunRecord): AppWorkflowRunFace {
   return { id: run.id, workflow: run.workflow, state: run.state, startedAt: run.startedAt, finishedAt: run.finishedAt, error: run.error, result: run.result }
 }
 
-function stepView(step: AppStepRecord): AppStepView {
+function stepView(step: AppStepRecord, calls: readonly AppRunCallSpans[]): AppStepView {
   const text = step.result === null ? null : JSON.stringify(step.result)
   return {
     name: step.name, kind: step.kind, state: step.state, attempts: step.attempts, startedAt: step.startedAt, finishedAt: step.finishedAt, wakeAt: step.wakeAt, error: step.error,
     result: text === null ? null : text.slice(0, RESULT_PREVIEW_CHARACTERS), resultTruncated: text !== null && text.length > RESULT_PREVIEW_CHARACTERS,
+    ...(step.kind === 'do' ? stepTries(calls, step.name) : { tries: [], retryPolicy: null }),
   }
 }
 
@@ -157,7 +163,7 @@ export class AppWorkflows implements AppLifecyclePart {
     const at = this.now()
     const run: AppRunRecord = {
       id: randomUUID(), appId: app.id, workflow, input, state: 'running', key, result: null, error: null, wakeAt: null, startedBy,
-      interruptions: 0, startedAt: at, updatedAt: at, finishedAt: null,
+      interruptions: 0, startedAt: at, updatedAt: at, finishedAt: null, version: null, dismissedAt: null,
     }
     await insertRun(run)
     emitAppActivity(app.id, 'runs')
@@ -211,9 +217,23 @@ export class AppWorkflows implements AppLifecyclePart {
     const run = await this.required(app, runId)
     if (run.state !== 'failed') throw new Error('Only a run that failed can run again.')
     await deleteUnfinishedSteps(run.id)
-    await saveRun({ ...run, state: 'running', error: null, result: null, wakeAt: null, interruptions: 0, updatedAt: this.now(), finishedAt: null })
+    await saveRun({ ...run, state: 'running', error: null, result: null, wakeAt: null, interruptions: 0, updatedAt: this.now(), finishedAt: null, dismissedAt: null })
     emitAppActivity(app.id, 'runs')
+    this.host.runsChanged(app.id)
     void this.drive(run.id)
+    return this.detail(await this.required(app, runId))
+  }
+
+  /** The owner does not want a failed run back: it no longer needs them, and it stays in the history. */
+  async dismiss(authority: AppAuthority, idOrSlug: string, runId: string): Promise<AppRunDetail> {
+    const app = await this.host.record(authority, idOrSlug)
+    const run = await this.required(app, runId)
+    if (run.state !== 'failed') throw new Error('Only a run that failed can be dismissed.')
+    if (run.dismissedAt === null) {
+      await saveRun({ ...run, dismissedAt: this.now() })
+      emitAppActivity(app.id, 'runs')
+      this.host.runsChanged(app.id)
+    }
     return this.detail(await this.required(app, runId))
   }
 
@@ -226,13 +246,15 @@ export class AppWorkflows implements AppLifecyclePart {
   private view(run: AppRunRecord, stepCount: number): AppRunView {
     return {
       id: run.id, workflow: run.workflow, state: run.state, startedAt: run.startedAt, updatedAt: run.updatedAt, finishedAt: run.finishedAt,
-      wakeAt: run.state === 'sleeping' ? run.wakeAt : null, error: run.error, startedBy: run.startedBy, stepCount,
+      wakeAt: run.state === 'sleeping' ? run.wakeAt : null, error: run.error, startedBy: run.startedBy, stepCount, version: run.version, dismissedAt: run.dismissedAt,
     }
   }
 
   private async detail(run: AppRunRecord): Promise<AppRunDetail> {
     const steps = await listSteps(run.id)
-    return { ...this.view(run, steps.length), input: JSON.stringify(run.input), result: run.result === null ? null : JSON.stringify(run.result), key: run.key, steps: steps.map(stepView) }
+    // The tries of each step are the spans of the run's log: the calls that ran its function.
+    const calls = steps.some((step) => step.kind === 'do') ? await listCalls(run.appId, RUN_LOG_CALLS, { runId: run.id }) : []
+    return { ...this.view(run, steps.length), input: JSON.stringify(run.input), result: run.result === null ? null : JSON.stringify(run.result), key: run.key, steps: steps.map((step) => stepView(step, calls)) }
   }
 
   // ─── The engine ───
@@ -290,11 +312,11 @@ export class AppWorkflows implements AppLifecyclePart {
     const target = await this.host.runnable(loaded.appId)
     if (!target) return
     if (!target.version.descriptor.workflows.some((declared) => declared.name === loaded.workflow)) {
-      await this.finish(loaded, 'failed', null, `The active version of the app does not declare the workflow ${loaded.workflow}.`)
+      await this.finish({ ...loaded, version: target.version.number }, 'failed', null, `The active version of the app does not declare the workflow ${loaded.workflow}.`)
       return
     }
-    const run: AppRunRecord = { ...loaded, state: 'running', wakeAt: null, updatedAt: this.now() }
-    if (loaded.state === 'sleeping') {
+    const run: AppRunRecord = { ...loaded, state: 'running', wakeAt: null, updatedAt: this.now(), version: target.version.number }
+    if (loaded.state === 'sleeping' || loaded.version !== run.version) {
       await saveRun(run)
       emitAppActivity(run.appId, 'runs')
     }
@@ -351,6 +373,7 @@ export class AppWorkflows implements AppLifecyclePart {
     const finished: AppRunRecord = { ...run, state, result, error, wakeAt: null, updatedAt: at, finishedAt: at }
     await saveRun(finished)
     emitAppActivity(run.appId, 'runs')
+    this.host.runsChanged(run.appId)
     log.info('app_run_finished', { appId: run.appId, runId: run.id, workflow: run.workflow, state })
     this.finishedCount += 1
     if (this.finishedCount % PRUNE_EVERY_RUNS === 0) await pruneRuns(run.appId).catch(() => {})

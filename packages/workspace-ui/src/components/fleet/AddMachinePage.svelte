@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ChevronRight, Cloud, Link2, QrCode, RefreshCw, Sparkles, Terminal } from "@lucide/svelte";
+  import { ChevronRight, Cloud, QrCode, RefreshCw, Terminal } from "@lucide/svelte";
   import { managedHostsStore } from "../../contexts";
   import { connectionsNav } from "../connections/connections-nav.svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
@@ -8,21 +8,21 @@
   import AddCloudMachine from "./AddCloudMachine.svelte";
   import AddPairMachine from "./AddPairMachine.svelte";
   import FoundMachineRow from "./FoundMachineRow.svelte";
-  import LinkMachinePanel from "./LinkMachinePanel.svelte";
   import { openSshAdd } from "./add-machine";
   import { discoverStore } from "./discover.store.svelte";
-  import { recommendedAddWay, type AddWay } from "./lib/fleet-model";
+  import type { AddWay } from "./lib/fleet-model";
 
   /**
    * Add a machine (docs/plans/host-fleet.md D8): Nearby is always first, and a
    * machine in reach is one action away. Below it, the other ways as one choice;
-   * the chosen way opens in place and finishes here. Only SSH has its own form.
+   * the chosen way opens in place, its first field focused, and finishes here.
+   * Only SSH has its own form. Registering a host to a Solus Cloud account is
+   * not a way to add it: it is a switch on the host's own page.
    */
   type OtherWay = Exclude<AddWay, "nearby">;
 
   const ways: Array<{ way: OtherWay; title: string; detail: string }> = [
     { way: "cloud", title: "Create a cloud machine", detail: "Solus runs it for you. It is ready in about a minute." },
-    { way: "link", title: "Link a machine you own", detail: "Run one command on any Mac, Linux, or Windows machine." },
     { way: "pair", title: "Pair with a code", detail: "For a machine that already runs Solus." },
     { way: "ssh", title: "Add over SSH", detail: "Solus installs itself on a host you reach with SSH." },
   ];
@@ -32,8 +32,6 @@
   );
 
   const found = $derived(discoverStore.found);
-  const recommended = $derived(recommendedAddWay(found.length, managedHostsStore.canCreate));
-  const orderedWays = $derived([...ways.filter((entry) => entry.way === recommended), ...ways.filter((entry) => entry.way !== recommended)]);
 
   onMount(() => {
     void managedHostsStore.loadCatalog();
@@ -57,17 +55,10 @@
 
   <SettingsSection label="Nearby" description="Machines this device can already see. Connect one in a step.">
     {#snippet action()}
-      <span class="flex items-center gap-1.5">
-        {#if recommended === "nearby"}
-          <span class="inline-flex h-[1.1875rem] items-center gap-1 rounded-md bg-(--solus-status-running-bg) pr-[7px] pl-[5px] text-chrome-dense text-(--solus-status-running)">
-            <Sparkles size={11} />Recommended
-          </span>
-        {/if}
-        <Button variant="ghost" size="sm" disabled={discoverStore.isScanning} onclick={() => void discoverStore.scan()}>
-          <RefreshCw size={13} class={discoverStore.isScanning ? "animate-spin motion-reduce:animate-none" : ""} />
-          {discoverStore.isScanning ? "Scanning…" : "Scan again"}
-        </Button>
-      </span>
+      <Button variant="ghost" size="sm" disabled={discoverStore.isScanning} onclick={() => void discoverStore.scan()}>
+        <RefreshCw size={13} class={discoverStore.isScanning ? "animate-spin motion-reduce:animate-none" : ""} />
+        {discoverStore.isScanning ? "Scanning…" : "Scan again"}
+      </Button>
     {/snippet}
     {#each found as machine (machine.key)}
       <FoundMachineRow {machine} />
@@ -81,37 +72,28 @@
   <section class="flex flex-col gap-3">
     <h2 class="text-base font-medium tracking-[-0.01em] text-foreground">Other ways</h2>
     <div role="radiogroup" aria-label="How to add a machine" class="flex flex-col gap-2">
-      {#each orderedWays as entry (entry.way)}
+      {#each ways as entry (entry.way)}
         {@const isOpen = chosen === entry.way}
-        {@const isRecommended = entry.way === recommended}
-        <div class="overflow-hidden rounded-xl border bg-background {isOpen ? 'border-(--solus-status-running)/45' : isRecommended ? 'border-(--solus-status-running)/30' : 'border-border/50'}">
+        <div class="overflow-hidden rounded-xl border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.04),0_4px_12px_-6px_rgb(0_0_0/0.08)] dark:bg-card dark:shadow-none {isOpen ? 'border-(--solus-status-running)/45' : 'border-border'}">
           <button
             type="button"
             role="radio"
             aria-checked={isOpen}
             onclick={() => choose(entry.way)}
-            class="flex w-full items-center gap-3.5 px-4 py-3.5 text-left hover:bg-(--wash-1)"
+            class="flex w-full items-center gap-3 px-4 py-3.5 text-left hover:bg-(--wash-1)"
           >
-            <span class="flex size-9 shrink-0 items-center justify-center rounded-lg {isOpen || isRecommended ? 'bg-(--solus-status-running-bg) text-(--solus-status-running)' : 'bg-(--wash-3) text-muted-foreground'}">
-              {#if entry.way === "cloud"}<Cloud size={16} />{:else if entry.way === "link"}<Link2 size={16} />{:else if entry.way === "pair"}<QrCode size={16} />{:else}<Terminal size={16} />{/if}
+            <span class="flex size-4 shrink-0 items-center justify-center {isOpen ? 'text-(--solus-status-running)' : 'text-foreground'}">
+              {#if entry.way === "cloud"}<Cloud size={16} />{:else if entry.way === "pair"}<QrCode size={16} />{:else}<Terminal size={16} />{/if}
             </span>
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span class="flex flex-wrap items-center gap-2">
-                <span class="text-workspace-chrome font-medium">{entry.title}</span>
-                {#if isRecommended}
-                  <span class="inline-flex h-[1.1875rem] items-center gap-1 rounded-md bg-(--solus-status-running-bg) pr-[7px] pl-[5px] text-chrome-dense text-(--solus-status-running)">
-                    <Sparkles size={11} />Recommended
-                  </span>
-                {/if}
-              </span>
+              <span class="text-workspace-chrome font-medium">{entry.title}</span>
               <span class="text-[0.8125rem] text-muted-foreground">{entry.detail}</span>
             </span>
-            <ChevronRight size={15} class="shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none {isOpen ? 'rotate-90' : ''}" />
+            <ChevronRight size={15} class="shrink-0 text-foreground transition-transform duration-200 motion-reduce:transition-none {isOpen ? 'rotate-90' : ''}" />
           </button>
           {#if isOpen}
             <div class="border-t border-border/40 px-4 py-4">
               {#if entry.way === "cloud"}<AddCloudMachine />
-              {:else if entry.way === "link"}<LinkMachinePanel />
               {:else if entry.way === "pair"}<AddPairMachine />{/if}
             </div>
           {/if}

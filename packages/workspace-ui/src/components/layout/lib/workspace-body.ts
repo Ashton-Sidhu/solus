@@ -65,6 +65,19 @@ export const SIDEBAR_DEFAULT_WIDTH = 380
 export const SIDEBAR_MAX_WIDTH = 400
 
 /**
+ * Below this workspace width the session list and a conversation cannot both
+ * keep their floors, so the sidebar stays at its places column and its list
+ * opens as a drawer over the conversation. As a share, the pane would give the
+ * list a sliver: 17% of a 430px phone is 73px, and the places column takes 54
+ * of it. This is the same 600px the project rail stops at.
+ */
+export const SIDEBAR_DRAWER_BELOW_WIDTH = SIDEBAR_MIN_WIDTH + MIN_PRIMARY_PANE_WIDTH
+
+export function isSidebarDrawer(workspaceWidth: number): boolean {
+  return workspaceWidth > 0 && workspaceWidth < SIDEBAR_DRAWER_BELOW_WIDTH
+}
+
+/**
  * The width of a workspace rail: clamp(200px, 17%, 380px) of the window it sits
  * in, so a rail is a share of the display rather than one fixed width — ~200px
  * on an iPad, ~245px on a 15" MacBook Pro, ~294px on a 16", 380px on a 5K. The

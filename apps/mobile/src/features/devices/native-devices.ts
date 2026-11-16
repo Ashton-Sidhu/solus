@@ -1,5 +1,5 @@
 import type { HostApi } from '@solus/client-core/host-api'
-import type { DeviceState, DeviceHostConfig, DeviceConfigureRequest, DeviceTarget, DeviceSummary } from '@solus/contracts/device-types'
+import type { DeviceState, DeviceHostConfig, DeviceConfigureRequest, DevicePlatform, DeviceTarget, DeviceSummary } from '@solus/contracts/device-types'
 import type { HostConnection } from '../hosts/host-connections'
 import { Listeners } from '../../lib/listeners'
 
@@ -69,17 +69,24 @@ export class NativeDevices {
   async resume(hostId: string, target: DeviceTarget) {
     await this.connection(hostId).api.deviceControlResume(target); await this.load(hostId)
   }
+  /** The host's HTTP origin, which the viewer WebView resolves stream URLs against. */
+  httpBaseOf(hostId: string): string {
+    return this.connection(hostId).transport.serverUrl.replace(/^ws/, 'http')
+  }
   async streamUrl(hostId: string, target: DeviceTarget) {
-    const connection = this.connection(hostId)
-    const stream = await connection.api.deviceStreamUrl(target)
-    return new URL(stream.path, connection.transport.serverUrl.replace(/^ws/, 'http')).toString()
+    const stream = await this.connection(hostId).api.deviceStreamUrl(target)
+    return new URL(stream.path, this.httpBaseOf(hostId)).toString()
   }
   async screenshotUrl(hostId: string, target: DeviceTarget): Promise<string> {
     const connection = this.connection(hostId)
     const shot = await connection.api.deviceScreenshot(target)
     const asset = await connection.api.assetCreateUrl(undefined, { assetId: shot.assetId, name: 'device.png' })
-    return new URL(asset.relativeUrl, connection.transport.serverUrl.replace(/^ws/, 'http')).toString()
+    return new URL(asset.relativeUrl, this.httpBaseOf(hostId)).toString()
   }
+  async shutdown(hostId: string, target: DeviceTarget & { platform: DevicePlatform }) {
+    await this.connection(hostId).api.deviceShutdown(target); await this.load(hostId)
+  }
+  retryHost(hostId: string, deviceHostId: string) { return this.change(hostId, (api) => api.deviceHostRetry(deviceHostId)) }
   forgetHost(hostId: string) {
     this.watches.get(hostId)?.stop(); this.watches.delete(hostId)
     this.states.delete(hostId); this.errors.delete(hostId); this.changes.notify()

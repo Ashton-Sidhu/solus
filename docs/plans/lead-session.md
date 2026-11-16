@@ -1,19 +1,21 @@
-# Lead session: a per-session opt-in
+# Lead session: automatic, with a manual start
 
 Status: implemented, 2026-10-28. Desktop, web, and mobile. Marked in the session list, 2026-10-29. Renamed to Meta mode in the UI,
-2026-11-03.
+2026-11-03. Automatic through `become_lead`, 2026-11-14.
 
-A **lead session** coordinates workers and does not implement. A person chooses
-it in the composer before the first message. The choice is sent with the first
-prompt and fixed from then on. After the session starts, the only sign of it is
-the Meta mode glyph on its row in the session list. It has nothing to do
-with tasks: a lead may or may not be linked to a task.
+A **lead session** coordinates workers and does not implement. A session
+becomes a lead in two ways. Its agent calls `become_lead` when the work divides
+into independent parts, so the person makes no choice first. Or the person
+chooses it in the composer before the first message, and the choice is sent
+with the first prompt. Each way is permanent. The sign of a lead is the
+Meta mode glyph on its row in the session list. It has nothing to do with
+tasks: a lead may or may not be linked to a task.
 
 ## Vocabulary
 
-- **lead** — a session the person started as a lead. The word stays for the
+- **lead** — a session that its agent or the person made a lead. The word stays for the
   lead contract and the lead wake rule in `docs/session-orchestration.md`.
-- **worker** — a session a lead started with `delegate_task`. It is listed
+- **worker** — a session a lead started with `start_sessions`. It is listed
   under the lead's row as a delegated session (`docs/plans/task-conversation.md`
   decision 6).
 - **Meta mode** — the user-facing name, on the composer's footer button, on
@@ -28,7 +30,30 @@ with tasks: a lead may or may not be linked to a task.
 
 ## Decisions
 
-1. **The choice is made before the first message.** The composer footer, the
+0. **The agent makes its session a lead.** `become_lead`
+   (`execution/agents/tools/become-lead-tool.ts`) marks the calling session,
+   with no input. The orchestration instructions
+   (`BECOME_LEAD_INSTRUCTIONS` in `runtime-instructions.ts`) tell every session
+   that has the tool when to call it: the user's work divides into two or more
+   independent parts, which separate sessions can do at the same time, each
+   from its own brief. A checkout is not a condition: a part can have its own
+   or not, and the rule does not name one. The
+   result of the call carries the lead contract with the person's lead
+   settings, because the system prompt of the turn in progress cannot change;
+   decision 5 gives the contract to every later run. The tool refuses a worker
+   (a session another session started as its child), so one request does not
+   grow into a tree of leads, and a chat. An independent session can become a
+   lead. The model does not change: the lead model of decision 2 applies only
+   to the composer choice. The tool is in the Sessions tool group, so a person
+   who does not want automatic Meta mode turns `become_lead` off in
+   Settings → Tools. When the mark is written, the host broadcasts
+   `session.becameLead`, and each client shows the glyph at once: the session
+   list store and the open session on desktop and web, the thread list on
+   mobile. An agent's first promotion also records a `became_lead` activity.
+   Desktop, web, and mobile show it as a transcript divider: “Meta mode enabled ·
+   Coordinates work across sessions”. It stays visible after the turn ends and
+   after reload. Repeat calls and the composer's initial choice add no divider.
+1. **The person can make the choice before the first message.** The composer footer, the
    strip under the card that names the project, host, and branch
    (`InputBarFooter.svelte`), offers the Meta mode button
    (`LeadButton.svelte` in `components/input/`) to a draft and to a tab with no
@@ -48,8 +73,10 @@ with tasks: a lead may or may not be linked to a task.
    host ignores it on a session that already has a provider conversation.
 4. **The host marks the session.** `session_leads` (`data/sessions/schema.ts`)
    holds one row per lead, written by `markSessionLead` in the run launcher
-   when the first prompt of a new provider conversation says `isLead`. The mark
-   is never removed. `isLeadSession` reads it, and remembers a hit.
+   when the first prompt of a new provider conversation says `isLead`, and by
+   `become_lead`. The mark is never removed. `isLeadSession` reads it, and
+   remembers a hit but not a miss, because the mark can arrive in the middle of
+   a turn.
    Every session record read (`session-records.ts`) and every session
    description (`describeSession`) carries the mark as `isLead`, so each client
    can show it: the desktop and web sidebar row and the mobile thread row lead
@@ -59,9 +86,8 @@ with tasks: a lead may or may not be linked to a task.
    `formatLeadContract` (`data/sessions/lead-contract.ts`) to the system prompt
    after the task packet when there is one, with the person's **Lead
    instructions** and **Default worker model** from the run's execution
-   preferences. The contract is task-independent: workers start with
-   `task='none'`, and join a task with `task='attempt'` only when the lead is
-   linked to one.
+   preferences. The contract is task-independent: `start_sessions` files a
+   worker under no task, whether or not the lead is linked to one.
 6. **The lead wake rule applies.** `orchestrateSessions(runtime, isLeadSession)`
    in `boot-server.ts`: a lead's reports are held until its last open message
    settles, and notices never reach its model (`docs/session-orchestration.md`).
@@ -81,6 +107,11 @@ with tasks: a lead may or may not be linked to a task.
 
 ## Verification
 
-- Unit: the mark and its read (`lead-sessions`); the toggle's offer rule and
-  the lead model move (`lead-toggle`); the contract's rules
-  (`injected-context`); the lead wake rule (`session-orchestrator`, "a lead").
+- Unit: the mark, its read, and its announcement (`lead-sessions`); the tool
+  and its refusals (`become-lead-tool`); when to call it
+  (`runtime-instructions`); the glyph on a live change (`session-list-store`,
+  `agent-events`); the toggle's offer rule and the lead model move
+  (`lead-toggle`); the contract's rules (`injected-context`); the lead wake
+  rule (`session-orchestrator`, "a lead").
+- Not covered by a unit test: whether a model calls `become_lead` at the
+  correct time. That needs real turns on each provider.

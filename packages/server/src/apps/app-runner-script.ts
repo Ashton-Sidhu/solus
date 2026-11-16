@@ -412,10 +412,9 @@ function workflowsFace(canControl) {
 function modelRequest(setting, request) {
   const given = request || {}
   const plain = { setting: String(setting), prompt: given.prompt, input: given.input, tools: given.tools, effort: given.effort, timeoutSeconds: given.timeoutSeconds }
-  if (given.output) {
-    if (typeof given.output.toJSONSchema !== 'function') throw new Error('The output of a model call is a zod schema.')
-    plain.output = given.output.toJSONSchema({ target: 'draft-7', io: 'output' })
-  }
+  if (given.output && typeof given.output.toJSONSchema === 'function') plain.output = given.output.toJSONSchema({ target: 'draft-7', io: 'output' })
+  else if (given.output && typeof given.output === 'object') plain.output = given.output
+  else if (given.output) throw new Error('The output of a model call is a zod schema, or a JSON Schema object.')
   return JSON.parse(JSON.stringify(plain))
 }
 
@@ -629,13 +628,13 @@ async function runWorkflow(message) {
               tooLarge.name = 'NonRetryableError'
               throw tooLarge
             }
-            emitSpan(current, 'step', name, startedAt, true, attempt > 1 ? 'attempt ' + attempt : undefined, { step: name, attempt })
+            emitSpan(current, 'step', name, startedAt, true, attempt > 1 ? 'attempt ' + attempt : undefined, { step: name, attempt, 'retry.limit': limit, 'retry.delay_ms': delay, 'retry.backoff': backoff, 'step.timeout_ms': timeout })
             await ask('step.done', { name, result: JSON.parse(text), signals: emitted.map((signal, index) => ({ id: message.runId + ':' + name + ':' + index, name: signal.name, payload: signal.payload })) })
             return JSON.parse(text)
           } catch (error) {
             clearTimeout(timer)
             controller.abort()
-            emitSpan(current, 'step', name, startedAt, false, reason(error), { step: name, attempt })
+            emitSpan(current, 'step', name, startedAt, false, reason(error), { step: name, attempt, 'retry.limit': limit, 'retry.delay_ms': delay, 'retry.backoff': backoff, 'step.timeout_ms': timeout })
             if (attempt > limit || (error && (error.name === 'NonRetryableError' || error.fromHost))) {
               await ask('step.fail', { name, error: reason(error) }).catch(() => {})
               throw error

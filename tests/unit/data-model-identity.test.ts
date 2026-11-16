@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 
@@ -8,7 +7,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator'
 // more. `created_by` is the user id of who made a row, set from the verified
 // acting identity, immutable, and also the owner; `user_id` is the person a row
 // is for, only where that can differ. Nothing else names a person. The rule is
-// enforced here on the generated baselines, not by review: a table that gains a
+// enforced here on the generated migrations, not by review: a table that gains a
 // third person column, or loses its creator, fails this file.
 
 const drizzle = join(import.meta.dir, '../../packages/server/drizzle')
@@ -136,9 +135,9 @@ function sqliteTables(): Table[] {
   }
 }
 
-/** The Postgres baseline as text: each `CREATE TABLE` block's quoted column lines. */
+/** The Postgres migrations as text: each `CREATE TABLE` block's quoted column lines, and each column a later migration adds. */
 function postgresTables(): Table[] {
-  const text = readFileSync(join(drizzle, 'postgres', '0000_baseline.sql'), 'utf8')
+  const text = readMigrationFiles({ migrationsFolder: join(drizzle, 'postgres') }).flatMap((migration) => migration.sql).join('\n')
   const tables: Table[] = []
   for (const match of text.matchAll(/CREATE TABLE "([a-z_]+)" \(([\s\S]*?)\n\);/g)) {
     const columns: Column[] = []
@@ -149,6 +148,10 @@ function postgresTables(): Table[] {
       columns.push({ name: column[1], notNull: /\bNOT NULL\b/.test(definition), hasDefault: /\bDEFAULT\b/.test(definition) })
     }
     tables.push({ name: match[1], columns })
+  }
+  for (const match of text.matchAll(/ALTER TABLE "([a-z_]+)" ADD COLUMN "([a-z_]+)" ([^;]*)/g)) {
+    const definition = match[3]
+    tables.find((table) => table.name === match[1])?.columns.push({ name: match[2], notNull: /\bNOT NULL\b/.test(definition), hasDefault: /\bDEFAULT\b/.test(definition) })
   }
   return tables
 }

@@ -75,14 +75,24 @@ import { registerIntegrationHandlers } from './transport/handlers/integration-ha
 import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
 import { registerAppHandlers } from './transport/handlers/app-handlers'
 import { Apps } from './apps/apps'
+import { AppDeployments } from './apps/deployments/app-deployments'
+import { AppServiceApi } from './apps/deployments/app-service-api'
+import { SolusCloudApps, workerMachines, type CloudMachines } from './apps/deployments/cloud-machines'
+import { ConnectedHostPlatform } from './apps/deployments/connected-host-platform'
+import { DockerPlatform } from './apps/deployments/docker-platform'
+import { HostedAppContainers } from './apps/deployments/hosted-app-containers'
+import { SolusCloudPlatform } from './apps/deployments/solus-cloud-platform'
+import { tailscaleAuthKey } from './apps/deployments/tailscale-key'
 import { HostAppBuilder } from './apps/app-builder'
 import { hostConnections } from './apps/app-connections'
 import { AppModelCalls } from './apps/app-model-calls'
-import { onAppActivity, onAppDataChanged, onAppsChanged } from './apps/app-events'
+import { modelCallLog } from './apps/app-observability'
+import { onAppActivity, onAppDataChanged, onAppSignalOccurred, onAppsChanged } from './apps/app-events'
 import { AppFiles } from './apps/app-files'
 import { AppRepositories } from './apps/app-repository'
 import { AppRunners } from './apps/app-runners'
 import { AppSchedules } from './apps/app-schedules'
+import { AppDeployPreflights } from './apps/app-deploy-preflight'
 import { appSignalDeps } from './apps/app-signal-runtime'
 import { setAppTelemetry } from './apps/app-telemetry'
 import { otelAppTelemetry } from './execution/observability/app-emitter'
@@ -131,7 +141,7 @@ import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabaseForShutdown, getDatabase } from './db/database'
 import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
-import { isLeadSession } from './data/sessions/lead-sessions'
+import { isLeadSession, onSessionBecameLead } from './data/sessions/lead-sessions'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
 import { LOCAL_ORGANIZATION_ID } from './admission/principal'
@@ -422,6 +432,17 @@ async function bindTunnelListener(tunnelHttp: HttpServer, tunnelListenerPort: nu
   }
 }
 
+/**
+ * Where the machines of the cloud copies come from (docs/plans/app-deploy.md §8.3): Solus Cloud, with the owner's
+ * sign-in; or an app Worker that this host names in its env, for a person who runs their own.
+ */
+function cloudMachinesOf(account: CloudMachines): CloudMachines {
+  const url = process.env.SOLUS_CLOUD_APPS_URL
+  const token = process.env.SOLUS_CLOUD_APPS_TOKEN
+  if (!url || !token) return account
+  return workerMachines({ url, token, name: (appId) => process.env.SOLUS_CLOUD_APPS_NAME || `app-${appId.toLowerCase()}` })
+}
+
 export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The renderer's first connection waits on this function. An empty store
   // boots in tens of milliseconds; a real one has cost in the stores and the
@@ -657,6 +678,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A task reads the pull requests of its sessions, so a session's change is
     // also a change of each task the session belongs to.
     onSessionStateChanged((sessionId, state) => events.broadcast('session.stateChanged', { sessionId, state })),
+    // A session can become a lead in the middle of a turn: its row shows the mark at once.
+    onSessionBecameLead(async (sessionId, source) => {
+      if (source === 'agent') {
+        const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor ?? HOST_ACTOR
+        await opts.sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'became_lead' }, undefined, { sessionId })
+      }
+      void events.broadcast('session.becameLead', { sessionId })
+    }),
     // A read boundary is the reader's own: only their connections hear it move.
     onSessionReadStateChanged((change) => {
       const recipients = personConnections.of(change.personKey, change.organizationId)
@@ -800,27 +829,90 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const appFiles = new AppFiles(appStorage)
   // The host builds what it runs, with the bundler of the Solus plugin it installed for agents (decision 4).
   const appBuilder = new HostAppBuilder({ bundler: () => join(solusPluginsDir(), 'skills', 'visual-artifacts', 'scripts', 'bundle-artifact.mjs') })
-  const apps = new Apps({ gateway: integrationGateway, integrations, connections: hostConnections, storage: appStorage, runners: appRunners, repositories: new AppRepositories(), builder: appBuilder, files: appFiles })
+  const appRepositories = new AppRepositories()
+  const apps = new Apps({ gateway: integrationGateway, integrations, connections: hostConnections, storage: appStorage, runners: appRunners, repositories: appRepositories, builder: appBuilder, files: appFiles })
+  // An app can be published to a container of its own (docs/plans/app-deploy.md): the docker platform runs it on this host's
+  // engine, and the container reaches the service API of this server by the name Docker gives the host.
+  // The release publishes the image of each version (.github/workflows/release-server.yml); a host pulls it at its first publish.
+  const appRuntimeImage = () => process.env.SOLUS_APPS_RUNTIME_IMAGE || `ghcr.io/ashton-sidhu/solus-apps-runtime:${packageJson.version}`
+  // Solus Cloud for the apps of the owner (§8.3, §7.3): each request is theirs, with the token this host holds for them.
+  const ownerAccountId = () => delegations?.holders().find((holder) => holder.scope === 'personal')?.userId ?? null
+  const cloudApps = new SolusCloudApps({
+    isSignedIn: () => ownerAccountId() !== null,
+    request: async (path, init) => {
+      const userId = ownerAccountId()
+      if (!userId) return { refused: 'NO_DELEGATION', message: 'Sign in to Solus on the host of the app.' }
+      return accountReadsOfServer.fetch(userId, 'personal', path, { method: init.method, body: init.body, headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(120_000) })
+    },
+  })
+  // The address that Solus Cloud gives this host, while its tunnel is open.
+  const tunnelOrigin = (): string | null => {
+    const status = uplinkManager.status()
+    return status.linked && status.state.observed === 'online' ? `https://${status.tunnel.hostname}` : null
+  }
+  const appDeployments = new AppDeployments(apps, {
+    runtimeImage: appRuntimeImage,
+    platforms: [
+      new DockerPlatform({ image: appRuntimeImage, tailscaleAuthKey }),
+      new SolusCloudPlatform(cloudMachinesOf(cloudApps)),
+    ],
+    hasTailscaleKey: () => tailscaleAuthKey() !== null,
+    signIn: cloudApps,
+    // A container on this host reaches this server by the name Docker gives the host. A cloud deployment reaches it at the
+    // address that Solus Cloud gives this host, while this host is online. A container on a connected host reaches it at
+    // the route with the widest reach; a server bound to loopback has none.
+    solusUrl: async (platform, hostId) => {
+      if (hostId !== null) return (await advertisedRoutes(host, actualPort))[0]?.url ?? ''
+      return platform === 'docker' ? `http://host.docker.internal:${actualPort}` : process.env.SOLUS_CLOUD_SERVICE_URL || tunnelOrigin() || ''
+    },
+    // The container of a deployment can run on another host of the owner (§8.5): the hosts this one reaches for them.
+    connectedHosts: {
+      list: async () => {
+        const hosts = await remoteHosts.list(ownerReach())
+        return 'error' in hosts ? [] : hosts.map((target) => ({ id: target.hostId, label: target.label }))
+      },
+      connect: async (hostId) => {
+        const target = await remoteHosts.find(ownerReach(), hostId)
+        if ('error' in target) throw new Error(target.error)
+        const remote = remoteHosts.connect(target)
+        if ('error' in remote) throw new Error(remote.error)
+        return { id: target.hostId, label: remote.label, platform: new ConnectedHostPlatform(remote.label, remote.api) }
+      },
+    },
+  })
+  // The containers this host runs for the apps of another Solus of its owner. Their names differ from this host's own deployments.
+  const hostedAppContainers = new HostedAppContainers(new DockerPlatform({ image: appRuntimeImage, tailscaleAuthKey, namePrefix: 'solus-hosted-app-' }))
+  apps.addLifecyclePart(appDeployments)
   const appSchedules = new AppSchedules(apps)
   const appWorkflows = new AppWorkflows(apps, appRunners)
   const appSignals = new AppSignals(apps, appSignalDeps(opts.sessionRuntime))
   apps.addLifecyclePart(appSchedules)
   apps.addLifecyclePart(appSignals)
   apps.addLifecyclePart(appWorkflows)
+  const appPreflights = new AppDeployPreflights({ apps, builder: appBuilder, repositories: appRepositories })
+  apps.addLifecyclePart(appPreflights)
   apps.useWorkflows(appWorkflows)
   apps.useSignals(appSignals)
   // The app's model calls run with this host's providers (docs/plans/app-models.md); a call the host stopped during is failed at boot.
-  const appModelCalls = new AppModelCalls(apps, { dispatcher: opts.sessionRuntime })
+  const appModelCalls = new AppModelCalls(apps, { dispatcher: opts.sessionRuntime, callLog: modelCallLog })
   apps.useModelCalls(appModelCalls)
   apps.addLifecyclePart(appModelCalls)
+  // A model call of a published copy runs here too, with the owner's model account (§5.2). Each operation it uses as a tool
+  // runs in the copy, on the copy's data. Its record is beside the records of the app, so the owner reads it in Activity.
+  const deploymentModelCalls = new AppModelCalls({
+    record: (authority, idOrSlug) => apps.record(authority, idOrSlug),
+    callOperation: (appId, operation, input, caller) => appDeployments.callOperation(appId, { operation, input, caller }),
+  }, { dispatcher: opts.sessionRuntime, callLog: modelCallLog })
+  apps.addLifecyclePart(deploymentModelCalls)
   void appModelCalls.recover().catch((error) => log.warn('app_model_calls_recover_failed', { error: error instanceof Error ? error.message : String(error) }))
   // A deleted app leaves no session linked to it.
   apps.addLifecyclePart({ activated: async () => {}, removed: (app) => unlinkAppFromSessions(app.id) })
-  useAppsForTools({ apps, builder: appBuilder, workflows: appWorkflows, signals: appSignals, modelCalls: appModelCalls })
+  useAppsForTools({ apps, builder: appBuilder, workflows: appWorkflows, signals: appSignals, modelCalls: appModelCalls, deployments: appDeployments })
   domainEventUnsubscribes.push(
     onAppsChanged((event) => events.broadcast('apps.changed', event)),
     onAppDataChanged((event) => events.broadcast('apps.dataChanged', event)),
     onAppActivity((event) => events.broadcast('apps.activity', event)),
+    onAppSignalOccurred((event) => events.broadcast('apps.signalOccurred', event)),
   )
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
@@ -986,6 +1078,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       },
     }
   }
+  // The owner reaches other hosts through their personal delegation and the introduced hosts (host-reach.md §3.2).
+  const ownerReach = (): ReachRequest => {
+    const owner = delegations?.holders().find((holder) => holder.scope === 'personal')
+    return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
+  }
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts)
   setRemoteHosts(remoteHosts)
   setSessionController({
@@ -996,10 +1093,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     reachRequestFor: (sessionId): ReachRequest | null => {
       const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
       const principal = actor?.principal
-      if (!actor?.user || principal?.kind === 'owner') {
-        const owner = delegations?.holders().find((holder) => holder.scope === 'personal')
-        return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
-      }
+      if (!actor?.user || principal?.kind === 'owner') return ownerReach()
       if (principal?.kind === 'org-member') return { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
       return null
     },
@@ -1561,9 +1655,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The webhooks an app declares are ordinary webhook records, made when a version becomes active.
   const appWebhooks = new AppWebhooks(apps, webhookService)
   apps.addLifecyclePart(appWebhooks)
-  registerAppHandlers(server, { apps, schedules: appSchedules, webhooks: appWebhooks, workflows: appWorkflows, signals: appSignals, modelCalls: appModelCalls })
+  registerAppHandlers(server, { apps, schedules: appSchedules, webhooks: appWebhooks, workflows: appWorkflows, signals: appSignals, modelCalls: appModelCalls, deployments: appDeployments, hostedContainers: hostedAppContainers, preflights: appPreflights })
   registerWebhookHandlers(server, {
     actions: webhooks.actions,
+    receiver: webhooks.receiver,
     webhooks: webhookService,
     link: {
       linked: () => !!uplinkManager?.currentTunnel(),
@@ -1627,6 +1722,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     transcribeAudio: opts.transcribeAudio,
     completeIntegrationOAuth: (params) => integrationOAuth.complete(params),
     webhookReceiver: apiMode ? undefined : webhooks.receiver,
+    appService: apiMode ? undefined : new AppServiceApi({ deployments: appDeployments, apps, signals: appSignals, modelCalls: deploymentModelCalls }),
   })
   // A client's records go over its socket, with the socket's principal as their authority (docs/api/README.md).
   if (solusApiRouter) server.register('solusApiRequest', ([request], ctx) => answerSocketRequest(solusApiRouter, request, ctx.principal))
@@ -1933,10 +2029,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       hostKind,
       roles: [...roles],
     }),
-    tunnelUrl: () => {
-      const status = uplinkManager.status()
-      return status.linked && status.state.observed === 'online' ? `https://${status.tunnel.hostname}` : null
-    },
+    tunnelUrl: tunnelOrigin,
     mirrorOrigin: async (resource) => {
       if (resource.kind !== 'session' || !(await transcriptDestination(resource.id))) return null
       return registrar.current()?.directoryUrl ?? null

@@ -58,7 +58,18 @@ describe('the app descriptor', () => {
     expect(old).toMatchObject({ solusApp: 2, instructions: '', workflows: [], signals: [] })
     expect(old.operations[0]).not.toHaveProperty('output')
     expect(appDescriptorSchema.safeParse(descriptor({ solusApp: 3 })).success).toBe(true)
-    expect(appDescriptorSchema.safeParse(descriptor({ solusApp: 4 })).success).toBe(false)
+    expect(appDescriptorSchema.safeParse(descriptor({ solusApp: 4 })).success).toBe(true)
+    expect(appDescriptorSchema.safeParse(descriptor({ solusApp: 5 })).success).toBe(false)
+  })
+
+  test('an integration has one scope: an app connection is one of the app\'s integrations, and no name is used twice', () => {
+    // WHY (docs/plans/app-deploy.md §6): the scope decides whose connection a
+    // call uses. A name in the two scopes would have two answers.
+    expect(appDescriptorSchema.parse(descriptor({ solusApp: 4, integrations: ['linear', 'github'], appIntegrations: ['github'] })).appIntegrations).toEqual(['github'])
+    // A build of protocol 3 names no app connection: each of its integrations is the caller's own.
+    expect(appDescriptorSchema.parse(descriptor({ solusApp: 3, integrations: ['linear'] })).appIntegrations).toEqual([])
+    expect(appDescriptorSchema.safeParse(descriptor({ solusApp: 4, integrations: ['linear'], appIntegrations: ['github'] })).success).toBe(false)
+    expect(appDescriptorSchema.safeParse(descriptor({ solusApp: 4, integrations: ['linear', 'linear'] })).success).toBe(false)
   })
 
   test('a signal has a name of lower-case words with dots, and a workflow a name a program can write', () => {

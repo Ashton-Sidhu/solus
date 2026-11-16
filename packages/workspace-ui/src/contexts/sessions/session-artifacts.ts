@@ -37,3 +37,8 @@ export function newestAddedKey(previous: SessionArtifacts, next: SessionArtifact
 export function listsSession(owner: string, artifacts: SessionArtifacts | undefined, sessionId: string): boolean {
   return owner === sessionId || !!artifacts?.children.some((group) => group.sessionId === sessionId)
 }
+
+/** Whether a list holds a work: as its own, or as one of the sessions it started. */
+export function listsWork(artifacts: SessionArtifacts | undefined, workId: string): boolean {
+  return !!artifacts && allSessionArtifacts(artifacts).some((artifact) => artifact.kind === 'work' && artifact.workId === workId)
+}

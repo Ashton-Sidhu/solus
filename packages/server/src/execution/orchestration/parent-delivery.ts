@@ -117,6 +117,11 @@ export class ParentDelivery {
     })
   }
 
+  /** Runs `then` after every item already given for the parent has reached it. */
+  afterDelivered(parentSessionId: string, then: () => void): void {
+    this.serialize(parentSessionId, async () => then())
+  }
+
   /** Forgets the reports held for a parent that stopped waiting. */
   dropHeld(parentSessionId: string): void {
     this.serialize(parentSessionId, async () => {

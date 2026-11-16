@@ -1,12 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 
-// WHY (plans/029-fresh-database-baseline.md §10, §11): the data model is one
-// generated baseline per database, and its table and index set is a decision,
-// not a side effect. A table or index that appears or disappears here without
+// WHY (plans/029-fresh-database-baseline.md §10, §11): the table and index set
+// of each database, after all of its migrations, is a decision, not a side
+// effect. A table or index that appears or disappears here without
 // this test changing is a mistake: either an unreviewed schema change or a
 // generator that no longer writes what the declarations say. Keep the lists
 // sorted; add a table only with its reader named in the declaration's comment.
@@ -54,7 +53,7 @@ const SOLUS_INDEXES = [
   'works_api_type_page', 'works_by_session', 'workspace_projects_by_repository',
 ]
 
-/** The search triggers, hand-written in `db/schema/custom/sqlite.sql`. */
+/** The search triggers, hand-written in the SQLite baseline. */
 const SOLUS_TRIGGERS = [
   'session_transcripts_search_delete', 'session_transcripts_search_insert', 'session_transcripts_search_update',
   'works_fts_ad', 'works_fts_ai', 'works_fts_au',
@@ -94,27 +93,23 @@ function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; t
   }
 }
 
-describe('the data model is one baseline per database', () => {
-  test('solus.db holds exactly the declared tables, indexes, and triggers, from one file', () => {
-    const { tables, indexes, triggers, files } = sqliteObjects('sqlite')
-    expect(files).toBe(1)
+describe('the data model of each database', () => {
+  test('solus.db holds exactly the declared tables, indexes, and triggers', () => {
+    const { tables, indexes, triggers } = sqliteObjects('sqlite')
     expect(tables).toEqual(SOLUS_TABLES)
     expect(indexes).toEqual(SOLUS_INDEXES)
     expect(triggers).toEqual(SOLUS_TRIGGERS)
   })
 
-  test('metrics.db holds exactly the declared tables and indexes, from one file', () => {
-    const { tables, indexes, triggers, files } = sqliteObjects('metrics')
-    expect(files).toBe(1)
+  test('metrics.db holds exactly the declared tables and indexes', () => {
+    const { tables, indexes, triggers } = sqliteObjects('metrics')
     expect(tables).toEqual(METRICS_TABLES)
     expect(indexes).toEqual(METRICS_INDEXES)
     expect(triggers).toEqual([])
   })
 
-  test('the Postgres baseline is one file with exactly the ported tables', () => {
-    const migrations = readMigrationFiles({ migrationsFolder: join(drizzle, 'postgres') })
-    expect(migrations.length).toBe(1)
-    const text = readFileSync(join(drizzle, 'postgres', '0000_baseline.sql'), 'utf8')
+  test('Postgres holds exactly the ported tables', () => {
+    const text = readMigrationFiles({ migrationsFolder: join(drizzle, 'postgres') }).flatMap((migration) => migration.sql).join('\n')
     const tables = [...text.matchAll(/^CREATE TABLE "([a-z_]+)"/gm)].map((match) => match[1]).sort()
     expect(tables).toEqual(POSTGRES_TABLES)
   })
@@ -127,11 +122,12 @@ describe('the data model is one baseline per database', () => {
     expect(POSTGRES_TABLES.filter((table) => ACCOUNT_TABLES.includes(table))).toEqual([])
   })
 
-  test('nothing that only lived in a migration history remains: no legacy slot runner, no second baseline', () => {
-    // WHY: plans/029 decision 1 — a file an older build made cannot be opened, so
-    // nothing may read `PRAGMA user_version` as a schema slot any more.
-    const sqlite = readFileSync(join(drizzle, 'sqlite', '0000_baseline.sql'), 'utf8')
-    expect(sqlite).not.toMatch(/user_version/)
-    expect(sqlite).not.toMatch(/ALTER TABLE/)
+  test('no migration uses the legacy slot runner', () => {
+    // WHY: plans/029 decision 1 — the runner refuses a file from before the
+    // baseline by its `PRAGMA user_version`, so no migration may set it.
+    for (const folder of ['sqlite', 'metrics']) {
+      const sql = readMigrationFiles({ migrationsFolder: join(drizzle, folder) }).flatMap((migration) => migration.sql).join('\n')
+      expect(sql).not.toMatch(/user_version/)
+    }
   })
 })

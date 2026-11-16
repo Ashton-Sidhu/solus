@@ -3,7 +3,7 @@
 // `defineApp({ ... })` as its default (see the create-app skill).
 //
 // Do not edit. The build bundles this file into the backend, and Solus reads
-// what `descriptor()` answers. This file is protocol 3: it says what `ctx`
+// what `descriptor()` answers. This file is protocol 4: it says what `ctx`
 // holds for the app. Solus runs an app with the protocol of the file it was
 // built with, so an older project keeps working until this file is replaced.
 
@@ -30,9 +30,15 @@ export interface Sql {
   transaction<T>(run: () => T): T
 }
 
-/** Who started the call. */
+/**
+ * Who started the call. A call from the app's UI names its person and what
+ * they may do: the owner, an editor (queries and mutations), or a viewer
+ * (queries). `user` is absent for a visitor who did not sign in to Solus: a
+ * guest with a link, or anyone when the app is public. Check `role` before an
+ * operation that only the owner may run.
+ */
 export type Caller =
-  | { kind: 'ui' }
+  | { kind: 'ui'; user?: { id: string; name: string }; role?: 'owner' | 'editor' | 'viewer' }
   | { kind: 'agent'; sessionId: string | null }
   | { kind: 'schedule'; name: string }
   | { kind: 'webhook'; webhookId: string }
@@ -159,7 +165,7 @@ export interface Context {
   secrets: { readonly [name: string]: string | undefined }
   /** The config the app runs with, by field name: the owner's value, or the field's default. */
   config: { readonly [name: string]: ConfigValue }
-  /** The integrations the app names in `integrations`, with the caller's own connection. */
+  /** The integrations the app names: one of `integrations` with the caller's own connection, one of `appIntegrations` with the owner's. */
   tools: { readonly [slug: string]: { readonly [tool: string]: IntegrationTool } }
   files: Files
   signals: Signals
@@ -377,8 +383,18 @@ export interface AppInput<Operations extends OperationMap, Config extends { [nam
   /** False for an app with no UI: its operations are what an agent, a schedule, and a webhook call. */
   ui?: boolean
   permissions?: AppPermissions
-  /** The slugs of the integrations the app calls through `tools`. */
+  /**
+   * The slugs of the integrations the app calls through `tools` with the
+   * caller's own connection. A call with no person (a schedule, a webhook, a
+   * workflow, a visitor of a public app) cannot use one.
+   */
   integrations?: string[]
+  /**
+   * The slugs of the integrations the app calls with the owner's connection,
+   * for each caller and for the app's background work. The owner links the
+   * connection one time. A name is in `integrations` or here, never in both.
+   */
+  appIntegrations?: string[]
   /** Values the owner gives in the app's menu, such as a database URL. */
   secrets?: { [name: string]: { label: string; description?: string } }
   /** Settings the owner changes on the app's Manage page. `ctx.config` and the UI's `useConfig` read them. */
@@ -408,7 +424,7 @@ export function defineApp<Operations extends OperationMap = {}, Config extends {
     ...definition,
     operations,
     descriptor: () => ({
-      solusApp: 3,
+      solusApp: 4,
       name: definition.name,
       description: definition.description ?? '',
       instructions: definition.instructions ?? '',
@@ -416,7 +432,8 @@ export function defineApp<Operations extends OperationMap = {}, Config extends {
         network: definition.permissions?.network ?? [],
         files: { read: definition.permissions?.files?.read ?? [], write: definition.permissions?.files?.write ?? [] },
       },
-      integrations: definition.integrations ?? [],
+      integrations: [...(definition.integrations ?? []), ...(definition.appIntegrations ?? [])],
+      appIntegrations: definition.appIntegrations ?? [],
       secrets: Object.entries(definition.secrets ?? {}).map(([name, secret]) => ({ name, label: secret.label, description: secret.description ?? '' })),
       config: Object.entries(definition.config ?? {}).map(([name, field]) => JSON.parse(JSON.stringify({ name, ...field, description: field.description ?? '' })) as { [key: string]: Json }),
       operations: Object.entries(operations).map(([name, declared]) => ({

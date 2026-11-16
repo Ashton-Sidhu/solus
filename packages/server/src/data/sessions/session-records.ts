@@ -5,7 +5,6 @@ import {
   type SessionRecordDelegation,
   type SessionRecordStatus,
   type SessionRecordUpsert,
-  type SessionStatus,
 } from '@solus/contracts/types'
 import { getDatabase, type Db } from '../../db/database'
 import { getDb, withTx } from '../../db'
@@ -737,26 +736,6 @@ export async function ownPublishedSessionIds(): Promise<string[]> {
     WHERE publication = 'published' AND runner_host_id IS NULL AND organization_id <> ${LOCAL_ORGANIZATION_ID} AND ${STARTED}
   `))
   return rows.map((row) => row.session_id)
-}
-
-/** What a runtime status means to the record: a turn open, or not. */
-export function sessionRecordStatusOf(status: SessionStatus): SessionRecordStatus {
-  switch (status) {
-    case 'connecting':
-    case 'running':
-    case 'awaiting_input':
-    case 'awaiting_plan':
-    case 'rate_limited':
-      return 'running'
-    case 'interrupted':
-      return 'interrupted'
-    case 'idle':
-    case 'completed':
-    case 'background':
-    case 'failed':
-    case 'dead':
-      return 'idle'
-  }
 }
 
 /**

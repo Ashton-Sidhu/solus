@@ -487,8 +487,9 @@
 <div
   class="flex min-h-6 items-center justify-between gap-2 px-1.5 text-chrome-shelf"
 >
+  <!-- The heading keeps its width; a long repository name is what gets cut. -->
   <span
-    class="min-w-0 truncate font-medium text-(--solus-text-tertiary) uppercase"
+    class="shrink-0 font-medium text-(--solus-text-tertiary) uppercase"
     >Pull request</span
   >
   {#if position && onCycle}
@@ -496,18 +497,18 @@
          the count says there are more, the caret says where a click goes. -->
     <button
       type="button"
-      class="flex shrink-0 cursor-pointer items-center gap-1 rounded-sm font-normal tabular-nums text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      class="flex min-w-0 cursor-pointer items-center gap-1 overflow-hidden rounded-sm font-normal tabular-nums text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       aria-label={`Pull request ${otherRepository ?? ""}#${pr.number}, ${position.index + 1} of ${position.count}. Show the next linked pull request.`}
       title="Show the next linked pull request"
       onclick={onCycle}
     >
-      {reference}
-      <span class="text-(--solus-text-tertiary)">{position.index + 1}/{position.count}</span>
-      <CaretRightIcon size={11} />
+      <span class="min-w-0 truncate">{reference}</span>
+      <span class="shrink-0 text-(--solus-text-tertiary)">{position.index + 1}/{position.count}</span>
+      <CaretRightIcon size={11} class="shrink-0" />
     </button>
   {:else}
     <span
-      class="shrink-0 font-normal tabular-nums text-(--solus-text-tertiary)"
+      class="min-w-0 truncate font-normal tabular-nums text-(--solus-text-tertiary)"
       title={otherRepository ?? undefined}>{reference}</span
     >
   {/if}

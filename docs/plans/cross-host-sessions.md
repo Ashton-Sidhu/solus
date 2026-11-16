@@ -7,7 +7,7 @@ hosts). Those sections stay below as history only.
 
 ## 1. Goal
 
-An agent on host A can call `delegate_task` or `start_session` with `host: B`. Use `delegate_task` for child work and `start_session` for an independent conversation. The session starts
+An agent on host A can call `start_sessions` with `host: B`, for child work or, with `independent: true`, for an independent conversation. The session starts
 on host B **as if the user started it on host B**. Host B applies its usual
 admission, access policy, and attribution. Host B has no new trust rule.
 
@@ -21,7 +21,7 @@ does, with the user's own token. It still never trusts another host.
 
 ## 2. Vocabulary
 
-- **parent host** — the host that runs the session that calls `start_session`
+- **parent host** — the host that runs the session that calls `start_sessions`
   (host A).
 - **target host** — the host the new session runs on (host B).
 - **host access** — what the parent host needs from the user's account: the
@@ -80,15 +80,13 @@ concepts.
    API or the account plane, never for a host (ADR 0001 stage 6 notes).
 2. **Only a host with a signed-in client in its process can start work on
    another host.** Today that is the desktop app while it is signed in. A
-   standalone or managed host has no such client, so `host` on `start_session`
+   standalone or managed host has no such client, so `host` on `start_sessions`
    answers "not available on this host". A sign-out ends it at once (ADR 0001
    §2.2 rule 5).
 3. **Host B shows the origin.** A session that an agent on another host
    started shows "Started by an agent on <host A>" on every client.
-4. **No task across hosts.** `task='attempt'` with `host` is refused. (Changed
-   2026-11-10: the reason was that a Local task lived on host A only.
-   [Provider-owned tasks](provider-owned-tasks.md) removed the Local task and
-   the organization task; the refusal stays.)
+4. **No task from the start.** A started session joins no task, on any host.
+   A session that works on a task links it with `link` and `kind: 'task'`.
 5. **The parent host owns the remote exchange.** Host B does not know that an
    exchange exists. Host A watches the child session on host B, the same way a
    client does, and feeds host B's events into the same run hooks a local
@@ -127,7 +125,7 @@ is refused.
   there. When host B does not answer the project list, the answer has no
   `projects`. Without it, the answer also lists
   the hosts this host can start work on, when it has host access.
-- `start_session` gets an optional `host` (id or label). With it:
+- `start_sessions` gets an optional `host` (id or label). With it:
   - the provider and model are checked against host B's targets,
   - `cwd` is a path on host B. When it is absent, the session starts in a new
     chat folder on host B,
@@ -176,7 +174,7 @@ conversation.
 
 - **Clients.** The origin line shows on desktop, web, and mobile. The parent's
   card shows the target host label. The Run on picker does not change.
-- **Providers.** Claude and Codex both call `start_session`. Both get the same
+- **Providers.** Claude and Codex both call `start_sessions`. Both get the same
   behavior.
 - **Connection modes.** A desktop host can be a parent host. Any host can be a
   target host.
@@ -186,11 +184,10 @@ conversation.
 ## 8. Tests
 
 - Unit: the event mapping from host B's events to the run hooks, host lookup by
-  id and label, the tool's refusals (`task='attempt'`, no host access, unknown
-  host).
+  id and label, the tool's refusals (no host access, unknown host).
 - End to end: host B is a real server from source, linked to the Lab issuer.
   Host A boots in the test process with a lent `HostAccess` whose tokens the
-  Lab issuer mints. A parent session on host A (mock backend) calls `start_session` with
+  Lab issuer mints. A parent session on host A (mock backend) calls `start_sessions` with
   `host: B`. The test checks that host B admits the token, the child runs on
   host B with its origin, and the report reaches the parent on host A.
 

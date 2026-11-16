@@ -5,7 +5,7 @@ import {
   formatParentPrompt,
   formatSessionNotice,
   formatSessionReport,
-  parseExchangeTag,
+  parseExchangeTags,
   parseOrchestrationItems,
   type OrchestrationItem,
   type SessionNotice,
@@ -32,7 +32,7 @@ const everyOutput: SessionOutput[] = [
   { kind: 'work', workId: 'w1', title: 'Design notes', workType: 'artifact' },
   { kind: 'changed_files', sessionId: child, count: 2, branch: 'feat/store' },
   { kind: 'pull_request', number: 42, url: 'https://github.com/o/r/pull/42' },
-  { kind: 'session', sessionId: 'thread-grandchild', title: 'Write tests', taskId: 'task-7' },
+  { kind: 'session', sessionId: 'thread-grandchild', title: 'Write tests' },
 ]
 
 const report: SessionReport = {
@@ -153,15 +153,20 @@ describe('the prompt a parent receives', () => {
 describe('exchange tag on a tool result', () => {
   test('names the message, the session and its provider', () => {
     const tag = { messageId: 'm1', sessionId: 's1', provider: 'codex' as const }
-    expect(parseExchangeTag(`Prompt dispatched to [s1](session://open?sessionId=zzz).\n${formatExchangeTag(tag)}`)).toEqual(tag)
+    expect(parseExchangeTags(`Prompt dispatched to [s1](session://open?sessionId=zzz).\n${formatExchangeTag(tag)}`)).toEqual([tag])
   })
 
   test('names the host of a session that runs on another host, so its card opens it there', () => {
     const tag = { messageId: 'm1', sessionId: 's1', provider: 'claude-code' as const, serverId: 'install-omarchy' }
-    expect(parseExchangeTag(formatExchangeTag(tag))).toEqual(tag)
+    expect(parseExchangeTags(formatExchangeTag(tag))).toEqual([tag])
   })
 
   test('a result without the tag names nothing', () => {
-    expect(parseExchangeTag('Created session [x](session://open?provider=codex&sessionId=abc).')).toBeNull()
+    expect(parseExchangeTags('Created session [x](session://open?provider=codex&sessionId=abc).')).toEqual([])
+  })
+
+  test('names each session a start_sessions call started, with its place in the list', () => {
+    const tags = [0, 1].map((item) => ({ messageId: `m${item}`, sessionId: `s${item}`, provider: 'codex' as const, item }))
+    expect(parseExchangeTags(tags.map((tag) => `${tag.item + 1}. Session.\n${formatExchangeTag(tag)}`).join('\n'))).toEqual(tags)
   })
 })

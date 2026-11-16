@@ -41,6 +41,7 @@ CREATE TABLE `app_calls` (
 	`app_id` text NOT NULL,
 	`version` integer NOT NULL,
 	`operation` text NOT NULL,
+	`kind` text DEFAULT 'operation' NOT NULL,
 	`caller` text NOT NULL,
 	`caller_kind` text DEFAULT 'ui' NOT NULL,
 	`started_at` integer NOT NULL,
@@ -126,6 +127,7 @@ CREATE TABLE `app_versions` (
 	`message` text DEFAULT '' NOT NULL,
 	`author` text NOT NULL,
 	`created_at` integer NOT NULL,
+	`activations` text DEFAULT '[]' NOT NULL,
 	PRIMARY KEY(`app_id`, `number`),
 	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
 );
@@ -173,6 +175,9 @@ CREATE TABLE `apps` (
 	`slug` text NOT NULL,
 	`name` text NOT NULL,
 	`description` text DEFAULT '' NOT NULL,
+	`custom_name` text,
+	`custom_description` text,
+	`color_hue` integer,
 	`active_version` integer,
 	`stopped` integer DEFAULT 0 NOT NULL,
 	`agent_access` integer DEFAULT 1 NOT NULL,

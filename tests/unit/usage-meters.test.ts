@@ -97,6 +97,19 @@ describe('providerUsage', () => {
   })
 
   // A meterless row would read as "no quota left" rather than "no quota data".
+  // An Enterprise seat has only a monthly spend cap; it has no reset time to show.
+  test('shows a spend cap as a Monthly meter with no countdown', () => {
+    const [row] = providerUsage(
+      [agent('claude-code')],
+      { 'claude-code': limits('claude-code', { fiveHour: null, weekly: null, monthly: { usedPercent: 31.459, resetsAt: null, resetsLabel: null } }) },
+      NOW,
+    )
+    expect(row.status).toBeNull()
+    expect(row.meters).toEqual([
+      { key: 'monthly', label: 'Monthly', remainingPercent: 68.541, tone: 'ok', resetPhrase: null },
+    ])
+  })
+
   test('drops providers that are unavailable or report nothing', () => {
     const rows = providerUsage(
       [agent('claude-code', { available: false }), agent('codex')],

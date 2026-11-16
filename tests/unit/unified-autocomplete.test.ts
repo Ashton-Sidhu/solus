@@ -49,6 +49,7 @@ function input(text: string, overrides: Partial<RowInput> = {}): RowInput {
     session: [],
     task: [],
     automation: [],
+    host: [],
   }
   return {
     trigger,
@@ -59,7 +60,7 @@ function input(text: string, overrides: Partial<RowInput> = {}): RowInput {
     byKind: empty,
     linked: [],
     linkedLabel: '',
-    counts: { plan: 0, doc: 0, pr: 0, session: 0, task: 0, automation: 0 },
+    counts: { plan: 0, doc: 0, pr: 0, session: 0, task: 0, automation: 0, host: 0 },
     ...overrides,
   }
 }
@@ -445,6 +446,7 @@ describe('menu rows', () => {
           session: [],
           task: [],
           automation: [reference('automation', 'Nightly dependency sweep')],
+          host: [],
         },
       }),
     )
@@ -468,6 +470,7 @@ describe('menu rows', () => {
           session: [],
           task: [],
           automation: [],
+          host: [],
         },
       }),
     )
@@ -513,6 +516,7 @@ describe('menu rows', () => {
           session: [],
           task: [],
           automation: [],
+          host: [],
         },
       }),
     )
@@ -543,6 +547,7 @@ describe('menu rows', () => {
           session: [],
           task: [],
           automation: [reference('automation', 'PR triage on open')],
+          host: [],
         },
       }),
     )
@@ -565,6 +570,7 @@ describe('menu rows', () => {
           session: sessions,
           task: [],
           automation: [],
+          host: [],
         },
         counts: {
           plan: 0,
@@ -573,6 +579,7 @@ describe('menu rows', () => {
           session: sessions.length,
           task: 0,
           automation: 0,
+          host: 0,
         },
       }),
     )
@@ -592,6 +599,7 @@ describe('menu rows', () => {
           session: sessions,
           task: [],
           automation: [],
+          host: [],
         },
       }),
     )
@@ -605,7 +613,7 @@ describe('menu rows', () => {
   test('a category whose host is still indexing does not pass its count off as a total', () => {
     // WHY: on first launch a machine is still reading its sessions into its
     // index. "2 sessions" would read as the whole history of the project.
-    const indexing = { indexingKinds: new Set(['session' as const]), counts: { plan: 0, doc: 0, pr: 0, session: 2, task: 0, automation: 0 } }
+    const indexing = { indexingKinds: new Set(['session' as const]), counts: { plan: 0, doc: 0, pr: 0, session: 2, task: 0, automation: 0, host: 0 } }
     const root = buildRows(input('#', indexing))
     expect(root.find((row) => row.type === 'category' && row.kind === 'session')).toMatchObject({ count: 'Indexing…' })
     expect(root.find((row) => row.type === 'category' && row.kind === 'plan')).toMatchObject({ count: '0' })

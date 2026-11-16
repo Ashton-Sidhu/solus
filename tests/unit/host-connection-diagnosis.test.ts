@@ -162,4 +162,15 @@ describe('host connection diagnosis', () => {
     expect(text).toContain("Raiders's tunnel: Failed (HTTP 530: no live connection from the host)")
     expect(text).toContain('Solus on Raiders: Unknown')
   })
+
+  test('copied details identify the error for each route, even when the selected address is stale', () => {
+    const check = directCheck({ kind: 'timeout' })
+    check.routes = [
+      ...check.routes,
+      { kind: 'tailnet', url: 'http://100.87.157.17:3001', answer: { kind: 'no-answer', error: 'App Transport Security requires a secure connection.' } },
+    ]
+    const text = hostDiagnosticsText(withCheck(check, directHost), NOW)
+    expect(text).toContain(`${LAN_URL} (lan): No answer in time from this device`)
+    expect(text).toContain('http://100.87.157.17:3001 (tailnet): No answer: App Transport Security requires a secure connection.')
+  })
 })

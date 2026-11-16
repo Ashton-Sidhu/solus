@@ -33,6 +33,9 @@ export type ThreadFeedRow =
       readonly showMeta: boolean
       /** User only: the next row is another message from the person, so the gap below closes. */
       readonly groupedWithNext?: boolean
+      /** The final reply of a settled turn: the prompts around its turn, so it
+          can show the turn's pull request cards where it mentions them. */
+      readonly replyOf?: TurnPromptIds
     }
   | {
       readonly type: 'work-toggle'
@@ -55,15 +58,22 @@ export type ThreadFeedRow =
   | { readonly type: 'mcp-app'; readonly id: string }
   /** The host handed the thread to another provider. */
   | { readonly type: 'handoff'; readonly id: string }
+  | { readonly type: 'lead-promotion'; readonly id: string }
   /** The composer picked another provider; the next prompt hands off (plans/021). */
   | { readonly type: 'handoff-pending'; readonly id: string }
-  /** All image sources below the turn reply; each item subscribes independently. */
-  | { readonly type: 'turn-artifacts'; readonly id: string; readonly promptId: string | null; readonly nextPromptId: string | null; readonly imageIds: readonly string[] }
-  | { readonly type: 'turn-images'; readonly id: string; readonly itemIds: readonly string[] }
+  /** Linked artifacts below the turn reply. */
+  | ({ readonly type: 'turn-artifacts'; readonly id: string; readonly imageIds: readonly string[]; readonly replyId: string | null } & TurnPromptIds)
+  | { readonly type: 'image'; readonly id: string }
   /** An HTML render. `superseded`: a later render in the feed revises the same work. */
   | { readonly type: 'artifact'; readonly id: string; readonly superseded: boolean }
   /** Consecutive agents of one turn: other Solus sessions and provider subagents. */
   | { readonly type: 'agents'; readonly id: string; readonly groupId: string; readonly itemIds: readonly string[]; readonly expanded: boolean }
+
+/** A turn's prompt and the next turn's, which bound when its links were made. */
+export interface TurnPromptIds {
+  readonly promptId: string | null
+  readonly nextPromptId: string | null
+}
 
 export interface ThreadFeedPresentationInput {
   readonly entries: readonly FeedSourceEntry[]
@@ -107,22 +117,35 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
       rows.push({ type: 'message', id: user.id, role: 'user', showMeta: true })
     }
     const active = input.turnActive && turn === lastTurn?.turn
+    const turnStart = rows.length
     appendTurnRows(rows, turn, active, input, latestRevisions)
+    const prompts: TurnPromptIds = { promptId: user?.id ?? null, nextPromptId: turns[index + 1]?.user?.id ?? null }
+    const replyId = markFinalReply(rows, turnStart, prompts)
     // A prompt followed by another is a burst: it has no turn of its own to end.
     if (!active && turn.entries.length > 0) rows.push({
       type: 'turn-artifacts',
       id: `artifacts:${turn.id}`,
-      promptId: user?.id ?? null,
-      nextPromptId: turns[index + 1]?.user?.id ?? null,
+      ...prompts,
+      replyId,
       imageIds: turn.entries.filter((entry) => entry.kind === 'assistant' || entry.kind === 'image').map((entry) => entry.id),
     })
   }
-  const trailing = rows.findLast((row) => row.type !== 'turn-images' && row.type !== 'turn-artifacts')
+  const trailing = rows.findLast((row) => row.type !== 'turn-artifacts')
   if (input.working && !(trailing?.type === 'work-toggle' && trailing.live)) {
     rows.push({ type: 'thinking', id: LIVE_ACTIVITY_ROW_ID, continuesWorkLog: false })
   }
   if (input.handoffPending) rows.push({ type: 'handoff-pending', id: HANDOFF_PENDING_ROW_ID })
   return markContinuedWorkLogs(rows)
+}
+
+/** Name the prompts around the turn on its final reply, the settled turn's
+ *  reply that carries the copy control (`showMeta`). Answers the reply's id. */
+function markFinalReply(rows: ThreadFeedRow[], turnStart: number, prompts: TurnPromptIds): string | null {
+  const replyIndex = rows.findLastIndex((row, rowIndex) => rowIndex >= turnStart && row.type === 'message' && row.role === 'assistant' && row.showMeta)
+  const reply = rows[replyIndex]
+  if (reply?.type !== 'message') return null
+  rows[replyIndex] = { ...reply, replyOf: prompts }
+  return reply.id
 }
 
 /** The newest render of each artifact work, by work id. */
@@ -164,18 +187,16 @@ function appendTurnRows(
   // A finished turn folds its work behind one row, progress notes included, as
   // desktop does (`buildTurns`). It keeps the final prose, anything that asks
   // for attention (plans, notices, compaction and
-  // handoff dividers, worktree offers), and artifacts. Images follow the reply.
+  // handoff dividers, worktree offers), artifacts, and standalone images.
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
+        .filter((entry) => entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'lead_promotion' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   let foldPlaced = false
   let group: FeedSourceEntry[] = []
   let agents: FeedSourceEntry[] = []
-  // Image cards follow the reply, outside the work fold.
-  const imageIds = turn.entries.filter((entry) => entry.kind === 'assistant' || entry.kind === 'image' || entry.kind === 'browser_snapshot').map((entry) => entry.id)
   const flushAgents = () => {
     if (agents.length === 0) return
     const groupId = `agents:${agents[0]!.id}`
@@ -200,7 +221,7 @@ function appendTurnRows(
     if (expanded) rows.push({ type: 'work-details', id: `work-details:${groupId}`, groupId, toolIds, continuesWorkLog: false })
     group = []
   }
-  const entries = turn.entries.filter((entry) => entry.kind !== 'image' && entry.kind !== 'browser_snapshot')
+  const entries = turn.entries
   entries.forEach((entry, index) => {
     if (hidden.has(entry.id)) {
       if (!foldPlaced) {
@@ -224,6 +245,8 @@ function appendTurnRows(
     flushGroup(false)
     if (entry.kind === 'assistant') {
       rows.push({ type: 'message', id: entry.id, role: 'assistant', showMeta: !active && entry.id === terminalAssistantId })
+    } else if (['image', 'browser_snapshot'].includes(entry.kind)) {
+      rows.push({ type: 'image', id: entry.id })
     } else if (entry.kind === 'plan') {
       rows.push({ type: 'plan', id: entry.id })
     } else if (entry.kind === 'notice') {
@@ -236,6 +259,8 @@ function appendTurnRows(
       rows.push({ type: 'setup', id: entry.id })
     } else if (entry.kind === 'mcp_app') {
       rows.push({ type: 'mcp-app', id: entry.id })
+    } else if (entry.kind === 'lead_promotion') {
+      rows.push({ type: 'lead-promotion', id: entry.id })
     } else if (entry.kind === 'handoff') {
       rows.push({ type: 'handoff', id: entry.id })
     } else if (entry.kind === 'artifact') {
@@ -245,7 +270,6 @@ function appendTurnRows(
   })
   flushAgents()
   flushGroup(false)
-  if (imageIds.length > 0) rows.push({ type: 'turn-images', id: `images:${turn.id}`, itemIds: imageIds })
 }
 
 function isWorkLogRow(row: ThreadFeedRow | undefined): boolean {

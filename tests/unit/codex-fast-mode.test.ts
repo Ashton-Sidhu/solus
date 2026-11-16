@@ -36,7 +36,7 @@ describe('Codex backend configuration', () => {
       const conversation: AgentRunRequest['conversation'] = method === 'thread/fork'
         ? { kind: 'fork', sourceThreadId: 'source-thread' }
         : method === 'thread/resume' ? { kind: 'resume', threadId: 'thread-1' } : { kind: 'start' }
-      const tools: AgentTool[] = ['start_session', 'list_agent_targets', 'browser_status', 'link'].map((name) => ({
+      const tools: AgentTool[] = ['start_sessions', 'list_agent_targets', 'browser_status', 'link'].map((name) => ({
         name, description: name, inputFields: {}, requiresApproval: false,
         execute: async () => ({ ok: true, text: '' }),
       }))
@@ -111,7 +111,7 @@ describe('Codex backend configuration', () => {
     })
     backend.startRun({
       provider: 'codex', prompt: 'Build it', cwd: '/tmp/project',
-      tools: [{ name: 'start_session', description: 'Start', inputFields: {}, requiresApproval: false, execute: async () => ({ ok: true, text: '' }) }],
+      tools: [{ name: 'start_sessions', description: 'Start', inputFields: {}, requiresApproval: false, execute: async () => ({ ok: true, text: '' }) }],
       model: 'gpt-5.6-sol', permissionMode: 'full-access', persistence: 'ephemeral', service: 'sessions',
       systemPrompt: 'User extra instructions:\nStay concise.',
     })

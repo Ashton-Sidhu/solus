@@ -51,6 +51,9 @@ const workRowSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
   type: workTypeSchema.nullable(),
+  pinned: z.number().nullable(),
+  updated_at: z.number(),
+  preview: z.string().nullable(),
 })
 
 const appSlugRowSchema = z.object({ id: z.string(), slug: z.string() })
@@ -71,7 +74,8 @@ function inList(ids: readonly string[]): SQL {
 /** The works each session is a member of, with when it was linked. */
 async function readWorkArtifacts(scope: RecordScope, sessionIds: readonly string[], into: Map<string, SessionArtifact[]>): Promise<void> {
   const rows = workRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT resource_links.source_id AS session_id, resource_links.created_at AS linked_at, works.id, works.title, works.type
+    SELECT resource_links.source_id AS session_id, resource_links.created_at AS linked_at, works.id, works.title, works.type,
+      works.pinned, works.updated_at, works.preview
     FROM ${resourceLinks}
     JOIN ${works} ON works.id = resource_links.target_key AND works.organization_id = resource_links.organization_id
     WHERE ${scopeClause(scope, sql`resource_links.organization_id`)} AND resource_links.source_kind = 'session' AND resource_links.target_kind = 'work'
@@ -79,7 +83,10 @@ async function readWorkArtifacts(scope: RecordScope, sessionIds: readonly string
       AND resource_links.source_id IN (${inList(sessionIds)})
   `))
   for (const row of rows) {
-    into.get(row.session_id)?.push({ kind: 'work', workId: row.id, title: row.title ?? '', workType: row.type ?? 'doc', linkedAt: row.linked_at })
+    into.get(row.session_id)?.push({
+      kind: 'work', workId: row.id, title: row.title ?? '', workType: row.type ?? 'doc', linkedAt: row.linked_at,
+      pinned: row.pinned === 1, updatedAt: row.updated_at, preview: row.preview ?? '',
+    })
   }
 }
 

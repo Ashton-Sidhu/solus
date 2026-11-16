@@ -323,6 +323,11 @@ export class SessionListStore {
       const listed = this.listedBySession.get(sessionId)
       if (listed && listed.title !== title) this.listedBySession.set(sessionId, { ...listed, title })
     })
+    // An agent can make its session a lead in the middle of a turn (docs/plans/lead-session.md).
+    events.subscribe('session.becameLead', ({ sessionId }) => {
+      const listed = this.listedBySession.get(sessionId)
+      if (listed && !listed.isLead) this.listedBySession.set(sessionId, { ...listed, isLead: true })
+    })
     // A share gives or takes a place in the reader's list (docs/plans/shared-with-you.md §2).
     events.subscribe('share.changed', ({ resource }) => {
       if (resource.kind === 'session') void this.loadSession(serverId, resource.id)

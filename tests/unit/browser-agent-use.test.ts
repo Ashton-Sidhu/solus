@@ -47,6 +47,8 @@ class FakeDriver implements BrowserSurfaceDriver {
   async pressKey(): Promise<void> {}
   async scrollAt(): Promise<void> {}
   async openDevTools(): Promise<void> {}
+  watchGuest(): void {}
+  async answerFileChooser(): Promise<boolean> { return false }
   consoleEntries(): BrowserConsoleEntry[] {
     return []
   }

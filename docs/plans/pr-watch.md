@@ -48,8 +48,10 @@ belongs to a session, not to a task.
    paragraph: call `watch_pull_request` and end the turn to wait for CI or
    review; do not poll; stop the watch before handing the work back.
 3. **A person can watch too.** The linked pull request row on every client
-   shows an eye while it is watched and has Watch / Stop watching. A person's
-   watch wakes the same agent.
+   shows an eye while it is watched and has Watch / Stop watching. The pull
+   request card in a turn's final reply has the same switch, "Turn on" / "Turn
+   off" (docs/plans/session-artifacts.md §9). A person's watch wakes the same
+   agent.
 4. **Only an open pull request.** Watching a merged or closed pull request is
    refused. A watch is refused on a settled session.
 5. **What wakes the agent** (`prs/pr-watch-rules.ts`, pure):

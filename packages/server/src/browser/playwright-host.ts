@@ -20,9 +20,11 @@ import { browserGuestStyleScript } from './guest-style'
 import { chromiumExecutable } from './pinned-chromium'
 import {
   BrowserDialogTracker,
+  BrowserFileChooserSlot,
   browserDialogType,
   emulationChanges,
   emulationRecord,
+  guestMetrics,
   setBrowserHeadlessHost,
   setBrowserProfileHost,
   type AppliedEmulation,
@@ -31,6 +33,7 @@ import {
   type BrowserDialog,
   type BrowserDialogAnswer,
   type BrowserDialogState,
+  type BrowserGuestEvents,
   type BrowserHeadlessOpenRequest,
   type BrowserProfileCookie,
   type BrowserScreencastOptions,
@@ -88,14 +91,30 @@ interface PlaywrightPage {
   close(): Promise<void>
   isClosed(): boolean
   on(event: 'dialog', handler: (dialog: PlaywrightDialog) => void): void
+  on(event: 'filechooser', handler: (chooser: PlaywrightFileChooser) => void): void
+  on(event: 'download', handler: (download: PlaywrightDownload) => void): void
   on(event: string, handler: () => void): void
 }
 
 interface PlaywrightDialog {
   type(): string
   message(): string
+  defaultValue(): string
   accept(promptText?: string): Promise<void>
   dismiss(): Promise<void>
+}
+
+/** Playwright intercepts a page's file chooser while a listener is attached. */
+interface PlaywrightFileChooser {
+  isMultiple(): boolean
+  setFiles(paths: string[]): Promise<void>
+}
+
+interface PlaywrightDownload {
+  suggestedFilename(): string
+  /** The finished file, or null when the download failed. */
+  path(): Promise<string | null>
+  delete(): Promise<void>
 }
 
 interface PlaywrightContext {
@@ -138,6 +157,7 @@ type CdpCommandParams =
   | { sessionId: number }
   | { expression: string; returnByValue: boolean; awaitPromise: boolean }
   | { files: string[]; objectId: string }
+  | { ignoreCache: boolean }
   | { type: string; x: number; y: number; button?: string; buttons?: number; clickCount?: number; deltaX?: number; deltaY?: number }
   | { type: string; key: string; code: string; windowsVirtualKeyCode: number; nativeVirtualKeyCode: number }
   | { text: string }
@@ -452,6 +472,8 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
   private screencastFrame: BrowserFrameListener | null = null
   private disposed = false
   private readonly dialogTracker = new BrowserDialogTracker()
+  private readonly fileChooser = new BrowserFileChooserSlot()
+  private guestEvents: BrowserGuestEvents | null = null
   /** The left button between a `down` and an `up`. */
   private mouseButtons = 0
 
@@ -466,8 +488,13 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     this.cdp.on('Network.loadingFailed', this.onFailure)
     this.cdp.on('Page.screencastFrame', this.onScreencastFrame)
     // Playwright dismisses a dialog when nothing listens for one. This listener
-    // keeps that default, except when an agent gave the answer first.
+    // keeps that default while no one watches the page, except when an agent
+    // gave the answer first. A person watching answers it.
     this.page.on('dialog', this.onDialog)
+    // A headless guest has no picker to show: the person watching gives the files.
+    this.page.on('filechooser', this.onFileChooser)
+    this.page.on('download', this.onDownload)
+    this.page.on('domcontentloaded', this.onDocument)
     await Promise.all(
       ['Runtime.enable', 'Network.enable', 'Page.enable'].map((method) => this.send(method)),
     )
@@ -503,13 +530,14 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     const changed = emulationChanges(this.appliedEmulation, next)
 
     if (changed.metrics) {
+      const { width, height } = guestMetrics(emulation, this.kind)
       await this.send('Emulation.setDeviceMetricsOverride', {
-        width: viewport.width,
-        height: viewport.height,
+        width,
+        height,
         deviceScaleFactor: viewport.deviceScaleFactor,
         mobile: viewport.hasTouch,
-        screenWidth: viewport.width,
-        screenHeight: viewport.height,
+        screenWidth: width,
+        screenHeight: height,
       })
     }
     if (changed.touch) {
@@ -540,7 +568,8 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
       return
     }
     if (op.kind === 'reload') {
-      await this.page.reload()
+      if (op.ignoreCache) await this.send('Page.reload', { ignoreCache: true })
+      else await this.page.reload()
       return
     }
     // Playwright resolves these to null at the ends of history rather than
@@ -642,6 +671,16 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     return this.dialogTracker.state()
   }
 
+  watchGuest(events: BrowserGuestEvents): void {
+    this.guestEvents = events
+    this.dialogTracker.listener = events.dialog
+    this.fileChooser.listener = events.fileChooser
+  }
+
+  answerFileChooser(paths: string[] | null): Promise<boolean> {
+    return this.fileChooser.answer(paths)
+  }
+
   async insertText(text: string): Promise<void> {
     await this.send('Input.insertText', { text })
   }
@@ -706,6 +745,9 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     if (this.disposed) return
     this.disposed = true
     this.screencastFrame = null
+    this.guestEvents = null
+    this.dialogTracker.listener = null
+    this.fileChooser.listener = null
     this.cdp.off('Runtime.consoleAPICalled', this.onConsoleApi)
     this.cdp.off('Network.responseReceived', this.onResponse)
     this.cdp.off('Network.loadingFailed', this.onFailure)
@@ -736,8 +778,29 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
       browserDialogType(dialog.type()),
       dialog.message(),
       (answer) => (answer.accept ? dialog.accept(answer.promptText) : dialog.dismiss()),
-      { accept: false },
+      this.screencastFrame ? null : { accept: false },
+      dialog.defaultValue(),
     ).catch(() => {})
+  }
+
+  private onFileChooser = (chooser: PlaywrightFileChooser): void => {
+    this.fileChooser.opened(chooser.isMultiple(), (paths) => chooser.setFiles(paths))
+  }
+
+  /** A new document has no chooser open. */
+  private onDocument = (): void => {
+    this.fileChooser.forget()
+  }
+
+  private onDownload = (download: PlaywrightDownload): void => {
+    void (async () => {
+      const path = await download.path()
+      if (!path || !this.guestEvents) return
+      await this.guestEvents.downloaded({ fileName: download.suggestedFilename(), path })
+      await download.delete()
+    })().catch((error: Error) => {
+      log.warn('browser_download_failed', { message: error.message })
+    })
   }
 
   private onConsoleApi = (params: CdpEventParams): void => {

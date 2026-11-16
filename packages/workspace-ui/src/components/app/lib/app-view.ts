@@ -45,6 +45,7 @@ export type AppSurfacePhase =
 export const APP_HOST_GONE_TEXT = 'The host of this app is not connected.'
 export const APP_MISSING_TEXT = 'This host has no app with this name.'
 export const APP_NO_VERSION_TEXT = 'No version of this app is active. Deploy a revision in Versions on the Manage page.'
+export const APP_STOPPED_TEXT = 'Start the app. While it is stopped, no operation runs, no schedule fires, and no run continues.'
 export const APP_NO_UI_TEXT = 'An agent, a schedule, a webhook, or a workflow calls its operations. The Manage page shows what it does.'
 
 /** Why no version runs: the failed version's error, as the host says it. */
@@ -97,27 +98,35 @@ export interface AppProblem {
   kind: Exclude<AppAttention['kind'], 'stopped'>
   /** One sentence, as the host says it. */
   detail: string
-  /** `error`: a part of the app does not work. `warning`: the app waits for a value and works without it. */
+  /** `error`: a part of the app does not work. `warning`: the app works, and a value or an older run waits for the owner. */
   tone: 'error' | 'warning'
   /** The section of the Manage page where the owner acts on it. */
   section: AppManageSection
   /** The label of the button that opens that section. */
   action: string
+  /** `workflow-failed` and `workflow-stale`: the run that failed. */
+  runId?: string
 }
 
 const PROBLEM_FIXES = {
   'version-failed': { tone: 'error', section: 'versions', action: 'Open Versions' },
   'schedule-failed': { tone: 'error', section: 'schedules', action: 'Open Schedules' },
   'workflow-failed': { tone: 'error', section: 'workflows', action: 'Open Workflows' },
+  'workflow-stale': { tone: 'warning', section: 'workflows', action: 'Open Workflows' },
   'secret-missing': { tone: 'warning', section: 'secrets', action: 'Set in Secrets' },
 } as const satisfies { [Kind in AppProblem['kind']]: Pick<AppProblem, 'tone' | 'section' | 'action'> }
 
 /** The problems of one app. `stopped` is the owner's own choice and has its own bar with a Start button. */
 export function appProblems(app: Pick<AppSummary, 'attention'>): AppProblem[] {
-  return app.attention.flatMap((item) => (item.kind === 'stopped' ? [] : [{ kind: item.kind, detail: item.detail, ...PROBLEM_FIXES[item.kind] }]))
+  return app.attention.flatMap((item) => {
+    if (item.kind === 'stopped') return []
+    const problem: AppProblem = { kind: item.kind, detail: item.detail, ...PROBLEM_FIXES[item.kind] }
+    if (item.runId) problem.runId = item.runId
+    return [problem]
+  })
 }
 
-/** The dot on the Manage switch: red when one problem is an error, amber when the only problems are secrets that are not set; null with no problem. */
+/** The dot on the Manage switch: red when one problem is an error, amber when the only problems are warnings; null with no problem. */
 export function problemsTone(problems: readonly AppProblem[]): AppProblem['tone'] | null {
   if (problems.length === 0) return null
   return problems.some((problem) => problem.tone === 'error') ? 'error' : 'warning'
@@ -125,6 +134,14 @@ export function problemsTone(problems: readonly AppProblem[]): AppProblem['tone'
 
 export function problemsLabel(count: number): string {
   return count === 1 ? '1 problem' : `${count} problems`
+}
+
+/** The tooltip of the header's Manage button: what a press does, its key, and the problems. */
+export function manageToggleHint(input: { isManage: boolean; shortcut: string; problemCount: number }): string {
+  const action = input.isManage ? 'Back to the app' : 'Manage'
+  const key = input.shortcut ? ` (${input.shortcut})` : ''
+  const problems = input.problemCount > 0 ? ` · ${problemsLabel(input.problemCount)}` : ''
+  return `${action}${key}${problems}`
 }
 
 export function versionLabel(version: number | null): string {
@@ -150,19 +167,6 @@ export function appTime(at: number | null, nowMs = Date.now()): string {
 /** "Every 15 min", "Weekdays at 9:00 AM": the automations' own words for a trigger. */
 export function scheduleTriggerText(schedule: Pick<AppScheduleView, 'trigger'>): string {
   return triggerSummary(schedule.trigger)
-}
-
-/** What a schedule row says of its next run. */
-export function scheduleNextRunText(schedule: AppScheduleView, appStopped: boolean, nowMs = Date.now()): string {
-  if (!schedule.enabled) return 'Paused'
-  if (appStopped) return 'The app is stopped'
-  return schedule.nextRunAt === null ? 'No next run' : `Next run ${appTime(schedule.nextRunAt, nowMs)}`
-}
-
-/** What a schedule row says of its last run; null when it never ran. */
-export function scheduleLastRunText(schedule: AppScheduleView, nowMs = Date.now()): string | null {
-  if (schedule.lastRunAt === null || schedule.lastOutcome === null) return null
-  return `${schedule.lastOutcome === 'ok' ? 'Last run OK' : 'Last run failed'} ${appTime(schedule.lastRunAt, nowMs)}`
 }
 
 /** Who started a call, in words. A webhook goes by its declared name when the list has it. */
@@ -207,4 +211,3 @@ export function appDeleteConfirmText(name: string): string {
 }
 
 export const APP_SOURCE_TEXT = 'Ask an agent to change this app: it calls checkout_app, save_app, and deploy_app.'
-export const APP_ROLLBACK_NOTE = 'An earlier version runs again. The data of the app is not rewound.'

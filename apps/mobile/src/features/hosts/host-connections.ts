@@ -3,6 +3,7 @@ import type { HostEventSubscriber } from '@solus/client-core/host-event-subscrib
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostFact, HostFacts } from '@solus/client-core/host-facts'
 import type { HostDiagnostics } from '@solus/client-core/host-diagnostics'
+import type { AddressReader } from '@solus/client-core/host-connection-check'
 import { HostIntroducer, type IntroducerHost } from '@solus/client-core/host-introducer'
 import { answersAsSavedHost, HostLink, isSavedHost, type LinkTransport, type SavedHostIdentity } from '@solus/client-core/host-link'
 import { readHostHealth } from '@solus/client-core/host-http'
@@ -24,7 +25,7 @@ import type { HostRegistry, NativeHost } from './host-registry'
 const HEALTH_TIMEOUT_MS = 5_000
 
 /** The part of `WsTransport` this layer drives; tests pass a fake. */
-export interface HostTransport extends LinkTransport, Pick<WsTransport, 'onServerRequest'> {
+export interface HostTransport extends LinkTransport, Pick<WsTransport, 'onServerRequest' | 'frames'> {
   buildSolusApi(): object
   onReset(callback: () => void): () => void
   destroy(finalStatus?: ConnectionStatus): void
@@ -54,6 +55,7 @@ export interface HostConnectionsDeps {
   /** An access token for the Solus API (`kind: 'api'`); `refused` names a kept one the service refused. */
   solusApiAccessToken(options?: { refused?: string }): Promise<string | null>
   fetch: typeof fetch
+  readAddress?: AddressReader
   /** This build's version, as About shows it; diagnostics name it. */
   clientVersion: string
   /** A fresh nonce for a host's proof (docs/plans/host-routes.md D3); Hermes has no Web Crypto, so the platform gives the bytes. */
@@ -184,6 +186,7 @@ export class HostConnections {
       answersAsHost: (url, signal) => this.answersAsHost(host.id, url, signal),
       cloudUrl: () => this.deps.registry.host(host.id)?.uplink?.directoryUrl ?? null,
       fetchImpl: this.deps.fetch,
+      readAddress: this.deps.readAddress,
       onConnectionCheck: () => this.changes.notify(),
       onAdvertised: (advertised) => this.deps.registry.applyAdvertised(host.id, advertised),
       onReadinessChange: () => {

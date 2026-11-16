@@ -1,13 +1,15 @@
-import type { AppDescriptor, AppScheduleDeclaration, AppScheduleTrigger, AppScheduleView } from '@solus/contracts/apps'
+import type { AppDescriptor, AppScheduleCalendar, AppScheduleDeclaration, AppScheduleSpan, AppScheduleTrigger, AppScheduleView } from '@solus/contracts/apps'
 import type { AutomationTrigger } from '@solus/contracts/types'
 import { nextRunFrom, validateTrigger } from '../data/automations/automation-schedule'
 import {
+  callLogKeptSince,
   deleteSchedule,
   listDueSchedules,
   listSchedules,
   loadVersion,
   nextScheduleDueAt,
   saveSchedule,
+  scheduleCallsBetween,
   type AppRecord,
   type AppScheduleRecord,
 } from '../data/apps/app-store'
@@ -46,6 +48,30 @@ export function scheduleTriggerProblem(schedule: AppScheduleDeclaration): string
 function nextRunAt(trigger: AppScheduleTrigger, from: number): number | null {
   const next = nextRunFrom(automationTrigger(trigger), new Date(from))
   return next === undefined ? null : Date.parse(next)
+}
+
+/** The most runs the calendar counts that a trigger plans in one span. */
+const MAX_PLANNED = 1000
+/** The runs to come that the calendar names for each schedule. */
+const UPCOMING_RUNS = 5
+
+/** How many runs `trigger` plans from `from` to before `to`, at most `MAX_PLANNED`. An interval has no fixed phase, so its count is the span over the interval. */
+export function plannedRuns(trigger: AppScheduleTrigger, from: number, to: number): number {
+  if (trigger.type === 'interval') return Math.min(Math.floor((to - from) / (trigger.everyMinutes * 60_000)), MAX_PLANNED)
+  let count = 0
+  let at = nextRunAt(trigger, from - 1)
+  while (at !== null && at < to && count < MAX_PLANNED) {
+    count += 1
+    at = nextRunAt(trigger, at)
+  }
+  return count
+}
+
+/** The runs to come of a schedule whose next run is `next`, the soonest first. */
+export function upcomingRuns(trigger: AppScheduleTrigger, next: number | null, count = UPCOMING_RUNS): number[] {
+  const runs: number[] = []
+  for (let at = next; at !== null && runs.length < count; at = nextRunAt(trigger, at)) runs.push(at)
+  return runs
 }
 
 export class AppSchedules implements AppLifecyclePart {
@@ -100,6 +126,34 @@ export class AppSchedules implements AppLifecyclePart {
         nextRunAt: row?.enabled ? row.nextRunAt : null, lastRunAt: row?.lastRunAt ?? null, lastOutcome: row?.lastOutcome ?? null, lastError: row?.lastError ?? null,
       }
     })
+  }
+
+  /**
+   * The calendar of the app's schedules: for each one, its runs in each span
+   * between `edges`, how many runs its trigger plans there, and its runs to
+   * come. The runs are the calls the log keeps.
+   */
+  async calendar(authority: AppAuthority, idOrSlug: string, edges: readonly number[]): Promise<AppScheduleCalendar> {
+    const app = await this.apps.record(authority, idOrSlug)
+    const views = await this.list(authority, idOrSlug)
+    const calls = await scheduleCallsBetween(app.id, edges[0], edges[edges.length - 1])
+    const lanes = views.map((view) => {
+      const spans = edges.slice(1).map((to, index): AppScheduleSpan => ({ ok: 0, failed: 0, running: 0, planned: plannedRuns(view.trigger, edges[index], to), lastRunAt: null, lastOutcome: null }))
+      for (const call of calls) {
+        if (call.schedule !== view.name) continue
+        // The last edge at or before the call's start names its span.
+        let index = edges.length - 2
+        while (index > 0 && edges[index] > call.startedAt) index -= 1
+        const span = spans[index]
+        span[call.outcome] += 1
+        if (span.lastRunAt === null || call.startedAt > span.lastRunAt) {
+          span.lastRunAt = call.startedAt
+          span.lastOutcome = call.outcome
+        }
+      }
+      return { name: view.name, spans, upcoming: view.enabled ? upcomingRuns(view.trigger, view.nextRunAt) : [] }
+    })
+    return { edges: [...edges], keptSince: await callLogKeptSince(app.id), lanes }
   }
 
   /** Pauses a schedule, or turns it on: its next run is then one period from now. */

@@ -30,7 +30,7 @@ export function ListChoiceRow(props: {
       android_ripple={{ color: rippleStyle.backgroundColor }}
       unstable_pressDelay={Platform.OS === "android" ? 50 : undefined}
       className={cn(
-        props.selected ? "bg-subtle" : "bg-grouped-card",
+        "bg-grouped-card",
         props.separated && "border-t border-border-subtle",
       )}
     >

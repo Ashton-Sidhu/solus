@@ -4,14 +4,12 @@ import { APP_FILE_CHUNK_BYTES } from '@solus/contracts/apps'
 import type {
   AppCallDetail,
   AppDescriptor,
-  AppRevisionView,
   AppRunView,
   AppSignalActionView,
   AppSignalOccurrence,
   AppState,
   AppStepView,
   AppSummary,
-  AppVersionView,
 } from '@solus/contracts/apps'
 import {
   callsRequest,
@@ -20,6 +18,7 @@ import {
   hourBars,
   logLine,
   NO_CALL_FILTERS,
+  searchOf,
   olderCallsLimit,
   operationChoices,
   operationMetricLines,
@@ -28,6 +27,7 @@ import {
 import { eventChangesRead, type AppEvent } from '../../apps/mobile/src/features/apps/app-events'
 import { deviceFileSource, fileLines, uploadProgressText } from '../../apps/mobile/src/features/apps/app-file-source'
 import { canRunAgain, canTerminate, runCallsRequest, runLines, runsRequest, stepLines } from '../../apps/mobile/src/features/apps/app-runs'
+import { modelCallState, occurrenceState, runState, sessionState, stepState } from '../../apps/mobile/src/features/apps/app-states'
 import { appProblems, appRoutesOnTop, appSectionRows, APP_SECTIONS } from '../../apps/mobile/src/features/apps/app-sections'
 import {
   deliveryLine,
@@ -38,7 +38,6 @@ import {
   occurrenceLines,
   signalActionLines,
 } from '../../apps/mobile/src/features/apps/app-signals'
-import { appTimeline, canDeploy, revisionLines, timelineKey } from '../../apps/mobile/src/features/apps/app-timeline'
 
 // The Manage screens of an app on the phone (docs/plans/apps.md §9.2). These
 // pin what the owner reads and what each screen asks its host for: a section
@@ -87,6 +86,7 @@ const descriptor = {
   permissions: { network: [], files: { read: [], write: [] } },
   integrations: [],
   secrets: [],
+  config: [],
   operations: [
     { name: 'list', kind: 'query', description: '', input: {} },
     { name: 'request', kind: 'mutation', description: '', input: {} },
@@ -103,6 +103,7 @@ function appState(overrides: Partial<AppState> = {}): AppState {
     descriptor,
     roles: [],
     secrets: [],
+    config: [],
     network: [],
     permissionsNotice: null,
     runtime: { running: false, startedAt: null, inFlight: 0, rssBytes: null },
@@ -123,6 +124,8 @@ function run(overrides: Partial<AppRunView> = {}): AppRunView {
     error: null,
     startedBy: { kind: 'ui' },
     stepCount: 2,
+    version: null,
+    dismissedAt: null,
     ...overrides,
   }
 }
@@ -140,11 +143,11 @@ describe('the sections of the Manage screen', () => {
     }
   })
 
-  test('the list has the twelve sections of the plan, in its order', () => {
+  test('the list has the fourteen sections of the plans, in their order', () => {
     expect(appSectionRows(appState(), null).map((row) => row.title)).toEqual([
-      'Overview', 'Activity', 'Workflows', 'Versions', 'Schedules', 'Webhooks', 'Signals', 'Secrets', 'Files', 'Operations', 'Sessions', 'Source',
+      'Overview', 'Activity', 'Workflows', 'Versions', 'Deployment', 'Schedules', 'Webhooks', 'Signals', 'Secrets', 'Config', 'Files', 'Operations', 'Sessions', 'Source',
     ])
-    expect(APP_SECTIONS).toHaveLength(12)
+    expect(APP_SECTIONS).toHaveLength(14)
   })
 
   test('Activity says the failed calls of 24 hours, and reads as a fault only then', () => {
@@ -161,6 +164,9 @@ describe('the sections of the Manage screen', () => {
     expect(summaryOf(appState(), null, 'workflows')).toEqual({ text: '1 workflow' })
     const failed = appState({ app: summary({ attention: [{ kind: 'workflow-failed', detail: 'The last run of build failed: timeout.' }] }) })
     expect(summaryOf(failed, runs, 'workflows')).toEqual({ text: 'The last run of a workflow failed', tone: 'danger' })
+    // A run that failed on an older version waits for a retry: the code that runs now did not fail.
+    const stale = appState({ app: summary({ attention: [{ kind: 'workflow-stale', detail: 'The last build run failed on v2. v3 has not run it yet.', runId: 'run-1' }] }) })
+    expect(summaryOf(stale, runs, 'workflows')).toEqual({ text: 'A run failed on an older version' })
   })
 
   test('Versions says that a save waits for a deploy, and a failed version comes first', () => {
@@ -171,12 +177,13 @@ describe('the sections of the Manage screen', () => {
     expect(summaryOf(appState({ app: failed }), null, 'versions')).toEqual({ text: 'The newest version failed', tone: 'danger' })
   })
 
-  test('Secrets counts what is not set; the declared sections say how many they hold or that there is none', () => {
+  test('Secrets counts what is not set, in plain text; the declared sections say how many they hold or that there is none', () => {
+    // WHY: a secret with no value is a step to take, not a failure. Red would read as an error.
     const secrets = [
       { name: 'token', label: 'API token', description: '', isSet: false },
       { name: 'url', label: 'Database URL', description: '', isSet: true },
     ]
-    expect(summaryOf(appState({ secrets }), null, 'secrets')).toEqual({ text: '1 not set', tone: 'danger' })
+    expect(summaryOf(appState({ secrets }), null, 'secrets')).toEqual({ text: '1 not set' })
     expect(summaryOf(appState({ secrets: [secrets[1]!] }), null, 'secrets')).toEqual({ text: '1 set' })
     expect(summaryOf(appState(), null, 'schedules')).toEqual({ text: '1 schedule' })
     expect(summaryOf(appState(), null, 'webhooks')).toEqual({ text: 'This app declares no webhook' })
@@ -198,15 +205,18 @@ describe('the sections of the Manage screen', () => {
         { kind: 'version-failed', detail: 'Version 4 failed.' },
         { kind: 'secret-missing', detail: 'API token is not set.' },
         { kind: 'schedule-failed', detail: 'The schedule nightly failed.' },
-        { kind: 'workflow-failed', detail: 'The last run of build failed.' },
+        { kind: 'workflow-failed', detail: 'The last run of build failed.', runId: 'run-1' },
+        { kind: 'workflow-stale', detail: 'The last sync run failed on v2. v3 has not run it yet.', runId: 'run-2' },
         { kind: 'stopped', detail: 'This app is stopped.' },
       ],
     })
+    // A run that failed on an older version opens the run, where the owner runs it again or dismisses it.
     expect(appProblems(app)).toEqual([
-      { detail: 'Version 4 failed.', section: 'versions' },
-      { detail: 'API token is not set.', section: 'secrets' },
-      { detail: 'The schedule nightly failed.', section: 'schedules' },
-      { detail: 'The last run of build failed.', section: 'workflows' },
+      { detail: 'Version 4 failed.', section: 'versions', tone: 'danger', runId: null },
+      { detail: 'API token is not set.', section: 'secrets', tone: 'danger', runId: null },
+      { detail: 'The schedule nightly failed.', section: 'schedules', tone: 'danger', runId: null },
+      { detail: 'The last run of build failed.', section: 'workflows', tone: 'danger', runId: null },
+      { detail: 'The last sync run failed on v2. v3 has not run it yet.', section: 'workflows', tone: 'muted', runId: 'run-2' },
     ])
   })
 
@@ -222,10 +232,17 @@ describe('the sections of the Manage screen', () => {
 describe('the filters of the call log and of the runs', () => {
   test('a filter that is not set is not in the read, so the host narrows by what is set only', () => {
     expect(callsRequest('app-1', NO_CALL_FILTERS, 50)).toEqual({ appId: 'app-1', limit: 50 })
-    expect(callsRequest('app-1', { operation: 'request', callerKind: 'schedule', outcome: 'failed' }, 100))
-      .toEqual({ appId: 'app-1', limit: 100, operation: 'request', callerKind: 'schedule', outcome: 'failed' })
+    expect(callsRequest('app-1', { operation: 'request', callerKind: 'schedule', outcome: 'failed', search: 'token' }, 100))
+      .toEqual({ appId: 'app-1', limit: 100, operation: 'request', callerKind: 'schedule', outcome: 'failed', search: 'token' })
     expect(hasCallFilters(NO_CALL_FILTERS)).toBe(false)
     expect(hasCallFilters({ ...NO_CALL_FILTERS, outcome: 'failed' })).toBe(true)
+    expect(hasCallFilters({ ...NO_CALL_FILTERS, search: 'token' })).toBe(true)
+  })
+
+  test('a search goes to the host without the spaces around it, and spaces alone are no search', () => {
+    // WHY: the host refuses an empty search, and " invoice " typed in haste must find "invoice".
+    expect(searchOf('  invoice-4471 ')).toBe('invoice-4471')
+    expect(searchOf('   ')).toBeNull()
   })
 
   test('the operation filter offers what the active version declares', () => {
@@ -306,59 +323,6 @@ describe('the last 24 hours', () => {
   })
 })
 
-describe('the timeline of revisions and versions', () => {
-  const commit = (letter: string) => letter.repeat(40)
-  const revision = (letter: string, savedAt: number, versions: number[] = []): AppRevisionView => ({ commit: commit(letter), message: `Save ${letter}`, savedAt, versions })
-  const version = (number: number, letter: string, createdAt: number, state: AppVersionView['state'] = 'superseded'): AppVersionView => ({
-    number,
-    state,
-    error: null,
-    message: `Save ${letter}`,
-    createdAt,
-    createdBy: owner,
-    permissionsNotice: null,
-    operationCount: 2,
-    hasUi: true,
-    revision: commit(letter),
-    protocol: 3,
-    buildMs: 1000,
-  })
-
-  test('the saves and the builds are one list, the newest first, and a version shows above its revision', () => {
-    // a was saved and deployed, b was saved and deployed, c was saved and waits.
-    const revisions = [revision('c', NOW - 1 * MINUTE), revision('b', NOW - 30 * MINUTE, [2]), revision('a', NOW - 60 * MINUTE, [1])]
-    const versions = [version(2, 'b', NOW - 29 * MINUTE, 'active'), version(1, 'a', NOW - 60 * MINUTE)]
-    expect(appTimeline(revisions, versions).map(timelineKey)).toEqual([
-      `revision:${commit('c')}`,
-      'version:2',
-      `revision:${commit('b')}`,
-      // Built in the same instant as its save: the version still shows first.
-      'version:1',
-      `revision:${commit('a')}`,
-    ])
-  })
-
-  test('only the newest save waits for a deploy; an earlier save with no version was passed over', () => {
-    const revisions = [revision('c', NOW - 1 * MINUTE), revision('b', NOW - 30 * MINUTE), revision('a', NOW - 60 * MINUTE, [1])]
-    const items = appTimeline(revisions, [version(1, 'a', NOW - 59 * MINUTE, 'active')])
-    const lines = items.flatMap((item) => (item.kind === 'revision' ? [revisionLines(item.revision, item.isNewest, NOW)[1]!.text] : []))
-    expect(lines).toEqual(['Waits for a deploy', 'Not deployed', 'Built as v1'])
-  })
-
-  test('a revision is deployed when no version of it was built, or when each of its versions failed', () => {
-    // WHY: a version that ran is made active again from the version; a second build of its revision is not the way back.
-    const versions = [version(1, 'a', NOW, 'active'), version(2, 'b', NOW, 'failed')]
-    expect(canDeploy({ commit: commit('c') }, versions)).toBe(true)
-    expect(canDeploy({ commit: commit('b') }, versions)).toBe(true)
-    expect(canDeploy({ commit: commit('a') }, versions)).toBe(false)
-  })
-
-  test('no revision is deployed while the host builds one', () => {
-    // WHY: `appDeploy` answers only when the build ended. The building version that `apps.changed` brings is the lock.
-    expect(canDeploy({ commit: commit('c') }, [version(3, 'b', NOW, 'building')])).toBe(false)
-  })
-})
-
 describe('what an event of the app reloads', () => {
   const activity = (...kinds: ('calls' | 'runs' | 'signals' | 'files')[]): AppEvent => ({ kind: 'activity', kinds })
 
@@ -407,12 +371,28 @@ describe('runs and steps', () => {
     expect(canRunAgain(run({ state: 'succeeded' }))).toBe(false)
   })
 
-  test('a run says when it started, its steps, who started it, when it starts again, and why it failed', () => {
+  test('a run says its state in words, its steps, who started it, when it starts again, and why it failed', () => {
+    // WHY: the state is a mark at the start of the row, with no badge. The words are in the line, so the mark is never the only signal.
     expect(runLines(run({ state: 'sleeping', wakeAt: NOW + 20 * MINUTE, startedBy: { kind: 'schedule', name: 'nightly' } }), NOW)).toEqual([
-      { text: 'Started 10m ago · 2 steps · Schedule nightly' },
+      { text: 'Sleeping · 2 steps · Schedule nightly' },
       { text: 'Starts again in 20m' },
     ])
+    expect(runLines(run({ state: 'terminated' }), NOW)[0]?.text).toStartWith('Terminated · ')
     expect(runLines(run({ state: 'failed', error: 'fetch failed after 3 attempts' }), NOW)[1]).toEqual({ text: 'fetch failed after 3 attempts', tone: 'danger' })
+    // The version says whether the code that ran the run still runs; a dismissed run says so.
+    expect(runLines(run({ state: 'failed', version: 2, dismissedAt: NOW }), NOW)[0]).toEqual({ text: 'Failed · 2 steps · The app UI · v2 · Dismissed' })
+  })
+
+  test('a run or a call that a person stopped has its own mark: it did not fail and it did not finish', () => {
+    expect(runState('terminated')).toBe('stopped')
+    expect(runState('failed')).toBe('failed')
+    expect(runState('succeeded')).toBe('ok')
+    expect(runState('sleeping')).toBe('sleeping')
+    expect(stepState('done')).toBe('ok')
+    expect(modelCallState('cancelled')).toBe('stopped')
+    expect(modelCallState('queued')).toBe('idle')
+    expect(sessionState('interrupted')).toBe('stopped')
+    expect(sessionState(null)).toBe('idle')
   })
 
   test('a step says its kind, its attempts, and its time; a failed step says why', () => {
@@ -427,6 +407,8 @@ describe('runs and steps', () => {
       error: null,
       result: '42',
       resultTruncated: false,
+      tries: [],
+      retryPolicy: null,
       ...overrides,
     })
     expect(stepLines(step(), NOW)).toEqual([{ text: 'Step · 3 attempts · took 2.4 s' }])
@@ -435,6 +417,8 @@ describe('runs and steps', () => {
       { text: 'Wakes in 2h' },
     ])
     expect(stepLines(step({ state: 'failed', error: 'NonRetryableError: bad input' }), NOW).at(-1)).toEqual({ text: 'NonRetryableError: bad input', tone: 'danger' })
+    // A failed step with no reason still says in words that it failed: the row has no state badge.
+    expect(stepLines(step({ state: 'failed' }), NOW).at(-1)).toEqual({ text: 'Failed', tone: 'danger' })
   })
 })
 
@@ -496,6 +480,11 @@ describe('signal actions and occurrences', () => {
       { text: 'Run of an automation did not run: it reached its limit of agent starts for the hour', tone: 'danger' },
     ])
     expect(occurrenceLines({ ...occurrence, deliveries: [] }).at(-1)).toEqual({ text: 'No action was on' })
+    // The mark of the row is the worst end. A throttled action did not run, but nothing is broken: a warning, not a failure.
+    expect(occurrenceState(occurrence.deliveries)).toBe('failed')
+    expect(occurrenceState(occurrence.deliveries.filter((delivery) => delivery.status !== 'failed'))).toBe('warning')
+    expect(occurrenceState(occurrence.deliveries.slice(0, 1))).toBe('ok')
+    expect(occurrenceState([])).toBe('idle')
     expect(deliveryLine({ actionId: 'act-1', type: 'notify', status: 'delivered', detail: null }).tone).toBeUndefined()
   })
 })

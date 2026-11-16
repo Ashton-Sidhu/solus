@@ -48,16 +48,7 @@
   import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
   import {
-    chatSettings as chatSearch,
-    sessionSettings as sessionsSearch,
-    generalSettings as generalSearch,
-    appearanceSettings as appearanceSearch,
-    taskSettings as tasksSearch,
-    reviewSettings as reviewSearch,
-    toolSettings as toolsSearch,
     mcpSearchWords as mcpSearch,
-    experimentalSettings as experimentalSearch,
-    telemetrySettings as telemetrySearch,
     analyticsSearchWords as analyticsSearch,
     accountSearchWords as accountSearch,
     agentProfileSearchWords as agentProfileSearch,
@@ -66,8 +57,7 @@
     policySearchWords as policySearch,
     webhooksSearchWords as webhooksSearch
   } from "./lib/settings-search-data";
-  import { APP_NOTICE_ROWS, NOTIFICATION_CHANNEL_ROWS, SESSION_EVENT_ROWS } from "./lib/notification-settings";
-  import { SOURCE_CONTROL_SEARCH_WORDS, dataMatches, wordsMatch } from "./lib/settings-search";
+  import { dataMatches, wordsMatch, settingsPageMatches, settingsPageQuery } from "./lib/settings-search";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { openFolder } from "../../contexts/workspace/run-location";
   import SettingsProjectScope from "./SettingsProjectScope.svelte";
@@ -86,7 +76,8 @@
 
   function tabMatchesSearch(tab: TabMeta, query: string): boolean {
     return (
-      wordsMatch(query, [tab.label, ...(SEARCH_WORDS[tab.id] ?? [])]) ||
+      settingsPageMatches(tab.id, query) ||
+      wordsMatch(query, [tab.label, tab.description, ...(SEARCH_WORDS[tab.id] ?? [])]) ||
       (tab.id === "mcp" && wordsMatch(query, integrationsStore.names())) ||
       (tab.id === "agent-profile" && wordsMatch(query, agentProfileSearchWords(agentProfileLocalStore.entries))) ||
       dataMatches(tab.id, query, settings.keybindings)
@@ -295,29 +286,18 @@
 
   // What each page can be found by, beside its label. Pages without a list
   // (Skills, …) are found by their label alone.
-  const keywordsOf = (items: { keywords: readonly string[] }[]) => items.flatMap((item) => item.keywords);
   const SEARCH_WORDS: Partial<Record<SettingsTab, readonly string[]>> = {
     account: accountSearch,
     "agent-profile": agentProfileSearch,
     organization: organizationSearch,
     policy: policySearch,
-    general: keywordsOf(generalSearch),
-    chat: keywordsOf(chatSearch),
-    sessions: keywordsOf(sessionsSearch),
-    appearance: keywordsOf(appearanceSearch),
-    notifications: [...NOTIFICATION_CHANNEL_ROWS, ...SESSION_EVENT_ROWS, ...APP_NOTICE_ROWS].flatMap((row) => [row.label, ...row.keywords]),
-    tasks: keywordsOf(tasksSearch),
-    "source-control": SOURCE_CONTROL_SEARCH_WORDS,
-    review: keywordsOf(reviewSearch),
-    tools: keywordsOf(toolsSearch),
     voice: ["dictation", "dictionary", "custom words", "vocabulary", "aliases", "spelling", "transcription"],
     integrations: ["integration", "google", "drive", "atlassian", "jira", "confluence", "account", "accounts"],
     mcp: mcpSearch,
     providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli", "default", "default model", "model options", "model", "reasoning", "context", "fast", "instructions", "project", "projects", "override"],
-    telemetry: [...analyticsSearch, ...keywordsOf(telemetrySearch)],
+    telemetry: analyticsSearch,
     host: hostSearch,
     webhooks: webhooksSearch,
-    experimental: keywordsOf(experimentalSearch),
   };
 
   const tabs = $derived(
@@ -350,7 +330,7 @@
   );
   // A page found by its own label shows all of its settings.
   const pageQuery = $derived(
-    searchQuery && !wordsMatch(searchQuery, [activeTabMeta.label]) ? searchQuery : "",
+    searchQuery && !wordsMatch(searchQuery, [activeTabMeta.label, activeTabMeta.description]) ? settingsPageQuery(session.settingsTab, searchQuery) : "",
   );
   const hostFramedTab = $derived(
     session.settingsTab === "general" ||
@@ -572,16 +552,18 @@
 <div
   role="region"
   aria-label="Settings content"
+  data-slot="settings-page"
   tabindex="-1"
   {@attach (element) => element.focus({ preventScroll: true })}
   onkeydown={handleKeydown}
-  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome [--input:color-mix(in_oklch,var(--solus-input-border)_60%,transparent)] [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit]"
+  class="flex h-full w-full min-w-0 overflow-hidden text-workspace-chrome outline-none [--input:color-mix(in_oklch,var(--solus-input-border)_60%,transparent)] [--border:color-mix(in_oklch,var(--solus-container-border)_60%,transparent)] [&_button]:text-[length:inherit]"
 >
   <!-- The dialog is the pane container. Below 48rem, section buttons replace
-       the fixed navigation column. -->
+       the fixed navigation column. A page under Hosts takes the whole dialog:
+       its back button and breadcrumb are the way out. -->
   <Sidebar.Provider
     open={true}
-    class="w-60 shrink-0 @max-[48rem]/pane:hidden"
+    class="w-60 shrink-0 @max-[48rem]/pane:hidden {openHostLabel ? 'hidden' : ''}"
   >
     <Sidebar.Root
       role="navigation"
@@ -699,23 +681,19 @@
     <!-- The nav column's replacement, not an addition: this appears at exactly
          the pane width where the rail beside it goes. `contents` so it costs
          nothing above that width. -->
-    <div class="contents @min-[48rem]/pane:hidden">
-      {@render tabChips('px-[clamp(2rem,3cqi,3rem)] pt-3 pb-2')}
-    </div>
+    {#if !openHostLabel}
+      <div class="contents @min-[48rem]/pane:hidden">
+        {@render tabChips('px-[clamp(2rem,3cqi,3rem)] pt-3 pb-2')}
+      </div>
+    {/if}
 
     <div
       class="flex-1 overflow-y-auto px-[clamp(2rem,3cqi,3rem)] [&_button]:font-normal"
       role="tabpanel"
       style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
     >
-      <!-- Reading column: a fixed 48rem measure, the width a settings row
-           stays legible at. A control sits at the trailing edge of its row,
-           so a column that grew with the pane put a 1200px gap between a
-           description and the switch it describes on a wide display. A wide
-           pane shows margin instead. `w-full` keeps it from overflowing
-           panes narrower than that. The MCP page is a catalog with a
-           category rail, not a column of rows, so it takes a wider measure. -->
-      <div class="mx-auto w-full pt-8 pb-12 {session.settingsTab === 'providers' || session.settingsTab === 'mcp' || session.settingsTab === 'webhooks' ? 'max-w-6xl' : 'max-w-3xl'}">
+      <!-- Reading column: the pane width, with a readable limit on wide panes. -->
+      <div class="mx-auto w-full max-w-6xl pt-8 pb-12">
         <!-- A host page heads itself with the host's name and address. -->
         {#if !openHostLabel}
           <header class="mb-10 flex flex-col gap-1.5">

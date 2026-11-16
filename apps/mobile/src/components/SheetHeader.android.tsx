@@ -1,16 +1,22 @@
+import { NativeStackScreenOptions } from "../native/StackHeader";
 // Adapted from T3 Code apps/mobile/src/components/ui/SheetHeader.android.tsx (MIT, see UPSTREAM.md).
 import { View } from "react-native";
 
 import { AndroidScreenHeader } from "./AndroidScreenHeader";
 import { MaterialButton } from "./MaterialButton";
 import { MaterialIconButton } from "./MaterialIconButton";
-import type { SheetCloseButtonProps, SheetHeaderProps } from "./SheetHeader.types";
+import type {
+  SheetCloseButtonProps,
+  SheetHeaderProps,
+} from "./SheetHeader.types";
 
 function SheetCloseButton(props: SheetCloseButtonProps) {
   return (
     <MaterialIconButton
       icon="xmark"
-      accessibilityLabel={props.accessibilityLabel ?? (props.onCancel ? "Cancel" : "Close")}
+      accessibilityLabel={
+        props.accessibilityLabel ?? (props.onCancel ? "Cancel" : "Close")
+      }
       disabled={props.disabled}
       tintColorClassName="accent-header-foreground"
       onPress={props.onCancel ?? props.onClose}
@@ -28,26 +34,41 @@ export function SheetHeader(props: SheetHeaderProps) {
         {confirmation ? (
           // MaterialButton aligns itself to the start edge; the View lets the row center it.
           <View className="self-center">
-            <MaterialButton label={confirmation.label} tone="text" onPress={confirmation.onPress} />
+            <MaterialButton
+              label={confirmation.label}
+              tone="text"
+              disabled={confirmation.disabled}
+              loading={confirmation.loading}
+              onPress={confirmation.onPress}
+            />
           </View>
         ) : null}
       </View>
     ) : undefined;
 
   return (
-    <AndroidScreenHeader
-      embedded={props.presentation === "inline"}
-      title={props.title}
-      subtitle={props.subtitle}
-      leading={
-        <SheetCloseButton
-          {...(props.onCancel ? { onCancel: props.onCancel } : { onClose: props.onClose })}
-          accessibilityLabel={props.accessibilityLabel}
-          disabled={props.dismissDisabled}
+    <>
+      {props.dismissDisabled === undefined ? null : (
+        <NativeStackScreenOptions
+          options={{ gestureEnabled: !props.dismissDisabled }}
         />
-      }
-      trailing={trailing}
-      hideBottomBorder
-    />
+      )}
+      <AndroidScreenHeader
+        embedded={props.presentation === "inline"}
+        title={props.title}
+        subtitle={props.subtitle}
+        leading={
+          <SheetCloseButton
+            {...(props.onCancel
+              ? { onCancel: props.onCancel }
+              : { onClose: props.onClose })}
+            accessibilityLabel={props.accessibilityLabel}
+            disabled={props.dismissDisabled}
+          />
+        }
+        trailing={trailing}
+        hideBottomBorder
+      />
+    </>
   );
 }

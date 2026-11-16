@@ -147,6 +147,9 @@ export function threadProjectKey(
 }
 
 /** Whether a session is a chat, as its record says (docs/plans/session-starter.md §3.1). */
+/** The project filter's scope for the sessions that have no project. */
+export const CHATS_SCOPE_KEY = "solus:chats";
+
 export function isChatSession(record: { readonly place?: SessionPlace | null }): boolean {
   return record.place === "chat";
 }
@@ -722,6 +725,8 @@ export function buildThreadListV2Items(input: {
   readonly hostId: string | null;
   /** Project keys of the selected project scope, or null for every project. */
   readonly projectKeys?: ReadonlySet<string> | null;
+  /** The Chats scope: only the sessions that have no project. */
+  readonly chatsOnly?: boolean;
   /** Every listed project's key, to place a session under its git root. */
   readonly knownProjectKeys?: ReadonlySet<string>;
   readonly searchQuery: string;
@@ -760,6 +765,7 @@ export function buildThreadListV2Items(input: {
     ) {
       continue;
     }
+    if (input.chatsOnly && !isChatSession(thread.record)) continue;
     if (!matchesSearch(thread, query, threadPullRequests(thread, input.facts))) continue;
     const view = threadView(thread, input.facts);
     // Completion is personal: the owner's settle does not clear this reader's list.

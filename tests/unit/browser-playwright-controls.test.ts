@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initBrowserRegistry, type BrowserRegistry } from '@solus/server/browser/browser-registry'
+import { browserUploadBucket, initBrowserRegistry, type BrowserRegistry } from '@solus/server/browser/browser-registry'
+import { attachmentsRoot, uploadFolderName } from '@solus/server/data/assets/attachment-store'
 import { registerPlaywrightBrowserHost } from '@solus/server/browser/playwright-host'
 import { setBrowserHeadlessHost, setBrowserProfileHost } from '@solus/server/browser/surface-driver'
 
@@ -38,6 +39,8 @@ const PAGE = `<!doctype html><body>
 <div id="track" style="width:30px;height:30px">track</div>
 <label>Avatar <input id="file" type="file" onchange="this.files[0].text().then((text) => { document.body.dataset.file = this.files[0].name + ':' + text })"></label>
 <button id="delete" onclick="document.body.dataset.confirmed = String(confirm('Delete it?'))">delete</button>
+<input id="many" type="file" multiple onchange="document.body.dataset.many = [...this.files].map((file) => file.name).join(',')">
+<a id="save" download="hello.txt" href="data:text/plain,hello">save</a>
 <script>
   let moves = 0
   const knob = document.getElementById('knob')
@@ -108,6 +111,48 @@ describe.skipIf(!chromium)('browser controls (Playwright Chromium)', () => {
     await registry.setInputFiles(browserPageId, 'label', [upload])
     await registry.interact(browserPageId, { kind: 'waitFor', expression: 'document.body.dataset.file' })
     expect(await read('file')).toBe('avatar.txt:pixels')
+  })
+
+  test('a file chooser waits on the page for the files a client uploaded for it', async () => {
+    // WHY: a headless guest has no picker to show. A person watching gives the
+    // files from their own device, so the chooser must wait as page state.
+    expect((await registry.interact(browserPageId, { kind: 'click', ref: '#many' })).ok).toBe(true)
+    for (let attempt = 0; attempt < 50 && !registry.get(browserPageId)?.fileChooser; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(registry.get(browserPageId)?.fileChooser).toMatchObject({ multiple: true })
+    const folder = join(attachmentsRoot(), uploadFolderName(browserUploadBucket(browserPageId)))
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, 'a.txt'), 'a')
+    writeFileSync(join(folder, 'b.txt'), 'b')
+    await registry.answerFileChooser(browserPageId, [join(folder, 'a.txt'), join(folder, 'b.txt')])
+    await registry.interact(browserPageId, { kind: 'waitFor', expression: 'document.body.dataset.many' })
+    expect(await read('many')).toBe('a.txt,b.txt')
+    expect(registry.get(browserPageId)?.fileChooser).toBeNull()
+  })
+
+  test('a download lands on the host as an asset the page names', async () => {
+    expect((await registry.interact(browserPageId, { kind: 'click', ref: '#save' })).ok).toBe(true)
+    for (let attempt = 0; attempt < 50 && !registry.get(browserPageId)?.downloads?.length; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(registry.get(browserPageId)?.downloads?.map((download) => [download.fileName, download.sizeBytes])).toEqual([['hello.txt', 5]])
+  })
+
+  test('zoom lays the page out at its viewport divided by the zoom', async () => {
+    const width = async () => Number((await registry.interact(browserPageId, { kind: 'evaluate', expression: 'innerWidth' })).value)
+    const before = await width()
+    await registry.setZoom(browserPageId, 2)
+    expect(await width()).toBe(Math.round(before / 2))
+    await registry.setZoom(browserPageId, 1)
+    expect(await width()).toBe(before)
+  })
+
+  test('a hard reload loads the page again', async () => {
+    await registry.interact(browserPageId, { kind: 'evaluate', expression: 'document.body.dataset.marked = "yes"' })
+    await registry.navigate(browserPageId, { kind: 'reload', ignoreCache: true })
+    await registry.interact(browserPageId, { kind: 'waitFor', expression: '!document.body.dataset.marked && document.getElementById("delete")' })
+    expect(await read('marked')).toBeUndefined()
   })
 
   test('a dialog with no answer is dismissed, and an answer given first accepts the next one', async () => {

@@ -96,7 +96,7 @@
 
 {#snippet marked(runs: TextRun[])}
   {#each runs as run, i (i)}{#if run.hit}<mark
-        class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"
+        class="bg-(--solus-diff-find-bg) text-(--solus-diff-find-text)"
         >{run.text}</mark
       >{:else}{run.text}{/if}{/each}
 {/snippet}

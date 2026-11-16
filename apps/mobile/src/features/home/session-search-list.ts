@@ -9,11 +9,14 @@ import { isChatSession, threadProjectKey } from '../threads/threadListV2'
 export interface NativeSearchScope {
   hostId: string | null
   projectKeys: ReadonlySet<string> | null
+  /** The Chats scope: only the sessions that have no project. */
+  chatsOnly?: boolean
 }
 
 /** A project includes all its checkouts, including two clones on one host. */
 export function nativeSearchHomes(hostIds: readonly string[], projects: readonly SolusProjectShell[], scope: NativeSearchScope): SessionSearchHome[] {
   return hostIds.filter(hostId => !scope.hostId || hostId === scope.hostId).flatMap(serverId => {
+    if (scope.chatsOnly) return [{ serverId, scope: { chats: true } }]
     if (!scope.projectKeys) return [{ serverId }]
     const roots = new Set(projects.filter(project => project.hostId === serverId && scope.projectKeys?.has(project.key)).map(project => worktreeProjectRoot(project.project.path)))
     const homes: SessionSearchHome[] = [...roots].map(projectRoot => ({ serverId, scope: { projectRoot } }))
@@ -37,6 +40,7 @@ export function nativeSearchHits(input: NativeSearchScope & {
   const named: HostSessionSearchHit[] = input.threads.flatMap(thread => {
     if (input.hostId && thread.hostId !== input.hostId) return []
     if (input.projectKeys && !isChatSession(thread.record) && !input.projectKeys.has(threadProjectKey(thread, input.projectKeys))) return []
+    if (input.chatsOnly && !isChatSession(thread.record)) return []
     if (!visibleInWindow(thread.record.organizationId, input.organizationId, usesWindowFilter(thread.hostId, managed))) return []
     const match = sessionNameScore({ id: thread.record.sessionId, title: thread.record.customTitle, branch: thread.record.branch, pullRequest: thread.record.pullRequests?.map(pr => `#${pr.number} ${pr.title}`).join(' ') }, search)
     return match ? [{ serverId: thread.hostId, result: { record: thread.record, snippet: '', ts: thread.record.lastActivityAt, messageId: -1, rank: -match.score, reason: match.reason, additionalMatches: [] } }] : []

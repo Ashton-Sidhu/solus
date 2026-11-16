@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { getSettingsContext, hosts } from "../../contexts";
   import { formatVoiceModelBytes } from "./lib/voice-model-bytes";
   import { Button } from "../ui/button";
@@ -54,13 +55,12 @@
 {:else if !isSupported}
   <SettingsHostUnsupported feature="Voice features" {hostLabel} />
 {:else}
-<SettingsSection label="Dictation">
+<SettingsSection {...settingsDefinitions["voice.section-dictation"]}>
   <!-- Dictation transcribes on this device when it has a host, else on the Run on
        host (`hosts.transcription`). The selected host above frames only the
        model-status surface below. -->
   <SettingsRow
-    label="Auto-send transcripts"
-    description="Send voice messages when transcribed, not just fill the composer."
+    {...settingsDefinitions["voice.auto-send-transcripts"]}
   >
     {#snippet control()}
       <Switch
@@ -73,8 +73,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Silence threshold"
-    description="Wait after you stop speaking before sending."
+    {...settingsDefinitions["voice.silence-threshold"]}
   >
     {#snippet control()}
       <SettingsSelect
@@ -106,9 +105,9 @@
   </div>
 {/snippet}
 
-<SettingsSection label="Model">
+<SettingsSection {...settingsDefinitions["voice.section-model"]}>
   <SettingsRow
-    label="Voice model"
+    {...settingsDefinitions["voice.voice-model"]}
     description="Parakeet Unified English 0.6B Q8 — {modelStatusLine}"
     control={modelStatus.state === "error" ? retryDownload : undefined}
     body={downloadInFlight ? downloadProgress : undefined}

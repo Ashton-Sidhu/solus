@@ -157,6 +157,14 @@ offers Copy details.
 
 ## Staged diagnosis
 
+Connection details show the check result for each address, including its network
+error, on mobile, desktop, and web. The Address row names the transport's last
+selected address; it is not a record of every address checked during a retry.
+The native mobile check uses XMLHttpRequest because React Native retains the
+operating-system error in responseText but replaces it with a generic error in
+fetch. Native WebSocket errors are retained as the close reason when the socket
+does not supply one, including after an established connection drops.
+
 Readiness says that a host is not ready. The **diagnosis** says where the
 connection stopped. User guide: `docs/host-connection-troubleshooting.md`.
 

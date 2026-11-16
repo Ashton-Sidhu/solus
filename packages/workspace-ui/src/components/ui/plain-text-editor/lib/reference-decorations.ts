@@ -117,6 +117,8 @@ function tokenLabel(token: ReferenceToken): string {
       return token.command;
     case "person":
       return `@${token.name}`;
+    case "host":
+      return token.label;
     case "login":
       return `@${token.login}`;
   }
@@ -148,6 +150,7 @@ function tokenClick(
     case "task":
     case "automation":
     case "person":
+    case "host":
     case "login":
       return null;
   }

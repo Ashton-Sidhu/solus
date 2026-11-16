@@ -1,10 +1,10 @@
-import { appConfigValueProblem, type AppConfigField, type AppConfigValue } from '@solus/contracts/apps'
+import { appConfigValueProblem, type AppConfigField, type AppConfigState, type AppConfigValue } from '@solus/contracts/apps'
 import type { AgentMetadata } from '@solus/contracts/types'
 
 /**
  * The config fields of an app's Manage page (docs/plans/apps.md §4.4), on
  * desktop, web, and mobile: a text or a number field takes a draft that the
- * owner saves; a switch and a choice save at once. Pure, so the rules are
+ * owner commits; a switch and a choice save at once. Pure, so the rules are
  * tested without a host.
  */
 
@@ -22,6 +22,16 @@ export function parseConfigDraft(field: AppConfigField, draft: string): ConfigDr
   return problem ? { value: null, problem } : { value, problem: null }
 }
 
+/** What committing a draft does: save a new value, drop a draft that changes nothing, or keep one the field does not take. */
+export type ConfigCommit = { kind: 'save'; value: AppConfigValue } | { kind: 'unchanged' } | { kind: 'invalid'; problem: string }
+
+/** The commit of a text or a number draft, when the owner leaves the field or presses Enter. */
+export function configCommit(field: AppConfigState, draft: string): ConfigCommit {
+  const parsed = parseConfigDraft(field, draft)
+  if (parsed.problem !== null) return { kind: 'invalid', problem: parsed.problem }
+  return parsed.value === field.value ? { kind: 'unchanged' } : { kind: 'save', value: parsed.value }
+}
+
 /** One line under a number field that says its range, or null when it has none. */
 export function configRangeHint(field: AppConfigField): string | null {
   if (field.type !== 'number') return null
@@ -32,13 +42,13 @@ export function configRangeHint(field: AppConfigField): string | null {
   return null
 }
 
-/** The default as the owner reads it. */
-export function configDefaultText(field: AppConfigField): string {
-  if (field.type === 'boolean') return field.default ? 'On' : 'Off'
-  if (field.type === 'choice') return field.options.find((option) => option.value === field.default)?.label ?? field.default
+/** A value of the field as the owner reads it: its current value, or its default. */
+export function configValueText(field: AppConfigField, value: AppConfigValue): string {
+  if (field.type === 'boolean') return value === true ? 'On' : 'Off'
+  if (field.type === 'choice') return field.options.find((option) => option.value === value)?.label ?? String(value)
   // An empty model setting is the model Solus writes with (docs/plans/app-models.md §4).
-  if (field.type === 'model') return field.default || DEFAULT_MODEL_LABEL
-  return field.default === '' ? 'empty' : String(field.default)
+  if (field.type === 'model') return value === '' ? DEFAULT_MODEL_LABEL : String(value)
+  return value === '' ? 'Empty' : String(value)
 }
 
 /** The empty value of a model setting: the model Solus writes with. */

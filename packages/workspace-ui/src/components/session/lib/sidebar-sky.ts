@@ -33,9 +33,11 @@ export const SKY_ORBITS: readonly SkyOrbit[] = ORBIT_RADII.map((radius, index) =
 /**
  * Room under the title bar row that the sky keeps for itself, in rem. The
  * sidebar's content starts this much lower and the sky's bar is this much
- * taller, so the header reads as a band and not as a tinted title bar.
+ * taller, so the header reads as a band and not as a tinted title bar. The
+ * sky's fall needs this room to blend into the surface without a band and
+ * still be gone at the top of the search field.
  */
-export const SKY_HEADER_DROP_REM = 1.5
+export const SKY_HEADER_DROP_REM = 2.25
 
 export interface SkyStar {
   /** Percent of the band, so the field spreads with the sidebar's width. */

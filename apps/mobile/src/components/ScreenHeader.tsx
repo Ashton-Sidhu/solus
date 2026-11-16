@@ -60,6 +60,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
             !props.backInSplitView ||
             !(props.backInSplitView.onPress || props.onBack),
           title: props.title,
+          headerSearchValue: search?.value,
           unstable_headerSubtitle: props.subtitle || undefined,
           ...(props.matchSearchSurface
             ? { contentStyle: { backgroundColor: themeVariables["--color-sheet-solid"] } }
@@ -107,9 +108,15 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               }
             : undefined),
           ...props.options,
+          ...(props.close ? { headerBackVisible: false } : undefined),
         }}
       />
-      {layout.usesSplitView && (props.sidebar !== false || props.backInSplitView) ? (
+      {props.close ? (
+        <NativeHeaderToolbar placement="left">
+          <NativeHeaderToolbar.Button icon="xmark" accessibilityLabel={props.close.accessibilityLabel} onPress={props.close.onPress} />
+        </NativeHeaderToolbar>
+      ) : null}
+      {!props.close && layout.usesSplitView && (props.sidebar !== false || props.backInSplitView) ? (
         <NativeHeaderToolbar placement="left">
           {props.backInSplitView && (props.backInSplitView.onPress || props.onBack) ? (
             <ScreenHeaderButton

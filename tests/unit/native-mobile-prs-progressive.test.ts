@@ -310,3 +310,27 @@ describe('pull requests kept fresh by PR sync', () => {
     expect(api.callsOf('prGetOverview')).toHaveLength(2)
   })
 })
+
+describe('a pull request a turn card shows', () => {
+  test('the card gets the full pull request PR sync pushes for its repository, and only while it wants it', async () => {
+    // WHY: the card shows the author and size, which only a full pull request
+    // carries. It asks by repository, since a linked pull request may be in a
+    // repository no project of the phone reads, and it costs no read of its own.
+    const api = listApi(new FakeApi()).on('prSetInterest', () => sync({ pullRequests: [pullRequest(7, { title: 'Answered' })] }))
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+    expect(directory.linkedOf('inst-a', REPO, 7)).toBeNull()
+
+    const release = directory.wantLinked('inst-a', REPO, 7)
+    await flushPromises()
+    expect(api.callsOf('prSetInterest').at(-1)?.[1]).toEqual([{ kind: 'pull-request', number: 7 }])
+    expect(directory.linkedOf('inst-a', REPO, 7)?.title).toBe('Answered')
+
+    world.transports[0]!.emit('pr.changed', sync({ pullRequests: [pullRequest(7, { title: 'Renamed', updatedAt: '2026-02-01T00:00:00Z' })] }))
+    expect(directory.linkedOf('inst-a', REPO, 7)?.title).toBe('Renamed')
+    // A push for a repository no card wants is not kept.
+    world.transports[0]!.emit('pr.changed', sync({ repo: 'github.com/o/other', pullRequests: [pullRequest(8)] }))
+    expect(directory.linkedOf('inst-a', 'github.com/o/other', 8)).toBeNull()
+    release()
+  })
+})

@@ -13,6 +13,7 @@
   import type { SlashCommand } from "../input/slash-commands";
   import PlainTextEditor from "./plain-text-editor/plain-text-editor.svelte";
   import { UnifiedAutocompleteController } from "../editor/autocomplete.svelte";
+  import { fleetStore } from "../fleet/fleet.store.svelte";
   import type { AutocompleteEditor } from "../editor/autocomplete-editor";
   import { resolveAutocompleteScope } from "../editor/autocomplete-scope";
   import { createReferenceNavigation } from "../editor/reference-navigation";
@@ -161,6 +162,8 @@
     serverId: () => autocompleteScope.serverId,
     sessionId: () => sessionId,
     workingDirectory: () => autocompleteScope.workingDirectory,
+    // The chip says whether a host answers, not what runs on it, so the menu needs no session counts.
+    hosts: () => fleetStore.machines(new Map()),
     useRelativeFilePaths: () => useRelativeFilePaths,
     provider: () => provider,
     includeSolusCommands: () => includeSolusCommands,

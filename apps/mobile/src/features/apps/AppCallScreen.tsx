@@ -13,7 +13,8 @@ import type { ScreenProps } from "../../navigation/routes";
 import { SettingsNote } from "../settings/components/SettingsNote";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { logLine, spanRows } from "./app-activity";
-import { AppDetailRow, AppPage, MonoBlock, ReadBody } from "./app-rows";
+import { AppDetailRow, AppPage, AppStateMark, MonoBlock, ReadBody } from "./app-rows";
+import { callState } from "./app-states";
 import { bytesText, callerText, callOutcomeLabel, durationText } from "./apps";
 import { useAppRead } from "./use-app";
 
@@ -61,7 +62,7 @@ function CallDetail(props: { readonly call: AppCallDetail; readonly caller: stri
     <>
       <SettingsSection title="Call">
         <ListRowLayout
-          icon={call.outcome === "failed" ? "exclamationmark.triangle" : call.outcome === "running" ? "clock" : "checkmark.circle"}
+          leading={<AppStateMark mark={{ state: callState(call.outcome) }} size={22} />}
           label={callOutcomeLabel(call.outcome)}
           description={call.operation}
         />

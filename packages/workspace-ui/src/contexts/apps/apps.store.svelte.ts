@@ -3,9 +3,11 @@ import type {
   AppActivityEvent,
   AppBuildLog,
   AppCallDetail,
+  AppCallStats,
   AppCallView,
   AppCallsRequest,
   AppConfigValue,
+  AppDeployPreflight,
   AppDeployReceipt,
   AppFileView,
   AppMetrics,
@@ -14,25 +16,32 @@ import type {
   AppRunDetail,
   AppRunView,
   AppRunsRequest,
+  AppScheduleCalendar,
   AppScheduleView,
+  AppStepSource,
+  AppStepSourceRequest,
   AppSessionLink,
   AppSignalAction,
   AppSignalActionSaveRequest,
-  AppSignalOccurrence,
   AppSignalView,
   AppState,
   AppSummary,
   AppUi,
+  AppUpdate,
   AppVersionDiff,
   AppVersionView,
   AppWebhookView,
   AppsChangedEvent,
 } from '@solus/contracts/apps'
-import type { AppModelCallView, AppModelCallsRequest } from '@solus/contracts/app-models'
+import type { AppDeploymentView, AppPublishPlaces, AppPublishReceipt, AppPublishRequest } from '@solus/contracts/app-deployments'
+import type { AppModelCallView } from '@solus/contracts/app-models'
+import type { HostEventMap } from '@solus/contracts/host-events'
+import { sessionRecordStatusOf } from '@solus/contracts/types'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { AppResource, appKey } from './app-resource.svelte'
+import { AppSignalTails } from './app-signal-tail.svelte'
 
 /**
  * Every app this client can see (docs/plans/apps.md §9), read from each
@@ -66,15 +75,21 @@ interface AppUiRead {
 }
 
 /** The filters of the call log, and how many calls a view reads. */
-export type AppCallQuery = Pick<AppCallsRequest, 'operation' | 'outcome' | 'callerKind' | 'limit'>
+export type AppCallQuery = Pick<AppCallsRequest, 'operation' | 'outcome' | 'callerKind' | 'search' | 'kind' | 'since' | 'until' | 'match' | 'limit'>
+/** The filters of the Activity chart: the call log's, without a page size. */
+export type AppCallStatsQuery = Omit<AppCallQuery, 'limit'>
 export type AppRunQuery = Pick<AppRunsRequest, 'state'>
-export type AppModelCallQuery = Pick<AppModelCallsRequest, 'status'>
+/** The step whose `step.do` call the source view finds; `version` absent is the active version. */
+export type AppStepSourceQuery = Pick<AppStepSourceRequest, 'workflow' | 'step' | 'version'>
 
 /** The call log a Manage page reads at one time. */
 const CALL_PAGE = 100
-/** The newest occurrences of every signal of one app. */
-const OCCURRENCE_PAGE = 100
-const MODEL_CALL_PAGE = 100
+/** The failed calls the Overview lists. */
+const FAILED_CALL_PAGE = 5
+/** The newest succeeded runs a workflow's last good run is looked for in. */
+const GOOD_RUN_PAGE = 50
+/** The most the host gives in one read: enough for the strips of several schedules. */
+const SCHEDULE_CALL_PAGE = 500
 
 export class AppsStore {
   /** Keyed by host and app id: two hosts can hold the same id. */
@@ -85,6 +100,8 @@ export class AppsStore {
   private readonly uis = new SvelteMap<string, AppUiRead>()
   private readonly uiErrors = new SvelteMap<string, string>()
   private readonly dataVersions = new SvelteMap<string, number>()
+  /** The places a first publish offers and what a host has for a publish (docs/plans/app-deploy.md §9), by host. */
+  private readonly publishPlaces = new SvelteMap<string, AppPublishPlaces>()
   /** Rises with each change of an app. A list read that started before an app's change does not put its old row back. */
   private changeCount = 0
   private readonly changedAt = new Map<string, number>()
@@ -106,6 +123,12 @@ export class AppsStore {
   // What the app did: `apps.activity` reads again the ones a view shows.
   readonly metrics = new AppResource<AppMetrics>((api, appId) => api.appMetrics({ appId }), null)
   readonly calls = new AppResource<AppCallView[], AppCallQuery>((api, appId, query) => api.appCalls({ appId, limit: CALL_PAGE, ...query }), {})
+  /** The numbers of every call that passes the call log's filters: the Activity chart. */
+  readonly callStats = new AppResource<AppCallStats, AppCallStatsQuery>((api, appId, query) => api.appCallStats({ appId, ...query }), {})
+  /** The newest runs of the app's schedules, for the run strip of each one. Apart from `calls`, so the call log keeps its filters. */
+  readonly scheduleCalls = new AppResource<AppCallView[]>((api, appId) => api.appCalls({ appId, callerKind: 'schedule', limit: SCHEDULE_CALL_PAGE }), null)
+  /** The newest failed calls, for the Overview. Apart from `calls`, so the call log keeps its filters. */
+  readonly failedCalls = new AppResource<AppCallView[]>((api, appId) => api.appCalls({ appId, outcome: 'failed', limit: FAILED_CALL_PAGE }), null)
   /** One call with its input, log lines, and trace. The query is the call's id. */
   readonly callDetail = new AppResource<AppCallDetail | null, string | null>(
     async (api, appId, callId) => (callId ? api.appCallRead({ appId, callId }) : null), null)
@@ -113,21 +136,40 @@ export class AppsStore {
   /** One run with its steps. The query is the run's id. */
   readonly runDetail = new AppResource<AppRunDetail | null, string | null>(
     async (api, appId, runId) => (runId ? api.appRunRead({ appId, runId }) : null), null)
+  /** Where one step of a workflow is in the source of a version, with that file's text. Null when the source has no such step. */
+  readonly stepSource = new AppResource<AppStepSource | null, AppStepSourceQuery | null>(
+    async (api, appId, query) => (query ? api.appStepSource({ appId, ...query }) : null), null)
   /** The log of one run: the executions of its function and the calls of its steps. The query is the run's id. */
   readonly runCalls = new AppResource<AppCallView[], string | null>(
     async (api, appId, runId) => (runId ? api.appCalls({ appId, runId, limit: CALL_PAGE }) : []), null)
+  /** The newest run of one workflow that succeeded, for the steps a run that stopped early did not reach. The query is the workflow's name. */
+  readonly lastGoodRun = new AppResource<AppRunDetail | null, string | null>(async (api, appId, workflow) => {
+    if (!workflow) return null
+    const good = (await api.appRuns({ appId, state: 'succeeded', limit: GOOD_RUN_PAGE })).find((run) => run.workflow === workflow)
+    return good ? api.appRunRead({ appId, runId: good.id }) : null
+  }, null)
+  /** The runs of each schedule in each span of the calendar. The query is the edges of the spans, in the client's time. */
+  readonly scheduleCalendar = new AppResource<AppScheduleCalendar | null, number[] | null>(
+    async (api, appId, edges) => (edges ? api.appScheduleCalendar({ appId, edges }) : null), null)
+  /** What a deploy of one revision changes against the active version. The query is the revision's commit. */
+  readonly deployPreflight = new AppResource<AppDeployPreflight | null, string | null>(
+    async (api, appId, commit) => (commit ? api.appDeployPreflight({ appId, commit }) : null), null)
   readonly signals = new AppResource<AppSignalView[]>((api, appId) => api.appSignals({ appId }), null)
-  readonly occurrences = new AppResource<AppSignalOccurrence[]>((api, appId) => api.appSignalOccurrences({ appId, limit: OCCURRENCE_PAGE }), null)
+  /** The live tail of each signal a view shows: `apps.signalOccurred` keeps it fresh. */
+  readonly signalTails = new AppSignalTails()
   readonly files = new AppResource<AppFileView[]>((api, appId) => api.appFiles({ appId }), null)
-  readonly modelCalls = new AppResource<AppModelCallView[], AppModelCallQuery>((api, appId, query) => api.appModelCalls({ appId, limit: MODEL_CALL_PAGE, ...query }), {})
   /** One model call with its text, steps, and result. The query is the call's id. */
   readonly modelCallDetail = new AppResource<AppModelCallView | null, string | null>(
     async (api, appId, callId) => (callId ? api.appModelCallRead({ appId, callId }) : null), null)
+  /** The published copy of the app (docs/plans/app-deploy.md); null for an app that is not published. */
+  readonly deployment = new AppResource<AppDeploymentView | null>((api, appId) => api.appDeployment({ appId }), null)
+  /** The newest lines of the deployment's own log. */
+  readonly deploymentLog = new AppResource<string>((api, appId) => api.appDeploymentLogs({ appId }), null)
 
   private readonly resources: readonly { drop(key: string): void }[] = [
-    this.versions, this.revisions, this.schedules, this.webhooks, this.sessions, this.metrics, this.calls,
-    this.callDetail, this.runs, this.runDetail, this.runCalls, this.signals, this.occurrences, this.files,
-    this.modelCalls, this.modelCallDetail,
+    this.versions, this.revisions, this.schedules, this.webhooks, this.sessions, this.metrics, this.calls, this.callStats, this.scheduleCalls,
+    this.callDetail, this.runs, this.runDetail, this.runCalls, this.lastGoodRun, this.scheduleCalendar, this.deployPreflight, this.signals, this.files,
+    this.modelCallDetail, this.deployment, this.deploymentLog, this.stepSource,
   ]
 
   /** Surfaces that show apps hold one shared watch over every host. */
@@ -136,12 +178,13 @@ export class AppsStore {
       const stopChanged = subscribeAllHosts('apps.changed', (serverId, event) => this.applyChange(serverId, event))
       const stopData = subscribeAllHosts('apps.dataChanged', (serverId, change) => this.applyDataChange(serverId, change.appId))
       const stopActivity = subscribeAllHosts('apps.activity', (serverId, activity) => this.applyActivity(serverId, activity))
+      const stopSessionStatus = subscribeAllHosts('session.statusChanged', (serverId, event) => this.applySessionStatus(serverId, event))
       const stopReadiness = serverConnections.onReadinessChange((serverId, status) => {
         if (isSolusApiId(serverId)) return
         if (status === 'ready') void this.load(serverId)
         else this.forgetHost(serverId)
       })
-      this.stopWatching = () => { stopChanged(); stopData(); stopActivity(); stopReadiness() }
+      this.stopWatching = () => { stopChanged(); stopData(); stopActivity(); stopSessionStatus(); stopReadiness() }
       void this.loadAll()
     }
     return () => {
@@ -349,9 +392,9 @@ export class AppsStore {
     return serverConnections.apiFor(serverId).appVersionDiff({ appId, version })
   }
 
-  /** The source change of one revision. Read when a view opens it; not kept. */
-  revisionDiff(serverId: string, appId: string, commit: string): Promise<AppRevisionDiff> {
-    return serverConnections.apiFor(serverId).appRevisionDiff({ appId, commit })
+  /** The source change of one revision, against the revision before it or against `against`. Read when a view opens it; not kept. */
+  revisionDiff(serverId: string, appId: string, commit: string, against?: string): Promise<AppRevisionDiff> {
+    return serverConnections.apiFor(serverId).appRevisionDiff(against ? { appId, commit, against } : { appId, commit })
   }
 
   /** The text of one version's build. Read when a view opens it; not kept. */
@@ -374,7 +417,11 @@ export class AppsStore {
     if (this.states.has(appKey(serverId, app.id))) void this.loadState(serverId, app.id)
     this.versions.reloadIfLoaded(serverId, app.id)
     this.revisions.reloadIfLoaded(serverId, app.id)
+    // A new active version can move a step.
+    this.stepSource.reloadIfLoaded(serverId, app.id)
     this.schedules.reloadIfLoaded(serverId, app.id)
+    this.scheduleCalendar.reloadIfLoaded(serverId, app.id)
+    this.deployPreflight.reloadIfLoaded(serverId, app.id)
     this.webhooks.reloadIfLoaded(serverId, app.id)
     this.sessions.reloadIfLoaded(serverId, app.id)
     this.signals.reloadIfLoaded(serverId, app.id)
@@ -389,12 +436,32 @@ export class AppsStore {
     this.dataVersions.set(key, (this.dataVersions.get(key) ?? 0) + 1)
   }
 
+  /**
+   * A session's run started or ended. Each app that lists it takes the new
+   * status at once: the host writes the session's record after it sends the
+   * event, so a read now can still give the old status.
+   */
+  applySessionStatus(serverId: string, event: HostEventMap['session.statusChanged']): void {
+    const status = sessionRecordStatusOf(event.status)
+    for (const row of this.entries.values()) {
+      if (row.serverId !== serverId) continue
+      const links = this.sessions.get(serverId, row.app.id)
+      if (!links?.some((link) => link.sessionId === event.sessionId)) continue
+      this.sessions.accept(serverId, row.app.id, links.map((link) =>
+        link.sessionId === event.sessionId ? { ...link, status, lastActivityAt: event.at } : link))
+    }
+  }
+
   /** The app's activity changed: each kind reads again what a view shows of it, and nothing else. */
   applyActivity(serverId: string, { appId, kinds }: AppActivityEvent): void {
     for (const kind of new Set(kinds)) {
       switch (kind) {
         case 'calls':
           this.calls.reloadIfWatched(serverId, appId)
+          this.callStats.reloadIfWatched(serverId, appId)
+          this.scheduleCalls.reloadIfWatched(serverId, appId)
+          this.scheduleCalendar.reloadIfWatched(serverId, appId)
+          this.failedCalls.reloadIfWatched(serverId, appId)
           this.callDetail.reloadIfWatched(serverId, appId)
           this.runCalls.reloadIfWatched(serverId, appId)
           this.metrics.reloadIfWatched(serverId, appId)
@@ -405,14 +472,16 @@ export class AppsStore {
           break
         case 'signals':
           this.signals.reloadIfWatched(serverId, appId)
-          this.occurrences.reloadIfWatched(serverId, appId)
           break
         case 'files':
           this.files.reloadIfWatched(serverId, appId)
           break
         case 'models':
-          this.modelCalls.reloadIfWatched(serverId, appId)
           this.modelCallDetail.reloadIfWatched(serverId, appId)
+          break
+        case 'deployment':
+          this.deployment.reloadIfWatched(serverId, appId)
+          this.deploymentLog.reloadIfWatched(serverId, appId)
           break
       }
     }
@@ -423,6 +492,16 @@ export class AppsStore {
   /** Runs one call of the app's UI. Answers the host's `{ "value": ... }` as JSON text. */
   call(serverId: string, appId: string, name: string, argumentsJson: string): Promise<string> {
     return serverConnections.apiFor(serverId).appCall({ appId, name, argumentsJson })
+  }
+
+  /**
+   * The newest call of an operation from a UI since a time, with its trace:
+   * what the Operations console ran. Null when the log has none.
+   */
+  async latestUiCall(serverId: string, appId: string, operation: string, since: number): Promise<AppCallDetail | null> {
+    const api = serverConnections.apiFor(serverId)
+    const [call] = await api.appCalls({ appId, operation, callerKind: 'ui', since, limit: 1 })
+    return call ? api.appCallRead({ appId, callId: call.id }) : null
   }
 
   async stop(serverId: string, appId: string): Promise<void> {
@@ -461,6 +540,11 @@ export class AppsStore {
     return receipt
   }
 
+  /** Renames the app, describes it, or colours its tile. A field left out stays; null goes back to the manifest's text or the colour from the id. */
+  async update(serverId: string, appId: string, patch: AppUpdate): Promise<void> {
+    this.acceptState(serverId, await serverConnections.apiFor(serverId).appUpdate({ appId, patch }))
+  }
+
   /** Turns the app's operations on or off as tools for agents. */
   async setAgentAccess(serverId: string, appId: string, enabled: boolean): Promise<void> {
     this.acceptState(serverId, await serverConnections.apiFor(serverId).appSetAgentAccess({ appId, enabled }))
@@ -468,6 +552,8 @@ export class AppsStore {
 
   async setScheduleEnabled(serverId: string, appId: string, name: string, enabled: boolean): Promise<void> {
     this.schedules.accept(serverId, appId, await serverConnections.apiFor(serverId).appScheduleSet({ appId, name, enabled }))
+    // A paused schedule has no run to come.
+    this.scheduleCalendar.reloadIfLoaded(serverId, appId)
   }
 
   async runSchedule(serverId: string, appId: string, name: string): Promise<void> {
@@ -477,6 +563,8 @@ export class AppsStore {
   /** Gives a secret its value; null clears it. The value is never read back. */
   async setSecret(serverId: string, appId: string, name: string, value: string | null): Promise<void> {
     this.acceptState(serverId, await serverConnections.apiFor(serverId).appSecretSet({ appId, name, value }))
+    // The preflight names the secrets with no value.
+    this.deployPreflight.reloadIfLoaded(serverId, appId)
   }
 
   /** Sets one config value; null gives the field its default again. */
@@ -494,6 +582,11 @@ export class AppsStore {
     this.acceptRun(serverId, appId, await serverConnections.apiFor(serverId).appRunRetry({ appId, runId }))
   }
 
+  /** Takes a failed run off what needs the owner, with no retry. The run stays in the history. */
+  async dismissRun(serverId: string, appId: string, runId: string): Promise<void> {
+    this.acceptRun(serverId, appId, await serverConnections.apiFor(serverId).appRunDismiss({ appId, runId }))
+  }
+
   /** Makes a signal action, or changes the one `actionId` names. */
   async saveSignalAction(serverId: string, appId: string, signal: string, action: AppSignalAction, enabled: boolean, actionId?: string): Promise<void> {
     const request: AppSignalActionSaveRequest = { appId, signal, action, enabled }
@@ -505,11 +598,54 @@ export class AppsStore {
     this.signals.accept(serverId, appId, await serverConnections.apiFor(serverId).appSignalActionDelete({ appId, actionId }))
   }
 
+  /** A new signing secret for one webhook the app declares. */
+  async rotateWebhookSecret(serverId: string, appId: string, name: string): Promise<void> {
+    this.webhooks.accept(serverId, appId, await serverConnections.apiFor(serverId).appWebhookRotateSecret({ appId, name }))
+  }
+
+  /** Sends the active version to the app's deployment, and makes the deployment first when the app has none. A version that did not start there is in the receipt. */
+  async publish(serverId: string, request: AppPublishRequest): Promise<AppPublishReceipt> {
+    const receipt = await serverConnections.apiFor(serverId).appPublish(request)
+    this.deployment.accept(serverId, request.appId, receipt.deployment)
+    return receipt
+  }
+
+  /** What a host has for a publish; undefined until it answers, and for a host that cannot say. */
+  publishPlacesFor(serverId: string): AppPublishPlaces | undefined {
+    return this.publishPlaces.get(serverId)
+  }
+
+  /** Reads what a host has for a publish. A host that cannot say keeps what the client had. */
+  async loadPublishPlaces(serverId: string): Promise<void> {
+    const places = await serverConnections.apiFor(serverId).appPublishPlaces().catch(() => null)
+    if (places) this.publishPlaces.set(serverId, places)
+  }
+
+  /** Sets the Tailscale auth key of a host, or removes it with null. The value is never read back. */
+  async setTailscaleKey(serverId: string, value: string | null): Promise<void> {
+    this.publishPlaces.set(serverId, await serverConnections.apiFor(serverId).appTailscaleKeySet({ value }))
+  }
+
+  /** Removes the app's deployment with the data it holds. */
+  async unpublish(serverId: string, appId: string): Promise<void> {
+    await serverConnections.apiFor(serverId).appUnpublish({ appId })
+    this.deployment.accept(serverId, appId, null)
+  }
+
   /** Stops a queued or running model call. */
   async cancelModelCall(serverId: string, appId: string, callId: string): Promise<void> {
     const call = await serverConnections.apiFor(serverId).appModelCallCancel({ appId, callId })
     if (this.modelCallDetail.queryFor(serverId, appId) === call.id) this.modelCallDetail.accept(serverId, appId, call)
-    void this.modelCalls.load(serverId, appId)
+  }
+
+  /** Links a session of the app's host to the app: a session the owner started for it. */
+  async linkSession(serverId: string, appId: string, sessionId: string): Promise<void> {
+    this.sessions.accept(serverId, appId, await serverConnections.apiFor(serverId).appSessionLink({ appId, sessionId }))
+  }
+
+  /** Takes one session off the app's linked sessions. The session stays. */
+  async unlinkSession(serverId: string, appId: string, sessionId: string): Promise<void> {
+    this.sessions.accept(serverId, appId, await serverConnections.apiFor(serverId).appSessionUnlink({ appId, sessionId }))
   }
 
   /** Deletes one app file. */
@@ -549,6 +685,7 @@ export class AppsStore {
   /** A host that went away: its rows are no longer current, so they go. */
   private forgetHost(serverId: string): void {
     this.hostStatus.delete(serverId)
+    this.publishPlaces.delete(serverId)
     for (const [key, row] of this.entries) if (row.serverId === serverId) this.dropApp(key)
   }
 

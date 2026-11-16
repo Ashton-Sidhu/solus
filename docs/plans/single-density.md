@@ -60,6 +60,14 @@ had these problems:
   400px conversation minimum plus the 200px rail minimum). The panel stays
   open there until the user closes it. Below 600px there is no room, so the
   band shows no button.
+- Below the same 600px, the session sidebar stays at its places column on
+  desktop and web. A share of so narrow a workspace gave the list a sliver
+  (17% of a 430px phone is 73px, and the places column takes 54 of it). The
+  sidebar toggle and the Sessions place open the list as a drawer over the
+  conversation. A session or a page chosen in the drawer, a press beside it,
+  or Escape closes it. The drawer does not change the saved sidebar
+  preference, which applies again when the column fits
+  (`isSidebarDrawer` in `layout/lib/workspace-body.ts`).
 - A user who already has a saved 90% zoom from the old first-run seed keeps it.
   `mod+0` returns to 100%. There is no migration.
 - On a laptop, some surfaces now show the desktop geometry. Examples are menu
@@ -89,6 +97,10 @@ stay at the face's own weight. The branch name at the top of the project panel
 uses 600, so it stays one step heavier than the rows below it.
 
 ## Icon defaults
+
+The composer's Stop control uses a 24px red face within its existing action
+target on desktop, web, and mobile. The smaller face keeps it in proportion
+with the adjacent icons without reducing the click or touch area.
 
 `packages/client-core/src/icon-defaults.ts` owns the default icon size (16)
 and stroke width (1.5 on a 24-unit box). The shared app core sets Lucide's

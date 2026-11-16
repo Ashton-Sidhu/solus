@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
-import type { AppCallView, AppDeployReceipt, AppRevisionView, AppRunDetail, AppScheduleView, AppSignalView, AppState, AppSummary, AppUi } from '@solus/contracts/apps'
+import type { AppCallView, AppDeployReceipt, AppSessionLink, AppRevisionView, AppRunDetail, AppScheduleView, AppSignalView, AppState, AppSummary, AppUi } from '@solus/contracts/apps'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { HostReadinessState } from '@solus/client-core/host-readiness'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -284,6 +284,41 @@ describe('events of an app', () => {
   })
 })
 
+describe('the sessions of an app', () => {
+  const link = (sessionId: string, status: AppSessionLink['status']): AppSessionLink => ({
+    sessionId,
+    title: sessionId,
+    linkedAt: 1,
+    provider: 'claude-code',
+    status,
+    lastActivityAt: 1,
+  })
+
+  test('a session that starts or ends a run shows its new status at once, without a read', async () => {
+    // WHY: the host writes the session's record after it sends the event, so a read
+    // at that moment can still say Running. The row must follow the event.
+    const appSessions = mock(async () => [link('s1', 'idle'), link('s2', 'idle')])
+    stubHosts({ a: { appList: async () => [app('notes'), app('budget')], appSessions } })
+    const store = new AppsStore()
+    await store.load('a')
+    await store.sessions.load('a', 'notes')
+
+    store.applySessionStatus('a', { sessionId: 's1', agentSessionId: null, status: 'awaiting_input', at: 50 })
+    expect(store.sessions.get('a', 'notes')?.map((row) => [row.sessionId, row.status, row.lastActivityAt])).toEqual([
+      ['s1', 'running', 50],
+      ['s2', 'idle', 1],
+    ])
+    store.applySessionStatus('a', { sessionId: 's1', agentSessionId: null, status: 'completed', at: 90 })
+    expect(store.sessions.get('a', 'notes')?.[0].status).toBe('idle')
+    expect(appSessions).toHaveBeenCalledTimes(1)
+
+    // Another host's session of the same id, or an app that does not list it, changes nothing.
+    store.applySessionStatus('b', { sessionId: 's2', agentSessionId: null, status: 'running', at: 99 })
+    expect(store.sessions.get('a', 'notes')?.[1].status).toBe('idle')
+    expect(store.sessions.get('a', 'budget')).toBeUndefined()
+  })
+})
+
 describe('the lists of the Manage page', () => {
   const schedule = (enabled: boolean): AppScheduleView => ({
     name: 'digest',
@@ -370,7 +405,7 @@ describe('the activity of an app', () => {
     const store = new AppsStore()
     const release = [
       store.calls.watch('a', 'notes'), store.metrics.watch('a', 'notes'), store.runs.watch('a', 'notes'),
-      store.signals.watch('a', 'notes'), store.occurrences.watch('a', 'notes'), store.files.watch('a', 'notes'),
+      store.signals.watch('a', 'notes'), store.files.watch('a', 'notes'),
     ]
     await settle()
     reads.length = 0
@@ -387,7 +422,8 @@ describe('the activity of an app', () => {
     reads.length = 0
     store.applyActivity('a', { appId: 'notes', kinds: ['signals', 'files'] })
     await settle()
-    expect(reads.sort()).toEqual(['files', 'occurrences', 'signals'])
+    // The live tail of a signal takes its occurrences from `apps.signalOccurred`, not from a read.
+    expect(reads.sort()).toEqual(['files', 'signals'])
 
     // Another app's activity, and the same app on another host, read nothing here.
     reads.length = 0

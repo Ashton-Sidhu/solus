@@ -10,9 +10,9 @@ import { SettingsActionRow } from "../settings/components/SettingsActionRow";
 import { SettingsNote } from "../settings/components/SettingsNote";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { errorMessage } from "../settings/integrations";
-import { WebhookListRow } from "../webhooks/webhook-rows";
-import { AppDetailRow, AppPage, LoadedSection, MonoBlock, ReadBody } from "./app-rows";
-import { canRunAgain, canTerminate, RUN_AGAIN_NOTE, runCallsRequest, runStateLabel, stepLines, stepStateLabel, terminateConfirmation } from "./app-runs";
+import { AppDetailRow, AppListRow, AppPage, AppStateMark, LoadedSection, MonoBlock, ReadBody } from "./app-rows";
+import { canDismiss, canRunAgain, canTerminate, RUN_AGAIN_NOTE, runCallsRequest, runStateLabel, stepLines, stepStateLabel, terminateConfirmation } from "./app-runs";
+import { callState, runState, stepState } from "./app-states";
 import { callAgeText, callerText, callLines, untilText } from "./apps";
 import { useAppChange, useAppRead } from "./use-app";
 
@@ -58,6 +58,12 @@ export function AppRunScreen({ navigation, route }: ScreenProps<"AppRun">) {
     );
   };
 
+  const dismiss = () => {
+    change("dismiss", (api) => api.appRunDismiss({ appId, runId })).then(reloadRun, (cause: unknown) =>
+      Alert.alert("Not dismissed", errorMessage(cause)),
+    );
+  };
+
   return (
     <AppPage title="Run" hostId={hostId}>
       <ReadBody read={run.state} connected={run.connected} subject="The run" onRetry={run.reload}>
@@ -78,9 +84,10 @@ export function AppRunScreen({ navigation, route }: ScreenProps<"AppRun">) {
               >
                 {(items) =>
                   items.map((call, index) => (
-                    <WebhookListRow
+                    <AppListRow
                       key={call.id}
                       first={index === 0}
+                      mark={{ state: callState(call.outcome) }}
                       title={call.operation}
                       trailing={callAgeText(call, now)}
                       lines={callLines(call)}
@@ -105,6 +112,9 @@ export function AppRunScreen({ navigation, route }: ScreenProps<"AppRun">) {
                 <View className="gap-3">
                   <SettingsSection title="Start again">
                     <SettingsActionRow icon="arrow.clockwise" label="Run again" disabled={disabled} loading={busy === "retry"} onPress={runAgain} />
+                    {canDismiss(detail) ? (
+                      <SettingsActionRow icon="xmark" label="Dismiss" disabled={disabled} loading={busy === "dismiss"} onPress={dismiss} />
+                    ) : null}
                   </SettingsSection>
                   <SettingsNote>{RUN_AGAIN_NOTE}</SettingsNote>
                 </View>
@@ -124,11 +134,13 @@ function RunDetail(props: { readonly run: AppRunDetail; readonly now: number }) 
       <View className="gap-3">
         <SettingsSection title="Run">
           <ListRowLayout
-            icon={run.state === "failed" ? "exclamationmark.triangle" : run.state === "succeeded" ? "checkmark.circle" : "flowchart"}
+            leading={<AppStateMark mark={{ state: runState(run.state) }} size={22} />}
             label={runStateLabel(run.state)}
             description={run.workflow}
           />
           <ListRowLayout label="Started by" description={callerText(run.startedBy)} />
+          {run.version !== null ? <ListRowLayout label="Version" detail={`v${run.version}`} /> : null}
+          {run.dismissedAt !== null ? <ListRowLayout label="Dismissed" detail={formatTime(run.dismissedAt)} /> : null}
           <ListRowLayout label="Started" detail={formatTime(run.startedAt)} />
           {run.finishedAt !== null ? <ListRowLayout label="Ended" detail={formatTime(run.finishedAt)} /> : null}
           {run.state === "sleeping" && run.wakeAt !== null ? <ListRowLayout label="Starts again" detail={untilText(run.wakeAt, now)} /> : null}
@@ -161,9 +173,8 @@ function RunDetail(props: { readonly run: AppRunDetail; readonly now: number }) 
             <AppDetailRow
               key={step.name}
               first={index === 0}
+              mark={{ state: stepState(step.state), label: stepStateLabel(step.state) }}
               title={step.name}
-              trailing={stepStateLabel(step.state)}
-              trailingTone={step.state === "failed" ? "danger" : "muted"}
               lines={stepLines(step, now)}
             >
               {step.result !== null ? (

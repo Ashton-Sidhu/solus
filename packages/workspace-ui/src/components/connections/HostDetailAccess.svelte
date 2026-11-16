@@ -171,11 +171,7 @@
       <div
         class="group flex items-center gap-3 px-4 py-2.5"
       >
-        <div
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
-        >
-          <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
-        </div>
+        <MonitorIcon size={16} class="shrink-0 text-foreground" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
             {session.deviceLabel}

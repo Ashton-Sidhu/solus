@@ -9,7 +9,7 @@
   import { Button } from "../ui/button";
   import HostStateIcon from "./HostStateIcon.svelte";
   import { openSshAdd, pairWithCode } from "./add-machine";
-  import { FOUND_SOURCE_LABEL, type FoundMachine } from "./lib/discover";
+  import type { FoundMachine } from "./lib/discover";
 
   /** One found machine and the one action that adds it (D7, D8). A host that runs
    *  Solus pairs in this row with the code it shows; a WSL distro installs Solus;
@@ -50,14 +50,11 @@
 
 <div class="flex flex-col">
   <div class="flex items-center gap-3 px-4 py-3.5">
-    <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--wash-3) text-muted-foreground">
-      {#if machine.kind === "ssh"}<Terminal size={15} />{:else}<HostOperatingSystemIcon os={machine.os} size={15} />{/if}
+    <span class="flex size-4 shrink-0 items-center justify-center text-foreground">
+      {#if machine.kind === "ssh"}<Terminal size={16} />{:else}<HostOperatingSystemIcon os={machine.os} size={16} />{/if}
     </span>
     <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-      <p class="flex min-w-0 items-center gap-2">
-        <span class="truncate text-workspace-chrome font-medium">{machine.name}</span>
-        <span class="inline-flex h-[1.1875rem] shrink-0 items-center rounded-md bg-(--wash-3) px-[7px] text-chrome-dense text-muted-foreground">{FOUND_SOURCE_LABEL[machine.source]}</span>
-      </p>
+      <p class="truncate text-workspace-chrome font-medium">{machine.name}</p>
       <p class="truncate font-mono text-chrome-dense text-muted-foreground">{machine.detail}</p>
     </div>
     {#if phase === "paired"}
@@ -69,7 +66,7 @@
     {/if}
   </div>
   {#if isEnteringCode && machine.kind === "server" && phase !== "paired"}
-    <form class="flex flex-wrap items-center gap-3 px-4 pb-4 pl-[3.75rem]" onsubmit={(event) => { event.preventDefault(); void pair(); }}>
+    <form class="flex flex-wrap items-center gap-3 px-4 pb-4 pl-11" onsubmit={(event) => { event.preventDefault(); void pair(); }}>
       <p class="min-w-0 flex-1 basis-56 text-[0.8125rem] text-pretty text-(--solus-text-secondary)">
         Enter the code {machine.name} shows in Settings › Hosts › This device › Access.
       </p>

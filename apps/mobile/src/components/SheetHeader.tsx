@@ -21,6 +21,7 @@ export function SheetHeader(props: SheetHeaderProps) {
           title: props.title,
           headerBackVisible: false,
           unstable_headerSubtitle: props.subtitle,
+          gestureEnabled: props.dismissDisabled === undefined ? undefined : !props.dismissDisabled,
         }}
       />
       <NativeHeaderToolbar placement="left">
@@ -38,6 +39,7 @@ export function SheetHeader(props: SheetHeaderProps) {
             variant="prominent"
             tintColor={colors["--color-prominent-action"]}
             accessibilityLabel={confirmation.label}
+            disabled={confirmation.disabled || confirmation.loading}
             onPress={confirmation.onPress}
           />
         </NativeHeaderToolbar>

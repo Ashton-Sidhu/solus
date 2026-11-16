@@ -4,7 +4,7 @@
   import FleetTile from "./FleetTile.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
   import { fleetStore } from "./fleet.store.svelte";
-  import { groupsOf, rollup, type FleetMachine, type FleetZone, type TileColorMode } from "./lib/fleet-model";
+  import { groupsOf, MAP_HEIGHT, rollup, type FleetMachine, type FleetZone, type TileColorMode } from "./lib/fleet-model";
 
   /** One full zone, opened over the map (D4): a group for each organization or
    *  owner, a larger tile for each host, and the zone's bulk actions. */
@@ -15,11 +15,11 @@
     query: string;
     focusId: string | null;
     onPoint: (serverId: string | null) => void;
-    onSelect: (serverId: string) => void;
+    onOpen: (serverId: string) => void;
     onBack: () => void;
   }
 
-  let { zone, machines, colorMode, query, focusId, onPoint, onSelect, onBack }: Props = $props();
+  let { zone, machines, colorMode, query, focusId, onPoint, onOpen, onBack }: Props = $props();
 
   const summary = $derived(rollup(machines));
   const unreachable = $derived(machines.filter((machine) => machine.state === "unreachable").map((machine) => machine.serverId));
@@ -27,7 +27,7 @@
   const stopped = $derived(machines.filter((machine) => machine.state === "stopped" && machine.isManaged).map((machine) => machine.serverId));
 </script>
 
-<div class="flex min-h-[30rem] flex-col gap-5 p-5">
+<div class="flex flex-col gap-5 p-5" style:min-height="{MAP_HEIGHT}rem">
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="flex min-w-0 items-center gap-2">
       <button type="button" onclick={onBack} aria-label="Back to the map" class="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-(--wash-3) hover:text-foreground">
@@ -62,7 +62,7 @@
           </div>
           <div class="flex flex-wrap gap-[3px]">
             {#each grouped as machine (machine.serverId)}
-              <FleetTile {machine} {colorMode} size={14} {query} isFocused={focusId === machine.serverId} {onPoint} {onSelect} />
+              <FleetTile {machine} {colorMode} size={14} {query} isFocused={focusId === machine.serverId} {onPoint} {onOpen} />
             {/each}
           </div>
           <p class="flex items-center gap-2.5">

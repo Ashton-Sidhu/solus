@@ -14,7 +14,7 @@ import {
 import type { TimelineTurn } from '@solus/client-core/turn-timeline'
 import { changeKindShares, changesOfKind } from '@solus/workspace-ui/components/session/artifacts/lib/change-kinds'
 import { changeTree, folderPaths } from '@solus/workspace-ui/components/session/artifacts/lib/change-tree'
-import { overviewTiles } from '@solus/workspace-ui/components/session/artifacts/lib/overview-view'
+import { agentGroups, clockTime, wakeTimeLabel } from '@solus/workspace-ui/components/session/artifacts/lib/overview-view'
 import { scanSessionActivity, turnMessages } from '@solus/workspace-ui/components/session/artifacts/lib/session-activity'
 import type { RailAgentRow } from '@solus/workspace-ui/components/project-panel/lib/rail-agents'
 
@@ -178,39 +178,38 @@ describe('reading the transcript', () => {
   })
 })
 
-describe('the tiles', () => {
-  const agent = (tone: RailAgentRow['tone']) => ({ tone }) as RailAgentRow
+describe('the agents card', () => {
+  const agent = (key: string, tone: RailAgentRow['tone']) => ({ key, tone }) as RailAgentRow
 
-  test('each tile names its kind, counts it, and says in words how its rows stand', () => {
-    // WHY: a number beside an icon does not say what it counts. A reader must
-    // see "Agents 3, 1 running" without a tooltip and without opening the card.
-    const linked = scopedArtifacts(
-      ownedArtifacts({ own: [pr(1, 1, 'open'), pr(2, 2, 'merged'), pr(3, 3), work('w', 4), file('/a', 5), image('/b.png', 6)], children: [] }, 's1'),
-      null,
-      () => true,
-    )
-    const tiles = overviewTiles(
-      overviewChanges([{ path: 'a.ts', additions: 5, deletions: 2, status: 'M' }], []),
-      [agent('live'), agent('done'), agent('done')],
-      linked.pullRequests,
-      linked.items,
-    )
-    expect(tiles.map((tile) => [tile.label, tile.shortLabel, tile.count])).toEqual([
-      ['Changes', 'Changes', 1],
-      ['Agents', 'Agents', 3],
-      ['Pull requests', 'PRs', 3],
-      ['Works and files', 'Works', 3],
+  test('groups the agents by how they stand, what still works first, and keeps each group in its order', () => {
+    // WHY: a reader scans the card for what still runs, then for what came
+    // back. A group with nothing in it is noise, so it is left out.
+    const groups = agentGroups([agent('a', 'done'), agent('b', 'live'), agent('c', 'failed'), agent('d', 'done'), agent('e', 'idle')], () => false)
+    expect(groups.map((group) => [group.label, group.rows.map((row) => row.key)])).toEqual([
+      ['Working', ['b']],
+      ['Done', ['a', 'd']],
+      ['Failed', ['c']],
+      ['Stopped', ['e']],
     ])
-    expect(tiles[0]!.lines).toEqual({ additions: 5, deletions: 2 })
-    expect(tiles[1]!.detail).toBe('1 running · 2 done')
-    // A pull request PR sync has not seen yet has no state to count.
-    expect(tiles[2]!.detail).toBe('1 open · 1 merged')
-    expect(tiles[3]!.detail).toBe('1 work · 2 files')
+    expect(agentGroups([agent('a', 'done')], () => false).map((group) => group.label)).toEqual(['Done'])
   })
 
-  test('a tile with nothing to say about its rows has no detail', () => {
-    const tiles = overviewTiles([], [], [], [])
-    expect(tiles.map((tile) => tile.detail)).toEqual([null, null, null, null])
+  test('a snoozed session waits in the last group, even while its agent works', () => {
+    // WHY: the person put it away until later, as the sidebar's Snoozed shelf
+    // does. Snoozing does not stop the agent, so a working one moves too.
+    const groups = agentGroups([agent('a', 'live'), agent('b', 'done'), agent('c', 'live')], (row) => row.key !== 'c')
+    expect(groups.map((group) => [group.label, group.rows.map((row) => row.key)])).toEqual([
+      ['Working', ['c']],
+      ['Snoozed', ['a', 'b']],
+    ])
+  })
+
+  test('a wake time names its day only when it is not today', () => {
+    const now = new Date(2026, 10, 13, 9, 0).getTime()
+    const later = new Date(2026, 10, 13, 10, 14).getTime()
+    const friday = new Date(2026, 10, 14, 9, 0).getTime()
+    expect(wakeTimeLabel(later, now)).toBe(clockTime(later))
+    expect(wakeTimeLabel(friday, now)).toBe(`${new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(friday)} ${clockTime(friday)}`)
   })
 })
 

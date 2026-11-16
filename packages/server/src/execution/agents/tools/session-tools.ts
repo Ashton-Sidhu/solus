@@ -1,4 +1,3 @@
-import { childPermissionMode } from '../../sessions/child-permissions'
 import { z } from 'zod'
 import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
@@ -8,20 +7,19 @@ import { listProjectRoots } from '../../../db/session-indexer'
 import { searchSessionIndex } from '../../../db/session-search'
 import { formatPendingInputReport } from '../../sessions/pending-input'
 import { plainSnippet } from '@solus/contracts/search-snippet'
-import { MODEL_PROFILES, isLegacyModel, PERMISSION_MODES } from '@solus/contracts/types'
+import { MODEL_PROFILES, isLegacyModel } from '@solus/contracts/types'
 import { formatExchangeTag, formatOrchestrationItem, ORCHESTRATION_LIMITS, type OrchestrationItem } from '@solus/contracts/session-exchange'
-import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, ReasoningEffort, PermissionMode, SessionMeta, SessionStatus } from '@solus/contracts/types'
+import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PermissionMode, SessionMeta, SessionStatus } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { taskIdForSession } from '../../../data/tasks/task-sessions'
 import { loadTask } from '../../../data/tasks/task-store'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { toolMayRead } from '../../../admission/workspace-tool-authority'
 import type { Exchange } from '../../orchestration/exchange'
-import { MAX_WAIT_MS, type RemoteTarget, type SendOrder, type SpawnedSession, type SpawnOrder } from '../../orchestration/session-orchestrator'
+import { MAX_WAIT_MS, type RemoteTarget, type SendOrder, type SpawnOrder } from '../../orchestration/session-orchestrator'
 import type { ReachRequest, RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
 import { agentTargetFromMetadata } from '../agent-targets'
 import { hostDisplayName } from '../../../platform/host-display-name'
-import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { checkAttachments } from '../../orchestration/prompt-attachments'
 import { findRemoteSession, type OrganizationApi, type RemoteSession } from '../../orchestration/remote-session-read'
@@ -31,14 +29,14 @@ import { messageItemId, readTimeline, type TimelineRequest } from './session-tim
 const log = createLogger('sessions', 'session-tools.ts')
 
 /**
- * The agent-facing session tools. Three act — `start_session`, `send_session`
- * and `stop_session` — and each is a thin adapter over the session orchestrator,
- * which owns the message from dispatch to result. The rest only read. A tool
+ * The agent-facing session tools. Three act — `start_sessions` (its own
+ * file), `send_session` and `stop_session` — and each is a thin adapter over
+ * the session orchestrator, which owns the message from dispatch to result. The rest only read. A tool
  * says what it does; when to use it is in the parent's instructions. Tools
  * return error text rather than throwing so a bad call remains recoverable.
  */
 
-const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const
+export const REASONING_VALUES = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const
 // Providers that can start a session. 'opencode' is excluded — same constraint
 // the automation runner applies (no headless runner yet).
 const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const
@@ -54,7 +52,7 @@ export interface SessionOrchestration {
     waitMs?: number,
     requestId?: string,
     target?: RemoteTarget,
-  ): Promise<{ exchangeId: string; sessionId: string; starting?: boolean; taskId?: string; waited?: OrchestrationItem | null }>
+  ): Promise<{ exchangeId: string; sessionId: string; starting?: boolean; waited?: OrchestrationItem | null }>
   send(
     senderSessionId: string,
     targetSessionId: string,
@@ -70,6 +68,9 @@ export interface SessionOrchestration {
 let sessionOrchestration: SessionOrchestration | null = null
 export function setSessionOrchestration(orchestration: SessionOrchestration): void {
   sessionOrchestration = orchestration
+}
+export function getSessionOrchestration(): SessionOrchestration | null {
+  return sessionOrchestration
 }
 
 /** The other hosts a turn's person reaches from this host (docs/plans/host-reach.md). */
@@ -135,7 +136,7 @@ const REPORT_FIELD = z
 // refused call only costs it a retry.
 const MAX_READ_PAGE = 50
 
-const WAIT_FIELD = z
+export const WAIT_FIELD = z
   .number()
   .int()
   .min(0)
@@ -143,71 +144,19 @@ const WAIT_FIELD = z
   .default(0)
   .describe(`Wait up to ${MAX_WAIT_MS / 1000} seconds for a report or notice. 0 (default) returns at once. Timeout does not cancel work; report=true delivers the result later.`)
 
-const REQUEST_ID_FIELD = z.string().trim().min(1).max(200).optional()
+export const REQUEST_ID_FIELD = z.string().trim().min(1).max(200).optional()
   .describe('Retry key scoped to the caller. Reuse for the same request to prevent duplicate work. Use a new key for each follow-up. Closed receipts last 30 days.')
 
-const HOST_FIELD = z.string().trim().min(1).optional()
+export const HOST_FIELD = z.string().trim().min(1).optional()
 
-const ATTACHMENTS_FIELD = z
+export const ATTACHMENTS_FIELD = z
   .array(z.string().min(1))
   .max(MAX_ATTACHMENT_UPLOAD_COUNT)
   .optional()
   .describe(`Up to ${MAX_ATTACHMENT_UPLOAD_COUNT} files on this host, 10 MB each, as absolute or cwd-relative paths. Copied now to the target host. PNG, JPEG, GIF and WebP arrive as images; other files arrive as readable paths.`)
 
-export const startSessionFields = {
-  prompt: z.string().describe('The prompt the new session starts running immediately.'),
-  title: z
-    .string()
-    .trim()
-    .min(1)
-    .max(ORCHESTRATION_LIMITS.title)
-    .optional()
-    .describe('A short name for the session, such as "Server correctness fixes". It names the session and its card in this conversation. Give each session you start a different name. Omit to name it from the prompt.'),
-  attachments: ATTACHMENTS_FIELD,
-  host: HOST_FIELD.describe("Optional. Start the session on another of your hosts, by its id or name from list_agent_targets. Omit to start it on this host. On another host, task must be 'none'; cwd is a path on that host: pass a project path that list_agent_targets with this host returns, or omit cwd for a new chat folder there; and the provider and model must be ones that host offers."),
-  task: z
-    .enum(['attempt', 'none'])
-    .default('none')
-    .describe("Optional task membership. Defaults to none. Use attempt with task_id to join an existing task."),
-  task_id: z.string().trim().min(1).optional().describe("The task key of the existing GitHub or Jira task for task='attempt'. Defaults to your current task. Omit with task='none'."),
-  agent_provider: z
-    .string()
-    .optional()
-    .describe("Which configured agent runs the session. Defaults to the calling session's provider; call list_agent_targets for current provider and model ids."),
-  model_id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe('Model id. Omit to inherit the caller’s model on the same provider, or use the selected provider’s default.'),
-  reasoning_effort: z
-    .enum(REASONING_VALUES)
-    .optional()
-    .describe("Reasoning effort for the session. Defaults to the model's default level."),
-  cwd: z
-    .string()
-    .trim()
-    .min(1)
-    .optional()
-    .describe('Working directory the session runs in. Defaults to the calling session\'s directory.'),
-  worktree_base_branch: z
-    .string()
-    .trim()
-    .min(1)
-    .optional()
-    .describe('Optional base branch to create an isolated worktree for the new session.'),
-  permission_mode: z.enum(PERMISSION_MODES).optional().describe('Inherit the caller’s permission mode, or request a narrower mode.'),
-  report: REPORT_FIELD.default(false).describe('Send notices and the final report to this conversation. Defaults to false for independent work.'),
-  request_id: REQUEST_ID_FIELD,
-  wait_seconds: WAIT_FIELD,
-}
-
-const startSessionSchema = z.object(startSessionFields).refine(
-  (input) => input.task !== 'none' || input.task_id === undefined,
-  { message: "Omit task_id with task='none'. Use task='attempt' to join an existing task.", path: ['task_id'] },
-)
-
 const listAgentTargetsFields = {
-  host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name, with its projects to use as start_session cwd. Omit for this host, which also lists the other hosts you can start sessions on.'),
+  host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name, with its projects to use as start_sessions cwd. Omit for this host, which also lists the other hosts you can start sessions on.'),
 }
 
 // T3 Code's thread read bounds; a larger value reads the bound.
@@ -256,24 +205,18 @@ const stopSessionFields = {
   session_id: z.string().describe('The target session id. Cannot be your own session.'),
 }
 
-const START_SESSION_DESC =
-  "Start an independent Solus conversation in its selected workspace. Use delegate_task for child work. Inherits the caller’s provider and model unless selected. Reports default off. It is not stopped with the caller and does not hold the caller’s work open. Set cwd or worktree_base_branch before launch; host selects another machine. Reuse request_id after a lost reply. Continue with send_session; inspect with read_session or read_session_exchange."
 const LIST_AGENT_TARGETS_DESC =
-  'List the agent providers and models currently configured on this Solus host for Solus sessions and delegated agents, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. Superseded model generations are left out (`legacyModelsOmitted` counts them); start_session still accepts their ids. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead, and the projects on that host.'
+  'List the agent providers and models currently configured on this Solus host for Solus sessions and delegated agents, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. Superseded model generations are left out (`legacyModelsOmitted` counts them); start_sessions still accepts their ids. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead, and the projects on that host.'
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id and the result's `item id` as `item_id` to read the passage, then page around its position, before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
   "Read any Solus session by id: its status, task, pending input, and timeline. `messages` (default): user and assistant messages and plans. `activity`: every item, with tool calls and their output. Reads from the start; page with `after_position=nextPosition`. Keep reads small: low `limit` and `max_chars_per_item`. Cut-off text: `item_id` with `text_offset=nextTextOffset`. To find a passage, use search_sessions and read its item id. A session not on this host is looked up on your other hosts, then on your organizations' Solus APIs. In your reply, name it as its `link` verbatim."
 const SEND_SESSION_DESC =
-  "Send a message to another Solus session. `delivery` 'queue' (default) runs it after the session's current turn; 'steer' changes the turn in progress now, and falls back to queue if that turn cannot take it. With `report` on, the outcome comes back like start_session's. Cannot target your own session."
+  "Send a message to another Solus session. `delivery` 'queue' (default) runs it after the session's current turn; 'steer' changes the turn in progress now, and falls back to queue if that turn cannot take it. With `report` on, the outcome comes back like start_sessions'. Cannot target your own session."
 const STOP_SESSION_DESC =
   "Stop another running Solus session and clear its queued prompts. Cannot target your own session."
 
 // ─── Helpers ───
-
-function reasoning(value: ReasoningEffort | undefined, fallback: ReasoningEffort): ReasoningEffort {
-  return value ?? fallback
-}
 
 function fallbackAgentTargets(): AgentTarget[] {
   return AGENT_PROVIDER_VALUES.map((agentProvider) => {
@@ -295,7 +238,7 @@ function fallbackAgentTargets(): AgentTarget[] {
   })
 }
 
-async function listAgentTargets(): Promise<AgentTarget[]> {
+export async function listAgentTargets(): Promise<AgentTarget[]> {
   return sessionController?.listAgentTargets
     ? await sessionController.listAgentTargets()
     : fallbackAgentTargets()
@@ -377,7 +320,7 @@ function searchWindow(afterArg: string, beforeArg: string): SearchWindow | { err
 }
 
 /** Where the outcome goes, in the call's first line. */
-function outcomeNote(report: boolean, waitMs: number, waited: OrchestrationItem | null | undefined): string {
+export function outcomeNote(report: boolean, waitMs: number, waited: OrchestrationItem | null | undefined): string {
   if (waited?.type === 'report') return ' It finished while you waited; its report follows.'
   if (waited?.type === 'notice') return ` It stopped while you waited; the notice follows. It is still open${report ? ', and its outcome comes back here' : ''}.`
   const still = waitMs > 0 ? ` Still running after ${Math.round(waitMs / 1000)} s.` : ''
@@ -386,7 +329,7 @@ function outcomeNote(report: boolean, waitMs: number, waited: OrchestrationItem 
 
 /** What arrived while the call waited. Last in the result, after the exchange
  *  tag, so a report's reply runs to the end of the text. */
-function waitedBlock(waited: OrchestrationItem | null | undefined): string {
+export function waitedBlock(waited: OrchestrationItem | null | undefined): string {
   return waited ? `\n\n${formatOrchestrationItem(waited)}` : ''
 }
 
@@ -464,7 +407,7 @@ async function listAgentTargetsTool(args: z.infer<z.ZodObject<typeof listAgentTa
 /** A target as list_agent_targets prints it: the current models, and how many superseded ones it left out. */
 type ListedTarget = AgentTarget & { legacyModelsOmitted?: number }
 
-/** Keep the list short: a superseded model stays valid for start_session, but an agent reading
+/** Keep the list short: a superseded model stays valid for start_sessions, but an agent reading
  *  every generation of every provider picks an old one as often as not. */
 function currentModelsOnly(targets: readonly AgentTarget[]): ListedTarget[] {
   return targets.map((target) => {
@@ -498,7 +441,7 @@ function reachRequestOf(sessionId: string): ReachRequest | null {
 }
 
 /** What another host offers, read the way a client reads it. */
-async function remoteAgentTargets(remote: RemoteHost): Promise<AgentTarget[] | { error: string }> {
+export async function remoteAgentTargets(remote: RemoteHost): Promise<AgentTarget[] | { error: string }> {
   try {
     const info = await remote.call('the agent list', () => remote.api.start())
     return info.agents.map(agentTargetFromMetadata)
@@ -690,7 +633,7 @@ type SendRecipient =
 async function sendRecipient(sessionId: string, callerSessionId: string, deps: SessionToolDeps): Promise<SendRecipient | { error: string }> {
   const remoteHost = remoteHostOf(deps, sessionId)
   if (remoteHost) {
-    // The other host is reached for the turn's person, as for start_session.
+    // The other host is reached for the turn's person, as for start_sessions.
     const target = await remoteTarget(remoteHost, callerSessionId)
     return 'error' in target ? target : { sessionId, target }
   }
@@ -708,7 +651,7 @@ function recipientLink(recipient: SendRecipient, provider: AgentId): string {
 }
 
 /** Adds the files the agent attached to the order. Returns why one cannot be sent, or null. */
-async function attachTo(order: { attachments?: string[] }, paths: string[] | undefined, deps: SessionToolDeps): Promise<string | null> {
+export async function attachTo(order: { attachments?: string[] }, paths: string[] | undefined, deps: SessionToolDeps): Promise<string | null> {
   if (!paths?.length) return null
   const checked = await checkAttachments(paths, deps.ctx?.cwd ?? resolveHomePath('~'))
   if ('error' in checked) return checked.error
@@ -716,15 +659,15 @@ async function attachTo(order: { attachments?: string[] }, paths: string[] | und
   return null
 }
 
-/** Another host, reached as `start_session` with `host` reaches it. */
-async function remoteTarget(hostRef: string, callerSessionId: string): Promise<RemoteTarget | { error: string }> {
+/** Another host, reached as `start_sessions` with `host` reaches it. */
+export async function remoteTarget(hostRef: string, callerSessionId: string): Promise<RemoteTarget | { error: string }> {
   const remote = await connectRemoteHost(hostRef, callerSessionId)
   if ('error' in remote) return remote
   return { host: remote, origin: { kind: 'session', hostLabel: hostDisplayName(), sessionId: callerSessionId } }
 }
 
 const readExchangeFields = {
-  exchange_id: z.string().min(1).describe('The exchange id returned by delegate_task, start_session, or send_session.'),
+  exchange_id: z.string().min(1).describe('The exchange id returned by start_sessions or send_session.'),
   reply_offset: z.number().int().nonnegative().optional().describe('Read the full saved reply in bounded pages. Start at 0, then use the returned next_reply_offset until it is null. Offsets count UTF-16 code units.'),
 }
 
@@ -765,162 +708,6 @@ async function stopSessionTool(args: z.infer<z.ZodObject<typeof stopSessionField
     : { ok: true, text: `Session ${sessionId} is not currently running.` }
 }
 
-async function startSessionTool(input: z.infer<typeof startSessionSchema>, deps: SessionToolDeps): Promise<SessionToolResult> {
-  return launchSession(input, deps, true)
-}
-
-/** Resolve defaults and admission for both independent starts and child delegation. */
-export async function launchSession(input: z.infer<typeof startSessionSchema>, deps: SessionToolDeps, independent: boolean): Promise<SessionToolResult> {
-  if (!input.prompt.trim()) return { ok: false, text: 'A session launch requires a non-empty prompt.' }
-  if (!sessionOrchestration) {
-    return { ok: false, text: 'Session launch is unavailable — it requires an active control plane.' }
-  }
-  input = await sessionStartDefaults(input, deps)
-  if (input.host) {
-    if (!input.permission_mode) return { ok: false, text: 'The caller’s permission policy is unavailable. Remote work was not started.' }
-    return startRemoteSessionTool(sessionOrchestration, input, input.host, deps, independent)
-  }
-  const runner = chooseRunner(await listAgentTargets(), input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code', input.model_id, input.reasoning_effort)
-  if ('error' in runner) return { ok: false, text: runner.error }
-  const binding = await resolveStartTask(input.task, input.task_id, deps.ctx?.sessionId)
-  if ('error' in binding) return { ok: false, text: binding.error }
-  const { taskId } = binding
-
-  const { modelId, reasoningEffort, contextWindow } = runner
-  const cwd = resolveHomePath(input.cwd?.trim() || deps.ctx?.cwd || '~')
-  const waitMs = input.wait_seconds * 1000
-  const order: SpawnOrder = {
-    prompt: input.prompt,
-    independent,
-    permissionMode: input.permission_mode,
-    title: input.title,
-    provider: runner.provider,
-    modelId,
-    reasoningEffort,
-    contextWindow,
-    cwd,
-    worktreeBaseBranch: input.worktree_base_branch?.trim() || null,
-    taskId,
-  }
-  const attachError = await attachTo(order, input.attachments, deps)
-  if (attachError) return { ok: false, text: attachError }
-  // The orchestrator puts the card in this conversation before the session
-  // starts — startup can take a while. The session's id is known from the start.
-  const created = await sessionOrchestration.spawn(deps.ctx?.sessionId, order, input.report, waitMs, input.request_id)
-
-  if (created.starting) return { ok: true, text: formatPendingSessionReceipt(created, runner, input.report, waitMs) }
-  return { ok: true, text: formatStartedSessionReceipt(created, runner, cwd, input.report, waitMs) }
-}
-
-async function sessionStartDefaults(input: z.infer<typeof startSessionSchema>, deps: SessionToolDeps): Promise<z.infer<typeof startSessionSchema>> {
-  const caller = deps.ctx?.sessionId ? await sessionController?.getSessionInfo(deps.ctx.sessionId) : null
-  const provider = input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code'
-  const inheritsModel = !input.model_id && caller?.provider === provider
-  input = { ...input, agent_provider: provider,
-    model_id: input.model_id ?? (inheritsModel ? caller?.model : undefined),
-    reasoning_effort: input.reasoning_effort ?? (inheritsModel ? caller?.reasoningEffort : undefined),
-  }
-  const parentMode = deps.ctx?.sessionId ? sessionController?.permissionModeFor?.(deps.ctx.sessionId) : undefined
-  if (parentMode) input.permission_mode = childPermissionMode(parentMode, input.permission_mode)
-  return input
-}
-
-function formatStartedSessionReceipt(created: SpawnedSession, runner: Runner, cwd: string, report: boolean, waitMs: number): string {
-  const { provider, modelId, reasoningEffort } = runner
-  return `Session ${sessionLink({ provider, sessionId: created.sessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, sessionId: created.sessionId, provider })}${waitedBlock(created.waited)}`
-}
-
-/** `start_session` with `host`: the session starts on another of the owner's
- *  hosts, as if the owner started it there (docs/plans/cross-host-sessions.md). */
-async function startRemoteSessionTool(
-  orchestration: SessionOrchestration,
-  input: z.infer<typeof startSessionSchema>,
-  hostRef: string,
-  deps: SessionToolDeps,
-  independent: boolean,
-): Promise<SessionToolResult> {
-  const callerSessionId = deps.ctx?.sessionId
-  if (!callerSessionId) return { ok: false, text: 'start_session on another host is unavailable before the calling session is initialized.' }
-  if (input.task !== 'none') return { ok: false, text: "A session on another host cannot join a task yet. Use task='none'." }
-  const target = await remoteTarget(hostRef, callerSessionId)
-  if ('error' in target) return { ok: false, text: target.error }
-  const remote = target.host
-  const targets = await remoteAgentTargets(remote)
-  if ('error' in targets) return { ok: false, text: targets.error }
-  const runner = chooseRunner(targets, input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code', input.model_id, input.reasoning_effort)
-  if ('error' in runner) return { ok: false, text: `${runner.error} (on ${remote.label})` }
-  const { provider, modelId, reasoningEffort, contextWindow } = runner
-  // A path on the other host: it is resolved there, never here.
-  const cwd = input.cwd?.trim() || NEW_CHAT_DIRECTORY
-  const waitMs = input.wait_seconds * 1000
-  const order: SpawnOrder = {
-    prompt: input.prompt,
-    independent,
-    permissionMode: input.permission_mode,
-    title: input.title,
-    provider: runner.provider,
-    modelId,
-    reasoningEffort,
-    contextWindow,
-    cwd,
-    worktreeBaseBranch: input.worktree_base_branch?.trim() || null,
-    taskId: null,
-  }
-  const attachError = await attachTo(order, input.attachments, deps)
-  if (attachError) return { ok: false, text: attachError }
-  const created = await orchestration.spawn(callerSessionId, order, input.report, waitMs, input.request_id, target)
-  // A client opens it on its host, which knows where it runs.
-  const link = sessionLink({ provider, sessionId: created.sessionId, slug: null, cwd: '', serverId: remote.installationId })
-  return {
-    ok: true,
-    text: `Session ${link} on ${remote.label}, ${provider}/${modelId} (reasoning: ${reasoningEffort}).${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, sessionId: created.sessionId, provider, serverId: remote.installationId })}${waitedBlock(created.waited)}`,
-  }
-}
-
-/** A session whose provider has not started yet: its id is real, but there is no transcript to read. */
-function formatPendingSessionReceipt(created: SpawnedSession, runner: Runner, report: boolean, waitMs: number): string {
-  const startup = created.waited?.type === 'report' ? 'Provider startup ended.' : 'Startup continues in the background.'
-  return `Accepted session ${created.sessionId} on ${runner.provider}/${runner.modelId} (reasoning: ${runner.reasoningEffort}). ${startup}${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(report, waitMs, created.waited)} Use read_session_exchange with exchange_id=${created.exchangeId} for the startup state.\n${formatExchangeTag({ messageId: created.exchangeId, sessionId: created.sessionId, provider: runner.provider })}${waitedBlock(created.waited)}`
-}
-
-type StartTaskBinding = { taskId: string | null } | { error: string }
-
-/** An attempt joins an explicit task or the caller's own task. */
-async function resolveStartTask(task: 'attempt' | 'none', explicitTaskId: string | undefined, callerSessionId: string | undefined): Promise<StartTaskBinding> {
-  if (task === 'none') return { taskId: null }
-  const taskId = explicitTaskId?.trim()
-    || (callerSessionId ? await taskIdForSession(ANY_ORGANIZATION, callerSessionId) ?? undefined : undefined)
-  return taskId ? { taskId } : { error: "This session has no task to join. Use task='none', or task='attempt' with a task_id." }
-}
-
-/** The provider, model and reasoning level a started session runs on. */
-interface Runner {
-  provider: AgentId
-  modelId: string
-  reasoningEffort: ReasoningEffort
-  contextWindow: number | null
-}
-
-/** Checks the requested provider, model and reasoning level against what the host offers. */
-function chooseRunner(targets: readonly AgentTarget[], requestedProvider: string, requestedModel: string | undefined, requestedEffort: ReasoningEffort | undefined): Runner | { error: string } {
-  const target = targets.find((candidate) => candidate.provider === requestedProvider)
-  if (!target) return { error: `Unknown agent provider "${requestedProvider}". Call list_agent_targets for current choices.` }
-  if (!target.available) {
-    return { error: `Agent provider "${requestedProvider}" is unavailable${target.unavailableReason ? `: ${target.unavailableReason}` : '.'}` }
-  }
-  const modelId = requestedModel?.trim() || target.defaultModel
-  if (!modelId) return { error: 'start_session requires model_id.' }
-  const profile = target.models.find((model) => model.id === modelId)
-  if (!profile) {
-    return { error: `Unknown model "${modelId}" for ${target.provider}. Valid models: ${target.models.map((model) => model.id).join(', ') || '(none)'}.` }
-  }
-  const reasoningEffort = reasoning(requestedEffort, profile.defaultReasoningEffort)
-  if (profile.reasoningLevels.length > 0 && !profile.reasoningLevels.includes(reasoningEffort)) {
-    return { error: `Model "${modelId}" does not support reasoning level "${reasoningEffort}". Supported: ${profile.reasoningLevels.join(', ')}.` }
-  }
-  return { provider: target.provider, modelId, reasoningEffort, contextWindow: profile.defaultContextWindow }
-}
-
 const SESSION_TOOL_HANDLERS = new Map<string, SessionToolHandler>([
   ['list_agent_targets', validatedSessionTool(z.object(listAgentTargetsFields), listAgentTargetsTool, () => 'list_agent_targets received invalid arguments.')],
   ['read_session', validatedSessionTool(z.object(readSessionFields), readSessionTool,
@@ -929,8 +716,6 @@ const SESSION_TOOL_HANDLERS = new Map<string, SessionToolHandler>([
   ['search_sessions', validatedSessionTool(z.object(searchSessionsFields), searchSessionsTool, () => 'search_sessions requires a non-empty query.')],
   ['send_session', validatedSessionTool(z.object(sendSessionFields), sendSessionTool, () => 'send_session received invalid arguments.')],
   ['stop_session', validatedSessionTool(z.object(stopSessionFields), stopSessionTool, () => 'stop_session requires session_id.')],
-  ['start_session', validatedSessionTool(startSessionSchema, startSessionTool,
-    (error) => `Invalid arguments for start_session: ${z.prettifyError(error).slice(0, 1200)}`)],
 ])
 
 function sessionAgentTool(
@@ -958,7 +743,5 @@ export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARC
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
 export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)
-export const startSessionAgentTool = sessionAgentTool('start_session', START_SESSION_DESC, startSessionFields, false)
-startSessionAgentTool.alwaysLoad = true
 export const sendSessionAgentTool = sessionAgentTool('send_session', SEND_SESSION_DESC, sendSessionFields, false)
 export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSION_DESC, stopSessionFields, false)

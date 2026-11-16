@@ -1,24 +1,27 @@
 // Adapted from T3 Code apps/mobile/src/features/workspace/WorkspaceToolbar.ios.tsx (MIT, see UPSTREAM.md).
 import { useFocusEffect } from "@react-navigation/native";
 import { use, useCallback, useEffect, useRef } from "react";
+import { Platform } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
 
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
-import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import {
+  NativeHeaderToolbar,
+  NativeStackScreenOptions,
+} from "../../native/StackHeader";
 import { NativeWorkspaceTabActivityContext } from "../../native/v5-workspace-context";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 
 /**
- * The header of both workspace tabs on iOS: Settings and Search at the top
- * right, and a search field under the title while the person searches (on
+ * The header of both list tabs on iOS: Search at the top right, with Settings
+ * beside it on iPad. On iPhone, Settings is a native tab, and a search field under the title while the person searches (on
  * iOS 26+, UIKit's search button morphs into the field instead). On a
  * phone, compose is the tab bar's own button (WorkspaceNativeTabs); an iPad
  * composes from the empty detail or the conversation header, not the sidebar.
  */
 export function WorkspaceToolbar(props: {
   readonly onOpenSettings: () => void;
-  readonly onAddProject?: () => void;
 }) {
   const workspace = useWorkspaceTabs();
   const { isTabActive, dispatch } = workspace;
@@ -32,7 +35,8 @@ export function WorkspaceToolbar(props: {
   }, [dispatch]);
   // A search field made again (focus or tab change) starts empty; give it the query back.
   const restoreSearch = useCallback(() => {
-    if (isTabActive(selectedTab) && searchMode !== "resting") searchRef.current?.setText(query);
+    if (isTabActive(selectedTab) && searchMode !== "resting")
+      searchRef.current?.setText(query);
   }, [isTabActive, selectedTab, searchMode, query]);
   useFocusEffect(
     useCallback(() => {
@@ -63,14 +67,20 @@ export function WorkspaceToolbar(props: {
                   hideNavigationBar: false,
                   hideWhenScrolling: false,
                   obscureBackground: false,
-                  placement: NATIVE_LIQUID_GLASS_SUPPORTED ? "integratedButton" : "stacked",
+                  placement: NATIVE_LIQUID_GLASS_SUPPORTED
+                    ? "integratedButton"
+                    : "stacked",
                   allowToolbarIntegration: NATIVE_LIQUID_GLASS_SUPPORTED,
-                  placeholder: selectedTab === "pullRequests" ? "Search pull requests" : "Search chats",
+                  placeholder:
+                    selectedTab === "pullRequests"
+                      ? "Search pull requests"
+                      : "Search chats",
                   cancelButtonText: "✕",
                   onFocus: () => dispatch({ type: "search" }),
                   onBlur: () => dispatch({ type: "expand" }),
                   onSearchButtonPress: () => searchRef.current?.blur(),
-                  onChangeText: ({ nativeEvent }) => dispatch({ type: "query", query: nativeEvent.text }),
+                  onChangeText: ({ nativeEvent }) =>
+                    dispatch({ type: "query", query: nativeEvent.text }),
                   onCancelButtonPress: () => dispatch({ type: "cancel" }),
                 }
               : undefined,
@@ -78,21 +88,20 @@ export function WorkspaceToolbar(props: {
       />
       {/* UIKit lays trailing items out from the edge inward. */}
       <NativeHeaderToolbar placement="right">
-        {props.onAddProject && selectedTab === "chats" ? (
+        {Platform.OS === "ios" && Platform.isPad ? (
           <NativeHeaderToolbar.Button
-            accessibilityLabel="Add project"
-            icon="folder.badge.plus"
-            onPress={props.onAddProject}
+            icon="gearshape"
+            accessibilityLabel="Open settings"
+            onPress={props.onOpenSettings}
           />
         ) : null}
-        <NativeHeaderToolbar.Button
-          accessibilityLabel="Open settings"
-          icon="gearshape"
-          onPress={props.onOpenSettings}
-        />
         {NATIVE_LIQUID_GLASS_SUPPORTED ? null : (
           <NativeHeaderToolbar.Button
-            accessibilityLabel={selectedTab === "pullRequests" ? "Search pull requests" : "Search chats"}
+            accessibilityLabel={
+              selectedTab === "pullRequests"
+                ? "Search pull requests"
+                : "Search chats"
+            }
             icon="magnifyingglass"
             onPress={focusSearch}
           />

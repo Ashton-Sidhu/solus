@@ -11,23 +11,28 @@ import {
   resolveAppConfig,
   type AppBuildLog,
   type AppCallDetail,
+  type AppCallTarget,
   type AppCallView,
   type AppCaller,
   type AppConfigValue,
   type AppDescriptor,
   type AppFileView,
+  type AppCallStats,
   type AppMetrics,
   type AppRevisionDiff,
   type AppRevisionView,
   type AppState,
+  type AppStepSource,
   type AppStorageOperation,
   type AppSummary,
   type AppUi,
+  type AppUpdate,
   type AppVersionDiff,
   type AppVersionView,
 } from '@solus/contracts/apps'
+import type { AppServiceTool, AppUiIdentity, AppVersionPush } from '@solus/contracts/app-deployments'
 import { isConnectionProvider } from '@solus/contracts/connections'
-import type { Attribution } from '@solus/contracts/user'
+import { userKey, type Attribution } from '@solus/contracts/user'
 import { ownerKeyOf, type Actor } from '../admission/actor'
 import { ANY_ORGANIZATION, isHostOwner, organizationForNew, recordScopeOf, type Principal, type RecordScope } from '../admission/principal'
 import {
@@ -55,6 +60,7 @@ import {
 import type { AppPreviewArguments, AppPreviewHost, AppPreviewValue } from '../data/works/artifact-preview'
 import type { IntegrationGateway } from '../integrations/gateway'
 import type { IntegrationStore } from '../integrations/integration-store'
+import { hostAttribution } from '../data/stored-attribution'
 import { hostUserKey } from '../host/host-user'
 import { createLogger } from '../logger'
 import { AppBuildError, type AppBuilder } from './app-builder'
@@ -63,7 +69,7 @@ import type { AppFiles } from './app-files'
 import type { AppConnections } from './app-connections'
 import type { AppModelCalls } from './app-model-calls'
 import { AppIntegrationCalls } from './app-integrations'
-import { appMetrics, beginCall, callDetail, callView, forgetCallCounts } from './app-observability'
+import { appCallStats, appMetrics, beginCall, callDetail, callView, forgetCallCounts } from './app-observability'
 import {
   BACKEND_FILE,
   MIGRATIONS_FOLDER,
@@ -79,10 +85,11 @@ import {
 import { AppRevisionConflict, type AppRepositories } from './app-repository'
 import { AppOperationError, type AppRun, type AppRunnerHost, type AppRunners } from './app-runners'
 import { scheduleTriggerProblem } from './app-schedules'
-import { readAppSecrets, removeAppSecrets, writeAppSecret } from './app-secrets'
+import { readAppSecrets, removeAppSecrets, writeAppSecret, type AppSecretValues } from './app-secrets'
 import type { AppArrivedSignal, AppSignalSource } from './app-signals'
 import type { AppStorage, StoredValue } from './app-storage'
 import { appSummary, appSummaryOf } from './app-summaries'
+import { findStepPlace, readStepSourceFiles } from './app-step-source'
 import type { AppRunnable, AppWorkflowRunFace } from './app-workflows'
 
 const log = createLogger('apps', 'apps.ts')
@@ -114,6 +121,20 @@ export interface AppLifecyclePart {
   activated(app: AppRecord, descriptor: AppDescriptor): Promise<void>
   removed(app: AppRecord): Promise<void>
 }
+
+/** What the runtime of a deployment asks its Solus for, in place of a connection of its own (§5.2). */
+export interface AppRemoteTools {
+  call(request: AppServiceTool): Promise<StoredValue>
+}
+
+/** The person of a call of the app's UI and what they may do: the owner, while an app has no other user. */
+export function uiIdentityOf(authority: AppAuthority): AppUiIdentity {
+  const { user } = authority.actor
+  return user ? { user: { id: userKey(user.id), name: user.displayName }, role: 'owner' } : { role: 'owner' }
+}
+
+/** What `Apps` asks of the model calls part. On a host it is `AppModelCalls`; in a deployment, the Solus of the deployment answers (§5.2). */
+export type AppModelCallsPart = Pick<AppModelCalls, 'hostRequest' | 'uiCall'>
 
 /** What an operation's `ctx.workflows` reaches: the workflows part owns the runs. */
 export interface AppWorkflowControls {
@@ -184,6 +205,8 @@ export interface AppsDeps {
   files: AppFiles
   /** Runs an integration call as a person, for a caller with no person of its own. `withUserScope` on a host. */
   runAs?: <T>(personKey: string | null, run: () => T) => T
+  /** In the runtime of a deployment: each integration tool is a call to Solus. */
+  remoteTools?: AppRemoteTools
 }
 
 /** The files of one version that a host reads more than once. */
@@ -194,11 +217,23 @@ interface LoadedBuild {
   ui: string | null | undefined
 }
 
+/** Why a preview does not answer a call that reaches past the project: an integration or a model. */
+function previewRefusal(name: string, target: AppCallTarget | null): string {
+  if (!target) return `A preview cannot call ${name}.`
+  return target.kind === 'models' ? 'A preview does not call a model.' : 'A preview does not call an integration.'
+}
+
 /** The name `app.ts` gives the app, read from its text: a save makes the app's record before any build. */
 function declaredName(source: readonly { path: string; bytes: Buffer }[]): string | null {
   const entry = source.find((file) => file.path === 'app.ts' || file.path === 'app.js')
   const match = entry ? /defineApp\s*\(\s*\{[\s\S]*?\bname\s*:\s*(['"`])((?:(?!\1)[^\\\n])+)\1/.exec(entry.bytes.toString('utf8')) : null
   return match?.[2]?.trim() || null
+}
+
+/** What the owner typed, as the record keeps it: null when it is empty or the manifest's own text, so the app follows its manifest again. */
+function ownerText(text: string | null, manifest: string): string | null {
+  const trimmed = text?.trim() ?? ''
+  return trimmed === '' || trimmed === manifest ? null : trimmed
 }
 
 function short(commit: string | null): string {
@@ -216,7 +251,7 @@ export class Apps {
   private readonly lifecycle: AppLifecyclePart[] = []
   private workflows: AppWorkflowControls | null = null
   private signals: AppSignalSink | null = null
-  private modelCalls: AppModelCalls | null = null
+  private modelCalls: AppModelCallsPart | null = null
   private readonly integrationCalls: AppIntegrationCalls
   /** The apps whose summary the host says again soon, because they were called. */
   private readonly summaryTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -241,7 +276,7 @@ export class Apps {
   }
 
   /** Installed once at boot: the model calls part answers `ctx.models` and `@models` (docs/plans/app-models.md). */
-  useModelCalls(modelCalls: AppModelCalls): void {
+  useModelCalls(modelCalls: AppModelCallsPart): void {
     this.modelCalls = modelCalls
   }
 
@@ -287,6 +322,7 @@ export class Apps {
       revision: version.sourceCommit,
       protocol: version.descriptor.solusApp,
       buildMs: version.buildMs,
+      activations: version.activations,
     }))
   }
 
@@ -309,12 +345,27 @@ export class Apps {
     return { version: number, base: before?.number ?? null, patch, truncated }
   }
 
-  async revisionDiff(authority: AppAuthority, idOrSlug: string, commit: string): Promise<AppRevisionDiff> {
+  /** The source change of one revision: against the revision before it, or against `against` when a rollback compares two revisions. */
+  async revisionDiff(authority: AppAuthority, idOrSlug: string, commit: string, against?: string): Promise<AppRevisionDiff> {
     const app = await this.app(authority, idOrSlug)
-    if (!(await this.deps.repositories.hasRevision(app.repository, commit))) throw new Error('This app has no such revision.')
-    const base = await this.deps.repositories.parentOf(app.repository, commit)
+    for (const revision of against ? [commit, against] : [commit]) {
+      if (!(await this.deps.repositories.hasRevision(app.repository, revision))) throw new Error('This app has no such revision.')
+    }
+    const base = against ?? await this.deps.repositories.parentOf(app.repository, commit)
     const { patch, truncated } = await this.deps.repositories.diff(app.repository, base, commit)
     return { commit, base, patch, truncated }
+  }
+
+  /** Where a step of a workflow is in the source of a version (the active one when `number` is absent); null when the source has no such step. */
+  async stepSource(authority: AppAuthority, idOrSlug: string, request: { workflow: string; step: string; version?: number }): Promise<AppStepSource | null> {
+    const app = await this.app(authority, idOrSlug)
+    const version = request.version === undefined ? await this.requireActiveVersion(app) : await loadVersion(app.id, request.version)
+    if (!version) throw new Error(`This app has no version ${request.version}.`)
+    const { repositories } = this.deps
+    const files = await readStepSourceFiles(await repositories.listFiles(app.repository, version.sourceCommit), (path) => repositories.readFile(app.repository, version.sourceCommit, path))
+    const place = findStepPlace(files, request.workflow, request.step)
+    const file = place && files.find((candidate) => candidate.path === place.path)
+    return place && file ? { version: version.number, ...place, text: file.text } : null
   }
 
   async buildLog(authority: AppAuthority, idOrSlug: string, number: number): Promise<AppBuildLog> {
@@ -337,6 +388,10 @@ export class Apps {
 
   async metrics(authority: AppAuthority, idOrSlug: string): Promise<AppMetrics> {
     return appMetrics((await this.app(authority, idOrSlug)).id)
+  }
+
+  async callStats(authority: AppAuthority, idOrSlug: string, filter: AppCallFilter = {}): Promise<AppCallStats> {
+    return appCallStats((await this.app(authority, idOrSlug)).id, filter)
   }
 
   async files(authority: AppAuthority, idOrSlug: string): Promise<AppFileView[]> {
@@ -470,7 +525,7 @@ export class Apps {
     const message = (await this.deps.repositories.revisions(app.repository)).find((entry) => entry.commit === revision)?.message ?? ''
     const version: AppVersionRecord = {
       appId: app.id, number, sourceCommit: revision, buildCommit: '', descriptor: appDescriptorSchema.parse({ solusApp: APP_PROTOCOL, name: app.name }), hasBackend: false, hasUi: false,
-      state: 'building', error: null, buildLog: null, buildMs: null, message, createdBy: input.createdBy, createdAt: now,
+      state: 'building', error: null, buildLog: null, buildMs: null, message, createdBy: input.createdBy, createdAt: now, activations: [],
     }
     await insertVersion(version)
     await this.announce(app.id)
@@ -495,7 +550,7 @@ export class Apps {
     Object.assign(version, { descriptor: build.descriptor, hasBackend: build.backend !== null, hasUi: build.ui !== null, buildLog: built.log, buildMs: built.ms })
     await saveVersionBuild(version)
     this.builds.set(app.id, { version: number, backend: build.backend, migrations: build.migrations, ui: build.ui })
-    const error = await this.makeActive(app, version)
+    const error = await this.makeActive(app, version, input.createdBy)
     if (error) {
       // The failed version's files must not answer for the version that still runs.
       this.builds.delete(app.id)
@@ -523,7 +578,8 @@ export class Apps {
     if (!version) throw new Error(`This app has no version ${number}.`)
     if (!version.buildCommit) throw new Error(`Version ${number} has no build: its build failed. Deploy its revision again.`)
     this.builds.delete(app.id)
-    const error = await this.makeActive(app, version)
+    const { user } = authority.actor
+    const error = await this.makeActive(app, version, user ? { kind: 'user', user } : hostAttribution())
     if (error) throw new Error(`Version ${number} did not start: ${error}`)
     return this.changed(app.id, authority)
   }
@@ -547,6 +603,20 @@ export class Apps {
   async setAgentAccess(authority: AppAuthority, idOrSlug: string, enabled: boolean): Promise<AppState> {
     const app = await this.app(authority, idOrSlug)
     await saveApp({ ...app, agentAccess: enabled, updatedAt: Date.now() })
+    return this.changed(app.id, authority)
+  }
+
+  /**
+   * What the owner calls the app and the colour of its tile. A field left out
+   * stays; null clears it, so the app shows its manifest's name or description
+   * again, or a colour from its id. A deploy never changes these.
+   */
+  async update(authority: AppAuthority, idOrSlug: string, patch: AppUpdate): Promise<AppState> {
+    const app = await this.app(authority, idOrSlug)
+    const customName = patch.name === undefined ? app.customName : ownerText(patch.name, app.name)
+    const customDescription = patch.description === undefined ? app.customDescription : ownerText(patch.description, app.description)
+    const colorHue = patch.colorHue === undefined ? app.colorHue : patch.colorHue
+    await saveApp({ ...app, customName, customDescription, colorHue, updatedAt: Date.now() })
     return this.changed(app.id, authority)
   }
 
@@ -600,7 +670,7 @@ export class Apps {
   // ─── Calls ───
 
   /** One call of the app's UI (§5): an operation, its storage, its files, or an integration tool. Answers `{ value }` as JSON text. */
-  async call(authority: AppAuthority, idOrSlug: string, name: string, argumentsJson: string): Promise<string> {
+  async call(authority: AppAuthority, idOrSlug: string, name: string, argumentsJson: string, identity: AppUiIdentity = uiIdentityOf(authority)): Promise<string> {
     const app = await this.app(authority, idOrSlug)
     const target = parseAppCallName(name)
     if (!target) throw new Error(`This app cannot call ${name}.`)
@@ -611,7 +681,8 @@ export class Apps {
     else if (target.kind === 'config') value = await this.configOf(app.id, (await this.activeVersion(app))?.descriptor ?? null)
     else if (target.kind === 'files') value = await this.deps.files.call(app.id, target.operation, input, 'ui')
     else if (target.kind === 'models') value = await this.requireModelCalls().uiCall(app, target.operation, input)
-    else if (target.kind === 'operation') value = await this.runOperation(app, target.name, input, { kind: 'ui' }, authority)
+    else if (target.kind === 'operation') value = await this.runOperation(app, target.name, input, { kind: 'ui', ...identity }, authority)
+    else if (this.deps.remoteTools) value = await this.deps.remoteTools.call({ slug: target.slug, tool: target.tool, input })
     else value = await this.integrationCalls.call(app, await this.requireActiveVersion(app), target.slug, target.tool, input, authority)
     return JSON.stringify({ value })
   }
@@ -635,6 +706,7 @@ export class Apps {
     switch (method) {
       case 'tool': {
         const request = toolRequestSchema.parse(input)
+        if (this.deps.remoteTools) return this.deps.remoteTools.call({ slug: request.slug, tool: request.tool, input: inputSchema.parse(request.input) })
         return this.integrationCalls.call(app, version, request.slug, request.tool, inputSchema.parse(request.input), authority)
       }
       case 'files.list':
@@ -669,6 +741,12 @@ export class Apps {
   /** Gives the signals of a workflow step that succeeded to their signal actions. */
   async signalsEmitted(app: AppRecord, descriptor: AppDescriptor, signals: readonly AppArrivedSignal[], runId: string): Promise<void> {
     await this.signals?.emitted(app, descriptor, signals, { callId: null, runId })
+  }
+
+  /** A run finished, ran again, or was dismissed: what needs the owner can differ, so every client reads the summary again. */
+  runsChanged(appId: string): void {
+    // The app can be gone by now.
+    void this.announce(appId).catch(() => {})
   }
 
   /**
@@ -710,8 +788,7 @@ export class Apps {
         if (!run) throw new Error('This app has no backend.')
         return (await this.deps.runners.call(run, { name: target.name, input, caller: { kind: 'ui' }, host })).value
       }
-      if (target?.kind === 'models') return refuse('call a model')
-      throw new Error(target ? 'A preview does not call an integration.' : `A preview cannot call ${name}.`)
+      throw new Error(previewRefusal(name, target))
     }
     return { host: { network: build.descriptor.permissions.network, call }, dispose: () => this.deps.runners.stop(previewId) }
   }
@@ -738,7 +815,7 @@ export class Apps {
     return this.workflows
   }
 
-  private requireModelCalls(): AppModelCalls {
+  private requireModelCalls(): AppModelCallsPart {
     if (!this.modelCalls) throw new Error('This host does not run model calls.')
     return this.modelCalls
   }
@@ -762,7 +839,7 @@ export class Apps {
     const record: AppRecord = {
       id, organizationId, ownerKey,
       slug: await this.freeSlug(appSlugOf(name), recordScopeOf(authority.principal), ownerKey),
-      name: name.slice(0, 80), description: '', activeVersion: null, stopped: false, agentAccess: true,
+      name: name.slice(0, 80), description: '', customName: null, customDescription: null, colorHue: null, activeVersion: null, stopped: false, agentAccess: true,
       repository: this.deps.repositories.nameFor(organizationId, id), latestRevision: null, project: input.project, createdBy: input.createdBy,
       webhookIds: {}, createdAt: now, updatedAt: now,
     }
@@ -782,7 +859,7 @@ export class Apps {
   }
 
   /** Starts a version and makes it the active one. Answers why it did not start, or null. */
-  private async makeActive(app: AppRecord, version: AppVersionRecord): Promise<string | null> {
+  private async makeActive(app: AppRecord, version: AppVersionRecord, by: Attribution): Promise<string | null> {
     try {
       if (version.hasBackend) await this.deps.runners.start(await this.run(app, version))
       else this.deps.runners.stop(app.id, 'The app changed. Call it again.')
@@ -792,10 +869,34 @@ export class Apps {
       return reason
     }
     const current = await this.reload(app.id)
-    await activateVersion({ ...current, name: version.descriptor.name, description: version.descriptor.description, updatedAt: Date.now() }, version.number)
+    await activateVersion({ ...current, name: version.descriptor.name, description: version.descriptor.description, updatedAt: Date.now() }, version.number, by)
     const active = await this.reload(app.id)
     for (const part of this.lifecycle) await part.activated(active, version.descriptor).catch((error) => log.warn('app_lifecycle_failed', { appId: app.id, error: error instanceof Error ? error.message : String(error) }))
     return null
+  }
+
+  /**
+   * What a deployment gets of the app (docs/plans/app-deploy.md §5): the
+   * build that this Solus made of the active version (decision 6), the config
+   * the app runs with here, and the values of the secrets it declares.
+   */
+  async published(authority: AppAuthority, idOrSlug: string): Promise<{ app: AppRecord; push: AppVersionPush; secrets: AppSecretValues }> {
+    const app = await this.app(authority, idOrSlug)
+    const version = await this.requireActiveVersion(app)
+    const build = await this.build(app, version)
+    const ui = version.hasUi ? (await this.deps.repositories.readFile(app.repository, version.buildCommit, UI_FILE))?.toString('utf8') ?? null : null
+    return {
+      app,
+      secrets: await this.declaredSecrets(app),
+      push: {
+        app: { id: app.id, slug: app.slug },
+        number: version.number,
+        sourceCommit: version.sourceCommit,
+        message: version.message,
+        build: { descriptor: version.descriptor, backend: build.backend, ui, migrations: build.migrations },
+        config: await this.configOf(app.id, version.descriptor),
+      },
+    }
   }
 
   private async build(app: AppRecord, version: AppVersionRecord): Promise<LoadedBuild> {
@@ -868,6 +969,13 @@ export class Apps {
   /** The config the app runs with: the owner's values that the declaration takes, and the defaults. Empty with no active version. */
   private async configOf(appId: string, descriptor: AppDescriptor | null): Promise<{ [name: string]: AppConfigValue }> {
     return descriptor ? resolveAppConfig(descriptor.config, await this.deps.storage.config(appId)) : {}
+  }
+
+  /** The values of the secrets that the active version declares and the owner gave. */
+  private async declaredSecrets(app: AppRecord): Promise<AppSecretValues> {
+    const secrets = readAppSecrets(app.id)
+    const declared = (await this.activeVersion(app))?.descriptor.secrets ?? []
+    return Object.fromEntries(declared.flatMap((secret) => (secrets[secret.name] ? [[secret.name, secrets[secret.name]]] : [])))
   }
 
   private async runStorage(appId: string, operation: AppStorageOperation, input: CallInput): Promise<StoredValue> {

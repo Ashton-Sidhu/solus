@@ -1140,6 +1140,8 @@ export const uplinkErrorCodeSchema = z.enum([
   'not_settings_manager',
   /** The control plane has no APNs credentials: a Live Activity changes only while the app runs. */
   'push_not_configured',
+  /** APNs did not accept a Live Activity update; the host must retry it. */
+  'push_delivery_failed',
 ])
 export type UplinkErrorCode = z.infer<typeof uplinkErrorCodeSchema>
 

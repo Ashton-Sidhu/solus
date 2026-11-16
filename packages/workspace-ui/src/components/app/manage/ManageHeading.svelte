@@ -10,11 +10,13 @@
   let { title, description, actions }: Props = $props();
 </script>
 
-<header class="flex flex-wrap items-start gap-x-3 gap-y-2 pb-4">
-  <div class="min-w-40 flex-1">
-    <h2 class="m-0 text-base font-medium tracking-[-0.006em] text-foreground">{title}</h2>
+<!-- The Settings page's own head: the same size, weight, and gap, so a Manage
+     section reads as a Settings page. -->
+<header class="flex flex-wrap items-start gap-x-3 gap-y-2 pb-8">
+  <div class="flex min-w-40 flex-1 flex-col gap-1.5">
+    <h2 class="m-0 text-[1.75rem] leading-tight font-medium tracking-[-0.015em] text-foreground">{title}</h2>
     {#if description}
-      <p class="m-0 pt-0.5 text-sm text-muted-foreground text-pretty">{description}</p>
+      <p class="m-0 text-sm text-(--solus-text-secondary) text-pretty">{description}</p>
     {/if}
   </div>
   {#if actions}

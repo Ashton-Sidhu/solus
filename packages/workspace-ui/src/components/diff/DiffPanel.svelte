@@ -1156,6 +1156,7 @@
   bind:clientWidth={panelWidth}
   role="region"
   aria-label="Diff panel"
+  data-slot="diff-panel"
   data-testid="diff-panel"
 >
   <div class="sr-only" aria-live="polite" aria-atomic="true">

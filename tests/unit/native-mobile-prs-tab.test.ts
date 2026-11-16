@@ -149,9 +149,9 @@ describe('the iOS workspace tab bar', () => {
   const mobile = join(import.meta.dir, '../../apps/mobile/src')
   const read = (path: string) => readFileSync(join(mobile, path), 'utf8')
 
-  test('UIKit draws Chats and Pull Requests; compose is its search-role tab that opens New Task and is never selected', () => {
+  test('UIKit draws Chats, Pull Requests, and Settings; compose is its search-role tab that opens New Task and is never selected', () => {
     const tabs = read('features/workspace/WorkspaceNativeTabs.ios.tsx')
-    expect(tabs).toContain('const TABS = ["chats", "pullRequests"] as const')
+    expect(tabs).toContain('const TABS = ["chats", "pullRequests", "settings"] as const')
     expect(tabs).toMatch(/screenKey=\{COMPOSE_TAB\}[\s\S]*preventNativeSelection[\s\S]*role: "search"/)
     expect(tabs).toContain('if (nativeEvent.preventedScreenKey === COMPOSE_TAB) props.onNewTask()')
     expect(read('features/layout/createWorkspaceStackNavigator.ios.tsx')).toContain('onNewTask={() => props.navigation.navigate("NewTask")}')
@@ -174,6 +174,6 @@ describe('the per-host pull request route is gone', () => {
     const callers = files(source).filter((path) => /navigate\(\s*['"]PullRequests['"]/.test(readFileSync(path, 'utf8')))
     expect(callers).toEqual([])
     expect(readFileSync(join(source, 'navigation/routes.ts'), 'utf8')).not.toMatch(/^\s*PullRequests:/m)
-    expect(readFileSync(join(source, 'features/threads/useThreadHeaderOptions.tsx'), 'utf8')).toContain('popTo("Home", { tab: "pullRequests", hostId })')
+    expect(readFileSync(join(source, 'features/threads/session-context-actions.ts'), 'utf8')).toContain('["Home", { tab: "pullRequests", hostId }]')
   })
 })

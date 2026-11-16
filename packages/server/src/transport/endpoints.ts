@@ -21,6 +21,7 @@ const TAILSCALE_STATUS_MAX_BYTES = 4 * 1024 * 1024
 
 let tailscaleStatusCache: { value: TailscaleStatus | null; expiresAt: number } | null = null
 let tailscaleStatusPending: Promise<TailscaleStatus | null> | null = null
+let lastReadTailscaleStatus: TailscaleStatus | null = null
 
 export interface ReachableEndpoint {
   kind: 'loopback' | 'lan' | 'tailnet'
@@ -240,7 +241,9 @@ async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
         }
       },
     )
-  }).then((value) => {
+  }).then((read) => {
+    if (read) lastReadTailscaleStatus = read
+    const value = read ?? statusWhileAddressHeld(lastReadTailscaleStatus, networkInterfaces())
     tailscaleStatusCache = { value, expiresAt: Date.now() + TAILSCALE_STATUS_TTL_MS }
     return value
   }).finally(() => {
@@ -248,6 +251,22 @@ async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
   })
 
   return tailscaleStatusPending
+}
+
+/**
+ * The last status read, while a network interface on this machine still holds its
+ * Tailscale address; otherwise null. A failed `tailscale status` does not mean
+ * Tailscale stopped: the CLI also fails when no local port is free. Without this,
+ * one failed read drops the tailnet from the pairing link and the routes, and
+ * stops trusting the host's own tailnet.
+ */
+export function statusWhileAddressHeld<T extends { Self?: { TailscaleIPs?: string[] } }>(
+  lastRead: T | null,
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>,
+): T | null {
+  const ownAddresses = lastRead?.Self?.TailscaleIPs ?? []
+  const isHeld = Object.values(interfaces).some((addrs) => addrs?.some((addr) => ownAddresses.includes(addr.address)))
+  return isHeld ? lastRead : null
 }
 
 async function detectTailscaleEndpoint(port: number): Promise<ReachableEndpoint | null> {

@@ -35,3 +35,21 @@ describe('a referenced work in the prompt', () => {
     expect(composed).not.toContain('.solus/works')
   })
 })
+
+describe('a host chip in the prompt', () => {
+  test('adds the note for the agent after the typed text, and leaves a prompt with no host as it is', () => {
+    // WHY: docs/plans/host-fleet.md D12. The chip is a link in the typed text;
+    // the note that says what the agent can do with the host rides the prompt
+    // the host runs, not the text the person sees.
+    const composer = new PromptComposer({ get: () => null } as unknown as PlanStore, { get: () => undefined } as unknown as WorksStore)
+    const prompt = { planRefs: [], workRefs: [], sessionRefs: [], attachments: [] } as unknown as Prompt
+    const session = { id: 'session', agentSessionId: null, boundWorkId: null, task: { kind: 'none' }, run: { location: { checkout: { serverId: 'local' } } } } as unknown as Session
+    const typed = 'Run the tests on [studio-mini](host://ref?serverId=install-1&state=online).'
+
+    const composed = composer.compose(typed, prompt, session)
+
+    expect(composed.startsWith(`${typed}\n\n[Referenced Host: "studio-mini" (host: install-1)]`)).toBe(true)
+    expect(composed).toContain('It is not the host you run on.')
+    expect(composer.compose('Review this', prompt, session)).toBe('Review this')
+  })
+})

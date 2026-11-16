@@ -13,7 +13,7 @@ import { deriveAgentActivity, type AgentActivityInput } from './agent-activity-m
  * control plane, which sends the card through APNs
  * (docs/plans/live-activity-push.md). A host that cannot reach the control
  * plane does not update it; the card's stale date (10 minutes, T3's window)
- * then marks it "Out of date" rather than letting it claim work it cannot see.
+ * then offers "Tap to refresh" instead of claiming work it cannot see.
  * A card starts only while the app is in front, as ActivityKit allows and as
  * T3 does; it ends when nothing is left running.
  */
@@ -124,7 +124,7 @@ export class AgentLiveActivityController {
     })
   }
 
-  /** Push the stale date out while the app runs, so a quiet card does not read as out of date. */
+  /** Renew the stale date while the app runs, even when the session status has not changed. */
   refresh(): void {
     this.sent = ''
     this.sync()

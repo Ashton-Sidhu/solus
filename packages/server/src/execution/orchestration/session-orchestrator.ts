@@ -105,7 +105,7 @@ export class SessionOrchestrator {
     const waited = exchange.report ? { type: 'report' as const, report: exchange.report }
       : waitMs > 0 ? await this.waitOn(exchange, waitMs) : undefined
     return { exchangeId: exchange.exchangeId, sessionId: exchange.targetSessionId,
-      starting: exchange.state === 'dispatched', taskId: exchange.report?.taskId, waited }
+      starting: exchange.state === 'dispatched', waited }
   }
 
   private async repeatedSend(exchange: Exchange, waitMs: number): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }> {
@@ -157,9 +157,7 @@ export class SessionOrchestrator {
         if (exchange) this.attach(exchange, this.runtime.sessionMeta(started.sessionId)?.cwd)
         if (exchange) this.ledger.update(exchange, (draft) => { draft.disposition = 'started' })
         if (senderSessionId) this.recordStartedSession(senderSessionId, order.title || order.prompt, started)
-        const created: SpawnedSession = { exchangeId, sessionId: started.sessionId }
-        if (started.taskId) created.taskId = started.taskId
-        return created
+        return { exchangeId, sessionId: started.sessionId }
       } catch (error) {
         if (exchange) this.settle(exchange, 'failed', `Session startup failed: ${error instanceof Error ? error.message : String(error)}`)
         throw error
@@ -171,7 +169,7 @@ export class SessionOrchestrator {
     void this.runtime.trackWork(starting.catch(() => {}))
     const result = waited ? await waited : undefined
     return { exchangeId, sessionId: exchange.targetSessionId,
-      starting: exchange.state === 'dispatched', taskId: order.taskId ?? undefined, waited: result }
+      starting: exchange.state === 'dispatched', waited: result }
   }
 
   /** Starts the session on another host, as its owner would from a client
@@ -720,7 +718,8 @@ export class SessionOrchestrator {
     }
   }
 
-  /** A sender still waiting on a reply its model will be woken for stays running. */
+  /** A sender still waits on a reply its model will be woken for. After its
+   *  turn ends, this holds it in 'background' (docs/background-work.md). */
   isAwaitingReplies(senderSessionId: string): boolean {
     for (const exchange of this.exchanges.values()) {
       if (exchange.kind !== 'independent' && exchange.senderSessionId === senderSessionId && exchange.notify && isOpenExchange(exchange)) return true
@@ -766,9 +765,8 @@ export class SessionOrchestrator {
   }
 
   /** A session a child started is something the child's open turns produced. */
-  private recordStartedSession(childSessionId: string, title: string, started: { sessionId: string; taskId?: string }): void {
+  private recordStartedSession(childSessionId: string, title: string, started: { sessionId: string }): void {
     const output: SessionOutput = { kind: 'session', sessionId: started.sessionId, title }
-    if (started.taskId) output.taskId = started.taskId
     for (const exchange of this.exchanges.values()) {
       if (exchange.targetSessionId === childSessionId && isOpenExchange(exchange)) addOutput(exchange.outputs, output)
     }
@@ -910,22 +908,25 @@ export class SessionOrchestrator {
   /** Sends a settled message's report to its sender, or only wakes the sender
    *  with the reports held for it when this message has none to send. */
   private deliverReport(exchange: Exchange, item: OrchestrationItem, hasReport: boolean): void {
-    const awaitingOthers = this.isAwaitingReplies(exchange.senderSessionId)
+    const senderSessionId = exchange.senderSessionId
+    const awaitingOthers = this.isAwaitingReplies(senderSessionId)
     if (!hasReport) {
       // The last message a lead waited on can end without a report of its own;
       // the reports held for it still wake it.
-      if (!awaitingOthers) this.delivery.release(exchange.senderSessionId)
-      return
+      if (!awaitingOthers) this.delivery.release(senderSessionId)
+    } else {
+      // A lead hears nothing until every message it waits on has settled.
+      const hold = awaitingOthers ? this.runtime.isLead(senderSessionId).catch(() => false) : Promise.resolve(false)
+      this.delivery.deliver(senderSessionId, hold.then((held) => ({
+        exchangeId: exchange.exchangeId,
+        targetSessionId: exchange.targetSessionId,
+        continuationExchangeIds: exchange.parentExchangeIds,
+        item,
+        hold: held,
+      })))
     }
-    // A lead hears nothing until every message it waits on has settled.
-    const hold = awaitingOthers ? this.runtime.isLead(exchange.senderSessionId).catch(() => false) : Promise.resolve(false)
-    this.delivery.deliver(exchange.senderSessionId, hold.then((held) => ({
-      exchangeId: exchange.exchangeId,
-      targetSessionId: exchange.targetSessionId,
-      continuationExchangeIds: exchange.parentExchangeIds,
-      item,
-      hold: held,
-    })))
+    // Asked after the delivery, so a report that wakes the sender has started its turn.
+    if (!awaitingOthers) this.delivery.afterDelivered(senderSessionId, () => this.runtime.repliesEnded(senderSessionId))
   }
 
   /** Holds the sender's tool call until the exchange reports, a notice ends the

@@ -6,7 +6,7 @@ import { HostFacts, type HostPresence } from './host-facts'
 import { HostSupervisor, type DialOutcome } from './host-supervisor'
 import type { LinkReadiness, RefusedReason } from './host-readiness'
 import type { DialError } from './host-diagnostics'
-import type { HostConnectionCheck } from './host-connection-check'
+import type { AddressReader, HostConnectionCheck } from './host-connection-check'
 import { installationIdDecision, type SavedServerUplink } from './server-registry'
 import type { WakeSignal } from './wake-signals'
 import { readHostHealth, type HostHealth } from './host-http'
@@ -61,6 +61,7 @@ export interface HostLinkOptions {
   cloudUrl?(): string | null
   /** The connection check's reads; the global `fetch` when absent. */
   fetchImpl?: typeof fetch
+  readAddress?: AddressReader
   /** The page's origin: an `https:` page cannot dial an `http:` route. Empty for a native client. */
   clientOrigin?: string
   /** This machine's installation id, when it hosts a Solus server: only it can dial a forward it holds. */
@@ -231,6 +232,7 @@ export class HostLink {
         cloudUrl: this.options.cloudUrl?.() ?? null,
         answersAsHost: this.options.answersAsHost,
         fetchImpl: this.options.fetchImpl ?? fetch,
+        readAddress: this.options.readAddress,
       })
       if (!this.isDestroyed && this.readiness !== 'ready') this.lastConnectionCheck = check
     } finally {

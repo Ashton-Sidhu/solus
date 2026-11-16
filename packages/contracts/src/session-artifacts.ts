@@ -19,6 +19,12 @@ export interface WorkArtifact {
   title: string
   workType: WorkType
   linkedAt: number
+  /** Whether the work is pinned in the gallery. Absent from a host older than the field. */
+  pinned?: boolean
+  /** When the work's record last changed, epoch ms. Absent from a host older than the field. */
+  updatedAt?: number
+  /** The start of its text, as the gallery previews it (`workPreview`). Absent from a host older than the field. */
+  preview?: string
 }
 
 /** One file on the session's execution host. An image file is `image`. */

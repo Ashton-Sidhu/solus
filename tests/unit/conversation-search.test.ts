@@ -23,12 +23,14 @@ let searchServerIds: ConversationSearchModule['searchServerIds']
 let RecentSessions: ConversationSearchModule['RecentSessions']
 let TaskCommentSearch: ConversationSearchModule['TaskCommentSearch']
 let scopeFromCheckouts: ConversationSearchModule['scopeFromCheckouts']
+let CHATS_GROUP_KEY: string
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
   ;({ ConversationSearch, PAGE_SIZE, searchServerIds, RecentSessions, TaskCommentSearch, scopeFromCheckouts } = await import(
     '@solus/workspace-ui/components/session/unified-picker/lib/conversation-search.svelte'
   ))
+  ;({ CHATS_GROUP_KEY } = await import('@solus/workspace-ui/contexts/projects/projects.store.svelte'))
 })
 
 afterAll(() => {
@@ -221,6 +223,25 @@ describe('ConversationSearch', () => {
     search.search('visual', null)
     await settle()
     expect(requests.map(({ serverId, query }) => [serverId, query.chats])).toEqual([['laptop', undefined], [SERVICE, undefined]])
+    search.reset()
+  })
+
+  test('the chats scope asks every home for its chats alone', async () => {
+    // WHY: the reader chose Chats to find a conversation that has no project.
+    // A project's sessions in that list bury it again.
+    const requests: Array<{ serverId: string; query: SessionRecordSearchQuery }> = []
+    const answer = (serverId: string) => async (query: SessionRecordSearchQuery) => {
+      requests.push({ serverId, query })
+      return found([])
+    }
+    const search = new ConversationSearch(homes({ laptop: answer('laptop'), [SERVICE]: answer(SERVICE) }), 0, () => ({ projectRoot: '/Users/me/web' }))
+    search.search('visual', CHATS_GROUP_KEY)
+    await settle()
+
+    expect(requests.map(({ serverId, query }) => [serverId, query.projectRoot, query.chats])).toEqual([
+      ['laptop', undefined, true],
+      [SERVICE, undefined, true],
+    ])
     search.reset()
   })
 
@@ -484,6 +505,23 @@ describe('RecentSessions', () => {
     expect(recent.sessions.map((meta) => meta.sessionId)).toEqual(['laptop-project', 'laptop-chat', `${SERVICE}-chat`])
     // The service holds no checkout of this project: that is still reported.
     expect([recent.asked, recent.passedOver]).toEqual([2, 1])
+  })
+
+  test('the chats scope lists the chats alone, and passes no home over', async () => {
+    // WHY: no host holds a checkout of the chats, and that is not a host to report.
+    const filters: Array<{ serverId: string; filter: SessionRecordListFilter }> = []
+    const answer = (serverId: string) => async (filter: SessionRecordListFilter) => {
+      filters.push({ serverId, filter })
+      return { records: [record(`${serverId}-chat`)], indexing: false }
+    }
+    const recent = new RecentSessions(listing({ laptop: answer('laptop'), [SERVICE]: answer(SERVICE) }), () => null)
+    await recent.load(CHATS_GROUP_KEY)
+
+    expect(filters).toEqual([
+      { serverId: 'laptop', filter: { chats: true, scope: 'all' } },
+      { serverId: SERVICE, filter: { chats: true, scope: 'all' } },
+    ])
+    expect([recent.asked, recent.passedOver]).toEqual([2, 0])
   })
 
   test('every project lists the chats with everything else, in one request per home', async () => {

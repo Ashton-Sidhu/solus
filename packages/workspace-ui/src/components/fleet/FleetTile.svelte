@@ -10,10 +10,10 @@
     query: string;
     isFocused: boolean;
     onPoint: (serverId: string | null) => void;
-    onSelect: (serverId: string) => void;
+    onOpen: (serverId: string) => void;
   }
 
-  let { machine, colorMode, size, query, isFocused, onPoint, onSelect }: Props = $props();
+  let { machine, colorMode, size, query, isFocused, onPoint, onOpen }: Props = $props();
 
   const fill = $derived(tileFill(machine, colorMode));
 </script>
@@ -21,11 +21,12 @@
 <button
   type="button"
   tabindex="-1"
+  data-host-id={machine.serverId}
   aria-label="{machine.label}, {machine.state}"
   title={machine.label}
   onmouseenter={() => onPoint(machine.serverId)}
   onmouseleave={() => onPoint(null)}
-  onclick={() => onSelect(machine.serverId)}
+  onclick={() => onOpen(machine.serverId)}
   class="pointer-events-auto rounded-[2px] transition-[background-color,opacity] duration-700 ease-out motion-reduce:transition-none
     {fill ? '' : 'shadow-[inset_0_0_0_1px_var(--hairline-strong)]'}
     {isFocused ? 'outline-2 outline-offset-1 outline-foreground' : ''}"

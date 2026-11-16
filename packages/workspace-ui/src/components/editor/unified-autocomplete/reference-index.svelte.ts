@@ -1,5 +1,5 @@
-// The candidate index behind `#`: plans, docs, pull requests, sessions, tasks
-// and automations, normalized to one row shape.
+// The candidate index behind `#`: plans, docs, pull requests, sessions, tasks,
+// automations and hosts, normalized to one row shape.
 //
 // It lives apart from the autocomplete controller because it has nothing to do
 // with editors or trigger text — the task page's link picker queries exactly the
@@ -19,6 +19,8 @@ import type { PrsStore } from '../../../contexts/prs/prs.store.svelte'
 import { matchesOpenProjects } from '../../../lib/sessionUtils'
 import { threadTime } from '../../../lib/relative-time'
 import { triggerSummary } from '../../automations/lib/automation-format'
+import type { FleetMachine } from '../../fleet/lib/fleet-model'
+import { hostReferenceOf } from '../../fleet/lib/host-agent'
 import { taskRef } from '../../tasks/lib/tasks-api'
 import { GLYPH, KIND_NOUN, type RefKind } from './kinds'
 import type { MenuItem } from './rows'
@@ -79,6 +81,25 @@ export function filterPlanAutocompleteDescriptors(
   return matching.sort((a, b) => b.timestamp - a.timestamp)
 }
 
+/** A host as a `#` row: how this client reaches it and whether it answers, and
+ *  the host chip that accepting the row inserts. The chip does not say how
+ *  many sessions the host runs. */
+export function hostMenuItem(machine: FleetMachine): MenuItem {
+  const host = hostReferenceOf(machine)
+  return {
+    id: `host:${machine.serverId}`,
+    title: machine.label,
+    meta: [host.route, host.state].filter(Boolean).join(' · '),
+    when: '',
+    icon: GLYPH.host,
+    mono: false,
+    monoMeta: false,
+    refKind: 'host',
+    kindNoun: KIND_NOUN.host,
+    token: { kind: 'host', ...host },
+  }
+}
+
 export interface ReferenceIndexDeps {
   session: WorkspaceContext
   pullRequests: PrsStore
@@ -87,6 +108,9 @@ export interface ReferenceIndexDeps {
   /** Tab whose server owns the session listing. Omit where there is no tab —
    *  the sessions category is then simply empty. */
   tabId?: () => string | undefined
+  /** The hosts of this client. Omit where a host is not a thing to name: the
+   *  task page's link picker. */
+  hosts?: () => readonly FleetMachine[]
 }
 
 export class ReferenceIndex {
@@ -228,6 +252,9 @@ export class ReferenceIndex {
       })),
   )
 
+  /** Every host of this client (docs/plans/host-fleet.md D12). */
+  hostItems = $derived.by((): MenuItem[] => (this.deps.hosts?.() ?? []).map(hostMenuItem))
+
   /** The task this conversation is working on. A link records the durable Solus
    *  session id, so the provider-native id only answers for links written
    *  before that identity existed. */
@@ -340,6 +367,7 @@ export class ReferenceIndex {
     session: this.sessionItems,
     task: this.taskItems,
     automation: this.automationItems,
+    host: this.hostItems,
   }))
 
   /** One call, all six categories concurrently, because any of them is

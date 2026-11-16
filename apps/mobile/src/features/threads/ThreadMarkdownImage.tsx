@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { parse, SvgAst, type JsxAST } from "react-native-svg";
 
+import { ZoomableImagePressable } from "./ZoomableImagePressable";
 import { AppText as Text } from "../../components/AppText";
 import { useFilePreviewGallery } from "../../components/FilePreviewGallery";
 import {
@@ -28,7 +29,6 @@ import {
   MARKDOWN_IMAGE_MAX_WIDTH,
   type MarkdownImageDisplaySize,
   resolveMarkdownImageDisplaySize,
-  resolveMarkdownImageFrame,
   resolveSvgImageSize,
 } from "./markdownImageSize";
 
@@ -49,7 +49,6 @@ export function isSvgImage(reference: string): boolean {
 
 export function ThreadMarkdownImageView(props: {
   readonly uri: string | null;
-  readonly thumbnail?: boolean;
   readonly sourceKey: string;
   readonly unavailable: boolean;
   readonly alt: string | null;
@@ -95,7 +94,7 @@ export function ThreadMarkdownImageView(props: {
   const failed = props.unavailable || (props.uri !== null && failedUri === props.uri);
   const placeholderWidth: number | "100%" =
     availableWidth > 0 ? Math.min(availableWidth, MARKDOWN_IMAGE_MAX_WIDTH) : "100%";
-  const { style: frameStyle, caption } = resolveMarkdownImageFrame({ thumbnail: props.thumbnail, displaySize, placeholderWidth, alt: props.alt });
+  const frameStyle = displaySize ?? { width: placeholderWidth, aspectRatio: 16 / 9 };
   const accessibilityHint =
     mediaActions.actions.length > 0 ? "Touch and hold for media actions" : undefined;
 
@@ -122,7 +121,8 @@ export function ThreadMarkdownImageView(props: {
         </MediaActionsMenu>
       ) : (
         <MediaActionsMenu media={mediaActions} style={{ alignSelf: "flex-start" }}>
-          <Pressable
+          <ZoomableImagePressable
+            key={props.sourceKey}
             accessibilityRole="imagebutton"
             accessibilityLabel={props.alt ?? "Markdown image"}
             accessibilityHint={accessibilityHint}
@@ -134,27 +134,23 @@ export function ThreadMarkdownImageView(props: {
                 ),
               )
             }
-            style={{ alignSelf: "flex-start" }}
+            className="overflow-hidden rounded-[10px] bg-md-code-bg"
+            style={{ ...frameStyle, alignSelf: "flex-start" }}
           >
-            <View
-              className="items-center justify-center overflow-hidden rounded-[10px] bg-md-code-bg"
-              style={frameStyle}
-            >
-              <ThreadMarkdownImageRequest
-                key={props.uri}
-                uri={props.uri}
-                format={props.format}
-                cacheKey={props.cacheKey}
-                onLoad={setDecodedSize}
-                onError={() => setFailedUri(props.uri)}
-              />
-            </View>
-          </Pressable>
+            <ThreadMarkdownImageRequest
+              key={props.uri}
+              uri={props.uri}
+              format={props.format}
+              cacheKey={props.cacheKey}
+              onLoad={setDecodedSize}
+              onError={() => setFailedUri(props.uri)}
+            />
+          </ZoomableImagePressable>
         </MediaActionsMenu>
       )}
-      {caption ? (
+      {props.alt ? (
         <Text selectable className="text-xs text-foreground-muted">
-          {caption}
+          {props.alt}
         </Text>
       ) : null}
     </View>
@@ -266,7 +262,6 @@ function ThreadMarkdownSvg(props: {
 /** A host file image that loads through a URL the host signs. */
 export function ThreadMarkdownImage(props: {
   readonly connection: HostConnection | null;
-  readonly thumbnail?: boolean;
   readonly request: HostMediaRequest;
   readonly alt: string | null;
   readonly preview?: FilePreviewItem;
@@ -280,7 +275,6 @@ export function ThreadMarkdownImage(props: {
       uri={state.kind === "ready" ? state.url : null}
       sourceKey={`host:${"path" in props.request ? props.request.path : "assetId" in props.request ? props.request.assetId : props.request.githubMediaUrl}`}
       unavailable={state.kind === "failed"}
-      thumbnail={props.thumbnail}
       format={"path" in props.request && isSvgImage(props.request.path) ? "svg" : undefined}
       {...(cacheKey ? { cacheKey } : {})}
       alt={props.alt}

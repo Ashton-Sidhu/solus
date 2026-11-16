@@ -24,12 +24,22 @@ function electronPath(appId: string): string {
   return join(dir, `${appId}.bin`)
 }
 
+/** Where a deployment reads an app's secrets: its env vars, not a secret store (docs/plans/app-deploy.md decision 14). Null on a host. */
+let source: ((appId: string) => AppSecretValues) | null = null
+
+/** Installed once at boot by the runtime of a deployment; `null` takes it out again. */
+export function useAppSecretSource(read: ((appId: string) => AppSecretValues) | null): void {
+  source = read
+}
+
 export function readAppSecrets(appId: string): AppSecretValues {
+  if (source) return source(appId)
   return secretStore().loadJson(keyOf(appId), electronPath(appId), storedSecretsSchema) ?? {}
 }
 
 /** Sets one secret, or clears it with `null`. */
 export function writeAppSecret(appId: string, name: string, value: string | null): void {
+  if (source) throw new Error('A deployment gets its secrets from its env vars. Set the secret in Solus.')
   const secrets = readAppSecrets(appId)
   if (value === null) delete secrets[name]
   else secrets[name] = value
@@ -38,5 +48,6 @@ export function writeAppSecret(appId: string, name: string, value: string | null
 }
 
 export function removeAppSecrets(appId: string): void {
+  if (source) return
   secretStore().remove(keyOf(appId), electronPath(appId))
 }

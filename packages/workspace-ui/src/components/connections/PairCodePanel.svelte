@@ -104,7 +104,6 @@
           variant="ghost"
           size="icon-sm"
           onclick={() => copy(connections.activePair!.code, "code")}
-          class="text-(--solus-text-tertiary)"
           aria-label="Copy code"
         >
           {#if copiedField === "code"}
@@ -127,7 +126,6 @@
           variant="ghost"
           size="icon-sm"
           onclick={() => void connections.generatePairToken(serverId)}
-          class="text-(--solus-text-tertiary)"
           aria-label={pairExpired
             ? "Generate new pair code"
             : "Regenerate pair code"}
@@ -166,7 +164,7 @@
           <div
             class="flex min-w-0 items-center gap-2 rounded-lg bg-(--solus-surface-hover) py-1.5 pl-2.5 pr-1.5"
           >
-            <BestIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
+            <BestIcon size={12} class="shrink-0 text-foreground" />
             <code
               class="min-w-0 flex-1 truncate text-[0.875em] font-secondary text-(--solus-text-secondary)"
               style="font-family: 'Geist Mono', ui-monospace, monospace"
@@ -176,7 +174,7 @@
               variant="ghost"
               size="icon-sm"
               onclick={() => copy(bestPairLink, "best-link")}
-              class="shrink-0 text-(--solus-text-tertiary)"
+              class="shrink-0"
               aria-label="Copy best pair link"
             >
               {#if copiedField === "best-link"}
@@ -201,7 +199,7 @@
           <div
             class="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-(--solus-surface-hover)"
           >
-            <PairIcon size={11} class="shrink-0 text-(--solus-text-tertiary)" />
+            <PairIcon size={11} class="shrink-0 text-foreground" />
             <code
               class="min-w-0 flex-1 truncate text-[0.875em] font-secondary text-(--solus-text-secondary)"
               style="font-family: 'Geist Mono', ui-monospace, monospace"

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { LiveActivityRegistration } from '@solus/contracts/live-activity'
 import type { SessionStatus } from '@solus/contracts/types'
 import { liveActivityReportSchema, type AgentActivityRow, type LiveActivityReport } from '@solus/contracts/uplink'
-import { LiveActivityRelay } from '../../packages/server/src/host/live-activity-relay'
+import { LiveActivityRelay, type LiveActivityRelayDeps } from '../../packages/server/src/host/live-activity-relay'
 
 const row = (hostId: string, sessionId: string, phase: AgentActivityRow['phase'] = 'running'): AgentActivityRow => ({
   hostId, sessionId, projectTitle: 'solus', threadTitle: `Session ${sessionId}`, modelTitle: 'gpt-5.5',
@@ -30,7 +30,7 @@ function savePathForTest(): string {
   return join(directory, 'live-activities.json')
 }
 
-function harness(options: { registered?: boolean; statuses?: { [sessionId: string]: SessionStatus }; savePath?: string; now?: () => number } = {}) {
+function harness(options: { registered?: boolean; statuses?: { [sessionId: string]: SessionStatus }; savePath?: string; now?: () => number; schedule?: LiveActivityRelayDeps['schedule']; response?: () => Response | Promise<Response> } = {}) {
   const reports: Array<{ url: string; report: LiveActivityReport }> = []
   const relay = new LiveActivityRelay({
     statusOf: (sessionId) => options.statuses?.[sessionId] ?? null,
@@ -40,10 +40,11 @@ function harness(options: { registered?: boolean; statuses?: { [sessionId: strin
     credential: () => ({ hostAccessToken: async () => 'control-token' }),
     fetchImpl: async (url, init) => {
       reports.push({ url: String(url), report: liveActivityReportSchema.parse(JSON.parse(String(init?.body))) })
-      return new Response(null, { status: 204 })
+      return options.response?.() ?? new Response(null, { status: 204 })
     },
     savePath: options.savePath,
     now: options.now ?? (() => Date.parse('2026-10-13T01:00:00.000Z')),
+    schedule: options.schedule,
   })
   relays.push(relay)
   return { relay, reports }
@@ -147,5 +148,87 @@ describe('Live Activity relay on the host', () => {
     after.relay.reportLiveCards()
     await settle()
     expect(after.reports).toHaveLength(0)
+  })
+})
+
+function deadlines() {
+  const tasks: Array<{ run: () => Promise<void>; delayMs: number; cancelled: boolean }> = []
+  const schedule: NonNullable<LiveActivityRelayDeps['schedule']> = (run, delayMs) => {
+    const task = { run, delayMs, cancelled: false }
+    tasks.push(task)
+    return () => { task.cancelled = true }
+  }
+  const next = () => {
+    const task = tasks.find((item) => !item.cancelled)
+    if (!task) throw new Error('Expected a pending Live Activity report')
+    task.cancelled = true
+    return task
+  }
+  return { schedule, next, pending: () => tasks.filter((task) => !task.cancelled) }
+}
+
+describe('Live Activity delivery recovery', () => {
+  test('a final result remains pending after a refusal and retries without another session event', async () => {
+    const clock = deadlines()
+    let status = 503
+    const { relay, reports } = harness({ schedule: clock.schedule, response: () => new Response(null, { status }) })
+    relay.register(registration(1, [row('mac', 'a')]))
+    relay.sessionStatusChanged({ sessionId: 'a', agentSessionId: null, status: 'completed' })
+    await clock.next().run()
+    expect(reports[0]!.report.rows[0]!.phase).toBe('completed')
+    const retry = clock.next()
+    expect(retry.delayMs).toBe(30_000)
+    status = 204
+    await retry.run()
+    expect(reports.map((report) => report.report.rows[0]!.phase)).toEqual(['completed', 'completed'])
+    expect(clock.pending()).toEqual([])
+  })
+
+  test('a network failure retains the final result; unregister and stop cancel retries', async () => {
+    const clock = deadlines()
+    const { relay } = harness({ schedule: clock.schedule, response: () => { throw new Error('Network unavailable') } })
+    relay.register(registration(1, [row('mac', 'a')]))
+    relay.sessionStatusChanged({ sessionId: 'a', agentSessionId: null, status: 'completed' })
+    await clock.next().run()
+    relay.unregister('abcdef0123456789')
+    await clock.next().run()
+    expect(clock.pending()).toEqual([])
+    relay.register(registration(2, [row('mac', 'b')]))
+    relay.sessionStatusChanged({ sessionId: 'b', agentSessionId: null, status: 'completed' })
+    await clock.next().run()
+    relay.stop()
+    expect(clock.pending()).toEqual([])
+  })
+
+  test('updates for one card stay in order while the previous report waits for a receipt', async () => {
+    const clock = deadlines()
+    let acknowledge: (response: Response) => void = () => { throw new Error('No report in flight') }
+    const receipt = new Promise<Response>((resolve) => { acknowledge = resolve })
+    const { relay, reports } = harness({ schedule: clock.schedule, response: () => receipt })
+    relay.register(registration(1, [row('mac', 'a')]))
+    relay.sessionStatusChanged({ sessionId: 'a', agentSessionId: null, status: 'awaiting_input' })
+    const inFlight = clock.next().run()
+    await Promise.resolve()
+    relay.sessionStatusChanged({ sessionId: 'a', agentSessionId: null, status: 'completed' })
+    expect(clock.pending()).toEqual([])
+    acknowledge(new Response(null, { status: 204 }))
+    await inFlight
+    const latest = clock.next()
+    expect(latest.delayMs).toBe(300)
+    await latest.run()
+    expect(reports.map((report) => report.report.rows[0]!.phase)).toEqual(['waiting_for_input', 'completed'])
+  })
+
+  test('a restarted host sends its saved final result without waiting for live work', async () => {
+    const clock = deadlines()
+    const savePath = savePathForTest()
+    const before = harness({ savePath, schedule: clock.schedule, response: () => new Response(null, { status: 503 }) })
+    before.relay.register(registration(1, [row('mac', 'a')]))
+    before.relay.sessionStatusChanged({ sessionId: 'a', agentSessionId: null, status: 'completed' })
+    await clock.next().run()
+    before.relay.stop()
+    const after = harness({ savePath, schedule: clock.schedule })
+    await clock.next().run()
+    expect(after.reports[0]!.report.rows[0]!.phase).toBe('completed')
   })
 })

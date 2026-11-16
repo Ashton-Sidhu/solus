@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import type { AppCallDetail, AppCallView, AppCaller, AppLogLine, AppMetrics, AppOperationMetrics, AppSpan } from '@solus/contracts/apps'
-import { callTimingsSince, finishCall, insertCall, pruneCalls, type AppCallRecord, type AppCallTiming, type AppRecord } from '../data/apps/app-store'
+import type { AppModelCallRecord } from '@solus/contracts/app-models'
+import type { AppCallDetail, AppCallStats, AppCallView, AppCaller, AppLogLine, AppMetrics, AppOperationMetrics, AppSpan } from '@solus/contracts/apps'
+import { callTimings, callTimingsSince, finishCall, insertCall, pruneCalls, type AppCallFilter, type AppCallRecord, type AppCallTiming, type AppRecord } from '../data/apps/app-store'
 import { emitAppActivity } from './app-events'
 import { AppOperationError } from './app-runners'
 import { startAppCallTelemetry } from './app-telemetry'
@@ -48,7 +49,7 @@ export async function beginCall(call: { app: Pick<AppRecord, 'id' | 'slug' | 'or
     operation: call.operation, operationKind: call.operationKind, caller: call.caller, startedAt,
   })
   await insertCall({
-    id, appId, version: call.version, operation: call.operation, caller: call.caller, startedAt,
+    id, appId, version: call.version, kind: 'operation', operation: call.operation, caller: call.caller, startedAt,
     input: text.slice(0, MAX_INPUT_CHARACTERS), inputTruncated: text.length > MAX_INPUT_CHARACTERS, runId: call.runId,
     traceId: telemetry.traceId, spanId: telemetry.spanId,
   })
@@ -87,6 +88,40 @@ export async function beginCall(call: { app: Pick<AppRecord, 'id' | 'slug' | 'or
   }
 }
 
+/**
+ * The row of a model call in the call log (docs/plans/app-models.md): one log
+ * holds both kinds of call, so search, filters, and counts see them all. The
+ * row has the id of the model call record, which keeps the prompt, the text,
+ * and the result. The row keeps the prompt as its input and what the model
+ * wrote as one log line, for the search; never the result.
+ */
+export const modelCallLog = {
+  async begin(record: AppModelCallRecord, version: number): Promise<void> {
+    const input = JSON.stringify({ setting: record.setting, prompt: record.prompt })
+    await insertCall({
+      id: record.id, appId: record.appId, version, kind: 'model', operation: record.setting, caller: record.caller, startedAt: record.createdAt,
+      input: input.slice(0, MAX_INPUT_CHARACTERS), inputTruncated: input.length > MAX_INPUT_CHARACTERS,
+      runId: record.caller.kind === 'workflow' ? record.caller.runId : null, traceId: null, spanId: null,
+    })
+    emitAppActivity(record.appId, 'calls')
+  },
+  async end(record: AppModelCallRecord): Promise<void> {
+    const text = record.text.slice(0, MAX_LOG_CHARACTERS)
+    await finishCall(record.id, {
+      outcome: record.status === 'done' ? 'ok' : 'failed',
+      error: record.status === 'done' ? null : (record.error ?? 'The call was cancelled.'),
+      errorStack: null,
+      resultBytes: record.result === null ? null : Buffer.byteLength(JSON.stringify(record.result)),
+      logs: text ? [{ atMs: (record.startedAt ?? record.createdAt) - record.createdAt, level: 'info', text }] : [],
+      logsTruncated: record.text.length > MAX_LOG_CHARACTERS,
+      spans: [],
+      finishedAt: record.endedAt ?? Date.now(),
+    })
+    emitAppActivity(record.appId, 'calls')
+  },
+}
+export type ModelCallLog = typeof modelCallLog
+
 /** Forgets what this module counted for an app that is gone. */
 export function forgetCallCounts(appId: string): void {
   callCounts.delete(appId)
@@ -94,7 +129,7 @@ export function forgetCallCounts(appId: string): void {
 
 export function callView(call: AppCallRecord): AppCallView {
   return {
-    id: call.id, version: call.version, operation: call.operation, caller: call.caller, startedAt: call.startedAt, finishedAt: call.finishedAt,
+    id: call.id, version: call.version, kind: call.kind, operation: call.operation, caller: call.caller, startedAt: call.startedAt, finishedAt: call.finishedAt,
     outcome: call.outcome, error: call.error, durationMs: call.finishedAt === null ? null : call.finishedAt - call.startedAt,
     logCount: call.logs.length, spanCount: call.spans.length, traceId: call.traceId, spanId: call.spanId,
   }
@@ -150,4 +185,43 @@ export function metricsFrom(calls: readonly AppCallTiming[], now: number): AppMe
 
 export async function appMetrics(appId: string, now = Date.now()): Promise<AppMetrics> {
   return metricsFrom(await callTimingsSince(appId, now - DAY_MS), now)
+}
+
+/** The bucket sizes of the Activity chart, the smallest first. */
+const BUCKET_SIZES_MS = [1, 5, 15, 30, 60, 180, 360, 720, 1440, 10_080].map((minutes) => minutes * 60_000)
+/** The chart never cuts its time into more buckets than this. */
+const MAX_BUCKETS = 36
+
+/**
+ * The calls that pass the filters of a read, in numbers (§9.2). The time from
+ * `since` to `now` (the end of the range) is cut into the smallest bucket that gives no more than
+ * `MAX_BUCKETS`; the last one ends at `now`. Without `since`, the time starts
+ * at the oldest call, or 24 hours back when no call passes. Pure, so the math
+ * is tested without a host.
+ */
+export function callStatsFrom(calls: readonly AppCallTiming[], since: number | undefined, now: number): AppCallStats {
+  const start = Math.min(since ?? calls[0]?.startedAt ?? now - DAY_MS, now - 60_000)
+  const range = now - start
+  const bucketMs = BUCKET_SIZES_MS.find((size) => Math.ceil(range / size) <= MAX_BUCKETS) ?? BUCKET_SIZES_MS[BUCKET_SIZES_MS.length - 1]
+  const count = Math.ceil(range / bucketMs)
+  const first = now - count * bucketMs
+  const buckets = Array.from({ length: count }, (_unused, index) => ({ start: first + index * bucketMs, calls: 0, failed: 0 }))
+  const durations: number[] = []
+  let failed = 0
+  for (const call of calls) {
+    const bucket = buckets[Math.min(count - 1, Math.max(0, Math.floor((call.startedAt - first) / bucketMs)))]
+    bucket.calls += 1
+    if (call.outcome === 'failed') {
+      failed += 1
+      bucket.failed += 1
+    }
+    if (call.finishedAt !== null) durations.push(call.finishedAt - call.startedAt)
+  }
+  durations.sort((a, b) => a - b)
+  return { since: start, until: now, bucketMs, calls: calls.length, failed, p50Ms: percentile(durations, 0.5), p95Ms: percentile(durations, 0.95), buckets }
+}
+
+/** With `until`, the time ends there, as the Activity chart zoomed to a range; it never ends after `now`. */
+export async function appCallStats(appId: string, filter: AppCallFilter, now = Date.now()): Promise<AppCallStats> {
+  return callStatsFrom(await callTimings(appId, filter), filter.since, Math.min(filter.until ?? now, now))
 }

@@ -121,13 +121,14 @@ export function createWebhookActionRunner(deps: WebhookActionDeps) {
       const result = planned[index]
       if (result.status !== 'matched') return result
       if (!actor) return { ...result, status: 'failed' as const, error: actorError ?? 'The owner cannot run unattended work.' }
+      const startedAt = Date.now()
       try {
-        const done = await runAction(webhook, deliveryId, tag, action, result, actor, data)
+        const done = { ...await runAction(webhook, deliveryId, tag, action, result, actor, data), durationMs: Date.now() - startedAt }
         log.info('webhook_action_finished', { webhookId: webhook.id, deliveryId, actionId: action.id, status: done.status, sessionId: done.sessionId ?? null })
         return done
       } catch (err) {
         log.warn('webhook_action_failed', { webhookId: webhook.id, deliveryId, actionId: action.id, error: (err instanceof Error ? err.message : String(err)) })
-        return { ...result, status: 'failed' as const, error: (err instanceof Error ? err.message : String(err)) }
+        return { ...result, status: 'failed' as const, error: (err instanceof Error ? err.message : String(err)), durationMs: Date.now() - startedAt }
       }
     }))
     const { outcome, reason } = deliveryOutcome(results)

@@ -102,6 +102,7 @@
     and on send, never on the resting border.
   -->
   <div
+    data-slot="composer"
     data-composer-surface
     data-session-drop-area
     class={cn(

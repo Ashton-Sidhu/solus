@@ -31,6 +31,10 @@ export interface AppRunRecord {
   startedAt: number
   updatedAt: number
   finishedAt: number | null
+  /** The version whose code ran the run last; null until a runner takes it. */
+  version: number | null
+  /** When the owner dismissed the failure of the run. */
+  dismissedAt: number | null
 }
 
 export interface AppStepRecord {
@@ -63,6 +67,8 @@ const runRowSchema = z.object({
   started_at: z.coerce.number(),
   updated_at: z.coerce.number(),
   finished_at: nullableTimeSchema,
+  version: z.union([z.null(), z.coerce.number()]),
+  dismissed_at: nullableTimeSchema,
 })
 
 function runFromRow(row: z.infer<typeof runRowSchema>): AppRunRecord {
@@ -81,6 +87,8 @@ function runFromRow(row: z.infer<typeof runRowSchema>): AppRunRecord {
     startedAt: row.started_at,
     updatedAt: row.updated_at,
     finishedAt: row.finished_at,
+    version: row.version,
+    dismissedAt: row.dismissed_at,
   }
 }
 
@@ -114,11 +122,11 @@ function stepFromRow(row: z.infer<typeof stepRowSchema>): AppStepRecord {
 
 export async function insertRun(record: AppRunRecord, db: Db = getDatabase()): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${appWorkflowRuns} (id, app_id, workflow, input, state, start_key, result, error, wake_at, started_by, interruptions, started_at, updated_at, finished_at)
+    INSERT INTO ${appWorkflowRuns} (id, app_id, workflow, input, state, start_key, result, error, wake_at, started_by, interruptions, started_at, updated_at, finished_at, version, dismissed_at)
     VALUES (
       ${record.id}, ${record.appId}, ${record.workflow}, ${JSON.stringify(record.input)}, ${record.state}, ${record.key},
       ${record.result === null ? null : JSON.stringify(record.result)}, ${record.error}, ${record.wakeAt}, ${JSON.stringify(record.startedBy)},
-      ${record.interruptions}, ${record.startedAt}, ${record.updatedAt}, ${record.finishedAt}
+      ${record.interruptions}, ${record.startedAt}, ${record.updatedAt}, ${record.finishedAt}, ${record.version}, ${record.dismissedAt}
     )
   `)
 }
@@ -128,7 +136,8 @@ export async function saveRun(record: AppRunRecord, db: Db = getDatabase()): Pro
   await db.run(sql`
     UPDATE ${appWorkflowRuns} SET
       state = ${record.state}, result = ${record.result === null ? null : JSON.stringify(record.result)}, error = ${record.error === null ? null : record.error.slice(0, 2000)},
-      wake_at = ${record.wakeAt}, interruptions = ${record.interruptions}, updated_at = ${record.updatedAt}, finished_at = ${record.finishedAt}
+      wake_at = ${record.wakeAt}, interruptions = ${record.interruptions}, updated_at = ${record.updatedAt}, finished_at = ${record.finishedAt},
+      version = ${record.version}, dismissed_at = ${record.dismissedAt}
     WHERE id = ${record.id}
   `)
 }

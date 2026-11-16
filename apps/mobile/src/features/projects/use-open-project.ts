@@ -24,24 +24,24 @@ export function useMounted() {
 export function useProjectsFolder(hostId: string): string | null {
   const app = useApp()
   const api = useHostApi(hostId)
-  const [path, setPath] = useState<string | null>(null)
+  const [folder, setFolder] = useState<{ hostId: string; path: string } | null>(null)
   useEffect(() => {
     const facts = api ? app.connections.connection(hostId)?.facts : null
     if (!facts) return
     let live = true
     // The folder may have moved since the host's record was read.
     void facts.refresh('capabilities').then(() => facts.when('capabilities')).then(
-      (capabilities) => { if (live) setPath(capabilities.projectsBaseDirectory ?? '~') },
-      () => { if (live) setPath('~') },
+      (capabilities) => { if (live) setFolder({ hostId, path: capabilities.projectsBaseDirectory ?? '~' }) },
+      () => { if (live) setFolder({ hostId, path: '~' }) },
     )
     return () => { live = false }
   }, [api, app, hostId])
-  return path
+  return folder?.hostId === hostId ? folder.path : null
 }
 
 /**
  * Shows a project the host now has: the project list refreshes and the new
- * task sheet takes the project, replacing the Open project screens.
+ * task flow takes the project, replacing the Add project screens.
  */
 export function useShowProject(hostId: string, navigation: NativeStackNavigationProp<RootStackParamList>) {
   const app = useApp()

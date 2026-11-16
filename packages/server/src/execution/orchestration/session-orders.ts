@@ -60,7 +60,6 @@ export interface CreateSessionOrder {
   contextWindow: number | null
   cwd: string
   worktreeBaseBranch?: string | null
-  taskId?: string | null
   exchangeIds?: string[]
   delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
   imageAttachmentRefs?: PromptImageRef[]
@@ -99,7 +98,7 @@ export interface OrchestratedRuntime {
   activeExchangeIdsFor(sessionId: string): string[]
   queuedExchanges(): Array<{ sessionId: string; queueId: string; exchangeIds: string[]; reportExchangeIds: string[]; started: boolean }>
   sessionMeta(sessionId: string): SessionMeta | null
-  createSession(order: CreateSessionOrder): Promise<{ sessionId: string; taskId?: string }>
+  createSession(order: CreateSessionOrder): Promise<{ sessionId: string }>
   promptSession(sessionId: string, prompt: string, delivery: PromptDelivery, order: PromptOrder): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
   /** `senderSessionId` is the agent session that asked for the stop. */
   stopSession(id: string, senderSessionId?: string): boolean
@@ -123,6 +122,9 @@ export interface OrchestratedRuntime {
   recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind): Promise<Activity>
   /** Holds a host update until the work settles. */
   trackWork<T>(work: Promise<T>): Promise<T>
+  /** The sender waits on no more reports, and the last one has reached it:
+   *  a sender that no report woke stops waiting in 'background'. */
+  repliesEnded(senderSessionId: string): void
 }
 
 export interface OrchestratorDeps {
@@ -135,7 +137,6 @@ export interface SpawnedSession {
   sessionId: string
   /** The provider has not started the session's thread yet. */
   starting?: boolean
-  taskId?: string
   /** With a wait: the report or notice that arrived in time, or null when none did. */
   waited?: OrchestrationItem | null
 }

@@ -59,4 +59,4 @@ it in their lists and are not told about the snooze.
 ## Schema
 
 `personal_resource_state` is declared in `packages/server/src/data/personal-state/schema.ts`
-and generated into the one baseline of each engine (docs/database-schema.md).
+and generated into the migrations of each engine (docs/database-schema.md).

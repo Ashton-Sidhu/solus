@@ -14,6 +14,22 @@
 
 A project folder names its app and the revision it came from in `.solus/app.json`. `checkout_app` and `save_app` write that file; do not edit it. When another session saved the app after your checkout, `save_app` refuses your save and says so: check the app out into a new folder, make your change there, and save that folder. Never copy your old files over the new checkout without a look at what changed.
 
+## Publish
+
+`publish_app` runs a copy of the active version in a container of its own, with an address that other people open in a browser. Use it when the user wants to give the app to people who do not have Solus, or to keep it on while their computer is off. The app in Solus does not change, and a later `deploy_app` does not reach the copy: publish again to send a new version.
+
+- The copy has its own data. What is in the app in Solus is not there.
+- It is private by default: the receipt has a link, and only a person with the link opens it. Give the user the link as it is. `access: "public"` answers each person, and `role: "viewer"` lets a visitor run queries only.
+- A publish keeps what the copy has. To send a new version, call `publish_app` with the app only: the access and the role stay.
+- On a first publish, `platform` and `host` say where the copy runs: Docker on this host (the default), Docker on another host of the user (`host` is its name or id), or `"solus-cloud"`. A copy stays in its place: to put it in another place, unpublish it and publish again, and tell the user that the data of the copy does not go with it.
+- `export_app` writes the build context of a Docker image with the active version in it, for a platform of the user's own. That image has no Solus: `appIntegrations` and signals do not work in it.
+- A visitor is no person of Solus. `ctx.caller` has `role` (`editor` or `viewer`) and no `user`, and only an `appIntegrations` connection works ([access](access.md)). Check `ctx.caller.role` before an operation that only the owner may run: in Solus the owner's role is `owner`.
+- `access: "people"` opens the copy only to the people, teams, and organization that the user names on the Manage page, in the Deployment section. Each one signs in to Solus, and then `ctx.caller.user` is `{ id, name }`. You cannot name them: tell the user to do it there.
+- A model call works in a copy for each caller, and it spends the user's model account. Check `ctx.caller.role`, or count the calls, in a mutation that starts one in an app that is public.
+- A webhook of the app has a second URL for the copy, with the same signing secret. The user copies it from the Deployment section.
+- A public app has no user accounts and no rate limit from Solus. Build what the app needs into the app.
+- `unpublish_app` removes the copy with its data. Ask the user first.
+
 ## After the deploy
 
 - Each operation is a tool named `<slug>__<operation>` from the next turn of any session on the host. Tell the user that their agents can now use the app, and name one thing to ask for. The user can turn that off on the Manage page.
@@ -33,6 +49,8 @@ A project folder names its app and the revision it came from in `.solus/app.json
 - `view: "build"`: the build log of a version.
 
 Then `checkout_app`, fix the cause, `preview_app`, `save_app`, `deploy_app`, and read the call log again.
+
+A deploy does not start a failed workflow run again. When `deploy_app` lists runs that failed on an older version, start each one that the new version fixes with `retry_app_run`, then read it with `inspect_app` (`view: "run"`). Tell the user the app is fixed only after the run succeeds. Do not retry a run that the fix does not touch.
 
 ## An app from an older template
 

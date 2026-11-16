@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useResolveClassNames } from "uniwind";
 
+import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
+import { RowPressable } from "../../components/RowPressable";
 import { ScreenScrollView } from "../../components/ScreenScrollView";
 import { cn } from "../../lib/cn";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
@@ -15,9 +18,41 @@ import { ChoiceChip, PillButton, type RowLine } from "../webhooks/webhook-rows";
 import type { AppState } from "@solus/contracts/apps";
 
 import type { FilterChoice } from "./app-activity";
+import type { AppItemState, AppRowMark } from "./app-states";
 import type { Loadable } from "./use-app";
 
 const COPIED_FEEDBACK_MS = 1200;
+
+/**
+ * The symbol of each state, in the state's colour. Android has no glyph for a
+ * dashed circle, a pause, or a slashed circle, so `running` is the clock that
+ * the pull request checks use, and the two others take the nearest glyph.
+ */
+const STATE_SYMBOLS = {
+  ok: { name: "checkmark.circle", tint: "accent-adaptive-emerald-600-400" },
+  failed: { name: "xmark.circle.fill", tint: "accent-danger-foreground" },
+  running: { name: "clock", tint: "accent-adaptive-sky-600-400" },
+  sleeping: { name: "moon", tint: "accent-icon-muted" },
+  paused: { name: { ios: "pause.circle", android: "remove" }, tint: "accent-icon-muted" },
+  stopped: { name: { ios: "slash.circle", android: "close" }, tint: "accent-icon-muted" },
+  idle: { name: "circle", tint: "accent-icon-subtle" },
+  warning: { name: "exclamationmark.triangle", tint: "accent-warning-foreground" },
+} as const satisfies { [State in AppItemState]: { name: AppSymbolName; tint: string } };
+
+/**
+ * The one mark for how a thing of the Manage screens stands: a call, a run, a
+ * step, a version, a delivery, a schedule. The shape says the state, so the
+ * colour is not the only signal.
+ */
+export function AppStateMark(props: { readonly mark: AppRowMark; readonly size?: number }) {
+  const symbol = STATE_SYMBOLS[props.mark.state];
+  const { label } = props.mark;
+  return (
+    <View accessible={label !== undefined} accessibilityRole="image" accessibilityLabel={label}>
+      <SymbolView name={symbol.name} size={props.size ?? 18} tintColorClassName={symbol.tint} type="monochrome" weight="regular" />
+    </View>
+  );
+}
 
 /**
  * The frame of one Manage screen: its header, the state of the host when it
@@ -192,12 +227,69 @@ export function MonoBlock(props: { readonly text: string; readonly tone?: "dange
 }
 
 /**
- * A row of a Manage screen that holds its own controls: a title, the lines a
- * person scans, and the buttons for that one item. A `danger` line marks what
- * needs attention.
+ * A row that opens a call, a run, or a section: the mark of its state, a
+ * title, a fact at its end (an age), and the lines a person scans. The words
+ * of the state are in the lines or in the label of the mark, never in a badge.
+ */
+export function AppListRow(props: {
+  readonly mark?: AppRowMark;
+  readonly title: string;
+  /** A fact of the item, such as its age. The state is the mark. */
+  readonly trailing?: string;
+  readonly lines: readonly RowLine[];
+  readonly first: boolean;
+  readonly onPress: () => void;
+}) {
+  const rippleStyle = useResolveClassNames("bg-subtle-strong");
+  return (
+    <RowPressable
+      accessibilityRole="button"
+      accessibilityLabel={[props.title, props.mark?.label, props.trailing, ...props.lines.map((line) => line.text)].filter(Boolean).join(", ")}
+      onPress={props.onPress}
+      android_ripple={{ color: rippleStyle.backgroundColor }}
+      unstable_pressDelay={Platform.OS === "android" ? 50 : undefined}
+      className={cn("bg-grouped-card", !props.first && "border-t border-border-subtle")}
+    >
+      <View className="min-h-14 flex-row items-center gap-3 px-4 py-3">
+        {props.mark ? (
+          <View className="size-6 items-center justify-center self-start">
+            <AppStateMark mark={props.mark} />
+          </View>
+        ) : null}
+        <View className="min-w-0 flex-1 gap-1">
+          <View className="flex-row items-center gap-2">
+            <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={1}>
+              {props.title}
+            </Text>
+            {props.trailing ? <Text className="shrink-0 text-sm text-foreground-muted">{props.trailing}</Text> : null}
+          </View>
+          {props.lines.map((line, index) => (
+            <Text
+              // Two lines of one row can say the same.
+              key={`${index}:${line.text}`}
+              className={cn("text-sm", line.tone === "danger" ? "text-danger-foreground" : "text-foreground-muted")}
+            >
+              {line.text}
+            </Text>
+          ))}
+        </View>
+        <SymbolView name="chevron.right" size={16} tintColorClassName="accent-chevron" type="monochrome" weight="semibold" />
+      </View>
+    </RowPressable>
+  );
+}
+
+/**
+ * A row of a Manage screen that holds its own controls: the mark of its
+ * state, a title, the lines a person scans, and the buttons for that one
+ * item. A `danger` line marks what needs attention.
  */
 export function AppDetailRow(props: {
+  readonly mark?: AppRowMark;
   readonly title: string;
+  /** How many lines the title takes before it is cut. One when absent. */
+  readonly titleLines?: number;
+  /** A fact of the item, such as its size or its time. The state is the mark. */
   readonly trailing?: string;
   readonly trailingTone?: "muted" | "danger";
   readonly lines: readonly RowLine[];
@@ -205,33 +297,40 @@ export function AppDetailRow(props: {
   readonly children?: ReactNode;
 }) {
   return (
-    <View className={cn("gap-2 p-4", !props.first && "border-t border-border-subtle")}>
-      <View className="flex-row items-center gap-2">
-        <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={1}>
-          {props.title}
-        </Text>
-        {props.trailing ? (
-          <Text
-            className={cn(
-              "shrink-0 text-sm",
-              props.trailingTone === "danger" ? "text-danger-foreground" : "text-foreground-muted",
-            )}
-          >
-            {props.trailing}
+    <View className={cn("flex-row gap-3 p-4", !props.first && "border-t border-border-subtle")}>
+      {props.mark ? (
+        <View className="size-6 items-center justify-center">
+          <AppStateMark mark={props.mark} />
+        </View>
+      ) : null}
+      <View className="min-w-0 flex-1 gap-2">
+        <View className="flex-row items-center gap-2">
+          <Text className="min-w-0 flex-1 text-base text-foreground" numberOfLines={props.titleLines ?? 1}>
+            {props.title}
           </Text>
-        ) : null}
+          {props.trailing ? (
+            <Text
+              className={cn(
+                "shrink-0 text-sm",
+                props.trailingTone === "danger" ? "text-danger-foreground" : "text-foreground-muted",
+              )}
+            >
+              {props.trailing}
+            </Text>
+          ) : null}
+        </View>
+        {props.lines.map((line, index) => (
+          <Text
+            // Two lines of one row can say the same: two actions that ended the same way.
+            key={`${index}:${line.text}`}
+            selectable={line.tone === "danger"}
+            className={cn("text-sm", line.tone === "danger" ? "text-danger-foreground" : "text-foreground-muted")}
+          >
+            {line.text}
+          </Text>
+        ))}
+        {props.children ? <View className="flex-row flex-wrap gap-2 pt-1">{props.children}</View> : null}
       </View>
-      {props.lines.map((line, index) => (
-        <Text
-          // Two lines of one row can say the same: two actions that ended the same way.
-          key={`${index}:${line.text}`}
-          selectable={line.tone === "danger"}
-          className={cn("text-sm", line.tone === "danger" ? "text-danger-foreground" : "text-foreground-muted")}
-        >
-          {line.text}
-        </Text>
-      ))}
-      {props.children ? <View className="flex-row flex-wrap gap-2 pt-1">{props.children}</View> : null}
     </View>
   );
 }

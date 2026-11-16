@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { accountSearchWords as searchWords } from "./lib/settings-search-data";
   /**
    * Settings → Account & sync (plans/018 decision 9): the one place for the
@@ -72,7 +73,7 @@
   });
 </script>
 
-<SettingsSection label="Account" visible={isVisible}>
+<SettingsSection {...settingsDefinitions["account.section-account"]} visible={isVisible}>
   {#if account.kind === "signed-in"}
     <div class="flex flex-wrap items-center gap-3 px-4 py-3.5">
       {#if account.identity.picture}
@@ -97,8 +98,7 @@
     </div>
   {:else}
     <SettingsRow
-      label="Not signed in"
-      description="Your settings and your agent profile stay on this device. Sign in to Solus to sync them between your devices and the hosts you work on."
+      {...settingsDefinitions["account.not-signed-in"]}
     >
       {#snippet control()}
         {#if accountStore.isAvailable}
@@ -114,12 +114,11 @@
 {/if}
 
 <SettingsSection
-  label="Sync"
-  description="Your settings and your agent profile sync through your account. Device settings, host settings, and credentials never sync."
+  {...settingsDefinitions["account.section-sync"]}
   visible={isVisible && isSignedIn}
 >
   <SettingsRow
-    label="Settings and agent profile"
+    {...settingsDefinitions["account.settings-and-agent-profile"]}
     labelExtra={statusBadge}
     description={statusText}
     testId="account-sync-row"
@@ -181,13 +180,11 @@
 {/if}
 
 <SettingsSection
-  label="Reset sync"
-  description="Clearing deletes the copy in your account and starts it again from this device. Do this only when the synced copy is wrong."
+  {...settingsDefinitions["account.section-reset-sync"]}
   visible={isVisible && isSignedIn}
 >
   <SettingsRow
-    label="Synced settings"
-    description="Your other devices take the new copy."
+    {...settingsDefinitions["account.synced-settings"]}
   >
     {#snippet control()}
       {#if sync.notice?.kind === "has-unsent" && sync.notice.document === "settings"}
@@ -199,7 +196,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Synced agent profile"
+    {...settingsDefinitions["account.synced-agent-profile"]}
     description={`Starts again from ${hasComputer ? "this computer's profile" : "this device's copy"}. Your other devices and every host take the new copy.`}
   >
     {#snippet control()}

@@ -1,6 +1,6 @@
 import type { AgentConversationRef, AgentConversationUpdate, AgentExchange, AgentExchangeStatus, AgentId, ExchangeProgress, Message, Session } from '@solus/contracts/types'
 import type { AgentConversationResultProjection } from '@solus/contracts/session-history'
-import { parseOrchestrationItems, promptTitle, type ExchangeOutcome, type SessionOutput, type SessionReport } from '@solus/contracts/session-exchange'
+import { isSessionStartTool, parseOrchestrationItems, promptTitle, type ExchangeOutcome, type SessionOutput, type SessionReport } from '@solus/contracts/session-exchange'
 import { z } from 'zod'
 import { isAgentNotice, nextMsgId } from './session.utils'
 
@@ -20,7 +20,7 @@ import { isAgentNotice, nextMsgId } from './session.utils'
  *  (bare names). read/list/search observe; they open no exchange. */
 export function isAgentConversationTool(name: string | undefined): boolean {
   if (!name) return false
-  return name.endsWith('delegate_task') || name.endsWith('start_session') || name.endsWith('send_session') || name.endsWith('stop_session')
+  return isSessionStartTool(name) || name.endsWith('send_session') || name.endsWith('stop_session')
 }
 
 const SETTLED_STATUS = {
@@ -325,18 +325,24 @@ export class AgentConversationCards {
   }
 }
 
-const sessionToolInputSchema = z.object({
-  session_id: z.string().optional(),
+// Fields degrade alone so an unexpected value from a newer host drops that
+// field, not the whole parsed input.
+const startedSessionInputSchema = z.object({
   prompt: z.string().optional(),
   title: z.string().trim().optional().catch(undefined),
-  message: z.string().optional(),
-  // Fields degrade alone so an unexpected value from a newer host drops that
-  // field, not the whole parsed input.
+  independent: z.boolean().optional().catch(undefined),
   report: z.boolean().optional().catch(undefined),
   model_id: z.string().optional(),
   reasoning_effort: z.string().optional(),
   cwd: z.string().optional(),
   agent_provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional().catch(undefined),
+})
+
+/** A send_session or stop_session call names its session; a start_sessions call lists its sessions. */
+const sessionToolInputSchema = z.object({
+  session_id: z.string().optional(),
+  message: z.string().optional(),
+  sessions: z.array(startedSessionInputSchema).optional().catch(undefined),
   delivery: z.enum(['queue', 'steer']).optional().catch(undefined),
 })
 
@@ -353,11 +359,12 @@ export class TranscriptAgentConversations {
     this.index.closeTurn()
   }
 
-  /** One acting orchestration tool row. The host extracted its correlation facts. */
+  /** One acting orchestration tool row. The host extracted its correlation
+   *  facts: one for each exchange the row opened. */
   applyToolRow(
     toolName: string,
     toolInput: string | undefined,
-    result: AgentConversationResultProjection | undefined,
+    results: readonly AgentConversationResultProjection[],
     timestamp: number,
   ): void {
     const input = parseSessionToolInput(toolInput)
@@ -367,25 +374,11 @@ export class TranscriptAgentConversations {
       if (ref) ref.closedByAgent = true
       return
     }
-    if (/(?:start_session|delegate_task)$/.test(toolName)) {
-      if (!result?.sessionId) return
-      const { exchange } = this.index.open(result.sessionId, {
-        messageId: result.messageId,
-        prompt: input.prompt ?? '',
-        title: input.title,
-        origin: 'created',
-        provider: result.provider ?? input.agent_provider,
-        fireAndForget: !(input.report ?? !toolName.endsWith('start_session')),
-        model: input.model_id,
-        reasoningEffort: input.reasoning_effort,
-        cwd: input.cwd ?? '',
-        serverId: result.serverId,
-        timestamp,
-      })
-      applyProgress(exchange, result.progress)
-      this.settleWaited(exchange, result, timestamp)
+    if (isSessionStartTool(toolName)) {
+      this.openStarted(input.sessions ?? [], results, timestamp)
       return
     }
+    const result = results[0]
     if (toolName.endsWith('send_session') && input.session_id) {
       const { exchange } = this.index.open(input.session_id, {
         messageId: result?.messageId,
@@ -398,6 +391,29 @@ export class TranscriptAgentConversations {
         timestamp,
       })
       applyProgress(exchange, result?.progress)
+      this.settleWaited(exchange, result, timestamp)
+    }
+  }
+
+  /** One card for each session a start_sessions row started; each result names its place in the list. */
+  private openStarted(sessions: readonly z.infer<typeof startedSessionInputSchema>[], results: readonly AgentConversationResultProjection[], timestamp: number): void {
+    for (const result of results) {
+      const session = result.item === undefined ? undefined : sessions[result.item]
+      if (!result.sessionId || !session) continue
+      const { exchange } = this.index.open(result.sessionId, {
+        messageId: result.messageId,
+        prompt: session.prompt ?? '',
+        title: session.title,
+        origin: 'created',
+        provider: result.provider ?? session.agent_provider,
+        fireAndForget: !(session.report ?? !session.independent),
+        model: session.model_id,
+        reasoningEffort: session.reasoning_effort,
+        cwd: session.cwd ?? '',
+        serverId: result.serverId,
+        timestamp,
+      })
+      applyProgress(exchange, result.progress)
       this.settleWaited(exchange, result, timestamp)
     }
   }

@@ -3,6 +3,16 @@
 Plan: `plans/018-settings-sync-and-organization-policy.md`. Contract:
 `packages/contracts/src/settings.ts`.
 
+Settings search on desktop and web reads the labels and descriptions that the UI
+uses, plus optional aliases. Static display text lives in
+`packages/client-core/src/settings-definitions.ts`, shared with native settings
+where the text is the same. Search does not load closed page components or read
+setting values. The navigation and row filters use the same matcher: every word
+in the query must occur in the row's text or aliases, with case ignored. A match
+in a section heading or nested control shows its page without hiding its rows.
+For example, GitHub finds Source control from the GitHub row's label. On mobile,
+open a host's settings, then GitHub; native Settings has no search field.
+
 ## Who owns a setting
 
 Each setting has one owner, and each owner has its own schema: `PersonalSettings` and
@@ -22,6 +32,8 @@ A host refuses a `configUpdate` that names any key that is not host config.
 ### Agents and settings
 
 An agent reads settings with `read_config` and changes them with `update_config`.
+To restyle Solus, it calls `read_theme` first for the guide, then writes
+`personal.themeCss` (docs/theme-css.md).
 The user does not approve each call. Both tools use five sections, and each
 section goes to its owner. `update_config` takes each section except `profile` as
 an object of the keys to change. Keys that it does not name keep their values. It
@@ -207,9 +219,11 @@ and web:
 - **List** shows the same hosts as rows.
 
 State is an icon; its name is in the tooltip. **Add machine** opens one page:
-**Nearby** first, then the other ways — create a cloud machine, link a machine you
-own with one command, pair with a code, or add over SSH. One way is marked
-**Recommended**. Each way except SSH finishes on that page. The command palette's
+**Nearby** first, then the other ways — create a cloud machine, pair with a code,
+or add over SSH. The chosen way opens with its first field focused. Each way
+except SSH finishes on that page. A host does not need a Solus Cloud account to be
+added: registering it to an account, and making it reachable from the internet,
+are on the **Access** tab of its page. Click a host on the map to open its page. The command palette's
 **Add machine** and **Find hosts nearby** open the same pages.
 
 Every host has the same page. Its header shows the host's mark in a CPU ring, its
@@ -321,3 +335,18 @@ workspace. Settings values, host selection, and provider behavior do not change.
 The dialog structure follows the route-backed modal in
 [T3 Code](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/AppRouteModal.tsx).
 Solus uses its existing Svelte dialog primitive and settings stores.
+
+### Native mobile presentation
+
+Settings opens from a native bottom tab on iPhone, the sidebar gear on iPad,
+and the workspace navigation on Android.
+Its subpages use standard header groups. Back returns to the previous page.
+Provider, host, and device subpages remain part of the Settings destination, so
+opening them does not clear the selected destination or hide its navigation.
+The mobile interface uses the Solus light and dark theme; menu placement and
+page/sheet behavior follow the T3 Code mobile port recorded in
+`apps/mobile/UPSTREAM.md`.
+
+On native mobile, Connections is the first section. Search filters the displayed
+setting names, descriptions, section names, and values. The host menu filters
+only the Host settings rows; it does not change the owner of personal settings.

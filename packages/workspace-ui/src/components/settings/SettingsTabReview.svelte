@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { reviewSettings as settingItems } from "./lib/settings-search-data";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
@@ -95,24 +97,17 @@
   }
 
 
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    const item = settingItems.find((s) => s.id === id);
-    if (!item) return true;
-    const q = searchQuery.toLowerCase();
-    return item.keywords.some((k) => k.includes(q));
-  }
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
   const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)));
 </script>
 
 <SettingsSection
-  label="Automation"
+  {...settingsDefinitions["review.section-automation"]}
   visible={["review-generate-on-open", "review-warming"].some(isVisible)}
 >
   <SettingsRow
-    label="Generate PR guides on open"
-    description="Run the review agent when an opened PR has no cached guide."
+    {...settingsDefinitions["review.review-generate-on-open"]}
     visible={isVisible("review-generate-on-open")}
   >
     {#snippet control()}
@@ -125,8 +120,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Warm review guides"
-    description="Prepare guides and worktrees for top PRs."
+    {...settingsDefinitions["review.review-warming"]}
     visible={isVisible("review-warming")}
   >
     {#snippet control()}
@@ -140,13 +134,12 @@
 </SettingsSection>
 
 <SettingsSection
-  label="Model"
+  {...settingsDefinitions["review.section-model"]}
   visible={["review-agent", "review-model", "review-reasoning"].some(isVisible)}
 >
   <SettingsRow
-    label="Review companion agent"
+    {...settingsDefinitions["review.review-agent"]}
     managed={managedSetting("reviewAgent")}
-    description="Agent that reviews the diff."
     visible={isVisible("review-agent")}
   >
     {#snippet control()}
@@ -171,9 +164,8 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Review companion model"
+    {...settingsDefinitions["review.review-model"]}
     managed={managedSetting("reviewModel")}
-    description="Model the review agent uses."
     visible={isVisible("review-model")}
   >
     {#snippet control()}
@@ -198,8 +190,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Review companion reasoning"
-    description="Reasoning effort the review agent uses."
+    {...settingsDefinitions["review.review-reasoning"]}
     visible={isVisible("review-reasoning")}
   >
     {#snippet control()}
@@ -224,11 +215,10 @@
   </SettingsRow>
 </SettingsSection>
 
-<SettingsSection label="Customization" visible={isVisible("review-instructions")}>
+<SettingsSection {...settingsDefinitions["review.section-customization"]} visible={isVisible("review-instructions")}>
   <SettingsRow
-    label="Review guide instructions"
+    {...settingsDefinitions["review.review-instructions"]}
     managed={managedSetting("reviewGuideInstructions")}
-    description="Added to every review guide, with any skill instructions."
     visible={isVisible("review-instructions")}
   >
     {#snippet body()}
@@ -244,10 +234,9 @@
   </SettingsRow>
 </SettingsSection>
 
-<SettingsSection label="Lenses" visible={isVisible("review-lenses")}>
+<SettingsSection {...settingsDefinitions["review.section-lenses"]} visible={isVisible("review-lenses")}>
   <SettingsRow
-    label="Saved lenses"
-    description="Prompts for the Lens tab. Choose one for an HTML view of the change, or tick up to four for one lens with a tab for each."
+    {...settingsDefinitions["review.review-lenses"]}
     visible={isVisible("review-lenses")}
   >
     {#snippet body()}

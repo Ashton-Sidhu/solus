@@ -46,6 +46,24 @@ export function fileChipParts(path: string): FileChipParts {
   };
 }
 
+export interface LinkChipCopyParts {
+  /** The link syntax before the visible label, rendered copy-only. */
+  open: string;
+  /** The link syntax after the visible label, rendered copy-only. */
+  close: string;
+}
+
+/*
+ * A chip drawn from a Markdown link (a plan, a work, a pull request, a session,
+ * a host, a file) shows only its label. A copy of the prose around it has to
+ * carry the whole link, or the paste is a bare name: a host chip pasted into
+ * another prompt would name no host. The link syntax goes around the label as
+ * copy-only text, the same way `fileChipParts` keeps a path.
+ */
+export function linkChipCopyParts(href: string, isImageEmbed = false): LinkChipCopyParts {
+  return { open: isImageEmbed ? "![" : "[", close: `](${href})` };
+}
+
 export interface FileMentionTarget {
   path: string;
   /** First line of a `path:12` or `path:12-18` mention. */

@@ -89,6 +89,7 @@ function orchestrator() {
     emit: (_id, event) => { updates.push(event) }, invalidatePlanCaches: () => {},
     recordActivity: async () => { throw new Error('No person acted in this test') },
     trackWork: (promise) => { work.push(promise); return promise },
+    repliesEnded: () => {},
   }
   const orchestration = new SessionOrchestrator(runtime, { findPullRequest: async () => null })
   const settled = async () => {
@@ -123,7 +124,7 @@ describe('files sent with a message', () => {
 })
 
 describe('messages to a session on another host', () => {
-  test('start_session uploads its files to that host and names them by their paths there', async () => {
+  test('start_sessions uploads its files to that host and names them by their paths there', async () => {
     const b = hostB()
     const target: RemoteTarget = { host: b.host, origin: { kind: 'session', hostLabel: 'Host A', sessionId: 'parent' } }
     const source = join(root, 'source')
@@ -146,7 +147,7 @@ describe('messages to a session on another host', () => {
     ])
   })
 
-  test('start_session names the parent\'s organization, so host B admits the child as a prompt in it', async () => {
+  test('start_sessions names the parent\'s organization, so host B admits the child as a prompt in it', async () => {
     // WHY: on a host attached for organization work a new root without an
     // organization is refused, and a Local parent's child must not become organization work.
     const b = hostB()

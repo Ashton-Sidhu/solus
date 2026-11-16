@@ -35,6 +35,7 @@ async function guest(load: (listeners: Map<string, Set<Listener>>) => Promise<vo
     off: (event: string, listener: Listener) => { listeners.get(event)?.delete(listener) },
     isDestroyed: () => false,
     setWindowOpenHandler: () => {},
+    session: { on: () => {}, off: () => {} },
     getBackgroundThrottling: () => false,
     setBackgroundThrottling: () => {},
     loadURL: () => load(listeners),

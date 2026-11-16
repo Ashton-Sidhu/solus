@@ -1,4 +1,5 @@
-import { delegateTaskAgentTool } from './delegate-task-tool'
+import { startSessionsAgentTool } from './start-sessions-tool'
+import { becomeLeadAgentTool } from './become-lead-tool'
 import { linkAgentTool, listLinksAgentTool, unlinkAgentTool } from './session-link-tools'
 import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
 import {
@@ -8,7 +9,7 @@ import {
   updateWorkAgentTool,
 } from './work-tools'
 import { renderArtifactAgentTool } from './artifact-tools'
-import { checkoutAppAgentTool, deployAppAgentTool, inspectAppAgentTool, listAppsAgentTool, previewAppAgentTool, saveAppAgentTool, setAppSignalActionAgentTool } from './app-tools'
+import { checkoutAppAgentTool, deployAppAgentTool, inspectAppAgentTool, listAppsAgentTool, previewAppAgentTool, publishAppAgentTool, exportAppAgentTool, retryAppRunAgentTool, saveAppAgentTool, setAppSignalActionAgentTool, unpublishAppAgentTool } from './app-tools'
 import { requestWorkReviewAgentTool } from './work-review-tools'
 import {
   createAutomationAgentTool,
@@ -25,7 +26,6 @@ import {
   readSessionExchangeAgentTool,
   searchSessionsAgentTool,
   sendSessionAgentTool,
-  startSessionAgentTool,
   stopSessionAgentTool,
 } from './session-tools'
 import {
@@ -67,7 +67,7 @@ import {
   browserUploadAgentTool,
   browserWaitForAgentTool,
 } from '../../../browser/browser-tools'
-import { readConfigAgentTool, updateConfigAgentTool } from './config-tools'
+import { readConfigAgentTool, readThemeAgentTool, updateConfigAgentTool } from './config-tools'
 import { createProjectAgentTool, cloneProjectAgentTool } from './project-tools'
 import { moveToWorktreeAgentTool, worktreeStatusAgentTool } from './worktree-tools'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
@@ -104,10 +104,14 @@ export const solusToolbox = {
   apps: {
     save: saveAppAgentTool,
     deploy: deployAppAgentTool,
+    publish: publishAppAgentTool,
+    unpublish: unpublishAppAgentTool,
+    export: exportAppAgentTool,
     preview: previewAppAgentTool,
     checkout: checkoutAppAgentTool,
     list: listAppsAgentTool,
     inspect: inspectAppAgentTool,
+    retryRun: retryAppRunAgentTool,
     setSignalAction: setAppSignalActionAgentTool,
   },
   automations: {
@@ -170,8 +174,8 @@ export const solusToolbox = {
     search: searchSessionsAgentTool,
     read: readSessionAgentTool,
     exchange: readSessionExchangeAgentTool,
-    start: startSessionAgentTool,
-    delegate: delegateTaskAgentTool,
+    start: startSessionsAgentTool,
+    becomeLead: becomeLeadAgentTool,
     send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
     organize: organizeSessionAgentTool,
@@ -197,5 +201,6 @@ export const solusToolbox = {
   config: {
     read: readConfigAgentTool,
     update: updateConfigAgentTool,
+    readTheme: readThemeAgentTool,
   },
 } as const

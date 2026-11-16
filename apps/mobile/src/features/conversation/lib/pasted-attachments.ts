@@ -8,21 +8,6 @@ import type { UploadedAttachment } from './attachments'
  * session's host holds them they attach again without uploading.
  */
 
-/** One `Name.ext` or a generated label, as the copy's plain text lists them. */
-const COPIED_LABEL = /^(?:Pasted (?:image|text)|[^\n,]+\.[a-z0-9]{1,8})$/i
-
-/**
- * Whether a paste could be a Solus copy, so the clipboard's HTML is worth
- * reading. Reading it is a second clipboard access, which iOS may ask the
- * person to allow, so an ordinary text paste never pays for it.
- */
-export function mayCarryAttachmentRefs(paste: { type: 'text'; value: string } | { type: 'images' } | { type: 'unsupported' }): boolean {
-  if (paste.type === 'images') return true
-  if (paste.type !== 'text') return false
-  const labels = paste.value.trim().split(', ')
-  return labels.length > 0 && labels.every((label) => COPIED_LABEL.test(label))
-}
-
 /** A phone's host ids are installation ids, so the copy's installation id is what must match. */
 export function refsOnHost(refs: readonly ClipboardAttachmentRef[], hostId: string): boolean {
   return refsMatchHost(refs, { installationId: hostId })

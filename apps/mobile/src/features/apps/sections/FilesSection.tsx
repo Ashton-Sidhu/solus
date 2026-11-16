@@ -12,7 +12,7 @@ import { errorMessage } from "../../settings/integrations";
 import { PillButton } from "../../webhooks/webhook-rows";
 import { pickDeviceFile, pickedFileSource, shareFileParts } from "../app-device-files";
 import { fileLines, sortFiles, uploadProgressText, type FileUpload } from "../app-file-source";
-import { AppDetailRow, LoadedSection } from "../app-rows";
+import { AppDetailRow, CopyPill, LoadedSection } from "../app-rows";
 import { bytesText } from "../apps";
 import { useAppChange, useAppHostCall, useAppRead } from "../use-app";
 import type { AppSectionProps } from "./section-props";
@@ -20,8 +20,9 @@ import type { AppSectionProps } from "./section-props";
 /**
  * Files (docs/plans/apps.md §4.3, §9.2): the app files. The owner uploads a
  * file from the phone's file chooser, takes one out through the share sheet,
- * and deletes one. A file crosses in parts through the app's own call, so an
- * upload shows how far it is.
+ * copies a file's id for the backend's `files.get(id)`, and deletes one. A
+ * file crosses in parts through the app's own call, so an upload shows how far
+ * it is.
  */
 export function FilesSection({ hostId, appId, connected }: AppSectionProps) {
   const readFiles = useCallback((api: HostApi) => api.appFiles({ appId }), [appId]);
@@ -103,6 +104,7 @@ export function FilesSection({ hostId, appId, connected }: AppSectionProps) {
                 disabled={!connected || sharingId !== null}
                 onPress={() => share(file)}
               />
+              <CopyPill label="Copy id" target="file id" value={file.id} />
               <PillButton label="Delete" disabled={disabled} onPress={() => remove(file)} />
             </AppDetailRow>
           ))

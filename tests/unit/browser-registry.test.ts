@@ -1,8 +1,16 @@
 import { describe, expect, jest, test } from 'bun:test'
 import { initBrowserRegistry, screencastOptionsFor, type BrowserEventSink } from '@solus/server/browser/browser-registry'
 import { BrowserFrameChannel } from '@solus/server/browser/browser-frame-channel'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { attachmentsRoot, uploadFolderName } from '@solus/server/data/assets/attachment-store'
+import { browserUploadBucket } from '@solus/server/browser/browser-registry'
+import { createUploadToken } from '@solus/server/transport/handlers/attachment-handlers'
 import {
   BrowserDialogTracker,
+  BrowserFileChooserSlot,
+  guestMetrics,
   setBrowserProfileHost,
   setBrowserWebviewHost,
   type BrowserDialog,
@@ -10,6 +18,7 @@ import {
   type BrowserDialogState,
   type BrowserEmulation,
   type BrowserFrameListener,
+  type BrowserGuestEvents,
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
 } from '@solus/server/browser/surface-driver'
@@ -97,6 +106,22 @@ class FakeDriver implements BrowserSurfaceDriver {
   dialogAnswers: BrowserDialogAnswer[] = []
   openDialog(type: BrowserDialog['type'], message: string, fallback: BrowserDialogAnswer | null = null): Promise<void> {
     return this.dialogTracker.opened(type, message, async (answer) => { this.dialogAnswers.push(answer) }, fallback)
+  }
+
+  /** The real slot: a test opens a chooser the way a guest event does. */
+  readonly fileChooser = new BrowserFileChooserSlot()
+  chosenFiles: string[][] = []
+  guestEvents: BrowserGuestEvents | null = null
+  watchGuest(events: BrowserGuestEvents): void {
+    this.guestEvents = events
+    this.dialogTracker.listener = events.dialog
+    this.fileChooser.listener = events.fileChooser
+  }
+  answerFileChooser(paths: string[] | null): Promise<boolean> {
+    return this.fileChooser.answer(paths)
+  }
+  openFileChooser(multiple: boolean): void {
+    this.fileChooser.opened(multiple, async (paths) => { this.chosenFiles.push(paths) })
   }
 
   async pressKey(): Promise<void> {}
@@ -932,5 +957,129 @@ describe('browser registry', () => {
     expect(state.annotations.map((mark) => mark.tool)).toEqual([...BROWSER_MARK_TOOLS])
     expect(state.annotations.find((mark) => mark.tool === 'region')?.elements).toHaveLength(1)
     expect(state.annotations[0]?.number).toBe(1)
+  })
+
+  describe('what a page asks of a person', () => {
+    test('an open dialog is page state until someone answers it', async () => {
+      // WHY: a dialog stops the page. A phone or a web pane shows a page the host
+      // renders headless, where no system dialog appears, so the page itself
+      // must say a dialog waits, and an answer must take it away again.
+      const { registry, driver, published } = harness()
+      const page = registry.open({ target: TARGET }, 'local:owner')
+      await registry.attachSurface(page.browserPageId, 1)
+
+      await driver.dialogTracker.opened('prompt', 'Name?', async (answer) => { driver.dialogAnswers.push(answer) }, null, 'Ada')
+      expect(published.at(-1)?.dialog).toMatchObject({ type: 'prompt', message: 'Name?', defaultPrompt: 'Ada' })
+
+      await registry.answerDialog(page.browserPageId, { accept: true, promptText: 'Grace' })
+      expect(driver.dialogAnswers).toEqual([{ accept: true, promptText: 'Grace' }])
+      expect(published.at(-1)?.dialog).toBeNull()
+    })
+
+    test('a file chooser takes only the files uploaded for its own page', async () => {
+      // WHY: a client names files by host path. Taking any path would let a
+      // client hand the page any file on the host.
+      const { registry, driver, published } = harness()
+      const page = registry.open({ target: TARGET }, 'local:owner')
+      await registry.attachSurface(page.browserPageId, 1)
+      driver.openFileChooser(false)
+      expect(published.at(-1)?.fileChooser).toMatchObject({ multiple: false })
+
+      const outside = join(mkdtempSync(join(tmpdir(), 'solus-outside-')), 'secret.txt')
+      writeFileSync(outside, 'secret')
+      await expect(registry.answerFileChooser(page.browserPageId, [outside])).rejects.toThrow('only files uploaded for it')
+      const otherPage = join(attachmentsRoot(), uploadFolderName(browserUploadBucket('browser_other')))
+      mkdirSync(otherPage, { recursive: true })
+      writeFileSync(join(otherPage, 'a.txt'), 'a')
+      await expect(registry.answerFileChooser(page.browserPageId, [join(otherPage, 'a.txt')])).rejects.toThrow('only files uploaded for it')
+
+      const folder = join(attachmentsRoot(), uploadFolderName(browserUploadBucket(page.browserPageId)))
+      mkdirSync(folder, { recursive: true })
+      writeFileSync(join(folder, 'one.txt'), '1')
+      writeFileSync(join(folder, 'two.txt'), '2')
+      await registry.answerFileChooser(page.browserPageId, [join(folder, 'one.txt'), join(folder, 'two.txt')])
+      // A single-file input takes the first file only, as a picker would.
+      expect(driver.chosenFiles.map((paths) => paths.map((path) => path.split('/').at(-1)))).toEqual([['one.txt']])
+      expect(published.at(-1)?.fileChooser).toBeNull()
+      await expect(registry.answerFileChooser(page.browserPageId, null)).rejects.toThrow('not asking for files')
+    })
+
+    test('an upload for a page keeps the person\'s file name inside the page\'s folder', async () => {
+      // WHY: the page shows the name of the file it was given. A storage prefix
+      // in that name is a file the person never chose.
+      const { registry, driver } = harness()
+      const page = registry.open({ target: TARGET }, 'local:owner')
+      await registry.attachSurface(page.browserPageId, 1)
+      driver.openFileChooser(false)
+      const token = await createUploadToken(browserUploadBucket(page.browserPageId), { name: 'report-final.pdf', mime: 'application/pdf', size: 3 }, { keepName: true })
+      expect(token.hostPath.split('/').at(-1)).toBe('report-final.pdf')
+      writeFileSync(token.hostPath, 'pdf')
+      await registry.answerFileChooser(page.browserPageId, [token.hostPath])
+      expect(driver.chosenFiles.at(-1)?.[0]?.split('/').at(-1)).toBe('report-final.pdf')
+    })
+
+    test('a download becomes a host asset on the page, and only the newest few are kept', async () => {
+      // WHY: the file lands where the page runs, often another machine. Every
+      // client offers it from the page, so it must be stored and named there.
+      const { registry, driver, published } = harness()
+      const page = registry.open({ target: TARGET }, 'local:owner')
+      await registry.attachSurface(page.browserPageId, 1)
+      const folder = mkdtempSync(join(tmpdir(), 'solus-download-'))
+      for (let index = 0; index < 7; index++) {
+        const path = join(folder, `report-${index}.csv`)
+        writeFileSync(path, `row,${index}`)
+        await driver.guestEvents!.downloaded({ fileName: `report-${index}.csv`, path })
+      }
+      const downloads = published.at(-1)?.downloads ?? []
+      expect(downloads.map((download) => download.fileName)).toEqual(['report-2.csv', 'report-3.csv', 'report-4.csv', 'report-5.csv', 'report-6.csv'])
+      expect(downloads[0]!.assetId).toMatch(/^[a-f0-9]{64}\.csv$/)
+      expect(downloads[0]!.sizeBytes).toBe(5)
+    })
+
+    test('a guest that goes away takes its open requests with it', async () => {
+      const { registry, driver, published } = harness()
+      const page = registry.open({ target: TARGET }, 'local:owner')
+      await registry.attachSurface(page.browserPageId, 1)
+      driver.openFileChooser(true)
+      await registry.detachSurface(page.browserPageId)
+      expect(published.at(-1)?.fileChooser).toBeUndefined()
+      // A late event from the old guest does not reach the page.
+      driver.openFileChooser(true)
+      expect(published.at(-1)?.fileChooser).toBeUndefined()
+    })
+  })
+
+  describe('zoom and hard reload', () => {
+    test('zoom is page state the guest lays out at, one of the browser steps', async () => {
+      const { registry, driver, published } = harness()
+      const page = registry.open({ target: TARGET }, 'local:owner')
+      await registry.attachSurface(page.browserPageId, 1)
+
+      await registry.setZoom(page.browserPageId, 1.25)
+      expect(published.at(-1)?.zoomFactor).toBe(1.25)
+      expect(driver.emulations.at(-1)?.zoom).toBe(1.25)
+      await expect(registry.setZoom(page.browserPageId, 1.3)).rejects.toThrow('not a browser zoom level')
+      await registry.setZoom(page.browserPageId, 1)
+      expect(published.at(-1)?.zoomFactor).toBeUndefined()
+      expect(driver.emulations.at(-1)?.zoom).toBeUndefined()
+    })
+
+    test('a zoomed guest lays out at its viewport divided by the zoom, and a pane guest scales its view back', () => {
+      // WHY: a headless screencast is the size of the CSS viewport, so the
+      // frame carries the zoom. A pane guest is drawn at the pane's size and
+      // needs its view scaled, or it would fill only part of the pane.
+      const viewport = resolveViewport({ mode: 'fill', width: 400, height: 800 })
+      expect(guestMetrics({ viewport, appearance: 'system', zoom: 1.25 }, 'headless')).toEqual({ width: 320, height: 640 })
+      expect(guestMetrics({ viewport, appearance: 'system', zoom: 1.25 }, 'webview')).toEqual({ width: 320, height: 640, scale: 1.25 })
+      expect(guestMetrics({ viewport, appearance: 'system' }, 'webview')).toEqual({ width: 400, height: 800 })
+    })
+
+    test('a hard reload reaches the guest as a reload that skips the cache', async () => {
+      const { registry, driver } = harness()
+      const page = registry.open({ target: TARGET }, 'local:owner')
+      await registry.attachSurface(page.browserPageId, 1)
+      await registry.navigate(page.browserPageId, { kind: 'reload', ignoreCache: true })
+      expect(driver.navigations.at(-1)).toEqual({ kind: 'reload', ignoreCache: true })
+    })
   })
 })

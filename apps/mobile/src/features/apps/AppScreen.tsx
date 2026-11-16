@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { operationKindLabel } from "@solus/client-core/app-operations";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { AppOperation, AppState, AppUi } from "@solus/contracts/apps";
 
@@ -17,7 +18,7 @@ import { SettingsNote } from "../settings/components/SettingsNote";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { errorMessage } from "../settings/integrations";
 import { AppFrame } from "./AppFrame";
-import { appBody, appProblemCount, manageAppLabel, operationKindLabel, versionLabel } from "./apps";
+import { appBody, appProblemCount, manageAppLabel, versionLabel } from "./apps";
 import { useAppChange, useAppState, useHostRead } from "./use-app";
 
 /**

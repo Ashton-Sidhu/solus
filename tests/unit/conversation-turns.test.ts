@@ -473,19 +473,19 @@ describe('turn collapse', () => {
   })
 
   test('session calls fold into their cards; only a failed call keeps its row', () => {
-    // WHY: each start_session call is shown by its card. A row per call put
+    // WHY: each start_sessions call is shown by its cards. A row per call put
     // seven empty "Used tools" rows under seven cards. A call that failed made
     // no card, so its row is the only place the failure shows.
-    const failed: Message = { ...tool('mcp__solus__start_session', '{"prompt":"c"}'), toolStatus: 'error' }
+    const failed: Message = { ...tool('mcp__solus__start_sessions', '{"sessions":[{"prompt":"c"}]}'), toolStatus: 'error' }
     const items = groupMessages([
       msg({ role: 'user', content: 'start three' }),
       tool('Edit', '{"file_path":"/r/plan.md"}'),
-      tool('mcp__solus__start_session', '{"prompt":"a"}'),
+      tool('mcp__solus__start_sessions', '{"sessions":[{"prompt":"a"}]}'),
       msg({
         role: 'assistant',
         agentConversationRef: { agentSessionId: 'a', provider: 'codex', title: 'A', cwd: '/r', origin: 'created', exchanges: [] },
       }),
-      tool('start_session', '{"prompt":"b"}'),
+      tool('start_sessions', '{"sessions":[{"prompt":"b"}]}'),
       msg({
         role: 'assistant',
         agentConversationRef: { agentSessionId: 'b', provider: 'claude-code', title: 'B', cwd: '/r', origin: 'created', exchanges: [] },
@@ -498,7 +498,7 @@ describe('turn collapse', () => {
     const rows = items.filter((item) => item.kind === 'tool-group')
     expect(rows.map((item) => item.kind === 'tool-group' ? item.messages.map((m) => m.toolName) : [])).toEqual([
       ['Edit'],
-      ['mcp__solus__start_session'],
+      ['mcp__solus__start_sessions'],
     ])
   })
 

@@ -288,18 +288,21 @@
       {
         "role": "tool",
         "content": "",
-        "toolName": "mcp__solus__start_session",
+        "toolName": "mcp__solus__start_sessions",
         "toolId": "billing-start-ledger",
-        "toolInput": "{\"title\": \"Usage ledger schema\", \"prompt\": \"Add the usage_events and usage_rollups tables from step 1 of the plan, with the idempotency key on request_id and a migration that is safe to run twice.\", \"agent_provider\": \"codex\", \"model_id\": \"gpt-5.5\", \"reasoning_effort\": \"high\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
-        "agentConversationResult": {
-          "sessionId": "demo-worker-ledger",
-          "messageId": "demo-exchange-ledger",
-          "provider": "codex",
-          "progress": {
-            "state": "settled",
-            "outcome": "completed"
+        "toolInput": "{\"sessions\": [{\"title\": \"Usage ledger schema\", \"prompt\": \"Add the usage_events and usage_rollups tables from step 1 of the plan, with the idempotency key on request_id and a migration that is safe to run twice.\", \"agent_provider\": \"codex\", \"model_id\": \"gpt-5.5\", \"reasoning_effort\": \"high\", \"worktree_base_branch\": \"main\", \"isolation\": \"worktree\"}]}",
+        "agentConversationResults": [
+          {
+            "sessionId": "demo-worker-ledger",
+            "messageId": "demo-exchange-ledger",
+            "provider": "codex",
+            "progress": {
+              "state": "settled",
+              "outcome": "completed"
+            },
+            "item": 0
           }
-        },
+        ],
         "timestamp": 1783610830000
       },
       {
@@ -311,17 +314,20 @@
       {
         "role": "tool",
         "content": "",
-        "toolName": "mcp__solus__start_session",
+        "toolName": "mcp__solus__start_sessions",
         "toolId": "billing-start-ingest",
-        "toolInput": "{\"title\": \"Usage event ingestion\", \"prompt\": \"Emit one usage event per authenticated request from the API middleware, batched through the existing queue. Never block the request path.\", \"agent_provider\": \"claude-code\", \"model_id\": \"claude-sonnet-5\", \"reasoning_effort\": \"high\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
-        "agentConversationResult": {
-          "sessionId": "demo-worker-ingest",
-          "messageId": "demo-exchange-ingest",
-          "provider": "claude-code",
-          "progress": {
-            "state": "running"
+        "toolInput": "{\"sessions\": [{\"title\": \"Usage event ingestion\", \"prompt\": \"Emit one usage event per authenticated request from the API middleware, batched through the existing queue. Never block the request path.\", \"agent_provider\": \"claude-code\", \"model_id\": \"claude-sonnet-5\", \"reasoning_effort\": \"high\", \"worktree_base_branch\": \"main\", \"isolation\": \"worktree\"}]}",
+        "agentConversationResults": [
+          {
+            "sessionId": "demo-worker-ingest",
+            "messageId": "demo-exchange-ingest",
+            "provider": "claude-code",
+            "progress": {
+              "state": "running"
+            },
+            "item": 0
           }
-        },
+        ],
         "timestamp": 1783610834000
       },
       {
@@ -333,17 +339,20 @@
       {
         "role": "tool",
         "content": "",
-        "toolName": "mcp__solus__start_session",
+        "toolName": "mcp__solus__start_sessions",
         "toolId": "billing-start-rollup",
-        "toolInput": "{\"title\": \"Invoice rollup worker\", \"prompt\": \"Write the hourly rollup worker that folds usage_events into usage_rollups and keeps a cursor so a rerun never double counts.\", \"agent_provider\": \"claude-code\", \"model_id\": \"claude-opus-5\", \"reasoning_effort\": \"high\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
-        "agentConversationResult": {
-          "sessionId": "demo-worker-rollup",
-          "messageId": "demo-exchange-rollup",
-          "provider": "claude-code",
-          "progress": {
-            "state": "running"
+        "toolInput": "{\"sessions\": [{\"title\": \"Invoice rollup worker\", \"prompt\": \"Write the hourly rollup worker that folds usage_events into usage_rollups and keeps a cursor so a rerun never double counts.\", \"agent_provider\": \"claude-code\", \"model_id\": \"claude-opus-5\", \"reasoning_effort\": \"high\", \"worktree_base_branch\": \"main\", \"isolation\": \"worktree\"}]}",
+        "agentConversationResults": [
+          {
+            "sessionId": "demo-worker-rollup",
+            "messageId": "demo-exchange-rollup",
+            "provider": "claude-code",
+            "progress": {
+              "state": "running"
+            },
+            "item": 0
           }
-        },
+        ],
         "timestamp": 1783610838000
       },
       {
@@ -355,45 +364,48 @@
       {
         "role": "tool",
         "content": "",
-        "toolName": "mcp__solus__start_session",
+        "toolName": "mcp__solus__start_sessions",
         "toolId": "billing-start-stripe",
-        "toolInput": "{\"title\": \"Stripe metered sync\", \"prompt\": \"Create the metered prices in Stripe for each plan tier and sync rollups as usage records. Propose the cohort order before changing anything.\", \"agent_provider\": \"codex\", \"model_id\": \"gpt-5.5\", \"reasoning_effort\": \"xhigh\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
-        "agentConversationResult": {
-          "sessionId": "demo-worker-stripe",
-          "messageId": "demo-exchange-stripe",
-          "provider": "codex",
-          "progress": {
-            "state": "awaiting_input",
-            "request": {
-              "kind": "question",
-              "question": {
-                "questionId": "demo-question-cohorts",
-                "questions": [
-                  {
-                    "id": "cohort",
-                    "header": "Rollout",
-                    "question": "Which cohort should move to metered prices first?",
-                    "options": [
-                      {
-                        "label": "Internal accounts",
-                        "description": "The 12 accounts the platform team owns. Lowest risk, least signal."
-                      },
-                      {
-                        "label": "Free tier",
-                        "description": "No invoices change. Validates metering at volume before money moves."
-                      },
-                      {
-                        "label": "Paid, annual",
-                        "description": "Fewest invoices per month. Highest signal on the rollup math."
-                      }
-                    ],
-                    "multiSelect": false
-                  }
-                ]
+        "toolInput": "{\"sessions\": [{\"title\": \"Stripe metered sync\", \"prompt\": \"Create the metered prices in Stripe for each plan tier and sync rollups as usage records. Propose the cohort order before changing anything.\", \"agent_provider\": \"codex\", \"model_id\": \"gpt-5.5\", \"reasoning_effort\": \"xhigh\", \"worktree_base_branch\": \"main\", \"isolation\": \"worktree\"}]}",
+        "agentConversationResults": [
+          {
+            "sessionId": "demo-worker-stripe",
+            "messageId": "demo-exchange-stripe",
+            "provider": "codex",
+            "progress": {
+              "state": "awaiting_input",
+              "request": {
+                "kind": "question",
+                "question": {
+                  "questionId": "demo-question-cohorts",
+                  "questions": [
+                    {
+                      "id": "cohort",
+                      "header": "Rollout",
+                      "question": "Which cohort should move to metered prices first?",
+                      "options": [
+                        {
+                          "label": "Internal accounts",
+                          "description": "The 12 accounts the platform team owns. Lowest risk, least signal."
+                        },
+                        {
+                          "label": "Free tier",
+                          "description": "No invoices change. Validates metering at volume before money moves."
+                        },
+                        {
+                          "label": "Paid, annual",
+                          "description": "Fewest invoices per month. Highest signal on the rollup math."
+                        }
+                      ],
+                      "multiSelect": false
+                    }
+                  ]
+                }
               }
-            }
+            },
+            "item": 0
           }
-        },
+        ],
         "timestamp": 1783610842000
       },
       {
@@ -405,18 +417,21 @@
       {
         "role": "tool",
         "content": "",
-        "toolName": "mcp__solus__start_session",
+        "toolName": "mcp__solus__start_sessions",
         "toolId": "billing-start-dashboard",
-        "toolInput": "{\"title\": \"Dashboard usage graph\", \"prompt\": \"Add a usage-over-time graph to the account dashboard, reading from usage_rollups, with the current billing period highlighted.\", \"agent_provider\": \"claude-code\", \"model_id\": \"claude-sonnet-5\", \"reasoning_effort\": \"medium\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
-        "agentConversationResult": {
-          "sessionId": "demo-worker-dashboard",
-          "messageId": "demo-exchange-dashboard",
-          "provider": "claude-code",
-          "progress": {
-            "state": "settled",
-            "outcome": "completed"
+        "toolInput": "{\"sessions\": [{\"title\": \"Dashboard usage graph\", \"prompt\": \"Add a usage-over-time graph to the account dashboard, reading from usage_rollups, with the current billing period highlighted.\", \"agent_provider\": \"claude-code\", \"model_id\": \"claude-sonnet-5\", \"reasoning_effort\": \"medium\", \"worktree_base_branch\": \"main\", \"isolation\": \"worktree\"}]}",
+        "agentConversationResults": [
+          {
+            "sessionId": "demo-worker-dashboard",
+            "messageId": "demo-exchange-dashboard",
+            "provider": "claude-code",
+            "progress": {
+              "state": "settled",
+              "outcome": "completed"
+            },
+            "item": 0
           }
-        },
+        ],
         "timestamp": 1783610846000
       },
       {
@@ -428,18 +443,21 @@
       {
         "role": "tool",
         "content": "",
-        "toolName": "mcp__solus__start_session",
+        "toolName": "mcp__solus__start_sessions",
         "toolId": "billing-start-runbook",
-        "toolInput": "{\"title\": \"Rollout runbook\", \"prompt\": \"Write the rollout runbook for the migration: shadow mode, internal cohort, paid cohorts, and the rollback for each stage.\", \"agent_provider\": \"claude-code\", \"model_id\": \"claude-sonnet-5\", \"reasoning_effort\": \"medium\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
-        "agentConversationResult": {
-          "sessionId": "demo-worker-runbook",
-          "messageId": "demo-exchange-runbook",
-          "provider": "claude-code",
-          "progress": {
-            "state": "settled",
-            "outcome": "completed"
+        "toolInput": "{\"sessions\": [{\"title\": \"Rollout runbook\", \"prompt\": \"Write the rollout runbook for the migration: shadow mode, internal cohort, paid cohorts, and the rollback for each stage.\", \"agent_provider\": \"claude-code\", \"model_id\": \"claude-sonnet-5\", \"reasoning_effort\": \"medium\", \"worktree_base_branch\": \"main\", \"isolation\": \"worktree\"}]}",
+        "agentConversationResults": [
+          {
+            "sessionId": "demo-worker-runbook",
+            "messageId": "demo-exchange-runbook",
+            "provider": "claude-code",
+            "progress": {
+              "state": "settled",
+              "outcome": "completed"
+            },
+            "item": 0
           }
-        },
+        ],
         "timestamp": 1783610850000
       },
       {
@@ -451,18 +469,21 @@
       {
         "role": "tool",
         "content": "",
-        "toolName": "mcp__solus__start_session",
+        "toolName": "mcp__solus__start_sessions",
         "toolId": "billing-start-tests",
-        "toolInput": "{\"title\": \"Migration test plan\", \"prompt\": \"Write the reconciliation tests that compare shadow-mode rollups against the analytics counters for one month of fixture traffic.\", \"agent_provider\": \"codex\", \"model_id\": \"gpt-5.5\", \"reasoning_effort\": \"high\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
-        "agentConversationResult": {
-          "sessionId": "demo-worker-tests",
-          "messageId": "demo-exchange-tests",
-          "provider": "codex",
-          "progress": {
-            "state": "settled",
-            "outcome": "completed"
+        "toolInput": "{\"sessions\": [{\"title\": \"Migration test plan\", \"prompt\": \"Write the reconciliation tests that compare shadow-mode rollups against the analytics counters for one month of fixture traffic.\", \"agent_provider\": \"codex\", \"model_id\": \"gpt-5.5\", \"reasoning_effort\": \"high\", \"worktree_base_branch\": \"main\", \"isolation\": \"worktree\"}]}",
+        "agentConversationResults": [
+          {
+            "sessionId": "demo-worker-tests",
+            "messageId": "demo-exchange-tests",
+            "provider": "codex",
+            "progress": {
+              "state": "settled",
+              "outcome": "completed"
+            },
+            "item": 0
           }
-        },
+        ],
         "timestamp": 1783610854000
       },
       {

@@ -7,6 +7,7 @@ import {
   parseMarkdownFileLink,
 } from "./markdownLinkTargets";
 
+import { parseHostHref } from "@solus/contracts/host-link";
 import { parseSessionHref } from "@solus/contracts/session-link";
 import { fileMentionPath } from "./fileMentions";
 import { resolveFileIcon, type FileIconToken } from "@solus/client-core/file-icons";
@@ -36,6 +37,12 @@ export type MarkdownLinkPresentation =
       readonly sessionId: string;
       /** The session's host. Null when the link names none: it is on the transcript's own host. */
       readonly serverId: string | null;
+    }
+  | {
+      /** A `host://` link (docs/plans/host-fleet.md D12): it names one of the person's hosts. */
+      readonly kind: "host";
+      readonly href: string;
+      readonly serverId: string;
     }
   | {
       readonly kind: "link";
@@ -82,6 +89,9 @@ export function resolveMarkdownLinkPresentation(href: string): MarkdownLinkPrese
   if (session) {
     return { kind: "session", href: normalized, sessionId: session.sessionId, serverId: session.serverId };
   }
+  // The link text is the host's name; the presentation needs only its identity.
+  const host = parseHostHref(normalized, "");
+  if (host) return { kind: "host", href: normalized, serverId: host.serverId };
 
   // A relative folder link (`src/`) is a file chip too: it opens the file browser at that folder.
   const target =

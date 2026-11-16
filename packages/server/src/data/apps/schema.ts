@@ -13,8 +13,14 @@ export const apps = defineTable('apps', {
   created_by: text({ notNull: true }),
   /** Unique on the host: the namespace an agent's tools and a link use. */
   slug: text({ notNull: true }),
+  /** The name and description of the active version's manifest: each deploy writes them. */
   name: text({ notNull: true }),
   description: text({ notNull: true, default: '' }),
+  /** The name and description the owner gave the app; null shows the manifest's. A deploy never changes them. */
+  custom_name: text(),
+  custom_description: text(),
+  /** The hue (0–359) of the app's tile in the sidebar, chosen by the owner; null takes a hue from the app's id. */
+  color_hue: integer(),
   /** The version that runs; null until a deploy succeeds. */
   active_version: integer(),
   stopped: boolean({ notNull: true, default: false }),
@@ -57,6 +63,8 @@ export const appVersions = defineTable('app_versions', {
   message: text({ notNull: true, default: '' }),
   author: json({ notNull: true }),
   created_at: bigint({ notNull: true }),
+  /** `AppVersionActivation[]`: each time the version became active, the oldest first. */
+  activations: json({ notNull: true, default: '[]' }),
 }, {
   primaryKey: ['app_id', 'number'],
 })
@@ -82,7 +90,10 @@ export const appCalls = defineTable('app_calls', {
   id: text({ primaryKey: true }),
   app_id: text({ notNull: true, references: { table: apps, column: 'id', onDelete: 'cascade' } }),
   version: integer({ notNull: true }),
+  /** The operation, or for a model call the model setting it used. */
   operation: text({ notNull: true }),
+  /** `operation`, or `model` for a model call (docs/plans/app-models.md): one log holds both. */
+  kind: text({ notNull: true, default: 'operation' }),
   caller: json({ notNull: true }),
   /** The caller's kind, for the filter of the call log. */
   caller_kind: text({ notNull: true, default: 'ui' }),
@@ -150,6 +161,10 @@ export const appWorkflowRuns = defineTable('app_workflow_runs', {
   started_at: bigint({ notNull: true }),
   updated_at: bigint({ notNull: true }),
   finished_at: bigint(),
+  /** The version whose code ran the run last; null until a runner takes it. */
+  version: integer(),
+  /** When the owner dismissed the failure of the run: it no longer needs them. */
+  dismissed_at: bigint(),
 }, {
   indexes: [
     { name: 'app_workflow_runs_by_app', columns: ['app_id', 'started_at', 'id'] },

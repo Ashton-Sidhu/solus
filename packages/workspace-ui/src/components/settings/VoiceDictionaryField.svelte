@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { X as XIcon } from "@lucide/svelte";
   import { VOICE_DICTIONARY_LIMIT } from "@solus/contracts/voice-dictionary";
   import { getSettingsContext } from "../../contexts";
@@ -61,8 +62,7 @@
 {/snippet}
 
 <SettingsSection
-  label="Custom dictionary"
-  description="Fix how dictation spells a word. Under Heard as, add what it writes instead."
+  {...settingsDefinitions["voice.section-custom-dictionary"]}
   action={editor.entries.length ? filter : undefined}
 >
   <div class="px-4 py-3">

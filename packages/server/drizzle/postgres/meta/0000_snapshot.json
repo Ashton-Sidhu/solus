@@ -1,5 +1,5 @@
 {
-  "id": "53568fc1-f608-4063-9fb9-995eb622ea85",
+  "id": "501bf680-fcc8-4a87-b51d-d9c690eee52e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -367,6 +367,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'operation'"
         },
         "caller": {
           "name": "caller",
@@ -1004,6 +1011,13 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "activations": {
+          "name": "activations",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'"
         }
       },
       "indexes": {},
@@ -1361,6 +1375,24 @@
           "primaryKey": false,
           "notNull": true,
           "default": "''"
+        },
+        "custom_name": {
+          "name": "custom_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "custom_description": {
+          "name": "custom_description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "color_hue": {
+          "name": "color_hue",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "active_version": {
           "name": "active_version",

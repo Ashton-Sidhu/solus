@@ -27,6 +27,8 @@ export type AppNativeStackNavigationOptions = Omit<
   readonly unstable_headerSubtitle?: unknown;
   readonly unstable_headerToolbarItems?: unknown;
   readonly unstable_navigationItemStyle?: unknown;
+  /** Controlled search text, including restoration when UIKit rebuilds a page's search bar. */
+  readonly headerSearchValue?: string;
 };
 
 function useNativeStackNavigation(): NativeStackNavigationProp<ParamListBase> | null {

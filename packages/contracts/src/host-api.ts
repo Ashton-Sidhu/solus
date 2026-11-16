@@ -27,17 +27,32 @@ import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, Metr
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
 import type { ShareDialogLog } from './sharing'
 import type { NotificationCount, NotificationHubCapability, NotificationListRequest, NotificationPage, NotificationSetArchived, NotificationSetRead, NotificationStateResult } from './notification-hub'
-import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
+import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserDialogAnswer, BrowserPageDialog, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { DeviceActionRequest, DeviceHostConfig, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
 import type {
-  AppAgentAccessRequest, AppBuildLog, AppConfigSetRequest, AppCallDetail, AppCallReadRequest, AppCallRequest, AppCallsRequest, AppCallView, AppDeployReceipt, AppDeployRequest,
-  AppFileRequest, AppFileView, AppMetrics, AppRequest, AppRevisionDiff, AppRevisionRequest, AppRevisionView, AppRunDetail, AppRunRequest, AppRunsRequest, AppRunView,
-  AppScheduleRequest, AppScheduleSetRequest, AppScheduleView, AppSecretSetRequest, AppSessionLink, AppSignalActionRequest, AppSignalActionSaveRequest,
-  AppSignalOccurrence, AppSignalOccurrencesRequest, AppSignalView, AppState, AppSummary, AppUi, AppVersionDiff, AppVersionRequest, AppVersionView, AppWebhookView,
+  AppAgentAccessRequest, AppUpdateRequest, AppBuildLog, AppConfigSetRequest, AppCallDetail, AppCallReadRequest, AppCallStats, AppCallStatsRequest, AppCallRequest, AppCallsRequest, AppCallView, AppDeployReceipt, AppDeployRequest,
+  AppFileRequest, AppFileView, AppMetrics, AppRequest, AppRevisionDiff, AppRevisionRequest, AppRevisionView, AppStepSource, AppStepSourceRequest, AppRunDetail, AppRunRequest, AppRunsRequest, AppRunView,
+  AppDeployPreflight, AppDeployPreflightRequest, AppScheduleCalendar, AppScheduleCalendarRequest, AppScheduleRequest, AppScheduleSetRequest, AppScheduleView, AppSecretSetRequest, AppSessionLink, AppSessionRequest, AppSignalActionRequest, AppSignalActionSaveRequest,
+  AppSignalOccurrence, AppSignalOccurrencesRequest, AppSignalView, AppState, AppSummary, AppUi, AppVersionDiff, AppVersionRequest, AppVersionView, AppWebhookRequest, AppWebhookView,
 } from './apps'
 import type { AppModelCallRequest, AppModelCallView, AppModelCallsRequest } from './app-models'
+import type {
+  AppContainerAddress,
+  AppContainerLogsRequest,
+  AppContainerManageAnswer,
+  AppContainerManageRequest,
+  AppContainerRequest,
+  AppContainerRunRequest,
+  AppContainerState,
+  AppDeploymentLogsRequest,
+  AppDeploymentView,
+  AppPublishPlaces,
+  AppPublishReceipt,
+  AppPublishRequest,
+  AppTailscaleKeySetRequest,
+} from './app-deployments'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
@@ -529,29 +544,66 @@ export interface SolusAPI {
   appScheduleSet(request: AppScheduleSetRequest): Promise<AppScheduleView[]>
   /** Runs a schedule's mutation now. */
   appScheduleRun(request: AppScheduleRequest): Promise<AppScheduleView[]>
+  /** The runs of each schedule in each span the client asks for, and the runs to come. */
+  appScheduleCalendar(request: AppScheduleCalendarRequest): Promise<AppScheduleCalendar>
   /** Sets or clears one secret. The value is never read back. */
   appSecretSet(request: AppSecretSetRequest): Promise<AppState>
   /** Sets one config value, or gives the field its default again with `null`. */
   appConfigSet(request: AppConfigSetRequest): Promise<AppState>
   /** The app's webhooks with their URLs and signing secrets, for its owner. */
   appWebhooks(request: AppRequest): Promise<AppWebhookView[]>
+  /** A new signing secret for one webhook the app declares: the sender needs the new one. Answers the app's webhooks. */
+  appWebhookRotateSecret(request: AppWebhookRequest): Promise<AppWebhookView[]>
   /** The newest calls of the call log that pass the request's filters. */
   appCalls(request: AppCallsRequest): Promise<AppCallView[]>
   /** The sessions linked to the app. */
   appSessions(request: AppRequest): Promise<AppSessionLink[]>
+  /** Links a session of this host to the app, as a deploy does. Answers the linked sessions. */
+  appSessionLink(request: AppSessionRequest): Promise<AppSessionLink[]>
+  /** Removes the link of one session to the app. The session stays. Answers the linked sessions. */
+  appSessionUnlink(request: AppSessionRequest): Promise<AppSessionLink[]>
   /** The app's revisions, the newest first: each save, with the versions built from it. */
   appRevisions(request: AppRequest): Promise<AppRevisionView[]>
   /** The source change of one revision against the revision before it. */
   appRevisionDiff(request: AppRevisionRequest): Promise<AppRevisionDiff>
+  /** Where a step of a workflow is in the source of a version, with the text of its file; null when the source has no such step. */
+  appStepSource(request: AppStepSourceRequest): Promise<AppStepSource | null>
   /** Builds a revision on the host and makes the version active. It answers when the build ended; `apps.changed` says each step before that. */
   appDeploy(request: AppDeployRequest): Promise<AppDeployReceipt>
   appBuildLog(request: AppVersionRequest): Promise<AppBuildLog>
+  /** What a deploy of a revision changes against the active version. The host builds the revision and makes no version of it. */
+  appDeployPreflight(request: AppDeployPreflightRequest): Promise<AppDeployPreflight>
+  /** Sends the active version of an app to its deployment, a container outside Solus, and makes the deployment first when the app has none (docs/plans/app-deploy.md). The app in Solus does not change. */
+  appPublish(request: AppPublishRequest): Promise<AppPublishReceipt>
+  /** Removes the deployment of an app with the data it holds. */
+  appUnpublish(request: AppRequest): Promise<void>
+  /** The deployment of an app; null for an app that is not published. */
+  appDeployment(request: AppRequest): Promise<AppDeploymentView | null>
+  /** The newest lines of the log of an app's deployment. */
+  appDeploymentLogs(request: AppDeploymentLogsRequest): Promise<string>
+  /** The places that can run the copy of an app of this host, and what this host has for a publish. */
+  appPublishPlaces(): Promise<AppPublishPlaces>
+  /** Sets or removes the Tailscale auth key of this host, for a copy with an address on the tailnet. A value is never read back. */
+  appTailscaleKeySet(request: AppTailscaleKeySetRequest): Promise<AppPublishPlaces>
+  /** Runs the container of an app of another Solus on this host. A container of that app that is there already is replaced; its data stays. */
+  appContainerRun(request: AppContainerRunRequest): Promise<AppContainerAddress>
+  appContainerStatus(request: AppContainerRequest): Promise<AppContainerState>
+  /** The newest lines that a hosted container wrote. */
+  appContainerLogs(request: AppContainerLogsRequest): Promise<string>
+  /** Removes a hosted container with the data it holds. */
+  appContainerRemove(request: AppContainerRequest): Promise<void>
+  /** Carries one request of the management API to the runtime in a hosted container. */
+  appContainerManage(request: AppContainerManageRequest): Promise<AppContainerManageAnswer>
   /** Whether the app's operations are tools for agents. */
   appSetAgentAccess(request: AppAgentAccessRequest): Promise<AppState>
+  /** Renames the app, describes it, or colours its tile, for every person and client. */
+  appUpdate(request: AppUpdateRequest): Promise<AppState>
   /** One call with its input, its log lines, and its trace; null when the call log no longer has it. */
   appCallRead(request: AppCallReadRequest): Promise<AppCallDetail | null>
   /** The calls of the last 24 hours, in numbers. */
   appMetrics(request: AppRequest): Promise<AppMetrics>
+  /** The calls that pass the filters in numbers, with the bars of the Activity chart. */
+  appCallStats(request: AppCallStatsRequest): Promise<AppCallStats>
   /** The newest workflow runs. */
   appRuns(request: AppRunsRequest): Promise<AppRunView[]>
   appRunRead(request: AppRunRequest): Promise<AppRunDetail | null>
@@ -559,6 +611,8 @@ export interface SolusAPI {
   appRunTerminate(request: AppRunRequest): Promise<AppRunDetail>
   /** Starts a failed run again: its failed step runs again, and its finished steps do not. */
   appRunRetry(request: AppRunRequest): Promise<AppRunDetail>
+  /** Takes a failed run off what needs the owner, with no retry. The run stays in the history. */
+  appRunDismiss(request: AppRunRequest): Promise<AppRunDetail>
   /** The signals the active version declares, each with its signal actions. */
   appSignals(request: AppRequest): Promise<AppSignalView[]>
   appSignalOccurrences(request: AppSignalOccurrencesRequest): Promise<AppSignalOccurrence[]>
@@ -1061,6 +1115,8 @@ export interface SolusAPI {
   webhookReadDelivery(id: string, deliveryId: string): Promise<WebhookDelivery | null>
   /** Runs a stored delivery again, for every action or for one (plan §3.3). */
   webhookReplay(id: string, deliveryId: string, actionId?: string): Promise<WebhookDeliverySummary>
+  /** Sends a test request, signed with the stored secret, through the receiver: the log keeps it as a delivery. */
+  webhookSendTest(id: string): Promise<WebhookDeliverySummary>
   /** Tests a sample request against actions; starts nothing, stores nothing. `webhookId` also checks its verification. */
   webhookDryRun(request: WebhookDryRunRequest): Promise<WebhookDryRunResult>
   hostWebhookSettingsRead(): Promise<HostWebhookSettings>
@@ -1171,6 +1227,14 @@ export interface SolusAPI {
   browserNavigate(browserPageId: string, op: BrowserNavigateOp): Promise<void>
   browserSetViewport(browserPageId: string, request: BrowserViewportRequest): Promise<void>
   browserSetAppearance(browserPageId: string, appearance: BrowserAppearance): Promise<void>
+  /** One of `BROWSER_ZOOM_LEVELS`. */
+  browserSetZoom(browserPageId: string, zoomFactor: number): Promise<void>
+  /** Answer the page's open JavaScript dialog. Null when none was open. */
+  browserAnswerDialog(browserPageId: string, answer: BrowserDialogAnswer): Promise<BrowserPageDialog | null>
+  /** Sign an upload of one file for the page's open file chooser. */
+  browserFileUploadToken(browserPageId: string, request: AttachmentUploadTokenRequest): Promise<AttachmentUploadTokenResult>
+  /** Give the page's file chooser the files uploaded for it, or cancel it with null. */
+  browserAnswerFileChooser(browserPageId: string, hostPaths: string[] | null): Promise<void>
   browserSnapshot(browserPageId: string, options?: BrowserSnapshotOptions): Promise<BrowserSnapshot>
   browserInteract(browserPageId: string, op: BrowserInteractOp): Promise<BrowserInteractResult>
   /** A desktop client hands its mounted `<webview>` to the server, which drives

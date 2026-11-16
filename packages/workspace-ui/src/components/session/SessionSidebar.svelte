@@ -892,6 +892,7 @@
 
 <SidePanel
   side="left"
+  region="session-sidebar"
   {open}
   {managedWidth}
   {staysAsColumn}

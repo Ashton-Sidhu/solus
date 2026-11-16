@@ -88,6 +88,14 @@ describe('native attachments', () => {
     })
     expect(composePrompt('Look', attachments.slice(1), false)).toEqual({ prompt: 'Look', imageAttachments: [{ mimeType: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,AA' }] })
   })
+
+  test('a host chip in the text gets the note for the agent, after the text and after the file lines', () => {
+    // WHY: host-fleet.md D12. The agent must know what it can do with a host
+    // the person names, on the phone as on desktop.
+    const typed = 'Check [studio-mini](host://ref?serverId=install-1).'
+    const { prompt } = composePrompt(typed, [{ id: '1', kind: 'file', name: 'spec.pdf', hostPath: '/h/spec.pdf', mimeType: 'application/pdf', size: 1, dataUrl: null }], true)
+    expect(prompt.startsWith(`[Attached file: /h/spec.pdf]\n\n${typed}\n\n[Referenced Host: "studio-mini" (host: install-1)]`)).toBe(true)
+  })
 })
 
 describe('native attachments in a conversation', () => {

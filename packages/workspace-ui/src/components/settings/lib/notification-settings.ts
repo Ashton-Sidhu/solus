@@ -182,15 +182,3 @@ function coversExactly<Id extends string>(
   const seen = new Set(rows.map((row) => row.id))
   return ids.every((id) => seen.has(id)) && seen.size === ids.length && rows.length === ids.length
 }
-
-export function notificationRowMatches<Id extends string>(
-  row: NotificationSettingRow<Id>,
-  searchQuery: string,
-): boolean {
-  if (!searchQuery) return true
-  const query = searchQuery.toLowerCase()
-  return (
-    row.label.toLowerCase().includes(query) ||
-    row.keywords.some((keyword) => keyword.includes(query))
-  )
-}

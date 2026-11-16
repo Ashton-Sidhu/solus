@@ -1,27 +1,31 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { LayoutGrid as AppIcon, Play as StartIcon } from "@lucide/svelte";
-  import { getWorkspaceContext, serversStore } from "../../contexts";
+  import { Play as StartIcon } from "@lucide/svelte";
+  import { getSettingsContext, getWorkspaceContext, serversStore } from "../../contexts";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import type { AppManageSection, RouteParams } from "../../contexts/workspace/routing/route-registry";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { appPinOf, isAppPinned, withAppPinned } from "../../lib/sidebar-places";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { toasts } from "../../lib/toasts";
-  import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
+  import { PAGE_SECONDARY_BTN, PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import { underStrip } from "../ui/lib/pane-strip";
   import PaneChrome from "../ui/PaneChrome.svelte";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { Button } from "../ui/button";
+  import * as TooltipUI from "../ui/tooltip";
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
   import AppMenu from "./AppMenu.svelte";
   import AppViewStack from "./AppViewStack.svelte";
-  import AppViewSwitch from "./AppViewSwitch.svelte";
+  import AppManageToggle from "./AppManageToggle.svelte";
   import { manageSectionOf } from "./lib/app-manage";
   import {
     APP_HOST_GONE_TEXT,
     APP_NO_UI_TEXT,
+    APP_STOPPED_TEXT,
     appDeleteConfirmText,
     appSurfacePhase,
     appSurfaceView,
@@ -33,15 +37,17 @@
   } from "./lib/app-view";
 
   /**
-   * One app (docs/plans/apps.md §9.1): a header with its name, its active
-   * version, the switch between App and Manage, and its menu, over the app
-   * frame, which gets all of the pane. The route owns the view and the section
+   * One app (docs/plans/apps.md §9.1): a header with its name, the Manage
+   * button, and its menu, over the app frame, which gets all of the pane. The
+   * header uses the pills of the other panes, so the app reads as a Solus pane. The route owns the view and the section
    * of the Manage page, so a link opens one and the reader comes back to it.
    */
   let { params, paneId, surfaceVisible = true }: RouteSurfaceProps<"app"> = $props();
 
   const session = getWorkspaceContext();
+  const settings = getSettingsContext();
   const pane = paneActions(() => paneId);
+  const isUnderStrip = underStrip();
 
   $effect(() => appsStore.watch());
 
@@ -51,6 +57,9 @@
   const app = $derived(row?.app);
   const appState = $derived(serverId && app ? appsStore.stateFor(serverId, app.id) : undefined);
   const readiness = $derived(serverId ? serversStore.readinessFor(serverId) : null);
+  // The app's place in the sidebar's places column (docs/plans/sidebar-places-and-sky.md).
+  const pin = $derived(serverId && app ? appPinOf(serverId, app.id, serversStore.hostFor(serverId)) : null);
+  const isPinned = $derived(pin ? isAppPinned(settings.sidebarApps, pin) : false);
 
   $effect(() => {
     const hostId = serverId;
@@ -150,44 +159,73 @@
     ).then(() => requestInputFocus());
   }
 
+  function togglePinned() {
+    if (!pin) return;
+    settings.setPersonal("sidebarApps", withAppPinned(settings.sidebarApps, pin, !isPinned));
+    requestInputFocus();
+  }
+
   function remove() {
     const hostId = serverId;
     const current = app;
+    const currentPin = pin;
     if (!hostId || !current || !confirm(appDeleteConfirmText(current.name))) return;
     void run(async () => {
       await appsStore.remove(hostId, current.id);
+      if (currentPin) settings.setPersonal("sidebarApps", withAppPinned(settings.sidebarApps, currentPin, false));
       pane.close();
     }, "The app was not deleted");
   }
 </script>
 
-<div class="flex h-full min-h-0 w-full flex-col bg-(--solus-container-bg)" data-testid="app-surface">
+<!-- The header reserves the raised pane cluster as Files does: the 0.625rem
+     right inset, two 1.625rem pills 0.375rem apart, and one more gap, so the
+     app's pills and the cluster read as one row. -->
+<div
+  class="flex h-full min-h-0 w-full flex-col bg-(--solus-container-bg) {isUnderStrip() ? '' : 'pointer-fine:[--solus-pane-chrome-inset:4.625rem]'}"
+  data-testid="app-surface"
+>
   <div
-    class="workspace-titlebar flex h-auto min-h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-2 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] pr-[max(1rem,var(--solus-pane-chrome-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] pr-[max(1rem,var(--solus-pane-chrome-inset,0px))]"
   >
-    <AppIcon size={16} strokeWidth={1.75} class="shrink-0 text-muted-foreground" aria-hidden="true" />
-    <span class="min-w-0 shrink truncate text-workspace-chrome font-medium text-(--solus-text-primary)" data-testid="app-surface-name">
+    <span
+      class="min-w-0 shrink truncate text-workspace-chrome font-medium text-(--solus-text-primary)"
+      title={app ? `${app.name} · ${versionLabel(app.activeVersion)}` : undefined}
+      data-testid="app-surface-name"
+    >
       {app?.name ?? params.slug}
     </span>
-    {#if app}
-      <span class="shrink-0 text-xs tabular-nums text-muted-foreground" data-testid="app-surface-version">{versionLabel(app.activeVersion)}</span>
+    {#if app?.stopped}
+      <span class="shrink-0 text-workspace-chrome text-(--solus-text-tertiary)" role="status" data-testid="app-surface-stopped">Stopped</span>
     {/if}
     <span class="min-w-0 flex-1"></span>
     {#if app && serverId}
-      <!-- The app's problems are not drawn over the app: the Manage switch has a dot, and the Manage page lists them. -->
-      <AppViewSwitch {view} hasUi={app.hasUi} problemCount={problems.length} problemTone={problemsTone(problems)} onSelect={selectView} />
-      <AppMenu stopped={app.stopped} disabled={isBusy} onToggleStopped={toggleStopped} onDelete={remove} />
+      {#if app.stopped}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 font-medium pointer-coarse:w-auto! disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isBusy}
+                onclick={toggleStopped}
+                data-testid="app-surface-start"
+              >
+                <StartIcon size={15} strokeWidth={1.5} aria-hidden="true" />Start
+              </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={APP_STOPPED_TEXT} />
+        </TooltipUI.Root>
+      {/if}
+      <!-- Nothing is drawn over the app for a problem: the Manage button shows it, and the Manage page lists it. -->
+      {#if app.hasUi}
+        <AppManageToggle {view} problemCount={problems.length} problemTone={problemsTone(problems)} onSelect={selectView} />
+      {/if}
+      <AppMenu stopped={app.stopped} pinned={isPinned} disabled={isBusy} onToggleStopped={toggleStopped} onTogglePinned={togglePinned} onDelete={remove} />
     {/if}
   </div>
-
-  {#if app?.stopped && view === "app"}
-    <div class="flex shrink-0 flex-wrap items-center gap-2 border-y border-border/50 px-4 py-2 text-xs text-muted-foreground" role="status">
-      <span class="min-w-0 flex-1">This app is stopped. No operation runs, no schedule fires, and no run continues.</span>
-      <Button size="xs" variant="outline" disabled={isBusy} onclick={toggleStopped} data-testid="app-surface-start">
-        <StartIcon size={12} /> Start
-      </Button>
-    </div>
-  {/if}
 
   <div class="relative min-h-0 flex-1 overflow-hidden" data-testid="app-surface-body">
     {#if serverId && showsAppViews(phase, app)}
@@ -247,8 +285,11 @@
               {section}
               takesFocus={manageTakesFocus}
               busy={isBusy}
+              pinned={isPinned}
               onSelectSection={(next) => show("manage", next)}
               onToggleStopped={toggleStopped}
+              onTogglePinned={togglePinned}
+              onOpenApp={app.hasUi ? () => selectView("app") : undefined}
               onDelete={remove}
             />
           {:catch}
@@ -283,4 +324,5 @@
   onToggleMaximize={pane.toggleMaximize}
   maximized={pane.maximized}
   closeLabel="Close app"
+  raised="soft"
 />

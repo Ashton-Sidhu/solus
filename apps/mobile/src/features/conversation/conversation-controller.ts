@@ -318,6 +318,12 @@ export class ConversationController {
     return resourceAllows({ role: this.target.record?.role }, 'drive.approve')
   }
 
+  /** Whether the reader may change the session's record: its title, links,
+   *  and the watches on its pull requests (docs/plans/pr-watch.md). */
+  get mayEdit(): boolean {
+    return resourceAllows({ role: this.target.record?.role }, 'edit')
+  }
+
   /** Auto can pick this session's model: nothing has started it yet. */
   get canRoute(): boolean {
     return canRouteAuto({ started: this.started, agentSessionId: this.run.agentSessionId })

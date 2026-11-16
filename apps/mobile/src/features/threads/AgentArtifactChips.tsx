@@ -11,6 +11,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
+import type { ArtifactChipSize } from "@solus/contracts/settings";
 import { memo, useMemo, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
@@ -23,6 +24,8 @@ import { artifactKey } from "./artifacts/session-artifacts";
 import { useOpenArtifact } from "./artifacts/use-open-artifact";
 import { sessionArtifactsFeed, useSessionArtifacts } from "./artifacts/use-session-artifacts";
 import type { ConversationStore } from "../conversation/conversation-store";
+import { pullRequestKey } from "@solus/client-core/reply-pull-requests";
+import { useTurnReplyCards } from "./use-turn-reply-cards";
 import { threadTurnImages } from "./thread-turn-images";
 import { useTranscriptItems } from "./use-transcript-items";
 
@@ -78,6 +81,21 @@ const TONE_ICON = {
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
+// Small is an agent row's size; a turn's chips follow the person's setting.
+const CHIP_SIZE_CLASS = {
+  small: "h-7 gap-1 pl-2 pr-2.5",
+  medium: "h-8 gap-1.5 pl-2.5 pr-3",
+  large: "h-9 gap-1.5 pl-3 pr-3.5",
+} as const satisfies { readonly [size in ArtifactChipSize]: string };
+
+const CHIP_TEXT_CLASS = {
+  small: "text-xs",
+  medium: "text-[13px]",
+  large: "text-sm",
+} as const satisfies { readonly [size in ArtifactChipSize]: string };
+
+const CHIP_ICON_SIZE = { small: 11, medium: 12, large: 14 } as const satisfies { readonly [size in ArtifactChipSize]: number };
+
 function iconFor(tone: ArtifactChipTone, state: PullRequestChipState | null): AppSymbolName {
   if (state === "merged") return "arrow.triangle.merge";
   if (state === "draft") return "arrow.triangle.branch";
@@ -90,8 +108,10 @@ function Chip(props: {
   readonly note: string | null;
   readonly filePath?: string;
   readonly pullRequestState: PullRequestChipState | null;
+  readonly size?: ArtifactChipSize;
   readonly onPress: () => void;
 }) {
+  const size = props.size ?? "small";
   return (
     <Pressable
       accessibilityRole="button"
@@ -100,21 +120,21 @@ function Chip(props: {
         void Haptics.selectionAsync();
         props.onPress();
       }}
-      className={cn("h-7 max-w-full flex-row items-center gap-1 rounded-full pl-2 pr-2.5 active:opacity-70", CHIP_CLASS[props.tone])}
+      className={cn("max-w-full flex-row items-center rounded-full active:opacity-70", CHIP_SIZE_CLASS[size], CHIP_CLASS[props.tone])}
     >
       {props.tone === "file" || props.filePath !== undefined ? (
-        <PierreEntryIcon path={props.filePath ?? ""} size={11} />
+        <PierreEntryIcon path={props.filePath ?? ""} size={CHIP_ICON_SIZE[size]} />
       ) : (
       <SymbolView
         name={iconFor(props.tone, props.pullRequestState)}
-        size={11}
+        size={CHIP_ICON_SIZE[size]}
         tintColorClassName={props.pullRequestState ? PR_STATE_TINT[props.pullRequestState] : ICON_TINT[props.tone]}
       />
       )}
-      <Text numberOfLines={1} className={cn("min-w-0 shrink text-xs font-t3-medium", TEXT_CLASS[props.tone])}>
+      <Text numberOfLines={1} className={cn("min-w-0 shrink font-t3-medium", CHIP_TEXT_CLASS[size], TEXT_CLASS[props.tone])}>
         {props.label}
       </Text>
-      {props.note ? <Text className="shrink-0 text-xs text-foreground-muted">{props.note}</Text> : null}
+      {props.note ? <Text className={cn("shrink-0 text-foreground-muted", CHIP_TEXT_CLASS[size])}>{props.note}</Text> : null}
     </Pressable>
   );
 }
@@ -125,7 +145,8 @@ function Chip(props: {
  * item the phone cannot open (a work or an automation), opens the session's
  * Artifacts screen.
  */
-function AgentArtifactChips(props: { readonly hostId: string; readonly sessionId: string; readonly items: readonly SessionArtifact[] }) {
+function AgentArtifactChips(props: { readonly hostId: string; readonly sessionId: string; readonly items: readonly SessionArtifact[]; readonly size?: ArtifactChipSize }) {
+  const size = props.size ?? "small";
   const navigation = useNavigation<Navigation>();
   const { open, opens } = useOpenArtifact(props.hostId, props.sessionId);
   const { shown, hiddenCount } = cardChips(props.items);
@@ -140,6 +161,7 @@ function AgentArtifactChips(props: { readonly hostId: string; readonly sessionId
           note={chip.note}
           filePath={chip.artifact.kind === "file" || chip.artifact.kind === "image" ? chip.artifact.path : undefined}
           pullRequestState={chip.pullRequestState}
+          size={size}
           onPress={() => (opens(chip.artifact) ? open(chip.artifact) : openAll())}
         />
       ))}
@@ -148,9 +170,9 @@ function AgentArtifactChips(props: { readonly hostId: string; readonly sessionId
           accessibilityRole="button"
           accessibilityLabel={`Show all ${props.items.length} linked items`}
           onPress={openAll}
-          className="h-7 flex-row items-center rounded-full bg-subtle px-2.5 active:opacity-70"
+          className={cn("flex-row items-center rounded-full bg-subtle active:opacity-70", CHIP_SIZE_CLASS[size])}
         >
-          <Text className="text-xs font-t3-medium tabular-nums text-foreground-muted">+{hiddenCount}</Text>
+          <Text className={cn("font-t3-medium tabular-nums text-foreground-muted", CHIP_TEXT_CLASS[size])}>+{hiddenCount}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -208,10 +230,15 @@ export const TurnArtifactChips = memo(function TurnArtifactChips(props: {
   readonly store: ConversationStore;
   readonly promptId: string | null;
   readonly nextPromptId: string | null;
+  /** The turn's final reply, which shows the pull requests it mentions as cards. */
+  readonly replyId: string | null;
   readonly imageIds: readonly string[];
 }) {
   const { hostId, run } = props.store.controller;
+  const app = useApp();
+  const chipSize = useListened(app.personal.changes, () => app.personal.current().artifactChipSize);
   const { snapshot } = useSessionArtifacts(hostId, run.sessionId, false);
+  const replyCards = useTurnReplyCards(props.store, props, props.replyId);
   const ids = useMemo(
     () => [props.promptId, props.nextPromptId, ...props.imageIds].filter((id) => id !== null),
     [props.imageIds, props.nextPromptId, props.promptId],
@@ -224,15 +251,16 @@ export const TurnArtifactChips = memo(function TurnArtifactChips(props: {
   };
   const startedAt = props.promptId === null ? 0 : timestampOf(props.promptId);
   if (startedAt === null) return null;
+  // A pull request the reply mentions has its card there, so it takes no chip.
   const items = turnArtifacts(
     snapshot.state.artifacts.own,
     { startedAt, nextStartedAt: timestampOf(props.nextPromptId) },
     () => threadTurnImages(transcript.filter((item) => props.imageIds.includes(item.id))).map((image) => image.href),
-  );
+  ).filter((item) => item.kind !== "pull-request" || !replyCards?.placed.has(pullRequestKey(item.link)));
   if (items.length === 0) return null;
   return (
     <View className="my-1 self-stretch">
-      <AgentArtifactChips hostId={hostId} sessionId={run.sessionId} items={items} />
+      <AgentArtifactChips hostId={hostId} sessionId={run.sessionId} items={items} size={chipSize} />
     </View>
   );
 });

@@ -20,7 +20,6 @@
   import { draftHostGate, type DraftHostGate, type GatedHost } from "./lib/host-gate";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { useSkyScene } from "../../lib/sky-scene.svelte";
-  import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
@@ -217,7 +216,7 @@
   <!-- One question, then the composer. Everything a new session needs — project,
        task, model — sits on the bar directly below, so this stays a headline. -->
   <div class="relative flex h-full min-h-0 w-full flex-col items-center justify-center gap-5 px-6 py-3">
-    <!-- Full-page draft only, like the tips: the split composer has its own chrome. -->
+    <!-- Full-page draft only: the split composer has its own chrome. -->
     {#if !isAside && theme.showsDraftMark}
       <DraftMark scene={sky.current} />
     {/if}
@@ -261,13 +260,6 @@
     {#if !isAside}
       <GetStartedList class="max-w-[max(min(60%,50rem),min(100%,30rem))]" />
     {/if}
-
-    <!-- Full-page draft only: the narrow split composer has its own chrome, so
-         tips there would crowd it. Pinned near the bottom, out of the centered
-         flow so the headline stays optically centered. -->
-    {#if !isAside}
-      <SolusTips class="absolute inset-x-0 bottom-6 mx-auto px-6" />
-    {/if}
   </div>
 {/snippet}
 
@@ -297,10 +289,6 @@
       {paneId}
       {draft}
       centered
-      onOpenAsPage={() => {
-        const companion = session.router.companionPane;
-        if (companion) session.router.moveSurfaceToMain(companion.activeSurfaceIndex);
-      }}
       onClose={discard}
       closeLabel="Discard draft"
     >

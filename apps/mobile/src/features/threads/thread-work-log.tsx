@@ -27,7 +27,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import type { ConversationStore } from "../conversation/conversation-store";
-import { ThreadToolImages } from "./ThreadTurnImages";
+import { ThreadToolImages } from "./ThreadImages";
 import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
 import {
   summarizeToolGroup,

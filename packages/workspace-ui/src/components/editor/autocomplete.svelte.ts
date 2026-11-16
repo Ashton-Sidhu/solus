@@ -50,6 +50,7 @@ import {
   type Trigger,
 } from "./unified-autocomplete/trigger";
 import { ReferenceIndex } from "./unified-autocomplete/reference-index.svelte";
+import type { FleetMachine } from "../fleet/lib/fleet-model";
 import { autocompleteSessionChangedFiles } from "./autocomplete-scope";
 import { serverConnections } from "@solus/client-core/server-connections";
 
@@ -67,6 +68,8 @@ export interface AutocompleteDeps {
    *  detached editor has no session and therefore no session-file group. */
   sessionId?: () => string | undefined;
   workingDirectory: () => string | undefined;
+  /** The hosts of this client, for the `#` menu's Hosts category. */
+  hosts: () => readonly FleetMachine[];
   useRelativeFilePaths: () => boolean;
   provider: () => AgentId;
   includeSolusCommands: () => boolean;
@@ -151,6 +154,7 @@ export class UnifiedAutocompleteController {
       planStore: deps.planStore,
       workingDirectory: () => deps.workingDirectory(),
       tabId: () => deps.tabId(),
+      hosts: () => deps.hosts(),
     });
   }
 
@@ -291,6 +295,7 @@ export class UnifiedAutocompleteController {
         session: this.#byKind.session.length,
         task: this.#byKind.task.length,
         automation: this.#byKind.automation.length,
+        host: this.#byKind.host.length,
       },
       indexingKinds: this.#index.sessionsIndexing ? SESSIONS_INDEXING : undefined,
     });

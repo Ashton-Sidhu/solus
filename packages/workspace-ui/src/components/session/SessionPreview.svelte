@@ -71,7 +71,7 @@
 
 {#snippet wordMarked(text: string)}
   {#each highlightWordRuns(text, query) as run, i (i)}{#if run.hit}<mark
-        class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"
+        class="bg-(--solus-diff-find-bg) text-(--solus-diff-find-text)"
         >{run.text}</mark
       >{:else}{run.text}{/if}{/each}
 {/snippet}
@@ -84,7 +84,7 @@
   {#each highlightWordRuns(text, query) as run, i (i)}
     {#if run.hit}
       <mark
-        class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"
+        class="bg-(--solus-diff-find-bg) text-(--solus-diff-find-text)"
         >{run.text}</mark
       >
     {:else}
@@ -149,14 +149,14 @@
           class="overflow-hidden text-ellipsis whitespace-nowrap font-medium leading-[1.3] text-[var(--solus-text-primary)]"
           title={title}
         >{#each titleRuns as run, i (i)}{#if run.hit}<mark
-              class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"
+              class="bg-(--solus-diff-find-bg) text-(--solus-diff-find-text)"
               >{run.text}</mark
             >{:else}{run.text}{/if}{/each}</div>
         <div class="flex min-w-0 items-center gap-1.5 text-[var(--solus-text-tertiary)]">
           {#if byline}<span
               class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{#each bylineRuns as run, i (i)}{#if run.hit}<mark
-                    class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"
+                    class="bg-(--solus-diff-find-bg) text-(--solus-diff-find-text)"
                     >{run.text}</mark
                   >{:else}{run.text}{/if}{/each}</span
             >{/if}
@@ -218,7 +218,7 @@
           {#each additionalMatches as match (match.messageId)}
             <p class="border-l-2 border-[color-mix(in_oklch,var(--foreground)_18%,transparent)] pl-3 text-(--solus-text-primary)">
               {#each snippetRuns(match.snippet) as run}
-                {#if run.hit}<mark class="rounded bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] text-inherit">{run.text}</mark>{:else}{run.text}{/if}
+                {#if run.hit}<mark class="bg-(--solus-diff-find-bg) text-(--solus-diff-find-text)">{run.text}</mark>{:else}{run.text}{/if}
               {/each}
             </p>
           {/each}

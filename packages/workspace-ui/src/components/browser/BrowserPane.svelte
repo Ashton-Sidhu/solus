@@ -873,6 +873,7 @@
 
   {#if entry && activeKey && !choosingTarget && !isOpeningTarget}
     <BrowserToolbar
+      pageKey={activeKey}
       page={entry.page}
       statedViewport={statedViewport ?? entry.page.viewport}
       scale={stageScale}

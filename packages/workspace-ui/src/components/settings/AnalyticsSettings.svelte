@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { analyticsSearchWords as searchWords } from "./lib/settings-search-data";
   /** Anonymous usage analytics, on the Telemetry page with the rest of the data
    *  Solus sends out. Two emitters, two choices: this app's own (a device
@@ -21,9 +22,9 @@
   const matches = (words: string[]) => !searchQuery || words.some((word) => word.includes(searchQuery.toLowerCase()));
 </script>
 
-<SettingsSection label="Usage analytics" visible={matches(searchWords)}>
+<SettingsSection {...settingsDefinitions["telemetry.section-usage-analytics"]} visible={matches(searchWords)}>
   <SettingsRow
-    label="Share anonymous analytics from this device"
+    {...settingsDefinitions["telemetry.share-anonymous-analytics-from-this-device"]}
     description={settings.clientAnalyticsEnabled === null
       ? "Off until you choose. Saved on this device only."
       : "Anonymous usage data from this app. Saved on this device only."}

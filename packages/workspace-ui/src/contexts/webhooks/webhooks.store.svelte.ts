@@ -286,6 +286,13 @@ class WebhooksStore {
     this.applyDelivery(serverId, summary)
   }
 
+  /** Sends a signed test request through the receiver. Answers the delivery, so a view can open it. */
+  async sendTest(serverId: string, webhookId: string): Promise<WebhookDeliverySummary> {
+    const summary = await serverConnections.apiFor(serverId).webhookSendTest(webhookId)
+    this.applyDelivery(serverId, summary)
+    return summary
+  }
+
   /** Starts nothing and stores nothing (plan §3.3). */
   dryRun(serverId: string, request: WebhookDryRunRequest): Promise<WebhookDryRunResult> {
     return serverConnections.apiFor(serverId).webhookDryRun(request)

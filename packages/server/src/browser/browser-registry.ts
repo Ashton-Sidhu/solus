@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto'
+import { existsSync, realpathSync } from 'fs'
+import { extname, join, sep } from 'path'
 import type { CheckoutService } from '../git/checkout-service'
 import { browserPageForCheckout } from '@solus/contracts/browser-checkout'
 import { z } from 'zod'
@@ -11,7 +13,9 @@ import {
   largestFrameCaps,
   BROWSER_DEFAULT_PROFILE_ID,
   BROWSER_RING_LIMIT,
+  BROWSER_DOWNLOADS_KEPT,
   isBrowserProfileId,
+  isBrowserZoomLevel,
   presetById,
   browserProfilePartition,
   resolveViewport,
@@ -38,6 +42,8 @@ import {
   type BrowserViewportRequest,
 } from '@solus/contracts/browser-types'
 import { createLogger } from '../logger'
+import { writeAssetFile } from '../data/assets/assets'
+import { attachmentsRoot, uploadFolderName } from '../data/assets/attachment-store'
 import { annotationOpExpression, annotationSyncExpression } from './annotation-script'
 import { recordingOverlayExpression } from './recording-overlay-script'
 import {
@@ -61,6 +67,7 @@ import {
   type BrowserDialogAnswer,
   type BrowserDialogState,
   type BrowserEmulation,
+  type BrowserGuestEvents,
   type BrowserHeadlessHost,
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
@@ -402,8 +409,10 @@ export class BrowserRegistry {
     await this.queueDriver(record, async () => {
       await record.driver?.dispose().catch(() => {})
       record.driver = null
+      forgetGuestRequests(record.page)
       try {
         record.driver = await host.attach(webContentsId)
+        this.watchGuest(record, record.driver)
         record.page.hostKind = record.driver.kind
         delete record.page.problem
         await this.applyEmulation(record)
@@ -449,6 +458,7 @@ export class BrowserRegistry {
     await this.queueDriver(record, async () => {
       await record.driver?.dispose().catch(() => {})
       record.driver = null
+      forgetGuestRequests(record.page)
       record.page.hostKind = 'none'
       record.page.loadState = 'idle'
       if (reason === 'crashed') {
@@ -552,6 +562,17 @@ export class BrowserRegistry {
       // restart it or a watcher keeps receiving frames at the old size.
       await this.startStreaming(record)
     }
+  }
+
+  /** Zoom the page as a browser zooms: it lays out at its viewport divided by the zoom. */
+  async setZoom(browserPageId: string, zoomFactor: number): Promise<void> {
+    if (!isBrowserZoomLevel(zoomFactor)) throw new Error(`${zoomFactor} is not a browser zoom level.`)
+    const record = this.require(browserPageId)
+    if ((record.page.zoomFactor ?? 1) === zoomFactor) return
+    if (zoomFactor === 1) delete record.page.zoomFactor
+    else record.page.zoomFactor = zoomFactor
+    this.publish(record)
+    if (record.driver) await this.queueDriver(record, async () => this.applyEmulation(record))
   }
 
   async setAppearance(browserPageId: string, appearance: BrowserAppearance): Promise<void> {
@@ -745,6 +766,51 @@ export class BrowserRegistry {
   /** The dialog that waits for an answer on this page, if any. */
   openDialog(browserPageId: string): BrowserDialog | null {
     return this.records.get(browserPageId)?.driver?.dialogs().open ?? null
+  }
+
+  /**
+   * Give the page's open file chooser the files a client uploaded for this
+   * page, or cancel it with null. Only files in the page's own upload folder
+   * may go: a client names an upload, never any file on the host.
+   */
+  async answerFileChooser(browserPageId: string, hostPaths: string[] | null): Promise<void> {
+    const record = this.require(browserPageId)
+    const paths = hostPaths?.map((path) => browserUploadPath(browserPageId, path)) ?? null
+    // Not in the driver lane, as a dialog: the click that opened the chooser can hold it.
+    const answered = await record.driver?.answerFileChooser(paths)
+    if (!answered) throw new Error('This page is not asking for files now.')
+  }
+
+  /** Hear what this guest asks of a person, and put it on the page. */
+  private watchGuest(record: PageRecord, driver: BrowserSurfaceDriver): void {
+    const current = () => record.driver === driver && !record.closing
+    const events: BrowserGuestEvents = {
+      dialog: (open) => {
+        if (!current()) return
+        record.page.dialog = open
+        this.publish(record)
+      },
+      fileChooser: (open) => {
+        if (!current()) return
+        record.page.fileChooser = open
+        this.publish(record)
+      },
+      downloaded: async (file) => {
+        if (!current()) return
+        const asset = await writeAssetFile(file.path, assetExtension(file.fileName))
+        const downloads = [...(record.page.downloads ?? []), {
+          downloadId: randomUUID(),
+          fileName: file.fileName,
+          assetId: asset.id,
+          sizeBytes: asset.size,
+          at: Date.now(),
+        }]
+        record.page.downloads = downloads.slice(-BROWSER_DOWNLOADS_KEPT)
+        log.info('browser_download_kept', { browserPageId: record.page.browserPageId, sizeBytes: asset.size })
+        this.publish(record)
+      },
+    }
+    driver.watchGuest(events)
   }
 
   private async interactWith(
@@ -1223,6 +1289,7 @@ export class BrowserRegistry {
       appearance: page.appearance,
     }
     if (preset?.userAgent) emulation.userAgent = preset.userAgent
+    if (page.zoomFactor && page.zoomFactor !== 1) emulation.zoom = page.zoomFactor
     return emulation
   }
 
@@ -1311,6 +1378,7 @@ export class BrowserRegistry {
     }
 
     record.driver = driver
+    this.watchGuest(record, driver)
     page.hostKind = driver.kind
     // A page that was merely unhosted, or whose last guest died, is neither now.
     // A target that is not answering still is, and its problem stays.
@@ -1571,6 +1639,33 @@ async function reachable(url: string): Promise<boolean> {
   } finally {
     clearTimeout(timer)
   }
+}
+
+/** The bucket a page's file-chooser uploads go to, apart from every conversation's. */
+export function browserUploadBucket(browserPageId: string): string {
+  return `browser-${browserPageId}`
+}
+
+/** A client's upload for this page, as a real path inside the page's upload folder. */
+function browserUploadPath(browserPageId: string, hostPath: string): string {
+  const folder = join(attachmentsRoot(), uploadFolderName(browserUploadBucket(browserPageId)))
+  if (!existsSync(hostPath)) throw new Error('An uploaded file is missing. Upload it again.')
+  const real = realpathSync(hostPath)
+  const root = existsSync(folder) ? realpathSync(folder) : folder
+  if (!real.startsWith(root + sep)) throw new Error('A browser page takes only files uploaded for it.')
+  return real
+}
+
+/** A guest that is gone asks nothing more. */
+function forgetGuestRequests(page: BrowserPage): void {
+  delete page.dialog
+  delete page.fileChooser
+}
+
+/** The asset store names files by type; a name with no usable extension is plain bytes. */
+function assetExtension(fileName: string): string {
+  const extension = extname(fileName).slice(1).toLowerCase()
+  return /^[a-z0-9][a-z0-9+_-]{0,15}$/.test(extension) ? extension : 'bin'
 }
 
 function delay(ms: number): Promise<void> {

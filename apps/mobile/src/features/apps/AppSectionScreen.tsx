@@ -3,6 +3,7 @@ import { AppPage, AppStateBody } from "./app-rows";
 import { appSectionTitle, type AppSectionId } from "./app-sections";
 import { ActivitySection } from "./sections/ActivitySection";
 import { ConfigSection } from "./sections/ConfigSection";
+import { DeploymentSection } from "./sections/DeploymentSection";
 import { FilesSection } from "./sections/FilesSection";
 import { OperationsSection } from "./sections/OperationsSection";
 import { OverviewSection } from "./sections/OverviewSection";
@@ -56,6 +57,8 @@ function Section({ section, ...props }: AppSectionProps & { readonly section: Ap
       return <WorkflowsSection {...props} />;
     case "versions":
       return <VersionsSection {...props} />;
+    case "deployment":
+      return <DeploymentSection {...props} />;
     case "schedules":
       return <SchedulesSection {...props} />;
     case "webhooks":

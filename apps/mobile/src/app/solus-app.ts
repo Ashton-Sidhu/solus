@@ -5,6 +5,7 @@ import type { WsTransportOptions } from '@solus/client-core/ws-transport'
 import { replaceModelProfiles, type AgentId, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
 import { toBase64Url } from '@solus/contracts/host-identity'
 import type { HostApi } from '@solus/client-core/host-api'
+import type { AddressReader } from '@solus/client-core/host-connection-check'
 import type { DocumentSyncEnvironment } from '@solus/client-core/document-sync'
 import type { BrowserAuthorizer, OAuthSessionDeps } from '@solus/client-core/oauth-session'
 import { DEFAULT_CLOUD_ORIGIN } from '../features/account/account-client'
@@ -26,6 +27,7 @@ import { HostSettings } from '../features/settings/host-settings'
 import { HostCloudLink } from '../features/settings/host-cloud-link'
 import { ForwardedHosts } from '../features/hosts/forwarded-hosts'
 import { NativeDevices } from '../features/devices/native-devices'
+import { NativeBrowser } from '../features/browser/native-browser'
 import { HostAccess } from '../features/settings/host-access'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
@@ -52,6 +54,7 @@ export interface PlatformAdapters {
   storage: KeyValueStore
   secrets: SecretStore
   fetch: typeof fetch
+  readAddress?: AddressReader
   createTransport(options: WsTransportOptions): HostTransport
   openBrowser(url: string): Promise<void>
   /** What this device calls itself to a host and to the account, e.g. "Ada's iPhone". */
@@ -133,6 +136,8 @@ export class SolusApp {
   /** How each host is reached and who reaches it. */
   readonly hostAccess: HostAccess
   readonly devices: NativeDevices
+  /** Each host's browser pages and their streamed frames. */
+  readonly browser: NativeBrowser
   /** The device copy of pull request data, for offline reading, and the review drafts. */
   readonly pullRequestCache: PullRequestCache
   readonly pullRequests: PullRequestDirectory
@@ -186,6 +191,7 @@ export class SolusApp {
       solusApiAccessToken: (options) => this.account.solusApiAccessToken(options),
       fetch: platform.fetch,
       clientVersion: platform.appVersion ?? 'unknown',
+      readAddress: platform.readAddress,
       healthNonce: platform.accountCrypto?.randomBytes ? () => toBase64Url(platform.accountCrypto!.randomBytes!(16)) : undefined,
     })
     this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId))
@@ -205,6 +211,7 @@ export class SolusApp {
     this.account.changes.subscribe(() => this.followAccount())
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
     this.devices = new NativeDevices((hostId) => this.connections.connection(hostId))
+    this.browser = new NativeBrowser((hostId) => this.connections.connection(hostId), platform.attachmentIo?.uploadFile ?? null)
     this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
     this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
     this.forwardedHosts = new ForwardedHosts((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => void this.account.refreshDirectory())
@@ -427,6 +434,7 @@ export class SolusApp {
     this.forwardedHosts.forgetHost(hostId)
     this.hostAccess.forgetHost(hostId)
     this.devices.forgetHost(hostId)
+    this.browser.forgetHost(hostId)
     this.accountSync.forgetHost(hostId)
     this.pullRequests.forgetHost(hostId)
     this.pullRequestDiffs.forgetHost(hostId)

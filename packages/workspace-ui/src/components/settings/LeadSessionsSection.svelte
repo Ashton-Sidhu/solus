@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   /** Lead sessions: the model a new lead session starts on, the default model
    *  its workers start on, and the instructions added to its contract. Lives
    *  under Sessions; the Sessions tab owns the search entries. */
@@ -86,13 +87,12 @@
 </script>
 
 <SettingsSection
-  label="Meta mode"
+  {...settingsDefinitions["sessions.section-meta-mode"]}
   visible={["lead-model", "worker-model", "lead-instructions"].some(isVisible)}
 >
   <SettingsRow
-    label="Meta mode model"
+    {...settingsDefinitions["sessions.lead-model"]}
     managed={managedSetting("leadModel")}
-    description="What a session in Meta mode starts on. Off uses the default for new sessions."
     visible={isVisible("lead-model")}
   >
     {#snippet control()}
@@ -119,9 +119,8 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Default worker model"
+    {...settingsDefinitions["sessions.worker-model"]}
     managed={managedSetting("workerModel")}
-    description="What a Meta mode session starts its workers on when its instructions name none. Off lets it choose."
     visible={isVisible("worker-model")}
   >
     {#snippet control()}
@@ -148,9 +147,8 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Meta mode instructions"
+    {...settingsDefinitions["sessions.lead-instructions"]}
     managed={managedSetting("leadInstructions")}
-    description="Added after the built-in rules a Meta mode session follows."
     visible={isVisible("lead-instructions")}
   >
     {#snippet body()}

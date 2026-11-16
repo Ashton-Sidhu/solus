@@ -55,12 +55,12 @@ function resolveSavedAutomation(
   return { automationId: found.id, name: found.name, trigger: found.trigger, enabled: found.enabled }
 }
 
-function agentConversationResultFor(
+function agentConversationResultsFor(
   history: WireSessionLoadMessage[],
   toolId: string | undefined,
-): AgentConversationResultProjection | undefined {
-  if (!toolId) return undefined
-  return history.find((m) => m.role === 'tool_result' && m.toolResultForId === toolId)?.agentConversationResult
+): AgentConversationResultProjection[] {
+  if (!toolId) return []
+  return history.find((m) => m.role === 'tool_result' && m.toolResultForId === toolId)?.agentConversationResults ?? []
 }
 
 /**
@@ -482,7 +482,7 @@ export function materializeSessionTranscript(
       agentConversations.applyToolRow(
         m.toolName ?? '',
         m.toolInput,
-        m.agentConversationResult ?? agentConversationResultFor(loadedHistory, m.toolId),
+        m.agentConversationResults ?? agentConversationResultsFor(loadedHistory, m.toolId),
         m.timestamp ?? Date.now(),
       )
       continue

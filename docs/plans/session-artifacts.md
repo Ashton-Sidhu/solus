@@ -4,8 +4,8 @@ Status: implemented, 2026-10-28. Desktop, web, and mobile. The session view
 (decisions 10 to 16) is implemented on desktop and web, 2026-11-12; the phone
 keeps the list of decisions 1 to 7 until its screen is built.
 
-The **Artifacts** surface shows what happened in a session: its turns as a
-timeline, the files it changed, the agents it started, and what it produced or
+The **Threads** surface shows what happened in a session: a row of what it
+made (pinned and latest first), its turns as a timeline, the files it changed, the agents it started, and what it produced or
 linked (pull requests, works, files, images, and automations). For a session
 that started other sessions (a lead), it also shows what each session below it
 in its delegation tree linked, so a person never opens worker transcripts to
@@ -18,9 +18,14 @@ already exist.
   `pull-request`, `work`, `file`, `image`, `automation`, or `app` (an app the
   session deployed or linked; docs/plans/apps.md decision 19)
   (`packages/contracts/src/session-artifacts.ts`).
-- **Artifacts surface** — the companion-pane surface that lists them, route
-  `artifacts` (`docs/plans/companion-surfaces.md`). On mobile, the Artifacts
-  screen reached from the thread's menu.
+- **Threads surface** — the companion-pane surface that lists them, route
+  `artifacts` (`docs/plans/companion-surfaces.md`). It was the Artifacts
+  surface until 2026-11-13; the route id and the command ids keep the old
+  name, so saved layouts and custom shortcuts still work. On mobile, the
+  Threads screen reached from the thread's menu.
+- **recent row** — the "Pinned and recent" section of pictures at the top of the surface: the
+  session's works, apps, files, and images, pinned first, then the latest
+  opened, changed, or added (decision 17).
 - **own** — the session's own artifacts. **children** — one group per session
   below it in its delegation tree: the sessions it started, oldest started
   first, then the ones they started, level by level.
@@ -31,13 +36,11 @@ already exist.
   timeline.
 - **turn** — the stretch from one prompt to the next, as the conversation cuts
   it. A notice the agent SDK injects opens no turn.
-- **scope** — what the surface shows: the whole session, or one turn.
-- **tile** — one of the scope's four numbers: changed files, agents, pull
-  requests, and works and files. A tile is also the kind filter.
-- **card** — one kind's rows under the tiles.
+- **scope** — what the cards show: the whole session, or one turn.
+- **card** — one kind's rows under the turn timeline.
 
 Do not call the surface a tab, a panel, or a page. Do not call a turn a step
-or a message, and do not call the scope a filter: the kind is the filter.
+or a message, and do not call the scope a filter.
 
 ## Decisions
 
@@ -56,7 +59,7 @@ or a message, and do not call the scope a filter: the kind is the filter.
    ancestor too. Clients reload on it.
 3. **Automatic opening is optional, and off by default.** Chat settings holds
    the personal `autoOpenArtifacts` setting on every client. Desktop and web
-   open the surface only when it is enabled. A new companion pane requests 26%
+   open the surface only when it is enabled. A new companion pane requests 30%
    of the workspace width; the person can resize it. When enabled and the store sees the artifact count of the
    conversation on screen rise from an event-driven refresh, the `artifacts`
    surface is added to the strip if absent, made active, and the companion pane
@@ -69,8 +72,8 @@ or a message, and do not call the scope a filter: the kind is the filter.
 4. **Manual entry points**, the same as Changes and Files: the + menu in the
    companion strip, the shortcut `opt+shift+e` (`conversation.open-artifacts`;
    on web `opt+shift+'`, because the browser client's organization switcher
-   holds `opt+shift+e`), and the command palette ("Open artifacts", "Open
-   artifacts in main pane"). The route's placement is `either`, so "Move to
+   holds `opt+shift+e`), and the command palette ("Open threads", "Open
+   threads in main pane"). The route's placement is `either`, so "Move to
    main" in the strip works for it too.
 5. **A row opens its item as a surface** with the existing routes: pull request
    review, work, file (serverId, cwd, path), automation. Every item opens on
@@ -108,11 +111,35 @@ or a message, and do not call the scope a filter: the kind is the filter.
    a link belongs to the turn that started at or before its `linkedAt` and before
    the next turn started, so the last turn also takes later links. A running
    turn shows no row, and a delegate's links stay on its card. An image the
-   turn's gallery shows gets no chip, so it shows once.
+   turn's gallery shows gets no chip, so it shows once. The person chooses the
+   size of these chips (Settings › Chat › Artifact chip size: small, medium, or
+   large; medium by default, small is the card size). A card's chips stay small.
+   A pull request linked during the turn that the turn's final reply (its
+   last assistant message) mentions takes a card in that reply, not a chip
+   (`placeReplyPullRequests` in `packages/client-core/src/reply-pull-requests.ts`).
+   A mention is the pull request's URL, `owner/repo#N` or `repo#N`, or
+   `PR #N` / `pull request #N`; a bare `#N` can be an issue, so it is not one.
+   The card goes after the top-level block that mentions it, so it never cuts
+   a sentence or a list. A block that is only the link becomes the card, or
+   goes when the card is already above it. A
+   mention only inside a code block, or a reply with reference links or
+   footnotes (which splitting would cut from their targets), puts the card
+   after the reply. A pull request the reply does not mention stays a chip.
+   Desktop and web render each text part with the same markdown renderers
+   (`turnReplyCards`, `ReplyPullRequestCard`); the phone does the same in
+   `FinalReplyMarkdown`. The card itself (`pullRequestCard` in
+   `pull-request-card.ts`; `PullRequestTurnCard` on each client) shows the
+   state (glyph and type word), the title, `owner/repo #N · author · age`,
+   and the size (files, additions, deletions) once PR sync pushed the full
+   pull request. A newer link snapshot wins over an older full read for the
+   state. A footer offers the session's watch (docs/plans/pr-watch.md): "Turn
+   on" while a watch can start, "Turn off" while it runs. A merged, closed,
+   or missing pull request offers none, and a reader without `edit` sees a
+   running watch but no switch.
 
 10. **The surface is the session, not only its links.** Under one head (the
-    session's name, how it stands, its branch) it shows a scope card (the
-    timeline, then the tiles) and one card for each kind: Changes, Agents, Pull
+    session's name, how it stands, its branch) it shows the recent row
+    (decision 17), the turn timeline, and one card for each kind: Changes, Agents, Pull
     requests, and Works and files. A card's label closes it. On a pane of
     44rem or wider the cards take two columns, so a row is never wider than a
     narrow pane. One model orders and scopes the rows on every client
@@ -134,16 +161,16 @@ or a message, and do not call the scope a filter: the kind is the filter.
     it takes a few dots, and the line says how long it was (`3h`, `2d`). When
     the bars do not fit at the coarsest span, the plot scrolls and starts at
     its end (`packages/client-core/src/turn-timeline.ts`).
-12. **Selecting a turn scopes everything under the turn timeline.** The tiles count
-    the turn and the cards show only its rows. A link, an agent, or a
+12. **Selecting a turn scopes everything under the turn timeline.** The cards
+    show only its rows. A link, an agent, or a
     checkpoint carries a time and no turn id, so it is in the turn whose prompt
     is the last one before it (the rule of decision 9). The scope names its
     turn by the prompt's message id, so it holds when earlier history loads.
     Selecting the turn again, Escape, or the clear control returns to the
     whole session. Left and right arrow keys step through the turns.
-13. **The tiles count the scope, not the search.** A search looks for a row; it
-    does not change how much the turn did. A tile's marks say how its rows
-    stand (running, done, failed; open, draft, merged).
+13. **There is no kind filter.** The four tiles that counted the scope and
+    narrowed the cards to one kind were replaced by the recent row
+    (2026-11-13). A card's label still folds it.
 14. **Changes are the session's own, from git.** The whole session reads
     `diffStats` with scope `session`; a turn reads the checkpoint written in it
     (`listTurnSnapshots`, then `diffStats` with scope `turn`). Until git
@@ -159,9 +186,20 @@ or a message, and do not call the scope a filter: the kind is the filter.
     Selecting a chip shows only that kind in the tree; the card's count and
     totals stay those of the whole change.
 15. **Agents are the session's sub-agents and the sessions it started**, as the
-    project panel's Agents card lists them (`railAgentList`). A started
-    session's row shows counts of what it linked. A row opens the sub-agent or
-    the session.
+    project panel's Agents card lists them (`railAgentList`), grouped by how
+    they stand: Working, Done, Failed, Stopped, and last Snoozed, which holds a
+    started session the person snoozed, whatever its agent did, as the
+    sidebar's Snoozed shelf does (`agentGroups`). A group's label folds it. A
+    row shows a status glyph, the title, the provider, and how long the agent
+    ran in the sidebar's clock style, and under it what the agent is on or came
+    back with. A snoozed row shows when it wakes, and that pill wakes it now. What a
+    started session linked hangs under its row as chips (the model of decision
+    8; `+N` opens that session's Artifacts surface). A row opens the sub-agent
+    or the session. A started session's row takes the sidebar's session menu
+    on right-click, with the sidebar's row actions: Stop, Done, Snooze (the
+    presets and the custom time, with an undo toast), and Archive. Snooze
+    writes the person's session list, so the sidebar and the card agree. A
+    sub-agent has no session and no menu.
 16. **The transcript is read on the client, so it needs the conversation open.**
     The timeline, the agents, and the changed files show for a session that
     has a conversation in this workspace. For any other session (a started
@@ -169,6 +207,34 @@ or a message, and do not call the scope a filter: the kind is the filter.
     says why. When the conversation holds only its recent history, the timeline
     covers what is loaded, and a control in its caption loads the remainder. The transcript is
     scanned once for each appended message, and never for a streamed token.
+17. **The recent row shows what a person comes back for.** At the top of the
+    surface, under the head, a section of its own with no card around it,
+    labelled "Pinned and recent"
+    (not "Artifacts": it holds what was pinned or touched last, not every
+    item), holds one row of the works,
+    apps, files, and images of the session and the sessions it started; pull
+    requests and automations stay in their cards. Pinned works come first;
+    then each item by the latest of three times: when this device last opened
+    it, when a work last changed (`updatedAt`), and when a session linked it.
+    An item two sessions linked shows once. The row holds at most 12, scrolls
+    sideways, and is the whole session's: a turn or a search does not narrow
+    it. Its label folds it, as the cards' labels fold them, and its arrows
+    page the row. Each item is a small picture over its name on one line, cut
+    with an ellipsis, and a short age ("10m"): a written work shows its title
+    and the start of its text (`preview`), an image shows itself, and an
+    artifact, an app, or a file shows its icon. A pin
+    marks a pinned work. One model orders the row on every client
+    (`packages/client-core/src/recent-artifacts.ts`).
+    - The read gives each work its `pinned`, `updatedAt`, and `preview`
+      (optional: an older host leaves them out, and the row orders by the
+      link time alone). A client reads the list again on every `works.changed`
+      for a work the list holds, so a pin or an edit moves the row.
+    - When an item was opened is kept on each device (`localStorage` on
+      desktop and web, the app's key-value store on the phone), at most the
+      newest 200 opens. Every open of a session's artifact on that device
+      records it: the row, the cards, and the chips.
+    - On the phone the row heads the Threads screen. A work has no screen
+      there, so its picture only shows it.
 
 ## Verification
 
@@ -180,4 +246,9 @@ or a message, and do not call the scope a filter: the kind is the filter.
   and counts each call in its turn's bar (`turn-timeline`). The scope puts a
   link, an agent, and a checkpoint in one turn; changes order by size and keep
   unknown counts unknown; the transcript scan cuts turns where the
-  conversation does; the tiles count each kind (`session-overview`).
+  conversation does (`session-overview`).
+- Unit: the recent row puts pinned works first, then the latest of opened,
+  changed, or linked; leaves out pull requests and automations; shows an item
+  two sessions linked once; and the open log survives a restart, reads a
+  damaged store as empty, and keeps the newest 200 (`recent-artifacts`). The
+  read returns a work's pin, last change, and preview (`session-artifacts`).

@@ -158,6 +158,8 @@ export const RESOURCE_LOCATORS = {
   unlinkPlanUpstream: sessionIdAt(0),
   tasksLinkSession: sessionIdAt(1),
   tasksUnlinkSession: sessionIdAt(1),
+  appSessionLink: sessionFieldAt(0, 'sessionId'),
+  appSessionUnlink: sessionFieldAt(0, 'sessionId'),
   // Works — reading
   loadWorkRevisions: workIdAt(0),
   loadWorkRevision: workIdAt(0),
@@ -219,6 +221,7 @@ export const RESOURCE_LOCATORS = {
   webhookListDeliveries: ownedIdAt('webhook', 0),
   webhookReadDelivery: ownedIdAt('webhook', 0),
   webhookReplay: ownedIdAt('webhook', 0),
+  webhookSendTest: ownedIdAt('webhook', 0),
   workspaceProjectUpdate: ownedIdAt('project', 0),
   workspaceProjectRemove: ownedIdAt('project', 0),
   notificationsSetRead: notificationFieldAt(0),

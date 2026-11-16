@@ -1,47 +1,79 @@
 import { describe, expect, test } from 'bun:test'
-import { SOURCE_CONTROL_SEARCH_WORDS, dataMatches, wordsMatch } from '../../packages/workspace-ui/src/components/settings/lib/settings-search'
+import { settingMatches, settingVisible } from '@solus/client-core/settings-search'
+import { settingsDefinitions } from '@solus/client-core/settings-definitions'
+import { settingsByPage, chatSettings, sourceControlSettings } from '../../packages/workspace-ui/src/components/settings/lib/settings-search-data'
+import { dataMatches, wordsMatch, settingsPageMatches, settingsPageQuery } from '../../packages/workspace-ui/src/components/settings/lib/settings-search'
 
-// Settings search covers every page. A page with no word list must still be
-// found through the data its rows are built from, or a search from another
-// page cannot reach it.
 describe('settings search', () => {
-  test('a word matches a part of a search word, in any case', () => {
-    expect(wordsMatch('Dark', ['theme', 'dark'])).toBe(true)
+  test('matches query terms across a label, description, and aliases in any case', () => {
+    const row = { label: 'Response streaming', description: 'Show paragraphs and code blocks as they finish.', keywords: ['buffered'] }
+    expect(settingMatches('  STREAMING   paragraphs  ', row)).toBe(true)
+    expect(settingMatches('buffered code', row)).toBe(true)
+    expect(settingMatches('streaming voice', row)).toBe(false)
+    expect(settingMatches('   ', row)).toBe(true)
     expect(wordsMatch('notif', ['Notifications'])).toBe(true)
-    expect(wordsMatch('voice', ['theme', 'dark'])).toBe(false)
   })
 
-  test('a shortcut name finds the Keybindings page', () => {
+  test('GitHub is found from its displayed label without a search alias', () => {
+    expect(sourceControlSettings.find((row) => row.id === 'github')?.keywords).toEqual([])
+    for (const query of ['github', 'GitHub', 'gith']) {
+      expect(settingsPageMatches('source-control', query)).toBe(true)
+      expect(settingVisible(query, sourceControlSettings, 'github')).toBe(true)
+    }
+    expect(settingsPageMatches('source-control', 'voice')).toBe(false)
+    expect(settingsPageMatches('source-control', 'repository history')).toBe(true)
+    expect(settingVisible('repository history', sourceControlSettings, 'writing')).toBe(true)
+  })
+
+  test('every indexed row can be found by its display text before its page loads', () => {
+    for (const [page, rows] of Object.entries(settingsByPage)) {
+      for (const row of rows ?? []) {
+        for (const query of [row.label, row.description].filter((text): text is string => !!text)) {
+          expect(settingsPageMatches(page, query)).toBe(true)
+          expect(settingVisible(query, rows!, row.id)).toBe(true)
+        }
+      }
+    }
+  })
+
+  test('the same query finds the page and keeps its matching row visible', () => {
+    const query = 'paragraphs code'
+    expect(settingsPageMatches('chat', query)).toBe(true)
+    const pageQuery = settingsPageQuery('chat', query)
+    expect(pageQuery).toBe(query)
+    expect(settingVisible(pageQuery, chatSettings, 'response-streaming')).toBe(true)
+    expect(settingVisible(pageQuery, chatSettings, 'show-tool-calls')).toBe(false)
+  })
+
+  test('section headings and nested controls open their page without hiding all rows', () => {
+    expect(settingsPageMatches('appearance', 'Typography')).toBe(true)
+    expect(settingsPageQuery('appearance', 'Typography')).toBe('')
+    expect(settingsPageMatches('general', 'Download updates automatically')).toBe(true)
+    expect(settingsPageQuery('general', 'Download updates automatically')).toBe('')
+    expect(settingsPageQuery('chat', 'no-such-setting')).toBe('no-such-setting')
+  })
+
+  test('static labels and descriptions remain searchable outside indexed row groups', () => {
+    for (const [key, copy] of Object.entries(settingsDefinitions)) {
+      const page = key.slice(0, key.indexOf('.'))
+      expect(settingsPageMatches(page, copy.label)).toBe(true)
+      if ('description' in copy) expect(settingsPageMatches(page, copy.description)).toBe(true)
+    }
+  })
+
+  test('notification descriptions are searched with the same matcher as other rows', () => {
+    expect(settingsPageMatches('notifications', 'waits for permission')).toBe(true)
+  })
+
+  test('a missing row definition is reported instead of silently hiding the setting', () => {
+    expect(() => settingVisible('anything', chatSettings, 'missing')).toThrow('Missing setting definition')
+  })
+
+  test('shortcut and tool names remain searchable through their own data', () => {
     expect(dataMatches('keybindings', 'new session', {})).toBe(true)
     expect(dataMatches('keybindings', 'zzz-no-such-shortcut', {})).toBe(false)
-  })
-
-  test('a Solus tool name finds the Tools page', () => {
     expect(dataMatches('tools', 'query insights', {})).toBe(true)
     expect(dataMatches('tools', 'zzz-no-such-tool', {})).toBe(false)
-  })
-
-  test('a page without data rows matches nothing through data', () => {
     expect(dataMatches('appearance', 'new session', {})).toBe(false)
   })
-
-  // The commit and pull request writing setting is on the Source control
-  // page. A person who looks for it by what it writes must find that page.
-  test('a search for commit or pull request words finds the Source control page', () => {
-    expect(wordsMatch('pull request', SOURCE_CONTROL_SEARCH_WORDS)).toBe(true)
-    expect(wordsMatch('commit message', SOURCE_CONTROL_SEARCH_WORDS)).toBe(true)
-    expect(wordsMatch('voice', SOURCE_CONTROL_SEARCH_WORDS)).toBe(false)
-  })
-})
-
-// A section's row filters and the navigation share these lists. Searching from
-// General must still find a closed section after its UI becomes lazy-loaded.
-test('closed sections remain searchable through their shared row data', async () => {
-  const data = await import('../../packages/workspace-ui/src/components/settings/lib/settings-search-data')
-  expect(wordsMatch('font', data.appearanceSettings.flatMap((row) => row.keywords))).toBe(true)
-  expect(wordsMatch('queue', data.sessionSettings.flatMap((row) => row.keywords))).toBe(true)
-  expect(wordsMatch('retention', data.hostSearchWords)).toBe(true)
-  expect(wordsMatch('ngrok', data.hostSearchWords)).toBe(true)
-  expect(wordsMatch('mobileconfig', data.policySearchWords)).toBe(true)
-  expect(wordsMatch('connector', data.mcpSearchWords)).toBe(true)
 })

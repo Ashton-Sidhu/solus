@@ -14,7 +14,6 @@
   } from "./lib/breadcrumb-styles";
   import {
     Undo2 as ArrowUUpLeftIcon,
-    ExternalLink as ArrowSquareOutIcon,
     ChevronDown as CaretDownIcon,
     FolderOpen as FolderOpenIcon,
     Plus as PlusIcon,
@@ -87,7 +86,6 @@
     projectPanelOpen?: boolean;
     onProjectPanelToggle?: () => void;
     /** Optional pane-close control in the shared header action cluster. */
-    onOpenAsPage?: () => void;
     onClose?: () => void;
     closeLabel?: string;
   }
@@ -100,7 +98,6 @@
     showProjectPanelAction = true,
     projectPanelOpen,
     onProjectPanelToggle,
-    onOpenAsPage,
     onClose,
     closeLabel = "Close pane",
   }: Props = $props();
@@ -909,18 +906,6 @@
         onclick={toggleProjectPanel}
       >
         <SidebarSimpleIcon size={15} strokeWidth={1.5} mirrored />
-      </button>
-    {/if}
-
-    {#if onOpenAsPage}
-      <button
-        type="button"
-        class={BAND_ACTION}
-        title="Open as page"
-        aria-label="Open as page"
-        onclick={onOpenAsPage}
-      >
-        <ArrowSquareOutIcon size={15} />
       </button>
     {/if}
 

@@ -735,6 +735,13 @@ export function pickerSessionProject(row: PickerSessionEntry): string {
   return (projectKey && hostPathBaseName(projectKey)) || '~'
 }
 
+/** The folder the session ran in, for its project's logo: a chat's own
+ *  folder, which `groupKeyFor` reads as a chat. */
+export function pickerSessionFolder(row: PickerSessionEntry): string {
+  if (row.kind === 'session') return row.session.projectKey || '~'
+  return row.meta.projectRoot || row.meta.cwd || '~'
+}
+
 /** The host the session ran on. */
 export function pickerSessionServerId(row: PickerSessionEntry): string | null | undefined {
   return row.kind === 'session' ? row.session.serverId : row.meta.serverId

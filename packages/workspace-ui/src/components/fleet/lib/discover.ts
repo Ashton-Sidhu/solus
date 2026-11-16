@@ -8,15 +8,6 @@ import type { FleetZoneId } from './fleet-model'
  * the zone it would join, and the one action that adds it.
  */
 
-export type FoundSource = 'lan' | 'tailnet' | 'wsl' | 'ssh-config'
-
-export const FOUND_SOURCE_LABEL = {
-  lan: 'Local network',
-  tailnet: 'Tailscale',
-  wsl: 'WSL',
-  'ssh-config': 'SSH config',
-} satisfies Record<FoundSource, string>
-
 export type FoundMachine =
   /** Runs Solus: pairs with the code it shows. */
   | { kind: 'server'; key: string; name: string; os?: HostOperatingSystem; source: 'lan' | 'tailnet'; detail: string; zone: FleetZoneId; server: DiscoveredServer }
@@ -53,7 +44,7 @@ export function foundMachines(input: FoundInput): FoundMachine[] {
         os: 'linux',
         source: 'wsl',
         detail: `On ${input.wsl.windowsHostName}`,
-        zone: 'forwarded',
+        zone: 'own',
         windowsHostId: input.wsl.windowsHostId,
         distro: distro.name,
       })
@@ -69,7 +60,7 @@ export function foundMachines(input: FoundInput): FoundMachine[] {
       name: names[0]!,
       source: 'ssh-config',
       detail: candidate.target,
-      zone: 'forwarded',
+      zone: 'own',
       sshTarget: candidate.target,
     })
   }

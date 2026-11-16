@@ -10,6 +10,11 @@ import {
   type PersonMention,
 } from "@solus/contracts/mentions";
 import { sessionReferenceMarkdown } from "@solus/contracts/session-link";
+import {
+  hostReferenceMarkdown,
+  parseHostHref,
+  type HostReference,
+} from "@solus/contracts/host-link";
 
 export interface FileReferenceToken {
   kind: "file";
@@ -60,6 +65,12 @@ export interface PersonReferenceToken extends PersonMention {
   kind: "person";
 }
 
+/** A host, by server id, with what the client knew of it when the chip was
+ *  made (docs/plans/host-fleet.md D12). */
+export interface HostReferenceToken extends HostReference {
+  kind: "host";
+}
+
 /** A code-host account, written the way the host reads a mention: `@login`.
  *  Plain text, never a chip, so the host notifies the person. */
 export interface LoginReferenceToken {
@@ -77,6 +88,7 @@ export type ReferenceToken =
   | TaskReferenceToken
   | AutomationReferenceToken
   | PersonReferenceToken
+  | HostReferenceToken
   | LoginReferenceToken;
 
 export interface ReferenceTokenRange {
@@ -93,7 +105,7 @@ export interface ReferenceParseOptions {
 }
 
 const CUSTOM_REFERENCE_RE =
-  /\[((?:\\.|[^\]\\\n])*)\]\(((?:plan|work|pr|session|task|automation|person):\/\/[^)\s]*)\)/g;
+  /\[((?:\\.|[^\]\\\n])*)\]\(((?:plan|work|pr|session|task|automation|person|host):\/\/[^)\s]*)\)/g;
 // `@"my file.ts"` is the form for a path with whitespace — the same quoting the
 // Claude Code CLI uses — so the token does not end at the first space.
 const FILE_REFERENCE_RE = /(^|\s)@(?:"([^"\n]+)"|([^\s"]\S*))/g;
@@ -215,8 +227,12 @@ function parseCustomReference(label: string, href: string): ReferenceToken | nul
   return null;
 }
 
-/** A mention's label and href are read by the contract every side shares. */
+/** A mention's and a host's label and href are read by the contract every side shares. */
 function parseLinkReference(label: string, href: string): ReferenceToken | null {
+  if (href.startsWith("host:")) {
+    const host = parseHostHref(href, label);
+    return host ? { kind: "host", ...host } : null;
+  }
   if (!href.startsWith("person:")) return parseCustomReference(label, href);
   const mention = parsePersonMentionHref(href, label);
   return mention ? { kind: "person", ...mention } : null;
@@ -273,6 +289,8 @@ export function serializeReferenceToken(token: ReferenceToken): string {
     }
     case "person":
       return personMentionMarkdown(token);
+    case "host":
+      return hostReferenceMarkdown(token);
     case "login":
       return `@${token.login}`;
   }

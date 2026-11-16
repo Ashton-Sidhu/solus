@@ -25,12 +25,13 @@ const log = createLogger('SessionRuntime', 'provider-events.ts')
  * query does; Claude's tasks end with its query, so its exit never leaves any.
  * A failed turn whose work still runs waits too, so that work stays visible
  * and stoppable: its failure is reported at once, and the wait ends as 'failed'.
+ * A completed turn that waits on reports from the sessions it sent work to
+ * waits in 'background' as well, until the last report wakes it.
  */
 function statusAfterExit(settled: SessionStatus, isAwaitingReplies: boolean, hasBackgroundWork: boolean): SessionStatus {
   if (settled === 'failed') return hasBackgroundWork ? 'background' : settled
   if (settled !== 'completed') return settled
-  if (isAwaitingReplies) return 'running'
-  return hasBackgroundWork ? 'background' : settled
+  return hasBackgroundWork || isAwaitingReplies ? 'background' : settled
 }
 
 /**
@@ -48,11 +49,14 @@ export class ProviderEvents {
 
   constructor(private readonly rt: SessionRuntime) {}
 
-  /** Settle a session that waits in 'background' with no query open (Codex)
-   *  once nothing is left running and no turn takes over. */
-  private endBackgroundWait(sessionId: string): void {
+  /** Settle a session that waits in 'background' with no query open (Codex,
+   *  or a session that waits on reports) once nothing is left running, no
+   *  report is still to come, and no turn takes over. A report that wakes the
+   *  session has replaced its record before this runs. */
+  endBackgroundWait(sessionId: string): void {
     const session = this.rt.activeSessions.get(sessionId)
     if (session?.status !== 'background' || session.backgroundTaskIds?.size) return
+    if (this.rt.orchestration?.isAwaitingReplies(sessionId)) return
     const hasFailed = this.failedBeforeBackground.delete(sessionId)
     this.rt.statuses.setStatus(sessionId, hasFailed ? 'failed' : 'completed')
     this.rt.activeSessions.delete(sessionId)
@@ -382,12 +386,12 @@ export class ProviderEvents {
           // tasks run and emits exit only once they settle. Work the agent waits
           // on settles the turn into 'background'. Work it leaves running (a dev
           // server, a log tail) does not: the turn completes and notifies, and
-          // the query stays open for that work (docs/background-work.md).
-          if (this.rt.orchestration?.isAwaitingReplies(session.sessionId)) {
-            log.info('turn_complete_awaiting_agent_reply', { sessionId: session.sessionId, holdingRunning: true })
-          } else if (session.backgroundTaskIds?.size) {
-            const holds = backgroundWorkHolds(session)
-            log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size, holds })
+          // the query stays open for that work (docs/background-work.md). The
+          // sessions the agent sent work to hold it too, until they report.
+          const isAwaitingReplies = !!this.rt.orchestration?.isAwaitingReplies(session.sessionId)
+          if (isAwaitingReplies || session.backgroundTaskIds?.size) {
+            const holds = isAwaitingReplies || backgroundWorkHolds(session)
+            log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds?.size ?? 0, isAwaitingReplies, holds })
             this.rt.statuses.setStatus(session.sessionId, holds ? 'background' : 'completed')
             this.rt.scheduler.processQueueForSession(session.sessionId)
           } else if (this.rt.scheduler.hasReadyQueuedRequest(session.sessionId)) {
@@ -502,7 +506,7 @@ export class ProviderEvents {
           )]
 
       // No early return when nobody is watching: a headless agent (created via
-      // start_session, card not yet opened) still needs its exit lifecycle —
+      // start_sessions, card not yet opened) still needs its exit lifecycle —
       // status broadcast, cleanup, and above all the queue drain, or prompts
       // relayed into it while busy would hang forever.
       for (const handle of exitedRuns) {
@@ -570,9 +574,13 @@ export class ProviderEvents {
         const queueWillTakeOver = (newStatus === 'interrupted' || newStatus === 'completed') && this.rt.scheduler.hasReadyQueuedRequest(sessionId)
         const wasStarting = status === 'connecting' || (newStatus === 'interrupted' && status === 'running')
         if (!queueWillTakeOver && !wasStarting) this.rt.statuses.setStatus(sessionId, newStatus)
+        // A wait on reports alone is no interrupted work: after a host restart
+        // the reports still come through the exchanges' own recovery.
+        if (newStatus === 'background' && !hasBackgroundWork) this.rt.restarts.restartRuns?.remove(sessionId)
 
         if (!hasPendingRateLimit) {
-          // Running tasks stay resident even after completion, so they can be stopped.
+          // Running tasks stay resident even after completion, so they can be
+          // stopped; a session that waits on reports stays to show its wait.
           if (newStatus !== 'background' && !hasBackgroundWork) this.rt.activeSessions.delete(sessionId)
           this.rt.activeRunRequests.delete(sessionId)
         }

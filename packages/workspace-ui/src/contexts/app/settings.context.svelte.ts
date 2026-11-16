@@ -56,6 +56,7 @@ import {
   PERSONAL_DISPLAY,
   type PaintedSizeKey,
 } from './settings-display'
+import { applyThemeCss } from './theme-css'
 
 // Personal vocabulary lives in the contract, because the account validates the
 // same values. Re-exported so renderer call sites keep one import.
@@ -103,6 +104,7 @@ export class SettingsContext {
     for (const key of FONT_PREFERENCE_KEYS) this.paintFont(key)
     for (const key of PERSONAL_SETTING_KEYS) if (isPaintedSizeKey(key)) this.paintSize(key)
     applyConversationWidth(this.personal.values.conversationWidth)
+    applyThemeCss(this.personal.values.themeCss)
     applyFontSmoothing(this.device.values.fontSmoothing)
     applyZoomFactor(this.device.layout.zoomFactor)
     this.personal.onChange((change) => this.repaint(change))
@@ -266,6 +268,7 @@ export class SettingsContext {
     for (const key of keys) {
       if (key === 'themeMode') applyTheme(this.isDark)
       if (key === 'conversationWidth') applyConversationWidth(this.personal.values.conversationWidth)
+      if (key === 'themeCss') applyThemeCss(this.personal.values.themeCss)
       const fontKey = FONT_PREFERENCE_KEYS.find((candidate) => candidate === key)
       if (fontKey) this.paintFont(fontKey)
       if (isPaintedSizeKey(key)) this.paintSize(key)

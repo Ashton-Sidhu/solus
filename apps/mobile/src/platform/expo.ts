@@ -15,6 +15,7 @@ import { authSessionAuthorizer } from '../features/account/auth-session-authoriz
 import type { KeyValueStore, SecretStore } from './ports'
 import { scanLocalNetwork } from './lan-scan'
 import { sqlitePullRequestCache } from './pull-request-cache-sqlite'
+import { readNativeAddress } from './read-native-address'
 
 /** Plain data in the app's SQLite key-value store: synchronous, not secret. */
 const storage: KeyValueStore = {
@@ -80,6 +81,7 @@ export const expoPlatform: PlatformAdapters = {
   storage,
   secrets,
   fetch: (input, init) => fetch(input, init),
+  readAddress: readNativeAddress,
   createTransport: (options) => new WsTransport(options),
   openBrowser: async (url) => {
     await WebBrowser.openBrowserAsync(url)

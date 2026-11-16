@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   /** Which ignored files go with this project's work to another host, and
    *  into new worktrees: its `.worktreeinclude` (docs/run-on.md#copied-files). */
   import { Button } from "../ui/button";
@@ -17,8 +18,7 @@
 </script>
 
 <SettingsRow
-  label="Files copied to other hosts"
-  description="Run on copies the ignored files that .worktreeinclude names, like .env, into a clone on another host."
+  {...settingsDefinitions["source-control.files-copied-to-other-hosts"]}
 >
   {#snippet control()}
     <Button bind:ref={configureButton} variant="outline" size="sm" onclick={() => (open = true)}>Configure…</Button>

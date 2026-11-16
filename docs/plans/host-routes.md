@@ -302,7 +302,7 @@ Who can use a forwarded route:
 | Client | Can it dial the forwarded host? |
 | --- | --- |
 | The desktop renderer on the machine that holds the forward | Yes |
-| Host-to-host from that machine (`start_session` with `host: box`) | Yes. The forward is on that host. |
+| Host-to-host from that machine (`start_sessions` with `host: box`) | Yes. The forward is on that host. |
 | A web client or mobile app on another device | No. The UI shows "Reachable only from <machine>" and offers "Link with account". |
 
 Solus hosts do not relay other clients' traffic. Relaying would make each host
@@ -314,7 +314,7 @@ client that is connected to a standalone server and adds a machine over SSH
 makes the forward on that server. `remote-hosts.ts` reads `ForwardedHosts` as a
 third source of targets, after the directory and introductions, and dials with
 the session token that SSH made. Thus an agent on a standalone Linux server can
-call `start_session` with `host: <mac>`, and the Mac runs the build, the
+call `start_sessions` with `host: <mac>`, and the Mac runs the build, the
 simulator, and its own agent, with no account and no open port. The user sees
 that work from every client that is connected to the Linux server, through the
 session that started it.

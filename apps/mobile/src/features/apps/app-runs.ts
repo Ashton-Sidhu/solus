@@ -54,9 +54,20 @@ export function canRunAgain(run: Pick<AppRunView, 'state'>): boolean {
   return run.state === 'failed'
 }
 
-/** The lines of one run in the list: when it started, its steps, and who started it; when it wakes; why it failed. */
+/** A failed run the owner has not dismissed can be taken off what needs them, with no retry. */
+export function canDismiss(run: Pick<AppRunView, 'state' | 'dismissedAt'>): boolean {
+  return run.state === 'failed' && run.dismissedAt === null
+}
+
+/**
+ * The lines of one run in the list: its state, its steps, and who started it;
+ * when it wakes; why it failed. The row shows the age of the run at its end.
+ */
 export function runLines(run: AppRunView, now: number, webhooks: readonly AppWebhookView[] = []): RowLine[] {
-  const lines: RowLine[] = [{ text: `Started ${agoText(run.startedAt, now)} · ${countText(run.stepCount, 'step')} · ${callerText(run.startedBy, webhooks)}` }]
+  const facts = [runStateLabel(run.state), countText(run.stepCount, 'step'), callerText(run.startedBy, webhooks)]
+  if (run.version !== null) facts.push(`v${run.version}`)
+  if (run.dismissedAt !== null) facts.push('Dismissed')
+  const lines: RowLine[] = [{ text: facts.join(' · ') }]
   if (run.state === 'sleeping' && run.wakeAt !== null) lines.push({ text: `Starts again ${untilText(run.wakeAt, now)}` })
   if (run.error) lines.push({ text: run.error, tone: 'danger' })
   return lines
@@ -87,6 +98,7 @@ export function stepLines(step: AppStepView, now: number): RowLine[] {
   const lines: RowLine[] = [{ text: `${stepKindLabel(step.kind)} · ${countText(step.attempts, 'attempt')} · ${time}` }]
   if (step.state === 'sleeping' && step.wakeAt !== null) lines.push({ text: `Wakes ${untilText(step.wakeAt, now)}` })
   if (step.error) lines.push({ text: step.error, tone: 'danger' })
+  else if (step.state === 'failed') lines.push({ text: stepStateLabel(step.state), tone: 'danger' })
   return lines
 }
 

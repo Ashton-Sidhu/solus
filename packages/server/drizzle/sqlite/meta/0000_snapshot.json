@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ebf6988d-ca78-43d4-b9a8-8bf87733c2a4",
+  "id": "bb1d5234-c18f-4236-bcd0-d06a6f14daf0",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "acl_entry": {
@@ -296,6 +296,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'operation'"
         },
         "caller": {
           "name": "caller",
@@ -893,6 +901,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "activations": {
+          "name": "activations",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         }
       },
       "indexes": {},
@@ -1222,6 +1238,27 @@
           "notNull": true,
           "autoincrement": false,
           "default": "''"
+        },
+        "custom_name": {
+          "name": "custom_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "custom_description": {
+          "name": "custom_description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "color_hue": {
+          "name": "color_hue",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "active_version": {
           "name": "active_version",

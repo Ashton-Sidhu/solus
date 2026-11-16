@@ -1,7 +1,7 @@
-import { memo, useState } from "react";
+// Adapted from T3 Code apps/mobile/src/features/threads/ThreadFeed.tsx (MIT, see UPSTREAM.md).
+import { memo } from "react";
 import { Pressable, View, type ColorValue } from "react-native";
 import Animated, { FadeInUp } from "react-native-reanimated";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import type { ConversationStore } from "../conversation/conversation-store";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
 import { useTranscriptItem } from "./use-transcript-items";
@@ -14,8 +14,6 @@ import { resolveHostMediaUrl } from "../files/host-media-url";
 import { copyImageToClipboard } from "../../lib/copyImageToClipboard";
 import { MessageFiles, MessageMedia } from "./MessageAttachments";
 import { ThreadMarkdown } from "./ThreadMarkdown";
-const USER_MESSAGE_COLLAPSED_HEIGHT = 208;
-const USER_MESSAGE_FADE_HEIGHT = 40;
 
 /** A prompt the person sent, with its delivery state where it has not landed yet. */
 export const UserMessageRow = memo(function UserMessageRow(props: {
@@ -28,20 +26,14 @@ export const UserMessageRow = memo(function UserMessageRow(props: {
   readonly groupedWithNext: boolean;
 }) {
   const item = useTranscriptItem(props.store, props.id);
-  const [textHeight, setTextHeight] = useState(0);
-  const [expanded, setExpanded] = useState(false);
   if (item?.kind !== "user") return null;
   // Not yet confirmed by the host; "Queued" waits behind the running turn or the connection.
   const pending = item.delivery === "sending";
-  // A held prompt is shown whole, as on desktop.
-  const canCollapse =
-    !["sending", "queued"].includes(item.delivery) && textHeight > USER_MESSAGE_COLLAPSED_HEIGHT;
-  const collapsed = canCollapse && !expanded;
   const hasText = item.text.trim().length > 0;
   const layout = messageAttachmentLayout(item.attachments, hasText);
   return (
     <Animated.View
-      className={props.groupedWithNext ? "mb-1 items-end gap-1.5" : "mb-5 items-end gap-1.5"}
+      className={props.groupedWithNext ? "mb-1 items-end gap-2" : "mb-5 items-end gap-2"}
       {...(item.delivery === "sending" ? { entering: FadeInUp.duration(220) } : {})}
     >
       {/* Pictures and videos are a shape of their own above the words. */}
@@ -61,55 +53,13 @@ export const UserMessageRow = memo(function UserMessageRow(props: {
           style={{
             backgroundColor: props.userBubbleColor,
             maxWidth: props.userBubbleMaxWidth,
-            // Where the bubble meets the media above it, its corner tightens.
-            borderTopRightRadius: layout.bubbleMeetsMedia ? 6 : 20,
+            borderTopRightRadius: 20,
           }}
         >
           {layout.fileStyle === "chips" ? (
             <MessageFiles files={layout.files} variant="chips" sending={pending} store={props.store} />
           ) : null}
-          <View>
-            <View style={collapsed ? { height: USER_MESSAGE_COLLAPSED_HEIGHT, overflow: "hidden" } : undefined}>
-              {/* The text is measured free of the cut in both states: collapsed,
-                  it is absolute, so no height limit reaches the native markdown.
-                  A text measured within the cut reports only the lines that fit,
-                  and the fold then opens and closes in a loop. */}
-              <View
-                style={collapsed ? { position: "absolute", top: 0, left: 0, right: 0 } : undefined}
-                onLayout={(event) => setTextHeight(event.nativeEvent.layout.height)}
-              >
-                <ThreadMarkdown markdown={item.text} tone="user" store={props.store} />
-              </View>
-            </View>
-            {collapsed ? (
-              <View
-                pointerEvents="none"
-                style={{ position: "absolute", left: 0, right: 0, top: USER_MESSAGE_COLLAPSED_HEIGHT - USER_MESSAGE_FADE_HEIGHT, height: USER_MESSAGE_FADE_HEIGHT }}
-              >
-                <Svg width="100%" height={USER_MESSAGE_FADE_HEIGHT}>
-                  <Defs>
-                    <LinearGradient id="user-message-fade" x1="0" y1="0" x2="0" y2={USER_MESSAGE_FADE_HEIGHT} gradientUnits="userSpaceOnUse">
-                      <Stop offset="0" stopColor={props.userBubbleColor} stopOpacity={0} />
-                      <Stop offset="1" stopColor={props.userBubbleColor} stopOpacity={1} />
-                    </LinearGradient>
-                  </Defs>
-                  <Rect width="100%" height="100%" fill="url(#user-message-fade)" />
-                </Svg>
-              </View>
-            ) : null}
-            {canCollapse ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ expanded }}
-                onPress={() => setExpanded((value) => !value)}
-                className="-mb-2 min-h-11 flex-row items-center justify-end active:opacity-70"
-              >
-                <Text className="font-t3-medium text-xs text-foreground-secondary">
-                  {expanded ? "Show less" : "Read more"}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
+          <ThreadMarkdown markdown={item.text} tone="user" store={props.store} />
         </View>
       ) : null}
       <UserMessageMeta store={props.store} item={item} hasText={hasText} iconSubtleColor={props.iconSubtleColor} />
@@ -136,7 +86,7 @@ function UserMessageMeta(props: {
     await copyImageToClipboard({ url: await resolveHostMediaUrl(connection, { path: image.hostPath }) });
   };
   return (
-    <View className="-mt-0.5 flex-row items-center justify-end gap-1 pr-0.5">
+    <View className="-mt-1 flex-row items-center justify-end gap-1 pr-0.5">
       {item.delivery === "queued" ? (
         <View
           accessible

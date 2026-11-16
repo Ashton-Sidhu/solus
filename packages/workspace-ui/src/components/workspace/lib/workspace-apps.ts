@@ -134,16 +134,21 @@ export function appProjectOptions(items: WorkspaceAppItem[]): { value: string; l
   return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label))
 }
 
-/** How many apps each Time option holds. */
-/** The calls of the last 24 hours in a few words: "No calls", "12 calls", "12 calls, 2 failed". */
+/** The calls of the last 24 hours, short for a card's foot: "No calls", "1 call", "1,204 calls". */
 export function calls24hText(item: Pick<WorkspaceAppItem, 'calls24h' | 'failed24h'>): string {
   // A connected host can run an older version that does not send these counts.
   if (!Number.isFinite(item.calls24h) || !Number.isFinite(item.failed24h)) return 'Call counts unavailable'
-  if (item.calls24h === 0) return 'No calls in 24 hours'
-  const calls = item.calls24h === 1 ? '1 call' : `${item.calls24h.toLocaleString()} calls`
-  return item.failed24h === 0 ? `${calls} in 24 hours` : `${calls} in 24 hours, ${item.failed24h.toLocaleString()} failed`
+  if (item.calls24h === 0) return 'No calls'
+  return item.calls24h === 1 ? '1 call' : `${item.calls24h.toLocaleString()} calls`
 }
 
+/** The failed calls of the last 24 hours: "2 failed"; null when none failed or the host did not say. */
+export function failed24hText(item: Pick<WorkspaceAppItem, 'calls24h' | 'failed24h'>): string | null {
+  if (!Number.isFinite(item.calls24h) || !Number.isFinite(item.failed24h) || item.failed24h === 0) return null
+  return `${item.failed24h.toLocaleString()} failed`
+}
+
+/** How many apps each Time option holds. */
 export function appTimeCounts(items: WorkspaceAppItem[], now = new Date()) {
   const counts = { today: 0, yesterday: 0, week: 0, older: 0 }
   for (const item of items) {

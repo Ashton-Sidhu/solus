@@ -71,6 +71,8 @@ class InspectDriver implements BrowserSurfaceDriver {
     this.devToolsClosed = onClosed
   }
 
+  watchGuest(): void {}
+  async answerFileChooser(): Promise<boolean> { return false }
   consoleEntries(): BrowserConsoleEntry[] {
     return [{ at: 1, level: 'error', text: 'boom' }]
   }

@@ -17,7 +17,7 @@ export const PROJECT_PANEL_SECTIONS = [
     rows: [
       { id: "environment.project", label: "Project" },
       { id: "environment.terminal", label: "Open in" },
-      { id: "environment.view", label: "Browser, builds, and artifacts" },
+      { id: "environment.view", label: "Browser, builds, and threads" },
       { id: "environment.usage", label: "Usage" },
     ],
   },

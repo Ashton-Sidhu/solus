@@ -1,4 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/thread-list-v2-items.tsx (MIT, see UPSTREAM.md).
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import {
   THREAD_LIST_V2_MONO_FONT as MONO_FONT,
   THREAD_LIST_V2_ROW_CONTENT_CLASS_NAME,
@@ -18,6 +20,8 @@ import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { ProviderInstanceIcon } from "../../components/ProviderIcon";
+import type { RootStackParamList } from "../../navigation/routes";
+import { SESSION_CONTEXT_ACTIONS, sessionContextDestination } from "./session-context-actions";
 import { cn } from "../../lib/cn";
 import { useThreadListState } from "./use-thread-list";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
@@ -36,6 +40,7 @@ import {
   resolveThreadListV2SwipeActions,
   threadListV2TimeLabel,
   threadTitle,
+  threadProjectPath,
   type ThreadListV2Status,
   type ThreadPrPresentation,
   type ThreadPrWatchTarget,
@@ -53,27 +58,70 @@ import {
 // Status hues follow the system-wide convention (amber approval, indigo
 // input, sky working) so a thread reads the same color everywhere it surfaces.
 // Ready is the unlabeled resting state: its row shows the timestamp instead.
-const STATUS_LABEL_BY_STATUS: Record<
-  ThreadListV2Status,
-  { label: string; className: string } | null
-> = {
-  approval: { label: "Approval", className: "text-warning-foreground" },
-  input: { label: "Input", className: "text-adaptive-indigo-600-300" },
-  working: { label: "Working", className: "text-adaptive-sky-600-400" },
-  waiting: { label: "Waiting", className: "text-foreground-muted" },
-  failed: { label: "Failed", className: "text-danger-foreground" },
-  limited: { label: "Limited", className: "text-warning-foreground" },
+const STATUS_LABEL_BY_STATUS = {
+  approval: {
+    label: "Approval",
+    icon: "exclamationmark.shield",
+    className: "text-warning-foreground",
+    tint: "accent-warning-foreground",
+  },
+  input: {
+    label: "Input",
+    icon: "questionmark.bubble",
+    className: "text-adaptive-indigo-600-300",
+    tint: "accent-adaptive-indigo-600-300",
+  },
+  working: {
+    label: null,
+    icon: "circle.dashed",
+    className: "text-adaptive-sky-600-400",
+    tint: "accent-adaptive-sky-600-400",
+  },
+  waiting: {
+    label: null,
+    icon: "circle.dashed.inset.filled",
+    className: "text-foreground-muted",
+    tint: "accent-foreground-muted",
+  },
+  failed: {
+    label: "Failed",
+    icon: "exclamationmark.circle",
+    className: "text-danger-foreground",
+    tint: "accent-danger-foreground",
+  },
+  limited: {
+    label: "Limited",
+    icon: "exclamationmark.circle",
+    className: "text-warning-foreground",
+    tint: "accent-warning-foreground",
+  },
   ready: null,
-};
+} satisfies Record<
+  ThreadListV2Status,
+  {
+    label: string | null;
+    icon: ComponentProps<typeof SymbolView>["name"];
+    className: string;
+    tint: string;
+  } | null
+>;
 
 /** " 26s" or " 3m" after Working or Waiting, as the desktop and web sidebar
     shows it (pingdotgg/t3code#32893). Only this text ticks, once a second, and
     only while the list's clock runs (the list shows and the app is active);
     the row and the list do not re-render (pingdotgg/t3code#21394). */
-function ThreadListV2Duration(props: { readonly startedAt: number; readonly clock: ThreadListClock }) {
-  const running = useSyncExternalStore(props.clock.subscribeRunning, props.clock.isRunning, props.clock.isRunning);
+function ThreadListV2Duration(props: {
+  readonly startedAt: number;
+  readonly clock: ThreadListClock;
+  readonly leadingSpace?: boolean;
+}) {
+  const running = useSyncExternalStore(
+    props.clock.subscribeRunning,
+    props.clock.isRunning,
+    props.clock.isRunning,
+  );
   const nowMs = useVisibleSecondClock(running);
-  return ` ${formatElapsed(nowMs - props.startedAt)}`;
+  return `${props.leadingSpace === false ? "" : " "}${formatElapsed(nowMs - props.startedAt)}`;
 }
 
 /** Archive removes the thread from the list on its host, for every device. */
@@ -338,6 +386,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onSetPullRequestWatch,
   } = props;
   const list = useThreadListState();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const record = thread.record;
   const title = threadTitle(record);
   // Another person's session: the row marks it shared; screen readers hear the role.
@@ -416,6 +465,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       })),
     [snoozePresets],
   );
+  const hasPullRequests = pr !== null;
   const watchTarget = pr?.watchTarget ?? null;
   const unlinkTargets = pr?.unlinkTargets;
   const titleMenuItems = useMemo<MenuAction[]>(
@@ -426,10 +476,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           : { id: "watch-pr", title: `Watch #${watchTarget.number}`, subtitle: "Wake the agent on checks and reviews", image: "eye" }]
         : []),
       ...unlinkPullRequestMenuItems(unlinkTargets ?? []),
+      ...(hasPullRequests ? [{ id: "open-pull-requests", title: "Open pull requests", image: "arrow.triangle.pull" }] : []),
+      ...SESSION_CONTEXT_ACTIONS,
       { id: "mark-unread", title: "Mark Unread", image: "circle.fill" },
       { id: "rename", title: "Rename", image: "square.and.pencil" },
     ],
-    [watchTarget, unlinkTargets],
+    [hasPullRequests, watchTarget, unlinkTargets],
   );
   const snoozableCardMenuActions = useMemo<MenuAction[]>(
     () => [
@@ -467,6 +519,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
   const handleMenuAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      const destination = sessionContextDestination(nativeEvent.event, {
+        hostId: thread.hostId, sessionId: record.sessionId,
+        projectPath: isChatSession(record) ? null : threadProjectPath(record),
+      });
+      if (destination) {
+        if (destination[0] === "Home") navigation.popTo(...destination);
+        else navigation.navigate(...destination);
+        return;
+      }
       if (nativeEvent.event === "settle") void handleSettle();
       if (nativeEvent.event === "unsettle") handleUnsettle();
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
@@ -501,6 +562,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       }
     },
     [
+      navigation,
       handleArchive,
       handleRename,
       list,
@@ -583,21 +645,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   // Sidebar rows use navigation foregrounds on their active and idle surfaces.
   const cardContent = (
     <>
-      <View className="flex-row items-center gap-1.5">
-        {favicon}
-        {props.unread ? (
-          <View accessibilityLabel="Unread session" className="h-2 w-2 rounded-full bg-primary" />
-        ) : null}
-        <Text
-          className={cn(
-            "flex-1 text-sm font-t3-medium",
-            selected
-              ? selectedThreadRowColors.mutedForegroundClassName
-              : rowAppearance.mutedForegroundClassName,
-          )}
-          numberOfLines={1}
-        >
-          {props.projectTitle}
+      <View className="flex-row items-start gap-2">
+        <View className="h-6 justify-center">{favicon}</View>
+        {props.unread ? <View accessibilityLabel="Unread session" className="mt-2 h-2 w-2 rounded-full bg-primary" /> : null}
+        {record.isLead ? <View className="pt-[3px]" accessibilityLabel="Meta mode session"><SymbolView name={LEAD_SYMBOL} size={13} tintColorClassName={selected ? selectedThreadRowColors.iconTintClassName : rowAppearance.mutedIconTintClassName} /></View> : null}
+        <Text className={cn("flex-1 text-base font-t3-medium", selected ? selectedThreadRowColors.foregroundClassName : rowAppearance.foregroundClassName)} numberOfLines={2}>
+          {title}
         </Text>
         {showsWoke ? (
           <Pressable
@@ -625,95 +678,26 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               Woke
             </Text>
           </Pressable>
-        ) : (
-          <Text
-            className={cn(
-              "text-xs tabular-nums",
-              statusLabel?.className ??
-                (selected
-                  ? selectedThreadRowColors.foregroundClassName
-                  : rowAppearance.tertiaryForegroundClassName),
-            )}
-          >
-            {statusLabel?.label ?? timeLabel}
-            {statusLabel && props.statusStartedAt !== null ? (
-              <ThreadListV2Duration startedAt={props.statusStartedAt} clock={props.clock} />
-            ) : null}
-          </Text>
-        )}
-      </View>
-      <View className="mt-1 flex-row items-start gap-1.5">
-        {record.isLead ? (
-          // The Meta mode glyph, the same as on the composer's button: this
-          // session plans the work and starts other sessions to do it.
-          <View className="pt-[3px]" accessibilityLabel="Meta mode session">
-            <SymbolView
-              name={LEAD_SYMBOL}
-              size={13}
-              tintColorClassName={
-                selected ? selectedThreadRowColors.iconTintClassName : rowAppearance.mutedIconTintClassName
-              }
-            />
-          </View>
-        ) : null}
-        <Text
-          className={cn(
-            "flex-1 text-base font-t3-medium",
-            selected
-              ? selectedThreadRowColors.foregroundClassName
-              : rowAppearance.foregroundClassName,
-          )}
-          numberOfLines={2}
-        >
-          {title}
-        </Text>
-      </View>
-      <View className="mt-1 flex-row items-center gap-2">
-        {record.branch || props.environmentLabel ? (
-          /* "branch · host" share one truncating line. The host sits last so
-             a tight fit cuts the repetitive label, not the branch — and
-             host-only fills the row for non-git projects. */
-          <View className="min-w-0 flex-1 flex-row items-center gap-1">
-            <Text
-              className={cn(
-                "shrink text-xs",
-                selected
-                  ? selectedThreadRowColors.mutedForegroundClassName
-                  : rowAppearance.mutedForegroundClassName,
-              )}
-              numberOfLines={1}
-            >
-              {record.branch ? (
-                <Text
-                  className={cn(
-                    "text-xs",
-                    selected
-                      ? selectedThreadRowColors.mutedForegroundClassName
-                      : rowAppearance.mutedForegroundClassName,
-                  )}
-                  style={{ fontFamily: MONO_FONT }}
-                >
-                  {record.branch}
-                </Text>
-              ) : null}
-              {record.branch && props.environmentLabel ? "  ·  " : null}
-              {props.environmentLabel ? (
-                <Text
-                  className={cn(
-                    "text-xs",
-                    selected
-                      ? selectedThreadRowColors.mutedForegroundClassName
-                      : rowAppearance.tertiaryForegroundClassName,
-                  )}
-                >
-                  {props.environmentLabel}
-                </Text>
-              ) : null}
+
+        ) : statusLabel ? (
+          <View className="flex-row items-center gap-1" style={{ minHeight: 24 }}>
+            <SymbolView name={statusLabel.icon} size={13} weight="semibold" type="monochrome"
+              tintColorClassName={selected ? selectedThreadRowColors.iconTintClassName : statusLabel.tint} />
+            <Text className={cn("text-xs font-t3-bold", selected ? selectedThreadRowColors.foregroundClassName : statusLabel.className)}>
+              {statusLabel.label}
+              {props.statusStartedAt !== null ? <ThreadListV2Duration startedAt={props.statusStartedAt} clock={props.clock} leadingSpace={statusLabel.label !== null} /> : null}
             </Text>
           </View>
         ) : (
-          <View className="flex-1" />
+          <Text className={cn("text-xs tabular-nums", selected ? selectedThreadRowColors.foregroundClassName : rowAppearance.tertiaryForegroundClassName)}>{timeLabel}</Text>
         )}
+      </View>
+      <View className="mt-1 flex-row items-center gap-2 pl-[23px]">
+        <Text className={cn("min-w-0 flex-1 text-xs", selected ? selectedThreadRowColors.mutedForegroundClassName : rowAppearance.mutedForegroundClassName)} numberOfLines={1}>
+          {props.projectTitle}
+          {record.branch ? <Text style={{ fontFamily: MONO_FONT }}>{`  ·  ${record.branch}`}</Text> : null}
+          {props.environmentLabel ? `  ·  ${props.environmentLabel}` : null}
+        </Text>
         {sharedRole ? (
           <View className="flex-row items-center gap-1" accessibilityLabel={`Shared with you, ${sharedRole}`}>
             <SymbolView name="person.2" size={12} tintColorClassName={rowAppearance.mutedIconTintClassName} />

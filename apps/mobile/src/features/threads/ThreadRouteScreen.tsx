@@ -1,12 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/ThreadRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { isChat, placeOfFolder } from "@solus/contracts/chat";
+import { isChat } from "@solus/contracts/chat";
 import { hostPathBaseName } from "@solus/contracts/host-path";
-import { allSessionArtifacts } from "@solus/contracts/session-artifacts";
-import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
 import type { SessionRecord } from "@solus/contracts/types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -15,17 +13,16 @@ import { EmptyState } from "../../components/EmptyState";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { deriveLayout } from "../../lib/layout";
+import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { newThreadTarget } from "./new-thread-targets";
 import { threadKey } from "./thread-directory";
-import { threadFaviconRoot, threadProjectPath } from "./threadListV2";
+import { threadProjectPath } from "./threadListV2";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import type { ThreadContentPresentation, ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
-import { useSessionArtifacts } from "./artifacts/use-session-artifacts";
-import { useEnvironmentMenu } from "./use-environment-menu";
 
 type ConversationRecord = NonNullable<LastRoute["record"]>;
 
@@ -164,15 +161,7 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
       sessionId={sessionId}
       hostLabel={host.label}
       shellTitle={shell ? shell.record.customTitle || shell.record.title || shell.record.slug : null}
-      recordPullRequests={shell?.record.pullRequests}
       projectPath={projectPath}
-      faviconRoot={threadFaviconRoot(
-        "record" in target
-          ? (shell?.record ?? target.record)
-          // A new session has no record yet: its folder says whether it is a chat.
-          : { projectPath, cwd: target.newSession.workingDirectory, place: placeOfFolder(target.newSession.workingDirectory) },
-        null,
-      )}
     />
   );
 }
@@ -183,10 +172,7 @@ function ThreadRouteContent(props: {
   readonly sessionId: string;
   readonly hostLabel: string;
   readonly shellTitle: string | null;
-  /** The links the session's record carried when the list was read. */
-  readonly recordPullRequests: ReadonlyArray<SessionPullRequestLink> | undefined;
   readonly projectPath: string;
-  readonly faviconRoot: string | null;
 }) {
   const app = useApp();
   const { store, hostId } = props;
@@ -196,36 +182,17 @@ function ThreadRouteContent(props: {
   const hostReadiness = useListened(app.connections.changes, () => app.connections.readiness(hostId));
   const window = useWindowDimensions();
   const layout = deriveLayout(window);
-  const hasLinkedPullRequests = useListened(
-    app.threadList.changes,
-    () =>
-      ((app.threadList.facts().pullRequests.get(threadKey(hostId, props.sessionId)) ?? props.recordPullRequests)?.length ?? 0) > 0,
-  );
-  const { snapshot: artifacts } = useSessionArtifacts(hostId, props.sessionId, true);
   const chat = isChat(props.projectPath);
   const title = props.shellTitle || runTitle || "New session";
   const headerSubtitle = [chat ? null : lastFolderName(props.projectPath), props.hostLabel]
     .filter(Boolean)
     .join(" · ");
-  // On iPad the thread is a column narrower than the window; the header's
-  // title view must fit that column, not the window.
-  const [columnWidth, setColumnWidth] = useState<number | null>(null);
-  const environmentMenu = useEnvironmentMenu({ hostId, sessionId: props.sessionId, artifacts: artifacts.state });
   const header = useThreadHeaderOptions({
     title,
-    columnWidth: columnWidth ?? window.width,
     subtitle: headerSubtitle,
     usesNativeHeaderGlass: NATIVE_LIQUID_GLASS_SUPPORTED,
     hostId,
     projectPath: chat || !props.projectPath ? null : props.projectPath,
-    faviconRoot: props.faviconRoot,
-    hasLinkedPullRequests,
-    sessionId: props.sessionId,
-    artifacts: {
-      count: artifacts.state.kind === "ready" ? allSessionArtifacts(artifacts.state.artifacts).length : null,
-      unread: artifacts.unread,
-    },
-    environmentMenu,
   });
 
   const historyControls = useMemo<ThreadFeedHistoryControls | undefined>(
@@ -254,22 +221,23 @@ function ThreadRouteContent(props: {
 
   return (
     <>
+      {layout.usesSplitView ? (
+        <NativeHeaderToolbar placement="left">
+          <NativeHeaderToolbar.Button accessibilityLabel="New session" icon="square.and.pencil" onPress={header.onCompose} />
+        </NativeHeaderToolbar>
+      ) : null}
       <ScreenHeader
         title={title}
         subtitle={headerSubtitle}
         sidebar={false}
         options={header.options}
-        optionsVersion={header.optionsVersion}
-        subtitleLeading={header.subtitleLeading}
         onBack={layout.usesSplitView ? undefined : header.onBack}
         actions={header.actions}
-        menus={header.menus}
         groupActions
         hideBottomBorder
       />
       <View
         className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas"
-        onLayout={(event) => setColumnWidth(event.nativeEvent.layout.width)}
       >
         {meta.phase.kind === "error" && meta.phase.noAccess === true ? (
           // The session is named, never the host: the host answered, and only

@@ -8,7 +8,7 @@ export function DeviceCatalog(props: { state: DeviceState | undefined; previews:
   const state = props.state
   const available = state.devices.filter((device) => !device.physical && !props.previews.some((item) => item.deviceHostId === device.deviceHostId && item.deviceId === device.deviceId))
   return <>
-    {!props.hasSession ? <SettingsNote>Open Devices from a session’s Environment menu to start another device. Devices already open on this host appear here.</SettingsNote> : null}
+    {!props.hasSession ? <SettingsNote>Open Devices from a session’s tools menu to start another device. Devices already open on this host appear here.</SettingsNote> : null}
     <SettingsSection title="Available devices">
       {available.length ? available.map((device) => <SettingsActionRow key={`${device.deviceHostId}/${device.deviceId}`} icon="desktopcomputer" label={`${device.name} · ${state.hosts.find((item) => item.deviceHostId === device.deviceHostId)?.label ?? device.deviceHostId}`} disabled={props.busy || !props.hasSession} onPress={() => props.onOpen(device)} />) : <SettingsNote>No devices are available. Check the source settings or refresh the list.</SettingsNote>}
       <SettingsActionRow icon="arrow.clockwise" label="Refresh devices" disabled={props.busy} onPress={props.onRefresh} />

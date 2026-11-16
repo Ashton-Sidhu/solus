@@ -40,6 +40,8 @@
     /** Painted over the panel's surface and under all of its content. The
      *  snippet positions itself against the panel. */
     backdrop?: Snippet;
+    /** The theme hook on the panel's outer element (`data-slot`). */
+    region?: string;
     children: Snippet;
   }
 
@@ -64,6 +66,7 @@
     headerActions,
     headerOnDark = false,
     backdrop,
+    region,
     children,
   }: Props = $props();
 
@@ -80,6 +83,7 @@
 
 <div
   class="side-panel-shell"
+  data-slot={region}
   class:side-panel-closed={!open && !staysAsColumn}
   class:side-panel-managed={managedWidth}
   class:side-panel-flush={flush}

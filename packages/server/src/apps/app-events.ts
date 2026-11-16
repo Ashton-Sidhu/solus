@@ -1,4 +1,4 @@
-import type { AppActivityEvent, AppActivityKind, AppsChangedEvent } from '@solus/contracts/apps'
+import type { AppActivityEvent, AppActivityKind, AppSignalOccurredEvent, AppSignalOccurrence, AppsChangedEvent } from '@solus/contracts/apps'
 import { createLogger } from '../logger'
 
 const log = createLogger('apps', 'app-events.ts')
@@ -8,7 +8,7 @@ const log = createLogger('apps', 'app-events.ts')
  * when an app is deployed, changed, stopped, started, or deleted, and
  * `apps.dataChanged` when a mutation changed an app's data, and
  * `apps.activity` when its call log, its runs, its occurrences, or its files
- * changed. A schedule or a webhook changes an app with no client in the loop,
+ * changed, and `apps.signalOccurred` with each occurrence of a signal. A schedule or a webhook changes an app with no client in the loop,
  * so push is how an open UI learns of it.
  */
 
@@ -43,6 +43,20 @@ export function onAppDataChanged(listener: Listener<{ appId: string }>): () => v
 
 export function emitAppDataChanged(appId: string): void {
   notify(dataListeners, { appId }, 'apps.dataChanged')
+}
+
+// ─── Signal occurrences ───
+
+const signalListeners = new Set<Listener<AppSignalOccurredEvent>>()
+
+export function onAppSignalOccurred(listener: Listener<AppSignalOccurredEvent>): () => void {
+  signalListeners.add(listener)
+  return () => signalListeners.delete(listener)
+}
+
+/** One occurrence for the live tail: sent at once, not grouped as activity is, so the tail shows each one as it comes. */
+export function emitAppSignalOccurred(appId: string, occurrence: AppSignalOccurrence): void {
+  notify(signalListeners, { appId, occurrence }, 'apps.signalOccurred')
 }
 
 // ─── Activity ───

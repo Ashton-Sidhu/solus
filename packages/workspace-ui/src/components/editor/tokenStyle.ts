@@ -16,6 +16,7 @@ export type TokenVariant =
   | 'file'
   | 'slash'
   | 'person'
+  | 'host'
 
 export function tokenClassName(variant: TokenVariant, mono = false): string {
   return `solus-token solus-token--${variant}${mono ? ' solus-token--mono' : ''}`
@@ -96,4 +97,11 @@ export const TOKEN_ICONS = {
     ['circle', { cx: '12', cy: '12', r: '4' }],
     ['path', { d: 'M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8' }],
   ],
-} satisfies Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session' | 'task' | 'automation' | 'person', IconArray>
+  // server
+  host: [`${SVG_NS} svg`, { ...SVG_ATTRS },
+    ['rect', { width: '20', height: '8', x: '2', y: '2', rx: '2', ry: '2' }],
+    ['rect', { width: '20', height: '8', x: '2', y: '14', rx: '2', ry: '2' }],
+    ['path', { d: 'M6 6h.01' }],
+    ['path', { d: 'M6 18h.01' }],
+  ],
+} satisfies Record<'plan' | 'planAccepted' | 'planRejected' | 'work' | 'pr' | 'session' | 'task' | 'automation' | 'person' | 'host', IconArray>

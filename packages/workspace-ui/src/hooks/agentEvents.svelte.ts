@@ -31,12 +31,18 @@ export function bindAgentEventSubscriptions(session: WorkspaceContext): () => vo
   const unsubReadState = subscribeAllHosts('session.readStateChanged', (serverId, { sessionId, viewedAt }) => {
     if (isOwnHost(serverId, sessionId)) session.metadata.applySessionReadState(sessionId, viewedAt)
   })
+  // An open session's row reads the mark from the session, not from the list.
+  const unsubBecameLead = subscribeAllHosts('session.becameLead', (serverId, { sessionId }) => {
+    const opened = session.sessions.byId[sessionId]
+    if (opened && isOwnHost(serverId, sessionId)) opened.isLead = true
+  })
 
   return () => {
     unsubEvent()
     unsubError()
     unsubSessionTitle()
     unsubReadState()
+    unsubBecameLead()
   }
 }
 

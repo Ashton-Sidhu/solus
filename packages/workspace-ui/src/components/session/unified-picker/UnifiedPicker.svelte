@@ -14,6 +14,7 @@
     getSessionSidebarStore,
     getWorkspaceContext,
     hosts,
+    CHATS_GROUP_KEY,
     projectsStore,
     runtime,
     serversStore,
@@ -605,7 +606,7 @@
   const emptyState = $derived<PickerEmptyState>({
     type: resultType,
     query,
-    scopeLabel: scopeProject?.label ?? null,
+    scopeLabel: scopeProjectKey === CHATS_GROUP_KEY ? "Chats" : (scopeProject?.label ?? null),
     tasksLoading: session.tasksStore.loading,
     everySession: searches.everySession,
     sessionSearch: {
@@ -646,6 +647,7 @@
           emptyLabel="All projects"
           onSelect={(option) => chooseProject(option.key)}
           onSelectAll={() => chooseProject(null)}
+          onSelectChats={() => chooseProject(CHATS_GROUP_KEY)}
           footerNote="Switching keeps your search"
           bind:menuOpen={scopeMenuOpen}
         />

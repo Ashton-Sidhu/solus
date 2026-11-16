@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MCP_APP_MAX_DATA_BYTES } from './mcp-apps'
+import type { AgentId, SessionRecordStatus } from './types'
 import type { Attribution } from './user'
 import { webhookVerificationSchema, type WebhookUrlMode } from './webhooks'
 
@@ -22,9 +23,9 @@ export const declaredNameSchema = z.string().min(1).max(64).regex(/^[A-Za-z][A-Z
 export const appSignalNameSchema = z.string().min(1).max(64).regex(/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/)
 
 /** The protocols this host runs (§6.3): the contract between a build and the runner. The newest is what the skill's template writes. */
-export const APP_PROTOCOLS = [2, 3] as const
+export const APP_PROTOCOLS = [2, 3, 4] as const
 export type AppProtocol = (typeof APP_PROTOCOLS)[number]
-export const APP_PROTOCOL: AppProtocol = 3
+export const APP_PROTOCOL: AppProtocol = 4
 
 /** A slug for an app from its name; `app` when the name has no letter or digit. */
 export function appSlugOf(name: string): string {
@@ -292,14 +293,16 @@ function repeatedName(entries: readonly Named[]): string | null {
 
 export const appDescriptorSchema = z.object({
   /** The build's protocol (§6.3). */
-  solusApp: z.union([z.literal(2), z.literal(3)]),
+  solusApp: z.union([z.literal(2), z.literal(3), z.literal(4)]),
   name: z.string().trim().min(1).max(80),
   description: z.string().max(500).default(''),
   /** What the app tells the agents that use it. */
   instructions: z.string().max(8000).default(''),
   permissions: appPermissionsSchema.default({ network: [], files: { read: [], write: [] } }),
-  /** The roles: the integrations the app calls, by slug. */
+  /** The roles: the integrations the app calls, by slug. Each one is a user connection (the caller's own) unless `appIntegrations` names it. */
   integrations: z.array(appSlugSchema).max(64).default([]),
+  /** The roles that are app connections (docs/plans/app-deploy.md §6): the owner links one for everyone, and each caller and the background work of the app use it. Protocol 4. */
+  appIntegrations: z.array(appSlugSchema).max(64).default([]),
   secrets: z.array(appSecretDeclarationSchema).max(32).default([]),
   config: z.array(appConfigFieldSchema).max(32).default([]),
   operations: z.array(appOperationSchema).max(128).default([]),
@@ -312,6 +315,11 @@ export const appDescriptorSchema = z.object({
     const repeated = repeatedName(entries)
     if (repeated) context.addIssue({ code: 'custom', path: [field], message: `The name ${repeated} is used twice.` })
   }
+  // A role has one scope: each app connection is one of the roles, and no role is named twice (docs/plans/app-deploy.md §6).
+  const roles = new Set(descriptor.integrations)
+  if (roles.size !== descriptor.integrations.length) context.addIssue({ code: 'custom', path: ['integrations'], message: 'An integration is named twice. A name is used one time across `integrations` and `appIntegrations`.' })
+  const strayRole = descriptor.appIntegrations.find((slug) => !roles.has(slug))
+  if (strayRole) context.addIssue({ code: 'custom', path: ['appIntegrations'], message: `The app connection ${strayRole} is not one of the app's integrations.` })
   for (const field of descriptor.config) {
     const problem = appConfigValueProblem(field, field.default)
     if (problem) context.addIssue({ code: 'custom', path: ['config', field.name], message: `The default of ${field.name} is not one of its values: ${problem}` })
@@ -352,11 +360,18 @@ export function describeAppPermissions(permissions: AppPermissions, hasBackend: 
 /** `building`: the host builds the revision now. `failed`: the build or the start failed, and the version before it still runs. */
 export type AppVersionState = 'building' | 'active' | 'superseded' | 'failed'
 
-/** What needs the owner: a version that failed, a secret that is not set, a schedule or a workflow whose last run failed, or the app is stopped. */
+/**
+ * What needs the owner: a version that failed, a secret that is not set, a
+ * schedule or a workflow whose last run failed on the active version, or the
+ * app is stopped. `workflow-stale`: the last run of a workflow failed on an
+ * older version, and the active version has not run it again.
+ */
 export interface AppAttention {
-  kind: 'version-failed' | 'secret-missing' | 'schedule-failed' | 'workflow-failed' | 'stopped'
+  kind: 'version-failed' | 'secret-missing' | 'schedule-failed' | 'workflow-failed' | 'workflow-stale' | 'stopped'
   /** One sentence for the person. */
   detail: string
+  /** `workflow-failed` and `workflow-stale`: the run that failed, which Retry starts again and Dismiss takes off this list. */
+  runId?: string
 }
 
 /** One app, as a list shows it. */
@@ -364,8 +379,14 @@ export interface AppSummary {
   id: string
   /** Unique on the host; the namespace an agent's tools and a link use. */
   slug: string
+  /** The name and description people see: the owner's when they gave one, else the manifest's. */
   name: string
   description: string
+  /** The active version's manifest name and description, which a rename or a reset goes back to. */
+  manifestName: string
+  manifestDescription: string
+  /** The hue (0–359) the owner chose for the app's tile; null takes one from the app's id. */
+  colorHue: number | null
   organizationId: string
   /** The version that runs; null when no deploy succeeded yet. */
   activeVersion: number | null
@@ -396,6 +417,8 @@ export interface AppSummary {
 /** One integration the app names, as the reader has it. */
 export interface AppRoleState {
   slug: string
+  /** `app`: the owner's connection, for each caller. `user`: the caller's own. */
+  scope: 'app' | 'user'
   /** The name of the reader's integration with that slug; null when they have none. */
   name: string | null
   connected: boolean
@@ -466,6 +489,23 @@ export interface AppVersionView {
   protocol: number
   /** How long the build took; null while it builds and for a version from before the host built. */
   buildMs: number | null
+  /** Each time this version became active, the oldest first. The first one is its deploy; a later one is a rollback or a roll forward. */
+  activations: AppVersionActivation[]
+}
+
+/** One time a version became active: when, who made it active, and the version that ran before it. */
+export interface AppVersionActivation {
+  at: number
+  by: Attribution
+  /** The version that was active before; null when no version ran. */
+  previous: number | null
+}
+
+/** How much one save changed: the files, and the lines added and removed. */
+export interface AppRevisionStats {
+  files: number
+  additions: number
+  deletions: number
 }
 
 /** One revision: one save of the app's source. */
@@ -475,6 +515,7 @@ export interface AppRevisionView {
   savedAt: number
   /** The versions that were built from it; empty for a save that waits for a deploy. */
   versions: number[]
+  stats: AppRevisionStats
 }
 
 /** The text of one version's build. */
@@ -504,6 +545,71 @@ export interface AppScheduleView {
   lastError: string | null
 }
 
+/**
+ * The calendar of an app's schedules (§9.2): for each schedule, its runs in
+ * each span of time the client asked for. A client gives the edges of the
+ * spans, so a day and an hour are the client's own, in its time zone.
+ */
+export interface AppScheduleCalendar {
+  /** The edges that were asked for: span `i` is from `edges[i]` to `edges[i + 1]`. */
+  edges: number[]
+  /** The call log keeps the newest calls of an app only: a span before this time can show fewer runs than ran. Null when the log keeps every call. */
+  keptSince: number | null
+  lanes: AppScheduleLane[]
+}
+
+/** One schedule in the calendar: one cell for each span, and the runs to come. */
+export interface AppScheduleLane {
+  name: string
+  spans: AppScheduleSpan[]
+  /** The next runs, at most five; empty when the schedule is paused. */
+  upcoming: number[]
+}
+
+/** The runs of one schedule in one span. `planned` is how many runs the trigger gives in the span, at most 1,000. */
+export interface AppScheduleSpan {
+  ok: number
+  failed: number
+  running: number
+  planned: number
+  /** When the newest run in the span started, and how it ended; null for a span with no run. */
+  lastRunAt: number | null
+  lastOutcome: AppCallOutcome | null
+}
+
+/** What a list of declared names gains and loses from one version to another. */
+export interface AppNameChanges {
+  added: string[]
+  removed: string[]
+}
+
+/**
+ * What a deploy of a revision changes against the active version (§9.2),
+ * read on the host before the owner deploys. The host builds the revision to
+ * read what it declares, and does not make a version of it.
+ */
+export interface AppDeployPreflight {
+  commit: string
+  /** The version the revision is compared with; null when no version is active. */
+  against: number | null
+  /** The build of the revision failed: a deploy of it fails too. The other fields are then empty. */
+  buildError: string | null
+  network: AppNameChanges
+  /** The host paths the backend may read and write. */
+  readPaths: AppNameChanges
+  writePaths: AppNameChanges
+  /** The config fields of the kind `model`: the model settings of the app. */
+  models: AppNameChanges
+  integrations: AppNameChanges
+  operations: AppNameChanges
+  workflows: AppNameChanges
+  schedules: AppNameChanges
+  webhooks: AppNameChanges
+  signals: AppNameChanges
+  /** The secrets the revision declares that have no value on the host. */
+  secretsMissing: { name: string; label: string }[]
+}
+
 /** One webhook the app declares, for its owner: the URL and the secret are credentials. */
 export interface AppWebhookView {
   name: string
@@ -518,8 +624,16 @@ export interface AppWebhookView {
   problem: string | null
 }
 
+/** What a person may do in an app: the owner manages it, an editor runs its queries and mutations, a viewer its queries (docs/plans/app-deploy.md §7). */
+export const appCallerRoleSchema = z.enum(['owner', 'editor', 'viewer'])
+export type AppCallerRole = z.infer<typeof appCallerRoleSchema>
+
+/** The person of a call from the app's UI, as the app's code reads it in `ctx.caller`. Absent for a guest and for a visitor of a public app. */
+export const appCallerUserSchema = z.object({ id: z.string().min(1), name: z.string() })
+export type AppCallerUser = z.infer<typeof appCallerUserSchema>
+
 export const appCallerSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('ui') }),
+  z.object({ kind: z.literal('ui'), user: appCallerUserSchema.optional(), role: appCallerRoleSchema.optional() }),
   z.object({ kind: z.literal('agent'), sessionId: z.string().nullable() }),
   z.object({ kind: z.literal('schedule'), name: z.string() }),
   z.object({ kind: z.literal('webhook'), webhookId: z.string() }),
@@ -533,6 +647,9 @@ export const APP_CALLER_KINDS = ['ui', 'agent', 'schedule', 'webhook', 'workflow
 
 export type AppCallOutcome = 'running' | 'ok' | 'failed'
 
+/** What a row of the call log is: a call of an operation, or a model call (docs/plans/app-models.md). */
+export type AppCallKind = 'operation' | 'model'
+
 /**
  * One row of the call log, as a list shows it: one call of an operation, or
  * one execution of a workflow's function. The second has the caller
@@ -540,8 +657,11 @@ export type AppCallOutcome = 'running' | 'ok' | 'failed'
  * name: its log lines and the spans of its steps are in it.
  */
 export interface AppCallView {
+  /** For a model call, the id of its model call record. */
   id: string
   version: number
+  kind: AppCallKind
+  /** The operation, or for a model call the model setting it used. */
   operation: string
   caller: AppCaller
   startedAt: number
@@ -627,6 +747,22 @@ export interface AppMetrics {
   operations: AppOperationMetrics[]
 }
 
+/**
+ * The calls that pass the filters of a read, in numbers (§9.2): the Activity
+ * chart. The time from `since` to `until` is cut into buckets of `bucketMs`,
+ * the oldest first; the last one ends at `until`.
+ */
+export interface AppCallStats {
+  since: number
+  until: number
+  bucketMs: number
+  calls: number
+  failed: number
+  p50Ms: number | null
+  p95Ms: number | null
+  buckets: { start: number; calls: number; failed: number }[]
+}
+
 // ─── App files (§4.3) ───
 
 /** One app file. Its bytes cross through `@files/read`. */
@@ -658,6 +794,10 @@ export interface AppRunView {
   error: string | null
   startedBy: AppCaller
   stepCount: number
+  /** The version whose code ran the run last; null for a run no runner took, or one from before the host kept it. */
+  version: number | null
+  /** When the owner dismissed the failure of the run; it stays in the history. */
+  dismissedAt: number | null
 }
 
 export type AppStepKind = 'do' | 'sleep' | 'query' | 'mutation' | 'model'
@@ -675,6 +815,32 @@ export interface AppStepView {
   /** The start of the step's result as JSON text. */
   result: string | null
   resultTruncated: boolean
+  /**
+   * Each try of a `step.do` step that the run's log keeps, the oldest first.
+   * Empty for another kind of step. Absent from a host older than this field.
+   */
+  tries?: AppStepTry[]
+  /** How the step tries again, as its newest try said; null when no try said it. Absent from a host older than this field. */
+  retryPolicy?: AppStepRetryPolicy | null
+}
+
+/** One try of a `step.do` step: the span the runner wrote for it. */
+export interface AppStepTry {
+  attempt: number
+  startedAt: number
+  durationMs: number
+  ok: boolean
+  /** Why the try failed; null for a try that ended well. */
+  error: string | null
+}
+
+/** The retry options of a `step.do` step (§8.3). */
+export interface AppStepRetryPolicy {
+  /** How many times the step tries again after its first try. */
+  limit: number
+  delayMs: number
+  backoff: 'constant' | 'linear' | 'exponential'
+  timeoutMs: number
 }
 
 export interface AppRunDetail extends AppRunView {
@@ -709,6 +875,15 @@ export interface AppSignalActionView {
   signal: string
   enabled: boolean
   action: AppSignalAction
+  /** How many occurrences of the last 7 days this action delivered, and how many it did not (failed or over the limit). */
+  delivered7d: number
+  failed7d: number
+}
+
+/** What emitted the newest occurrence of a signal: an operation, or a step of a workflow. */
+export interface AppSignalEmitter {
+  kind: 'operation' | 'workflow'
+  name: string
 }
 
 /** One signal the active version declares, with what the owner made it do. */
@@ -719,6 +894,9 @@ export interface AppSignalView {
   actions: AppSignalActionView[]
   lastEmittedAt: number | null
   count24h: number
+  count7d: number
+  /** Null when the signal has no occurrence, or its source is gone. */
+  emittedBy: AppSignalEmitter | null
 }
 
 /** How one signal action ended for one occurrence. `throttled`: the action reached its limit of agent starts for the hour (decision 24). */
@@ -743,11 +921,20 @@ export interface AppSignalOccurrence {
   deliveries: AppSignalDelivery[]
 }
 
-/** A session linked to the app. */
+/** One occurrence of a signal as it happens, for the live tail of the Signals section: once when the app emits it, and again when its actions end. */
+export interface AppSignalOccurredEvent {
+  appId: string
+  occurrence: AppSignalOccurrence
+}
+
+/** A session linked to the app. The record fields are null when the host keeps no record of the session. */
 export interface AppSessionLink {
   sessionId: string
   title: string | null
   linkedAt: number
+  provider: AgentId | null
+  status: SessionRecordStatus | null
+  lastActivityAt: number | null
 }
 
 /** The source change of one version: a unified patch against the version before it. */
@@ -769,12 +956,25 @@ export interface AppRevisionDiff {
   truncated: boolean
 }
 
+/**
+ * Where one step of a workflow is in the source of a version (§9.2): the file
+ * and the place of its `step.do('<name>'` call, and the text of that file for
+ * a read-only view. Line and column start at 1.
+ */
+export interface AppStepSource {
+  version: number
+  path: string
+  line: number
+  column: number
+  text: string
+}
+
 export type AppsChangedEvent =
   | { kind: 'saved'; app: AppSummary; /** The session whose deploy made this change, so its conversation can open the app. */ deployedBySessionId?: string }
   | { kind: 'deleted'; appId: string }
 
 /** What of an app's activity changed, so a Manage page reads its open section again. */
-export const APP_ACTIVITY_KINDS = ['calls', 'runs', 'signals', 'files', 'models'] as const
+export const APP_ACTIVITY_KINDS = ['calls', 'runs', 'signals', 'files', 'models', 'deployment'] as const
 export type AppActivityKind = (typeof APP_ACTIVITY_KINDS)[number]
 export interface AppActivityEvent {
   appId: string
@@ -797,21 +997,57 @@ export type AppVersionRequest = z.infer<typeof appVersionRequestSchema>
 
 const commitSchema = z.string().regex(/^[a-f0-9]{40}$/)
 
-export const appRevisionRequestSchema = appRequestSchema.extend({ commit: commitSchema })
+export const appRevisionRequestSchema = appRequestSchema.extend({
+  commit: commitSchema,
+  /** The revision the patch is against; the revision before `commit` when absent. A rollback compares the two revisions it moved between. */
+  against: commitSchema.optional(),
+})
 export type AppRevisionRequest = z.infer<typeof appRevisionRequestSchema>
+
+/** `version` absent: the active version. */
+export const appStepSourceRequestSchema = appRequestSchema.extend({
+  workflow: declaredNameSchema,
+  step: z.string().min(1).max(200),
+  version: z.number().int().min(1).optional(),
+})
+export type AppStepSourceRequest = z.infer<typeof appStepSourceRequestSchema>
 
 /** `commit` absent: the newest revision. */
 export const appDeployRequestSchema = appRequestSchema.extend({ commit: commitSchema.optional() })
 export type AppDeployRequest = z.infer<typeof appDeployRequestSchema>
 
+/** What a deploy of `commit` would change against the active version. */
+export const appDeployPreflightRequestSchema = appRequestSchema.extend({ commit: commitSchema })
+export type AppDeployPreflightRequest = z.infer<typeof appDeployPreflightRequestSchema>
+
 export const appAgentAccessRequestSchema = appRequestSchema.extend({ enabled: z.boolean() })
 export type AppAgentAccessRequest = z.infer<typeof appAgentAccessRequestSchema>
+
+/** What the owner calls the app and the colour of its tile. A field left out stays; null goes back to the manifest's text or the colour from the app's id. */
+export const appUpdateSchema = z.object({
+  name: z.string().max(80).nullable().optional(),
+  description: z.string().max(1000).nullable().optional(),
+  colorHue: z.number().int().min(0).max(359).nullable().optional(),
+}).strict()
+export type AppUpdate = z.infer<typeof appUpdateSchema>
+export const appUpdateRequestSchema = appRequestSchema.extend({ patch: appUpdateSchema })
+export type AppUpdateRequest = z.infer<typeof appUpdateRequestSchema>
 
 export const appScheduleRequestSchema = appRequestSchema.extend({ name: declaredNameSchema })
 export type AppScheduleRequest = z.infer<typeof appScheduleRequestSchema>
 
 export const appScheduleSetRequestSchema = appScheduleRequestSchema.extend({ enabled: z.boolean() })
 export type AppScheduleSetRequest = z.infer<typeof appScheduleSetRequestSchema>
+
+/** The longest calendar a client reads at one time: five weeks. */
+export const APP_SCHEDULE_CALENDAR_MAX_MS = 35 * 24 * 60 * 60_000
+
+/** The edges of the calendar's spans, ascending: two edges give one span. */
+export const appScheduleCalendarRequestSchema = appRequestSchema.extend({
+  edges: z.array(z.number().int().min(0)).min(2).max(49),
+}).refine(({ edges }) => edges.every((edge, index) => index === 0 || edge > edges[index - 1]), { message: 'The edges of the calendar go up.' })
+  .refine(({ edges }) => edges[edges.length - 1] - edges[0] <= APP_SCHEDULE_CALENDAR_MAX_MS, { message: 'A calendar is at most five weeks long.' })
+export type AppScheduleCalendarRequest = z.infer<typeof appScheduleCalendarRequestSchema>
 
 /** `value: null` clears the secret. */
 export const appSecretSetRequestSchema = appRequestSchema.extend({ name: declaredNameSchema, value: z.string().min(1).max(8192).nullable() })
@@ -821,16 +1057,45 @@ export type AppSecretSetRequest = z.infer<typeof appSecretSetRequestSchema>
 export const appConfigSetRequestSchema = appRequestSchema.extend({ name: declaredNameSchema, value: z.union([z.string().max(2000), z.number(), z.boolean()]).nullable() })
 export type AppConfigSetRequest = z.infer<typeof appConfigSetRequestSchema>
 
-/** The newest calls that pass every filter given. `before` is the `startedAt` of the last row of the page before. */
-export const appCallsRequestSchema = appRequestSchema.extend({
-  limit: z.number().int().min(1).max(500).optional(),
+/**
+ * The fields a term of a call log query names (§9.2). `caller` is the kind of
+ * caller, `run` the id of a workflow run, `error` text in the error, and
+ * `text` text the call holds anywhere, as `search` finds it.
+ */
+export const APP_CALL_QUERY_FIELDS = ['operation', 'caller', 'outcome', 'version', 'run', 'error', 'text'] as const
+export type AppCallQueryField = (typeof APP_CALL_QUERY_FIELDS)[number]
+export const appCallTermSchema = z.object({ field: z.enum(APP_CALL_QUERY_FIELDS), value: z.string().trim().min(1).max(200) })
+export type AppCallTerm = z.infer<typeof appCallTermSchema>
+
+/** The filters of the call log. Its rows and its numbers take the same ones. */
+const appCallFilterFields = {
   operation: z.string().min(1).max(64).optional(),
   outcome: z.enum(['running', 'ok', 'failed']).optional(),
   callerKind: z.enum(APP_CALLER_KINDS).optional(),
   runId: z.string().min(1).optional(),
+  /** Text the call holds, in any case: in its operation, its caller, its error, its input, or a log line. */
+  search: z.string().trim().min(1).max(200).optional(),
+  /** Only the calls of operations, or only the model calls. */
+  kind: z.enum(['operation', 'model']).optional(),
+  /** Only calls that started at this time or later. */
+  since: z.number().optional(),
+  /** Only calls that started before this time: the end of a time range the Activity chart zooms to. */
+  until: z.number().optional(),
+  /** A query: every group must match, and a group matches when one of its terms does. */
+  match: z.array(z.array(appCallTermSchema).min(1).max(16)).max(16).optional(),
+}
+
+/** The newest calls that pass every filter given. `before` is the `startedAt` of the last row of the page before. */
+export const appCallsRequestSchema = appRequestSchema.extend({
+  limit: z.number().int().min(1).max(500).optional(),
+  ...appCallFilterFields,
   before: z.number().optional(),
 })
 export type AppCallsRequest = z.infer<typeof appCallsRequestSchema>
+
+/** The numbers of every call that passes the filters, not only of a page of rows. */
+export const appCallStatsRequestSchema = appRequestSchema.extend(appCallFilterFields)
+export type AppCallStatsRequest = z.infer<typeof appCallStatsRequestSchema>
 
 export const appCallReadRequestSchema = appRequestSchema.extend({ callId: z.string().min(1) })
 export type AppCallReadRequest = z.infer<typeof appCallReadRequestSchema>
@@ -862,5 +1127,13 @@ export type AppSignalActionSaveRequest = z.infer<typeof appSignalActionSaveReque
 export const appSignalActionRequestSchema = appRequestSchema.extend({ actionId: z.string().min(1) })
 export type AppSignalActionRequest = z.infer<typeof appSignalActionRequestSchema>
 
+/** One webhook the app declares, by its declared name. */
+export const appWebhookRequestSchema = appRequestSchema.extend({ name: declaredNameSchema })
+export type AppWebhookRequest = z.infer<typeof appWebhookRequestSchema>
+
 export const appFileRequestSchema = appRequestSchema.extend({ fileId: z.string().min(1) })
 export type AppFileRequest = z.infer<typeof appFileRequestSchema>
+
+/** One session of the app's linked sessions. */
+export const appSessionRequestSchema = appRequestSchema.extend({ sessionId: z.string().min(1) })
+export type AppSessionRequest = z.infer<typeof appSessionRequestSchema>

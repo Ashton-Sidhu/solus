@@ -1,0 +1,9 @@
+# Mobile images
+
+The native iOS and Android conversation feed follows T3 Code's mobile image layout. Assistant image embeds stay inline in their message. Standalone image and browser screenshot records stay in transcript order. Tool images stay inside their tool details. There is no separate Images strip or filename card.
+
+Images keep their original aspect ratio and fit within the available width and a 480-point maximum width and height. Small images are not enlarged. Frames use T3's 10-point corners and image background; the caption is the image's alt text. Loading and failure states use the same renderer.
+
+Tap an image to open the existing full-screen gallery. Images from one message stay together, in document order, without duplicates. Galleries from different messages stay separate. iOS also uses T3's inline pinch and pan gestures; Android opens the full-screen viewer for zoom, as T3 does.
+
+This is a native mobile presentation change requested to align with T3 Code. Desktop and web retain their existing shared carousel. Both providers and local or remote hosts use the same image collection and host media resolver. No server or transport contract changes are needed.

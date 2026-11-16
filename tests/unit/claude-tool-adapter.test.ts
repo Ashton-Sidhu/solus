@@ -23,8 +23,8 @@ describe('claudeParentToolUseId', () => {
 
 // WHY: the Claude SDK validates a call with its own bundled zod before our
 // own parse runs, and that copy refused a left-out field with a default, even
-// one wrapped in `.optional()`. A start_session call without `report` or
-// `wait_seconds` failed with "expected nonoptional" before Solus saw it. Only
+// one wrapped in `.optional()`. A start_sessions call without `wait_seconds`
+// failed with "expected nonoptional" before Solus saw it. Only
 // a real call through the SDK's server proves the fields it gets.
 describe('the fields Claude validates a call against', () => {
   test('a call can leave a field with a default out, and the tool gets the default', async () => {

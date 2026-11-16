@@ -38,6 +38,7 @@
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import FrameExpandButton from "./FrameExpandButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
+  import SessionSplitDropZone from "./SessionSplitDropZone.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationPool from "../conversation/ConversationPool.svelte";
   import { frameChrome } from "./frame-chrome.store.svelte";
@@ -67,6 +68,7 @@
     SIDEBAR_PANE_MIN_SIZE,
     SIDEBAR_MIN_WIDTH,
     SIDEBAR_MAX_WIDTH,
+    isSidebarDrawer,
   } from "./lib/workspace-body";
   import { ComposerDock } from "../input/lib/composer-dock.svelte";
   import { hasSessionStarted } from "../../lib/sessionUtils";
@@ -275,6 +277,7 @@
   // The conversation view and the secondary pane together: the container the
   // secondary's percentage geometry is measured in.
   let conversationSplitWidth = $state(0);
+  let conversationSplitEl: HTMLDivElement | null = $state(null);
   let isResizingSecondary = $state(false);
 
   // Scale the sidebar with the viewport instead of two coarse breakpoints:
@@ -291,6 +294,18 @@
   );
 
   let sidebarOpen = $state(settings.sidebarOpen);
+  // Too narrow for the list beside a conversation, the pane stays at its places
+  // column and the list opens as a drawer over the conversation. The drawer
+  // belongs to the place it was opened from: a session or a page chosen in it
+  // closes it, and so does room for the column. It never changes the saved
+  // preference, which takes over again when the column fits.
+  const sidebarIsDrawer = $derived(isSidebarDrawer(workspaceWidth));
+  const drawerPlaceKey = $derived(
+    `${session.activeTabId}|${leadingRef ? surfaceKey(leadingRef) : ""}`,
+  );
+  let drawerOpenedAt = $state<string | null>(null);
+  const isDrawerOpen = $derived(sidebarIsDrawer && drawerOpenedAt === drawerPlaceKey);
+  const sidebarShowsList = $derived(sidebarIsDrawer ? isDrawerOpen : sidebarOpen);
   let isResizingSidebar = $state(false);
   let sidebarClosedForOverlay = $state(false);
   // Overlay-driven collapse/expand lands in the same single layout pass as the
@@ -314,7 +329,7 @@
 
   function openSidebar() {
     sidebarOpen = true;
-    sidebarPane?.expand();
+    if (!sidebarIsDrawer) sidebarPane?.expand();
   }
 
   function closeSidebar() {
@@ -324,6 +339,11 @@
   }
 
   function toggleSidebar() {
+    if (sidebarIsDrawer) {
+      drawerOpenedAt = isDrawerOpen ? null : drawerPlaceKey;
+      if (!isDrawerOpen) requestInputFocus();
+      return;
+    }
     // Once the user makes an explicit choice, closing the surface that caused
     // the automatic collapse must not override it.
     sidebarClosedForOverlay = false;
@@ -369,7 +389,7 @@
   // Full-page views never host a split chat, so this only ever means the lead.
   frameChrome.toggleProjectPanelFromFrame = () => toggleProjectPanel();
   $effect(() => {
-    frameChrome.sidebarOpen = active ? sidebarOpen : true;
+    frameChrome.sidebarOpen = active ? sidebarShowsList : true;
     frameChrome.projectPanelOpen = active
       ? !canExpandProjectRail(
           isPrimaryProjectPanelOpen,
@@ -611,8 +631,9 @@
   $effect(() => {
     const pane = sidebarPane;
     if (!pane) return;
-    if (sidebarOpen && pane.isCollapsed()) pane.expand();
-    else if (!sidebarOpen && !pane.isCollapsed()) pane.collapse();
+    const showsColumn = sidebarOpen && !sidebarIsDrawer;
+    if (showsColumn && pane.isCollapsed()) pane.expand();
+    else if (!showsColumn && !pane.isCollapsed()) pane.collapse();
   });
 
   // A *new* surface entering the pane resets it to that surface's own measure.
@@ -639,6 +660,12 @@
   });
 </script>
 
+<svelte:window
+  onkeydown={(event) => {
+    if (isDrawerOpen && event.key === "Escape" && !event.defaultPrevented) toggleSidebar();
+  }}
+/>
+
 {#snippet dragBar()}
   <!-- No chrome row at all: the conversation names where you are with the
        SessionBreadcrumb band floating over its own transcript, full-page views
@@ -653,13 +680,24 @@
   class="workspace-body flex flex-1 min-w-0 min-h-0"
   class:is-resizing={isResizingSecondary}
   class:sidebar-snap={sidebarSnapForOverlay}
-  class:sidebar-collapsed={!sidebarOpen}
+  class:sidebar-collapsed={!sidebarOpen || sidebarIsDrawer}
+  class:sidebar-drawer-open={isDrawerOpen}
   class:page-flush={pageFlush}
   class:project-panel-open={railOpen}
   class:project-panel-collapsed={enableProjectPanel && !railOpen}
   bind:clientWidth={workspaceBodyWidth}
 >
   <OuterScrollbar target={active ? outerScrollTarget : null} />
+  {#if isDrawerOpen}
+    <!-- Over the conversation, under the drawer: a press beside the list puts
+         it away. Escape does the same from the keyboard. -->
+    <button
+      type="button"
+      class="absolute inset-0 z-39 cursor-default bg-black/20 dark:bg-black/40"
+      aria-label="Close sidebar"
+      onclick={toggleSidebar}
+    ></button>
+  {/if}
   <!-- `autoSaveId` hands PaneForge the widths outright: it restores the layout on
        mount and writes every drag back itself, which is why no width is measured,
        converted, or stored here. It only works because the constraints below are
@@ -680,13 +718,16 @@
       maxSize={SIDEBAR_PANE_MAX_SIZE}
       collapsedSize={0}
       collapsible
-      onCollapse={closeSidebar}
+      onCollapse={() => {
+        if (!sidebarIsDrawer) closeSidebar();
+      }}
       onExpand={openSidebar}
       class="workspace-rail-pane"
     >
       {#await sidebarComponent}
         <SidePanel
-          open={sidebarOpen}
+          region="session-sidebar"
+          open={sidebarShowsList}
           managedWidth
           isElevated={false}
           minWidth={SIDEBAR_MIN_WIDTH}
@@ -700,7 +741,7 @@
       {:then module}
         {@const SessionSidebar = module.default}
         <SessionSidebar
-          open={sidebarOpen}
+          open={sidebarShowsList}
           managedWidth
           staysAsColumn
           onToggleCollapse={toggleSidebar}
@@ -716,8 +757,8 @@
     <Resizable.Handle
       aria-label="Resize sidebar"
       onDraggingChange={(dragging) => (isResizingSidebar = dragging)}
-      disabled={!sidebarOpen && !isResizingSidebar}
-      class={`-translate-x-[4.5px] ${!sidebarOpen ? "pointer-events-none opacity-0" : ""}`}
+      disabled={(!sidebarOpen || sidebarIsDrawer) && !isResizingSidebar}
+      class={`-translate-x-[4.5px] ${!sidebarOpen || sidebarIsDrawer ? "pointer-events-none opacity-0" : ""}`}
     />
 
     <Resizable.Pane order={2} class="min-w-0" data-history-swipe-area>
@@ -728,8 +769,14 @@
            which is why it needs no collapse rules of its own. -->
       <div
         class="conversation-split relative flex h-full min-h-0 min-w-0"
+        bind:this={conversationSplitEl}
         bind:clientWidth={conversationSplitWidth}
       >
+        <SessionSplitDropZone
+          split={conversationSplitEl}
+          companion={companionPanes.length > 0 ? secondaryPaneEl : null}
+          enabled={active && session.hasCompanionPanes && !session.maximizedPaneId}
+        />
         <Resizable.PaneGroup
           direction="horizontal"
           keyboardResizeBy={2}
@@ -986,6 +1033,17 @@
       .workspace-rail-pane
   ) {
     transition: none;
+  }
+  /* The drawer leaves the pane at its places column and lies over the
+     conversation. Nothing between it and the body is positioned, so it is
+     sized against the body and escapes the pane's clip. The width beats the
+     managed panel's inline 100%. */
+  .workspace-body.sidebar-drawer-open :global(.workspace-rail-pane .side-panel-shell) {
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    z-index: 40;
+    width: min(20rem, calc(100% - 3rem)) !important;
   }
   .drag-bar {
     height: auto;

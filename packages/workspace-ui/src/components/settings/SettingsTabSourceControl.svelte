@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { sourceControlWritingOptions } from "@solus/client-core/settings-source-control";
+  import { sourceControlSettings } from "./lib/settings-search-data";
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { tick, untrack } from "svelte";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import type { HostApi } from "@solus/client-core/host-api";
@@ -37,6 +41,7 @@
     serverId: string;
     api: HostApi;
     projectCwd?: string | null;
+    searchQuery?: string;
   }
 
   interface ModelOption extends TextGenerationModelSelection {
@@ -44,7 +49,8 @@
     label: string;
   }
 
-  let { serverId, api, projectCwd }: Props = $props();
+  let { serverId, api, projectCwd, searchQuery = "" }: Props = $props();
+  const isVisible = (id: string) => settingVisible(searchQuery, sourceControlSettings, id);
   let customInstructionsElement = $state<HTMLTextAreaElement | null>(null);
   let customInstructionsDraft = $state("");
   let customInstructionsSource = $state<string | null>(null);
@@ -85,21 +91,6 @@
         label: `${agent.label} · ${model.label}`,
       })));
   });
-
-  const styleOptions = {
-    repo_conventions: {
-      label: "Repository conventions",
-      description: "Commit messages and pull request titles and descriptions match each repository's history.",
-    },
-    conventional_commits: {
-      label: "Conventional Commits",
-      description: "Commit messages use Conventional Commit prefixes. Pull request titles and descriptions stay short and plain.",
-    },
-    custom: {
-      label: "Custom instructions",
-      description: "Your instructions shape commit messages, branch names, and pull request titles and descriptions.",
-    },
-  } satisfies Record<SourceControlWritingMode, { label: string; description: string }>;
 
   $effect(() => {
     const targetServerId = serverId;
@@ -161,7 +152,7 @@
 </script>
 
 {#if projectCwd}
-  <SettingsSection label="Project worktrees" description="Project branch names override your personal default. Copied files belong to this project.">
+  <SettingsSection {...settingsDefinitions["source-control.section-project-worktrees"]} visible={isVisible("project-branch-names") || isVisible("copied-files")}>
     {#key `${serverId}:${projectCwd}`}
       <ProjectBranchNamingSetting {serverId} {api} cwd={projectCwd} />
       <ProjectCopiedFilesSetting {serverId} cwd={projectCwd} />
@@ -169,12 +160,12 @@
   </SettingsSection>
 {:else}
 
-
+{#if isVisible("github")}
 {#if cloudConnectionsUrl}
-  <SettingsSection label="Source control providers">
+  <SettingsSection {...settingsDefinitions["source-control.section-source-control-providers"]}>
     <AccountConnectionRow
       url={cloudConnectionsUrl}
-      label="GitHub"
+      {...settingsDefinitions["source-control.github"]}
       status={accountVaultStore.providerStatus("github")}
       testId="source-control-row-github-account"
     />
@@ -182,12 +173,14 @@
 {:else}
   <GitHubConnect {serverId} />
 {/if}
+{/if}
 
-<SettingsSection label="Commits & pull requests">
+<SettingsSection {...settingsDefinitions["source-control.section-commits-pull-requests"]} visible={["writing", "templates", "writer-model"].some(isVisible)}>
   <SettingsRow
-    label="Commit and pull request writing"
+    {...settingsDefinitions["source-control.commit-and-pull-request-writing"]}
+    visible={isVisible("writing")}
     managed={managedSetting("sourceControlWriting")}
-    description={styleOptions[style.mode].description}
+    description={sourceControlWritingOptions[style.mode].description}
     bodyVisible={style.mode === "custom"}
   >
     {#snippet control()}
@@ -195,14 +188,14 @@
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
             <Button {...props} variant="outline" size="sm" class="min-w-48 justify-between text-xs font-normal shadow-xs" aria-label="Commit and pull request writing">
-              <span class="truncate">{styleOptions[style.mode].label}</span>
+              <span class="truncate">{sourceControlWritingOptions[style.mode].label}</span>
               <CaretDownIcon size={11} class="opacity-60" />
             </Button>
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[240px]">
           <DropdownMenu.RadioGroup value={style.mode}>
-            {#each Object.entries(styleOptions) as [mode, option] (mode)}
+            {#each Object.entries(sourceControlWritingOptions) as [mode, option] (mode)}
               <TooltipUI.Root>
                 <TooltipUI.Trigger>
                   {#snippet child({ props })}
@@ -251,8 +244,8 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Follow pull-request templates"
-    description="Use the repository's PR template when there is one."
+    {...settingsDefinitions["source-control.follow-pull-request-templates"]}
+    visible={isVisible("templates")}
   >
     {#snippet control()}
       <Switch
@@ -264,10 +257,10 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Source-control writer model"
+    {...settingsDefinitions["source-control.source-control-writer-model"]}
+    visible={isVisible("writer-model")}
     managed={managedSetting("sourceControlWriterModel")}
     bodyVisible={!!writerModel && !!snapshot && !isModelOffered(snapshot.agents, writerModel)}
-    description="Model for commits, PRs, and branch names. Off uses the text-generation model."
   >
     {#snippet control()}
       <div class="flex flex-wrap items-center justify-end gap-2">
@@ -309,9 +302,9 @@
   </SettingsRow>
 </SettingsSection>
 
-<SettingsSection label="Worktrees">
+<SettingsSection {...settingsDefinitions["source-control.section-worktrees"]} visible={isVisible("branch-names")}>
   <WorktreeBranchNamingRow
-    label="Branch names"
+    {...settingsDefinitions["source-control.branch-names"]}
     managed={managedSetting("worktreeBranchNaming")}
     naming={settings.worktreeBranchNaming}
     onSave={(naming) => settings.setPersonal("worktreeBranchNaming", naming)}

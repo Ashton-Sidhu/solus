@@ -13,6 +13,8 @@ import type {
   BrowserCookieImportResult,
   BrowserCookieSourceScan,
   BrowserDetachReason,
+  BrowserDialogAnswer,
+  BrowserDownload,
   BrowserEvidence,
   BrowserEvidenceOptions,
   BrowserEvidenceTarget,
@@ -38,6 +40,7 @@ import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hosts } from '../hosts/hosts.svelte'
+import { toasts } from '../../lib/toasts'
 
 /**
  * The renderer's mirror of the server-owned browser registry.
@@ -195,9 +198,71 @@ export class BrowserStore {
 
   private adoptPage(serverId: string, page: BrowserPage): void {
     const key = hostKey(serverId, page.browserPageId)
-    const wasRecording = !!this.pages.get(key)?.page.recording
+    const previous = this.pages.get(key)?.page
+    const wasRecording = !!previous?.recording
     this.pages.set(key, { serverId, page })
     if (wasRecording && !page.recording) this.collectEndedRecording(serverId, page.browserPageId)
+    // Only a download that finished while this client watched is announced; a
+    // page read after a reconnect keeps its old ones in the page menu.
+    if (previous) {
+      const known = new Set(previous.downloads?.map((download) => download.downloadId))
+      for (const download of page.downloads ?? []) {
+        if (!known.has(download.downloadId)) this.announceDownload(key, download)
+      }
+    }
+  }
+
+  private announceDownload(key: string, download: BrowserDownload): void {
+    toasts.success(`Downloaded ${download.fileName}`, {
+      description: 'The file is on the host that runs this page.',
+      action: { label: 'Save', onAction: () => void this.saveDownload(key, download) },
+    })
+  }
+
+  /** Save a page's download to this device, through a link the host signs. */
+  async saveDownload(key: string, download: BrowserDownload): Promise<void> {
+    const { serverId } = splitHostKey(key)
+    try {
+      const signed = await serverConnections.apiFor(serverId).assetCreateUrl(undefined, { assetId: download.assetId, name: download.fileName })
+      const link = document.createElement('a')
+      link.href = new URL(signed.relativeUrl, serverConnections.httpOriginFor(serverId)).toString()
+      link.download = download.fileName
+      link.click()
+    } catch (error) {
+      toasts.error("Couldn't save the download", { description: error instanceof Error ? error.message : undefined })
+    }
+  }
+
+  setZoom(key: string, zoomFactor: number): Promise<void> {
+    const { serverId, path } = splitHostKey(key)
+    return serverConnections.apiFor(serverId).browserSetZoom(path, zoomFactor)
+  }
+
+  async answerDialog(key: string, answer: BrowserDialogAnswer): Promise<void> {
+    const { serverId, path } = splitHostKey(key)
+    await serverConnections.apiFor(serverId).browserAnswerDialog(path, answer)
+  }
+
+  /**
+   * Give the page's file chooser files from this device, or cancel it with null.
+   * Each file goes to the host first, through a link the host signs for this
+   * page's own upload folder; the page then gets the host's copies.
+   */
+  async answerFileChooser(key: string, files: readonly File[] | null): Promise<void> {
+    const { serverId, path } = splitHostKey(key)
+    const api = serverConnections.apiFor(serverId)
+    if (!files) {
+      await api.browserAnswerFileChooser(path, null)
+      return
+    }
+    const hostPaths: string[] = []
+    for (const file of files) {
+      const token = await api.browserFileUploadToken(path, { name: file.name, mime: file.type || 'application/octet-stream', size: file.size })
+      const response = await fetch(new URL(token.relativeUrl, serverConnections.httpOriginFor(serverId)), { method: 'POST', body: file })
+      if (!response.ok) throw new Error((await response.text()).trim() || `The upload failed (${response.status}).`)
+      hostPaths.push(token.hostPath)
+    }
+    await api.browserAnswerFileChooser(path, hostPaths)
   }
 
   async loadTargets(serverId: string): Promise<void> {

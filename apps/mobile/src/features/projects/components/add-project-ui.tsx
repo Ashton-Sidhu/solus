@@ -4,10 +4,10 @@ import { ActivityIndicator, Platform, Pressable, RefreshControl, View } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { SymbolView } from '../../../components/AppSymbol'
 import { AppText as Text, AppTextInput as TextInput, type AppTextInputProps } from '../../../components/AppText'
-import { MaterialButton } from '../../../components/MaterialButton'
 import { MaterialListRow } from '../../../components/MaterialListRow'
 import { ScreenScrollView as ScrollView } from '../../../components/ScreenScrollView'
 import { cn } from '../../../lib/cn'
+import { SettingsScreen } from '../../settings/components/SettingsScreen'
 
 /** The icon size of a list row on each platform. */
 export const LIST_ROW_ICON_SIZE = Platform.OS === 'android' ? 24 : 17
@@ -27,9 +27,9 @@ export function SectionTitle(props: { readonly children: string }) {
   )
 }
 
-export function AddProjectShell(props: { readonly children: ReactNode; readonly onRefresh?: () => void; readonly refreshing?: boolean }) {
+export function AddProjectShell(props: { readonly title?: string; readonly children: ReactNode; readonly onRefresh?: () => void; readonly refreshing?: boolean }) {
   const insets = useSafeAreaInsets()
-  return (
+  const content = (
     <ScrollView
       className="flex-1 bg-sheet"
       keyboardShouldPersistTaps="handled"
@@ -45,6 +45,7 @@ export function AddProjectShell(props: { readonly children: ReactNode; readonly 
       {props.children}
     </ScrollView>
   )
+  return props.title ? <SettingsScreen title={props.title}>{content}</SettingsScreen> : content
 }
 
 export function ListSection(props: { readonly children: ReactNode }) {
@@ -72,6 +73,7 @@ export function ListRow(props: {
   readonly subtitle?: string | null
   readonly icon: ReactNode
   readonly disabled?: boolean
+  readonly selected?: boolean
   readonly isFirst?: boolean
   readonly right?: ReactNode
   readonly accessibilityHint?: string
@@ -88,12 +90,15 @@ export function ListRow(props: {
         disabled={props.disabled}
         onPress={props.onPress}
         accessibilityHint={props.accessibilityHint}
+        accessibilityRole={props.selected === undefined ? "button" : "radio"}
+        accessibilityState={props.selected === undefined ? undefined : { checked: props.selected }}
       />
     )
   }
   return (
     <Pressable
-      accessibilityRole="button"
+      accessibilityRole={props.selected === undefined ? "button" : "radio"}
+      accessibilityState={{ disabled: props.disabled, checked: props.selected }}
       accessibilityHint={props.accessibilityHint}
       disabled={props.disabled}
       onPress={props.onPress}
@@ -104,7 +109,7 @@ export function ListRow(props: {
       )}
     >
       <View className="flex-row items-center gap-3">
-        <View className="h-7 w-7 items-center justify-center">{props.icon}</View>
+        <View className={props.selected ? "h-7 w-7 items-center justify-center rounded-full bg-primary" : "h-7 w-7 items-center justify-center"}>{props.icon}</View>
         <View className="flex-1 gap-0.5">
           <Text className="text-base leading-snug font-t3-bold">{props.title}</Text>
           {props.subtitle ? (
@@ -129,20 +134,18 @@ export function PrimaryActionButton(props: {
   readonly loading?: boolean
   readonly onPress: () => void
 }) {
-  if (Platform.OS === 'android') return <MaterialButton {...props} tone="primary" fullWidth />
+  const disabled = Boolean(props.disabled || props.loading)
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={props.label}
-      disabled={props.disabled}
+      accessibilityState={{ disabled, busy: Boolean(props.loading) }}
+      disabled={disabled}
       onPress={props.onPress}
-      className="h-12 items-center justify-center rounded-full bg-primary active:opacity-70 disabled:opacity-45"
+      className={cn('min-h-12 w-full flex-row items-center justify-center gap-2 rounded-full px-6 active:opacity-70', disabled ? 'bg-subtle-strong' : 'bg-primary')}
     >
-      {props.loading ? (
-        <ActivityIndicator colorClassName="accent-primary-foreground" />
-      ) : (
-        <Text className="text-base font-t3-bold text-primary-foreground">{props.label}</Text>
-      )}
+      {props.loading ? <ActivityIndicator colorClassName="accent-foreground-muted" /> : null}
+      <Text className={cn('min-w-0 shrink text-center font-t3-medium', disabled ? 'text-foreground-muted' : 'text-primary-foreground')}>{props.label}</Text>
     </Pressable>
   )
 }

@@ -1,6 +1,7 @@
 import { connectionStageLine, type ConnectionStage, type ConnectionStageReport, type ConnectionStageResult } from '@solus/contracts/host-connection'
 import type { RouteKind } from '@solus/contracts/host-routes'
 import type { AddressAnswer, HostConnectionCheck, RouteAnswer } from './host-connection-check'
+import { routeAnswerText } from './host-connection-check'
 import { hostDiagnosticRows, type HostDiagnostics } from './host-diagnostics'
 import { hostReadinessCopy } from './host-readiness'
 
@@ -76,7 +77,7 @@ function answerDetail(answer: AddressAnswer): string {
   switch (answer.kind) {
     case 'status': return `HTTP ${answer.status}`
     case 'opaque': return 'Something answered, but this app cannot read the answer'
-    case 'no-answer': return 'No answer from this device'
+    case 'no-answer': return routeAnswerText(answer)
     case 'timeout': return 'No answer in time from this device'
   }
 }

@@ -153,6 +153,17 @@ describe('a session activity', () => {
     expect(loaded[2].activity).toEqual(row)
   })
 
+  test('lead promotion is broadcast and restored from stored activity', async () => {
+    const { runtime, call } = await historyHost(history)
+    const sent: NormalizedEvent[] = []
+    runtime.on('event', (_sessionId: string, event: NormalizedEvent) => { sent.push(event) })
+    const { HOST_ACTOR } = await import('@solus/server/admission/actor')
+    const promoted = await runtime.recordActivity({ kind: 'session', id: 'thread-lead' }, HOST_ACTOR, { kind: 'became_lead' })
+    expect(sent).toEqual([{ type: 'activity', activity: promoted }])
+    const loaded = await call<Array<{ activity?: Activity }>>('loadSession', ['thread-lead', '/tmp/project', undefined, 'claude-code'])
+    expect(loaded.filter((row) => row.activity?.kind === 'became_lead').map((row) => row.activity)).toEqual([promoted])
+  })
+
   test('history pages hold each activity once, in the page it happened in', async () => {
     const { runtime, call } = await historyHost(history)
     const bob = actors.memberActor('bob', 'Bob')

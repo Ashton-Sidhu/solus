@@ -30,6 +30,7 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
 import { useOpenHostFile } from "./MessageAttachments";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { ProviderIcon } from "../../components/ProviderIcon";
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
 import {
@@ -65,6 +66,7 @@ import {
   measuredDraftText,
   ONE_ROW_MIN_EDITOR_SHARE,
   oneRowEditorHeight,
+  oneRowEditorInset,
   oneRowMeasureFrame,
   oneRowVerdict,
 } from "./composer-layout";
@@ -81,15 +83,10 @@ import type { SolusThreadShell } from "./thread-directory";
 export const COMPOSER_COLLAPSED_CHROME = 60;
 
 /**
- * Height of the expanded composer (card + toolbar + vertical padding, excluding safe-area inset).
- */
-export const COMPOSER_EXPANDED_CHROME = 156;
-
-/**
  * The composer's own padding above and below the pill (`row`) or the card
  * (`card`). The parent's bottom inset sits below it.
  */
-export const THREAD_COMPOSER_BOTTOM_GUTTER = { row: 6, card: 8 } as const;
+export const THREAD_COMPOSER_BOTTOM_GUTTER = { row: 6, card: 6 } as const;
 
 const DRAFT_SAVE_DELAY_MS = 400;
 
@@ -112,7 +109,10 @@ export interface ThreadComposerProps {
   readonly onStopThread: () => void;
   /** After a prompt was handed to the conversation. */
   readonly onSent?: () => void;
+  /** Keeps the new-session host choice aware of the unsent draft. */
+  readonly onDraftChange?: (text: string) => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
+  readonly onHeightChange?: (height: number) => void;
   readonly onEditorFocusChange?: (focused: boolean) => void;
 }
 
@@ -236,7 +236,7 @@ export function ComposerSurface(props: {
   return (
     <Animated.View
       className={
-        Platform.OS === "android" ? undefined : "shadow-[0_6px_28px] shadow-composer-shadow"
+        Platform.OS === "android" ? undefined : "shadow-[0_6px_28px] shadow-adaptive-black-a15-a35"
       }
       layout={layoutTransition}
       style={[
@@ -253,9 +253,7 @@ export function ComposerSurface(props: {
         glassEffectStyle="regular"
         // The composer is a passive material containing interactive controls.
         pointerEvents="none"
-        // Tinted with the Solus input pill, so the composer reads as the same
-        // surface with or without the system glass.
-        tintColor={colors["--color-composer-surface"]}
+        tintColor="transparent"
         layout={layoutTransition}
         style={[{ position: "absolute", inset: 0 }, animatedShapeStyle]}
       >
@@ -285,10 +283,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const fallbackInputRef = useRef<ComposerEditorHandle>(null);
   const inputRef = props.editorRef ?? fallbackInputRef;
   const [isFocused, setIsFocused] = useState(false);
+  const [editorContentHeight, setEditorContentHeight] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftMessage, setDraftMessage] = useState(() => app.draft(hostId, props.draftKey));
   // The draft as last edited, read after an answer settles to see whether it changed meanwhile.
   const latestDraft = useRef(draftMessage);
+  const resetGeneration = useRef(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
   const { onExpandedChange } = props;
@@ -303,13 +303,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     (value: string) => {
       setDraftMessage(value);
       latestDraft.current = value;
+      props.onDraftChange?.(value);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(
         () => app.saveDraft(hostId, props.draftKey, value),
         DRAFT_SAVE_DELAY_MS,
       );
     },
-    [app, hostId, props.draftKey],
+    [app, hostId, props.draftKey, props.onDraftChange],
   );
 
   const conversationHasContent = draftMessage.trim().length > 0 || meta.attachments.length > 0;
@@ -407,22 +408,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     },
     [measuredDraft],
   );
-  // The editor's text attributes follow editing, not the card: changing the
-  // line height when a draft wraps could end an IME composition. iOS centers
-  // the row's line with insets; a collapsed line uses the font's natural line
-  // height (about 1.2em).
-  const rowLineHeight =
-    isEditing || Platform.OS === "android" ? bodyText.lineHeight : Math.ceil(bodyText.fontSize * 1.2);
-  const rowEditorHeight = oneRowEditorHeight(rowLineHeight);
-  const rowIosInset =
-    usesCard || Platform.OS === "android" ? null : Math.max(0, (rowEditorHeight - rowLineHeight) / 2);
-  const editorTextStyle = {
-    ...bodyText,
-    // iOS draws the placeholder at the bottom of a tall line box, below the
-    // typed text and the pill's buttons.
-    lineHeight: Platform.OS === "android" || isEditing ? bodyText.lineHeight : undefined,
-    color: foregroundColor,
-  };
+  // Match T3's stable compact layout, with the baseline inset adjusted for
+  // Solus's system font rather than centering the full line-height box.
+  const rowInset = oneRowEditorInset(bodyText, Platform.OS === "android" ? "android" : "ios");
+  const rowEditorHeight = oneRowEditorHeight(bodyText.lineHeight, rowInset);
+  // Keep typography stable across focus and wrapping, including IME composition.
+  const editorTextStyle = { ...bodyText, color: foregroundColor };
   // A prompt may go while its files upload: the controller sends it when they
   // land. A queued message's edit still waits for its uploads.
   const sendBlockedReason = queuedEdit?.saving
@@ -501,11 +492,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const handleSend = useCallback(
     async (followUp?: ActiveTurnComposerAction) => {
       if (!canSend || inFlightRef.current) return;
+      inFlightRef.current = true;
+      await inputRef.current?.flushPendingInput();
       if (queuedEdit) {
-        void queuedEdit.save();
+        await queuedEdit.save();
+        inFlightRef.current = false;
         return;
       }
-      const prompt = draftMessage.trim();
+      const prompt = latestDraft.current.trim();
       // An explicit Queue answers no request: the text waits behind the turn.
       const feedbackTarget = followUp === "queue" ? null : permissionForFeedback(meta.permissions);
       if (feedbackTarget) {
@@ -513,15 +507,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         // included. The text goes with its denial to that agent; sent as a
         // prompt it would reach the parent while the request stayed open.
         if (!prompt || meta.attachments.length > 0 || meta.uploading > 0) {
+          inFlightRef.current = false;
           Alert.alert("Feedback is text only", "Remove the attachments to send feedback on this request.");
           return;
         }
-        inFlightRef.current = true;
         try {
           const answered = await store.controller.answerPermission(feedbackTarget.questionId, feedbackTarget.denyOptionId, prompt);
           // A refused answer, or a draft edited meanwhile, keeps the draft.
           if (answered && latestDraft.current.trim() === prompt) {
             if (saveTimer.current) clearTimeout(saveTimer.current);
+            resetGeneration.current += 1;
             setDraftMessage("");
             latestDraft.current = "";
             app.saveDraft(hostId, props.draftKey, "");
@@ -531,7 +526,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         }
         return;
       }
-      inFlightRef.current = true;
+      resetGeneration.current += 1;
       setDraftMessage("");
       latestDraft.current = "";
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -546,7 +541,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         inFlightRef.current = false;
       }
     },
-    [app, canSend, draftMessage, hostId, meta.attachments.length, meta.permissions, props.draftKey, props.onSent, queuedEdit, sendPresentation.action, store],
+    [app, canSend, draftMessage, hostId, inputRef, meta.attachments.length, meta.permissions, props.draftKey, props.onSent, queuedEdit, sendPresentation.action, store],
   );
 
   const attach = useCallback(
@@ -605,12 +600,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     if (canSend) void handleSend();
   };
   useKeyboardCommand("send", sendFromKeyboard);
-  useKeyboardCommand("sendOnReturn", sendFromKeyboard, isFocused);
   useKeyboardCommand("focusInput", () => inputRef.current?.focus());
 
   return (
     <Animated.View
       className="px-[12px]"
+      onLayout={(event) => props.onHeightChange?.(event.nativeEvent.layout.height)}
       style={{
         paddingTop: usesCard ? THREAD_COMPOSER_BOTTOM_GUTTER.card : THREAD_COMPOSER_BOTTOM_GUTTER.row,
         paddingBottom:
@@ -654,11 +649,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           style={
             usesCard
               ? {
-                  borderRadius: 26,
-                  minHeight: 140,
+                  borderRadius: 27,
+                  borderCurve: "circular",
                   overflow: "hidden" as const,
-                  paddingBottom: 6,
-                  paddingTop: 14,
+                  paddingBottom: 2,
+                  paddingTop: 6,
                 }
               : {
                   // Keep the numeric radius close to the expanded card so the
@@ -721,9 +716,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             >
               <ComposerEditor
                 ref={inputRef}
+                readResetGeneration={() => resetGeneration.current}
+                onSubmit={(alternate) => { if (canSend) void handleSend(alternate ? sendPresentation.alternate ?? undefined : undefined); }}
                 multiline
                 value={text}
                 onChangeText={onChangeText}
+                onContentSizeChange={(size) => setEditorContentHeight(size.height)}
                 // The save sends a snapshot of the draft; typing after it would be lost.
                 readOnly={locked}
                 placeholder={props.placeholder}
@@ -736,12 +734,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 // Android: a one-row line centers natively in a pill-height
                 // box matching the send button; iOS centers it with insets.
                 singleLineCentered={!usesCard}
-                contentInsetVertical={rowIosInset ?? 0}
+                contentInsetVertical={usesCard ? 4 : rowInset}
                 style={
                   usesCard
                     ? {
-                        minHeight: 72,
-                        maxHeight: 160,
+                        height: Math.max(44, Math.min(bodyText.lineHeight * 4 + 12, editorContentHeight + 12)),
                         paddingVertical: 4,
                       }
                     : {
@@ -777,19 +774,20 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             {!usesCard ? (
               <View
                 className="min-w-0 shrink flex-row items-center"
-                // Measured only while editing: the model control is in the row then.
-                onLayout={isEditing ? onRowTrailingLayout : undefined}
+                // The model control stays visible in the idle row. Measure it
+                // before focus: attaching onLayout later does not cause a layout event.
+                onLayout={onRowTrailingLayout}
               >
-                {isEditing ? (
-                  <View className="min-w-0 shrink">
+                <View className="min-w-0 shrink">
                     <ComposerInlineControl
                       accessibilityLabel="Model and reasoning settings"
                       emphasized
                       label={currentModelLabel}
+                      iconOnly
+                      renderIcon={(size) => <ProviderIcon provider={meta.run.provider} size={size} />}
                       onPress={openSettings}
                     />
-                  </View>
-                ) : null}
+                </View>
                 {showStopAction ? (
                   <ComposerActionButton
                     accessibilityLabel="Stop agent"
@@ -835,7 +833,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     paddingTop={0}
                     style={{ gap: 0 }}
                   >
-                    <View className="min-w-0 flex-1 flex-row items-center justify-between">
+                    <View className="min-w-0 flex-1 flex-row items-center">
                       <ComposerAttachmentButton
                         disabled={locked}
                         attachmentsFull={attachmentsFull}
@@ -849,6 +847,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                           accessibilityLabel="Model and reasoning settings"
                           emphasized
                           label={currentModelLabel}
+                          renderIcon={(size) => <ProviderIcon provider={meta.run.provider} size={size} />}
                           // The card has room for the reasoning; the one-row composer keeps the name only.
                           summary={modelOptionsSummary(meta.run)}
                           maxWidth="100%"

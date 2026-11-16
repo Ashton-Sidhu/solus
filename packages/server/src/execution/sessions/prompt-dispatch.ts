@@ -56,7 +56,6 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
     promptSource: 'agent',
     displayPrompt: request.prompt,
   }
-  if (request.taskId) options.taskId = request.taskId
   if (request.imageAttachmentRefs?.length) options.imageAttachmentRefs = request.imageAttachmentRefs
   return options
 }
@@ -303,12 +302,12 @@ export class PromptDispatch {
 
   /**
    * Start a fresh background session running `prompt` on the given agent/model —
-   * the entry for the `start_session` MCP tool. Builds a plain run input with no
+   * the entry for the `start_sessions` MCP tool. Builds a plain run input with no
    * client watching it and routes through `runTurn`, resolving once the new
    * session has initialized and returning its id. The caller renders a card,
    * which watches the session when a user opens it.
    */
-  async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ sessionId: string; agentSessionId: string; taskId?: string }> {
+  async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ sessionId: string; agentSessionId: string }> {
     const parentId = req.sourceSessionId ?? req.delegation?.parentSessionId
     // A child works for the person its parent works for, on their seat (plans/019 decision 5).
     const runActor = actor ?? (parentId ? this.rt.actorOfSession(parentId) : undefined)
@@ -387,7 +386,7 @@ export class PromptDispatch {
       preferences,
       actor: runActor,
     })
-    return { ...started, sessionId }
+    return { sessionId, agentSessionId: started.agentSessionId }
   }
 
   /** Start an unattended session (an automation run or a webhook action) as a

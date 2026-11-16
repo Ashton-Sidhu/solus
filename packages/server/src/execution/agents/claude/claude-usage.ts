@@ -5,10 +5,11 @@ import type { AgentUsageLimits, UsageWindow } from '@solus/contracts/types'
  *  provider envelope. */
 export type ClaudeUsageWindows = Pick<AgentUsageLimits, 'fiveHour' | 'weekly'>
 
-/** The windows plus the plan tier, which only the structured usage API names. */
-export type ClaudeUsageReport = Pick<AgentUsageLimits, 'fiveHour' | 'weekly' | 'planType'>
+/** The windows plus the plan tier and spend cap, which only the structured usage API names. */
+export type ClaudeUsageReport = Pick<AgentUsageLimits, 'fiveHour' | 'weekly' | 'monthly' | 'planType'>
 
 type ApiUsageWindow = { utilization: number | null; resets_at: string | null } | null | undefined
+type ApiExtraUsage = NonNullable<SDKControlGetUsageResponse['rate_limits']>['extra_usage']
 
 /**
  * Maps the SDK's structured usage answer. `utilization` is already a percent
@@ -16,13 +17,29 @@ type ApiUsageWindow = { utilization: number | null; resets_at: string | null } |
  * apply (API key, Bedrock, Vertex) or the answer carries no window, so the
  * meter reads "unknown" rather than 0%. Per-model weekly windows are not kept:
  * the usage shape has no place for them.
+ *
+ * An Enterprise seat has no 5h or weekly window. Its limit is a monthly spend
+ * cap, which the answer carries as `extra_usage`. On a seat with windows,
+ * `extra_usage` is overage on top of them, not the limit, so it is read only
+ * when no window is reported.
  */
 export function claudeUsageFromApi(response: SDKControlGetUsageResponse): ClaudeUsageReport | null {
   if (!response.rate_limits_available || !response.rate_limits) return null
   const fiveHour = apiUsageWindow(response.rate_limits.five_hour)
   const weekly = apiUsageWindow(response.rate_limits.seven_day)
-  if (!fiveHour && !weekly) return null
-  return { fiveHour, weekly, planType: response.subscription_type ?? null }
+  const planType = response.subscription_type ?? null
+  if (fiveHour || weekly) return { fiveHour, weekly, planType }
+  const monthly = spendCapWindow(response.rate_limits.extra_usage)
+  return monthly && { fiveHour: null, weekly: null, monthly, planType }
+}
+
+/** A cap exists only when the answer names a limit; without one there is nothing to meter. */
+function spendCapWindow(extraUsage: ApiExtraUsage): UsageWindow | null {
+  const limit = extraUsage?.monthly_limit
+  if (!extraUsage || typeof limit !== 'number' || limit <= 0) return null
+  const { utilization, used_credits: used } = extraUsage
+  const usedPercent = typeof utilization === 'number' ? utilization : typeof used === 'number' ? (used / limit) * 100 : null
+  return usedPercent === null ? null : { usedPercent, resetsAt: null, resetsLabel: null }
 }
 
 function apiUsageWindow(window: ApiUsageWindow): UsageWindow | null {

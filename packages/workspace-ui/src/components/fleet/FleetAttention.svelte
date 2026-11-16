@@ -1,17 +1,20 @@
 <script lang="ts">
+  import { Bot } from "@lucide/svelte";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { Button } from "../ui/button";
   import HostStateIcon from "./HostStateIcon.svelte";
   import { fleetStore } from "./fleet.store.svelte";
   import { attentionRows, type AttentionRow, type FleetMachine } from "./lib/fleet-model";
 
-  /** What wants the person (D4): a host that is down, an agent to sign in, an update. */
+  /** What wants the person (D4): a host that is down, an agent to sign in, an update.
+   *  Each row has its own fix, and a session about its hosts (D12). */
   interface Props {
     machines: FleetMachine[];
     onOpen: (serverId: string) => void;
+    onAsk: (row: AttentionRow) => void;
   }
 
-  let { machines, onOpen }: Props = $props();
+  let { machines, onOpen, onAsk }: Props = $props();
 
   const rows = $derived(attentionRows(machines));
 
@@ -29,11 +32,15 @@
       <button type="button" class="min-w-0 flex-1 truncate text-left text-workspace-chrome hover:underline" onclick={() => onOpen(row.serverIds[0]!)}>
         <span class="font-medium">{row.title}</span><span class="text-muted-foreground"> — {row.note}</span>
       </button>
-      <Button variant="ghost" size="sm" onclick={() => act(row)}>
-        {row.kind === "unreachable" ? (row.serverIds.length > 1 ? "Retry all" : "Retry")
-          : row.kind === "update" ? (row.serverIds.length > 1 ? "Update all" : "Update")
-            : row.kind === "signin" ? "Sign in" : "Diagnose"}
-      </Button>
+      <!-- No button fixes a connection that drops again and again: the session is its fix. -->
+      {#if row.kind !== "reconnecting"}
+        <Button variant="ghost" size="sm" onclick={() => act(row)}>
+          {row.kind === "unreachable" ? (row.serverIds.length > 1 ? "Retry all" : "Retry")
+            : row.kind === "update" ? (row.serverIds.length > 1 ? "Update all" : "Update")
+              : "Sign in"}
+        </Button>
+      {/if}
+      <Button variant="ghost" size="sm" onclick={() => onAsk(row)}><Bot size={14} />Ask an agent</Button>
     </div>
   {/each}
 </SettingsSection>

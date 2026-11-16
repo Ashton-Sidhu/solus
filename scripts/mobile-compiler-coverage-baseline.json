@@ -1693,6 +1693,15 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/threads/artifacts/RecentArtifactsRow.tsx": {
+      "compiled": [
+        "ImageThumbnail",
+        "RecentArtifactCard",
+        "RecentArtifactsRow",
+        "Thumbnail"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/threads/artifacts/use-open-artifact.ts": {
       "compiled": [
         "useOpenArtifact"
@@ -1943,6 +1952,13 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/threads/ThreadImages.tsx": {
+      "compiled": [
+        "ThreadImage",
+        "ThreadToolImages"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/threads/ThreadMarkdown.tsx": {
       "compiled": [],
       "skipped": [
@@ -2061,12 +2077,6 @@
       ],
       "skipped": []
     },
-    "apps/mobile/src/features/threads/ThreadTurnImages.tsx": {
-      "compiled": [
-        "ThreadTurnImages"
-      ],
-      "skipped": []
-    },
     "apps/mobile/src/features/threads/ThreadUserMessageRow.tsx": {
       "compiled": [
         "UserMessageMeta"
@@ -2155,6 +2165,13 @@
         "SetupDetails",
         "StageRow",
         "WorktreeSetupCard"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ZoomableImagePressable.tsx": {
+      "compiled": [
+        "IosZoomableImagePressable",
+        "ZoomableImagePressable"
       ],
       "skipped": []
     },

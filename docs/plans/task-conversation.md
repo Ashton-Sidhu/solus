@@ -62,15 +62,15 @@ Do not coin "task thread", "task conversation" or "task row".
 8. A session makes no task of its own. A task is made by a person, an agent, a
    ticket or an automation, and a session joins it. A new session has no task;
    `TaskTarget` is `existing` or `none`. No code path makes a task from a
-   prompt: `session` is not a task source, and `start_session` takes
-   `task='attempt'` (join a task) or `task='none'`.
+   prompt: `session` is not a task source, and `start_sessions`
+   joins no task.
 9. A linked session gets the task packet (`formatTaskContext` in
    `packages/server/src/data/tasks/task-context.ts`) in its system prompt:
    the task's id and title, a `read_task` instruction and the work contract.
 
 ## Orchestrator
 
-The orchestration runtime is unchanged: `start_session`, `send_session`,
+The orchestration runtime is unchanged: `start_sessions`, `send_session`,
 `stop_session`, `read_session`, reports and notices into
 the parent, and the cards where a person answers a child
 (`docs/session-orchestration.md`).

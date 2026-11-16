@@ -7,11 +7,8 @@ import {
   pageStatus,
   routeLabel,
 } from '@solus/workspace-ui/components/browser/lib/page-strip'
-import {
-  addressParts,
-  addressProblem,
-  navigableAddress,
-} from '@solus/workspace-ui/components/browser/lib/address'
+import { addressParts } from '@solus/workspace-ui/components/browser/lib/address'
+import { addressProblem, navigableAddress } from '@solus/client-core/browser-address'
 
 /**
  * Two worktrees serving the same app are identical in an address bar: same

@@ -36,20 +36,13 @@ export async function downloadFile(call: AppHostCall, file: Pick<AppFileView, 'i
   downloadBlob(file.name, blobFromParts(await readAppFileParts(call, file.id), file.type))
 }
 
-const CREATED_BY_LABELS = {
-  ui: 'Uploaded',
-  agent: 'An agent',
-  schedule: 'A schedule',
-  webhook: 'A webhook',
-  workflow: 'A workflow',
-  model: 'A model call',
-} satisfies { [Kind in AppFileView['createdBy']]: string }
-
-/** Who made a file: a person in a UI, or the backend for one of its callers. */
-export function fileCreatedByText(createdBy: AppFileView['createdBy']): string {
-  return CREATED_BY_LABELS[createdBy]
+/** The head of the upload list: how far the uploads are, or how many did not arrive. */
+export function uploadsHeading(uploads: readonly Pick<FileUpload, 'size' | 'sentBytes' | 'error'>[], isUploading: boolean): string {
+  const failed = uploads.filter((upload) => upload.error !== null).length
+  if (isUploading) {
+    const sent = uploads.filter((upload) => upload.error === null && uploadPercent(upload) === 100).length
+    return `Uploading ${Math.min(sent + 1, uploads.length - failed)} of ${uploads.length - failed}`
+  }
+  return failed === 1 ? '1 file was not uploaded' : `${failed} files were not uploaded`
 }
 
-export function fileDeleteConfirmText(name: string): string {
-  return `Delete the file "${name}"? The app can no longer read it. You cannot get it back.`
-}

@@ -9,6 +9,7 @@
   import { menuRowVariants } from "../menu/menu-row";
   import { cn } from "../../../lib/tw";
   import ProjectFavicon from "../ProjectFavicon.svelte";
+  import { CHATS_GROUP_KEY } from "../../../contexts";
   import { abbreviateHome } from "../../../lib/paths";
   import { openAddProjectPicker } from "./add-project";
   import type { ListProjectOption } from "./list-page";
@@ -33,6 +34,9 @@
     onSelect?: (option: ListProjectOption) => void;
     /** When set, an "All projects" row leads the menu and clears the scope. */
     onSelectAll?: () => void;
+    /** When set, a "Chats" row follows it and scopes to the sessions that
+     *  have no project; `activeKey` is then `CHATS_GROUP_KEY`. */
+    onSelectChats?: () => void;
     /** What the page does to the rest of its controls when the scope changes. */
     footerNote?: string;
     menuOpen?: boolean;
@@ -43,6 +47,7 @@
     emptyLabel = "No project",
     onSelect,
     onSelectAll,
+    onSelectChats,
     footerNote = "Switching clears search and filters",
     menuOpen = $bindable(false),
   }: Props = $props();
@@ -52,6 +57,7 @@
 
   const active = $derived(projects.find((p) => p.key === activeKey));
   const allActive = $derived(!!onSelectAll && !activeKey);
+  const chatsActive = $derived(!!onSelectChats && activeKey === CHATS_GROUP_KEY);
   // A handful of projects is a list you read; past that it is one you search.
   const showFilter = $derived(projects.length > 6);
   const matches = $derived(
@@ -96,6 +102,12 @@
     onSelectAll?.();
   }
 
+  function pickChats() {
+    menuOpen = false;
+    query = "";
+    onSelectChats?.();
+  }
+
   function addProject() {
     menuOpen = false;
     query = "";
@@ -131,11 +143,13 @@
       {#key active.projectKey}
         <ProjectFavicon projectKey={active.key} class="size-4 shrink-0" />
       {/key}
+    {:else if chatsActive}
+      <ProjectFavicon projectKey={CHATS_GROUP_KEY} class="size-4 shrink-0" />
     {/if}
     <span
       class="truncate text-menu font-normal text-(--solus-text-secondary)"
     >
-      {active?.label ?? (allActive ? "All projects" : emptyLabel)}
+      {active?.label ?? (chatsActive ? "Chats" : allActive ? "All projects" : emptyLabel)}
     </span>
     <CaretDownIcon
       size={12}
@@ -185,6 +199,28 @@
             </span>
           </button>
           <ProjectRowAction selected={allActive} label="All projects" />
+        </div>
+      {/if}
+
+      {#if onSelectChats}
+        <!-- The sessions that have no project, beside every project. -->
+        <div class="group/project-row relative rounded-lg hover:bg-(--solus-surface-hover)">
+          <button
+            type="button"
+            class={cn(
+              menuRowVariants({ stagger: false }),
+              "w-full pr-9 text-left text-workspace-chrome pointer-coarse:pr-11",
+            )}
+            data-menu-current={chatsActive ? "" : undefined}
+            data-testid="project-switcher-chats"
+            onclick={pickChats}
+          >
+            <ProjectFavicon projectKey={CHATS_GROUP_KEY} class="size-3.5" />
+            <span class="min-w-0 flex-1 truncate {chatsActive ? 'font-medium' : ''}">
+              Chats
+            </span>
+          </button>
+          <ProjectRowAction selected={chatsActive} label="Chats" />
         </div>
       {/if}
 

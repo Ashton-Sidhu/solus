@@ -50,11 +50,13 @@ export function PullRequestDescription(props: { readonly markdown: string; reado
                     <LinearGradient id="description-fade" x1="0" y1="0" x2="0" y2="80" gradientUnits="userSpaceOnUse">
                       <Stop offset="0" stopColor={fadeColor} stopOpacity={0} />
                       <Stop offset="0.5" stopColor={fadeColor} stopOpacity={0.94} />
+                      <Stop offset="0.72" stopColor={fadeColor} stopOpacity={1} />
                       <Stop offset="1" stopColor={fadeColor} stopOpacity={1} />
                     </LinearGradient>
                   </Defs>
                   <Rect width="100%" height="100%" fill="url(#description-fade)" />
                 </Svg>
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 44, backgroundColor: fadeColor }} />
               </View>
             ) : null}
             {canCollapse ? (

@@ -1,4 +1,5 @@
 // Ported from T3 Code apps/mobile/src/native/workspace-stack-projection.ts (MIT, see UPSTREAM.md).
+import type { RootStackParamList } from "../navigation/routes";
 import type {
   NavigationState,
   ParamListBase,
@@ -149,4 +150,17 @@ export function reconcileStackScreens<T extends { readonly key: string }>(
     }
   });
   return screens;
+}
+
+/** The pull request open beside the list, including its pushed review pages. */
+export function selectedWorkspacePullRequest(detail: readonly Route[]): RootStackParamList["PullRequest"] | null {
+  for (let index = detail.length - 1; index >= 0; index--) {
+    const route = detail[index]!;
+    if (route.name === "Thread") return null;
+    if (route.name === "PullRequest") {
+      // SAFETY: the typed navigator admits this route only with PullRequest params.
+      return route.params as RootStackParamList["PullRequest"];
+    }
+  }
+  return null;
 }

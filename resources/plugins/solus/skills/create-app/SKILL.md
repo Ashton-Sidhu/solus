@@ -20,6 +20,7 @@ Build whatever the user asked for, at the size they asked for. Do not reduce the
 | Signals | `app.ts` | Typed events the app emits. The user decides what one does: a notification, a prompt to a session, a run of an automation. |
 | Secrets | `app.ts` | Values the user gives once, such as a database URL. Only the backend reads them. |
 | Config | `app.ts` | Settings the user changes on the Manage page, such as an hour or a team. The backend and the UI read them. |
+| Models | `ctx.models` | Calls to a model that the user chooses in Config. The UI watches a call as it runs. |
 | Integrations | `app.ts` | The user's connected services, by slug. |
 | UI | `src/` | A full application in its own window. An app can have no UI. |
 | Storage | `@solus/app` | Key-value data for a UI that needs no backend. |
@@ -77,6 +78,7 @@ Do not use `render_artifact` for an app. `npm run bundle` checks the types and t
 | Run long or durable work: workflows | [workflows.md](references/workflows.md) |
 | Run on a timer or on a call from another service, or tell the user that something happened | [triggers.md](references/triggers.md) |
 | Let the user change a setting: config | [config.md](references/config.md) |
+| Ask a model: a summary, a classification, an analysis | [models.md](references/models.md) |
 | Use a secret, a connected service, the network, or the host's files | [access.md](references/access.md) |
 | Preview, deploy, repair, or update an older app | [deploy.md](references/deploy.md) |
 

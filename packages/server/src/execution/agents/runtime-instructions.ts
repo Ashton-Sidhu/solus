@@ -53,21 +53,24 @@ Codex background commands keep the session in background until their results arr
 
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
-Use delegate_task for child work on the same provider or another provider. It creates a durable child session with no parent history. Give it the complete brief, constraints, and expected result. Native subagent tools remain available for provider-specific features such as context inheritance; their own schemas define those capabilities. For background agent work, use delegate_task, never a background native subagent.
+Use start_sessions for child work on the same provider or another provider. Each session is a durable child with no parent history, and each has its own provider, model, host, workspace, permission mode, and reports. Give each the complete brief, constraints, and expected result. To run work in parallel, put every session in one start_sessions call; they start together. Native subagent tools remain available for provider-specific features such as context inheritance; their own schemas define those capabilities. For background agent work, use start_sessions, never a background native subagent.
 
-Use start_session only for an independent conversation. It does not become your child, does not hold your work open, and is not stopped with you. Reports default off. Start an unrelated conversation only when the user asks for it.
+Set independent=true on a session only for an independent conversation. It does not become your child, does not hold your work open, and is not stopped with you. Reports default off. Start an unrelated conversation only when the user asks for it.
 
-Choose the workspace before launching. delegate_task uses isolation='shared' by default; isolation='worktree' creates a new checkout from the selected local checkout's commit. Set worktree_base_branch to choose another base. cwd selects an existing checkout. On another host, paths belong to that host; an isolated remote child needs cwd and worktree_base_branch. A shell command in prompt does not change the session's workspace binding. Use host only when the user asks to run work on another machine.
+Choose the workspace before launching. A session uses isolation='shared' by default; isolation='worktree' gives it a new checkout from the selected local checkout's commit. Set worktree_base_branch to choose another base. cwd selects an existing checkout. On another host, paths belong to that host; an isolated remote session needs cwd and worktree_base_branch. A shell command in prompt does not change the session's workspace binding. Use host only when the user asks to run work on another machine.
 
-Delegated agents inherit provider, model, reasoning effort, and permissions where supported. Use list_agent_targets before selecting another provider or model, and for another host's choices. Set requested reasoning_effort explicitly. Never substitute an unsupported level. Permission mode may stay the same or become narrower. Started sessions do not run in fast mode.
+Started sessions inherit provider, model, reasoning effort, and permissions where supported. Use list_agent_targets before selecting another provider or model, and for another host's choices. Set requested reasoning_effort explicitly. Never substitute an unsupported level. Permission mode may stay the same or become narrower. Started sessions do not run in fast mode.
 
-A local child inherits the parent's existing Solus task; task_id selects another existing task or null leaves it unlinked. Remote children cannot join Solus tasks yet. Do not create a task merely to delegate work.
-
-For delegate_task and follow-up send_session calls, prefer report=true and wait_seconds=0. Keep the session and exchange IDs, end your turn, and let the report wake you. Do not poll. A wait timeout does not cancel work. A provider turn with open child work is not a final result: read the result and complete the follow-up before reporting completion.
+For start_sessions and follow-up send_session calls, prefer report=true and wait_seconds=0. Keep the session and exchange IDs, end your turn, and let the report wake you. Do not poll. A wait timeout does not cancel work. A provider turn with open child work is not a final result: read the result and complete the follow-up before reporting completion.
 
 Use send_session to continue a child; delivery='steer' changes active work, while 'queue' waits for a new turn. Each request or review round has its own exchange. Reuse request_id only to retry the same request after failure or a lost response; the saved receipt prevents duplicate work. read_session_exchange reads startup state and results after a timeout or restart. Stop a child with stop_session. Only the user answers its questions, plans, and permissions; tell the user what a notice asks.
 
 Tool definitions can load through tool search. Search before concluding a tool is absent; do not start duplicate work to work around discovery. To show another session, copy the link returned by its tool. Do not invent a session link.`
+
+/** A session becomes a lead by its agent's own decision, with no choice the
+ *  person must make first (docs/plans/lead-session.md). The rule for when is
+ *  here, since the agent decides before it calls any session tool. */
+const BECOME_LEAD_INSTRUCTIONS = 'When the user\'s work divides into two or more independent parts, call become_lead before you start the parts. Parts are independent when separate sessions can do them at the same time, each from its own brief. A lead coordinates: it starts a session for each part with start_sessions and does not do the parts itself. become_lead is permanent for this session. Do not call it for work that is one part, when the user tells you to do the work yourself, or in a session that another session started as its child.'
 
 const DEVICE_INSTRUCTIONS = `## Solus devices
 
@@ -123,7 +126,8 @@ function singleLine(value: string): string {
 }
 
 /** Each tool-group block goes only to a run that has the group's entry tool:
- *  `browser_status` for Browser, `link` for Tasks, `start_session` for Sessions,
+ *  `browser_status` for Browser, `link` for Tasks, `start_sessions` for Sessions
+ *  (with the lead rule when `become_lead` is there too),
  *  `move_to_worktree` for worktrees, `render_artifact` for visuals,
  *  `device_list` for Devices, `create_automation` for Automations,
  *  `request_secret` for the secretRef rule, `deploy_app` for Apps. */
@@ -135,8 +139,9 @@ You can embed images and videos in your response with Markdown and absolute file
   return [
     runtimeInfo,
     isChat(runtime.workingDirectory) && CHAT_INSTRUCTIONS,
-    (has('start_session') || has('delegate_task')) && [
+    has('start_sessions') && [
       ORCHESTRATION_INSTRUCTIONS,
+      has('become_lead') && !isChat(runtime.workingDirectory) && BECOME_LEAD_INSTRUCTIONS,
       has('list_agent_targets') && 'Before selecting another provider or model, call list_agent_targets for the host model catalog. This catalog does not establish native subagent support; use the native tool schema for that.',
       has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
       has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',
@@ -151,7 +156,7 @@ You can embed images and videos in your response with Markdown and absolute file
         : PULL_REQUEST_LINKING_INSTRUCTIONS,
       PULL_REQUEST_WRITING_INSTRUCTION,
     ].join('\n\n'),
-    has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. When you write a plan file, link it with kind=file and path. Relative paths use the calling session’s working directory.',
+    has('link') && 'Use link to attach works, automations, PRs, and project files to the current session. When the session works on a GitHub or Jira task, link it with kind=task and the task key; a started session joins no task by itself. When you write a plan file, link it with kind=file and path. Relative paths use the calling session’s working directory.',
     has('unlink') && 'If a pull request linked to this session is not your work, call unlink with kind=pr to remove it. Solus does not link it again. To remove every linked pull request in some states, such as all closed or merged ones, call unlink once with kind=pr and states.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
     has('background_wait') && (runtime.harness === 'Claude Code' ? BACKGROUND_WAIT_INSTRUCTIONS : CODEX_BACKGROUND_WAIT_INSTRUCTIONS),

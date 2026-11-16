@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   /** The caller's own TypeSafe API key (docs/plans/access-model.md §2.6). It is
    *  its own group on the Tools page because it is a credential, not a tool
    *  switch. A signed-in person keeps it in their Solus account
@@ -57,16 +58,16 @@
   }
 </script>
 
-<SettingsSection label="TypeSafe" {visible}>
+<SettingsSection {...settingsDefinitions["tools.section-typesafe"]} {visible}>
   {#if location === "account" && accountConnectionsUrl}
     <AccountConnectionRow
       url={accountConnectionsUrl}
-      label="API key"
+      {...settingsDefinitions["tools.api-key"]}
       status={typeSafeAccountStatus(source)}
       testId="typesafe-row-account"
     />
   {:else}
-    <SettingsRow label="API key" {description}>
+    <SettingsRow {...settingsDefinitions["tools.api-key"]} {description}>
       {#snippet labelExtra()}
         {#if source}
           <CircleCheckIcon

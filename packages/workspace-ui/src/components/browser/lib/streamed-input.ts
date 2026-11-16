@@ -88,7 +88,7 @@ export function pointToViewport(
   clientX: number,
   clientY: number,
   rect: SurfaceRect,
-  viewport: BrowserViewport,
+  viewport: Pick<BrowserViewport, 'width' | 'height'>,
 ): ViewportPoint {
   const fractionX = rect.width > 0 ? (clientX - rect.left) / rect.width : 0
   const fractionY = rect.height > 0 ? (clientY - rect.top) / rect.height : 0

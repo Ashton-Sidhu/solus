@@ -1,9 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/ThreadSettingsRows.shared.tsx
 // (MIT, see UPSTREAM.md).
-import { Pressable, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
+import { MaterialRadioIndicator } from "../../components/MaterialRadioIndicator";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { cn } from "../../lib/cn";
@@ -57,7 +58,7 @@ export function ProviderHeader(props: {
         accessibilityLabel={`${props.label}, ${props.modelCount} models`}
         accessibilityRole="button"
         accessibilityState={{ expanded: !props.collapsed }}
-        className="mx-4 mt-3 min-h-10 flex-row items-center gap-2 rounded-xl px-1 active:opacity-60 android:min-h-12"
+        className="mx-4 mt-1 min-h-11 flex-row items-center gap-2 rounded-xl px-1 pt-2 active:opacity-60 android:min-h-12"
         onPress={props.onToggle}
       >
         {content}
@@ -69,7 +70,7 @@ export function ProviderHeader(props: {
     <View
       accessibilityLabel={[props.label, props.unavailableReason].filter(Boolean).join(", ")}
       accessibilityRole="header"
-      className="mx-4 mt-3 min-h-10 flex-row items-center gap-2 px-1"
+      className="mx-4 min-h-9 flex-row items-center gap-2 px-1 pt-1"
     >
       {content}
     </View>
@@ -97,7 +98,7 @@ export function DisclosureRow(props: {
       onPress={props.onPress}
       className={cn(
         "min-h-11 flex-row items-center gap-2 bg-grouped-card px-4 py-2 active:bg-subtle android:min-h-14",
-        !props.isLast && "border-b border-border-subtle",
+        Platform.OS === "android" && !props.isLast && "border-b border-border-subtle",
       )}
     >
       <Text className="text-sm font-t3-medium text-foreground">{props.label}</Text>
@@ -129,7 +130,7 @@ export function FastModeRow(props: {
   readonly onValueChange: (value: boolean) => void;
 }) {
   return (
-    <View className="min-h-11 flex-row items-center gap-3 border-t border-border-subtle bg-grouped-card px-4 py-2 android:min-h-14">
+    <View className="min-h-11 flex-row items-center gap-3 bg-grouped-card px-4 py-2 android:min-h-14 android:border-t android:border-border-subtle">
       <View className="min-w-0 flex-1">
         <Text className="text-sm font-t3-medium text-foreground">Fast mode</Text>
         <Text className="text-xs text-foreground-muted">Uses your Codex allowance more quickly</Text>
@@ -159,7 +160,7 @@ export function AutoRow(props: {
       disabled={props.needsKey}
       onPress={props.onPress}
     >
-      <RowLeadingSymbol name="sparkles" muted={props.needsKey} />
+      {Platform.OS === "android" ? <MaterialRadioIndicator selected={props.selected} /> : <RowLeadingSymbol name="sparkles" muted={props.needsKey} />}
       <View className="min-w-0 flex-1">
         <Text className={cn("text-base font-t3-medium", props.needsKey ? "text-foreground-muted" : "text-foreground")}>
           Auto
@@ -174,6 +175,7 @@ export function AutoRow(props: {
 }
 
 function SelectedCheckmark(props: { readonly selected: boolean }) {
+  if (Platform.OS === "android") return null;
   return props.selected ? (
     <SymbolView
       name="checkmark"
@@ -202,27 +204,30 @@ export function ModelRow(props: {
       accessibilityRole="radio"
       accessibilityState={{ checked: props.selected, disabled: denial !== null }}
       disabled={denial !== null}
+      style={Platform.OS === "android" ? { minHeight: 56 } : undefined}
       className={cn(
-        "mx-4 min-h-12 flex-row items-center gap-2 bg-grouped-card px-4 py-3 active:bg-subtle android:min-h-14",
+        "mx-4 min-h-11 flex-row items-center gap-2 bg-grouped-card px-4 active:bg-subtle android:min-h-14",
+        Platform.OS === "android" && props.selected && "bg-secondary",
         props.isFirst && "rounded-t-2xl",
-        props.isLast ? "rounded-b-2xl" : "border-b border-border-subtle",
+        props.isLast && "rounded-b-2xl",
+        Platform.OS === "android" && !props.isLast && "border-b border-border-subtle",
       )}
       onPress={props.onPress}
     >
-      <View className={cn("min-w-0 shrink gap-0.5", denial && "opacity-50")}>
+      {Platform.OS === "android" ? <MaterialRadioIndicator selected={props.selected} /> : null}
+      <View className={cn("min-w-0 flex-1 gap-0.5", denial && "opacity-50")}>
         <View className="flex-row items-center gap-2">
-          <Text className="min-w-0 shrink text-base font-t3-medium text-foreground" numberOfLines={1}>
+          <Text className="min-w-0 shrink text-base font-t3-medium text-foreground" numberOfLines={Platform.OS === "android" ? 2 : 1}>
             {props.option.label}
           </Text>
           {badge ? (
-            <View className="rounded-md bg-subtle px-1.5 py-0.5">
-              <Text className="text-3xs font-t3-medium text-foreground-muted">{badge}</Text>
+            <View className="rounded-md bg-subtle-strong px-1.5 py-0.5">
+              <Text className="text-3xs font-t3-bold text-foreground-muted">{badge}</Text>
             </View>
           ) : null}
         </View>
         {denial ? <Text className="text-sm leading-5 text-foreground-muted">{denial}</Text> : null}
       </View>
-      <View className="flex-1" />
       <SelectedCheckmark selected={props.selected} />
     </Pressable>
   );
@@ -248,13 +253,14 @@ export function ChoiceRow(props: {
       accessibilityRole="radio"
       accessibilityState={{ checked: props.selected, disabled }}
       disabled={disabled}
+      style={Platform.OS === "android" ? { minHeight: 56 } : undefined}
       onPress={props.onPress}
       className={cn(
         "min-h-14 flex-row items-center gap-3 bg-grouped-card px-4 py-3 active:bg-subtle",
-        !props.isLast && "border-b border-border-subtle",
+        Platform.OS === "android" && !props.isLast && "border-b border-border-subtle",
       )}
     >
-      {props.icon ? <RowLeadingSymbol name={props.icon} /> : null}
+      {Platform.OS === "android" ? <MaterialRadioIndicator selected={props.selected} /> : null}
       <View className={cn("min-w-0 flex-1 gap-0.5", disabled && "opacity-50")}>
         <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
         {description ? (

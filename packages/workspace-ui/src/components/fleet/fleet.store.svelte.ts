@@ -50,6 +50,7 @@ class FleetStore {
     const organizationId = server.uplink?.organizationIds?.[0]
     return fleetMachine({
       serverId: server.id,
+      installationId: server.installationId,
       label: server.label,
       os: server.os,
       isThisDevice: server.local,
@@ -60,6 +61,7 @@ class FleetStore {
       readiness: server.readiness,
       managedState: server.uplink?.managedState,
       routeKind: server.local ? null : routeKindInUse(server),
+      address: server.local ? undefined : server.url,
       sessions,
       load: load ? { cpu: load.cpu, memory: load.memory, latencyMs: load.latencyMs } : null,
       hasUpdate: hostUpdatesStore.pendingCountFor(server.id) > 0,

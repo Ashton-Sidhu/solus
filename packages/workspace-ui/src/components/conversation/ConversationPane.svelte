@@ -56,7 +56,6 @@
     {paneId}
     tabId={conversationTabId}
     {surfaceVisible}
-    onOpenAsPage={() => session.moveChatSurfaceToMain()}
     onClose={closeConversationPane}
     closeLabel="Close conversation pane"
   >

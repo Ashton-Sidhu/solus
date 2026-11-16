@@ -1,6 +1,6 @@
 import type { PolicySet } from './policy'
 import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
-import type { AppActivityEvent, AppsChangedEvent } from './apps'
+import type { AppActivityEvent, AppSignalOccurredEvent, AppsChangedEvent } from './apps'
 import type { DeviceState } from './device-types'
 import type { ForwardedHost, SshAddProgress } from './remote-machines'
 import type { CheckoutChange } from './checkout'
@@ -54,6 +54,9 @@ export interface HostEventMap {
   'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.indexChanged': SessionIndexUpdatedEvent
   'session.titleChanged': SessionTitleChangedEvent
+  /** This session became a lead (docs/plans/lead-session.md). A session never
+   *  stops being one, so there is no reverse event. */
+  'session.becameLead': { sessionId: string }
   /** This session was read, or returned to unread, on some client. Every other
    *  mounted surface adopts the boundary so reading on one device clears the
    *  indicator on the rest. `viewedAt` is null when the session is unread. */
@@ -89,6 +92,8 @@ export interface HostEventMap {
   'apps.dataChanged': { appId: string }
   /** An app's call log, runs, occurrences, or files changed: a Manage page reads its open section again. At most one for each app in 500 ms. */
   'apps.activity': AppActivityEvent
+  /** One occurrence of an app's signal, when the app emits it and again when its actions end: the live tail of the Signals section. */
+  'apps.signalOccurred': AppSignalOccurredEvent
   /** A short summary of one delivery, never the body (docs/plans/webhooks.md §5). */
   'webhook.delivery': WebhookDeliverySummary
   'provider.deviceCodeReceived': DeviceCodePrompt
@@ -249,6 +254,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.errorReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'An enriched provider error arrived for a watched session.' },
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
+  'session.becameLead': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session became a lead: it shows the Meta mode mark.' },
   'session.pullRequestsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's pull request links changed." },
   'session.artifactsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's artifacts changed: a pull request, work, file, or automation was linked or unlinked." },
   'session.stateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was settled or made active.' },
@@ -265,6 +271,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'apps.changed': { owner: 'apps', category: 'delta', recovery: 'reload', description: 'An app was deployed, changed, stopped, started, or deleted.' },
   'apps.dataChanged': { owner: 'apps', category: 'invalidation', recovery: 'reload', description: "A mutation changed an app's data." },
   'apps.activity': { owner: 'apps', category: 'invalidation', recovery: 'reload', description: "An app's call log, runs, occurrences, or files changed." },
+  'apps.signalOccurred': { owner: 'apps', category: 'stream', recovery: 'reload', description: 'An app emitted a signal, or the actions of an occurrence ended.' },
   'webhook.delivery': { owner: 'webhooks', category: 'delta', recovery: 'reload', description: 'A webhook delivery arrived or its actions finished.' },
   'provider.deviceCodeReceived': { owner: 'providers', category: 'targeted', recovery: 'reset', description: 'A provider sign-in produced a device code.' },
   'git.actionProgressed': { owner: 'git', category: 'targeted', recovery: 'reset', description: 'A stacked Git action changed phase.' },

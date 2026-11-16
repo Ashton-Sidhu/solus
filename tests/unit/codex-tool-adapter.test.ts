@@ -5,14 +5,14 @@ import { CodexToolDispatcher, adaptCodexTools } from '@solus/server/execution/ag
 
 describe('Codex dynamic tool adapter', () => {
   test('defers ordinary tools while keeping essential guidance visible', () => {
-    const tools: AgentTool[] = ['ordinary_tool', 'start_session'].map((name) => ({
+    const tools: AgentTool[] = ['ordinary_tool', 'start_sessions'].map((name) => ({
       name, description: name, inputFields: {}, requiresApproval: false,
-      alwaysLoad: name === 'start_session', execute: async () => ({ ok: true, text: '' }),
+      alwaysLoad: name === 'start_sessions', execute: async () => ({ ok: true, text: '' }),
     }))
     expect(adaptCodexTools(tools)).toMatchObject([{
       type: 'namespace', name: 'solus', tools: [
         { type: 'function', name: 'ordinary_tool', deferLoading: true },
-        { type: 'function', name: 'start_session', deferLoading: false },
+        { type: 'function', name: 'start_sessions', deferLoading: false },
       ],
     }])
     expect(adaptCodexTools([])).toEqual([])

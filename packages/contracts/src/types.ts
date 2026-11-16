@@ -683,6 +683,26 @@ export function isSessionBusyStatus(status: SessionStatus): boolean {
     || status === 'rate_limited'
 }
 
+/** What a runtime status means to the record: a turn open, or not. */
+export function sessionRecordStatusOf(status: SessionStatus): SessionRecordStatus {
+  switch (status) {
+    case 'connecting':
+    case 'running':
+    case 'awaiting_input':
+    case 'awaiting_plan':
+    case 'rate_limited':
+      return 'running'
+    case 'interrupted':
+      return 'interrupted'
+    case 'idle':
+    case 'completed':
+    case 'background':
+    case 'failed':
+    case 'dead':
+      return 'idle'
+  }
+}
+
 /**
  * Why a pending permission or question can no longer be answered. The host
  * owns this state. `run_ended`: the run that asked it exited, stopped, or died.
@@ -1495,7 +1515,7 @@ export interface Message {
   /** A recording the agent made of a browser page, rendered as a player. */
   browserRecording?: BrowserRecordingRef
   /** Agent-conversation card for another agent this thread is driving
-   *  (start_session / send_session). One message per
+   *  (start_sessions / send_session). One message per
    *  agent per turn, mutated in place as `agent_conversation_update` events land;
    *  reconstructed from the transcript
    *  on history reload. */
@@ -1899,7 +1919,7 @@ export interface AgentExchange {
 export interface AgentConversationRef {
   /** The other session. Known from dispatch, before its provider starts. */
   sessionId: string
-  /** A session start_session created, before its provider started: there is
+  /** A session start_sessions created, before its provider started: there is
    *  nothing to open, prompt or track yet. */
   starting?: boolean
   provider: AgentId
@@ -1913,7 +1933,7 @@ export interface AgentConversationRef {
   model?: string
   reasoningEffort?: string
   origin: AgentConversationOrigin
-  /** Started with start_session's `report` off: no reply is owed to
+  /** Started with start_sessions' `report` off: no reply is owed to
    *  this conversation, so the card rests collapsed to its header. Cleared the
    *  moment this side prompts or watches the session — that is a conversation. */
   fireAndForget?: boolean
@@ -2483,7 +2503,7 @@ export interface UsageWindowUpdate {
   resetsAt: number | null
 }
 
-/** One subscription quota window (rolling 5h or weekly). */
+/** One quota window (rolling 5h, weekly, or a monthly spend cap). */
 export interface UsageWindow {
   usedPercent: number
   /** Epoch ms. Null when the provider only gives a localized label. */
@@ -2499,6 +2519,9 @@ export interface AgentUsageLimits {
   provider: AgentId
   fiveHour: UsageWindow | null
   weekly: UsageWindow | null
+  /** A monthly spend cap, for an account that has no 5h or weekly window
+   *  (a Claude Enterprise seat). The provider gives no reset time for it. */
+  monthly?: UsageWindow | null
   planType: string | null
   /** API-key sessions use metered API billing, not subscription quota windows.
    *  `signed_out`: the agent has no login, so there is no quota until the user
@@ -2583,7 +2606,7 @@ export interface SessionMeta {
   delegation?: SessionDelegation
   /** What started this session (docs/plans/session-starter.md); absent for a session made before the host recorded it. */
   startedBy?: SessionStarter
-  /** The session was started in Meta mode: it is a lead
+  /** The session is in Meta mode: it is a lead
    *  (docs/plans/lead-session.md). The sidebar marks it. Absent when not. */
   isLead?: boolean
   /** The organization of the session's record: `local` or an organization id
@@ -2676,7 +2699,7 @@ export interface SessionRecord {
   place: SessionPlace | null
   /** What started the session. Written once, as `place` is. */
   startedBy: SessionStarter | null
-  /** The session was started in Meta mode: it is a lead
+  /** The session is in Meta mode: it is a lead
    *  (docs/plans/lead-session.md). The list marks it. Absent when not. */
   isLead?: boolean
   /** Whether the session's work is finished (docs/plans/session-archive.md).

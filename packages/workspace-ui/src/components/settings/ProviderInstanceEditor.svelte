@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { instanceModelCatalog } from "@solus/contracts/provider-instance-models";
   import ProviderInstanceModels from "./ProviderInstanceModels.svelte";
   import { untrack } from "svelte";
@@ -34,36 +35,36 @@
   function addVariable() { draft.environment.push({ name: "", value: "", sensitive: true }); }
 </script>
 
-<SettingsSection label="Instance">
-  <SettingsRow label="Display name">
+<SettingsSection {...settingsDefinitions["providers.section-instance"]}>
+  <SettingsRow {...settingsDefinitions["providers.display-name"]}>
     {#snippet control()}<Input aria-label="Provider display name" bind:value={draft.displayName} maxlength={120} />{/snippet}
   </SettingsRow>
-  <SettingsRow label="Enabled" description="A disabled instance refuses new turns. Running turns can finish.">
+  <SettingsRow {...settingsDefinitions["providers.enabled"]}>
     {#snippet control()}<Switch checked={draft.enabled} onCheckedChange={(value) => (draft.enabled = value)} aria-label="Enable provider instance" />{/snippet}
   </SettingsRow>
 </SettingsSection>
 <ProviderInstanceModels bind:instance={draft} />
 <ProviderModelSettings modelProfiles={instanceModelCatalog(instance).modelProfiles} provider={draft.provider} label="Default model options" description="Options for your default model in new sessions, across projects and hosts. Choose the default model in the list above. Changes save at once." />
-<SettingsSection label="Runtime">
-  <SettingsRow label="Binary path" description="Executable name or absolute path on this host. Leave empty to use the installed CLI." managed={launch.binaryPath}>
+<SettingsSection {...settingsDefinitions["providers.section-runtime"]}>
+  <SettingsRow {...settingsDefinitions["providers.binary-path"]} managed={launch.binaryPath}>
     {#snippet control()}<Input aria-label="Provider binary path" bind:value={draft.binaryPath} placeholder={draft.provider === "codex" ? "codex" : "claude"} />{/snippet}
   </SettingsRow>
   <SettingsRow label={draft.provider === "codex" ? "CODEX_HOME path" : "CLAUDE_CONFIG_DIR path"} description="Custom provider home and config directory on this host. Leave empty to use your seat." managed={launch.homePaths}>
     {#snippet control()}<Input aria-label="Provider home path" bind:value={draft.homePath} placeholder={draft.provider === "codex" ? "~/.codex" : "~/.claude"} />{/snippet}
   </SettingsRow>
   {#if draft.provider === "codex"}
-    <SettingsRow label="Shadow home path" description="Separate auth.json while sharing configuration, sessions, and skills from CODEX_HOME." managed={launch.homePaths}>
+    <SettingsRow {...settingsDefinitions["providers.shadow-home-path"]} managed={launch.homePaths}>
       {#snippet control()}<Input aria-label="Codex shadow home path" bind:value={draft.shadowHomePath} placeholder="~/.codex-solus/work" />{/snippet}
     </SettingsRow>
   {:else}
-    <SettingsRow label="Idle compaction" description="Ask before compacting an old session when you return, or keep the full history.">
+    <SettingsRow {...settingsDefinitions["providers.idle-compaction"]}>
       {#snippet control()}<SettingsSelect value={draft.idleCompaction} options={[{ value: "default", label: "Use default" }, { value: "onReturn", label: "Ask on return" }, { value: "off", label: "Never" }]} onSelect={(value) => (draft.idleCompaction = value)} ariaLabel="Claude idle compaction" />{/snippet}
     </SettingsRow>
-    <SettingsRow label="Auto-compact after" description="Compact after 100,000 to 1,000,000 tokens. Leave empty for Claude's default.">
+    <SettingsRow {...settingsDefinitions["providers.auto-compact-after"]}>
       {#snippet control()}<Input type="number" aria-label="Claude auto-compaction token threshold" min={100000} max={1000000} value={draft.autoCompactWindow ?? ""} onchange={(event) => (draft.autoCompactWindow = event.currentTarget.value ? Number(event.currentTarget.value) : null)} />{/snippet}
     </SettingsRow>
   {/if}
-  <SettingsRow label="Launch arguments" description="One literal CLI argument per row. Arguments are passed directly, without a shell." managed={launch.launchArgs}>
+  <SettingsRow {...settingsDefinitions["providers.launch-arguments"]} managed={launch.launchArgs}>
     {#snippet control()}<Button variant="outline" size="sm" onclick={() => draft.launchArgs.push("")}>Add argument</Button>{/snippet}
     {#snippet body()}
       <div class="space-y-2">
@@ -74,8 +75,8 @@
     {/snippet}
   </SettingsRow>
 </SettingsSection>
-<SettingsSection label="Environment">
-  <SettingsRow label="Variables" description="Private CLI settings, API keys, and base URLs. Saved sensitive values are never returned to clients." managed={launch.environment}>
+<SettingsSection {...settingsDefinitions["providers.section-environment"]}>
+  <SettingsRow {...settingsDefinitions["providers.variables"]} managed={launch.environment}>
     {#snippet control()}<Button variant="outline" size="sm" onclick={addVariable}>Add variable</Button>{/snippet}
     {#snippet body()}
       <div class="space-y-3">

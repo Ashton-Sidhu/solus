@@ -42,6 +42,18 @@ test('a project scope keeps the chats: a chat belongs to no project', () => {
   expect(hits.map(hit => hit.result.record.sessionId)).toEqual(['chat'])
 })
 
+test('the Chats scope asks every host for its chats alone, and lists no project session', () => {
+  // WHY: the person chose Chats to find a conversation that has no project.
+  // A project's sessions in that list bury it again.
+  expect(nativeSearchHomes(['a', 'b'], [project('a', '/repo')], { hostId: null, projectKeys: null, chatsOnly: true })).toEqual([
+    { serverId: 'a', scope: { chats: true } }, { serverId: 'b', scope: { chats: true } },
+  ])
+  const chat = thread('chat', 'Visual explainer')
+  chat.record = { ...chat.record, projectPath: '-data-solus-chats-chat', cwd: '/data/solus-chats/chat', projectRoot: null, place: 'chat' }
+  const hits = nativeSearchHits({ query: 'visual', hostId: null, projectKeys: null, chatsOnly: true, organizationId: null, threads: [chat, thread('repo', 'Visual diff')], remote: [] })
+  expect(hits.map(hit => hit.result.record.sessionId)).toEqual(['chat'])
+})
+
 test('native names use shared ranking and scope while host messages keep their place', () => {
   const exact = thread('exact', 'Café')
   const prefix = thread('prefix', 'Cafeteria')

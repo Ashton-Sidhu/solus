@@ -27,7 +27,7 @@ checkout at build time.
 
 | `src/navigation/RootNavigator.tsx`, `src/features/layout/AdaptiveWorkspaceLayout.tsx`, `workspace-*`, `src/lib/layout.ts`, `src/lib/adaptive-navigation.ts`, `src/lib/useMobileNavigationTheme.ts` | `src/Stack.tsx`, the same layout files | T3's header presets, its workspace navigator, and the iPad split view; routes keep Solus names and one flat stack (no nested Settings or New Task navigator); settings and new task are form sheets on a compact iPhone. |
 | `src/features/home/*`, `src/features/threads/threadListV2.ts`, `thread-list-v2-*`, `ThreadNavigationSidebar.tsx`, `sidebar-*` | the same paths | Data from `app.threads` (every session on every host) and `app.threadList` (settled, snoozed, live status, PR links). No delete, archive, pin, reorder, drafts, or custom snooze sheet. |
-| `src/features/threads/ThreadRouteScreen.tsx`, `ThreadDetailScreen.tsx`, `ThreadFeed.tsx`, `thread-work-log*`, `floating-working-*`, `Pending*Card.tsx`, `ThreadPlanCard.tsx`, `ThreadComposer.tsx`, `ThreadSettingsSheet.tsx`, `ThreadQueueSheet.tsx`, `NewTask*`, `src/components/Composer*.tsx` | the same paths | On the Solus conversation controller. The composer editor is a TextInput inside `expo-paste-input`, as T3 does on Android, so pasted images become attachments. Markdown renders through Enriched (see the Enriched Markdown table below). No forking, review comments, terminal, dictation, or timestamps. |
+| `src/features/threads/ThreadRouteScreen.tsx`, `ThreadDetailScreen.tsx`, `ThreadFeed.tsx`, `thread-work-log*`, `floating-working-*`, `Pending*Card.tsx`, `ThreadPlanCard.tsx`, `ThreadComposer.tsx`, `ThreadSettingsSheet.tsx`, `ThreadQueueSheet.tsx`, `NewTask*`, `src/components/Composer*.tsx` | the same paths | On the Solus conversation controller. The composer now uses T3’s native editor on iOS and Android (see Native composer editor below), so pasted images become attachments. Markdown renders through Enriched (see the Enriched Markdown table below). No forking, review comments, terminal, dictation, or timestamps. |
 | `src/features/threads/ThreadAgents.tsx`, `agent-card-presentation.ts` | `features/threads/thread-subagent-group.tsx`, `SubagentRow.tsx`, `SubagentStatusDot.tsx`, `ThreadAgentsSheet.tsx`, `threadAgentsPresentation.ts`, `subagent-card-presentation.ts` | On Solus agents: other Solus sessions (`features/conversation/lib/agent-cards.ts`, the desktop card rules) and provider subagent calls. The Agents sheet is T3's form-sheet route (`ThreadAgents`, detents 0.5/0.9, native header on iOS). Provider icons are the built-in ones; the host sends no icon URLs. A fifth tone, waiting, covers Needs input and Rate limited. A provider subagent has no session, so its row does not open; there is no read-only child thread screen. |
 | `src/widgets/AgentActivity.tsx`, `src/features/live-activity/*`, `plugins/withWidgetLogoAsset.cjs`, `plugins/lib/addWidgetAssetCatalog.cjs` | `src/widgets/AgentActivity.tsx`, `src/features/agent-awareness/agentLiveActivity*.ts`, `plugins/withWidgetLogoAsset.cjs`, `plugins/lib/addWidgetAssetCatalog.cjs` | The Live Activity (Lock Screen, Always-On Display, Dynamic Island) on `expo-widgets`. The app builds the aggregate from its host lists and updates the card while it runs; while it is suspended, each host reports its own rows to the control plane, which merges them and sends the card through APNs (docs/plans/live-activity-push.md). The 10-minute stale date covers a host that cannot report. No `expo-widgets` patch, so no Liquid Glass tint or rendering-mode check; no home-screen Agent Activity widget; a `limited` (rate-limited) phase; the Solus mark; `solus://thread/<host>/<session>` links. |
 | `src/features/settings/*`, `src/features/settings/components/*`, `src/features/connection/*`, `src/features/hosts/*` (UI), `src/features/onboarding/WelcomeScreen.tsx`, `src/features/account/*Screen.tsx` | `src/features/settings`, `src/features/connection`, `src/features/cloud` | Solus words ("host", "Solus Cloud") and data. No theme library, Clerk, T3 Connect, scheduled tasks, usage, or host rename. |
@@ -420,3 +420,384 @@ traffic was measured. T3 measured 8–11× less data on the wire.
 | `src/features/conversation/conversation-controller.ts` (`send`, `attach`), `lib/transcript-model.ts`, `conversation-store.ts`, `src/features/threads/ThreadComposer.tsx`, `NewTaskRouteScreen.tsx`, `use-composer-queued-edit.ts` | [#33092](https://github.com/pingdotgg/t3code/pull/33092) | T3 changed its web composer; Solus mobile also blocked Send (`Uploading attachments`), so the port is here too. Send and Start work while files upload: the message shows at once, takes the uploads in flight, and goes to the host when they land; a later send waits behind it. If an upload fails, nothing is sent: the bubble goes, a notice says why, the landed files return to the strip, and the composer takes the text back (`unsentText`). An edit of a queued message and permission feedback still wait for uploads. Desktop and web: `PromptDispatch.sendWhenUploaded`. Tests are in `tests/unit/native-mobile-attachments.test.ts` and `tests/unit/send-while-uploading.test.ts`. |
 
 Not ported: [#33456](https://github.com/pingdotgg/t3code/pull/33456). T3 hid the new-thread hero when less than 180 pt was above the composer, and the fix moves the pickers into the composer controls. Solus's new-session hero has no height rule: it stays in its scroll view at every height, so the pickers do not disappear.
+
+## Browser and device viewers (2026-11-14, T3 `fa647599e0`)
+
+T3's viewers on the Solus browser and device domains. T3 streams both through
+its own preview and device hub clients; Solus keeps its own transports: browser
+frames on the host socket's binary side channel and input as `browserInteract`
+ops, and device video and input through `DeviceHubStream` with the control
+lease.
+
+| Solus path | T3 source | Local changes |
+| --- | --- | --- |
+| `src/features/browser/BrowserPreviewRouteScreen.tsx`, `BrowserTabMenu.tsx`, `browserPages.ts`, `browser-preview-button.tsx`, `ThreadBrowserFloat.tsx` | `src/features/browser/*` (same names; `browserTabs.ts`) | A page of the session's host, not a thread tab; the viewer opens on the page this session's agent used last. A pushed page under `ScreenHeader` (title, picture in picture, Tabs menu), not a modal: with gestures off, the v5 stack ignores Back. The menu has Paste, Hard reload, Appearance, Zoom (T3's steps), Viewport, Downloads, and Close tab (with the agent-use refusal); no site data. Addresses use the desktop rules (`@solus/client-core/browser-address`). The floating player opens on `browser.surfaceRequested` for this session, not on T3's reveal request. |
+| `src/features/browser/PreviewStreamWebView.tsx`, `preview-stream.browser.ts`, `preview-stream-document.ts`, `frame-bridge.ts`, `native-browser.ts`, `BrowserPageRequests.tsx` | `PreviewStreamWebView.tsx`, `preview-stream.browser.ts`, `preview-stream-document.ts` | Frames come from React Native as base64, one in flight (`FrameBridge`); input leaves as `clickAt`, `scrollAt`, `insertText`, and `press`, in the zoomed guest's own CSS pixels. T3's probe is an `evaluate` of `elementFromPoint`. T3's dialog card, file chooser card, and download offer read Solus page state (`dialog`, `fileChooser`, `downloads`; docs/browser-routing.md). Files go to the host through the page's upload token, then to the chooser. No control lease, clipboard events, or agent cursor: the Solus host does not stream them. The size the viewer reports is the layout viewport, so Fit to screen does not take the keyboard's height. `setSelectionRange` runs only on a focused field, because iOS WebKit focuses a field whose selection is set. Picture in picture is T3's code. |
+| `src/features/devices/DevicePreviewRouteScreen.tsx`, `DeviceStreamWebView.tsx`, `device-stream.browser.ts`, `device-stream-document.ts`, `threadDevicePreviews.ts`, `device-preview-button.tsx`, `device-viewer-menu.ts` | `src/features/devices/*` | The Solus control lease: a Take control banner, Release in the menu, renewal while visible, release on close. Extra menu items: Resume agent, Type text, Screenshot, Close preview / Return to pool. Shut down needs control, as the host requires. No shake to hide the controls: `expo-sensors` is not in the app, and adding it needs a native build; the pill at the top shows them again. No iPad inspector pane. The document base URL is T3's rule. `DevicePreview.tsx` and `DevicePreviewControls.tsx` are gone; the Devices screen opens this viewer. |
+| `src/features/threads/floating-working-control.tsx`, `use-thread-viewers.ts` | `floating-working-control.tsx`, `ThreadDetailScreen.tsx` | T3's preview segment with the same compact rule. Only the counts are read in the thread, so a page or device event re-renders the thread only when a count changes. |
+| `src/lib/appState.ts`, `src/components/menuActionItems.ts` | `src/lib/appState.ts`, `src/components/ui/menuActionItems.ts` | On `ScreenHeaderMenuItem`; `destructive` is added to it. |
+
+`bun scripts/generate-mobile-stream-viewers.ts` builds both WebView scripts.
+Checked on the iPhone 17 Pro simulator (iOS 26.5) against a disposable host:
+the browser streamed, Fit to screen, tap, type, scroll, and navigate; the device
+viewer streamed an iPad simulator, took control, tapped, Home, Rotate, closed,
+and gave the lease back. Not checked: Android (no SDK on the machine), picture
+in picture, and the floating player (it needs an agent's `browser_open`).
+
+
+## Session UI alignment (2026-11-14, T3 `1c01db02b3`)
+
+Read against `pingdotgg/t3code` main at
+`1c01db02b3d2e7c06bdcdb6d648bddb2146ff36f`.
+This port applies to native mobile only. Desktop and web keep their own UI.
+
+- Session rows use the session title first, two title lines, an inset project,
+  branch and host line, and T3's status symbols and compact timers. The full
+  list uses the screen surface; the sidebar keeps the drawer surface.
+- The composer keeps the provider symbol and model menu available in its
+  compact row. Its expanded editor grows to four lines. The card uses T3's
+  radius, transparent glass tint, shadow, control spacing, and send/stop sizes.
+  The conversation reserves the measured composer height.
+- User prompts show their complete text, as T3 does, with the same rounded
+  bubble and media spacing. The local Read more cut is removed.
+- Model rows use T3's compact iOS rows and checkmarks, and Android's 56-point
+  rows, two-line names, radio marks, and selected fill. Provider headers and
+  the Options section use T3's spacing.
+
+Solus keeps its palette and system font for controls, React Native text editor,
+model catalog, Auto option, permission policy, host state, uploads, queued
+messages, and session actions. T3's favorites and hidden-model controls need
+state that Solus does not have and are not included in this visual port.
+
+## Project, pull request, and Settings UI alignment (2026-11-14)
+
+Reference: T3 Code `1c01db02b3d2e7c06bdcdb6d648bddb2146ff36f`, the
+same source used for the session UI alignment. This applies to native iPhone,
+iPad, and Android. Desktop and web are unchanged.
+
+| Solus area | T3 source | Port |
+| --- | --- | --- |
+| `features/projects/`, project route titles | `features/projects/AddProjectScreen.tsx` | Host choices with selection marks, short native titles, the path field and Add project action above Browse folders, parent-folder navigation, shared primary action size and loading state. A folder row browses; the primary action opens the chosen folder. The host resolves and validates the path before selection. |
+| `features/prs/PullRequestListRow.tsx`, native primary-column context | `features/pull-requests/PullRequestListRow.tsx` | iPad drawer surface, rounded rows, selected foregrounds and fill, conflict mark drawn against the current surface. Selection follows the detail's PR, remains through pushed review pages, and clears when the detail becomes a conversation. Compact lists keep their flat screen rows. |
+| `features/prs/detail/` | `PullRequestControls.tsx`, `PullRequestPresentation.tsx`, `PullRequestDescription.tsx`, `PullRequestRouteScreen.tsx` | Grouped-card surface and composer border, avatar fallback, added/deleted count colors, tinted label chips, and the description fade and control backing. Existing Overview, Guide, Activity, Files, and review routes keep their Solus data and actions. |
+| `features/settings/components/`, `SettingsScreen.tsx`, shared list/scroll components | `features/settings/components/`, `components/ui/ListActionRow.tsx`, `ListChoiceRow.tsx`, `ScreenScrollView.tsx` | Section groups without the extra local separator, six-unit section gaps, choice marks without a selected-row wash, action rows with standard list geometry and busy state, and an explicit scroll surface for the native header material. These primitives apply to Appearance, Chat, Notifications, Providers, accounts, host settings, and their subpages. |
+
+The port retains Solus's Settings destinations and native navigation stack,
+host/account ownership, palette, control font, permissions, and offline state.
+Project creation and cloning still use the selected host's configured projects
+folder; the host API does not offer T3's clone destination, publish-target, or
+other source-control-provider operations. No T3 state or authentication runtime
+is imported.
+
+Verification: mobile TypeScript check; focused project, settings, native column,
+and PR unit tests. No simulator, device, dev server, or interactive UI run was
+started for this pass. Native visual parity still needs an iPhone/iPad pass.
+
+## Native composer editor (2026-11-14)
+
+`modules/t3-composer-editor/`, `src/native/T3ComposerEditor.*`, and
+`composerEditorRevision.ts` are adapted from T3 Code commit
+`1c01db02b3d2e7c06bdcdb6d648bddb2146ff36f` (MIT). The module includes
+UIKit and Android editors, native selection, undo, autocorrection, image
+paste, content measurement, and hardware keyboard handling. Both the session
+composer and new-session composer use it. Solus keeps its draft and attachment
+stores. Its HTML attachment references are intercepted by the native paste path.
+T3 context, model, and skill chips have no Solus store mapping in this port;
+the native token list is empty. iOS Return inserts a newline and Command-Return
+sends. Android hardware Return sends and Shift-Return inserts a newline.
+The iOS text view and payloads are in `ComposerTextView.swift`; the Expo view
+stays in `T3ComposerEditorView.swift` to keep each file below 1,000 lines.
+
+Verification: iPhone 17 Pro simulator, iOS 26.5, installed through the Solus
+device hub. Checked draft restore, wrapping, line breaks, native Select All,
+Cut and Paste, new-session send, session send, and clear after send with the
+Replay provider on a disposable host. The native editor tests, mobile type
+check, and 85 focused composer/attachment tests passed. Metro bundled iOS and
+Android. Android device verification is blocked by the missing Android SDK.
+
+Review size notes: the imported Expo view is 949 lines and Android editor is
+996 lines. The existing session and new-session composer files also exceed
+600 lines. The port splits the upstream 1,400-line Swift file at the text view.
+
+## Mobile interaction alignment (2026-11-15)
+
+Reference: T3 Code `1c01db02b3d2e7c06bdcdb6d648bddb2146ff36f` and
+four iPhone screenshots supplied by the maintainer on 2026-11-15. The supplied
+screenshots take precedence over source changes that differ from that version.
+Solus keeps its default light/dark palette, fonts, stores, and commands.
+
+- iPhone Home keeps the host/project filter pills below the header. The Chip
+  and ListFilterMenu components are ported from T3 with Solus import paths and
+  text-role classes. Add project is in the project menu. Empty lists keep the
+  filters too. Android's filter moves from a floating button to the header.
+- iPhone has native Chats, Pull Requests, and Settings tabs, with a detached
+  New session action. Tabs show icons and keep accessible names. Their active
+  tint comes from the Solus theme. iPad keeps its sidebar selector and gear.
+- Settings uses T3's Connections-first section order, standard group geometry,
+  host filter menu, and native search. Solus's extra settings remain available.
+  The Settings destination includes its provider, host, and device subpages.
+- Settings and New Task use native page transitions. The draft page uses Back,
+  clears the project search bar, and centers its project/host hero. Its Files
+  action is available on both native platforms.
+- New Task uses the same ThreadComposer as a saved session, as T3's draft does.
+  This removes its separate, always-expanded editor. Permission and Meta mode
+  remain above the composer. Draft changes still reach host balancing; send
+  still preserves the session and replaces the draft flow with its conversation.
+- The compact row measures its always-visible model control before focus.
+  Attaching the layout handler only after focus missed the unchanged native
+  layout, so wrapping text could remain clipped in the capsule.
+- Model selection, agents, queues, and PR forms remain sheets. iOS partial
+  sheets can expand to full height; Android keeps its supplied expanded height.
+  Model settings always offers Save; with no staged model it simply closes.
+  iOS model/option groups omit the separators absent from the reference images.
+- A disabled sheet Close also disables swipe dismissal. Local sheet content is
+  bounded by its native host. Destructive menu items reach UIKit.
+- The conversation header uses T3's native title/subtitle and Files control.
+  iPad has New session on the leading side. The custom globe and overflow
+  buttons are removed. Existing browser/device previews remain in the floating
+  control above the composer. Solus-only session tools are available from the
+  session row's native context submenu, with host and session scope preserved.
+- The additional menu check covers Home host/project filters, Settings host
+  filter/search, attachments, model/options sheets, browser/device options,
+  session rows, and Pull Request filters. Android Pull Requests now has the
+  anchored header filter in place of Settings; iOS keeps its More pill. Both
+  use the same choices. Android header Reset also clears the host filter.
+- Android search handles Back only on the active Home/Chats surface: first
+  hide the keyboard, then close search.
+
+Verification: mobile TypeScript check and 168 focused tests across 16 files. Ran the native
+Debug app with current Metro source on separate iPhone 17 Pro and iPad Pro
+13-inch (M5) simulators, iOS 26.5, against a disposable local host. Checked
+Home, project selection, draft, native model Save, a Replay session send,
+conversation history, wrapping, Settings tabs, Settings search and host menu,
+and light/dark appearance. The shared composer expanded correctly for a
+117-character draft and kept all its text visible. Captures are under
+`.solus-local/artifacts/mobile-ui-parity-20261115/`.
+
+Menu limits: Settings scopes host settings only; Solus has no project settings
+scope. Browser options keep the upstream Appearance, Zoom, and Viewport groups;
+Solus adds Downloads but has no site-data reset RPC. Device options keep the
+upstream device selection/reload/input order and add Solus control lease,
+agent resume, screenshot, and pool-return actions. Attachments add Reference
+Session. The header does not show Git or terminal buttons: Solus has no matching
+mobile Git/terminal screens.
+
+Limits: Android has no SDK on this host, so only TypeScript and logic checks
+ran there. This is a visual port of supported Solus capabilities: no Insights
+tab, model favorites/hidden-model preferences, native voice input, or draft
+branch/worktree picker is added. Desktop and web retain their existing UI.
+The native Debug binary was reused; no desktop build was run. Native context
+menus in that binary can show the keyboard over Home and PR filters; this
+remains a native verification issue, not a confirmed fix in this port. Existing lint
+findings remain in the large Home/New Task/ThreadComposer files. New Task is
+942 lines; ThreadComposer and thread-list-v2-items also exceed 600 lines. They
+were not split for style-only cleanup during this port.
+
+### Notifications and Live Activity presentation (2026-11-15)
+
+Compared the same T3 reference's `SettingsNotificationsRouteScreen.tsx`,
+`agent-awareness/remoteRegistration.ts`, and `widgets/AgentActivity.tsx`.
+Notifications settings now leads with Agent activity: inbox, the iOS Live
+Activity preference, and system settings. Solus's synced delivery/event controls
+stay below it. No Device Notifications switch is shown: Solus does not yet have
+T3's native push-token registration and ordinary device-alert delivery.
+
+The Lock Screen card uses the default Solus palette for ActivityKit's light or
+dark appearance. Compact and minimal Dynamic Island presentations carry the
+same validated session link as the banner and expanded view. The Solus logo,
+rate-limit phase, and existing host relay remain. The installed expo-widgets
+API has no Live Activity rendering-mode or Liquid Glass availability fields;
+those T3-specific native extensions were not assumed.
+
+Verification: mobile TypeScript check; 41 focused layout, lifecycle, hub, and
+relay tests. Layout tests execute the widget with view factories and verify
+palette roles, tap destinations, invalid links, and stale labels. No native
+extension rebuild, APNs delivery test, or new OS permission request was run.
+The existing widget function exceeds the configured complexity limit.
+
+### Composer text alignment (2026-11-15)
+
+The compact editor keeps T3's 36-point minimum inside the 44-point control row.
+Its vertical inset is four points for Solus's iOS system font, rather than half
+the unused line box. Android retains T3's six-point inset. The scaled midline
+correction follows T3's `collapsedEditorInset`; the minimum editor height now
+includes both insets so large text is not clipped. Typography stays the same on
+focus and wrapping, so the placeholder and typed text do not jump between line
+heights. Draft and saved sessions use this same composer. Desktop/web keep their
+existing input geometry.
+
+Verification: 77 focused composer tests, mobile TypeScript check, and an iPhone
+simulator check with the short draft from the supplied screenshot and a 110-character
+wrapping draft. Both the compact text and expanded text remained visible. Solus palette
+and font are preserved. Android runtime verification is unavailable on this host.
+
+### Device and browser viewer recovery (2026-11-15)
+
+The device viewer keeps T3's immersive surface and glass Close/Home/options bar.
+The first touch now requests the Solus control lease and retains the gesture
+until granted. Refusal clears the pending gesture. Viewing alone still takes
+no control; closing releases it, and agent resume remains explicit. The input
+and video now use one DeviceHubStream, so their screen configuration and codec
+generations cannot drift between independent streams. H.264-to-JPEG fallback
+keeps a monotonic decoder generation. Input failures are visible.
+
+The shared hub stream now times out a stalled JPEG read as well as H.264 and
+reports Connecting during recovery. Desktop/web use that same decoder and hub
+stream. The browser frame bridge recovers from a missing paint acknowledgement
+instead of leaving one old frame in flight forever; teardown clears its deadline.
+Browser previews use T3's modal Close control, with the existing title, tabs,
+address navigation, picture-in-picture, and options menu. Solus's palette stays.
+
+Verification: 144 focused stream, proxy, control, browser, header/sheet, and
+navigation tests; mobile TypeScript check. Native Debug app with current Metro
+source on a separate iPhone simulator, against a disposable host: one tap on
+an iPad's streamed Home screen acquired control and opened Settings; another
+tap opened About, with both new frames visible. Retry recovered after a source
+refresh reset the host connection. Closing sent deviceControlRelease. Native
+browser Close was checked separately; ordinary browser input was not exercised
+against a live page. Android/cloud devices were not exercised on this host.
+Existing shared header complexity/type-narrowing lint findings remain.
+
+### Cached device frame ordering and startup fallback (2026-11-15)
+
+The follow-up report showed an old, incomplete simulator Home screen. The
+upstream stream client guards its JPEG seed against later H.264 output; Solus
+had treated that cached image as an ordinary live JPEG. A delayed image decode
+could therefore overwrite a newer video frame. AVCC seed packets now remain
+distinct. The shared decoder drops a late seed after live video and drops any
+image decode left over from a previous stream generation, an end, or a close.
+An old decode also cannot keep the next generation's JPEG lane busy.
+
+The mobile viewer waits eight seconds for an actual H.264 frame, independently
+of whether a seed painted. If local iOS WebCodecs never produces video, it
+switches to JPEG. Actual video and teardown cancel that deadline. Android and
+Simlock keep their H.264 paths. The viewer bundle was regenerated with the
+normal generator. Palette and input/control behavior stay the same.
+
+Verification: 152 focused tests across nine files, mobile TypeScript, and
+focused lint. Added deterministic delayed-image tests and tests executing the
+WebView script with a silent decoder. These verify seed ordering, reconnect
+isolation, JPEG fallback, and teardown. A read-only screenshot showed the local
+iPad has full icons and wallpaper; the reported cached-looking screen does not
+establish whether the phone has loaded the changed source. No new phone app
+was built or installed, and this follow-up has not been verified in the user's
+installed build.
+
+### Live Activity system material (2026-11-15)
+
+The opaque Solus canvas tint added during the palette pass differed from T3's
+system material. The Lock Screen banner now passes a null background tint and
+uses hierarchical primary/secondary text, which follow the ActivityKit host's
+appearance. Status accents keep the Solus light/dark palette. This Expo widget
+version does not expose T3's `isLiquidGlassAvailable` flag, so this uses T3's
+standard-material fallback rather than forcing a clear background everywhere.
+The stale warning stays: T3 also renders "Out of date" after the activity expires.
+
+Verification: 37 focused layout, lifecycle, and host relay tests pass, as does
+mobile TypeScript. Focused lint still reports the existing widget function's
+complexity (48; limit 20). No device build was installed; the change needs a new
+release build. Desktop/web do not render the ActivityKit card, and the in-app
+notification inbox and push delivery were not changed.
+
+### Quiet Live Activity refresh (2026-11-15)
+
+At the user's request, expiry no longer displays T3's "Out of date" warning.
+The Lock Screen offers "Tap to refresh", unfinished rows say "Check status",
+and the compact/minimal island uses the neutral refresh glyph. The expanded
+island replaces the old active count with "Refresh". Taps in every populated
+presentation open an unconfirmed session, including the small banner and
+expanded leading region. Known Done and Failed results remain visible.
+
+The ten-minute freshness deadline and five-minute renewal paths remain. A
+focused controller test verifies renewal with unchanged status and renewal
+after returning past expiry, including the host relay registration. This does
+not establish that APNs delivery works in the installed release. Desktop/web
+and Android have no ActivityKit card; shared session status is unchanged.
+
+Verification: 40 focused layout, lifecycle and relay tests pass, as does mobile
+TypeScript. Lint still flags the serialized widget's complexity (55; limit 20)
+and existing controller error/storage typing rules. No native build or install
+was performed; the installed release needs an update to show this behavior.
+
+### Automatic Live Activity delivery recovery (2026-11-15)
+
+The refresh-label change did not repair delivery. The host now retains refused
+reports, including final results, retries after 30 seconds, reports saved cards
+at startup, and serializes reports so a newer state follows an in-flight report.
+The cloud returns a failure receipt for an APNs refusal, and uses the original
+card's update time when deciding whether a restarted relay must renew a card.
+This requires updated host/cloud services; the existing mobile registration
+protocol is unchanged. The shared Uplink error code was added and cloud copies
+were regenerated with its normal contract sync script, including host routes.
+
+Verification: 12 host relay tests, 10 cloud relay/APNs tests, two contract sync
+tests, and one database-backed service/error receipt test pass. Contracts and
+cloud checks pass; the server check reports errors outside the changed relay
+and contract, with no diagnostics in either changed file. Focused host lint
+passes; cloud lint reports existing rules in v1.ts and hosts.test.ts. Production
+secret names confirm all three APNs entries exist, and read-only host metadata
+shows mobile cards registered. Secret values were not read and no live push was
+sent. These checks do not establish delivery on the phone; no deployment or app
+install was done.
+
+### Project picker and Add Project flow (2026-11-16)
+
+Compared with T3 at `1c01db02b3d2e7c06bdcdb6d648bddb2146ff36f`:
+`features/threads/NewTaskRouteScreen.tsx`, `features/projects/AddProjectScreen.tsx`,
+and the page routes in `Stack.tsx`. The project picker now lives in its own file;
+its rows, favicons, grouped cards, native search, and empty actions follow the
+upstream layout with Solus colors. Selection prefers a connected checkout before
+an unreachable preferred machine. The new-task and host-picker pages participate
+in the workspace page flow, including the iPad detail column.
+
+Add Project uses the same page shell, rounded list sections, option order (New
+project, Local folder, Git URL, GitHub repository), GitHub mark, and back navigation.
+Git URL and repository selection now lead to Clone Destination, with a host path
+field and folder browser. Browsing preserves the repository's final folder name.
+New Project shows the full destination preview, connected machine choices, and an
+optional private GitHub repository switch. A partial publish keeps the local path
+for Retry publishing or Open local project; a retry cannot create a second folder.
+Solus currently offers GitHub publishing; other remotes use Git URL. An unconnected
+GitHub row keeps access to Solus's connection settings.
+
+The native header adapter now restores controlled search text on focus. A native
+check found that Back previously left the list filtered while clearing UIKit's
+visible field. The adapter restores the query without resetting the cursor during
+typing, and applies explicit filter clears. This applies to other native search
+screens using ScreenHeader as well.
+
+Verification: 116 focused tests across eight files and the full mobile typecheck
+pass. Focused project, picker, navigation, and V5 header lint passes. The existing
+ScreenHeader complexity and StackHeader legacy typing lint findings remain. The
+draft file is 605 lines after extraction (still above the 600-line review threshold).
+Native iPhone checks covered light/dark presentation, typed destination preview,
+disabled empty submission, URL-to-destination navigation, preserved URL on Back,
+search filtering/clearing, and query restoration after Add Project. Images are in
+`.solus-local/artifacts/mobile-ui-parity-20261116/`. The fixture host and Metro use
+disposable data and a separate port. The iPad loaded current source, but interaction
+stopped when the user took control. Android SDK is unavailable. No live clone or
+GitHub publish was run, and the installed release was not updated. Desktop/web
+already expose the destination and publishing capabilities through these same RPCs;
+their layout and backend contracts did not change.
+
+The temporary host (captured PID 86414) and comparison Metro (final captured PID
+4854) were stopped after checks. The comparison iPhone's bundler override was
+removed and that simulator was shut down. The iPad was left under user control;
+its comparison bundler override still points at `localhost:8082` and must be
+removed or served again before another development reload.
+
+## Inline message images (2026-11-15)
+
+The native conversation image layout follows T3 Code's current mobile source:
+`src/features/threads/ThreadMarkdownImage.tsx`, `markdownImageSize.ts`,
+`ZoomableImagePressable.tsx`, and `messageImageGallery.ts`. Images stay inline;
+message galleries open in the existing Solus file viewer. The Solus-specific
+thumbnail strip and filename cards are removed. Host image URLs still come
+from Solus's resolver; standalone image and browser snapshot records render
+in transcript order, and tool images remain in their tool details.
+
+`ZoomableImagePressable.tsx` is copied from T3 Code (blob
+`b0cb7818d132cba8efb567304f943c163e2ace1e`). Its accessibility touch
+identifier check uses `!== undefined` to follow the local lint rule. No new
+native module is needed. The existing iOS Quick Look and Android image viewer
+remain in use; T3's newer native viewer and zoom transition are not ported.

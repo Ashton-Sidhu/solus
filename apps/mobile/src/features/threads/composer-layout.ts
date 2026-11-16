@@ -103,10 +103,16 @@ export function oneRowMeasureFrame(chrome: OneRowChrome) {
   };
 }
 
-/**
- * Height of the one-row editor: the pill's 36 points, or one full line when
- * the user's text size needs more.
- */
-export function oneRowEditorHeight(lineHeight: number): number {
-  return Math.max(36, Math.ceil(lineHeight));
+/** T3's scaled baseline correction, with a default inset for Solus's system font. */
+export function oneRowEditorInset(text: { readonly fontSize: number; readonly lineHeight: number }, platform: "ios" | "android"): number {
+  if (platform === "android") return 6;
+  // T3's lowercase midline adjustment keeps larger line boxes from moving the
+  // visible text down. Solus's system font needs four points at the default size.
+  const midlineShift = (text.lineHeight - 0.562 * text.fontSize) - (23 - 0.562 * 16);
+  return Math.max(0, Math.round(4 - midlineShift));
+}
+
+/** T3's 36-point editor sits in the 44-point controls and grows for larger text. */
+export function oneRowEditorHeight(lineHeight: number, inset = 4): number {
+  return Math.max(36, Math.ceil(lineHeight) + 2 * inset);
 }

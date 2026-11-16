@@ -474,7 +474,7 @@ overrides (`:47`).
   - saving an automation or a webhook that names a provider or model that is not
     allowed.
 - **Left out:**
-  - `start_session`, `delegate_task` and `listAgentTargets`;
+  - `start_sessions` and `listAgentTargets`;
   - the text-generation, writing and review resolvers (`host/settings.ts:241/251/294`,
     `guide-warmer.ts:80`). When nothing is allowed, they report "unavailable".
 - **Marked for pickers.** `enrichAgentMetadata` (`session-handlers.ts:165`) marks each

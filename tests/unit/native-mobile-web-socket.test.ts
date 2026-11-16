@@ -95,7 +95,15 @@ describe('the iOS native WebSocket', () => {
     const { emit, events, id } = await nativeSocket()
     emit.error(id, 'connection refused')
     emit.close(id, 1006, '')
-    expect(events).toEqual(['error', { code: 1006, reason: '' }])
+    expect(events).toEqual(['error', { code: 1006, reason: 'connection refused' }])
+  })
+
+  it('retains the native error when an established connection drops', async () => {
+    const { emit, events, id } = await nativeSocket()
+    emit.open(id)
+    emit.error(id, 'The Internet connection appears to be offline.')
+    emit.close(id, 1006, '')
+    expect(events).toEqual(['open', 'error', { code: 1006, reason: 'The Internet connection appears to be offline.' }])
   })
 
   it('closes through the module once and drops writes after close', async () => {

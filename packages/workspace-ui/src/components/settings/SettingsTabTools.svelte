@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { toolSettings as settingItems } from "./lib/settings-search-data";
   import {
     ChevronDown as CaretDownIcon,
@@ -104,13 +106,7 @@
   }
 
 
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    const item = settingItems.find((s) => s.id === id);
-    if (!item) return true;
-    const q = searchQuery.toLowerCase();
-    return item.keywords.some((k) => k.includes(q));
-  }
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
   const selectedTerminal = $derived<TerminalAppId>(theme.fallbackTerminal ?? "default-terminal");
   const selectedEditorApp = $derived(detected.editors.find((e) => e.id === theme.defaultEditor));
@@ -130,10 +126,9 @@
 {:else if !isSupported}
   <SettingsHostUnsupported feature="Applications" {hostLabel} />
 {:else}
-<SettingsSection label="Applications" visible={editorVisible || terminalVisible}>
+<SettingsSection {...settingsDefinitions["tools.section-applications"]} visible={editorVisible || terminalVisible}>
   <SettingsRow
-    label="Code editor"
-    description="Where “Open in editor” sends files."
+    {...settingsDefinitions["tools.code-editor"]}
     visible={editorVisible}
   >
     {#snippet control()}
@@ -164,7 +159,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Fallback terminal"
+    {...settingsDefinitions["tools.fallback-terminal"]}
     description={resolvedDescription}
     visible={terminalVisible}
   >
@@ -198,7 +193,7 @@
 
 <!-- Cmd-click an identifier in a diff or file to see its definition and
      references. Each language needs its SCIP indexer on this host's PATH. -->
-<SettingsSection label="Code intelligence" visible={codeIntelVisible}>
+<SettingsSection {...settingsDefinitions["tools.section-code-intelligence"]} visible={codeIntelVisible}>
   {#each codeIntelLanguages as language (language.language)}
     <SettingsRow
       label={language.label}

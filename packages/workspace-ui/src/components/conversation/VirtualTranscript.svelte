@@ -68,7 +68,7 @@
          that arrives live re-asks this row and the one above it. -->
     {@const burst = userBurstAt(turns, slot.index)}
     <!-- A burst's rows close the turn gap: the bubbles below sit 6px apart. -->
-    <div use:virtualizer.row={slot.key} data-transcript-turn-id={slot.key} class="virtual-turn flow-root {burst.groupedWithNext ? '' : 'pb-4'}">
+    <div use:virtualizer.row={slot.key} data-slot="transcript-turn" data-transcript-turn-id={slot.key} class="virtual-turn flow-root {burst.groupedWithNext ? '' : 'pb-4'}">
       <div class="space-y-2 @max-[30rem]/pane:space-y-3">
         {#if turns[slot.index]}
           {@render children(turns[slot.index], slot.index, burst)}

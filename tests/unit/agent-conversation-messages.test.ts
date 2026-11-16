@@ -143,8 +143,8 @@ describe('a card rebuilt from its transcript', () => {
   test('a report pairs with the message it names, and brings back its answers, outputs and provider', () => {
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first }, 1)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), { messageId: second }, 2)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), [{ messageId: first }], 1)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), [{ messageId: second }], 2)
     const report = formatParentPrompt([{ type: 'report', report: {
       messageId: second, sessionId: child, taskId: 'task-1', provider: 'codex', status: 'completed', durationMs: 4_200,
       outputs: [
@@ -167,10 +167,10 @@ describe('a card rebuilt from its transcript', () => {
   test('a call that waited for its reply settles its card from the tool row alone', () => {
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'check' }), {
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'check' }), [{
       messageId: first,
       report: { messageId: first, sessionId: child, status: 'completed', outputs: [], reply: 'checked' },
-    }, 1)
+    }], 1)
     const exchange = messages[0]!.agentConversationRef!.exchanges[0]!
     expect(exchange).toMatchObject({ status: 'done', reply: 'checked' })
   })
@@ -178,7 +178,7 @@ describe('a card rebuilt from its transcript', () => {
   test('a session started on another host keeps that host, so Open goes there and not to this host', () => {
     const messages: Message[] = []
     new TranscriptAgentConversations(messages)
-      .applyToolRow('start_session', JSON.stringify({ prompt: 'hostname?' }), { sessionId: child, messageId: first, serverId: 'install-omarchy' }, 1)
+      .applyToolRow('start_sessions', JSON.stringify({ sessions: [{ prompt: 'hostname?' }] }), [{ sessionId: child, messageId: first, serverId: 'install-omarchy', item: 0 }], 1)
     expect(messages[0]!.agentConversationRef!.serverId).toBe('install-omarchy')
 
     const tab = session()
@@ -192,8 +192,8 @@ describe('a card rebuilt from its transcript', () => {
   test('one prompt that carried several reports settles every message it names', () => {
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first }, 1)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), { messageId: second }, 2)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), [{ messageId: first }], 1)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), [{ messageId: second }], 2)
     const merged = formatParentPrompt([first, second].map((messageId, index) => ({ type: 'report' as const, report: {
       messageId, sessionId: child, status: 'completed' as const, outputs: [], reply: `reply ${index + 1}`,
     } })))
@@ -206,8 +206,8 @@ describe('a card rebuilt from its transcript', () => {
     // from the same sender; each message's card still needs its reply.
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first }, 1)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), { messageId: second }, 2)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), [{ messageId: first }], 1)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), [{ messageId: second }], 2)
     const report = formatParentPrompt([{ type: 'report', report: {
       messageId: first, alsoMessageIds: [second], sessionId: child, status: 'completed', outputs: [], reply: 'both done',
     } }])
@@ -222,7 +222,7 @@ describe('a card rebuilt from its transcript', () => {
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)
     const request = { kind: 'question' as const, question: { questionId: 'q1', questions: [] } }
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first, progress: { state: 'awaiting_input', request } }, 1)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), [{ messageId: first, progress: { state: 'awaiting_input', request } }], 1)
     const notice = formatSessionNotice({ messageId: first, sessionId: child, kind: 'question', questionId: 'q1', questions: [{ question: 'Which branch?', options: [] }] })
     expect(transcript.applyUserRow(notice, 2)).toBe(true)
     expect(messages).toHaveLength(1)
@@ -238,7 +238,7 @@ describe('a card rebuilt from its transcript', () => {
     const rebuilt = (progress: ExchangeProgress | undefined) => {
       const messages: Message[] = []
       new TranscriptAgentConversations(messages)
-        .applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first, progress }, 1)
+        .applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), [{ messageId: first, progress }], 1)
       return messages[0]!.agentConversationRef!
     }
     expect(agentConversationCardState(rebuilt({ state: 'queued' }))).toBe('dispatching')
@@ -264,7 +264,7 @@ describe('a card rebuilt from its transcript', () => {
   test('a rebuilt card follows the live feed like a card that was shown live', () => {
     const tab = session()
     new TranscriptAgentConversations(tab.messages)
-      .applyToolRow('start_session', JSON.stringify({ prompt: 'snooze tasks' }), { sessionId: child, messageId: first, progress: { state: 'queued' } }, 1)
+      .applyToolRow('start_sessions', JSON.stringify({ sessions: [{ prompt: 'snooze tasks' }] }), [{ sessionId: child, messageId: first, progress: { state: 'queued' }, item: 0 }], 1)
     const cards = new AgentConversationCards()
     cards.rebuild(tab)
     const ref = () => tab.messages[0]!.agentConversationRef!
@@ -278,7 +278,7 @@ describe('a card rebuilt from its transcript', () => {
   test('a report older than message ids still settles a message the host no longer carries', () => {
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), undefined, 1)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), [], 1)
     const report = formatParentPrompt([{ type: 'report', report: { sessionId: child, status: 'completed', outputs: [], reply: 'done' } }])
     expect(transcript.applyUserRow(report, 2)).toBe(true)
     expect(messages[0]!.agentConversationRef!.exchanges.map((exchange) => [exchange.status, exchange.reply])).toEqual([['done', 'done']])
@@ -319,16 +319,30 @@ describe("an agent card's name", () => {
   // on the live card, on reload, and once the session index knows it.
   const brief = 'You are an implementation worker. Fix the server.'
 
-  test.each(['start_session', 'delegate_task'])('a rebuilt %s card keeps its title and brief', (toolName) => {
+  test('a rebuilt start_sessions card keeps its title and brief', () => {
     const named: Message[] = []
     new TranscriptAgentConversations(named)
-      .applyToolRow(toolName, JSON.stringify({ prompt: brief, title: 'Server fixes' }), { sessionId: child, messageId: first }, 1)
+      .applyToolRow('start_sessions', JSON.stringify({ sessions: [{ prompt: brief, title: 'Server fixes' }] }), [{ sessionId: child, messageId: first, item: 0 }], 1)
     expect(named[0]!.agentConversationRef!.title).toBe('Server fixes')
 
     const unnamed: Message[] = []
     new TranscriptAgentConversations(unnamed)
-      .applyToolRow(toolName, JSON.stringify({ prompt: brief }), { sessionId: child, messageId: first }, 1)
+      .applyToolRow('start_sessions', JSON.stringify({ sessions: [{ prompt: brief }] }), [{ sessionId: child, messageId: first, item: 0 }], 1)
     expect(unnamed[0]!.agentConversationRef!.title).toBe('You are an implementation worker.')
+  })
+
+  test('one start_sessions row rebuilds a card for each session, each with its own title and brief', () => {
+    // A session that did not start has no result; the cards still pair by place in the list.
+    const cards: Message[] = []
+    new TranscriptAgentConversations(cards).applyToolRow('mcp__solus__start_sessions', JSON.stringify({
+      sessions: [
+        { prompt: 'Build the ledger', title: 'Ledger', agent_provider: 'codex', model_id: 'gpt-6' },
+        { prompt: 'Never started' },
+        { prompt: 'Draft the note', title: 'Note', independent: true },
+      ],
+    }), [{ sessionId: 'child-a', messageId: 'm-a', item: 0 }, { sessionId: 'child-c', messageId: 'm-c', item: 2 }], 1)
+    expect(cards.map(({ agentConversationRef: ref }) => [ref!.sessionId, ref!.title, ref!.exchanges[0]!.prompt, ref!.model ?? null, !!ref!.fireAndForget]))
+      .toEqual([['child-a', 'Ledger', 'Build the ledger', 'gpt-6', false], ['child-c', 'Note', 'Draft the note', null, true]])
   })
 
   test("the session's own name wins over its slug and the prompt", () => {

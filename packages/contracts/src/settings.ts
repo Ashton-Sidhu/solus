@@ -39,6 +39,7 @@ import {
 } from './types'
 import { DEFAULT_WORKTREE_BRANCH_NAMING, worktreeBranchNamingSchema } from './worktree-branch-naming'
 import { MAX_TASK_SOURCES, taskSourceSchema } from './task-sources'
+import { THEME_CSS_MAX_LENGTH, themeCssLoadsFiles } from './theme-css'
 
 // ─── Vocabulary ───
 
@@ -64,6 +65,10 @@ export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
 /** How wide the conversation's reading column runs in its pane (`--solus-reading-max`). */
 export const CONVERSATION_WIDTHS = ['narrow', 'comfortable', 'full'] as const
 export type ConversationWidth = (typeof CONVERSATION_WIDTHS)[number]
+
+/** How large the chips that list a turn's linked items show under its reply. */
+export const ARTIFACT_CHIP_SIZES = ['small', 'medium', 'large'] as const
+export type ArtifactChipSize = (typeof ARTIFACT_CHIP_SIZES)[number]
 
 /** How the session sidebar groups its rows (docs/plans/sidebar-project-view.md).
  *  status: by what each session needs (the Working section, the shelves).
@@ -128,6 +133,10 @@ const MAX_INSTRUCTIONS = 20_000
 const MAX_MODEL_ID = 200
 const MAX_PROJECT_PANEL_ITEM_ID = 64
 const MAX_PROJECT_PANEL_HIDDEN_ITEMS = 64
+const MAX_SIDEBAR_PLACE_ID = 64
+const MAX_SIDEBAR_PLACES = 32
+const MAX_SIDEBAR_APPS = 32
+const MAX_SIDEBAR_APP_REF = 200
 
 const modelSelectionSchema = z.object({
   provider: z.enum(['codex', 'claude-code']),
@@ -151,6 +160,7 @@ function fontPresetSchema(key: FontPreferenceKey) {
 export const PERSONAL_SETTING_SCHEMAS = {
   voiceDictionary: voiceDictionarySchema.describe('Preferred terms and explicit replacements for desktop and web dictation.'),
   themeMode: z.enum(['system', 'light', 'dark']),
+  themeCss: z.string().max(THEME_CSS_MAX_LENGTH).refine((css) => !themeCssLoadsFiles(css), { message: 'Theme CSS cannot load files: no @import, no image-set(), and url() only with data: or #id.' }).describe('Custom CSS that restyles Solus on desktop and web. Call read_theme for the guide first. An empty string removes it.'),
   activeAgent: z.enum(AGENT_IDS).describe('The agent that new sessions start on. It does not change the agent of a conversation that has one.'),
   defaultPermissionMode: z.enum(PERMISSION_MODES),
   notifications: notificationPreferencesPatchSchema.transform((patch) => mergeNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES, patch)),
@@ -178,6 +188,7 @@ export const PERSONAL_SETTING_SCHEMAS = {
   /** The transcript shows the tool calls between the agent's messages. */
   showToolCalls: z.boolean(),
   autoOpenArtifacts: z.boolean().describe('Open the Artifacts surface beside the conversation when new artifacts arrive on desktop and web.'),
+  artifactChipSize: z.enum(ARTIFACT_CHIP_SIZES).describe('The size of the chips under a reply that list the items the turn linked.'),
   showDiffSummaryAfterTurn: z.boolean(),
   /** Each settled turn keeps its changed-files card. Off shows the latest turn's
    *  card only, until the next prompt lands. */
@@ -205,6 +216,15 @@ export const PERSONAL_SETTING_SCHEMAS = {
   sidebarView: z.enum(SIDEBAR_VIEWS).describe('How the session sidebar on desktop and web groups sessions. status: by status, with a Working section. project: one folder per project.'),
   /** Ids, not an enum: a client keeps the ids another version knows and it does not. */
   projectPanelHiddenItems: z.array(z.string().min(1).max(MAX_PROJECT_PANEL_ITEM_ID)).max(MAX_PROJECT_PANEL_HIDDEN_ITEMS).describe('The rows and sections that the project panel on desktop and web does not show, by id: a section (environment, git, goal, agents, webhooks) or a row kind in one (environment.terminal, git.branch, goal.budget, agents.previous, and others). Empty shows all.'),
+  /** Ids, not an enum, for the same reason as `projectPanelHiddenItems`. */
+  sidebarPlaces: z.object({
+    order: z.array(z.string().min(1).max(MAX_SIDEBAR_PLACE_ID)).max(MAX_SIDEBAR_PLACES),
+    hidden: z.array(z.string().min(1).max(MAX_SIDEBAR_PLACE_ID)).max(MAX_SIDEBAR_PLACES),
+  }).strict().describe('The Solus places in the places column of the sidebar on desktop and web, by id: workspace, automations, insights, prs, tasks, search. order: the order the person chose; a place it does not name follows in the default order. hidden: the places that do not show. Sessions always shows first.'),
+  sidebarApps: z.array(z.object({
+    host: z.string().min(1).max(MAX_SIDEBAR_APP_REF),
+    appId: z.string().min(1).max(MAX_SIDEBAR_APP_REF),
+  }).strict()).max(MAX_SIDEBAR_APPS).describe('The apps pinned in the places column of the sidebar on desktop and web, below the Solus places, in order. host: the installation id of the host that runs the app.'),
   /** The agent and model a lead starts on. Null means the default for new sessions. No session is a lead now (docs/plans/task-conversation.md). */
   leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new lead session starts on. Null uses the default for new sessions.'),
   taskSources: z.array(taskSourceSchema).max(MAX_TASK_SOURCES).describe('Where the person reads tasks from: GitHub repositories, GitHub Projects, Jira projects and Jira boards. Tasks belong to no Solus project (docs/tasks.md).'),
@@ -263,6 +283,7 @@ export function addShowMeLens(document: PersonalSettingsDocument): PersonalSetti
 export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   voiceDictionary: DEFAULT_VOICE_DICTIONARY,
   themeMode: 'system',
+  themeCss: '',
   activeAgent: 'claude-code',
   defaultPermissionMode: 'full-access',
   notifications: DEFAULT_NOTIFICATION_PREFERENCES,
@@ -281,6 +302,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   autoRenameSessions: true,
   showToolCalls: true,
   autoOpenArtifacts: false,
+  artifactChipSize: 'medium',
   showDiffSummaryAfterTurn: true,
   keepDiffSummaryOnEarlierTurns: true,
   collapseComposerWhenIdle: true,
@@ -301,6 +323,8 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   sidebarMotionMs: DEFAULT_SIDEBAR_MOTION_MS,
   sidebarView: 'status',
   projectPanelHiddenItems: [],
+  sidebarPlaces: { order: [], hidden: [] },
+  sidebarApps: [],
   leadModel: null,
   taskSources: [],
   agentTaskLifecyclePolicy: 'moderate',

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { untrack } from "svelte";
   import Icon from "@iconify/svelte";
   import { serversStore, sharesStore, accountStore } from "../../contexts";
@@ -41,7 +42,7 @@
 
 <!-- The Integrations page: the accounts Solus acts on your behalf with, in one card. -->
 <SettingsSection
-  label="Connections"
+  {...settingsDefinitions["integrations.section-connections"]}
   description={cloudConnectionsUrl
     ? "These live in your Solus account, so every host you work on can use them. Each opens your account to change it."
     : "These connect on this host. Sign in to Solus to keep them in your account for every host."}
@@ -49,7 +50,7 @@
   {#if cloudConnectionsUrl}
     <AccountConnectionRow
       url={cloudConnectionsUrl}
-      label="Google Drive"
+      {...settingsDefinitions["integrations.google-drive"]}
       purpose="Publish and update Google Docs from works and plans."
       status={accountVaultStore.providerStatus("google")}
       icon={googleLogo}
@@ -57,7 +58,7 @@
     />
     <AccountConnectionRow
       url={cloudConnectionsUrl}
-      label="Atlassian"
+      {...settingsDefinitions["integrations.atlassian"]}
       purpose="Read and write Confluence pages and Jira issues."
       status={accountVaultStore.providerStatus("atlassian")}
       icon={atlassianLogo}

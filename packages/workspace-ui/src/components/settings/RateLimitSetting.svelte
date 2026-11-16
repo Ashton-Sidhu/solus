@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import type { RateLimitBehavior } from "@solus/contracts/settings";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -19,9 +20,8 @@
 </script>
 
 <SettingsRow
-  label="Rate limit behavior"
+  {...settingsDefinitions["sessions.rate-limit-behavior"]}
     managed={managedSetting("rateLimitBehavior")}
-  description="What your runs do when they hit a provider rate limit, on every host."
   {visible}
 >
   {#snippet control()}

@@ -81,6 +81,7 @@ export type TranscriptItem =
     }
   /** The host handed the session's thread to another provider (plans/021). */
   | { kind: 'handoff'; id: string; activity: AgentSwitch }
+  | { kind: 'lead_promotion'; id: string }
   | { kind: 'setup'; id: string; card: StatusCardState }
   /** `sessionId` is the session the app's activity belongs to: the app is read through it. */
   | { kind: 'mcp_app'; id: string; activityId: string; sessionId: string; app: McpAppReference }
@@ -247,7 +248,8 @@ export class TranscriptModel {
     if (row.activity?.kind === 'mcp_app') return this.addMcpApp(row.activity, false)
     if (row.activity?.kind === 'worktree_offered') return this.addWorktreeOffer(row.activity, false)
     if (row.activity?.kind === 'agent_switched') return this.addHandoff(row.activity, false)
-    if (row.activity?.kind === 'stopped') return this.addAgentStop(row.activity, false)
+    if (row.activity?.kind === 'became_lead') return this.addSessionEvent(row.activity, false)
+    if (row.activity?.kind === 'stopped') return this.addSessionEvent(row.activity, false)
     if (row.activity) return null
     const id = row.messageId ?? this.mintId('h')
     if (row.compaction) {
@@ -280,7 +282,7 @@ export class TranscriptModel {
         secretOutcomes: row.secretOutcomes,
       })
       if (!isAgentConversationTool(toolName)) return id
-      this.agentCards.applyToolRow(toolName, row.toolInput, row.agentConversationResult, row.timestamp)
+      this.agentCards.applyToolRow(toolName, row.toolInput, row.agentConversationResults ?? [], row.timestamp)
       if (status === 'error') return id
       this.heldTools.add(id)
       return null
@@ -928,16 +930,18 @@ export class TranscriptModel {
     else if (activity.kind === 'worktree_offered') this.addWorktreeOffer(activity, true)
     else if (activity.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(activity.offerId, activity.resolution)
     else if (activity.kind === 'agent_switched') this.addHandoff(activity, true)
-    else if (activity.kind === 'stopped') this.addAgentStop(activity, true)
+    else if (activity.kind === 'became_lead') this.addSessionEvent(activity, true)
+    else if (activity.kind === 'stopped') this.addSessionEvent(activity, true)
   }
 
-  /** A stop another agent session made, as a notice that names it. The phone
-   *  shows no row for a person's stop, so only an agent's stop gets one. */
-  private addAgentStop(activity: Activity, append: boolean): string | null {
-    if (activity.by.kind !== 'agent') return null
+  /** Promotion stays visible; a stop names the other agent that made it. */
+  private addSessionEvent(activity: Activity, append: boolean): string | null {
+    if (activity.kind !== 'became_lead' && activity.by.kind !== 'agent') return null
     const id = `activity:${activity.id}`
     if (this.items.has(id)) return null
-    const item: TranscriptItem = { kind: 'notice', id, text: `Stopped by ${activity.by.title ?? 'an agent'}`, tone: 'info' }
+    const item: TranscriptItem = activity.kind === 'became_lead'
+      ? { kind: 'lead_promotion', id }
+      : { kind: 'notice', id, text: `Stopped by ${activity.by.kind === 'agent' ? activity.by.title ?? 'an agent' : 'an agent'}`, tone: 'info' }
     if (append) {
       this.streamTarget = null
       this.append(item)

@@ -263,11 +263,12 @@ export function insertReference(
     }
     case "login":
       return updateTriggerText(editor, triggerPattern, `@${token.login} `);
-    // Tasks and automations have no Tiptap node of their own — the document
-    // editor is not where you act on them. Their markdown link round-trips
-    // through the same parser the CodeMirror chip is built from.
+    // Tasks, automations, and hosts have no Tiptap node of their own — the
+    // document editor is not where you act on them. Their markdown link
+    // round-trips through the same parser the CodeMirror chip is built from.
     case "task":
     case "automation":
+    case "host":
       return updateTriggerText(
         editor,
         triggerPattern,

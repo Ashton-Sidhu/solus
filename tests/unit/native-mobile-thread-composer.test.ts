@@ -17,7 +17,7 @@ import {
   permissionModeChoices,
 } from '../../apps/mobile/src/features/threads/thread-settings-options'
 import { effortChoices, modelOptionsSummary } from '../../apps/mobile/src/features/conversation/lib/run-settings'
-import { filterProjectScopes, getProjectScopeSelectionTarget, groupProjectScopes, scopeOfProject } from '../../apps/mobile/src/features/threads/new-task-project-selection'
+import { filterProjectScopes, getProjectScopeSelectionTarget, groupProjectScopes, preferredProjectHostId, scopeOfProject } from '../../apps/mobile/src/features/threads/new-task-project-selection'
 import type { SolusProjectShell } from '../../apps/mobile/src/features/threads/thread-directory'
 import { identityKeyFor } from './helpers/signing-host'
 
@@ -192,6 +192,15 @@ describe('native new-task project picker', () => {
     expect(scopes.map((scope) => [scope.title, scope.projects.length])).toEqual([['solus', 2], ['notes', 1]])
     // The key is the one project key every client uses, so a row means the same project everywhere.
     expect(scopes.map((scope) => scope.key)).toEqual(['github.com/solus/solus', 'mac:/Users/a/notes'])
+  })
+
+  test('a connected checkout takes priority over a saved host that cannot be reached', () => {
+    const scope = groupProjectScopes(projects)[0]!
+    expect(getProjectScopeSelectionTarget(scope, 'mac', new Set(['box'])).hostId).toBe('box')
+    expect(getProjectScopeSelectionTarget(scope, 'mac', new Set(['mac', 'box'])).hostId).toBe('mac')
+    expect(getProjectScopeSelectionTarget(scope, 'box', new Set()).hostId).toBe('box')
+    expect(preferredProjectHostId(['mac', 'box'], 'mac', new Set(['box']))).toBe('box')
+    expect(preferredProjectHostId([], null, new Set())).toBeNull()
   })
 
   test('a project is named by its folder alone, never by its owner or host', () => {

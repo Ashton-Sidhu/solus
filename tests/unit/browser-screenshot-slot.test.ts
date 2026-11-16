@@ -33,6 +33,7 @@ function fakeGuest() {
     debugger: cdp,
     isDestroyed: () => destroyed,
     setWindowOpenHandler: () => {},
+    session: { on: () => {}, off: () => {} },
     getBackgroundThrottling: () => false,
   })
   return {

@@ -26,6 +26,7 @@ const log = createLogger('main', 'live-activity-relay')
 const REGISTRATION_TTL_MS = 8 * 60 * 60_000
 /** A turn's statuses arrive in a burst (running, background, completed): one report. */
 const REPORT_DELAY_MS = 300
+const RETRY_DELAY_MS = 30_000
 const REQUEST_TIMEOUT_MS = 15_000
 /**
  * A card with a live row is reported again this often, so the control plane moves
@@ -50,17 +51,30 @@ export interface LiveActivityRelayDeps {
   savePath?: string
   fetchImpl?: FetchLike
   now?: () => number
+  /** A cancellable deadline; tests drive retries without waiting for wall time. */
+  schedule?: (run: () => Promise<void>, delayMs: number) => () => void
+}
+
+function scheduleTimer(run: () => Promise<void>, delayMs: number): () => void {
+  const timer = setTimeout(() => { void run() }, delayMs)
+  timer.unref?.()
+  return () => clearTimeout(timer)
 }
 
 export class LiveActivityRelay {
   /** By push token. */
   private readonly cards = new Map<string, CardRegistration>()
   private readonly pending = new Set<string>()
-  private timer: ReturnType<typeof setTimeout> | null = null
+  private cancelReport: (() => void) | null = null
+  private reportDelayMs = 0
+  private reporting = false
+  private stopped = false
   private readonly liveReports: ReturnType<typeof setInterval>
 
   constructor(private readonly deps: LiveActivityRelayDeps) {
     this.load()
+    // A suspended phone cannot register again after this host restarts.
+    for (const pushToken of this.cards.keys()) this.schedule(pushToken)
     this.liveReports = setInterval(() => this.reportLiveCards(), LIVE_REPORT_INTERVAL_MS)
     this.liveReports.unref?.()
   }
@@ -115,8 +129,9 @@ export class LiveActivityRelay {
   }
 
   stop(): void {
-    if (this.timer) clearTimeout(this.timer)
-    this.timer = null
+    this.stopped = true
+    this.cancelReport?.()
+    this.cancelReport = null
     clearInterval(this.liveReports)
     this.pending.clear()
   }
@@ -171,21 +186,40 @@ export class LiveActivityRelay {
 
   private schedule(pushToken: string): void {
     this.pending.add(pushToken)
-    if (this.timer) return
-    this.timer = setTimeout(() => {
-      this.timer = null
-      const tokens = [...this.pending]
-      this.pending.clear()
-      for (const token of tokens) void this.report(token)
-    }, REPORT_DELAY_MS)
-    this.timer.unref?.()
+    this.scheduleReports(REPORT_DELAY_MS)
   }
 
-  private async report(pushToken: string): Promise<void> {
+  private scheduleReports(delayMs: number): void {
+    if (this.stopped || this.reporting || this.pending.size === 0) return
+    if (this.cancelReport && this.reportDelayMs <= delayMs) return
+    this.cancelReport?.()
+    this.reportDelayMs = delayMs
+    this.cancelReport = (this.deps.schedule ?? scheduleTimer)(async () => {
+      this.cancelReport = null
+      this.reporting = true
+      this.dropExpired()
+      const tokens = [...this.pending]
+      this.pending.clear()
+      const failed: string[] = []
+      try {
+        await Promise.all(tokens.map(async (token) => {
+          if (!await this.report(token) && this.cards.has(token)) failed.push(token)
+        }))
+      } finally {
+        this.reporting = false
+        const hasNewUpdates = this.pending.size > 0
+        for (const token of failed) if (this.cards.has(token)) this.pending.add(token)
+        this.scheduleReports(hasNewUpdates ? REPORT_DELAY_MS : RETRY_DELAY_MS)
+      }
+    }, delayMs)
+  }
+
+  private async report(pushToken: string): Promise<boolean> {
     const card = this.cards.get(pushToken)
     const registration = this.deps.registration()
     const credential = registration ? this.deps.credential() : null
-    if (!card || !registration || !credential) return
+    if (!card) return true
+    if (!registration || !credential) return false
     const report: LiveActivityReport = {
       pushToken,
       environment: card.environment,
@@ -193,18 +227,20 @@ export class LiveActivityRelay {
       card: card.card,
       rows: card.rows,
     }
+    const body = JSON.stringify(report)
     try {
       const token = await credential.hostAccessToken()
       const response = await (this.deps.fetchImpl ?? fetch)(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/live-activities`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify(report),
+        body,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
       if (!response.ok) log.warn('live_activity_report_refused', { status: response.status })
+      return response.ok
     } catch (error) {
-      // The next change reports again; the card's stale date covers the gap.
       log.warn('live_activity_report_failed', { error: error instanceof Error ? error.message : String(error) })
+      return false
     }
   }
 

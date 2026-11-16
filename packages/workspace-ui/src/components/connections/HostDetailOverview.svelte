@@ -116,7 +116,6 @@
         variant="ghost"
         size="icon-sm"
         onclick={copyAddress}
-        class="text-(--solus-text-tertiary)"
         aria-label="Copy host address"
       >
         {#if addressCopied}

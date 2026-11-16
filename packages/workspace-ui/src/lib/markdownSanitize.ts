@@ -10,10 +10,10 @@ const markdownUrlSchema = z.string();
 // @humanspeak/svelte-markdown sanitizes link/image hrefs at a single
 // enforcement point in Parser before they reach any renderer — its default
 // allowlist (http/https/mailto/tel/relative) blanks anything else to "".
-// Solus emits custom-protocol links (plan://, work://, pr://, session://, task://, file://) that
+// Solus emits custom-protocol links (plan://, work://, pr://, session://, task://, host://, file://) that
 // MarkdownLink turns into in-app navigation, so we must allow them through;
 // everything else defers to the library's default sanitizer.
-const ALLOWED_CUSTOM_PROTOCOLS = /^\s*(plan|work|pr|session|task|file|asset):/i;
+const ALLOWED_CUSTOM_PROTOCOLS = /^\s*(plan|work|pr|session|task|host|file|asset):/i;
 
 export const markdownSanitizeUrl: SanitizeUrlFn = (url, context) => {
   const parsed = markdownUrlSchema.safeParse(url);

@@ -70,7 +70,10 @@
   });
 </script>
 
-<div class="workspace-layout flex flex-col h-full w-full overflow-hidden">
+<div
+  class="workspace-layout flex flex-col h-full w-full overflow-hidden"
+  data-slot="workspace"
+>
   <VoiceModelNotice />
   <div class="flex flex-1 min-h-0">
     <WorkspaceBody

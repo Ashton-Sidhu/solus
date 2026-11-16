@@ -5,6 +5,8 @@ import { sessionSearchNavigation } from '@solus/client-core/session-search-navig
 import { snippetRuns } from '@solus/contracts/search-snippet'
 import { useApp, useListened } from '../../app/app-context'
 import { AppText as Text } from '../../components/AppText'
+import { ProjectFavicon } from '../../components/ProjectFavicon'
+import { isChatSession, threadFaviconRoot, threadProjectFallbackTitle } from '../threads/threadListV2'
 import { threadKey, type SolusThreadShell, type SolusProjectShell } from '../threads/thread-directory'
 import { nativeSearchHomes, nativeSearchHits } from './session-search-list'
 
@@ -16,6 +18,8 @@ export function SessionSearchResults(props: {
   threads: readonly SolusThreadShell[]
   unlistedThreads: readonly SolusThreadShell[]
   projectKeys: ReadonlySet<string> | null
+  /** The Chats scope: only the sessions that have no project. */
+  chatsOnly?: boolean
   header: ReactNode
   onSelect: (thread: SolusThreadShell) => void
 }) {
@@ -28,10 +32,10 @@ export function SessionSearchResults(props: {
   }, () => update(value => value + 1)))
   const hosts = useListened(app.registry.changes, () => app.registry.hosts())
   const organizationId = useListened(app.account.changes, () => app.account.organizationId)
-  const homes = useMemo(() => nativeSearchHomes(hosts.map(host => host.id), props.projects, { hostId: props.hostId, projectKeys: props.projectKeys }), [hosts, props.hostId, props.projectKeys, props.projects])
+  const homes = useMemo(() => nativeSearchHomes(hosts.map(host => host.id), props.projects, { hostId: props.hostId, projectKeys: props.projectKeys, chatsOnly: props.chatsOnly }), [hosts, props.hostId, props.projectKeys, props.chatsOnly, props.projects])
   useEffect(() => { search.search(props.query, homes); return () => search.reset() }, [search, props.query, homes, organizationId])
   const state = search.state
-  const hits = nativeSearchHits({ query: props.query, hostId: props.hostId, projectKeys: props.projectKeys, threads: [...props.threads, ...props.unlistedThreads], remote: state.hits, organizationId, managedHostIds: app.threads.managedHostIds() })
+  const hits = nativeSearchHits({ query: props.query, hostId: props.hostId, projectKeys: props.projectKeys, chatsOnly: props.chatsOnly, threads: [...props.threads, ...props.unlistedThreads], remote: state.hits, organizationId, managedHostIds: app.threads.managedHostIds() })
   const select = (hit: HostSessionSearchHit) => {
     const record = hit.result.record
     const thread = { key: threadKey(hit.serverId, record.sessionId), hostId: hit.serverId, hostLabel: app.registry.host(hit.serverId)?.label ?? hit.serverId, record }
@@ -50,10 +54,14 @@ export function SessionSearchResults(props: {
     onEndReached={() => void search.loadMore()}
     renderItem={({ item: hit }) => {
       const { record, snippet, reason } = hit.result
+      const projectTitle = threadProjectFallbackTitle(record)
       return <Pressable accessibilityRole="button" className="gap-1 border-b border-border px-5 py-3 active:opacity-70" onPress={() => select(hit)}>
-        <Text numberOfLines={1} className="text-sm font-t3-medium text-primary-text">{record.customTitle || record.title || record.slug || 'Unnamed session'}</Text>
+        <View className="flex-row items-center gap-2">
+          <ProjectFavicon environmentId={hit.serverId} chat={isChatSession(record)} size={15} projectTitle={projectTitle} workspaceRoot={threadFaviconRoot(record, null)} />
+          <Text numberOfLines={1} className="min-w-0 flex-1 text-sm font-t3-medium text-primary-text">{record.customTitle || record.title || record.slug || 'Unnamed session'}</Text>
+        </View>
         <Text numberOfLines={2} className="text-sm text-foreground-muted">{reason?.field === 'messages' ? snippetRuns(snippet).map((run, index) => <Text key={index} className={run.hit ? 'font-t3-bold' : undefined}>{run.text}</Text>) : reason ? `${reason.field === 'id' ? 'ID' : reason.field === 'pullRequest' ? 'PR' : reason.field === 'branch' ? 'Branch' : 'Title'}: ${reason.text}` : record.branch}</Text>
-        <Text numberOfLines={1} className="text-xs text-foreground-tertiary">{app.registry.host(hit.serverId)?.label} · {record.provider}</Text>
+        <Text numberOfLines={1} className="text-xs text-foreground-tertiary">{projectTitle} · {app.registry.host(hit.serverId)?.label} · {record.provider}</Text>
       </Pressable>
     }}
   />

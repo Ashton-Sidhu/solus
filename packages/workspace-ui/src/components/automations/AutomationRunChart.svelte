@@ -25,7 +25,7 @@
   /** The status palette the rest of Solus uses, themed for light and dark. */
   const TONE_FILL = {
     success: "var(--solus-status-complete)",
-    error: "var(--solus-status-error)",
+    error: "var(--failure)",
     running: "var(--solus-status-running)",
     cancelled: "var(--solus-status-idle)",
   } satisfies Record<HealthBar["tone"], string>;
@@ -100,7 +100,7 @@
             ? 'text-[color:var(--solus-status-complete)]'
             : health.rateTone === 'mixed'
               ? 'text-[color:var(--solus-status-permission)]'
-              : 'text-[color:var(--solus-status-error)]'}"
+              : 'text-[color:var(--failure)]'}"
         >
           {health.successRate}%
         </span>

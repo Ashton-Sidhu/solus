@@ -7,6 +7,7 @@ import type { ParamListBase, StackNavigationState } from "@react-navigation/nati
 import { describe, expect, it } from "bun:test";
 
 import {
+  selectedWorkspacePullRequest,
   collapsedSplitTransition,
   nativeStackPopAction,
   nativeWorkspacePopAction,
@@ -365,3 +366,18 @@ describe("v5 stack handoff", () => {
     ).toEqual([[home, thread], [settings, legal], [secondModal]]);
   });
 });
+
+
+describe('iPad pull request selection', () => {
+  const first = { key: 'pr1', name: 'PullRequest', params: { hostId: 'h1', projectPath: '/code/a', number: 42 } }
+  const second = { key: 'pr2', name: 'PullRequest', params: { hostId: 'h2', projectPath: '/code/b', number: 42 } }
+  it('marks the most recent pull request and keeps it marked in its pushed pages', () => {
+    expect(selectedWorkspacePullRequest([first])).toBe(first.params)
+    expect(selectedWorkspacePullRequest([first, second, { key: 'review', name: 'PullRequestReview' }])).toBe(second.params)
+  })
+  it('clears the row on return to the list or when a conversation becomes the detail', () => {
+    expect(selectedWorkspacePullRequest([])).toBeNull()
+    expect(selectedWorkspacePullRequest([first, thread])).toBeNull()
+    expect(selectedWorkspacePullRequest([first, thread, second])).toBe(second.params)
+  })
+})

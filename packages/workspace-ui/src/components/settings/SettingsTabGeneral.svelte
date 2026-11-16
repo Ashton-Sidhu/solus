@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { generalSettings as settingItems } from "./lib/settings-search-data";
   import { Skeleton } from "../ui/skeleton";
   import { untrack } from "svelte";
@@ -126,24 +128,17 @@
     theme.setPersonal("sidebarMotionMs", value);
   }
 
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    const item = settingItems.find((s) => s.id === id);
-    if (!item) return true;
-    const q = searchQuery.toLowerCase();
-    return item.keywords.some((k) => k.includes(q));
-  }
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
   const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)));
 </script>
 
 <SettingsSection
-  label="Workspace"
+  {...settingsDefinitions["general.section-workspace"]}
   visible={isVisible("sidebar-motion") || isVisible("projects-base") || isVisible("text-generation-model")}
 >
   <SettingsRow
-    label="Sidebar animation"
-    description="Sidebar task animation length. 0 turns it off."
+    {...settingsDefinitions["general.sidebar-motion"]}
     visible={isVisible("sidebar-motion")}
   >
     {#snippet control()}
@@ -188,8 +183,7 @@
     {/snippet}
   </SettingsRow>
   <SettingsRow
-    label="Projects folder"
-    description="Where new projects are created and clones land."
+    {...settingsDefinitions["general.projects-base"]}
     visible={isVisible("projects-base")}
   >
     {#snippet control()}
@@ -232,9 +226,8 @@
     {/snippet}
   </SettingsRow>
   <SettingsRow
-    label="Text-generation model"
+    {...settingsDefinitions["general.text-generation-model"]}
     managed={managedSetting("textGenerationModel")}
-    description="Session names and short background writing for your work."
     visible={isVisible("text-generation-model")}
     bodyVisible={!!textGenerationError || (!!textGenerationSnapshot && !isModelOffered(textGenerationSnapshot.agents, theme.textGenerationModel))}
   >

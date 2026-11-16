@@ -93,7 +93,7 @@ that have the value it asks for, so an old chat is not in a chat filter.
 | A client's first prompt in a tab (`submitPrompt`, `retry`) | `execution/sessions/prompt-dispatch.ts` | `person` (the actor) |
 | `createSession` from a client RPC | `transport/handlers/session-handlers.ts` | `person` (the actor) |
 | `createSession` from another host (`startedBy` today) | same | `session` with `hostLabel` |
-| `createSession` from orchestration (`delegate_task` and similar) | `execution/orchestration/` | `session` (the parent) |
+| `createSession` from orchestration (`start_sessions`) | `execution/orchestration/` | `session` (the parent) |
 | `startUnattendedSession` with an automation | `boot-server.ts` dispatcher | `automation` (add `runId`) |
 | `startUnattendedSession` from a webhook | `execution/webhooks/webhook-runtime.ts` | `webhook` (add `webhookId`, `deliveryId`) |
 

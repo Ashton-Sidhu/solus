@@ -14,7 +14,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { PrFilter, PrInterest, PrProjectCursor, PrSyncChange } from '@solus/contracts/providers'
+import type { PrFilter, PrInterest, PrProjectCursor, PrSyncChange, PullRequest } from '@solus/contracts/providers'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
 import { detached, ProjectPrs, projectPrsKey } from './project-prs.svelte'
@@ -210,14 +210,7 @@ export class PrsStore {
   linkedPr(serverId: string | null | undefined, link: PrLink, fallbackScope: string | null): LinkedPr | null {
     const identity = linkedPrIdentity(link, fallbackScope)
     if (!identity) return null
-    // A URL names the repository, but a project files its pull requests under
-    // its local path. When no surface watches the repository itself, any
-    // project of that repository answers.
-    const live = this.at(serverId, identity.targetScope)?.prFor(identity.number)
-      ?? this.projectsReading(serverId, identity.targetScope)
-        .map((project) => project.prFor(identity.number))
-        .find((pullRequest) => pullRequest !== null)
-      ?? null
+    const live = this.livePr(serverId, identity.targetScope, identity.number)
     const pullRequest = latestPrObservation(live, 'snapshot' in link ? link.snapshot : undefined)
     return {
       ...identity,
@@ -226,6 +219,18 @@ export class PrsStore {
       pullRequest,
       missing: link.missing === true && !live,
     }
+  }
+
+  /** The full record of a pull request a surface read, never a link's snapshot.
+   *  A URL names the repository, but a project files its pull requests under
+   *  its local path. When no surface watches the repository itself, any
+   *  project of that repository answers. */
+  livePr(serverId: string | null | undefined, repository: string, number: number): PullRequest | null {
+    return this.at(serverId, repository)?.prFor(number)
+      ?? this.projectsReading(serverId, repository)
+        .map((project) => project.prFor(number))
+        .find((pullRequest) => pullRequest !== null)
+      ?? null
   }
 
   /** Keep the pull requests these links name fresh while a surface shows

@@ -41,6 +41,7 @@
       {@render loading()}
     {:then { default: SettingsTabSourceControl }}
       <SettingsTabSourceControl
+        searchQuery={pageQuery}
         serverId={selectedSettingsHost.serverId}
         api={selectedSettingsApi}
         projectCwd={session.settingsProjectCwd}

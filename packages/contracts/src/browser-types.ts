@@ -410,11 +410,93 @@ export interface BrowserPage {
    *  every pane, phone, and agent must see that a recording is running and be
    *  able to stop it. Absent on hosts older than recordings. */
   recording?: BrowserRecordingState | null
+  /** The page's zoom, as a browser's own zoom: the page lays out at its
+   *  viewport divided by this. Absent is 1. Page state, so every client and
+   *  every agent sees the size the page lays out at. */
+  zoomFactor?: number
+  /** The JavaScript dialog that waits for an answer. A dialog stops the page,
+   *  so every client that shows the page offers to answer it. Absent or null
+   *  when none is open. */
+  dialog?: BrowserPageDialog | null
+  /** The page asked for files and waits for them. A host that renders the page
+   *  headless has no picker of its own, so a client answers with files it
+   *  uploaded first (`browserFileUploadToken`). */
+  fileChooser?: BrowserFileChooser | null
+  /** The last files the page downloaded, newest last, at most
+   *  `BROWSER_DOWNLOADS_KEPT`. Each is a host asset a client can save. */
+  downloads?: BrowserDownload[]
   /** Automatic labels follow checkout identity; explicit labels stay as entered. */
   automaticLabel?: boolean
   /** Label for the page strip — the worktree branch when the target has one. */
   label: string
   createdAt: number
+}
+
+/** A JavaScript dialog that waits on a page: `alert`, `confirm`, `prompt`, or
+ *  the leave-page question (`beforeunload`). */
+export interface BrowserPageDialog {
+  type: 'alert' | 'confirm' | 'prompt' | 'beforeunload'
+  message: string
+  /** The text a `prompt` offers. */
+  defaultPrompt?: string
+  /** Counts up per guest, so a client can tell one dialog from the next. */
+  sequence: number
+}
+
+export interface BrowserDialogAnswer {
+  accept: boolean
+  /** The text a `prompt` returns when accepted. */
+  promptText?: string
+}
+
+export interface BrowserFileChooser {
+  /** The input takes more than one file. */
+  multiple: boolean
+  sequence: number
+}
+
+/** A file a page downloaded, kept on its host as an asset. */
+export interface BrowserDownload {
+  downloadId: string
+  fileName: string
+  /** Signed for a client with `assetCreateUrl`. */
+  assetId: string
+  sizeBytes: number
+  at: number
+}
+
+export const BROWSER_DOWNLOADS_KEPT = 5
+
+/** The zoom steps a browser offers, as Chromium's. */
+export const BROWSER_ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
+
+export function browserZoomOf(page: Pick<BrowserPage, 'zoomFactor'>): number {
+  return page.zoomFactor ?? 1
+}
+
+/** The next zoom step in or out from `current`; the same step at either end. */
+export function stepBrowserZoom(current: number, step: 1 | -1): number {
+  if (step > 0) return BROWSER_ZOOM_LEVELS.find((level) => level > current + 0.001) ?? BROWSER_ZOOM_LEVELS.at(-1)!
+  return [...BROWSER_ZOOM_LEVELS].reverse().find((level) => level < current - 0.001) ?? BROWSER_ZOOM_LEVELS[0]
+}
+
+export function isBrowserZoomLevel(value: number): boolean {
+  return BROWSER_ZOOM_LEVELS.some((level) => Math.abs(level - value) < 0.001)
+}
+
+/**
+ * The CSS viewport the guest lays out at: the page's viewport divided by its
+ * zoom. A streamed client maps a pointer into this size, because the guest's
+ * input coordinates are its own CSS pixels.
+ */
+export interface BrowserGuestSize {
+  width: number
+  height: number
+}
+
+export function browserGuestViewport(page: Pick<BrowserPage, 'viewport' | 'zoomFactor'>): BrowserGuestSize {
+  const zoom = browserZoomOf(page)
+  return { width: Math.round(page.viewport.width / zoom), height: Math.round(page.viewport.height / zoom) }
 }
 
 /** Active agent use of one browser page: a verb in flight, or one that finished
@@ -814,7 +896,8 @@ export type BrowserNavigateOp =
   | { kind: 'goto'; url: string }
   | { kind: 'back' }
   | { kind: 'forward' }
-  | { kind: 'reload' }
+  /** `ignoreCache` is a hard reload: the guest fetches every resource again. */
+  | { kind: 'reload'; ignoreCache?: boolean }
 
 export type BrowserInteractOp =
   | { kind: 'click'; ref: string }

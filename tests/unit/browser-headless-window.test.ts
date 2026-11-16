@@ -26,6 +26,7 @@ class FakeWindow {
     on: () => {},
     isDestroyed: () => false,
     setWindowOpenHandler: () => {},
+    session: { on: () => {}, off: () => {} },
     loadURL: async () => {
       if (failBlankLoad) throw new Error('blank load failed')
     },

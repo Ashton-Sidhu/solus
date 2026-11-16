@@ -1,4 +1,4 @@
-import { APP_RUN_STATES, type AppRunState, type AppRunView, type AppStepKind, type AppStepState, type AppStepView } from '@solus/contracts/apps'
+import { APP_RUN_STATES, type AppRunDetail, type AppRunState, type AppRunView, type AppStepKind } from '@solus/contracts/apps'
 import { formatDuration } from '../../../insights/lib/format'
 
 /** The Workflows section (docs/plans/apps.md §8.3, §9.2): what a run and a step say, and what the owner can do to a run. */
@@ -38,32 +38,29 @@ const STEP_KIND_LABELS = {
   model: 'Model',
 } satisfies { [Kind in AppStepKind]: string }
 
-const STEP_STATE_LABELS = {
-  running: 'Running',
-  done: 'Done',
-  failed: 'Failed',
-  sleeping: 'Sleeping',
-} satisfies { [State in AppStepState]: string }
-
 export function stepKindLabel(kind: AppStepKind): string {
   return STEP_KIND_LABELS[kind]
-}
-
-export function stepStateLabel(state: AppStepState): string {
-  return STEP_STATE_LABELS[state]
-}
-
-/** How long a step took; null while it has no end. */
-export function stepDurationText(step: Pick<AppStepView, 'startedAt' | 'finishedAt'>): string | null {
-  return step.finishedAt === null ? null : formatDuration(step.finishedAt - step.startedAt)
-}
-
-/** "1 attempt", "3 attempts". */
-export function attemptsText(attempts: number): string {
-  return attempts === 1 ? '1 attempt' : `${attempts} attempts`
 }
 
 /** How long a run took, or has taken so far. */
 export function runDurationText(run: Pick<AppRunView, 'startedAt' | 'finishedAt'>, nowMs = Date.now()): string {
   return formatDuration((run.finishedAt ?? nowMs) - run.startedAt)
+}
+
+/** The workflows the picker offers: the ones the active version declares, then any other that has a run, for a run from an older version. */
+export function workflowNames(declared: readonly { name: string }[], runs: readonly Pick<AppRunView, 'workflow'>[]): string[] {
+  const names = declared.map((workflow) => workflow.name)
+  for (const run of runs) if (!names.includes(run.workflow)) names.push(run.workflow)
+  return names
+}
+
+/** A run id short enough for a pill: its first eight characters. */
+export function shortRunId(id: string): string {
+  return id.length > 8 ? id.slice(0, 8) : id
+}
+
+/** The step a failed run stopped at: the one that Retry runs again. */
+export function failedStepName(run: Pick<AppRunDetail, 'state' | 'steps'>): string | null {
+  if (run.state !== 'failed') return null
+  return run.steps.find((step) => step.state === 'failed')?.name ?? null
 }

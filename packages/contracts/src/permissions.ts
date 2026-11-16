@@ -258,12 +258,12 @@ const PERMISSION_OF_METHOD = {
   automationRecentRuns: HOST_USE, webhookList: HOST_USE, webhookCreate: HOST_USE, webhookDryRun: HOST_USE,
   hostWebhookSettingsRead: HOST_USE,
   // An app is its host owner's (docs/plans/apps.md decision 10): the Apps service refuses every other caller.
-  appList: HOST_USE, appRead: HOST_USE, appUi: HOST_USE, appCall: HOST_USE, appStop: HOST_USE, appStart: HOST_USE, appDelete: HOST_USE, appVersions: HOST_USE, appVersionDiff: HOST_USE, appActivate: HOST_USE, appSchedules: HOST_USE, appScheduleSet: HOST_USE, appScheduleRun: HOST_USE, appSecretSet: HOST_USE, appConfigSet: HOST_USE, appWebhooks: HOST_USE, appCalls: HOST_USE, appSessions: HOST_USE,
-  appRevisions: HOST_USE, appRevisionDiff: HOST_USE, appDeploy: HOST_USE, appBuildLog: HOST_USE, appSetAgentAccess: HOST_USE, appCallRead: HOST_USE, appMetrics: HOST_USE, appRuns: HOST_USE, appRunRead: HOST_USE, appRunTerminate: HOST_USE, appRunRetry: HOST_USE, appSignals: HOST_USE, appSignalOccurrences: HOST_USE, appSignalActionSave: HOST_USE, appSignalActionDelete: HOST_USE, appFiles: HOST_USE, appFileRemove: HOST_USE, appModelCalls: HOST_USE, appModelCallRead: HOST_USE, appModelCallCancel: HOST_USE,
+  appList: HOST_USE, appRead: HOST_USE, appUi: HOST_USE, appCall: HOST_USE, appStop: HOST_USE, appStart: HOST_USE, appDelete: HOST_USE, appVersions: HOST_USE, appVersionDiff: HOST_USE, appActivate: HOST_USE, appSchedules: HOST_USE, appScheduleSet: HOST_USE, appScheduleRun: HOST_USE, appSecretSet: HOST_USE, appConfigSet: HOST_USE, appWebhooks: HOST_USE, appWebhookRotateSecret: HOST_USE, appCalls: HOST_USE, appSessions: HOST_USE,
+  appRevisions: HOST_USE, appRevisionDiff: HOST_USE, appStepSource: HOST_USE, appDeploy: HOST_USE, appBuildLog: HOST_USE, appDeployPreflight: HOST_USE, appScheduleCalendar: HOST_USE, appPublish: HOST_USE, appUnpublish: HOST_USE, appDeployment: HOST_USE, appDeploymentLogs: HOST_USE, appPublishPlaces: HOST_USE, appTailscaleKeySet: HOST_USE, appContainerRun: HOST_USE, appContainerStatus: HOST_USE, appContainerLogs: HOST_USE, appContainerRemove: HOST_USE, appContainerManage: HOST_USE, appSetAgentAccess: HOST_USE, appUpdate: HOST_USE, appCallRead: HOST_USE, appMetrics: HOST_USE, appCallStats: HOST_USE, appRuns: HOST_USE, appRunRead: HOST_USE, appRunTerminate: HOST_USE, appRunRetry: HOST_USE, appRunDismiss: HOST_USE, appSignals: HOST_USE, appSignalOccurrences: HOST_USE, appSignalActionSave: HOST_USE, appSignalActionDelete: HOST_USE, appFiles: HOST_USE, appFileRemove: HOST_USE, appModelCalls: HOST_USE, appModelCallRead: HOST_USE, appModelCallCancel: HOST_USE,
   // The admin rule is Solus Cloud's: the webhookAdmin port refuses a person who is not an organization admin.
   webhookAdminList: HOST_USE, webhookAdminPause: HOST_USE, webhookAdminResume: HOST_USE, prChecks: HOST_USE, browserRuntimeStatus: HOST_USE, browserListTargets: HOST_USE,
   browserListPages: HOST_USE, browserOpen: HOST_USE, browserClose: HOST_USE, browserNavigate: HOST_USE,
-  browserSetViewport: HOST_USE, browserSetAppearance: HOST_USE, browserSnapshot: HOST_USE, browserInteract: HOST_USE,
+  browserSetViewport: HOST_USE, browserSetAppearance: HOST_USE, browserSetZoom: HOST_USE, browserAnswerDialog: HOST_USE, browserFileUploadToken: HOST_USE, browserAnswerFileChooser: HOST_USE, browserSnapshot: HOST_USE, browserInteract: HOST_USE,
   browserAttachSurface: HOST_USE, browserDetachSurface: HOST_USE, browserReportSurface: HOST_USE,
   browserClearProfile: HOST_USE, browserSubscribeFrames: HOST_USE, browserUnsubscribeFrames: HOST_USE,
   browserSetFrameCaps: HOST_USE, browserCaptureEvidence: HOST_USE, browserRecordingStart: HOST_USE,
@@ -407,6 +407,8 @@ export const RESOURCE_ACTION_OF_METHOD = {
   sessionArtifactsList: 'read',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
   pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
+  // An app's linked session: the app is its host owner's, and the edge is the session's.
+  appSessionLink: 'edit', appSessionUnlink: 'edit',
   // Works — reading
   loadWorkRevisions: 'read', loadWorkRevision: 'read', workReviewGet: 'read', workLiveOpen: 'read', workLiveAwareness: 'read',
   workLiveClose: 'read', loadWorkAnnotations: 'read', markWorkCommentRead: 'read', readWorkGoogleComments: 'read',
@@ -433,6 +435,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   webhookRead: 'read', webhookListDeliveries: 'read', webhookReadDelivery: 'read',
   webhookUpdate: 'edit', webhookDelete: 'edit', webhookRotate: 'edit',
   webhookReplay: 'drive',
+  webhookSendTest: 'drive',
   // Projects: every member lists the organization's projects; changing one is its owner's or an administrator's.
   workspaceProjectUpdate: 'edit', workspaceProjectRemove: 'edit',
   // Notifications are personal: only their recipient, the owner, marks one.

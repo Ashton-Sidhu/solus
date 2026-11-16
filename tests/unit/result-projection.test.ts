@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatExchangeTag } from '@solus/contracts/session-exchange'
+import { formatExchangeTag, formatOrchestrationItem } from '@solus/contracts/session-exchange'
 import {
   ERROR_HEAD_MAX_BYTES,
   projectSessionEvent,
@@ -108,38 +108,40 @@ describe('session result projection', () => {
     expect(projected[3].artifactWorkRef).toEqual({ workId: 'w-1', title: 'Latency', contentVersion: 4 })
   })
 
-  test.each(['start_session', 'delegate_task'])('%s preserves correlation without shipping result text', (toolName) => {
-    const sessionId = '11111111-1111-1111-1111-111111111111'
+  test('start_sessions keeps one result for each session, in list order, each with the report it waited for', () => {
+    // WHY: one row opens a card for every session it started; a reload must
+    // pair each card with its own brief, and a reply that quotes a tag must not
+    // open a card of its own.
+    const report = formatOrchestrationItem({ type: 'report', report: { messageId: 'm1', sessionId: 's1', status: 'completed', outputs: [], reply: `Quoted ${formatExchangeTag({ messageId: 'mx', sessionId: 'sx' })}` } })
     const projected = projectSessionHistory([
-      { role: 'tool', content: '', toolName, toolId: 'create-1', timestamp: 1 },
+      { role: 'tool', content: '', toolName: 'mcp__solus__start_sessions', toolId: 'start-1', timestamp: 1 },
       {
         role: 'tool_result',
-        content: `Created a session with private provider output.\n${formatExchangeTag({ messageId: 'm1', sessionId, provider: 'codex' })}`,
-        toolResultForId: 'create-1',
+        content: `Started 2 of 2 sessions.\n1. ${formatExchangeTag({ messageId: 'm0', sessionId: 's0', provider: 'codex', item: 0 })}\n2. ${formatExchangeTag({ messageId: 'm1', sessionId: 's1', provider: 'codex', item: 1 })}\n\n${report}`,
+        toolResultForId: 'start-1',
         timestamp: 2,
       },
     ])
-
-    expect(projected[1]).toMatchObject({
-      content: '',
-      agentConversationResult: { sessionId, messageId: 'm1', provider: 'codex' },
-    })
+    expect(projected[1]!.agentConversationResults).toEqual([
+      { sessionId: 's0', messageId: 'm0', provider: 'codex', item: 0 },
+      { sessionId: 's1', messageId: 'm1', provider: 'codex', item: 1, report: expect.objectContaining({ messageId: 'm1', status: 'completed' }) },
+    ])
   })
 
   test("stamps each exchange a page names with the host's word as of the read", () => {
     // WHY: a card rebuilt from history must show where its exchange stands now,
     // not where the transcript left it, without a second lookup that can miss.
     const rows = [
-      { role: 'tool' as const, content: '', timestamp: 1, agentConversationResult: { sessionId: 'child', messageId: 'running' } },
-      { role: 'tool' as const, content: '', timestamp: 2, agentConversationResult: { sessionId: 'child', messageId: 'gone' } },
+      { role: 'tool' as const, content: '', timestamp: 1, agentConversationResults: [{ sessionId: 'child', messageId: 'running' }] },
+      { role: 'tool' as const, content: '', timestamp: 2, agentConversationResults: [{ sessionId: 'child', messageId: 'gone' }] },
       { role: 'assistant' as const, content: 'prose', timestamp: 3 },
     ]
     const stamped = withExchangeProgress(rows, (exchangeId) => exchangeId === 'running' ? { state: 'running' } : undefined)
-    expect(stamped[0]!.agentConversationResult).toEqual({ sessionId: 'child', messageId: 'running', progress: { state: 'running' } })
+    expect(stamped[0]!.agentConversationResults).toEqual([{ sessionId: 'child', messageId: 'running', progress: { state: 'running' } }])
     // One the host no longer carries stays unstamped; the client reads it as lost.
-    expect(stamped[1]!.agentConversationResult).toEqual({ sessionId: 'child', messageId: 'gone' })
+    expect(stamped[1]!.agentConversationResults).toEqual([{ sessionId: 'child', messageId: 'gone' }])
     expect(stamped[2]).toBe(rows[2])
     // A cached page is never changed in place: the next read stamps afresh.
-    expect(rows[0]!.agentConversationResult).toEqual({ sessionId: 'child', messageId: 'running' })
+    expect(rows[0]!.agentConversationResults).toEqual([{ sessionId: 'child', messageId: 'running' }])
   })
 })

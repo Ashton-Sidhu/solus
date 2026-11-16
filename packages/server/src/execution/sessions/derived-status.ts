@@ -21,7 +21,8 @@ export interface SessionFacts {
   pendingInput: 'awaiting_input' | 'awaiting_plan' | null
   /** A rate limit holds the turn, and the run does not continue past it. */
   rateLimitParked: boolean
-  /** Background work the agent waits on still runs (`backgroundWorkHolds`). */
+  /** Background work the agent waits on still runs (`backgroundWorkHolds`), or
+   *  a session it sent work to has still to report. */
   backgroundHolds: boolean
 }
 

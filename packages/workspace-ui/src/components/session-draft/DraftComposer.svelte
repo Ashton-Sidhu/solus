@@ -102,6 +102,7 @@
 {/if}
 
 <div
+  data-slot="composer"
   data-session-drop-area
   class={cn(
     "@container/composer overflow-hidden rounded-3xl bg-(--solus-input-pill-bg) px-3 pb-3 has-[[data-session-drop-target]]:outline-1 has-[[data-session-drop-target]]:outline-dashed has-[[data-session-drop-target]]:outline-primary/50",

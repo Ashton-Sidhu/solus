@@ -26,6 +26,7 @@ import {
   TEMPLATE_NOTE,
   type NotifyDraft,
 } from "../app-signals";
+import { occurrenceState } from "../app-states";
 import { jsonText } from "../apps";
 import { useAppChange, useAppRead } from "../use-app";
 import type { AppSectionProps } from "./section-props";
@@ -33,7 +34,8 @@ import type { AppSectionProps } from "./section-props";
 /**
  * Signals (docs/plans/apps.md §8.4, §9.2): each signal the active version
  * declares with its payload schema and its signal actions, then the newest
- * occurrences with how each action ended. The owner adds and changes a
+ * occurrences with how each action ended. A mark says whether an action is
+ * on, and how the actions of an occurrence ended. The owner adds and changes a
  * notification, and turns off, turns on, or deletes each action. An action
  * that starts agent work names a session or an automation, which the phone
  * has no picker for: it is made on desktop or on the web.
@@ -122,6 +124,7 @@ export function SignalsSection({ hostId, appId, connected, navigation }: AppSect
               <AppDetailRow
                 key={occurrence.id}
                 first={index === 0}
+                mark={{ state: occurrenceState(occurrence.deliveries) }}
                 title={occurrence.name}
                 trailing={relativeTime(new Date(occurrence.emittedAt).toISOString(), now)}
                 lines={occurrenceLines(occurrence)}
@@ -172,9 +175,9 @@ function SignalCard(props: {
           <AppDetailRow
             key={action.id}
             first={false}
+            mark={action.enabled ? { state: "ok", label: "On" } : { state: "paused" }}
             title={signalActionLabel(action.action.type)}
-            trailing={action.enabled ? "On" : "Off"}
-            lines={signalActionLines(action.action)}
+            lines={action.enabled ? signalActionLines(action.action) : [{ text: "Off" }, ...signalActionLines(action.action)]}
           >
             {draft?.actionId === action.id ? (
               form

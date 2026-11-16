@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { bindAgentEventSubscriptions } from '@solus/workspace-ui/hooks/agentEvents.svelte'
@@ -54,6 +54,36 @@ describe('agent event host routing', () => {
       connections.eventsFor = originalEventsFor
       connections.onConnectionCreated = originalOnConnectionCreated
       connections.resolveId = originalResolveId
+    }
+  })
+
+  test('an open session becomes a lead from the event of the host it runs on', () => {
+    // WHY: the row of an open session reads the Meta mode mark from the
+    // session, and an agent can make its session a lead in the middle of a
+    // turn (docs/plans/lead-session.md). Another host can hold a session with
+    // the same id, so only the run's host is heard.
+    const localEvents = new HostEventSubscriber()
+    const remoteEvents = new HostEventSubscriber()
+    const connectedServerIds = spyOn(serverConnections, 'connectedServerIds').mockReturnValue(['local', 'remote'])
+    const eventsFor = spyOn(serverConnections, 'eventsFor').mockImplementation((serverId: string) => serverId === 'remote' ? remoteEvents : localEvents)
+    const onConnectionCreated = spyOn(serverConnections, 'onConnectionCreated').mockReturnValue(() => {})
+    const resolveId = spyOn(serverConnections, 'resolveId').mockImplementation((serverId: string) => serverId)
+    const opened = { run: { location: { checkout: { serverId: 'remote' } } }, isLead: false }
+    const workspace = { sessions: { byId: { 'remote-session': opened } } } as unknown as WorkspaceContext
+
+    try {
+      const unsubscribe = bindAgentEventSubscriptions(workspace)
+      const becameLead = { type: 'session.becameLead' as const, payload: { sessionId: 'remote-session' }, occurredAt: Date.now() }
+      localEvents.receive(becameLead)
+      expect(opened.isLead).toBe(false)
+      remoteEvents.receive(becameLead)
+      expect(opened.isLead).toBe(true)
+      unsubscribe()
+    } finally {
+      connectedServerIds.mockRestore()
+      eventsFor.mockRestore()
+      onConnectionCreated.mockRestore()
+      resolveId.mockRestore()
     }
   })
 })

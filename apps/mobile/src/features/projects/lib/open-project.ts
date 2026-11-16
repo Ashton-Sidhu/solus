@@ -1,6 +1,7 @@
-import { hostPathBaseName } from '@solus/contracts/host-path'
+import type { HostApi } from "@solus/client-core/host-api"
+import { hostPathBaseName, joinHostPath } from '@solus/contracts/host-path'
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
-import type { DirectoryEntry, SetupGithubRepo } from '@solus/contracts/types'
+import type { DirectoryEntry, GithubPublishRepositoryResult, SetupGithubRepo } from '@solus/contracts/types'
 
 /** The last segment of a host path: `~/projects` reads as `projects`, `~` as your home folder. */
 export function folderNameOf(path: string): string {
@@ -10,10 +11,10 @@ export function folderNameOf(path: string): string {
 }
 
 /** The quiet line under "Project name": where the host puts the new folder. */
-export function newProjectLocationText(name: string, projectsFolderName: string, hostLabel: string): string {
+export function newProjectLocationText(name: string, projectsFolder: string, hostLabel: string): string {
   return name.trim()
-    ? `Creates the folder ${safeProjectDirName(name)} in ${projectsFolderName} on ${hostLabel}`
-    : `Creates a folder in ${projectsFolderName} on ${hostLabel}`
+    ? `Creates ${joinHostPath(projectsFolder, safeProjectDirName(name))} on ${hostLabel}`
+    : `Goes in ${projectsFolder} on ${hostLabel}`
 }
 
 const OWNER_REPO = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/
@@ -34,6 +35,21 @@ export function cloneUrlFromInput(raw: string): string | null {
   return value
 }
 
+/** Keep the repository folder name while browsing clone destinations on any host. */
+export function cloneDestinationPath(parent: string, remoteUrl: string): string {
+  const remotePath = remoteUrl.replace(/[?#].*$/, '').replace(/\/+$/, '')
+  const name = remotePath.split(/[/:]/).at(-1)?.replace(/\.git$/, '') || 'project'
+  return joinHostPath(parent, safeProjectDirName(name))
+}
+
+/** A partial publish must keep its created local folder available for retry. */
+export function publishProjectFailure(result: GithubPublishRepositoryResult): string | null {
+  if (result.repository.status === 'failed') return result.repository.error
+  if (result.remote.status === 'failed') return result.remote.error
+  if (result.push.status === 'failed') return result.push.error
+  return result.success ? null : 'The project was created locally, but GitHub publishing did not finish.'
+}
+
 /** Only folders can be a project. */
 export function folderEntries(entries: DirectoryEntry[]): DirectoryEntry[] {
   return entries.filter((entry) => entry.isDir)
@@ -42,4 +58,13 @@ export function folderEntries(entries: DirectoryEntry[]): DirectoryEntry[] {
 export function matchingRepos(repos: SetupGithubRepo[], query: string): SetupGithubRepo[] {
   const needle = query.trim().toLowerCase()
   return needle ? repos.filter((repo) => repo.fullName.toLowerCase().includes(needle)) : repos
+}
+
+/** The host validates and resolves the path; remembering it is best effort. */
+export async function openExistingProjectFolder(api: Pick<HostApi, 'listDirectory' | 'trackRecentProject'>, path: string): Promise<string> {
+  const result = await api.listDirectory(path.trim(), false, true)
+  if (result.error) throw new Error(result.error)
+  if (!result.currentPath) throw new Error('The host did not return a project folder.')
+  void api.trackRecentProject(result.currentPath).catch(() => undefined)
+  return result.currentPath
 }

@@ -126,7 +126,7 @@ export type SessionOutput =
   /** Found for the child's branch when one exists. Never required. */
   | { kind: 'pull_request'; number: number; url: string }
   /** A session the child started. */
-  | { kind: 'session'; sessionId: string; title: string; taskId?: string }
+  | { kind: 'session'; sessionId: string; title: string }
 
 export type ExchangeOutcome = 'completed' | 'failed' | 'interrupted'
 
@@ -164,7 +164,7 @@ export function formatSessionOutput(output: SessionOutput): string {
     case 'pull_request':
       return `- pull request #${output.number} ${output.url}`
     case 'session':
-      return `- session ${quoted(output.title, title)} session=${output.sessionId}${output.taskId ? ` task=${output.taskId}` : ''}`
+      return `- session ${quoted(output.title, title)} session=${output.sessionId}`
   }
 }
 
@@ -226,13 +226,10 @@ function parseOutput(line: string): SessionOutput | null {
   }
   const pullRequest = /^- pull request #(\d+) (\S+)$/.exec(line)
   if (pullRequest) return { kind: 'pull_request', number: Number(pullRequest[1]), url: pullRequest[2]! }
-  const session = /^- session (".*") session=(\S+)(?: task=(\S+))?$/.exec(line)
+  const session = /^- session (".*") session=(\S+)$/.exec(line)
   if (session) {
     const title = parseQuoted(session[1]!)
-    if (title === null) return null
-    const output: SessionOutput = { kind: 'session', title, sessionId: session[2]! }
-    if (session[3]) output.taskId = session[3]
-    return output
+    return title === null ? null : { kind: 'session', title, sessionId: session[2]! }
   }
   return null
 }
@@ -548,33 +545,44 @@ export function parseOrchestrationItems(text: string): OrchestrationItem[] | nul
 
 // ─── The tag an orchestration tool result carries ───
 
+/** The tool that starts sessions. Claude names carry the `mcp__solus__` prefix; Codex names are bare. */
+export function isSessionStartTool(name: string | undefined): boolean {
+  return !!name?.endsWith('start_sessions')
+}
+
 export interface ExchangeTag {
   messageId: string
   sessionId: string
   provider?: AgentId
   /** The id clients know the session's host by, when it runs on another host. */
   serverId?: string
+  /** The position in a `start_sessions` call's `sessions` list of the session this exchange started. */
+  item?: number
 }
 
-const TAG_RE = /\[exchange v1 ([^\]\n]*)\]/
+const TAG_RE = /\[exchange v1 ([^\]\n]*)\]/g
 
 export function formatExchangeTag(tag: ExchangeTag): string {
-  return `[exchange v1 message=${tag.messageId} session=${tag.sessionId}${tag.provider ? ` provider=${tag.provider}` : ''}${tag.serverId ? ` host=${tag.serverId}` : ''}]`
+  return `[exchange v1 message=${tag.messageId} session=${tag.sessionId}${tag.provider ? ` provider=${tag.provider}` : ''}${tag.serverId ? ` host=${tag.serverId}` : ''}${tag.item !== undefined ? ` item=${tag.item}` : ''}]`
 }
 
-/** The exchange a start_session or send_session result opened. */
-export function parseExchangeTag(text: string): Partial<ExchangeTag> | null {
-  const tag = TAG_RE.exec(text)
-  if (!tag) return null
-  const values = fields(tag[1]!)
-  const result: Partial<ExchangeTag> = {}
-  const messageId = values.get('message')
-  const sessionId = values.get('session')
-  const provider = agentIdOf(values.get('provider'))
-  const serverId = values.get('host')
-  if (messageId) result.messageId = messageId
-  if (sessionId) result.sessionId = sessionId
-  if (provider) result.provider = provider
-  if (serverId) result.serverId = serverId
-  return result
+/** The exchanges an orchestration tool result opened, in order. Only the text
+ *  before the first report or notice is read: a reply can quote anything. */
+export function parseExchangeTags(text: string): Partial<ExchangeTag>[] {
+  const itemsAt = text.search(ITEM_HEAD_RE)
+  return [...(itemsAt < 0 ? text : text.slice(0, itemsAt)).matchAll(TAG_RE)].map((tag) => {
+    const values = fields(tag[1]!)
+    const result: Partial<ExchangeTag> = {}
+    const messageId = values.get('message')
+    const sessionId = values.get('session')
+    const provider = agentIdOf(values.get('provider'))
+    const serverId = values.get('host')
+    const item = Number(values.get('item'))
+    if (messageId) result.messageId = messageId
+    if (sessionId) result.sessionId = sessionId
+    if (provider) result.provider = provider
+    if (serverId) result.serverId = serverId
+    if (Number.isInteger(item) && item >= 0) result.item = item
+    return result
+  })
 }

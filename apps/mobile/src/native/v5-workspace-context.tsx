@@ -1,4 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/native/v5-workspace-context.tsx (MIT, see UPSTREAM.md).
+import type { RootStackParamList } from "../navigation/routes";
 import { createContext } from "react";
 
 // The router is shared with the other platforms; only iOS uses native columns.
@@ -11,4 +12,5 @@ export const NativeWorkspaceTabActivityContext = createContext<{
 /** Set in the iPad primary column: the thread the detail column shows. */
 export const NativePrimaryColumnContext = createContext<{
   readonly selectedThreadKey: string | null;
+  readonly selectedPullRequest?: RootStackParamList["PullRequest"] | null;
 } | null>(null);

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { experimentalSettings as settingItems } from "./lib/settings-search-data";
   import { getSettingsContext } from "../../contexts";
   import { Switch } from "../ui/switch";
@@ -14,21 +16,17 @@
 
   const settings = getSettingsContext();
 
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return settingItems.find((item) => item.id === id)?.keywords.some((keyword) => keyword.includes(query)) ?? true;
-  }
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
   const anyVisible = $derived(settingItems.some((item) => isVisible(item.id)));
 </script>
 
 <SettingsSection
-  label="Voice"
+  {...settingsDefinitions["experimental.section-voice"]}
   visible={isVisible("auto-voice")}
 >
   <SettingsRow
-    label="Auto voice mode"
+    {...settingsDefinitions["experimental.auto-voice"]}
     description={`Always listen and queue voice messages (${comboHint("voice.toggle-mode")}).`}
     visible={isVisible("auto-voice")}
   >

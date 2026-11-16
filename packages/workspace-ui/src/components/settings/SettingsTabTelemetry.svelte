@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { settingVisible } from "@solus/client-core/settings-search";
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { telemetrySettings as settingItems } from "./lib/settings-search-data";
   /**
    * Where this host sends its own telemetry.
@@ -100,11 +102,7 @@
   });
 
 
-  function isVisible(id: string): boolean {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return settingItems.find((item) => item.id === id)?.keywords.some((keyword) => keyword.includes(query)) ?? true;
-  }
+  const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
   const anyVisible = $derived(settingItems.some((item) => isVisible(item.id)));
 
@@ -118,9 +116,9 @@
   }
 </script>
 
-<SettingsSection label="OpenTelemetry" visible={isVisible("export")}>
+<SettingsSection {...settingsDefinitions["telemetry.section-opentelemetry"]} visible={isVisible("export")}>
   <SettingsRow
-    label="Export telemetry"
+    {...settingsDefinitions["telemetry.export"]}
     managed={otelLock}
     description={statusLine}
     visible={isVisible("export")}
@@ -136,8 +134,7 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Collector endpoint"
-    description="Root OTLP/HTTP URL, such as https://otlp.example.com. Solus adds /v1/traces."
+    {...settingsDefinitions["telemetry.endpoint"]}
     visible={isVisible("endpoint")}
     bodyVisible={isVisible("endpoint")}
   >
@@ -177,10 +174,9 @@
   </SettingsRow>
 </SettingsSection>
 
-<SettingsSection label="Signals" visible={isVisible("signals")}>
+<SettingsSection {...settingsDefinitions["telemetry.section-signals"]} visible={isVisible("signals") || isVisible("metrics")}>
   <SettingsRow
-    label="Traces and logs"
-    description="All spans and structured logs. Same trace ids as Insights."
+    {...settingsDefinitions["telemetry.signals"]}
     visible={isVisible("signals")}
   >
     {#snippet control()}
@@ -194,9 +190,8 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Metrics"
-    description="Duration histograms recorded by timed operations."
-    visible={isVisible("signals")}
+    {...settingsDefinitions["telemetry.signals-metrics"]}
+    visible={isVisible("metrics")}
   >
     {#snippet control()}
       <Switch

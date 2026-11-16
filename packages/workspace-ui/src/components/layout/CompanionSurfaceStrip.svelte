@@ -293,7 +293,7 @@
         onSelect={() => leadingSessionId && session.openArtifacts(leadingSessionId)}
       >
         <ArtifactsIcon size={16} strokeWidth={1.5} />
-        Artifacts
+        Threads
       </DropdownMenu.Item>
       <DropdownMenu.Item onSelect={() => session.openBrowser()}>
         <BrowserIcon size={16} strokeWidth={1.5} />

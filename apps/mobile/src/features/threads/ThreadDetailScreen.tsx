@@ -57,7 +57,6 @@ import { KeyboardResumeGuard } from "./android-keyboard-resume";
 import { useTurnAnnouncements } from "./use-turn-announcements";
 import {
   COMPOSER_COLLAPSED_CHROME,
-  COMPOSER_EXPANDED_CHROME,
   COMPOSER_LAYOUT_TRANSITION,
   THREAD_COMPOSER_BOTTOM_GUTTER,
   ThreadComposer,
@@ -72,6 +71,8 @@ import { threadHostChrome } from "./lib/thread-host-chrome";
 import { HostGraceWhisper } from "./ThreadHostLines";
 import { HostAsleepCard } from "../hosts/HostAsleepCard";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
+import { ThreadBrowserFloat } from "../browser/ThreadBrowserFloat";
+import { useThreadViewers } from "./use-thread-viewers";
 import { IntegrationConnectSheet } from "../conversation/components/IntegrationConnectSheet";
 
 export interface ThreadDetailScreenProps {
@@ -161,6 +162,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const listRef = useRef<LegendListRef>(null);
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
+  const [composerHeight, setComposerHeight] = useState<number | null>(null);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const queuedEdit = useQueuedMessageEdit(store);
   const handleComposerFocusChange = useCallback(
@@ -246,15 +248,17 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     }
     return null;
   })();
+  const hostId = store.controller.hostId;
+  const sessionId = conversationIdOf(store);
+  const { devicePreview, browserPreview, openBrowserPreview } = useThreadViewers(hostId, sessionId, isHostReady);
   const showFloatingStatus =
-    floatingStatus !== null || queuedCount > 0 || agentsPill !== null;
+    floatingStatus !== null || queuedCount > 0 || agentsPill !== null || devicePreview !== null || browserPreview !== null;
   // The composer is hidden, not unmounted, while the host is away: its
   // keyboard must not stay up over the host footer.
   useEffect(() => {
     if (!hostChrome.showsComposer) Keyboard.dismiss();
   }, [hostChrome.showsComposer]);
-  const composerChrome = composerExpanded ? COMPOSER_EXPANDED_CHROME : COMPOSER_COLLAPSED_CHROME;
-  const composerOverlapHeight = composerChrome + composerBottomInset;
+  const composerOverlapHeight = composerHeight ?? COMPOSER_COLLAPSED_CHROME + composerBottomInset;
   // While a question is pending, the questionnaire owns the composer slot.
   // Collapse state is keyed by request id so a new request re-expands.
   const [collapsedUserInputRequestId, setCollapsedUserInputRequestId] = useState<string | null>(
@@ -552,6 +556,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         </View>
       </View>
 
+      {isHostReady ? (
+        <ThreadBrowserFloat
+          key={props.threadKey}
+          hostId={hostId}
+          sessionId={sessionId}
+          top={navigationHeaderHeight + 8}
+          onOpen={openBrowserPreview}
+        />
+      ) : null}
+
       {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
       <KeyboardStickyView
         enabled={Platform.OS === "ios" || (isKeyboardVisible && !keyboardStateSuspect)}
@@ -577,6 +591,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 Keyboard.dismiss();
                 navigation.navigate("ThreadQueue", { hostId: store.controller.hostId, conversationId: conversationIdOf(store) });
               }}
+              devicePreview={devicePreview}
+              browserPreview={browserPreview}
               agents={agentsPill}
               onOpenAgents={() => {
                 Keyboard.dismiss();
@@ -687,6 +703,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 onStopThread={stopThread}
                 onSent={handleSent}
                 onExpandedChange={setComposerExpanded}
+                onHeightChange={setComposerHeight}
                 onEditorFocusChange={handleComposerFocusChange}
               />
             </View>

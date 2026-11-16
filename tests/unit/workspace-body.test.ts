@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  isSidebarDrawer,
+  MIN_PRIMARY_PANE_WIDTH,
   primaryProjectPanelOpen,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_PANE_DEFAULT_SIZE,
   visibleWorkspaceTabIds,
 } from '@solus/workspace-ui/components/layout/lib/workspace-body'
 import { hasSessionStarted } from '@solus/workspace-ui/lib/sessionUtils'
@@ -144,5 +148,28 @@ describe('workspace tab visibility', () => {
     expect(
       visibleWorkspaceTabIds(workspace as any, 'open-tab', null, () => 'x'),
     ).toEqual(['open-tab'])
+  })
+})
+
+describe('session sidebar drawer', () => {
+  // The places column a collapsed sidebar leaves: 2.75rem plus the card's 10px.
+  const PLACES_COLUMN_WIDTH = 54
+
+  test('a phone-width workspace opens the list as a drawer, not as a squeezed column', () => {
+    const phoneWidth = 430
+    // As a column, the list would get what the share leaves beside the places.
+    const listAsColumn = phoneWidth * SIDEBAR_PANE_DEFAULT_SIZE / 100 - PLACES_COLUMN_WIDTH
+    expect(listAsColumn).toBeLessThan(SIDEBAR_MIN_WIDTH)
+    expect(isSidebarDrawer(phoneWidth)).toBe(true)
+  })
+
+  test('keeps the column once the list and a conversation both fit their floors', () => {
+    expect(isSidebarDrawer(SIDEBAR_MIN_WIDTH + MIN_PRIMARY_PANE_WIDTH)).toBe(false)
+    expect(isSidebarDrawer(SIDEBAR_MIN_WIDTH + MIN_PRIMARY_PANE_WIDTH - 1)).toBe(true)
+    expect(isSidebarDrawer(1280)).toBe(false)
+  })
+
+  test('does not decide before the workspace is measured', () => {
+    expect(isSidebarDrawer(0)).toBe(false)
   })
 })

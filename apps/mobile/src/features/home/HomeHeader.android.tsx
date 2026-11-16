@@ -52,7 +52,9 @@ export function HomeHeader(props: HomeHeaderProps) {
                   title: project.label,
                   state: checkedMenuState(props.selectedProjectKey === project.key),
                 })),
-                ...(props.selectedProjectKey === null
+                ...(!props.projects.some(
+                  (project) => project.key === props.selectedProjectKey && project.removable,
+                )
                   ? []
                   : [
                       {

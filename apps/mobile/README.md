@@ -147,6 +147,15 @@ Do not use the Solus desktop or web build commands for the mobile app.
 
 ## Known limits and decisions
 
+- **Choosing and adding projects.** Choose project is a workspace page with
+  search and an Add project action. A shared project uses a connected checkout
+  before a saved host that cannot be reached. Add project offers New project,
+  Local folder, Git URL, and GitHub repository. Both repository sources lead
+  to Clone destination, where a path field and folder browser select the
+  destination on the host. New project can select a connected machine and,
+  when GitHub is connected, create a private repository. If publishing fails,
+  Retry publishing reuses the local project; Open local project keeps working
+  without publishing. These use the same host RPCs as desktop and web.
 - **Solus Cloud sign-in.** The app signs in as the public OAuth client
   `solus-mobile`: the authorization code with PKCE in the system authentication
   session, back to `solus://auth/callback`

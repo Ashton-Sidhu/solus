@@ -34,11 +34,14 @@ export interface RailAgentRow {
   /** The sub-agent's message id, or the started session's id. */
   id: string
   title: string
-  provider: AgentId
+  /** Null for a session whose host keeps no record of it. */
+  provider: AgentId | null
   tone: AgentLinkTone
   /** One or two words: `Running`, `Completed`, `Failed`. */
   status: string
   elapsedMs: number
+  /** What the agent is on or came back with, in one line. Empty when nothing is known yet. */
+  detail: string
   /** The hover: the title, then what the agent is on or came back with. */
   tooltip: string
   /** The session card behind a `session` row: what Open and Stop act on. */
@@ -73,6 +76,7 @@ function tooltipFor(title: string, status: string, detail: string): string {
 function subagentAgentRow(message: Message, now: number, context: RailAgentContext): RailAgentRow {
   const row = subagentRow(message, now, context.fallback)
   const link = subagentLinkStatus(row.state)
+  const detail = [row.activity, row.target].filter(Boolean).join(' ')
   return {
     key: `subagent:${row.id}`,
     kind: 'subagent',
@@ -82,7 +86,8 @@ function subagentAgentRow(message: Message, now: number, context: RailAgentConte
     tone: link.tone,
     status: link.label,
     elapsedMs: row.elapsedMs,
-    tooltip: tooltipFor(row.name, link.label, [row.activity, row.target].filter(Boolean).join(' ')),
+    detail,
+    tooltip: tooltipFor(row.name, link.label, detail),
     ref: null,
     pending: false,
     startedAt: message.timestamp,
@@ -104,6 +109,7 @@ function sessionAgentRow(ref: AgentConversationRef, startedAt: number, now: numb
     tone: link.tone,
     status: link.label,
     elapsedMs: agentConversationElapsedMs(ref, now),
+    detail: link.detail,
     tooltip: tooltipFor(title, link.label, [link.detail, provenance].filter(Boolean).join(' · ')),
     ref,
     pending,

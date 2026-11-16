@@ -103,6 +103,21 @@ test('invalid files and task destinations do not write references', async () => 
   expect(await storedLinks('session-1')).toEqual(before)
 })
 
+test('a session links the task it works on, and unlinks it, through the link tool', async () => {
+  // WHY: a started session joins no task by itself; the agent puts its session
+  // on a task with link, and the task page reads that link as a working session.
+  const { linkAgentTool, unlinkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
+  const { taskIdForSession } = await import('@solus/server/data/tasks/task-sessions')
+  const linked = await linkAgentTool.execute({ kind: 'task', target_id: 'github:I_linked' }, tools)
+  expect(linked).toEqual({ ok: true, text: 'Linked this session to task github:I_linked.' })
+  expect(await taskIdForSession('local', 'session-1')).toBe('github:I_linked')
+  expect((await unlinkAgentTool.execute({ kind: 'task', target_id: 'github:I_linked' }, tools)).ok).toBe(true)
+  expect(await taskIdForSession('local', 'session-1')).toBeNull()
+  // A key that names no task source is refused, and links nothing.
+  expect((await linkAgentTool.execute({ kind: 'task', target_id: 'not-a-task-key' }, tools)).ok).toBe(false)
+  expect(await taskIdForSession('local', 'session-1')).toBeNull()
+})
+
 test('a caller cannot link items to a session it cannot edit', async () => {
   const { withWorkspaceToolAuthority } = await import('@solus/server/admission/workspace-tool-authority')
   const { linkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')

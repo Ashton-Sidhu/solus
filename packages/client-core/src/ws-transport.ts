@@ -514,6 +514,7 @@ export class WsTransport {
   }
 
   private handleDrop(reason: string): void {
+    this.dialError = { message: reason, code: null, at: Date.now() }
     this.cancelPresentation()
     this.connectedGeneration += 1
     this.isAcceptedConnection = false
@@ -527,7 +528,7 @@ export class WsTransport {
 
   /** The socket did not open, or closed before the host answered the hello. */
   private handleDialError(close: HostSocketClose): void {
-    const message = close.opened ? `socket closed before welcome (${close.code})` : close.reason || 'websocket error'
+    const message = close.reason || (close.opened ? `socket closed before welcome (${close.code})` : 'websocket error')
     this.dialError = { message, code: null, at: Date.now() }
     this.logConnection('socket connection error', { message, code: null })
     this.logDialAttempt('failed', 'socket-error')

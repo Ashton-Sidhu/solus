@@ -13,10 +13,10 @@ export const APP_SECTIONS = [
   { id: 'activity', title: 'Activity', icon: 'chart.bar.xaxis' },
   { id: 'workflows', title: 'Workflows', icon: 'flowchart' },
   { id: 'versions', title: 'Versions', icon: 'square.3.layers.3d' },
+  { id: 'deployment', title: 'Deployment', icon: 'globe' },
   { id: 'schedules', title: 'Schedules', icon: 'clock' },
   { id: 'webhooks', title: 'Webhooks', icon: 'link' },
   { id: 'signals', title: 'Signals', icon: 'bell.badge' },
-  { id: 'models', title: 'Models', icon: 'sparkles' },
   { id: 'secrets', title: 'Secrets', icon: 'lock' },
   { id: 'config', title: 'Config', icon: 'slider.horizontal.3' },
   { id: 'files', title: 'Files', icon: 'folder' },
@@ -38,6 +38,7 @@ export function attentionSection(kind: AppAttention['kind']): AppSectionId {
     case 'secret-missing': return 'secrets'
     case 'schedule-failed': return 'schedules'
     case 'workflow-failed': return 'workflows'
+    case 'workflow-stale': return 'workflows'
     case 'stopped': return 'overview'
   }
 }
@@ -46,13 +47,20 @@ export function attentionSection(kind: AppAttention['kind']): AppSectionId {
 export interface AppProblem {
   readonly detail: string
   readonly section: AppSectionId
+  /** `danger`: a part of the app does not work. `muted`: the app works, and a run that failed on an older version waits. */
+  readonly tone: 'danger' | 'muted'
+  /** A run that failed on an older version: its row opens the run, where the owner runs it again or dismisses it. */
+  readonly runId: string | null
 }
 
 /** The problems at the top of the Manage screen. Stopped is the owner's own choice, so it is not one. */
 export function appProblems(app: Pick<AppSummary, 'attention'>): AppProblem[] {
   return app.attention
     .filter((attention) => attention.kind !== 'stopped')
-    .map((attention) => ({ detail: attention.detail, section: attentionSection(attention.kind) }))
+    .map((attention) => {
+      const isStale = attention.kind === 'workflow-stale'
+      return { detail: attention.detail, section: attentionSection(attention.kind), tone: isStale ? 'muted' : 'danger', runId: isStale ? attention.runId ?? null : null }
+    })
 }
 
 /** One row of the Manage screen. */
@@ -77,6 +85,7 @@ function declaredSummary(count: number | undefined, one: string): RowLine {
 
 function workflowsSummary(state: AppState, runs: readonly AppRunView[] | null): RowLine {
   if (hasAttention(state.app, 'workflow-failed')) return { text: 'The last run of a workflow failed', tone: 'danger' }
+  if (hasAttention(state.app, 'workflow-stale')) return { text: 'A run failed on an older version' }
   const declared = declaredSummary(state.descriptor?.workflows.length, 'workflow')
   if (!state.descriptor || state.descriptor.workflows.length === 0 || !runs) return declared
   const running = runs.filter((run) => run.state === 'running').length
@@ -94,7 +103,7 @@ function versionsSummary(app: AppSummary): RowLine {
 function secretsSummary(state: AppState): RowLine {
   if (state.secrets.length === 0) return { text: 'This app declares no secret' }
   const missing = state.secrets.filter((secret) => !secret.isSet).length
-  return missing > 0 ? { text: `${missing} not set`, tone: 'danger' } : { text: `${state.secrets.length} set` }
+  return missing > 0 ? { text: `${missing} not set` } : { text: `${state.secrets.length} set` }
 }
 
 function overviewSummary(app: AppSummary): RowLine {
@@ -124,10 +133,10 @@ function sectionSummary(id: AppSectionId, state: AppState, runs: readonly AppRun
     case 'activity': return activitySummary(state.app)
     case 'workflows': return workflowsSummary(state, runs)
     case 'versions': return versionsSummary(state.app)
+    case 'deployment': return { text: 'A published copy with an address' }
     case 'schedules': return schedulesSummary(state)
     case 'webhooks': return declaredSummary(state.descriptor?.webhooks.length, 'webhook')
     case 'signals': return declaredSummary(state.descriptor?.signals.length, 'signal')
-    case 'models': return declaredSummary(state.descriptor?.config.filter((field) => field.type === 'model').length, 'model setting')
     case 'secrets': return secretsSummary(state)
     case 'config': return state.descriptor ? { text: state.config.length === 0 ? 'This app declares no config' : countText(state.config.length, 'setting') } : NO_VERSION
     case 'files': return { text: 'Upload, share, and delete' }

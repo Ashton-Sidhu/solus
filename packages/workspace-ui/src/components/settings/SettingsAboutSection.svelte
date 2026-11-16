@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { hostUpdatesStore } from '../../contexts/updates/host-updates.store.svelte';
   import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry';
   import { providerSummary } from '../connections/lib/host-update-rows';
@@ -46,9 +47,9 @@
   }
 </script>
 
-<SettingsSection label="About Solus" {visible}>
+<SettingsSection {...settingsDefinitions["general.section-about-solus"]} {visible}>
   <SettingsRow
-    label="Version"
+    {...settingsDefinitions["general.version"]}
     description={updatesStore.isAvailable ? `Solus ${version} · ${updateStatusLine(state)}` : `Solus ${version}`}
     bodyVisible={updatesStore.isAvailable && (state.kind === "downloading" || !!releaseNotes)}
     managed={updatesManaged}
@@ -99,7 +100,7 @@
     {/snippet}
   </SettingsRow>
   {#if updatesStore.isAvailable && serversStore.local}
-    <SettingsRow label="Coding providers" description={providerSummary(hostUpdatesStore.hostUpdateFor(LOCAL_SERVER_ID))}>
+    <SettingsRow {...settingsDefinitions["general.coding-providers"]} description={providerSummary(hostUpdatesStore.hostUpdateFor(LOCAL_SERVER_ID))}>
       {#snippet control()}<Button variant="outline" size="sm" onclick={openProviders}>Show providers</Button>{/snippet}
     </SettingsRow>
   {/if}
@@ -107,8 +108,7 @@
     <ModelProfilesRow host={serversStore.activeServer} />
   {/if}
   <SettingsRow
-    label="Download updates automatically"
-    description="Download updates when found. You choose when to restart."
+    {...settingsDefinitions["general.download-updates-automatically"]}
     visible={updatesStore.isAvailable && state.kind !== "manual"}
     managed={updatesManaged ? { lockedEverywhere: true, lines: [] } : undefined}
   >

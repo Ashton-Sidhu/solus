@@ -8,6 +8,8 @@ export interface HomeListFilterMenuEnvironment {
 export interface HomeListFilterMenuProject {
   readonly key: string;
   readonly label: string;
+  /** False for Chats, which is not a project to remove. */
+  readonly removable: boolean;
 }
 
 type HomeListFilterMenuAction = {
@@ -83,7 +85,8 @@ export function buildHomeListFilterMenu(props: {
           state: props.selectedProjectKey === project.key ? ("on" as const) : ("off" as const),
           onPress: () => props.onProjectChange(project.key),
         })),
-        ...(selectedProjectKey === null
+        ...(selectedProjectKey === null ||
+        !props.projects.some((project) => project.key === selectedProjectKey && project.removable)
           ? []
           : [
               {

@@ -1,5 +1,9 @@
+import { sourceControlWritingOptions } from "@solus/client-core/settings-source-control";
+import { settingsDefinitions } from "@solus/client-core/settings-definitions";
+import type { SettingCopy } from "@solus/client-core/settings-search";
+
 /** Search data is shared by the navigation and section rows without loading the section components. */
-export interface SettingItem {
+export interface SettingItem extends SettingCopy {
   id: string
   keywords: string[]
 }
@@ -7,139 +11,104 @@ export interface SettingItem {
 export const chatSettings = [
   {
     id: "auto-open-artifacts",
-    keywords: ["artifacts", "automatic", "automatically", "auto", "open", "pane", "output"],
+    ...settingsDefinitions["chat.auto-open-artifacts"],
+    keywords: ["pane", "output"],
+  },
+  {
+    id: "artifact-chip-size",
+    ...settingsDefinitions["chat.artifact-chip-size"],
+    keywords: ["artifacts", "chips", "links", "works", "pull request", "larger", "smaller"],
   },
   {
     id: "response-streaming",
-    keywords: ["response", "streaming", "paragraph", "buffered", "text"],
+    ...settingsDefinitions["chat.response-streaming"],
+    keywords: ["buffered", "text"],
   },
   {
     id: "turn-diff-summary",
-    keywords: ["diff", "summary", "changed", "files", "turn", "transcript"],
+    ...settingsDefinitions["chat.turn-diff-summary"],
+    keywords: ["transcript"],
   },
   {
     id: "keep-turn-diff-summary",
-    keywords: ["diff", "summary", "changed", "files", "turn", "earlier", "keep", "history"],
+    ...settingsDefinitions["chat.keep-turn-diff-summary"],
+    keywords: ["diff", "history"],
   },
   {
     id: "show-tool-calls",
-    keywords: ["tool", "calls", "steps", "activity", "transcript", "simple", "hide"],
+    ...settingsDefinitions["chat.show-tool-calls"],
+    keywords: ["steps", "activity", "transcript", "simple", "hide"],
   },
   {
     id: "collapse-composer",
-    keywords: [
-      "collapse",
-      "composer",
-      "input",
-      "bar",
-      "toolbar",
-      "focus",
-      "idle",
-      "compact",
-      "minimize",
-    ],
+    ...settingsDefinitions["chat.collapse-composer"],
+    keywords: ["composer", "compact", "minimize"],
   },
 ];
 
 export const sessionSettings = [
   {
     id: "agent-model",
-    keywords: [
-      "agent",
-      "model",
-      "default",
-      "claude",
-      "codex",
-      "opus",
-      "sonnet",
-      "haiku",
-      "gpt",
-      "ai",
-      "auto",
-    ],
+    ...settingsDefinitions["sessions.agent-model"],
+    keywords: ["agent", "claude", "codex", "opus", "sonnet", "haiku", "gpt", "ai", "auto"],
   },
   {
     id: "default-permission",
-    keywords: ["default", "permission", "supervised", "ask", "edits", "auto", "full", "access", "plan", "mode"],
+    ...settingsDefinitions["sessions.default-permission"],
+    keywords: ["supervised", "ask", "edits", "auto", "full", "access", "plan"],
   },
   {
     id: "ratelimit",
-    keywords: ["rate", "limit", "behavior", "queue", "throttle"],
+    ...settingsDefinitions["sessions.rate-limit-behavior"],
+    keywords: ["queue", "throttle"],
   },
   {
     id: "auto-rename",
-    keywords: [
-      "rename",
-      "name",
-      "title",
-      "session",
-      "tab",
-      "auto",
-      "summarize",
-    ],
+    ...settingsDefinitions["sessions.auto-rename"],
+    keywords: ["rename", "title", "tab"],
   },
   {
     id: "model-routing",
-    keywords: ["auto", "model", "routing", "jev", "interface", "exploration", "task", "general"],
+    ...settingsDefinitions["sessions.section-model-routing"],
+    keywords: ["auto", "jev", "interface", "exploration", "task", "general"],
   },
   {
     id: "lead-model",
-    keywords: ["delegate", "delegating", "lead", "session", "orchestration", "orchestrator", "workers", "agent", "model", "reasoning", "effort", "claude", "codex"],
+    ...settingsDefinitions["sessions.lead-model"],
+    keywords: ["delegate", "delegating", "lead", "orchestration", "orchestrator", "workers", "agent", "reasoning", "effort", "claude", "codex"],
   },
   {
     id: "worker-model",
-    keywords: ["delegate", "worker", "workers", "routing", "route", "orchestration", "orchestrator", "session", "agent", "model", "reasoning", "effort", "default"],
+    ...settingsDefinitions["sessions.worker-model"],
+    keywords: ["delegate", "routing", "route", "orchestration", "orchestrator", "agent", "reasoning", "effort"],
   },
   {
     id: "lead-instructions",
-    keywords: ["delegate", "delegating", "lead", "session", "orchestration", "orchestrator", "workers", "instructions", "routing", "route", "prompt", "rules"],
+    ...settingsDefinitions["sessions.lead-instructions"],
+    keywords: ["delegate", "delegating", "lead", "orchestration", "orchestrator", "workers", "routing", "route", "prompt"],
   },
 ];
 
 export const generalSettings = [
   {
     id: "text-generation-model",
-    keywords: [
-      "model",
-      "text",
-      "generation",
-      "background",
-      "session",
-      "name",
-      "metadata",
-      "writing",
-    ],
+    ...settingsDefinitions["general.text-generation-model"],
+    keywords: ["metadata"],
   },
   {
     id: "sidebar-motion",
-    keywords: [
-      "sidebar",
-      "animation",
-      "motion",
-      "speed",
-      "duration",
-      "slide",
-      "fade",
-      "ms",
-    ],
+    ...settingsDefinitions["general.sidebar-motion"],
+    keywords: ["motion", "speed", "duration", "slide", "fade", "ms"],
   },
   {
     id: "projects-base",
-    keywords: [
-      "project",
-      "projects",
-      "folder",
-      "directory",
-      "base",
-      "start",
-      "open",
-      "picker",
-      "path",
-    ],
+    ...settingsDefinitions["general.projects-base"],
+    keywords: ["directory", "base", "start", "open", "picker", "path"],
   },
   {
     id: "about",
-    keywords: ["about", "version", "update", "upgrade", "release", "notes", "restart"],
+    ...settingsDefinitions["general.section-about-solus"],
+    keywords: ["version", "update", "upgrade", "release", "notes", "restart"],
   },
 ];
 
@@ -148,120 +117,99 @@ export const generalSettings = [
 export const appearanceSettings: SettingItem[] = [
   {
     id: "theme",
-    keywords: ["dark", "theme", "light", "appearance", "mode", "system"],
+    ...settingsDefinitions["appearance.section-theme"],
+    keywords: ["dark", "light", "appearance", "mode", "system"],
+  },
+  {
+    id: "custom-css",
+    ...settingsDefinitions["appearance.custom-css"],
+    keywords: ["theme", "css", "style", "colors", "custom", "restyle"],
   },
   {
     id: "font-family",
-    keywords: [
-      "font",
-      "family",
-      "typeface",
-      "inter",
-      "dm sans",
-      "system",
-      "geist",
-      "lora",
-      "serif",
-    ],
+    ...settingsDefinitions["appearance.font-family"],
+    keywords: ["family", "typeface", "dm sans", "system", "geist", "lora", "serif"],
   },
-  { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
+  { id: "font-size", ...settingsDefinitions["appearance.font-family"], keywords: ["size", "text", "zoom"] },
   {
     id: "conversation-width",
-    keywords: ["conversation", "chat", "transcript", "width", "column", "wide", "narrow", "full", "layout"],
+    ...settingsDefinitions["appearance.conversation-width"],
+    keywords: ["chat", "transcript", "column", "full", "layout"],
   },
   {
     id: "sidebar-view",
-    keywords: ["sidebar", "view", "group", "project", "projects", "folder", "status", "working", "sessions"],
+    ...settingsDefinitions["appearance.sidebar-view"],
+    keywords: ["projects", "working"],
   },
   {
     id: "sky-scene",
-    keywords: ["sky", "scene", "time", "day", "dawn", "dusk", "night", "sunset", "sunrise", "clock", "header", "decoration"],
+    ...settingsDefinitions["appearance.sky-scene"],
+    keywords: ["sky", "dawn", "dusk", "night", "sunset", "sunrise", "header", "decoration"],
   },
   {
     id: "sidebar-sky",
-    keywords: ["sky", "sidebar", "header", "title", "bar", "picture", "art", "decoration", "gradient", "stars"],
+    ...settingsDefinitions["appearance.sidebar-sky"],
+    keywords: ["header", "art", "decoration", "gradient", "stars"],
   },
   {
     id: "draft-mark",
-    keywords: ["mark", "logo", "dots", "halftone", "new", "tab", "home", "draft", "composer", "background", "decoration"],
+    ...settingsDefinitions["appearance.draft-mark"],
+    keywords: ["logo", "halftone", "draft", "composer", "background", "decoration"],
+  },
+  {
+    id: "sidebar-places",
+    ...settingsDefinitions["appearance.sidebar-places"],
+    keywords: ["places", "column", "pin", "apps", "hide", "order", "reorder", "workspace", "automations", "insights", "tasks"],
   },
   {
     id: "project-panel-items",
-    keywords: ["project", "panel", "rail", "show", "hide", "sections", "rows", "environment", "git", "goal", "agents", "webhooks", "terminal", "usage", "browser"],
+    ...settingsDefinitions["appearance.project-panel-items"],
+    keywords: ["rail", "hide", "environment", "git", "goal", "agents", "webhooks", "terminal", "usage", "browser"],
   },
   {
     id: "reply-opacity",
-    keywords: ["reply", "assistant", "message", "text", "opacity", "contrast", "fade", "transcript"],
+    ...settingsDefinitions["appearance.reply-opacity"],
+    keywords: ["assistant", "message", "contrast", "fade", "transcript"],
   },
   {
     id: "font-smoothing",
-    keywords: ["font", "smoothing", "antialiased", "grayscale", "thin", "macos"],
+    ...settingsDefinitions["appearance.font-smoothing"],
+    keywords: ["antialiased"],
   },
   {
     id: "prompt-font-family",
-    keywords: [
-      "prompt",
-      "composer",
-      "input",
-      "draft",
-      "font",
-      "family",
-      "typeface",
-      "mono",
-    ],
+    ...settingsDefinitions["appearance.prompt-font-family"],
+    keywords: ["composer", "input", "draft", "family", "typeface"],
   },
   {
     id: "prompt-font-size",
-    keywords: ["prompt", "composer", "input", "draft", "font", "size"],
+    ...settingsDefinitions["appearance.prompt-font-family"],
+    keywords: ["composer", "input", "draft", "size"],
   },
   {
     id: "document-font-family",
-    keywords: [
-      "document",
-      "plan",
-      "editor",
-      "font",
-      "family",
-      "typeface",
-      "writing",
-      "prose",
-    ],
+    ...settingsDefinitions["appearance.document-font-family"],
+    keywords: ["family", "typeface", "writing", "prose"],
   },
   {
     id: "document-font-size",
-    keywords: [
-      "document",
-      "plan",
-      "editor",
-      "font",
-      "size",
-      "writing",
-      "prose",
-    ],
+    ...settingsDefinitions["appearance.document-font-family"],
+    keywords: ["size", "writing", "prose"],
   },
   {
     id: "code-font-family",
-    keywords: [
-      "code",
-      "font",
-      "mono",
-      "monospace",
-      "diff",
-      "typeface",
-      "sf mono",
-      "geist",
-      "fira",
-      "jetbrains",
-      "cascadia",
-    ],
+    ...settingsDefinitions["appearance.code-font-family"],
+    keywords: ["mono", "monospace", "typeface", "sf mono", "geist", "fira", "jetbrains", "cascadia"],
   },
   {
     id: "code-font-size",
-    keywords: ["code", "font", "size", "mono", "diff"],
+    ...settingsDefinitions["appearance.code-font-family"],
+    keywords: ["size", "mono"],
   },
   {
     id: "installed-fonts",
-    keywords: ["font", "installed", "typeface", "override", "synced", "device", "local"],
+    ...settingsDefinitions["appearance.section-installed-fonts"],
+    keywords: ["typeface", "override", "local"],
   },
 ];
 
@@ -270,45 +218,48 @@ export const appearanceSettings: SettingItem[] = [
 export const taskSettings: SettingItem[] = [
   {
     id: "task-lifecycle",
-    keywords: ["agent", "task", "ticket", "lifecycle", "status", "done", "autonomous", "moderate"],
+    ...settingsDefinitions["tasks.task-lifecycle"],
+    keywords: ["agent", "ticket", "status"],
   },
   {
     id: "completed-retention",
-    keywords: ["task", "completed", "done", "sidebar", "history", "days", "retention"],
+    ...settingsDefinitions["tasks.completed-retention"],
+    keywords: ["done", "retention"],
   },
 ];
 
 /** Search words, read by the settings page to find this page from any other. */
 
 export const reviewSettings: SettingItem[] = [
-  { id: "review-generate-on-open", keywords: ["review", "guide", "generate", "open", "automatic", "agent"] },
-  { id: "review-warming", keywords: ["review", "guide", "warm", "background", "prefetch", "worktree"] },
-  { id: "review-agent", keywords: ["review", "companion", "agent", "code review", "backend", "claude", "codex"] },
-  { id: "review-model", keywords: ["review", "companion", "model", "code review", "llm"] },
-  { id: "review-reasoning", keywords: ["review", "companion", "reasoning", "effort", "thinking", "code review"] },
-  { id: "review-instructions", keywords: ["review", "guide", "instructions", "prompt", "custom"] },
-  { id: "review-lenses", keywords: ["review", "lens", "lenses", "artifact", "html", "prompt", "visualize", "custom"] },
+  { id: "review-generate-on-open", ...settingsDefinitions["review.review-generate-on-open"], keywords: ["automatic"] },
+  { id: "review-warming", ...settingsDefinitions["review.review-warming"], keywords: ["background", "prefetch"] },
+  { id: "review-agent", ...settingsDefinitions["review.review-agent"], keywords: ["code review", "backend", "claude", "codex"] },
+  { id: "review-model", ...settingsDefinitions["review.review-model"], keywords: ["code review", "llm"] },
+  { id: "review-reasoning", ...settingsDefinitions["review.review-reasoning"], keywords: ["thinking", "code review"] },
+  { id: "review-instructions", ...settingsDefinitions["review.review-instructions"], keywords: ["prompt", "custom"] },
+  { id: "review-lenses", ...settingsDefinitions["review.review-lenses"], keywords: ["review", "artifact", "visualize", "custom"] },
 ];
 
 /** Search words, read by the settings page to find this page from any other. */
 
 export const toolSettings: SettingItem[] = [
-  { id: "code-editor", keywords: ["code", "editor", "vscode", "ide", "open"] },
-  { id: "terminal", keywords: ["terminal", "shell", "command", "console", "tmux", "fallback"] },
-  { id: "code-intel", keywords: ["code", "intelligence", "scip", "index", "definition", "references", "symbol", "navigation", "typescript", "python", "go", "rust"] },
-  { id: "typesafe", keywords: ["typesafe", "auto", "model", "api", "key", "credential"] },
+  { id: "code-editor", ...settingsDefinitions["tools.code-editor"], keywords: ["vscode", "ide"] },
+  { id: "terminal", ...settingsDefinitions["tools.fallback-terminal"], keywords: ["shell", "command", "console", "tmux"] },
+  { id: "code-intel", ...settingsDefinitions["tools.section-code-intelligence"], keywords: ["scip", "index", "definition", "references", "symbol", "navigation", "typescript", "python", "go", "rust"] },
+  { id: "typesafe", ...settingsDefinitions["tools.section-typesafe"], keywords: ["auto", "model", "api", "key", "credential"] },
 ];
 
 /** Search words, read by the settings page to find this page from any other. */
 export const experimentalSettings = [
-  { id: "auto-voice", keywords: ["voice", "dictation", "automatic", "listen", "beta"] },
+  { id: "auto-voice", ...settingsDefinitions["experimental.auto-voice"], keywords: ["dictation", "automatic", "listen", "beta"] },
 ];
 
 /** Search words, read by the settings page to find this page from any other. */
 export const telemetrySettings = [
-  { id: "export", keywords: ["otel", "opentelemetry", "otlp", "export", "telemetry", "enable", "collector"] },
-  { id: "endpoint", keywords: ["otel", "otlp", "endpoint", "url", "collector", "headers", "auth", "token", "api key"] },
-  { id: "signals", keywords: ["otel", "otlp", "logs", "metrics", "traces", "spans", "signal"] },
+  { id: "export", ...settingsDefinitions["telemetry.export"], keywords: ["otel", "opentelemetry", "otlp", "enable", "collector"] },
+  { id: "endpoint", ...settingsDefinitions["telemetry.endpoint"], keywords: ["otel", "headers", "auth", "token", "api key"] },
+  { id: "metrics", ...settingsDefinitions["telemetry.signals-metrics"], keywords: ["otel", "otlp", "signal"] },
+  { id: "signals", ...settingsDefinitions["telemetry.signals"], keywords: ["otel", "otlp", "metrics", "signal"] },
 ];
 
 /** Search words, read by the settings page through the Host page. */
@@ -326,9 +277,12 @@ export const organizationSearchWords = ["organization", "owner", "member", "proj
 /** Search words, read by the settings page to find this page from any other. */
 export const mcpSearchWords = ["mcp", "server", "catalog", "integrations.sh", "remote tools", "connector"];
 
-const retentionWords = ["automation", "archived", "recording", "video", "delete", "retention", "days", "history"];
+/** Search words for the Retention group on the Host page. */
+export const retentionSearchWords = ["automation", "archived", "recording", "video", "delete", "retention", "days", "history"];
+/** Search words, read by the settings page through the Host page. */
+export const appHostSearchWords = ["app", "published", "publish", "tailscale", "tailnet", "auth key"];
 /** Search words, read by the settings page to find this page from any other. */
-export const hostSearchWords = [...retentionWords, ...webhookHostSearchWords];
+export const hostSearchWords = [...retentionSearchWords, ...webhookHostSearchWords, ...appHostSearchWords];
 
 /** Search words, read by the settings page to find this page from any other. */
 export const analyticsSearchWords = ["analytics", "telemetry", "tracking", "privacy", "data", "consent", "usage"];
@@ -338,3 +292,27 @@ export const policySearchWords = ["policy", "managed", "mdm", "lock", "permissio
 
 /** Search words, read by the settings page to find this page from any other. */
 export const webhooksSearchWords = ["webhook", "hook", "github", "sender", "delivery", "deliveries", "url", "trigger", "event", "organization", "admin"];
+
+export const sourceControlSettings: SettingItem[] = [
+  { id: "github", ...settingsDefinitions["source-control.github"], keywords: [] },
+  { id: "writing", ...settingsDefinitions["source-control.commit-and-pull-request-writing"], keywords: ["commit message", "pr description", "merge request", ...Object.values(sourceControlWritingOptions).flatMap((option) => [option.label, option.description])] },
+  { id: "templates", ...settingsDefinitions["source-control.follow-pull-request-templates"], keywords: [] },
+  { id: "writer-model", ...settingsDefinitions["source-control.source-control-writer-model"], keywords: [] },
+  { id: "branch-names", ...settingsDefinitions["source-control.branch-names"], keywords: ["worktree", "branch naming"] },
+  { id: "project-branch-names", ...settingsDefinitions["source-control.override-branch-names"], keywords: ["worktree"] },
+  { id: "copied-files", ...settingsDefinitions["source-control.files-copied-to-other-hosts"], keywords: [] },
+];
+
+/** The same row definitions drive page search and row visibility. */
+export const settingsByPage = {
+  "source-control": sourceControlSettings,
+  chat: chatSettings,
+  sessions: sessionSettings,
+  general: generalSettings,
+  appearance: appearanceSettings,
+  tasks: taskSettings,
+  review: reviewSettings,
+  tools: toolSettings,
+  experimental: experimentalSettings,
+  telemetry: telemetrySettings,
+} satisfies Record<string, readonly SettingItem[]>;

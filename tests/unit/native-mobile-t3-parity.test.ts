@@ -6,25 +6,27 @@ const mobile = join(import.meta.dir, '../../apps/mobile')
 const read = (path: string) => readFileSync(join(mobile, path), 'utf8')
 
 describe('native thread header (T3 parity)', () => {
-  test('without a favicon the title and subtitle are UIKit\'s own strings, so the bar bounds and truncates them', () => {
+  test('UIKit bounds the native title and subtitle between the bar items', () => {
     const header = read('src/features/threads/useThreadHeaderOptions.tsx')
-    expect(header).toContain('const customTitle = Boolean(faviconRoot && subtitle && Platform.OS === "ios");')
-    expect(header).toMatch(/headerTitle: customTitle\s*\?[\s\S]*?: props\.title,/)
-    expect(header).toContain('unstable_headerSubtitle: customTitle ? undefined : subtitle')
-    expect(header).toContain('headerBackVisible: canGoBack')
+    expect(header).toContain('headerTitle: props.title')
+    expect(header).toMatch(/unstable_headerSubtitle: props\.usesNativeHeaderGlass\s*\? props\.subtitle\s*: undefined/)
+    expect(header).toContain('headerBackVisible: navigation.canGoBack()')
+    expect(header).not.toContain('columnWidth')
   })
 
-  test('a project thread shows its favicon beside the project name, in a title view as wide as the space between the bar items', () => {
+  test('Files stays in the header; browser and device previews stay above the composer', () => {
     const header = read('src/features/threads/useThreadHeaderOptions.tsx')
-    // A custom title view keeps its own size, so it is bounded by the column, Back, and the action group.
-    expect(header).toContain('props.columnWidth - BACK_ITEM_WIDTH - ACTION_GROUP_INSET - actions.length * HEADER_ACTION_WIDTH')
-    expect(header).toMatch(/<View style=\{\{ width: Math\.max\(titleWidth, 0\) \}\}[\s\S]*?\{favicon\(13\)\}[\s\S]*?\{subtitle\}/)
-    // Android draws its own app bar and puts the favicon before the subtitle there.
-    expect(header).toContain('subtitleLeading: favicon(13)')
+    expect(header).toContain('accessibilityLabel: "Open files"')
+    expect(header).not.toContain('ellipsis')
+    expect(header).not.toContain('globe')
+    const route = read('src/features/threads/ThreadRouteScreen.tsx')
+    expect(route).not.toContain('menus={header.menus}')
+    expect(read('src/features/threads/ThreadDetailScreen.tsx')).toContain('useThreadViewers')
   })
 
-  test('the thread header asks for one shared group, as T3 sets sharesBackground', () => {
+  test('the header shares its action background and keeps iPad compose on the leading side', () => {
     expect(read('src/features/threads/ThreadRouteScreen.tsx')).toMatch(/actions=\{header\.actions\}\s+groupActions/)
+    expect(read('src/features/threads/ThreadRouteScreen.tsx')).toMatch(/layout.usesSplitView \? \([\s\S]*?placement="left"[\s\S]*?onPress=\{header.onCompose\}/)
     expect(read('src/components/ScreenHeader.tsx')).toContain('separateBackground={!props.groupActions}')
   })
 })
@@ -45,9 +47,9 @@ describe('native typography (T3 parity)', () => {
   })
 
   test('user bubble and composer geometry follow T3', () => {
-    expect(read('src/features/threads/ThreadFeed.tsx')).toContain('rounded-[20px] px-3.5 py-2.5')
-    expect(read('src/features/threads/ThreadComposer.tsx')).toContain('borderRadius: 26,')
-    expect(read('src/features/threads/NewTaskRouteScreen.tsx')).toContain('borderRadius: 26,')
+    expect(read('src/features/threads/ThreadUserMessageRow.tsx')).toContain('rounded-[20px] px-3.5 py-2.5')
+    expect(read('src/features/threads/ThreadComposer.tsx')).toContain('borderRadius: 27,')
+    expect(read('src/features/threads/NewTaskRouteScreen.tsx')).toContain('<ThreadComposer')
   })
 })
 
@@ -66,10 +68,11 @@ describe('native session settings sheet (T3 parity)', () => {
   })
 
   test('the thread composer and the new-task draft open the same route', () => {
-    for (const caller of ['src/features/threads/ThreadComposer.tsx', 'src/features/threads/NewTaskRouteScreen.tsx']) {
-      const source = read(caller)
-      expect(source).toContain('navigation.navigate("ThreadSettings"')
-      expect(source).not.toContain('<ThreadSettingsSheet')
-    }
+    const composer = read('src/features/threads/ThreadComposer.tsx')
+    const draft = read('src/features/threads/NewTaskRouteScreen.tsx')
+    expect(composer).toContain('navigation.navigate("ThreadSettings"')
+    expect(draft).toContain('<ThreadComposer')
+    expect(draft).not.toContain('<ThreadSettingsSheet')
+    expect(composer).not.toContain('<ThreadSettingsSheet')
   })
 })

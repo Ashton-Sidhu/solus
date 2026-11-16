@@ -214,7 +214,7 @@ organization or Local, unpublished, with no owner.
 Requirement for P7: a child turn's actor is the author of the parent turn that
 called the tool; an automation run's actor is its creator (D8); both pass the
 same admission as a person's prompt. The session tools (`read_session`,
-`send_session`, `stop_session`, `start_session`) act with that author's share
+`send_session`, `stop_session`, `start_sessions`) act with that author's share
 role on the target (`execution/agents/tools/session-tools.ts:535-775` checks
 only "own session" and "exists").
 

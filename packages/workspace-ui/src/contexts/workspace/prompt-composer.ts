@@ -1,5 +1,7 @@
 import type { Attachment, Prompt, PromptImageRef, PromptOptions, Session, SessionMetadataGenerationContext } from '@solus/contracts/types'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { serverConnections } from '@solus/client-core/server-connections'
+import { hostReferenceContext } from '@solus/contracts/host-link'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
 import { runHost } from './run-location'
@@ -55,6 +57,11 @@ export class PromptComposer {
         ].join('\n')).join('\n\n')
       fullPrompt = fullPrompt ? `${fullPrompt}\n\n${sessionCtx}` : sessionCtx
     }
+    // A host chip is a link in the typed text, so the text itself says which
+    // hosts it names (docs/plans/host-fleet.md D12). The block tells the agent
+    // what it can do with each one; the link holds what the host is.
+    const hostCtx = hostReferenceContext(prompt, (host) => serverConnections.resolveId(host.serverId) === runHost(session.run))
+    if (hostCtx) fullPrompt = `${fullPrompt}\n\n${hostCtx}`
     if (session.boundWorkId) {
       const boundWork = this.worksStore.get(session.boundWorkId)
       if (!boundWork) {

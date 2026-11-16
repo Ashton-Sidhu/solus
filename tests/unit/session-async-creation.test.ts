@@ -28,6 +28,7 @@ function fixture(previousReply?: string) {
     emit: (_id, event) => { updates.push(event) }, invalidatePlanCaches: () => {},
     recordActivity: async () => { throw new Error('No person acted in this test') },
     trackWork: (promise) => { work.push(promise.then(() => {})); return promise },
+    repliesEnded: () => {},
   }
   const orchestrator = new SessionOrchestrator(runtime, { findPullRequest: async () => null })
   const order = { prompt: 'Review the parser', provider: 'codex' as const, modelId: 'gpt-test', reasoningEffort: 'medium' as const, contextWindow: null, cwd: '/fixture' }

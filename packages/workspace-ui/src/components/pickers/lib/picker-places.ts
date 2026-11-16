@@ -7,7 +7,7 @@ import {
 } from './browse-path'
 
 /** Glyph a Places row carries — what kind of location it is, not its label. */
-export type PlaceIcon = 'home' | 'folder' | 'recent'
+export type PlaceIcon = 'projects' | 'home' | 'root' | 'desktop' | 'documents' | 'downloads' | 'folder'
 
 export interface Place {
   label: string
@@ -15,7 +15,11 @@ export interface Place {
   icon: PlaceIcon
 }
 
-const STANDARD_HOME_FOLDERS = ['Desktop', 'Documents', 'Downloads']
+const STANDARD_HOME_FOLDERS: Array<{ name: string; icon: PlaceIcon }> = [
+  { name: 'Desktop', icon: 'desktop' },
+  { name: 'Documents', icon: 'documents' },
+  { name: 'Downloads', icon: 'downloads' },
+]
 
 /** The fixed Places a host offers, from its capabilities and a listing of `~`. */
 export function placesFor(
@@ -33,19 +37,19 @@ export function placesFor(
   const filesystemRoot = breadcrumbTrail(resolvedHomePath, platform)[0]?.path
   const places: Place[] = []
   if (projectsPath && projectsPath !== homePath && projectsPath !== resolvedHomePath) {
-    places.push({ label: 'Projects', path: projectsPath, icon: 'folder' })
+    places.push({ label: 'Projects', path: projectsPath, icon: 'projects' })
   }
   places.push({ label: 'Home', path: homePath, icon: 'home' })
   if (filesystemRoot && filesystemRoot !== homePath && filesystemRoot !== resolvedHomePath) {
     places.push({
       label: platform === 'win32' ? filesystemRoot : 'Root',
       path: filesystemRoot,
-      icon: 'folder',
+      icon: 'root',
     })
   }
-  for (const name of STANDARD_HOME_FOLDERS) {
+  for (const { name, icon } of STANDARD_HOME_FOLDERS) {
     if (!home?.entries.some((entry) => entry.isDir && entry.name === name)) continue
-    places.push({ label: name, path: appendPathSegment(homePath, name, platform), icon: 'folder' })
+    places.push({ label: name, path: appendPathSegment(homePath, name, platform), icon })
   }
   return places
 }

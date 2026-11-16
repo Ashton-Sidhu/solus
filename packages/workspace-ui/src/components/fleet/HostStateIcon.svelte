@@ -44,15 +44,15 @@
   title={label}
   class="inline-flex shrink-0 items-center gap-1 text-chrome-dense font-medium tabular-nums {state === 'running' || state === 'update'
     ? 'text-(--solus-status-running)'
-    : state === 'idle' || state === 'stopped'
-      ? 'text-(--solus-status-idle)'
-      : state === 'online'
+    : state === 'stopped'
+      ? 'text-foreground'
+      : state === 'idle' || state === 'online'
         ? 'text-(--success)'
         : state === 'unreachable'
           ? 'text-(--solus-status-error)'
           : 'text-(--warning)'}"
 >
-  {#if state === "running"}<LoaderCircle {size} />
+  {#if state === "running"}<LoaderCircle {size} class="animate-spin motion-reduce:animate-none" />
   {:else if state === "idle"}<Moon {size} />
   {:else if state === "online"}<CircleCheck {size} />
   {:else if state === "unreachable"}<WifiOff {size} />

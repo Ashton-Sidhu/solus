@@ -14,9 +14,12 @@ import type { AppAuthority } from './apps'
 
 /**
  * An app's calls to integrations (docs/plans/apps.md §5): a role the
- * descriptor names, resolved on every call to the caller's own integration.
- * The host's own work (a schedule, a webhook, a workflow) has no person in
- * its call, so the app's owner is the person. A role named `github`,
+ * descriptor names, resolved on every call. A role has one of two scopes
+ * (docs/plans/app-deploy.md §6). A user connection is the caller's own
+ * integration. An app connection is the owner's, for each caller and for the
+ * app's background work. A build of protocol 3 has user connections only,
+ * and there the host's own work (a schedule, a webhook, a workflow) has no
+ * person in its call, so the app's owner is the person. A role named `github`,
  * `atlassian`, or `google` that the person has no MCP integration for is the
  * built-in connection of that name.
  */
@@ -47,9 +50,15 @@ export class AppIntegrationCalls {
     return this.deps.integrations.getBySlug(slug, authority ? recordScopeOf(authority.principal) : app.organizationId, personKey)
   }
 
-  /** One integration tool for the app (§5): a role the descriptor names, the caller's own connection, and a tool that is on. */
-  async call(app: AppRecord, version: AppVersionRecord, slug: string, toolName: string, input: CallInput, authority: AppAuthority | null): Promise<StoredValue> {
+  /** One integration tool for the app (§5): a role the descriptor names, a connection of the role's scope, and a tool that is on. */
+  async call(app: AppRecord, version: AppVersionRecord, slug: string, toolName: string, input: CallInput, caller: AppAuthority | null): Promise<StoredValue> {
     if (!version.descriptor.integrations.includes(slug)) throw new Error(`This app does not name the integration ${slug}. Add it to \`integrations\` in app.ts.`)
+    const isAppConnection = version.descriptor.appIntegrations.includes(slug)
+    if (!isAppConnection && !caller && version.descriptor.solusApp >= 4) {
+      throw new Error(`The integration ${slug} is a user connection, and this call has no person. Name it in \`appIntegrations\` in app.ts to use the owner's connection.`)
+    }
+    // An app connection is the owner's, whoever calls.
+    const authority = isAppConnection ? null : caller
     const integration = this.integrationFor(app, slug, authority)
     if (!integration && isConnectionProvider(slug)) return this.callConnection(app, slug, toolName, input, authority)
     if (!integration) throw new Error(`Connect ${slug} in Settings → MCP to use this app.`)
@@ -79,12 +88,13 @@ export class AppIntegrationCalls {
 
   /** Each role as the reader has it: whether they own an integration with that slug, and whether it is connected. */
   async roles(app: AppRecord, descriptor: AppDescriptor, authority: AppAuthority): Promise<AppRoleState[]> {
-    return Promise.all(descriptor.integrations.map(async (slug) => {
+    return Promise.all(descriptor.integrations.map(async (slug): Promise<AppRoleState> => {
+      const scope = descriptor.appIntegrations.includes(slug) ? 'app' : 'user'
       const integration = this.integrationFor(app, slug, authority)
-      if (!integration && isConnectionProvider(slug)) return { slug, name: CONNECTION_LABELS[slug], connected: await this.deps.connections.connected(slug) }
-      if (!integration) return { slug, name: null, connected: false }
+      if (!integration && isConnectionProvider(slug)) return { slug, scope, name: CONNECTION_LABELS[slug], connected: await this.deps.connections.connected(slug) }
+      if (!integration) return { slug, scope, name: null, connected: false }
       const status = await this.deps.gateway.connectionStatus(integration.id)
-      return { slug, name: integration.name, connected: status.status === 'connected' }
+      return { slug, scope, name: integration.name, connected: status.status === 'connected' }
     }))
   }
 }
