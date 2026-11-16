@@ -52,7 +52,7 @@ interface TailscaleStatusPeer {
 
 interface TailscaleStatus {
   Peer?: Record<string, TailscaleStatusPeer>
-  Self?: { TailscaleIPs?: string[]; UserID?: number }
+  Self?: { TailscaleIPs?: string[]; UserID?: number; DNSName?: string }
   ExitNodeStatus?: object | null
 }
 
@@ -67,7 +67,7 @@ const tailscaleStatusPeerSchema = z.object({
 })
 const tailscaleStatusSchema = z.object({
   Peer: z.record(z.string(), tailscaleStatusPeerSchema).optional(),
-  Self: z.object({ TailscaleIPs: z.array(z.string()).optional(), UserID: z.number().optional() }).optional(),
+  Self: z.object({ TailscaleIPs: z.array(z.string()).optional(), UserID: z.number().optional(), DNSName: z.string().optional() }).optional(),
   ExitNodeStatus: z.object({}).nullish(),
 })
 const discoveredHealthSchema = z.object({
@@ -227,7 +227,7 @@ export async function readTailscaleExitNode(): Promise<{ name: string | null } |
   return { name: peer?.DNSName?.split('.')[0] || peer?.HostName?.trim() || null }
 }
 
-async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
+export async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
   const now = Date.now()
   if (tailscaleStatusCache && tailscaleStatusCache.expiresAt > now) return tailscaleStatusCache.value
   if (tailscaleStatusPending) return tailscaleStatusPending

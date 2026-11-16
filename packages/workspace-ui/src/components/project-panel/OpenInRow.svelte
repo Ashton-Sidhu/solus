@@ -2,6 +2,7 @@
   import { ChevronDown, Code, Check } from '@lucide/svelte';
   import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat';
   import { hostPolicy } from '@solus/client-core/host-policy';
+  import { localApi } from '@solus/client-core/local-api';
   import { getWorkspaceContext, getSessionEnvironmentStore, hosts, toolsStore } from '../../contexts';
   import { runHost } from '../../contexts/workspace/run-location';
   import { requestInputFocus } from '../../lib/inputFocus';
@@ -13,6 +14,8 @@
   import MenuRow from './MenuRow.svelte';
   import { openInTarget, type OpenInTarget } from './lib/open-in';
   import { openInStore } from './lib/open-in.store.svelte';
+  import { REMOTE_EDITOR_IDS, remoteEditorLink } from '../../lib/remote-editor-link';
+  import type { DetectedEditor } from '@solus/contracts/types';
 
   let { sourceId, active, openTerminal }: { sourceId: string; active: boolean; openTerminal: () => void } = $props();
   const workspace = getWorkspaceContext();
@@ -20,20 +23,31 @@
   const run = $derived(workspace.runFor(sourceId));
   const host = $derived(hosts.get(runHost(run)));
   const environment = $derived(environments.environmentFor(run));
-  const canOpen = $derived(hostPolicy.isClientMachine(host?.id) && !!hosts.device?.hasDesktopHandlers);
-  const tools = $derived(active && canOpen ? host?.tools : undefined);
-  const editors = $derived(tools?.state === 'ready' ? tools.value.editors : []);
-  const target = $derived(openInTarget(openInStore.chosen, workspace.settings.defaultEditor, editors));
+  const isLocal = $derived(hostPolicy.isClientMachine(host?.id));
+  const serverInfo = $derived(host?.serverInfo);
+  const sshTarget = $derived(serverInfo?.state === 'ready' ? serverInfo.value.sshTarget : undefined);
+  const canOpen = $derived(isLocal ? !!hosts.device?.hasDesktopHandlers : !!sshTarget);
+  const tools = $derived(active && isLocal && canOpen ? host?.tools : undefined);
+  const editors = $derived(isLocal ? (tools?.state === 'ready' ? tools.value.editors : []) :
+    REMOTE_EDITOR_IDS.map((id): DetectedEditor => ({ id, name: id === 'vscode' ? 'VS Code' : id === 'zed' ? 'Zed' : 'Cursor', isTerminal: false, binPath: null })));
+  const target = $derived(isLocal ? openInTarget(openInStore.chosen, workspace.settings.defaultEditor, editors) :
+    (REMOTE_EDITOR_IDS.find((id) => id === openInStore.chosen) ?? REMOTE_EDITOR_IDS.find((id) => id === workspace.settings.defaultEditor) ?? 'vscode'));
   const editor = $derived(editors.find((item) => item.id === target));
   const isLoading = $derived(tools?.state === 'loading');
   const cwd = $derived(environment.checkout?.worktreePath || environment.cwd);
   const hasFolder = $derived(!!cwd && cwd !== NEW_CHAT_DIRECTORY);
-  const permitted = $derived(host?.me.may(target === 'terminal' || editor?.isTerminal ? 'host.terminal' : 'host.local.window') ?? false);
+  const permitted = $derived(host?.me.may(isLocal ? (target === 'terminal' || editor?.isTerminal ? 'host.terminal' : 'host.local.window') : 'host.files.read') ?? false);
   let menuOpen = $state(false);
   let anchor = $state<HTMLElement | null>(null);
 
   async function open(target: OpenInTarget) {
     if (!canOpen || !hasFolder) return;
+    if (!isLocal) {
+      const link = sshTarget && cwd && target !== 'terminal' ? remoteEditorLink(target, sshTarget, cwd) : null;
+      if (link) void localApi.openExternal(link);
+      requestInputFocus();
+      return;
+    }
     if (target === 'terminal') {
       openTerminal();
       return;
@@ -70,7 +84,7 @@
       phase: isLoading ? 'loading' : 'idle',
       disabled: !canOpen || !permitted || !hasFolder || isLoading,
       hint: target === 'terminal' ? comboHint('orb.open-terminal') : undefined,
-      tooltip: !canOpen ? 'Available for local desktop sessions' : undefined,
+      tooltip: !canOpen ? 'No SSH target is available for this host' : undefined,
     }}
     onInspect={() => { if (active && target === 'terminal') void toolsStore.refreshResolvedTerminal(workspace.settings.fallbackTerminal); }}
     onActivate={() => void open(target)}
@@ -114,13 +128,13 @@
       requestInputFocus();
     }}
   >
-    <DropdownMenu.Item role="menuitemradio" aria-checked={target === 'terminal'} disabled={!host?.me.may('host.terminal')} onSelect={() => choose('terminal')}>
+    {#if isLocal}<DropdownMenu.Item role="menuitemradio" aria-checked={target === 'terminal'} disabled={!host?.me.may('host.terminal')} onSelect={() => choose('terminal')}>
       <TerminalAppLogo size={16} />
       <span class="min-w-0 flex-1 truncate">Terminal</span>
       {#if target === 'terminal'}<Check size={16} />{/if}
-    </DropdownMenu.Item>
+    </DropdownMenu.Item>{/if}
     {#each editors as option (option.id)}
-      <DropdownMenu.Item role="menuitemradio" aria-checked={target === option.id} disabled={!host?.me.may(option.isTerminal ? 'host.terminal' : 'host.local.window')} onSelect={() => choose(option.id)}>
+      <DropdownMenu.Item role="menuitemradio" aria-checked={target === option.id} disabled={!host?.me.may(isLocal ? (option.isTerminal ? 'host.terminal' : 'host.local.window') : 'host.files.read')} onSelect={() => choose(option.id)}>
         <AppLogo id={option.id} kind="editor" size={16} />
         <span class="min-w-0 flex-1 truncate">{option.name}</span>
         {#if target === option.id}<Check size={16} />{/if}
