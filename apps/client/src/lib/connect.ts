@@ -26,6 +26,11 @@ export function pairTokenFromLocation(href: string): string | null {
   }
 }
 
+export function pairHostFromLocation(href: string): string | null {
+  const link = parsePairLink(href)
+  return link && new URL(href).origin === 'https://app.solus.sh' ? link.url : null
+}
+
 export interface ProbedServer {
   ok: boolean
   name?: string

@@ -15,6 +15,7 @@
       "bundleIdentifier": "sh.solus.mobile",
       "appleTeamId": "F4AQ9YJ7Q3",
       "supportsTablet": true,
+      "associatedDomains": ["applinks:app.solus.sh"],
       "requireFullScreen": false,
       "infoPlist": {
         "NSCameraUsageDescription": "Solus uses the camera only to scan a host's pairing code.",

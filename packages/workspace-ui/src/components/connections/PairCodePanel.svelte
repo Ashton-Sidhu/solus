@@ -15,7 +15,7 @@
   import { Button } from "../ui/button";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { pairQrSvgPath } from "./lib/qrcode";
-  import { bestPairEndpoint, pairLink } from "@solus/client-core/pairing";
+  import { bestPairEndpoint, pairLink, hostedPairLink } from "@solus/client-core/pairing";
   import { liveActivityClock } from "../../lib/shared-clock";
 
   interface Props {
@@ -67,7 +67,10 @@
     connections.activePair ? formatTimeRemaining(pairMsLeft) : "",
   );
   let bestEndpoint = $derived(bestPairEndpoint(connections.endpoints));
-  let bestPairLink = $derived(bestEndpoint ? pairLinkFor(bestEndpoint) : "");
+  let serveRoute = $derived(connections.serverInfo?.routes.find((route) => route.kind === 'tailnet' && route.url.startsWith('https://')));
+  let bestPairLink = $derived(connections.activePair && serveRoute
+    ? hostedPairLink(serveRoute.url, connections.activePair.token)
+    : bestEndpoint ? pairLinkFor(bestEndpoint) : "");
   let bestPairQr = $derived.by(() => {
     if (!bestPairLink) return null;
     try {

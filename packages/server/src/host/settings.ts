@@ -27,6 +27,7 @@ const SOLUS_DIR = solusDir()
 const SETTINGS_FILE = join(SOLUS_DIR, 'server-settings.json')
 
 const persistedServerSettingsSchema = z.object({
+  tailscaleServe: z.object({ enabled: z.boolean(), port: z.number().int().min(1).max(65535) }).optional(),
   remoteAccess: z.union([z.enum(['off', 'private', 'any']), z.boolean()])
     .transform((value): RemoteAccessMode => value === true ? 'any' : value === false ? 'off' : value).optional(),
   metricsRetentionDays: z.number().optional(),
@@ -49,6 +50,7 @@ const persistedServerSettingsSchema = z.object({
  * validation path, and one change event.
  */
 export interface ServerSettings {
+  tailscaleServe: { enabled: boolean; port: number }
   remoteAccess: RemoteAccessMode
   metricsRetentionDays: number
   /**
@@ -87,6 +89,7 @@ export interface HostUserSettings {
 }
 
 const DEFAULT_SETTINGS: ServerSettings = {
+  tailscaleServe: { enabled: false, port: 443 },
   remoteAccess: 'any',
   metricsRetentionDays: 30,
   trustLocalNetwork: false,
@@ -104,6 +107,7 @@ export function getServerSettings(): ServerSettings {
       const raw: unknown = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'))
       const parsed = persistedServerSettingsSchema.parse(raw)
       _settings = {
+        tailscaleServe: parsed.tailscaleServe ?? { enabled: false, port: 443 },
         remoteAccess: parsed.remoteAccess ?? 'off',
         metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
         trustLocalNetwork: parsed?.trustLocalNetwork === true,
@@ -247,6 +251,18 @@ export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
 export function setRemoteAccess(remoteAccess: RemoteAccessMode): ServerSettings {
   enforce(hostPolicies().settingChangeDenial('remoteAccess', 'Remote access'))
   _settings = { ...getServerSettings(), remoteAccess }
+  persistSettings(_settings)
+  return _settings
+}
+
+export function assertTailscaleServeAllowed(enabled: boolean, port: number): void {
+  if (enabled && effectiveRemoteAccess() === 'off') throw new Error('Turn on remote access before Tailscale HTTPS.')
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Enter a port from 1 to 65535.')
+}
+
+export function setTailscaleServe(enabled: boolean, port: number): ServerSettings {
+  assertTailscaleServeAllowed(enabled, port)
+  _settings = { ...getServerSettings(), tailscaleServe: { enabled, port } }
   persistSettings(_settings)
   return _settings
 }

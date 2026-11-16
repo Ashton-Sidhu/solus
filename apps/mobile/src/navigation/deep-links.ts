@@ -1,4 +1,5 @@
 import type { RootStackParamList } from './routes'
+import { parsePairLink } from '@solus/client-core/pairing'
 
 /**
  * The app's `solus://` links: a session, which a Live Activity row opens
@@ -11,6 +12,12 @@ export type DeepLinkTarget =
   | { screen: 'PairHost'; params: { link: string } }
 
 export function parseDeepLink(url: string): DeepLinkTarget | null {
+  try {
+    const hosted = new URL(url.trim())
+    if (hosted.origin === 'https://app.solus.sh' && hosted.pathname === '/pair' && parsePairLink(url.trim())) {
+      return { screen: 'PairHost', params: { link: url.trim() } }
+    }
+  } catch { /* A custom scheme is checked below. */ }
   const pair = /^solus:\/\/pair\/?\?(.*)$/.exec(url.trim())
   if (pair) {
     const link = new URLSearchParams(pair[1]).get('link')

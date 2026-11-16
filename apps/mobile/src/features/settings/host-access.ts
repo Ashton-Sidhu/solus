@@ -18,7 +18,7 @@ export type HostDevice = Awaited<ReturnType<HostApi['connectionsListSessions']>>
 export type HostPairCode = Awaited<ReturnType<HostApi['connectionsGeneratePairToken']>>
 
 /** The one change in flight, so its control shows progress and the others wait. */
-export type HostAccessAction = 'remote-access' | 'trust-local-network' | 'pair' | `revoke:${string}` | `insights:${string}`
+export type HostAccessAction = 'remote-access' | 'trust-local-network' | 'tailscale-serve' | 'pair' | `revoke:${string}` | `insights:${string}`
 
 export interface HostAccessSnapshot {
   info: ConnectionsServerInfo
@@ -98,6 +98,15 @@ export class HostAccess {
     })
   }
 
+  async setTailscaleServe(hostId: string, enabled: boolean, port: number): Promise<void> {
+    await this.change(hostId, 'tailscale-serve', async (api) => {
+      enabled
+        ? await api.connectionsEnableTailscaleServe({ port })
+        : await api.connectionsDisableTailscaleServe()
+      return { info: await api.connectionsGetServerInfo() }
+    })
+  }
+
   async generatePairCode(hostId: string): Promise<void> {
     await this.change(hostId, 'pair', async (api) => ({ pair: await api.connectionsGeneratePairToken() }))
   }
@@ -149,11 +158,16 @@ export class HostAccess {
     const existing = this.watches.get(hostId)
     if (existing?.connection === connection) return
     existing?.stop()
-    const stop = connection.events.subscribe('host.organizationsChanged', (status) => {
+    const stopOrganizations = connection.events.subscribe('host.organizationsChanged', (status) => {
       const current = this.stateOf(hostId)
       if (current.kind === 'loaded') this.set(hostId, { ...current, organizations: status, organizationsError: null })
     })
-    this.watches.set(hostId, { connection, stop })
+    const stopServe = connection.events.subscribe('host.tailscaleServeChanged', (status) => {
+      const current = this.stateOf(hostId)
+      if (current.kind === 'loaded') this.set(hostId, { ...current, info: { ...current.info, tailscaleServe: status } })
+      void this.load(hostId)
+    })
+    this.watches.set(hostId, { connection, stop: () => { stopOrganizations(); stopServe() } })
   }
 
   private set(hostId: string, state: HostAccessState): void {

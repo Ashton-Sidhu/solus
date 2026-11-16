@@ -10,6 +10,7 @@ import type { HostRoute } from '@solus/contracts/host-routes'
 import { hostCategory } from '../host/host-category'
 import { isCloudMachine } from '../host/cloud-machine'
 import { DEFAULT_DESKTOP_SERVER_PORT, DEFAULT_SERVER_PORT } from '@solus/contracts/types'
+import { advertisedServeRoute } from '../host/tailscale-serve'
 
 const log = createLogger('main', 'endpoints')
 
@@ -50,9 +51,10 @@ interface TailscaleStatusPeer {
   ShareeNode?: boolean
 }
 
-interface TailscaleStatus {
+export interface TailscaleStatus {
   Peer?: Record<string, TailscaleStatusPeer>
-  Self?: { TailscaleIPs?: string[]; UserID?: number; DNSName?: string }
+  Self?: { TailscaleIPs?: string[]; UserID?: number; DNSName?: string; CapMap?: { https?: unknown } }
+  BackendState?: string
   ExitNodeStatus?: object | null
 }
 
@@ -67,7 +69,8 @@ const tailscaleStatusPeerSchema = z.object({
 })
 const tailscaleStatusSchema = z.object({
   Peer: z.record(z.string(), tailscaleStatusPeerSchema).optional(),
-  Self: z.object({ TailscaleIPs: z.array(z.string()).optional(), UserID: z.number().optional(), DNSName: z.string().optional() }).optional(),
+  Self: z.object({ TailscaleIPs: z.array(z.string()).optional(), UserID: z.number().optional(), DNSName: z.string().optional(), CapMap: z.object({ https: z.unknown().optional() }).optional() }).optional(),
+  BackendState: z.string().optional(),
   ExitNodeStatus: z.object({}).nullish(),
 })
 const discoveredHealthSchema = z.object({
@@ -122,10 +125,12 @@ export async function advertisedRoutes(bindHost: string, port: number): Promise<
   // A managed host's internal cloud network is not reachable from its clients.
   // The account directory supplies its tunnel route.
   if (hostCategory() === 'managed') return []
+  const serveRoute = await advertisedServeRoute(port)
   const routes = (await listReachableEndpoints(bindHost, port))
     .filter((endpoint) => endpoint.kind !== 'loopback')
     .sort((a, b) => ENDPOINT_REACH[a.kind] - ENDPOINT_REACH[b.kind])
     .map((endpoint): HostRoute => ({ kind: endpoint.kind === 'tailnet' ? 'tailnet' : 'lan', url: `http://${endpoint.host}:${endpoint.port}` }))
+  if (serveRoute) routes.unshift(serveRoute)
   return cloudRoutes(routes, await isCloudMachine())
 }
 
@@ -211,7 +216,7 @@ export function tailscaleInstallPaths(platform: NodeJS.Platform, env: NodeJS.Pro
   return ['/usr/local/bin/tailscale', '/usr/bin/tailscale', '/opt/homebrew/bin/tailscale']
 }
 
-function findTailscaleBin(): string | null {
+export function findTailscaleBin(): string | null {
   for (const p of tailscaleInstallPaths(process.platform, process.env)) {
     if (existsSync(p)) return p
   }

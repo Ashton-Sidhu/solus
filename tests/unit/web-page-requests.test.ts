@@ -97,9 +97,9 @@ describe('an open loopback host', () => {
   })
 
   /** Opens the host socket as a browser page would (its `Origin`), says hello with no credential, and answers the host's first frame. */
-  function dial(url: string, origin?: string): Promise<string> {
+  function dial(url: string, origin?: string, headers: { 'x-forwarded-proto'?: string } = {}): Promise<string> {
     return new Promise((resolve) => {
-      const socket = new WebSocket(`${url.replace(/^http/, 'ws')}${HOST_SOCKET_PATH}`, { headers: origin ? { origin } : {} })
+      const socket = new WebSocket(`${url.replace(/^http/, 'ws')}${HOST_SOCKET_PATH}`, { headers: { ...(origin ? { origin } : {}), ...headers } })
       cleanups.push(() => socket.close())
       socket.onopen = () => socket.send(JSON.stringify({ t: 'hello', v: HOST_SOCKET_PROTOCOL_VERSION, clientInstanceId: 'test0123456789abcdef' }))
       socket.onmessage = (message) => {
@@ -123,5 +123,17 @@ describe('an open loopback host', () => {
     expect(await dial(url, 'https://evil.example')).toBe('UNAUTHORIZED')
     expect(await dial(url)).toBe('connected')
     expect(await dial(url, url)).toBe('connected')
+    // A forged forwarding header from loopback can only remove implicit trust.
+    expect(await dial(url, undefined, { 'x-forwarded-proto': 'https' })).toBe('UNAUTHORIZED')
+  })
+
+  test('a Serve-like loopback request needs a pair code', async () => {
+    const { server } = buildHttpServer({ host: '127.0.0.1', port: 0, requireAuth: () => false, isTrustedRequester: async () => true })
+    const url = await listen(server)
+    const response = await fetch(`${url}/pair`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
+      body: JSON.stringify({ deviceLabel: 'test' }),
+    })
+    expect(response.status).toBe(401)
   })
 })

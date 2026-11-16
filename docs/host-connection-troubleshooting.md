@@ -256,3 +256,19 @@ Include these items:
 
 - The text from **Copy details**.
 - The output of `solus connect status` on the host.
+
+## Tailscale HTTPS
+
+Use Tailscale HTTPS when you want to reach a host from the hosted web client or
+use a secure tailnet address. Install Tailscale on the host and turn on MagicDNS
+and HTTPS certificates in the [Tailscale DNS settings](https://login.tailscale.com/admin/dns).
+Then open the host's **Access** section and turn on **Tailscale HTTPS**. The default
+HTTPS port is 443. You can also run `solus pair --tailscale` on a standalone host.
+Use `--tailscale-serve-port N` if another service uses 443.
+
+On Linux, if Tailscale denies the Serve command, run
+`sudo tailscale set --operator=$USER`, then try again. If the HTTPS link does not
+answer, run `tailscale serve status` on the host and check that Tailscale is
+running. To remove a root mapping, run
+`tailscale serve --https=443 --set-path=/ off` (use your chosen HTTPS port in
+place of 443). Turning the switch off removes only this host's mapping.

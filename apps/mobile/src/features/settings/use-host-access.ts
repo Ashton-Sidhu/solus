@@ -26,6 +26,7 @@ export function useHostAccess(hostId: string) {
     reload,
     setRemoteAccess: (next: import('@solus/contracts/host-api').RemoteAccessMode) => { void access.setRemoteAccess(hostId, next).catch(report) },
     setTrustLocalNetwork: (next: boolean) => { void access.setTrustLocalNetwork(hostId, next).catch(report) },
+    setTailscaleServe: (enabled: boolean, port: number) => { void access.setTailscaleServe(hostId, enabled, port).catch(report) },
     generatePairCode: () => { void access.generatePairCode(hostId).catch(report) },
     revokeDevice: (deviceId: string) => { void access.revokeDevice(hostId, deviceId).catch(report) },
     setInsightsOptIn: (organizationId: string, next: boolean) => {

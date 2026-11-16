@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, TextInput, View } from "react-native";
+import { useEffect, useState } from 'react';
 
 import {
   attachmentSummary,
@@ -10,7 +11,7 @@ import {
 } from "@solus/client-core/organization-rows";
 import { AppText as Text } from "../../components/AppText";
 import { ListRowLayout } from "../../components/ListRowLayout";
-import { bestPairEndpoint, pairLink } from "@solus/client-core/pairing";
+import { bestPairEndpoint, pairLink, hostedPairLink } from "@solus/client-core/pairing";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { relativeTime } from "../../lib/time";
 import { PairQrCode } from "./components/PairQrCode";
@@ -95,8 +96,13 @@ export function HostNetworkSection(props: {
   readonly policy: HostPolicies | null;
   readonly onRemoteAccess: (next: RemoteAccessMode) => void;
   readonly onTrustLocalNetwork: (next: boolean) => void;
+  readonly onTailscaleServe: (enabled: boolean, port: number) => void;
 }) {
   const { info, busy } = props.access;
+  const [servePort, setServePort] = useState(String(info.tailscaleServe?.port ?? 443));
+  useEffect(() => { setServePort(String(info.tailscaleServe?.port ?? 443)); }, [info.tailscaleServe?.port]);
+  const parsedServePort = Number(servePort);
+  const serveUrl = info.tailscaleServe?.url?.replace(/:\d+(?=\/?$)/, '').replace(/\/$/, '') ?? null;
   const locked = !canChangeAccess(info) || busy !== null;
   // A host key a policy sets is inert for everyone; the host refuses the change too (plans/030 §6.7).
   const remoteAccessLock = hostLockMessage(props.policy, "remoteAccess");
@@ -122,6 +128,32 @@ export function HostNetworkSection(props: {
           </Pressable>
         ))}
         {info.remoteAccess === 'private' ? <SettingsNote>Only devices on your local network or tailnet can connect.</SettingsNote> : null}
+        {info.cloudWithoutTailnet ? <SettingsNote>This host is on a cloud network. Install Tailscale on it, or use the Solus tunnel, to reach it from other devices.</SettingsNote> : null}
+        <SettingsSwitchRow
+          icon="lock"
+          label="Tailscale HTTPS"
+          subtitle={info.tailscaleServe?.enabled ? info.tailscaleServe.state === 'active' ? 'On' : 'Needs attention' : 'Use a secure tailnet address for this host.'}
+          value={info.tailscaleServe?.enabled ?? false}
+          disabled={locked || info.remoteAccess === 'off'}
+          onValueChange={(enabled) => {
+            if (!enabled) Alert.alert('Turn off Tailscale HTTPS?', 'This host will stop serving its HTTPS address.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Turn off', style: 'destructive', onPress: () => props.onTailscaleServe(false, parsedServePort) },
+            ]);
+            else props.onTailscaleServe(true, parsedServePort);
+          }}
+        />
+        <Text>HTTPS port</Text>
+        <TextInput
+          accessibilityLabel="Tailscale HTTPS port"
+          keyboardType="number-pad"
+          value={servePort}
+          onChangeText={setServePort}
+          editable={!locked && !info.tailscaleServe?.enabled}
+          className="rounded-lg border border-border px-4 py-3 text-foreground"
+        />
+        {serveUrl ? <SettingsNote>{`${serveUrl}${parsedServePort === 443 ? '' : `:${parsedServePort}`}`}</SettingsNote> : null}
+        {info.tailscaleServe?.error ? <SettingsNote>{info.tailscaleServe.error}</SettingsNote> : null}
         {info.remoteAccess !== 'off' ? (
           <SettingsSwitchRow
             icon="house"
@@ -155,7 +187,8 @@ export function HostPairingSection(props: {
   const pairingLock = pairingLockMessage(props.policy);
   const live = pair && pair.expiresAt > Date.now() ? pair : null;
   const endpoint = bestPairEndpoint(endpoints);
-  const link = live && endpoint ? pairLink(endpoint, live.token) : null;
+  const serveRoute = props.access.info.routes.find((route) => route.kind === 'tailnet' && route.url.startsWith('https://'));
+  const link = live && serveRoute ? hostedPairLink(serveRoute.url, live.token) : live && endpoint ? pairLink(endpoint, live.token) : null;
   const expires = live
     ? new Date(live.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : null;

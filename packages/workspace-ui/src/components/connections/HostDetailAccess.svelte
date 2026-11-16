@@ -23,6 +23,7 @@
   import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
   import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
   import type { RemoteAccessMode } from "@solus/contracts/host-api";
+  import { tailscaleServePreview, tailscaleServeStateText } from './lib/tailscale-serve';
 
   interface Props {
     serverId: string;
@@ -36,8 +37,11 @@
   const trustLocalNetworkLock = $derived(hostLock(serverId, "trustLocalNetwork"));
   const pairingLocked = $derived(pairingLock(serverId));
   let addressCopied = $state(false);
+  let servePort = $state(443);
 
   const info = $derived(connections.serverInfo);
+  $effect(() => { if (info?.tailscaleServe) servePort = info.tailscaleServe.port; });
+  const servePreview = $derived(tailscaleServePreview(info?.tailscaleServe?.url ?? null, servePort));
   // Pairing does not exist on a managed host or the workspace service: Solus cloud owns how they are reached.
   const hasPairing = $derived(info?.hostKind === "personal");
   const canChangeNetwork = $derived(info?.principal === "local-owner");
@@ -64,6 +68,13 @@
   async function toggleTrustLocalNetwork() {
     if (!info || connections.refreshing || connections.trustLocalNetworkUpdating) return;
     await connections.setTrustLocalNetwork(serverId, !info.trustLocalNetwork);
+  }
+
+  async function toggleTailscaleServe() {
+    if (!info?.tailscaleServe) return;
+    const enabled = !info.tailscaleServe.enabled;
+    if (!enabled && !window.confirm('Turn off Tailscale HTTPS for this host?')) return;
+    await connections.setTailscaleServe(serverId, enabled, servePort);
   }
 
   function copyAddress() {
@@ -107,6 +118,30 @@
     {/if}
     {#if info?.remoteAccess === 'private'}
       <p class="text-workspace-chrome text-(--solus-text-secondary)">Only devices on your local network or tailnet can connect.</p>
+    {/if}
+    {#if info?.cloudWithoutTailnet}
+      <p class="text-workspace-chrome text-(--solus-text-secondary)">This host is on a cloud network. Install Tailscale on it, or use the Solus tunnel, to reach it from other devices.</p>
+    {/if}
+
+    <SettingsRow label="Tailscale HTTPS" description="Use a secure tailnet address for this host." managed={info?.remoteAccess === 'off' ? remoteAccessLock : null}>
+      {#snippet control()}
+        <Switch checked={info?.tailscaleServe?.enabled ?? false} onclick={toggleTailscaleServe}
+          disabled={!canChangeNetwork || info?.remoteAccess === 'off' || connections.refreshing || connections.tailscaleServeUpdating}
+          size="default" aria-label="Tailscale HTTPS" />
+      {/snippet}
+    </SettingsRow>
+    <label class="flex items-center gap-2 px-4 text-workspace-chrome text-(--solus-text-secondary)">
+      HTTPS port
+      <input type="number" min="1" max="65535" bind:value={servePort}
+        disabled={!canChangeNetwork || connections.tailscaleServeUpdating || info?.tailscaleServe?.enabled}
+        class="w-24 rounded-md border border-border bg-input px-2 py-1 text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50" />
+    </label>
+    {#if servePreview}<p class="px-4 text-workspace-chrome text-(--solus-text-secondary)">{servePreview}</p>{/if}
+    {#if info?.tailscaleServe?.enabled}
+      <p class="px-4 text-workspace-chrome text-(--solus-text-secondary)">Tailscale HTTPS: {tailscaleServeStateText(info.tailscaleServe.state)}.</p>
+    {/if}
+    {#if info?.tailscaleServe?.error || connections.tailscaleServeError}
+      <p role="alert" class="px-4 text-workspace-chrome text-(--solus-status-error)">{connections.tailscaleServeError ?? info?.tailscaleServe?.error}</p>
     {/if}
 
     <SettingsRow

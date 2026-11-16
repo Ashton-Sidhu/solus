@@ -251,6 +251,9 @@ describe('deep links and native config', () => {
   test('a host pairing page hands its link to the app, which only accepts an http(s) host', () => {
     const link = pairLink({ kind: 'lan', host: '10.10.1.79', port: 3000 }, 'abc123')
     expect(parseDeepLink(appPairLink(link))).toEqual({ screen: 'PairHost', params: { link } })
+    const hosted = 'https://app.solus.sh/pair?host=box.tail.ts.net#token=tok'
+    expect(parseDeepLink(hosted)).toEqual({ screen: 'PairHost', params: { link: hosted } })
+    expect(parseDeepLink('https://app.solus.sh/pair?host=evil.example#token=tok')).toBeNull()
     expect(parseDeepLink(appPairLink('javascript:alert(1)'))).toBeNull()
     expect(parseDeepLink('solus://pair')).toBeNull()
   })

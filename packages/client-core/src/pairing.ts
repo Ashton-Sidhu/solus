@@ -74,6 +74,11 @@ export function pairLink(endpoint: PairEndpoint, pairToken: string): string {
   return `http://${endpoint.host}:${endpoint.port}/pair#token=${pairToken}`
 }
 
+export function hostedPairLink(serveUrl: string, pairToken: string): string {
+  const host = new URL(serveUrl).host
+  return `https://app.solus.sh/pair?host=${encodeURIComponent(host)}#token=${encodeURIComponent(pairToken)}`
+}
+
 export function parsePairLink(link: string): ParsedPairLink | null {
   try {
     const u = new URL(link.trim())
@@ -81,6 +86,13 @@ export function parsePairLink(link: string): ParsedPairLink | null {
     const params = new URLSearchParams(fragment)
     const pairToken = params.get('token')
     if (!pairToken) return null
+    if (u.origin === 'https://app.solus.sh' && u.pathname === '/pair') {
+      const host = u.searchParams.get('host')
+      if (!host || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.ts\.net(?::\d{1,5})?$/i.test(host)) return null
+      const target = new URL(`https://${host}`)
+      if (target.port && (Number(target.port) < 1 || Number(target.port) > 65535)) return null
+      return { url: target.origin, pairToken }
+    }
     return { url: `${u.protocol}//${u.host}`, pairToken }
   } catch {
     return null

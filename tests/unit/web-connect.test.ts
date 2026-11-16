@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { classifyConnectInput, pairTokenFromLocation, probeServer } from '../../apps/client/src/lib/connect'
+import { classifyConnectInput, pairTokenFromLocation, pairHostFromLocation, probeServer } from '../../apps/client/src/lib/connect'
+import { hostedPairLink } from '@solus/client-core/pairing'
 import { unreachableMessage } from '../../apps/client/src/lib/add-host'
 
 describe('classifyConnectInput', () => {
@@ -37,6 +38,12 @@ describe('classifyConnectInput', () => {
 })
 
 describe('pairTokenFromLocation', () => {
+  test('a hosted link names only a Tailscale HTTPS host', () => {
+    const link = hostedPairLink('https://box.tail.ts.net:8443', 'tok')
+    expect(pairTokenFromLocation(link)).toBe('tok')
+    expect(pairHostFromLocation(link)).toBe('https://box.tail.ts.net:8443')
+    expect(pairHostFromLocation('https://app.solus.sh/pair?host=evil.example#token=tok')).toBeNull()
+  })
   test('extracts the token when the SPA is opened at /pair', () => {
     expect(pairTokenFromLocation('http://192.168.1.42:51234/pair#token=tok')).toBe('tok')
   })

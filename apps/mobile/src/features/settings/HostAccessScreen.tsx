@@ -51,6 +51,7 @@ export function HostAccessScreen({ navigation, route }: ScreenProps<"HostAccess"
                 policy={policy}
                 onRemoteAccess={access.setRemoteAccess}
                 onTrustLocalNetwork={access.setTrustLocalNetwork}
+                onTailscaleServe={access.setTailscaleServe}
               />
             ) : null}
             {hasPairing(state.info) && canChangeAccess(state.info) ? (

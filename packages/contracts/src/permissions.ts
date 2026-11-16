@@ -50,6 +50,9 @@ const PERMISSION_OF_METHOD = {
   pasteImage: 'host.local.window',
   // Changes how the host is reached: local only, and never on a managed host, where Solus cloud owns reach.
   connectionsSetRemoteAccess: 'host.local.reach',
+  connectionsGetTailscaleServe: 'host.connect',
+  connectionsEnableTailscaleServe: 'host.local.reach',
+  connectionsDisableTailscaleServe: 'host.local.reach',
   connectionsSetTrustLocalNetwork: 'host.local.reach',
   connectionsGeneratePairToken: 'host.local.reach',
   hostsAddOverSsh: 'host.local.reach',
