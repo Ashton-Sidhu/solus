@@ -18,6 +18,7 @@ import type { SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
 import { memberUsers } from '../../host/member-users'
 import { recentEventLoopStall } from '../../host/event-loop-stalls'
+import { isCloudMachine } from '../../host/cloud-machine'
 import type { IntroducedHosts } from '../../execution/orchestration/introduced-hosts'
 import { z } from 'zod'
 
@@ -80,6 +81,7 @@ export function aggregateConnectionSessionsByDevice(sessions: ActiveConnectionSe
 }
 
 export function registerConnectionsHandlers(server: SolusServer, deps: ConnectionsDeps): void {
+  void isCloudMachine()
   server.register('connectionsGetServerInfo', async (_args, ctx) => {
     const info = deps.getServerInfo()
     const principal = ctx.principal

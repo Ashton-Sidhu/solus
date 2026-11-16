@@ -8,12 +8,16 @@ import type { DiscoveredServer } from '@solus/contracts/types'
 import { z } from 'zod'
 import type { HostRoute } from '@solus/contracts/host-routes'
 import { hostCategory } from '../host/host-category'
+import { isCloudMachine } from '../host/cloud-machine'
+import { DEFAULT_DESKTOP_SERVER_PORT, DEFAULT_SERVER_PORT } from '@solus/contracts/types'
 
 const log = createLogger('main', 'endpoints')
 
 // `tailscale status` on Windows can take seconds: the CLI is slow to start there, and a kill on timeout goes through `taskkill` (as in T3 Code).
 const TAILSCALE_STATUS_TIMEOUT_MS = process.platform === 'win32' ? 5_000 : 1_500
-const DEFAULT_DISCOVERY_PORT = parseInt(process.env.SOLUS_PORT ?? '') || 3000
+const DISCOVERY_PORTS = [DEFAULT_SERVER_PORT, DEFAULT_DESKTOP_SERVER_PORT, Number.parseInt(process.env.SOLUS_PORT ?? '', 10)].filter(
+  (port) => Number.isInteger(port) && port > 0 && port <= 65535,
+)
 const DISCOVERY_PROBE_TIMEOUT_MS = 1500
 const DISCOVERY_CONCURRENCY = 8
 const TAILSCALE_STATUS_TTL_MS = 5_000
@@ -21,6 +25,7 @@ const TAILSCALE_STATUS_MAX_BYTES = 4 * 1024 * 1024
 
 let tailscaleStatusCache: { value: TailscaleStatus | null; expiresAt: number } | null = null
 let tailscaleStatusPending: Promise<TailscaleStatus | null> | null = null
+let lastReadTailscaleStatus: TailscaleStatus | null = null
 
 export interface ReachableEndpoint {
   kind: 'loopback' | 'lan' | 'tailnet'
@@ -41,11 +46,13 @@ interface TailscaleStatusPeer {
   HostName?: string
   DNSName?: string
   TailscaleIPs?: string[]
+  UserID?: number
+  ShareeNode?: boolean
 }
 
 interface TailscaleStatus {
   Peer?: Record<string, TailscaleStatusPeer>
-  Self?: { TailscaleIPs?: string[] }
+  Self?: { TailscaleIPs?: string[]; UserID?: number }
   ExitNodeStatus?: object | null
 }
 
@@ -55,10 +62,12 @@ const tailscaleStatusPeerSchema = z.object({
   HostName: z.string().optional(),
   DNSName: z.string().optional(),
   TailscaleIPs: z.array(z.string()).optional(),
+  UserID: z.number().optional(),
+  ShareeNode: z.boolean().optional(),
 })
 const tailscaleStatusSchema = z.object({
   Peer: z.record(z.string(), tailscaleStatusPeerSchema).optional(),
-  Self: z.object({ TailscaleIPs: z.array(z.string()).optional() }).optional(),
+  Self: z.object({ TailscaleIPs: z.array(z.string()).optional(), UserID: z.number().optional() }).optional(),
   ExitNodeStatus: z.object({}).nullish(),
 })
 const discoveredHealthSchema = z.object({
@@ -113,10 +122,17 @@ export async function advertisedRoutes(bindHost: string, port: number): Promise<
   // A managed host's internal cloud network is not reachable from its clients.
   // The account directory supplies its tunnel route.
   if (hostCategory() === 'managed') return []
-  return (await listReachableEndpoints(bindHost, port))
+  const routes = (await listReachableEndpoints(bindHost, port))
     .filter((endpoint) => endpoint.kind !== 'loopback')
     .sort((a, b) => ENDPOINT_REACH[a.kind] - ENDPOINT_REACH[b.kind])
     .map((endpoint): HostRoute => ({ kind: endpoint.kind === 'tailnet' ? 'tailnet' : 'lan', url: `http://${endpoint.host}:${endpoint.port}` }))
+  return cloudRoutes(routes, await isCloudMachine())
+}
+
+/** Keep current routes when a cloud machine has no tailnet path yet. */
+export function cloudRoutes(routes: HostRoute[], isCloud: boolean): HostRoute[] {
+  if (!isCloud || !routes.some((route) => route.kind === 'tailnet')) return routes
+  return routes.filter((route) => route.kind === 'tailnet')
 }
 
 /**
@@ -138,7 +154,11 @@ export async function listReachableEndpoints(bindHost: string, port: number): Pr
   }
 
   const tailnet = await detectTailscaleEndpoint(port)
-  if (tailnet) out.push(tailnet)
+  if (tailnet) {
+    // Pairing reads this endpoint list too. Cloud-private interfaces cannot be reached by clients.
+    if (await isCloudMachine()) return [out[0], tailnet]
+    out.push(tailnet)
+  }
 
   return out
 }
@@ -147,12 +167,13 @@ export async function discoverTailnetServers(opts: {
   boundPort: number
   ownInstallationId: string
   fetchImpl?: typeof fetch
+  status?: TailscaleStatus
 }): Promise<DiscoveredServer[]> {
-  const status = await readTailscaleStatus()
+  const status = opts.status ?? await readTailscaleStatus()
   if (!status) return []
 
   const candidates = parseTailscalePeerCandidates(status)
-  const targets = discoveryProbeTargets(candidates, [DEFAULT_DISCOVERY_PORT, opts.boundPort])
+  const targets = discoveryProbeTargets(candidates, [...new Set([...DISCOVERY_PORTS, opts.boundPort])])
   const fetchImpl = opts.fetchImpl ?? fetch
   const found = await mapWithConcurrency(targets, DISCOVERY_CONCURRENCY, (target) =>
     probeDiscoveredServer(target, opts.ownInstallationId, fetchImpl),
@@ -178,11 +199,7 @@ export function parseTailscalePeerCandidates<T>(status: T): TailnetPeerCandidate
     const ip = peer.TailscaleIPs?.find((value) => /^\d+\./.test(value)) ?? null
     if (!ip || seen.has(ip)) continue
     seen.add(ip)
-    const name = peer.HostName
-      ? peer.HostName
-      : peer.DNSName
-        ? peer.DNSName.replace(/\.$/, '')
-        : ip
+    const name = peer.DNSName?.split('.')[0] || peer.HostName?.trim() || ip
     out.push({ host: ip, name })
   }
   return out
@@ -198,8 +215,7 @@ function findTailscaleBin(): string | null {
   for (const p of tailscaleInstallPaths(process.platform, process.env)) {
     if (existsSync(p)) return p
   }
-  // A Windows install in another folder, or a scoop or winget shim, is on PATH.
-  return process.platform === 'win32' ? findOnPath('tailscale', getCliPath()) : null
+  return findOnPath('tailscale', getCliPath())
 }
 
 /** The exit node this machine sends its traffic through; null when none is on or Tailscale is absent. */
@@ -240,7 +256,9 @@ async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
         }
       },
     )
-  }).then((value) => {
+  }).then((read) => {
+    if (read) lastReadTailscaleStatus = read
+    const value = read ?? statusWhileAddressHeld(lastReadTailscaleStatus, networkInterfaces())
     tailscaleStatusCache = { value, expiresAt: Date.now() + TAILSCALE_STATUS_TTL_MS }
     return value
   }).finally(() => {
@@ -250,21 +268,59 @@ async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
   return tailscaleStatusPending
 }
 
+/**
+ * The last status read, while a network interface on this machine still holds its
+ * Tailscale address; otherwise null. A failed `tailscale status` does not mean
+ * Tailscale stopped: the CLI also fails when no local port is free. Without this,
+ * one failed read drops the tailnet from the pairing link and the routes, and
+ * stops trusting the host's own tailnet.
+ */
+export function statusWhileAddressHeld<T extends { Self?: { TailscaleIPs?: string[] } }>(
+  lastRead: T | null,
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>,
+): T | null {
+  const ownAddresses = lastRead?.Self?.TailscaleIPs ?? []
+  const isHeld = Object.values(interfaces).some((addrs) => addrs?.some((addr) => ownAddresses.includes(addr.address)))
+  return isHeld ? lastRead : null
+}
+
 async function detectTailscaleEndpoint(port: number): Promise<ReachableEndpoint | null> {
   return tailnetEndpointFromStatus(await readTailscaleStatus(), port)
+    ?? tailnetEndpointFromInterfaces(networkInterfaces(), port)
+}
+
+/** A paired CGNAT IPv4 and Tailscale ULA on one interface identifies this machine's address. */
+export function tailnetEndpointFromInterfaces(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>, port: number): ReachableEndpoint | null {
+  for (const addrs of Object.values(interfaces)) {
+    if (!addrs?.some((addr) => addr.family === 'IPv6' && /^fd7a:115c:a1e0:/i.test(addr.address))) continue
+    const ipv4 = addrs.find((addr) => addr.family === 'IPv4' && isTailscaleIpv4(addr.address))?.address
+    if (ipv4) return { kind: 'tailnet', label: `Tailnet (${ipv4})`, host: ipv4, port }
+  }
+  return null
+}
+
+function isTailscaleIpv4(address: string): boolean {
+  const octets = address.split('.').map(Number)
+  return octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255)
+    && octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127
 }
 
 /**
- * Every address on this machine's tailnet — its own and its peers'. Membership
- * in the user's tailnet is what "trusted network" means for requester auth:
- * these devices already share a private, identity-checked network.
+ * Trust this machine and the owner's own devices. Shared-in and foreign peers
+ * still need to pair, even when they can reach this machine on the tailnet.
  */
 export async function tailnetAddresses(): Promise<Set<string>> {
-  const status = await readTailscaleStatus()
+  return tailnetAddressesFromStatus(await readTailscaleStatus())
+}
+
+export function tailnetAddressesFromStatus<T>(value: T): Set<string> {
+  const parsed = tailscaleStatusSchema.safeParse(value)
   const out = new Set<string>()
-  if (!status) return out
+  if (!parsed.success) return out
+  const status = parsed.data
   for (const address of status.Self?.TailscaleIPs ?? []) out.add(address)
   for (const peer of Object.values(status.Peer ?? {})) {
+    if (status.Self?.UserID === undefined || peer.UserID !== status.Self.UserID || peer.ShareeNode) continue
     for (const address of peer.TailscaleIPs ?? []) out.add(address)
   }
   return out
