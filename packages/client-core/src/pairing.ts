@@ -39,6 +39,9 @@ export interface PairServerInput {
   reportedName?: string
   /** The client's own fetch; the global one when absent. */
   fetchImpl?: typeof fetch
+  /** Discovery found the host on the tailnet, so its address is saved as a `tailnet`
+   *  route, not `vpn` (docs/plans/tailscale-support.md D8). */
+  onTailnet?: boolean
 }
 
 export interface PairServerResult {
@@ -135,7 +138,7 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     id: body.installationId,
     label: userLabel || input.reportedName || urlHost(url),
     hasUserLabel: !!userLabel,
-    routes: mergeRoutes([], [routeForUrl(url)], 'pairing', Date.now()),
+    routes: mergeRoutes([], [routeForUrl(url, input.onTailnet)], 'pairing', Date.now()),
     sessionToken: body.sessionToken,
     installationId: body.installationId,
     os: body.os,

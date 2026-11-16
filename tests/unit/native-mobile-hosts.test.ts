@@ -340,8 +340,10 @@ describe('native host connections', () => {
     expect(transport?.serverUrl).toBe('http://10.0.0.20:51234')
     await flushRouteChecks()
     expect(transport?.dials).toBe(1)
+    // No route proved the host, so the dial starts from the first route it may try
+    // unproven, not from the http route that failed (docs/plans/tailscale-support.md D12).
+    expect(transport?.serverUrl).toBe('https://build.tunnel.solus.sh')
     transport?.fail('dial-failed')
-    expect(transport?.serverUrl).toBe('http://10.0.0.20:51234')
     timers.runAll()
     await flushRouteChecks()
     expect(transport?.dials).toBe(2)

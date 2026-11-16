@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { normalizeServerUrl, parsePairLink, urlHost } from '@solus/client-core/pairing'
+import { failureText, unreachableCause, type UnreachableCause } from '@solus/client-core/host-unreachable'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 
 /**
@@ -46,6 +47,8 @@ export interface HostPreview {
   os?: HostOperatingSystem
   /** The host trusts this device by network position, so it pairs without a code. */
   trusted: boolean
+  /** Discovery found the host on the tailnet: pairing saves its address as a `tailnet` route (docs/plans/tailscale-support.md D8). */
+  onTailnet?: boolean
 }
 
 const healthSchema = z.object({
@@ -59,15 +62,18 @@ const healthSchema = z.object({
 export type PreviewResult =
   | { kind: 'found'; preview: HostPreview }
   | { kind: 'not-solus' }
-  | { kind: 'unreachable' }
+  /** `error` is the platform's own text, shown when the cause names nothing better. */
+  | { kind: 'unreachable'; cause: UnreachableCause; error: string }
 
 /** One `/health` read: the target the user confirms before pairing. */
 export async function previewHost(fetchImpl: typeof fetch, url: string, timeoutMs = 5_000): Promise<PreviewResult> {
+  const signal = AbortSignal.timeout(timeoutMs)
   let response: Response
   try {
-    response = await fetchImpl(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) })
-  } catch {
-    return { kind: 'unreachable' }
+    response = await fetchImpl(`${url}/health`, { signal })
+  } catch (failure) {
+    const error = failure instanceof Error ? failure : new Error(String(failure))
+    return { kind: 'unreachable', cause: unreachableCause(error, signal.aborted), error: failureText(error) }
   }
   if (!response.ok) return { kind: 'not-solus' }
   const body = healthSchema.safeParse(await response.json().catch(() => null))
@@ -75,6 +81,28 @@ export async function previewHost(fetchImpl: typeof fetch, url: string, timeoutM
   return {
     kind: 'found',
     preview: { url, host: urlHost(url), name: body.data.name, installationId: body.data.installationId, os: body.data.os, trusted: body.data.requireAuth === false },
+  }
+}
+
+/** What the add-host screen says when an address did not answer; `detail` is the error text, in small type. */
+export interface UnreachableMessage {
+  message: string
+  detail: string | null
+}
+
+export function unreachableMessage(result: Extract<PreviewResult, { kind: 'unreachable' }>): UnreachableMessage {
+  switch (result.cause) {
+    case 'insecure-blocked':
+      return { message: 'This app blocked a plain-HTTP connection to this address. Update Solus, or use an HTTPS address.', detail: null }
+    case 'timeout':
+      return { message: 'The host did not answer in time. Check that Tailscale or your Wi-Fi is on, on this device and on the host.', detail: null }
+    case 'refused':
+      return { message: 'Nothing listens at this address and port. Check the port; a Solus host often uses 3000.', detail: null }
+    case 'other':
+      return {
+        message: 'The host did not answer. Check the address and that this device is on a network that can reach it.',
+        detail: result.error || null,
+      }
   }
 }
 

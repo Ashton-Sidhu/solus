@@ -14,6 +14,7 @@ import type { HostConnections } from '../features/hosts/host-connections'
 import { authSessionAuthorizer } from '../features/account/auth-session-authorizer'
 import type { KeyValueStore, SecretStore } from './ports'
 import { scanLocalNetwork } from './lan-scan'
+import { nativeGet } from './native-get'
 import { sqlitePullRequestCache } from './pull-request-cache-sqlite'
 
 /** Plain data in the app's SQLite key-value store: synchronous, not secret. */
@@ -80,6 +81,7 @@ export const expoPlatform: PlatformAdapters = {
   storage,
   secrets,
   fetch: (input, init) => fetch(input, init),
+  nativeGet,
   createTransport: (options) => new WsTransport(options),
   openBrowser: async (url) => {
     await WebBrowser.openBrowserAsync(url)

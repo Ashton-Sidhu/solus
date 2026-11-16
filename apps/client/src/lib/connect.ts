@@ -1,4 +1,5 @@
 import { normalizeServerUrl, parsePairLink } from '@solus/client-core/pairing'
+import { unreachableCause, type UnreachableCause } from '@solus/client-core/host-unreachable'
 import { z } from 'zod'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 
@@ -34,12 +35,20 @@ export interface ProbedServer {
   /** Identifies the host across every address it answers on. */
   installationId?: string
   os?: HostOperatingSystem
+  /** Why nothing answered; absent when something answered, Solus or not. */
+  unreachable?: UnreachableCause
 }
 
 /** One /health dial with a timeout — no registry, usable before a server is saved. */
 export async function probeServer(url: string, timeoutMs = 3_000): Promise<ProbedServer> {
+  const signal = AbortSignal.timeout(timeoutMs)
+  let response: Response
   try {
-    const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) })
+    response = await fetch(`${url}/health`, { signal })
+  } catch (error) {
+    return { ok: false, unreachable: unreachableCause(error instanceof Error ? error : new Error(String(error)), signal.aborted) }
+  }
+  try {
     if (!response.ok) return { ok: false }
     // Forward-compatible: one reshaped field from a newer server degrades to
     // "absent" instead of failing the probe — a full probe failure here breaks

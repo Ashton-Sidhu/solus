@@ -1,4 +1,5 @@
 import type { HostRoute, RouteKind } from '@solus/contracts/host-routes'
+import { failureText } from './host-unreachable'
 
 /**
  * A short, active read of the way to a host (docs/plans/host-readiness.md). A failed
@@ -15,7 +16,8 @@ export type AddressAnswer =
   | { kind: 'status'; status: number }
   /** Something answered, but this client cannot read it: a browser hides an answer without CORS headers. */
   | { kind: 'opaque' }
-  | { kind: 'no-answer' }
+  /** `error` is the request's own text, when it has one: a native client can name a refusal by it. */
+  | { kind: 'no-answer'; error?: string }
   | { kind: 'timeout' }
 
 export type RouteAnswer =
@@ -36,10 +38,12 @@ export interface HostConnectionCheck {
 
 /** One read of an address. Never rejects. */
 export async function readAddress(fetchImpl: typeof fetch, url: string, signal: AbortSignal): Promise<AddressAnswer> {
+  let error: string | undefined
   try {
     return { kind: 'status', status: (await fetchImpl(url, { signal })).status }
-  } catch {
+  } catch (failure) {
     if (signal.aborted) return { kind: 'timeout' }
+    error = failure instanceof Error ? failureText(failure) : String(failure)
   }
   // A browser rejects an answer that has no CORS headers, and a Cloudflare error page
   // has none. In `no-cors` mode the same answer resolves, with nothing to read.
@@ -47,7 +51,7 @@ export async function readAddress(fetchImpl: typeof fetch, url: string, signal: 
     await fetchImpl(url, { signal, mode: 'no-cors' })
     return { kind: 'opaque' }
   } catch {
-    return signal.aborted ? { kind: 'timeout' } : { kind: 'no-answer' }
+    return signal.aborted ? { kind: 'timeout' } : { kind: 'no-answer', error }
   }
 }
 

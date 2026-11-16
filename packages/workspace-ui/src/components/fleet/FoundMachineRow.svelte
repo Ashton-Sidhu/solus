@@ -39,7 +39,7 @@
     phase = "pairing";
     error = null;
     try {
-      await pairWithCode(discoveredServerUrl(machine.server), code, machine.server.name);
+      await pairWithCode(discoveredServerUrl(machine.server), code, machine.server.name, machine.server.source === "tailnet");
       phase = "paired";
     } catch (err) {
       error = messageFor(err);

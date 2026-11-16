@@ -19,6 +19,7 @@ import {
   decodePairInput,
   decodeScannedCode,
   pairFailureMessage,
+  unreachableMessage,
   type HostPreview,
   type PairInput,
 } from "./lib/pair-input";
@@ -53,6 +54,7 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
   const [label, setLabel] = useState("");
   const [showScanner, setShowScanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [step, setStep] = useState<PairingStep>("idle");
   const [target, setTarget] = useState<PairTarget | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -86,31 +88,34 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
   );
 
   const inspect = useCallback(
-    async (input: PairInput) => {
+    async (input: PairInput, onTailnet = false) => {
       if (input.kind === "invalid") {
         setError(input.message);
+        setErrorDetail(null);
         return;
       }
       setStep("looking");
       setError(null);
+      setErrorDetail(null);
       const result = await app.preview(input.url);
       setStep("idle");
       if (result.kind === "unreachable") {
-        setError(
-          "The host did not answer. Check the address and that this device is on a network that can reach it.",
-        );
+        const { message, detail } = unreachableMessage(result);
+        setError(message);
+        setErrorDetail(detail);
         return;
       }
       if (result.kind === "not-solus") {
         setError("A server answered at this address, but it is not a Solus host.");
         return;
       }
+      const preview = onTailnet ? { ...result.preview, onTailnet } : result.preview;
       // A host that trusts this device's network pairs without a code: connect at once.
-      if (result.preview.trusted && !input.pairToken) {
-        await pairWith({ preview: result.preview, pairToken: null }, undefined);
+      if (preview.trusted && !input.pairToken) {
+        await pairWith({ preview, pairToken: null }, undefined);
         return;
       }
-      setTarget({ preview: result.preview, pairToken: input.pairToken });
+      setTarget({ preview, pairToken: input.pairToken });
     },
     [app, pairWith],
   );
@@ -304,7 +309,7 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
             <>
               <NearbyHostsSection
                 nearby={nearby}
-                onSelect={(server) => void inspect(decodePairInput(nearbyHostUrl(server)))}
+                onSelect={(server) => void inspect(decodePairInput(nearbyHostUrl(server)), server.source === "tailnet")}
               />
               <View collapsable={false} className="gap-4">
                 <Text className="text-sm font-t3-medium text-foreground-muted" accessibilityRole="header">
@@ -334,7 +339,7 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
                   }}
                 />
 
-                {error ? <ErrorBanner message={error} /> : null}
+                {error ? <ErrorBanner message={error} detail={errorDetail} /> : null}
 
                 <View className="android:flex-row android:justify-end">
                   <ConnectionSheetButton

@@ -10,6 +10,7 @@ import {
 } from '@solus/client-core/version-skew'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { sameNameHostAddresses } from '@solus/client-core/host-address'
+import { askHostsToDiscover, mergeDiscovered } from '@solus/client-core/discovery-through-hosts'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
@@ -26,6 +27,7 @@ import {
   getActiveServerId,
   loadServers,
   LOCAL_SERVER_ID,
+  managedHostIds,
   managedHostNeedsStart,
   markDirectoryAnswered,
   onServerRemoving,
@@ -641,7 +643,16 @@ class ServersStore {
       // phone still sees the hosts sitting next to the machine it is paired with.
       const discoveryServerId = this.local ? LOCAL_SERVER_ID : serverConnections.defaultServerId()
       if (!discoveryServerId) return { newServers: 0 }
-      const discovered = await serverConnections.apiFor(discoveryServerId).discoverServers()
+      // Web also asks every other connected host for the tailnet hosts it sees
+      // (docs/plans/tailscale-support.md D4); desktop's local host reads this
+      // machine's tailnet itself. A managed host advertises no tailnet routes.
+      const otherHostIds = this.local ? [] : serverConnections.connectedServerIds()
+        .filter((serverId) => serverId !== discoveryServerId && !managedHostIds().has(serverId))
+      const [own, fromHosts] = await Promise.all([
+        serverConnections.apiFor(discoveryServerId).discoverServers(),
+        askHostsToDiscover(otherHostIds.map((serverId) => () => serverConnections.apiFor(serverId).discoverServers())),
+      ])
+      const discovered = mergeDiscovered(own, fromHosts)
       // A saved host found on this network is dialed here before its tunnel (docs/plans/host-routes.md D1).
       const withNearby = withDiscoveredRoutes(loadServers(), discovered, Date.now())
       if (withNearby) {
