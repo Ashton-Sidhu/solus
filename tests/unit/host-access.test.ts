@@ -11,7 +11,7 @@ import { identityKeyFor } from './helpers/signing-host'
 // rest; a change the host refused leaves the screen as the host holds it; and
 // turning on remote connections shows the addresses the host now listens on.
 
-const INFO = { principal: 'local-owner', hostKind: 'personal', host: '127.0.0.1', port: 4810, allowLan: false, remoteAccess: false, trustLocalNetwork: false } as const
+const INFO = { principal: 'local-owner', hostKind: 'personal', host: '127.0.0.1', port: 4810, allowLan: false, remoteAccess: 'off', trustLocalNetwork: false } as const
 const LOOPBACK: HostEndpoint = { kind: 'loopback', label: 'This computer', host: '127.0.0.1', port: 4810 }
 const LAN: HostEndpoint = { kind: 'lan', label: 'Wi-Fi', host: '192.168.1.20', port: 4810 }
 const ORGANIZATIONS: HostOrganizationsStatus = {
@@ -53,11 +53,11 @@ describe('a host’s Access screen on the phone', () => {
   })
 
   test('turning on remote connections shows the addresses the host now listens on', async () => {
-    const api = hostApi().on('connectionsSetRemoteAccess', () => ({ remoteAccess: true, host: '0.0.0.0', port: 4810, allowLan: true, requireAuth: true }))
+    const api = hostApi().on('connectionsSetRemoteAccess', () => ({ remoteAccess: 'any', host: '0.0.0.0', port: 4810, allowLan: true, requireAuth: true }))
     const { access } = await phoneWith(api)
     api.on('connectionsListEndpoints', () => [LOOPBACK, LAN])
-    await access.setRemoteAccess('inst-a', true)
-    expect(loaded(access).info.remoteAccess).toBe(true)
+    await access.setRemoteAccess('inst-a', 'any')
+    expect(loaded(access).info.remoteAccess).toBe('any')
     expect(loaded(access).endpoints).toContainEqual(LAN)
     expect(loaded(access).busy).toBeNull()
   })

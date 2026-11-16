@@ -58,7 +58,7 @@ export function hostLockMessage(policies: HostPolicies | null | undefined, key: 
 /** Pairing follows `remoteAccess: false`: no pair codes and no pair links. */
 export function pairingLockMessage(policies: HostPolicies | null | undefined): string | null {
   const lock = policies?.hostSettingLock('remoteAccess', 'Pairing')
-  return lock && lock.value === false ? lock.message : null
+  return lock && (lock.value === false || lock.value === 'off') ? lock.message : null
 }
 
 /** "<Name> manages Solus updates." when a policy turns updates off. */
@@ -188,7 +188,7 @@ function list(values: readonly string[]): string {
 
 function hostKeyValue<K extends ManagedHostKey>(key: K, value: NonNullable<ManagedHostSettings[K]>): string {
   const settings = { [key]: value } as ManagedHostSettings
-  if (settings.remoteAccess !== undefined) return settings.remoteAccess ? 'Allowed' : 'This machine only'
+  if (settings.remoteAccess !== undefined) return settings.remoteAccess === false || settings.remoteAccess === 'off' ? 'This machine only' : 'Allowed'
   if (settings.trustLocalNetwork !== undefined) return settings.trustLocalNetwork ? 'Trusted' : 'Pairing required'
   if (settings.cloudTunnel !== undefined) return settings.cloudTunnel ? 'Allowed' : 'Not allowed'
   if (settings.analyticsEnabled !== undefined) return onOff(settings.analyticsEnabled)

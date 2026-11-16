@@ -3,7 +3,7 @@ import type { DirectoryHost } from '@solus/contracts/uplink'
 import type { IntroducedHost } from '@solus/contracts/host-api'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { dialableRoutes } from '@solus/contracts/host-routes'
-import { RemoteHosts, type IntroducedHostSource, type ReachActor, type ReachRequest } from '@solus/server/execution/orchestration/remote-hosts'
+import { RemoteHosts, safeHostDialRoute, type IntroducedHostSource, type ReachActor, type ReachRequest } from '@solus/server/execution/orchestration/remote-hosts'
 
 // WHY: an agent starts work only on a host its turn's person reaches
 // (docs/plans/host-reach.md): one the account plane lists for that person, or, for
@@ -48,6 +48,25 @@ function nearbyHost(installationId: string, address: string): DiscoveredServer {
 }
 
 const studio: IntroducedHost = { installationId: 'install-h-mini', label: 'Studio Mini', url: 'http://100.64.0.2:7777', introducedAt: 1 }
+
+test('host-to-host tokens use only encrypted, local, forwarded, or LAN routes', () => {
+  expect(safeHostDialRoute({ kind: 'vpn', url: 'http://100.64.0.2:3000' })).toBe(false)
+  expect(safeHostDialRoute({ kind: 'public', url: 'http://203.0.113.2:3000' })).toBe(false)
+  for (const route of [
+    { kind: 'lan', url: 'http://192.168.1.2:3000' },
+    { kind: 'tailnet', url: 'http://100.64.0.2:3000' },
+    { kind: 'forwarded', url: 'http://127.0.0.1:3000' },
+    { kind: 'public', url: 'http://127.0.0.1:3000' },
+    { kind: 'public', url: 'https://example.com' },
+  ] as const) expect(safeHostDialRoute(route)).toBe(true)
+})
+
+test('a host with only unsafe routes has a clear recovery message', async () => {
+  const hosts = hostsOf([host('h-unsafe', 'Studio', { routes: [{ kind: 'vpn', url: 'http://100.64.0.2:3000' }] })])
+  const target = await hosts.find(OWNER, 'Studio')
+  if ('error' in target) throw new Error(target.error)
+  expect(hosts.connect(target)).toEqual({ error: 'Studio has no secure route from this host. Use its Tailscale address or its HTTPS address.' })
+})
 
 describe('the hosts a person reaches', () => {
   test('a host is found by its id or by its name in any case', async () => {

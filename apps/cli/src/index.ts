@@ -27,6 +27,7 @@ interface CommonOptions {
 interface StartOptions extends CommonOptions {
   host?: string
   port?: string
+  remoteAccess?: 'off' | 'private' | 'any'
 }
 
 interface SetupOptions extends CommonOptions {
@@ -130,7 +131,7 @@ ${DESKTOP_USAGE}`)
 
 Usage:
   solus setup [--data-dir PATH] [--link CODE] [--cloud-url URL]
-  solus start [--data-dir PATH] [--host HOST] [--port PORT]
+  solus start [--data-dir PATH] [--host HOST] [--port PORT] [--remote-access off|private|any]
   solus status [--data-dir PATH]
   solus service <start|stop|restart|uninstall|status> [--data-dir PATH]
   solus logs [--data-dir PATH] [--lines N]
@@ -387,6 +388,10 @@ function parseStartOptions(args: string[]): StartOptions {
     '--data-dir': { value: (value) => { opts.dataDir = value } },
     '--host': { value: (value) => { opts.host = value } },
     '--port': { value: (value) => { opts.port = String(parsePort(value, '--port')) } },
+    '--remote-access': { value: (value) => {
+      if (value !== 'off' && value !== 'private' && value !== 'any') throw new Error('--remote-access requires off, private, or any')
+      opts.remoteAccess = value
+    } },
   }, (arg) => new Error(`Unknown start option: ${arg}`))
   return opts
 }
@@ -477,6 +482,7 @@ function serverEnv(opts: StartOptions): NodeJS.ProcessEnv {
   }
   if (opts.host) env.SOLUS_HOST = opts.host
   if (opts.port) env.SOLUS_PORT = opts.port
+  if (opts.remoteAccess) env.SOLUS_REMOTE_ACCESS = opts.remoteAccess
   return env
 }
 

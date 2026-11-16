@@ -15,6 +15,7 @@ interface StandaloneArgs {
   dataDir?: string
   host?: string
   port?: number
+  remoteAccess?: 'off' | 'private' | 'any'
   json?: boolean
   deviceLabel?: string
   credentialAction?: GitCredentialAction
@@ -28,6 +29,7 @@ function parseArgs(argv: string[]): StandaloneArgs {
     command: 'serve',
     host: process.env.SOLUS_HOST || undefined,
     port: portValue == null || portValue.trim() === '' ? undefined : parsePort(portValue, 'SOLUS_PORT'),
+    remoteAccess: parseRemoteAccess(process.env.SOLUS_REMOTE_ACCESS),
   }
 
   if (argv[0] === 'auth' && argv[1] === 'session' && argv[2] === 'create') {
@@ -64,9 +66,22 @@ function parseArgs(argv: string[]): StandaloneArgs {
       missingValueMessage: '--delegation requires a device ID',
     },
     '--member-home': { set: () => { out.memberHome = true } },
+    '--remote-access': { value: (value) => { out.remoteAccess = parseRemoteAccess(value) } },
   }, (arg) => new Error(`Unknown argument: ${arg}`))
 
   return out
+}
+
+function parseRemoteAccess(value: string | undefined): StandaloneArgs['remoteAccess'] {
+  if (value === undefined || value === '') return undefined
+  if (value === 'off' || value === 'private' || value === 'any') return value
+  throw new Error('Remote access requires off, private, or any')
+}
+
+async function applyRemoteAccessFlag(mode: StandaloneArgs['remoteAccess']): Promise<void> {
+  if (!mode) return
+  const { setRemoteAccess } = await import('@solus/server/host/settings')
+  setRemoteAccess(mode)
 }
 
 /** The Solus git helper runs this same entry, so git needs no `solus` on PATH. */
@@ -97,6 +112,8 @@ async function main(): Promise<void> {
     process.stdout.write(args.json ? `${JSON.stringify(result)}\n` : `${result.sessionToken}\n`)
     return
   }
+
+  await applyRemoteAccessFlag(args.remoteAccess)
 
   // Branch before importing bootCore: a workspace service owns no execution runtime.
   if (process.env.SOLUS_API === '1') {

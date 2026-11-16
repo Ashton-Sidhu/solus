@@ -13,7 +13,7 @@ import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
 import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
 import type { DiscoveredServer } from '@solus/contracts/types'
-import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo, RemoteAccessMode } from '@solus/contracts/host-api'
 import type { SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
 import { memberUsers } from '../../host/member-users'
@@ -29,7 +29,7 @@ export interface ConnectionsDeps {
   /** Returns currently-connected WebSocket clients. */
   getActiveSessions(): ActiveConnectionSession[]
   discoverLanServers(): Promise<DiscoveredServer[]>
-  setRemoteAccess(remoteAccess: boolean): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
+  setRemoteAccess(remoteAccess: RemoteAccessMode): Promise<{ remoteAccess: RemoteAccessMode; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   setTrustLocalNetwork(trustLocalNetwork: boolean): { trustLocalNetwork: boolean }
   /** The hosts this host was introduced to (docs/plans/host-reach.md §4). */
   introducedHosts: Pick<IntroducedHosts, 'list' | 'issue' | 'accept' | 'forget' | 'allow'>
@@ -171,7 +171,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
 
   server.register('connectionsSetRemoteAccess', async (args) => {
     const [{ remoteAccess }] = args
-    return deps.setRemoteAccess(remoteAccess === true)
+    return deps.setRemoteAccess(remoteAccess === 'off' || remoteAccess === 'private' ? remoteAccess : 'any')
   })
 
   server.register('connectionsSetTrustLocalNetwork', (args) => {

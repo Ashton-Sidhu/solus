@@ -58,7 +58,7 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     port: 0,
     allowLan: false,
     installationId: 'demo',
-    remoteAccess: false,
+    remoteAccess: 'off',
     requireAuth: false,
     trustLocalNetwork: false,
     routes: [],

@@ -29,7 +29,7 @@ export function hostLockNote(policies: HostPolicies, key: ManagedHostKey): Manag
 /** Pairing follows `remoteAccess: false`: no pair codes, no pair links. */
 export function pairingLockNote(policies: HostPolicies): ManagedSettingNote | undefined {
   const lock = policies.hostSettingLock('remoteAccess', 'Pairing')
-  return lock && lock.value === false ? { lockedEverywhere: true, lines: [lock.message] } : undefined
+  return lock && (lock.value === false || lock.value === 'off') ? { lockedEverywhere: true, lines: [lock.message] } : undefined
 }
 
 /** The Solus tools a policy sets on this host: only the tools it names are locked. */

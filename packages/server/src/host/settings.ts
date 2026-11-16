@@ -18,6 +18,7 @@ import type { ManagedHostKey } from '@solus/contracts/policy'
 import { enforce, hostPolicies } from './policy/host-policy-store'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
+import type { RemoteAccessMode } from '@solus/contracts/host-api'
 import { hostCategory } from './host-category'
 
 const log = createLogger('main', 'server-settings')
@@ -26,7 +27,8 @@ const SOLUS_DIR = solusDir()
 const SETTINGS_FILE = join(SOLUS_DIR, 'server-settings.json')
 
 const persistedServerSettingsSchema = z.object({
-  remoteAccess: z.boolean().optional(),
+  remoteAccess: z.union([z.enum(['off', 'private', 'any']), z.boolean()])
+    .transform((value): RemoteAccessMode => value === true ? 'any' : value === false ? 'off' : value).optional(),
   metricsRetentionDays: z.number().optional(),
   trustLocalNetwork: z.boolean().optional(),
   insightsOptInOrganizationIds: z.array(z.string().min(1)).optional(),
@@ -47,7 +49,7 @@ const persistedServerSettingsSchema = z.object({
  * validation path, and one change event.
  */
 export interface ServerSettings {
-  remoteAccess: boolean
+  remoteAccess: RemoteAccessMode
   metricsRetentionDays: number
   /**
    * Organizations the person at this host opted its work into while that
@@ -85,7 +87,7 @@ export interface HostUserSettings {
 }
 
 const DEFAULT_SETTINGS: ServerSettings = {
-  remoteAccess: true,
+  remoteAccess: 'any',
   metricsRetentionDays: 30,
   trustLocalNetwork: false,
   hostConfig: DEFAULT_HOST_CONFIG,
@@ -102,7 +104,7 @@ export function getServerSettings(): ServerSettings {
       const raw: unknown = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'))
       const parsed = persistedServerSettingsSchema.parse(raw)
       _settings = {
-        remoteAccess: parsed?.remoteAccess === true,
+        remoteAccess: parsed.remoteAccess ?? 'off',
         metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
         trustLocalNetwork: parsed?.trustLocalNetwork === true,
         insightsOptInOrganizationIds: parsed?.insightsOptInOrganizationIds ?? [],
@@ -187,12 +189,13 @@ function withHostLocks(config: HostConfig): HostConfig {
 }
 
 /** Remote access as the policies allow it: a locked value wins over the owner's (plans/030 §6.7). */
-export function effectiveRemoteAccess(): boolean {
-  return hostPolicies().hostSetting('remoteAccess')?.value ?? getServerSettings().remoteAccess
+export function effectiveRemoteAccess(): RemoteAccessMode {
+  const policyValue = hostPolicies().hostSetting('remoteAccess')?.value
+  return policyValue === true ? 'any' : policyValue === false ? 'off' : (policyValue ?? getServerSettings().remoteAccess)
 }
 
 export function effectiveTrustLocalNetwork(): boolean {
-  if (hostPolicies().hostSetting('remoteAccess')?.value === false) return false
+  if (effectiveRemoteAccess() === 'off') return false
   return hostPolicies().hostSetting('trustLocalNetwork')?.value ?? getServerSettings().trustLocalNetwork === true
 }
 
@@ -241,7 +244,7 @@ export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
   return getHostConfig()
 }
 
-export function setRemoteAccess(remoteAccess: boolean): ServerSettings {
+export function setRemoteAccess(remoteAccess: RemoteAccessMode): ServerSettings {
   enforce(hostPolicies().settingChangeDenial('remoteAccess', 'Remote access'))
   _settings = { ...getServerSettings(), remoteAccess }
   persistSettings(_settings)
@@ -256,7 +259,7 @@ export function setMetricsRetentionDays(metricsRetentionDays: number): ServerSet
 
 export function setTrustLocalNetwork(trustLocalNetwork: boolean): ServerSettings {
   enforce(hostPolicies().settingChangeDenial('trustLocalNetwork', 'Local network trust'))
-  if (hostPolicies().hostSetting('remoteAccess')?.value === false) enforce(hostPolicies().settingChangeDenial('remoteAccess', 'Local network trust'))
+  if (effectiveRemoteAccess() === 'off') enforce(hostPolicies().settingChangeDenial('remoteAccess', 'Local network trust'))
   _settings = { ...getServerSettings(), trustLocalNetwork }
   persistSettings(_settings)
   log.info('trust_local_network_changed', { trustLocalNetwork })

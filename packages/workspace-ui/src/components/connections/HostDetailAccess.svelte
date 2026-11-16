@@ -22,6 +22,7 @@
   import ForwardedHostsSection from "./ForwardedHostsSection.svelte";
   import ManagedSettingNote from "../settings/policy/ManagedSettingNote.svelte";
   import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
+  import type { RemoteAccessMode } from "@solus/contracts/host-api";
 
   interface Props {
     serverId: string;
@@ -55,9 +56,9 @@
     return endpoint ? `http://${endpoint.host}:${endpoint.port}` : "";
   });
 
-  async function toggleRemoteAccess() {
+  async function changeRemoteAccess(event: Event) {
     if (!info || connections.refreshing || connections.remoteAccessUpdating) return;
-    await connections.setRemoteAccess(serverId, !info.remoteAccess);
+    await connections.setRemoteAccess(serverId, (event.currentTarget as HTMLSelectElement).value as RemoteAccessMode);
   }
 
   async function toggleTrustLocalNetwork() {
@@ -83,25 +84,35 @@
 {#if hasPairing}
   <SettingsSection label="Network" description={networkDescription}>
     <SettingsRow
-      label="Allow remote connections"
-      description="Bind to your network interfaces. Remote devices must pair before connecting."
+      label="Remote access"
+      description="Choose which devices can reach this host. Remote devices must pair before connecting."
       managed={remoteAccessLock}
     >
       {#snippet control()}
-        <Switch
-          checked={info?.remoteAccess ?? false}
-          onclick={toggleRemoteAccess}
+        <select
+          value={info?.remoteAccess ?? 'any'}
+          onchange={changeRemoteAccess}
           disabled={!canChangeNetwork || connections.refreshing || connections.remoteAccessUpdating}
-          size="default"
-          aria-label="Allow remote connections"
-        />
+          aria-label="Remote access"
+          class="rounded-md border border-border bg-input px-2 py-1 text-workspace-chrome text-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50"
+        >
+          <option value="off">Off</option>
+          <option value="private">Private networks only</option>
+          <option value="any">Anyone who can reach this host</option>
+        </select>
       {/snippet}
     </SettingsRow>
+    {#if connections.remoteAccessError}
+      <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{connections.remoteAccessError}</p>
+    {/if}
+    {#if info?.remoteAccess === 'private'}
+      <p class="text-workspace-chrome text-(--solus-text-secondary)">Only devices on your local network or tailnet can connect.</p>
+    {/if}
 
     <SettingsRow
       label="Trust my local network"
       description="Devices on your local network connect without a pairing code. Only enable on a network you control."
-      visible={info?.remoteAccess ?? false}
+      visible={info?.remoteAccess !== 'off'}
       managed={trustLocalNetworkLock}
     >
       {#snippet control()}
@@ -118,7 +129,7 @@
     <SettingsRow
       label="Network address"
       description={reachableAddress}
-      visible={(info?.remoteAccess ?? false) && !!reachableAddress}
+      visible={info?.remoteAccess !== 'off' && !!reachableAddress}
     >
       {#snippet control()}
         <Button

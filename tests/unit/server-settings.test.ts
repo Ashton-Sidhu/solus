@@ -29,13 +29,25 @@ function savedHostConfig(): object {
 describe.serial('server settings defaults', () => {
   test('allows remote connections for a new installation', async () => {
     const settings = await loadSettings('new-installation')
-    expect(settings.getServerSettings().remoteAccess).toBe(true)
+    expect(settings.getServerSettings().remoteAccess).toBe('any')
     expect(settings.getHostConfig().config).toEqual(DEFAULT_HOST_CONFIG)
   })
 
   test('preserves an explicit remote access opt-out', async () => {
     const settings = await loadSettings('remote-access-disabled', { remoteAccess: false })
-    expect(settings.getServerSettings().remoteAccess).toBe(false)
+    expect(settings.getServerSettings().remoteAccess).toBe('off')
+  })
+
+  test('migrates old enabled settings and keeps private mode after a write', async () => {
+    const settings = await loadSettings('remote-access-enabled', { remoteAccess: true })
+    expect(settings.getServerSettings().remoteAccess).toBe('any')
+    settings.setRemoteAccess('private')
+    expect(JSON.parse(readFileSync(join(dataDir!, 'server-settings.json'), 'utf8')).remoteAccess).toBe('private')
+  })
+
+  test('a stored file without the old switch stays on loopback', async () => {
+    const settings = await loadSettings('remote-access-absent', { metricsRetentionDays: 10 })
+    expect(settings.getServerSettings().remoteAccess).toBe('off')
   })
 
   test('defaults retention to 30 days and persists a replacement value', async () => {
