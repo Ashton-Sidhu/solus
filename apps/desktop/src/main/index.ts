@@ -18,7 +18,6 @@ import type { BootCore } from '@solus/server/boot-core'
 import { clientNotificationRequestSchema, showDesktopNotification } from '@solus/desktop-main/desktop-notifications'
 import type { WindowDeps } from '@solus/server/transport/handlers/window-handlers'
 import type { FileDeps } from '@solus/desktop-main/server/handlers/file-handlers'
-import { mintPairUrl } from '@solus/desktop-main/pair-url'
 import { destroyAllFinders } from '@solus/server/files/file-finder'
 import { registerBrowserHeadlessHost } from './browser/headless-window'
 import { registerBrowserRecordingEncoderHost } from './browser/recording-encoder-window'
@@ -53,12 +52,11 @@ markStartup('main.evaluated')
 
 const isHeadless = process.argv.includes('--headless')
 const skipOnboarding = process.argv.includes('--skip-onboarding') || process.env.SOLUS_SKIP_ONBOARDING === '1'
-const isPairUrl = process.argv.includes('pair-url')
 const isDevMode = Boolean(process.env.ELECTRON_RENDERER_URL)
 
 desktopPlatform.prepare(app)
 // A second launch would boot a second server against the same data folder.
-if (desktopPlatform.singleInstance && !isHeadless && !isPairUrl && process.env.SOLUS_TEST_MODE !== '1') {
+if (desktopPlatform.singleInstance && !isHeadless && process.env.SOLUS_TEST_MODE !== '1') {
   if (!app.requestSingleInstanceLock()) app.exit(0)
   app.on('second-instance', () => {
     hiddenUntilTrayShow = false
@@ -72,7 +70,7 @@ const bootStartedAt = Date.now()
 
 // A headless app exists to be a host, so only the windowed app reads the setting.
 const localHostSettingPath = join(app.getPath('userData'), 'local-host.json')
-const isLocalHostEnabled = isHeadless || isPairUrl || readLocalHostEnabled(localHostSettingPath)
+const isLocalHostEnabled = isHeadless || readLocalHostEnabled(localHostSettingPath)
 
 configurePlatformServices({
   appInfo: {
@@ -575,7 +573,7 @@ function getLocalSessionToken(): string {
 // The Solus account lives in main: the session token is keychain-encrypted here and
 // the renderer receives only the account state. Re-verified on boot and on focus.
 let accountSession: AccountSession | null = null
-if (!isHeadless && !isPairUrl) {
+if (!isHeadless) {
   accountSession = registerAccountIpc(sendNativeEvent)
   app.on('browser-window-focus', () => void accountSession?.verify('focus'))
 }
@@ -832,19 +830,7 @@ async function bootLocalHost(
 
 // ─── App Lifecycle ───
 
-if (isPairUrl) {
-  app.whenReady().then(async () => {
-    try {
-      const r = await mintPairUrl()
-      process.stdout.write(`URL:  ${r.url}\nCode: ${r.code}\nExpires in: ${r.expiresIn}\n`)
-    } catch (err: any) {
-      process.stderr.write(`Error: ${err.message}\n`)
-      app.exit(1)
-    }
-    app.quit()
-  })
-} else {
-  app.whenReady().then(async () => {
+app.whenReady().then(async () => {
     markStartup('app.ready')
     protocol.handle('solus-local-video', handleLocalVideoRequest)
     if (isLocalHostEnabled) {
@@ -970,7 +956,6 @@ if (isPairUrl) {
       }
     }
   })
-}
 
 app.on('before-quit', (event) => {
   // Auto-update sets forceQuit before calling quitAndInstall and must not be

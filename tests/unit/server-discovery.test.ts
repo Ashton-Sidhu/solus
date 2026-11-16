@@ -95,7 +95,8 @@ describe('server discovery', () => {
       Peer: {
         a: {
           Online: true,
-          HostName: 'studio-mac',
+          HostName: 'localhost',
+          DNSName: 'studio-mac.tailnet.ts.net.',
           TailscaleIPs: ['100.64.0.11', 'fd7a:115c:a1e0::11'],
         },
         b: {
@@ -119,7 +120,7 @@ describe('server discovery', () => {
 
     expect(parseTailscalePeerCandidates(fixture)).toEqual([
       { host: '100.64.0.11', name: 'studio-mac' },
-      { host: '100.64.0.14', name: 'daemon.tailnet.ts.net' },
+      { host: '100.64.0.14', name: 'daemon' },
     ])
   })
 
