@@ -338,7 +338,7 @@
         <div class="mt-3 pl-[26px]">
           <button
             type="button"
-            class="flex h-8 w-full cursor-text items-center rounded-lg border border-border/70 px-2.5 text-left text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none pointer-coarse:h-10"
+            class="flex h-8 w-full cursor-text items-center rounded-lg border border-border/70 px-2.5 text-left text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none pointer-coarse:tap-area"
             onclick={() => (replying = true)}
           >
             Reply…

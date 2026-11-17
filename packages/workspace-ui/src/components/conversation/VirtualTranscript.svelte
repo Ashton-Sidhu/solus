@@ -6,18 +6,19 @@
   import { userBurstAt, type UserBurst } from "./lib/user-burst";
   import { TranscriptVirtualizer } from "./lib/transcript-virtualizer.svelte";
 
-  let { tabId, turns, scrollElement, active, element = $bindable(null), virtualizer, children }: {
+  let { tabId, turns, scrollElement, active, paintReady = true, element = $bindable(null), virtualizer, children }: {
     tabId: string;
     turns: Turn[];
     scrollElement: HTMLElement | null;
     active: boolean;
+    paintReady?: boolean;
     element?: HTMLDivElement | null;
     virtualizer: TranscriptVirtualizer;
     children: Snippet<[Turn, number, UserBurst]>;
   } = $props();
 
   const observeProfilePaint = transcriptPaintProfiler();
-  const hasVisibleRows = $derived(active && slots.length > 0);
+  const hasVisibleRows = $derived(active && paintReady && slots.length > 0);
   $effect(() => {
     if (hasVisibleRows) return observeProfilePaint(tabId);
   });
@@ -50,7 +51,7 @@
     return virtualizer.geometry.total;
   });
   $effect(() => {
-    if (active && slots.length) return observeStartupTranscriptPaint(tabId);
+    if (hasVisibleRows) return observeStartupTranscriptPaint(tabId);
   });
   // Runs after the slots reach the DOM, before paint: a row that mounted or
   // unmounted above the reader is corrected in the same frame.

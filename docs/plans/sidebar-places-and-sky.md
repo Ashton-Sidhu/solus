@@ -35,7 +35,9 @@ The session sidebar gives its height to the sessions. Three changes do this.
   bottom right corner of the pane. The dots keep one size at every pane size;
   the mark is about half of the pane's width, held to the pane's height. A
   soft clearing keeps it off the headline, the composer, and the row of menus
-  under it. It is one painted box behind four masks, so the dots cost no
+  under it: the pane's own background behind each, with soft edges, so it
+  follows the composer's real box as the card grows and the headline wraps.
+  The mark is one painted box behind three masks, so the dots cost no
   elements. It replaced a gradient halo around the composer: the halo was
   colour with no drawing in it.
 
@@ -117,8 +119,10 @@ Settings → Appearance → Sky has three controls:
   card. Settings at the foot of the column uses the same style.
 - When the sidebar collapses, the sidebar pane stops at the width of the
   places column, not at zero (`WorkspaceBody`). The column is the same
-  element in both states, so the icons do not move, and the content slides
-  on the curve of the pane. The card of the sidebar fades out as it
+  element in both states, and the content slides on the curve of the pane.
+  With no header or sky above them, the places slide up on the same curve
+  to sit just under the expand button, 3.25rem down the window. The slide
+  is a translate, so the list does not lay out again. The card of the sidebar fades out as it
   collapses: no background, border, shadow, or sky stay, only the icons and
   the column's own hairline stay on the background of the pane. The hairline
   is the same divider as in the open sidebar: it fades in at the top and
@@ -126,7 +130,9 @@ Settings → Appearance → Sky has three controls:
   pane holds the whole card around the column, so the card does not clip
   the hairline. After the collapse, the list and the title bar
   controls are hidden, so Tab does not go to them. The expand button stays
-  where it was, beside the window buttons.
+  where it was, beside the window buttons. Where there are no window
+  buttons (web, Windows, Linux), it takes the empty corner over the places
+  column.
 - A place button shows a review count as small muted numerals, as the saved
   sessions button does. A filled badge is for Notifications only.
 - A guest of a share link sees Search only, as before. Search was named

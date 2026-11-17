@@ -135,7 +135,7 @@
       aria-label={t.id === "guide" && guideStatus ? `Guide: ${guideStatus}` : t.label}
       disabled={disabledFor(t.id)}
       title={titleFor(t.id)}
-      class="inline-flex items-center gap-1 h-6.5 cursor-pointer rounded-full px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
+      class="inline-flex items-center gap-1 h-6.5 cursor-pointer rounded-full px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:tap-area @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
         ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
         : isUnread
           ? 'bg-transparent font-medium text-(--success) hover:bg-[var(--wash-1)]'
@@ -153,7 +153,7 @@
 <button
   bind:this={switcherEl}
   type="button"
-  class="no-drag hidden h-6.5 shrink-0 cursor-pointer items-center gap-1 rounded-full bg-background px-2.5 text-workspace-chrome font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:h-10 {home === 'band'
+  class="no-drag hidden h-6.5 shrink-0 cursor-pointer items-center gap-1 rounded-full bg-background px-2.5 text-workspace-chrome font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:tap-area {home === 'band'
     ? '@max-[48rem]/band:inline-flex'
     : '@max-[30rem]/band:inline-flex'}"
   aria-label="Switch view"

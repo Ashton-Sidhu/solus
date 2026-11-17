@@ -194,7 +194,7 @@
       {#if onLoadEarlier}
         <button
           type="button"
-          class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) disabled:cursor-default disabled:opacity-50 pointer-coarse:size-10"
+          class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) disabled:cursor-default disabled:opacity-50 pointer-coarse:tap-area"
           aria-label="Earlier turns are not loaded. Load all."
           title={loadingEarlier ? "Loading the earlier turns…" : "Earlier turns are not loaded. Load all."}
           disabled={loadingEarlier}
@@ -206,7 +206,7 @@
       {/if}
       <button
         type="button"
-        class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:size-10"
+        class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:tap-area"
         aria-label="Previous turn"
         title="Previous turn"
         onclick={() => step(-1, false)}
@@ -215,7 +215,7 @@
       </button>
       <button
         type="button"
-        class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:size-10"
+        class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:tap-area"
         aria-label="Next turn"
         title="Next turn"
         onclick={() => step(1, false)}
@@ -225,7 +225,7 @@
       {#if scopeIndex !== null}
         <button
           type="button"
-          class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:size-10"
+          class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors duration-(--duration-quick) ease-(--ease-premium) hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:tap-area"
           aria-label="Show the whole session"
           title="Show the whole session"
           data-testid="artifacts-scope-clear"

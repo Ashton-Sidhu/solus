@@ -55,7 +55,7 @@
     CONVERSATION_BREADCRUMB_OFFSET,
     conversationFindTopInset,
   } from "./lib/find";
-  import { createEndFollow, scrollConversationTo, settleScroll } from "./lib/response-scroll";
+  import { createEndFollow, scrollConversationTo } from "./lib/response-scroll";
   import { TurnAnnouncer, turnPhaseFor } from "@solus/client-core/turn-announcement";
   import { questionAnchorScrollTop } from "./lib/question-scroll";
   import { ConversationFind } from "./lib/conversation-find.svelte";
@@ -71,7 +71,8 @@
   import { ConversationViewState } from "./lib/conversation-view-state.svelte";
   import { provideConversationVisibility } from "./lib/conversation-visibility";
   import SessionActionRow from "../layout/SessionActionRow.svelte";
-  import ConversationSkeleton from "./ConversationSkeleton.svelte";
+  import ConversationLoading from "./ConversationLoading.svelte";
+  import { ConversationArrival } from "./lib/conversation-arrival.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -216,7 +217,7 @@
   });
   // Content grew. Paragraph streaming glides to each new paragraph.
   function followEnd() {
-    if (!isVisible) return;
+    if (!isVisible || waitingForHistory || arrival.pending) return;
     endFollow?.follow(settings.responseStreamingMode === "paragraph" && !!sess?.isStreamingText);
   }
   let hovered = $state(false);
@@ -248,61 +249,18 @@
   });
   let historyError = $state("");
   let expandingHistory = $state(false);
-  // Where the view stands is decided when the reader arrives — the view
-  // mounts, or a hidden one is shown again: at their saved place, or at the
-  // end. Chromium drops a `display: none` scroller's offset, so the scroll
-  // events of an arrival are the browser resetting layout, not the reader.
-  // Until it settles they must not unpin the view, save a place, or page in
-  // older history (a view reset to the top looked like a reader asking for it).
   let loadingOlder = false;
-  let arriving = false;
-  // The reading column stays transparent until the arrival settles, so the
-  // corrections after the first jump are never seen. Transparent, not
-  // hidden: rows keep their layout and measure while it settles.
-  let settlingArrival = $state(false);
-  let arrival = 0;
-  // The action row shows its jump-to-end arrow while the reader is away from
-  // the end.
-  let isAwayFromEnd = $state(false);
-  // A jump glides the last screen to the end and then settles like an arrival.
-  // A glide over the whole virtualized transcript passed rows that mounted too
-  // late to show, and the writes that held them stopped the glide short. Until
-  // it settles, scroll events do not count: the glide passes positions short of
-  // the end, and the arrow came back for a moment.
-  let jumpingToEnd = false;
+  const waitingForHistory = $derived(!!sess?.loadingHistory && sess.messages.length === 0);
+  const arrival = new ConversationArrival({
+    viewState: untrack(() => viewState),
+    scroll: () => scrollEl,
+    follower: () => endFollow,
+    openingSearch: () => searchNavigation.opening,
+    onSettled: () => backfillShortTranscript(),
+  });
   async function jumpToEnd() {
-    const el = scrollEl;
-    if (!el) return;
-    isAwayFromEnd = false;
     requestInputFocus({ tabId });
-    jumpingToEnd = true;
-    // The reader's own scroll ends the settle where they are.
-    const readerInput = new AbortController();
-    let readerMoved = false;
-    for (const event of ["wheel", "touchstart", "keydown"]) {
-      el.addEventListener(event, () => (readerMoved = true), { passive: true, signal: readerInput.signal });
-    }
-    const end = () => el.scrollHeight - el.clientHeight;
-    if (end() - el.scrollTop > el.clientHeight) {
-      el.scrollTop = end() - el.clientHeight;
-      await new Promise(requestAnimationFrame);
-    }
-    endFollow?.jump(true);
-    if (endFollow?.moving) {
-      await new Promise<void>((resolve) => {
-        const done = () => {
-          clearTimeout(timer);
-          el.removeEventListener("scrollend", done);
-          resolve();
-        };
-        // Fallback for clients without scrollend.
-        const timer = setTimeout(done, 600);
-        el.addEventListener("scrollend", done);
-      });
-    }
-    await settleScroll(el, end, () => readerMoved || !isVisible);
-    readerInput.abort();
-    jumpingToEnd = false;
+    await arrival.jumpToEnd(() => isVisible);
     handleScroll();
   }
   const searchNavigation = new SearchMessageNavigation({
@@ -319,46 +277,12 @@
       description: error instanceof Error ? error.message : "The message is no longer available",
     }),
   });
-  let wasShown = false;
   $effect(() => {
-    const shown = isVisible && !!scrollEl;
-    if (shown && !wasShown) untrack(arrive);
-    wasShown = shown;
+    // Initial reads and reconnects retain usable rows; only an empty read waits.
+    const sessionId = sess?.id;
+    if (!sessionId || !isVisible || !scrollEl || waitingForHistory) return;
+    return untrack(() => arrival.open());
   });
-
-  function arrive() {
-    const position = viewState.position;
-    const thisArrival = ++arrival;
-    arriving = true;
-    settlingArrival = true;
-    if (position) endFollow?.release();
-    void tick().then(() => requestAnimationFrame(async () => {
-      const el = scrollEl;
-      let target: (() => number | undefined) | undefined;
-      if (searchNavigation.opening) {
-        // Search owns where the view stands.
-      } else if (position && (await virtualizer.restore(position))) {
-        target = () => {
-          const top = virtualizer.top(position.key);
-          return top === undefined ? undefined : top + position.offset;
-        };
-      } else {
-        viewState.position = null;
-        endFollow?.jump();
-        target = () => (el ? el.scrollHeight - el.clientHeight : undefined);
-      }
-      // Rows mounted by the jump measure in the next frames. The reader's own
-      // scrolling counts again once the view holds its place.
-      if (el && target) {
-        await settleScroll(el, target, () => thisArrival !== arrival || !isVisible);
-      }
-      if (thisArrival !== arrival) return;
-      isAwayFromEnd = !(endFollow?.atEnd ?? true);
-      settlingArrival = false;
-      arriving = false;
-      backfillShortTranscript();
-    }));
-  }
 
   // A restored window can contain hundreds of tool events that collapse into
   // only a few completed-turn rows. In that case there is no scrollbar and
@@ -368,7 +292,7 @@
   function backfillShortTranscript() {
     const el = scrollEl;
     if (
-      el && isVisible && !arriving &&
+      el && isVisible && !arrival.pending &&
       el.clientHeight > 0 &&
       el.scrollHeight <= el.clientHeight &&
       hasOlderTurnsToLoad && !historyError
@@ -386,7 +310,7 @@
   // scroll that arrived there, so it does not ask where the scroller is.
   async function maybeLoadOlder(opts?: { force?: boolean }) {
     const el = scrollEl;
-    if (!el || loadingOlder) return;
+    if (!el || loadingOlder || waitingForHistory || arrival.pending) return;
     if (!opts?.force && !nearTop(el)) return;
     if (!hasOlderTurnsToLoad || (historyError && !opts?.force)) return;
 
@@ -405,17 +329,17 @@
     }
     backfillShortTranscript();
     // A short page can leave the reader still near the top: read the next one.
-    if (isVisible && !arriving && !historyError) void maybeLoadOlder();
+    if (isVisible && !arrival.pending && !historyError) void maybeLoadOlder();
   }
 
   function handleScroll() {
     const el = scrollEl;
     // A hidden view's scroll events are its layout being dropped, and an
     // arriving view's are that layout coming back: neither is the reader.
-    if (!el || !isVisible || arriving) return;
-    if (jumpingToEnd) return;
+    if (!el || !isVisible || arrival.pending) return;
+    if (arrival.jumpingToEnd) return;
     endFollow?.measure();
-    isAwayFromEnd = !(endFollow?.atEnd ?? true);
+    arrival.isAwayFromEnd = !(endFollow?.atEnd ?? true);
     viewState.position = endFollow?.atEnd ? null : virtualizer.position();
     if (nearTop(el)) void maybeLoadOlder();
   }
@@ -747,8 +671,6 @@
      a skeleton that never ends. Its state is in the composer's place. -->
 {#if tab && sess && sess.messages.length === 0 && isHostAway}
   <div class="h-full"></div>
-{:else if tab && sess && sess.loadingHistory}
-  <ConversationSkeleton />
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -757,8 +679,14 @@
     onmouseleave={() => (hovered = false)}
     class="flex h-full min-h-0 flex-col"
     data-slot="conversation"
+    aria-busy={waitingForHistory || arrival.pending}
   >
     <div class="cv-root relative min-h-0 flex-1">
+      {#if waitingForHistory || arrival.pending}
+        <div class="pointer-events-none absolute inset-0">
+          <ConversationLoading />
+        </div>
+      {/if}
       {#if find.isOpen}
         <div
           class="absolute right-3 z-20"
@@ -794,7 +722,8 @@
         <div
           bind:this={readingColumnEl}
           class="w-full"
-          class:opacity-0={settlingArrival}
+          class:opacity-0={waitingForHistory || arrival.pending}
+          inert={waitingForHistory || arrival.pending}
           style="max-width:var(--solus-reading-max);margin-inline:auto{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"
@@ -839,6 +768,7 @@
             {turns}
             {virtualizer}
             scrollElement={scrollEl}
+            paintReady={!waitingForHistory && !arrival.pending}
             active={isVisible}
             bind:element={messagesEl}
           >
@@ -975,7 +905,7 @@
       {#if showSessionActions}
         <SessionActionRow
           {tabId}
-          {isAwayFromEnd}
+          isAwayFromEnd={arrival.isAwayFromEnd}
           onJumpToEnd={jumpToEnd}
           leftReservedWidth={showActivityStrip ? activityReservedWidth : 0}
         />

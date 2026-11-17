@@ -13,13 +13,13 @@ export const PAGE_ICON_BTN =
 /** A window control (open in split, maximize, close) as a raised pill — the
  *  header row's own style, so the controls continue that row. */
 export const PAGE_RAISED_ICON_BTN =
-  'no-drag pointer-events-auto inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:size-10'
+  'no-drag pointer-events-auto inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:tap-area'
 
 /** The page header's window controls: the raised pill, quieter. The icon
  *  rests a step below full ink and the lift is fainter, so the controls sit beside
  *  the page's title instead of competing with its primary action. */
 export const PAGE_SOFT_ICON_BTN =
-  'no-drag pointer-events-auto inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-background text-[color-mix(in_oklch,var(--foreground)_75%,transparent)] shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:size-10'
+  'no-drag pointer-events-auto inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-background text-[color-mix(in_oklch,var(--foreground)_75%,transparent)] shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:tap-area'
 
 /** Outlined secondary action rendered beside PAGE_PRIMARY_BTN (Retry, Refresh…). */
 export const PAGE_SECONDARY_BTN =

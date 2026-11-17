@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import type {
     BrowserPage,
     BrowserViewport,
@@ -23,10 +23,10 @@
   } from "./lib/browser-guest";
   import { stageDrag } from "./lib/stage-drag.svelte";
   import {
-    fillSize,
+    FillViewport,
     fitStage,
     resizeViewport,
-    stageRoom,
+    type StageSize,
     type StageResizeEdge,
   } from "./lib/stage-math";
 
@@ -73,6 +73,8 @@
     /** How much the device had to be shrunk to fit, 0–1. Only the stage can
      *  measure it, and the toolbar's size chip has to state it. */
     onScale: (scale: number) => void;
+    /** The full pane size for an explicit Fill pane command. */
+    onSize: (size: StageSize) => void;
     /** Ask for the page again. The stage owns the only surface where a failed
      *  load is actually stated, so it has to carry the way out of it. */
     onReload: () => void;
@@ -90,6 +92,7 @@
     maximized = false,
     onViewport,
     onScale,
+    onSize,
     onReload,
   }: Props = $props();
 
@@ -196,16 +199,19 @@
     if (active && usesNativeSurface) publishSlot();
   });
 
-  // A filling page is the size of the space it is shown in, so the stage is the
-  // only side that knows what that is. The host coalesces these, which is what
-  // keeps a pane drag from queueing an emulation call per frame.
   $effect(() => {
-    if (page.viewport.mode !== "fill" || !active) return;
-    const room = stageRoom(page.viewport, availableWidth, availableHeight);
-    if (room.width < 1 || room.height < 1) return;
-    const size = fillSize(room.width, room.height);
-    if (size.width === page.viewport.width && size.height === page.viewport.height) return;
-    onViewport({ mode: "fill", ...size });
+    const size = { width: availableWidth, height: availableHeight };
+    untrack(() => onSize(size));
+  });
+
+  // Only a local measurement or activation can resize a filling page. Updates
+  // from another client change the picture's scale, not our resize intent.
+  const fillViewport = new FillViewport();
+  $effect(() => {
+    const request = fillViewport.update(
+      pageKey, active, page.viewport, availableWidth, availableHeight,
+    );
+    if (request) untrack(() => onViewport(request));
   });
 
   /**

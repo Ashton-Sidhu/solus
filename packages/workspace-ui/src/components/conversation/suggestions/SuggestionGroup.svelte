@@ -74,11 +74,11 @@
         {#if row.canDecide || row.canWithdraw}
           <div class="flex items-center justify-end gap-2">
             {#if row.canWithdraw}
-              <Button variant="ghost" size="sm" class="pointer-coarse:h-10" disabled={busyId !== null} onclick={() => void act(suggestion.id, "withdraw")} data-testid="suggestion-withdraw">Withdraw</Button>
+              <Button variant="ghost" size="sm" class="pointer-coarse:tap-area" disabled={busyId !== null} onclick={() => void act(suggestion.id, "withdraw")} data-testid="suggestion-withdraw">Withdraw</Button>
             {/if}
             {#if row.canDecide}
-              <Button variant="ghost" size="sm" class="pointer-coarse:h-10" disabled={busyId !== null} onclick={() => void act(suggestion.id, "dismiss")} data-testid="suggestion-dismiss">Dismiss</Button>
-              <Button size="sm" class="pointer-coarse:h-10" disabled={busyId !== null} onclick={() => void act(suggestion.id, "send")} data-testid="suggestion-send">Send</Button>
+              <Button variant="ghost" size="sm" class="pointer-coarse:tap-area" disabled={busyId !== null} onclick={() => void act(suggestion.id, "dismiss")} data-testid="suggestion-dismiss">Dismiss</Button>
+              <Button size="sm" class="pointer-coarse:tap-area" disabled={busyId !== null} onclick={() => void act(suggestion.id, "send")} data-testid="suggestion-send">Send</Button>
             {/if}
           </div>
         {/if}

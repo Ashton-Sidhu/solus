@@ -801,3 +801,13 @@ in transcript order, and tool images remain in their tool details.
 identifier check uses `!== undefined` to follow the local lint rule. No new
 native module is needed. The existing iOS Quick Look and Android image viewer
 remain in use; T3's newer native viewer and zoom transition are not ported.
+
+## Host pairing form (2026-11-17)
+
+`src/features/connection/PairingInputRow.tsx` and the manual form in
+`src/features/hosts/PairHostScreen.tsx` follow T3 Code's
+[`ConnectionsNewRouteScreen.tsx`](https://github.com/pingdotgg/t3code/blob/main/apps/mobile/src/features/connection/ConnectionsNewRouteScreen.tsx)
+(read 2026-11-17): grouped Address and Code rows, fixed label width, matching
+text line height, and a tap-to-scan card. Solus keeps its camera permission flow,
+nearby hosts, SSH entry, host preview, and trust step. A scan or pasted link
+fills separate fields before Continue. No T3 connection or auth runtime is used.

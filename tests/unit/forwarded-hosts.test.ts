@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
-import { join } from 'path'
-import { z } from 'zod'
-import { dataDir } from '@solus/server/platform/paths'
-import { secretStore } from '@solus/server/platform/secrets'
+import { DatabaseSync } from './helpers/bun-sqlite'
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+import { beforeEach, describe, expect, test, mock } from 'bun:test'
+const { readHostRecords } = await import('@solus/server/host/host-list')
 import type { SshClient, SshForward, SshTarget } from '@solus/server/platform/ssh'
-import { ForwardedHosts, type NewForward } from '@solus/server/remote-machines/forwarded-hosts'
+import type { NewForward } from '@solus/server/remote-machines/forwarded-hosts'
+const { ForwardedHosts } = await import('@solus/server/remote-machines/forwarded-hosts')
 import { AuthNeeded } from '@solus/server/remote-machines/ssh-provisioner'
 import type { ForwardedHost } from '@solus/contracts/remote-machines'
 
@@ -184,8 +184,8 @@ describe('a forward with a password', () => {
     const { hosts } = harness({ password: 'hunter2' })
     await hosts.add({ ...BOX, authSecret: 'hunter2' })
     expect(JSON.stringify(hosts.list())).not.toContain('hunter2')
-    const saved = secretStore().loadJson('forwarded-hosts', join(dataDir(), 'forwarded-hosts.bin'), z.object({ hosts: z.array(z.object({}).loose()) }))
-    expect(saved?.hosts).toHaveLength(1)
+    const saved = readHostRecords().filter((record) => !record.forgotten)
+    expect(saved).toHaveLength(1)
     expect(JSON.stringify(saved)).not.toContain('hunter2')
   })
 

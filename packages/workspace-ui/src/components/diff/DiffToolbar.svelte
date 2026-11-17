@@ -187,7 +187,7 @@
               onclick={onClearCommitScope}
               disabled={!onClearCommitScope}
               aria-label={`Showing commit ${commitSha.slice(0, 7)}. View all changes`}
-              class="no-drag inline-flex shrink-0 cursor-pointer items-center gap-1.5 border-0 h-6.5 rounded-full bg-background px-2.5 text-workspace-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] font-mono text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:h-10"
+              class="no-drag inline-flex shrink-0 cursor-pointer items-center gap-1.5 border-0 h-6.5 rounded-full bg-background px-2.5 text-workspace-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] font-mono text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:tap-area"
             >
               <GitCommitIcon size={15} strokeWidth={1.5} />
               <span>{commitSha.slice(0, 7)}</span>
@@ -380,7 +380,7 @@
       <button
         type="button"
         onclick={onOpenFiles}
-        class="no-drag hidden shrink-0 cursor-pointer items-center gap-1.5 border-0 h-6.5 rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] font-secondary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:h-10 max-md:flex [-webkit-tap-highlight-color:transparent]"
+        class="no-drag hidden shrink-0 cursor-pointer items-center gap-1.5 border-0 h-6.5 rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] font-secondary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:tap-area max-md:flex [-webkit-tap-highlight-color:transparent]"
         aria-label="Browse changed files"
       >
         <SidebarSimpleIcon size={15} strokeWidth={1.5} />
@@ -507,7 +507,7 @@
           bind:this={commentsBtn}
           type="button"
           onclick={onToggleComments}
-          class="no-drag inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-2.5 text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:h-10"
+          class="no-drag inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-2.5 text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:tap-area"
           aria-haspopup="dialog"
           aria-expanded={commentsOpen}
         >

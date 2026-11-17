@@ -429,7 +429,7 @@
 <!-- The footer under the card: the destination, then the Meta mode button
      at the end of the line. A chat shows neither. `/composer` is the card above, so the button's
      own rung measures the same width the toolbar's ladder does. -->
-<div class="@container/composer flex flex-wrap items-center gap-1.5 px-3.5 pt-2">
+<div class="@container/composer flex items-center gap-1.5 px-3.5 pt-2">
 {#if !inChat}
   <!-- A sentence read left to right: which project, on which machine, from
        which branch, filed under which task. The project chip lists projects
@@ -492,7 +492,7 @@
 {/if}
 
   {#if !inChat}
-    <div class="ml-auto flex items-center">
+    <div class="ml-auto flex shrink-0 items-center">
       <LeadButton tabId={sess ? source : undefined} {draft} {isPrimary} />
     </div>
   {/if}

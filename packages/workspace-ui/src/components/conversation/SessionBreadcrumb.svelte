@@ -43,8 +43,6 @@
   import * as Command from "../ui/command";
   import { MenuSearch } from "../ui/menu";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import TaskPicker from "../input/TaskPicker.svelte";
-  import type { PaneId } from "../../contexts/workspace/routing/location";
   import ShareButton from "../sharing/ShareButton.svelte";
   import SessionPresence from "../presence/SessionPresence.svelte";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
@@ -69,8 +67,6 @@
     /** The session on screen — the last crumb. Empty for a draft, which has no
      *  tab until its first prompt is sent. */
     tabId: string;
-    /** The composer pane whose task shortcut this breadcrumb answers. */
-    paneId?: PaneId;
     /** The draft on screen, when the band names one that has yet to become a
      *  session. Its path is what the draft will create rather than where a
      *  conversation already is. */
@@ -91,7 +87,6 @@
   }
   let {
     tabId,
-    paneId,
     draft = null,
     showNewSessionAction = true,
     variant = "floating",
@@ -855,16 +850,6 @@
 
     <span class="min-w-4 flex-1 self-stretch" aria-hidden="true"></span>
 
-    {#if draft}
-      <TaskPicker
-        task={draft.task}
-        onSelect={(next) => {
-          if (draft) draft.task = next;
-        }}
-        onDismiss={() => requestInputFocus()}
-        {paneId}
-      />
-    {/if}
     <!-- Share opens the trailing group. It is the band's one labelled button, so a
          visitor finds it without hovering. -->
     {#if bandSession?.id}

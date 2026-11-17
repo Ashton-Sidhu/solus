@@ -137,7 +137,7 @@
     <button
       type="button"
       aria-label={isFullscreen ? "Exit full screen" : "Open app full screen"}
-      class="flex size-8 items-center justify-center rounded-full border border-border bg-card/80 text-muted-foreground hover:text-foreground pointer-coarse:size-11"
+      class="flex size-8 items-center justify-center rounded-full border border-border bg-card/80 text-muted-foreground hover:text-foreground pointer-coarse:tap-area"
       onclick={() => setFullscreen(!isFullscreen)}
     >
       {#if isFullscreen}<Minimize size={13} />{:else}<Maximize size={13} />{/if}
@@ -145,7 +145,7 @@
     <button
       type="button"
       aria-label="Close app"
-      class="flex size-8 items-center justify-center rounded-full border border-border bg-card/80 text-muted-foreground hover:text-foreground pointer-coarse:size-11"
+      class="flex size-8 items-center justify-center rounded-full border border-border bg-card/80 text-muted-foreground hover:text-foreground pointer-coarse:tap-area"
       onclick={close}
     >
       <X size={13} />

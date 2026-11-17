@@ -35,7 +35,7 @@
     <span class="min-w-0 flex-1">{@render leading()}</span>
   {/if}
   {#if onFilter || trailing}
-    <span class="ml-auto flex shrink-0 items-center gap-0.5 pointer-coarse:gap-1">
+    <span class="ml-auto flex shrink-0 items-center gap-0.5 pointer-coarse:gap-2">
       {#if onFilter}
         <DropdownMenu.Root bind:open={menuOpen}>
           <DropdownMenu.Trigger>
@@ -43,7 +43,7 @@
               <button
                 {...props}
                 type="button"
-                class="relative flex size-6 cursor-pointer items-center justify-center rounded-lg transition-[background-color,box-shadow,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-[''] {menuOpen
+                class="relative flex size-6 cursor-pointer items-center justify-center rounded-lg transition-[background-color,box-shadow,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:tap-area pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-[''] {menuOpen
                   ? 'bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] text-foreground'
                   : scopedProject
                     ? 'text-primary'

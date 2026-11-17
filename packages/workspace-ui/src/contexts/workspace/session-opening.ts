@@ -27,7 +27,6 @@ import { reviewGuideStore, sessionGuideIdentity } from '../../components/review/
 import { ownedTaskId } from './session-draft.svelte'
 import { type GitRefreshResult } from '../git/session-environment.store.svelte'
 import { findLastUserIndex, parentSessionIdOf } from './session.utils'
-import { requestConversationScrollToBottom } from './session-plan-operations'
 import { SessionUnavailableError } from './session-errors'
 import { sessionListStore } from './session-list.store.svelte'
 import { quotedReplyDraft } from '@solus/client-core/quoted-reply'
@@ -542,7 +541,6 @@ export class SessionOpening {
         session.loadingHistory = false
         measureOpenStep('transcriptApplied', openedAt, { sessionId: resumedSessionId, tabId })
         if (transcript.endsInRefusedLogin) this.workspace.offerSignInAgain(session.id, session)
-        requestConversationScrollToBottom(tabId)
 
         void (async () => {
           const identity = await identityPending

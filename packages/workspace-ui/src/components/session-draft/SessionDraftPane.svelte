@@ -46,6 +46,8 @@
   // Beside another pane the composer needs the same seam a split chat draws;
   // in the leading pane it is the leftmost surface and draws none.
   const isAside = $derived(paneId !== session.router.leadingPane.id);
+  // Full-page draft only: the split composer has its own chrome.
+  const showsMark = $derived(!isAside && theme.showsDraftMark);
   // A draft that is gone — dropped empty while its tab was put away with
   // another page's strip — has nothing to show, so its tab closes rather than
   // standing empty. The leading pane falls back to its home.
@@ -216,8 +218,7 @@
   <!-- One question, then the composer. Everything a new session needs — project,
        task, model — sits on the bar directly below, so this stays a headline. -->
   <div class="relative flex h-full min-h-0 w-full flex-col items-center justify-center gap-5 px-6 py-3">
-    <!-- Full-page draft only: the split composer has its own chrome. -->
-    {#if !isAside && theme.showsDraftMark}
+    {#if showsMark}
       <DraftMark scene={sky.current} />
     {/if}
     <!-- The composer is what sits centred, at every width; the question rests
@@ -225,13 +226,20 @@
          the headline wraps. The full-page new tab home is narrower than the
          conversation, so the empty page reads as one focused prompt — until
          60% would cramp the bar, when it takes up to 30rem of the pane. -->
+    <!-- `draft-clearing` keeps the mark off the headline, the card, and the
+         menus under it: the pane's own background, soft at the edges, behind
+         each. It is the composer's own box, so it follows the card as it
+         grows and the headline as it wraps. `isolate` holds both under the
+         composer and over the mark. -->
     <div
       class={cn(
         "relative w-full",
+        showsMark && "isolate",
         isAside ? "max-w-(--solus-reading-max)" : "max-w-[max(min(60%,50rem),min(100%,30rem))]",
       )}
+      class:draft-clearing={showsMark}
     >
-      <div class="absolute inset-x-0 bottom-full pb-4">{@render headline()}</div>
+      <div class="absolute inset-x-0 bottom-full pb-4" class:draft-clearing={showsMark}>{@render headline()}</div>
       <DraftComposer
         bind:this={composerInput}
         draft={current}
@@ -298,3 +306,22 @@
     {@render surface(draft)}
   {/if}
 {/if}
+
+<style>
+  /* The pane's own background (the conversation card's), opaque over the
+     composer with 1.5rem to spare above and below and 2rem at the sides, then
+     fading out. Under the composer's content and over the mark, by the
+     `isolate` above. */
+  .draft-clearing::before {
+    content: "";
+    position: absolute;
+    inset: -4rem -5rem;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--solus-container-bg);
+    mask-image:
+      linear-gradient(to right, transparent, black 3rem, black calc(100% - 3rem), transparent),
+      linear-gradient(to bottom, transparent, black 2.5rem, black calc(100% - 2.5rem), transparent);
+    mask-composite: intersect;
+  }
+</style>

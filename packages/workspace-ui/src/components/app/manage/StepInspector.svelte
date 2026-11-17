@@ -85,13 +85,13 @@
     <div class="flex gap-2" role="group" aria-label="Read more">
       <button
         type="button"
-        class="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-full border border-[var(--hairline-strong)] bg-transparent text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] aria-pressed:bg-[var(--wash-3)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-11"
+        class="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-full border border-[var(--hairline-strong)] bg-transparent text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] aria-pressed:bg-[var(--wash-3)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
         aria-pressed={shown === "input"}
         onclick={() => (shown = shown === "input" ? null : "input")}>Input</button
       >
       <button
         type="button"
-        class="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-full border border-[var(--hairline-strong)] bg-transparent text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] aria-pressed:bg-[var(--wash-3)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-default disabled:opacity-40 pointer-coarse:h-11"
+        class="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-full border border-[var(--hairline-strong)] bg-transparent text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] aria-pressed:bg-[var(--wash-3)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-default disabled:opacity-40 pointer-coarse:tap-area"
         aria-pressed={shown === "result"}
         disabled={step.result === null}
         title={step.result === null ? "The step has no result" : undefined}
@@ -99,13 +99,13 @@
       >
       <button
         type="button"
-        class="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-full border border-[var(--hairline-strong)] bg-transparent text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-11"
+        class="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-full border border-[var(--hairline-strong)] bg-transparent text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
         onclick={onShowLog}>Log</button
       >
       <button
         bind:this={codeButton}
         type="button"
-        class="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-full border border-[var(--hairline-strong)] bg-transparent text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-default disabled:opacity-40 pointer-coarse:h-11"
+        class="flex h-8 flex-1 cursor-pointer items-center justify-center rounded-full border border-[var(--hairline-strong)] bg-transparent text-[13px] text-foreground transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-default disabled:opacity-40 pointer-coarse:tap-area"
         disabled={codeRefusal !== null}
         title={codeRefusal ?? "Open the step's code, read-only"}
         aria-haspopup="dialog"

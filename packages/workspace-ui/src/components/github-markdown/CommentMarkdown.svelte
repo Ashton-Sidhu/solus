@@ -52,7 +52,7 @@
 {#if overflowing}
   <button
     type="button"
-    class="mt-1.5 -ml-1 inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-1 text-workspace-chrome font-normal text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10"
+    class="mt-1.5 -ml-1 inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-1 text-workspace-chrome font-normal text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
     aria-expanded={expanded}
     aria-controls={bodyId}
     onclick={toggle}

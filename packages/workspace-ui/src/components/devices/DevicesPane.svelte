@@ -291,7 +291,7 @@
       <TooltipUI.Content value="Add a device" />
     </TooltipUI.Root>
     <button type="button"
-      class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 pointer-coarse:w-auto! disabled:cursor-not-allowed disabled:opacity-50 {showRunApp ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
+      class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 disabled:cursor-not-allowed disabled:opacity-50 {showRunApp ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
       aria-pressed={showRunApp} disabled={!deviceState?.settings.enabled}
       onclick={() => deviceViewState.showRunApp(serverId, !showRunApp)}>
       {#if runActive}<LoaderCircle size={15} strokeWidth={1.5} class="animate-spin motion-reduce:animate-none" />{:else}<Package size={15} strokeWidth={1.5} />{/if}Builds{#if runActive}<span class="sr-only"> (running)</span>{/if}

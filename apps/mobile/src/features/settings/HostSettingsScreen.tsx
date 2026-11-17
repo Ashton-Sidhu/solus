@@ -1,3 +1,4 @@
+import { routeRows } from "@solus/client-core/host-route-control";
 import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsEnvironmentDetailRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useState } from "react";
@@ -105,7 +106,8 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                 <SettingsRow
                   icon="arrow.triangle.branch"
                   label="Routes"
-                  value="The addresses this device tries"
+                  valuePosition="below"
+                  value={routeRows(host, { clientOrigin: "" }).map((row) => row.url).join("\n") || "No saved routes"}
                   onPress={() => navigation.navigate("HostRoutes", { hostId })}
                 />
               </SettingsSection>

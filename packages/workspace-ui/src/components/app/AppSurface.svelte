@@ -207,7 +207,7 @@
               <button
                 {...props}
                 type="button"
-                class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 font-medium pointer-coarse:w-auto! disabled:cursor-not-allowed disabled:opacity-50"
+                class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 font-medium disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={isBusy}
                 onclick={toggleStopped}
                 data-testid="app-surface-start"

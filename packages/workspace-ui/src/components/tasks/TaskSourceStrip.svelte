@@ -112,7 +112,7 @@
           <!-- The warning is the repair: Reconnect, or read again. -->
           <button
             type="button"
-            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--warning) hover:bg-[var(--wash-3)] focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"
+            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--warning) hover:bg-[var(--wash-3)] focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
             title="{note.label}: {note.message} {health === 'not_connected' || health === 'reconnect' ? 'Click to connect.' : 'Click to read again.'}"
             aria-label="{note.label}, {row.label}. {health === 'not_connected' || health === 'reconnect' ? 'Connect' : 'Read again'}"
             onclick={() => repair(row)}
@@ -124,7 +124,7 @@
              a chip never shifts on hover. -->
         <button
           type="button"
-          class="mr-0.5 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-inherit opacity-0 transition-opacity duration-100 group-focus-within/chip:opacity-60 group-hover/chip:opacity-60 hover:opacity-100! focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9 pointer-coarse:opacity-60"
+          class="mr-0.5 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-inherit opacity-0 transition-opacity duration-100 group-focus-within/chip:opacity-60 group-hover/chip:opacity-60 hover:opacity-100! focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area pointer-coarse:opacity-60"
           title="Remove {row.label}. The tasks stay on {taskSourceProvider(row.source) === 'github' ? 'GitHub' : 'Jira'}."
           aria-label="Remove {row.label}"
           onclick={() => remove(row)}

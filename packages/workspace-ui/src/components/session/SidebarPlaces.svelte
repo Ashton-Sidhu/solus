@@ -316,7 +316,7 @@
           size="icon-sm"
           aria-label={reviewCount > 0 ? `${button.label}, ${button.reviewLabel}` : button.label}
           aria-current={button.isActive ? "page" : undefined}
-          class="relative size-8 rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground pointer-coarse:size-10 {button.isActive
+          class="relative size-8 rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground pointer-coarse:tap-area {button.isActive
             ? 'bg-card text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] hover:bg-card dark:bg-[color-mix(in_oklch,var(--card)_94%,white)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'
             : ''}"
           onclick={button.onclick}
@@ -372,8 +372,15 @@
     class="pointer-events-none absolute inset-y-0 right-0 w-[0.03125rem] bg-[linear-gradient(to_bottom,transparent,var(--color-sidebar-border)_3.5rem,var(--color-sidebar-border)_calc(100%-3.5rem),transparent)]"
     aria-hidden="true"
   ></div>
-  <div class="flex min-h-0 flex-col items-center gap-1">
-    <nav aria-label="Places" class="flex flex-col items-center gap-1">
+  <!-- Collapsed, the column has no header or sky above it, so the places
+       slide up to sit one step under the frame toggle (3.25rem down the
+       window, below the toggle row) rather than where the open header ends.
+       A translate, so the slide costs no layout and keeps the pane's curve.
+       The account footer stays at the foot. -->
+  <div
+    class="flex min-h-0 flex-col items-center gap-0.5 transition-[translate] duration-240 ease-[cubic-bezier(0.2,0,0,1)] pointer-coarse:gap-2 motion-reduce:transition-none in-[.side-panel-root--column]:translate-y-[calc(3.25rem-var(--side-panel-window-inset,5px)-var(--side-panel-head-flow,2.5rem)-var(--sidebar-head-drop,0px))]"
+  >
+    <nav aria-label="Places" class="flex flex-col items-center gap-0.5 pointer-coarse:gap-2">
       {@render place({ label: "Sessions", isActive: atSessions, onclick: showSessions, icon: SessionsIcon })}
       {#each places as item, index (item.id)}
         <div
@@ -394,7 +401,7 @@
       <!-- Many pins scroll here; the places above and the footer stay. -->
       <nav
         aria-label="Pinned apps"
-        class="flex min-h-0 w-11 flex-col items-center gap-1 overflow-y-auto pt-0.5 pb-2.5 [scrollbar-width:none]"
+        class="flex min-h-0 w-11 flex-col items-center gap-0.5 overflow-y-auto pt-0.5 pb-2.5 [scrollbar-width:none] pointer-coarse:gap-2"
         data-testid="sidebar-pinned-apps"
       >
         {#each pinnedApps as { pin, row }, index (`${pin.host}\n${pin.appId}`)}
@@ -412,7 +419,7 @@
       </nav>
     {/if}
   </div>
-  <div class="mt-auto flex flex-col items-center gap-1">
+  <div class="mt-auto flex flex-col items-center gap-0.5 pointer-coarse:gap-2">
     <SidebarAccountFooter />
   </div>
 </div>

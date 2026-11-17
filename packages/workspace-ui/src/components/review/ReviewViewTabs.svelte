@@ -77,7 +77,7 @@
       role="tab"
       aria-selected={isActive}
       title={tab.id === "guide" ? guideHint : tab.id === "lens" ? lensHint : undefined}
-      class="relative flex h-6.5 cursor-pointer items-center gap-1 rounded-full px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
+      class="relative flex h-6.5 cursor-pointer items-center gap-1 rounded-full px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
         ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
         : isUnread
           ? 'bg-transparent font-medium text-(--success) hover:bg-[var(--wash-1)]'

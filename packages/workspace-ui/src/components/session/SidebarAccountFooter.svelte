@@ -73,7 +73,7 @@
           size="icon-sm"
           aria-label={label}
           aria-current={isActive ? "page" : undefined}
-          class="relative size-8 rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground pointer-coarse:size-10 {isActive
+          class="relative size-8 rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground pointer-coarse:tap-area {isActive
             ? 'bg-card text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] hover:bg-card dark:bg-[color-mix(in_oklch,var(--card)_94%,white)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'
             : ''}"
           {onclick}
@@ -126,7 +126,7 @@
           aria-label={activeOrganizationName
             ? `Account: ${signedIn.identity.email}, organization: ${activeOrganizationName}`
             : `Account: ${signedIn.identity.email}`}
-          class="size-8 rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground data-[state=open]:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] data-[state=open]:text-foreground pointer-coarse:size-10"
+          class="size-8 rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground data-[state=open]:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] data-[state=open]:text-foreground pointer-coarse:tap-area"
         >
           <UserIcon size={16} />
         </Button>

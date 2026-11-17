@@ -7,6 +7,8 @@
  * The account's registered and managed machines come from the directory, and the
  * hosts store joins the two by host id.
  *
+ * The local database record also owns SSH and introduction settings
+ * (docs/plans/host-ownership.md). Those fields never appear in this contract.
  * A listing says what a host is and how to reach it. It never holds a credential:
  * each client keeps its own token for each host it paired.
  */

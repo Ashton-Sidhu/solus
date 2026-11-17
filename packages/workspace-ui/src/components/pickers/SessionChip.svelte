@@ -582,7 +582,7 @@
     class={cn(
       // `text-menu`, not the chrome rung. A menu is a decision surface, and
       // every other menu in the app takes `text-menu` too.
-      "overflow-visible p-0 text-menu",
+      "flex flex-col overflow-visible p-0 text-menu",
       // Capped to the window, per WP5: anchored in a 356px pane a 452px menu is
       // wider than the pane it drops out of. The cap is honest in any container
       // — it only ever says "never wider than the window".
@@ -602,7 +602,7 @@
       hoveredLevel = null;
     }}
   >
-    <div class="flex items-stretch rounded-[inherit]">
+    <div class="flex min-h-0 items-stretch rounded-[inherit]">
       {#if !modelOnly}
         <!-- The agent decides everything beside it, so it is the one surface of
              its own, the full height of the popup, set apart by tint and not by
@@ -632,11 +632,16 @@
           {/each}
         </DropdownMenu.RadioGroup>
       {/if}
-      <div class="min-w-0 flex-1">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <!-- At least 20rem tall, so the picker reads as a panel rather than a
            strip, and an open legacy list has room before it scrolls. A deeper
-           set of reasoning levels can still make it taller. -->
-      <div class={cn("flex items-stretch", !modelOnly && "min-h-80")}>
+           set of reasoning levels can still make it taller. The floor gives way
+           to the window, less 4rem for the footer, and below the window's
+           height the columns shrink and scroll. The popup is capped at the
+           available height but does not clip (the permission flyout renders
+           inside it), so columns that outgrew the cap would push the footer
+           out below the popup's edge. -->
+      <div class={cn("flex min-h-0 items-stretch", !modelOnly && "min-h-[min(20rem,calc(var(--bits-dropdown-menu-content-available-height)-4rem))]")}>
       <!-- Beside the Reasoning column the model list takes no height of its
            own: it scrolls inside the column's reserved height, so opening the
            legacy list or switching agent never resizes the popup. -->
@@ -762,7 +767,7 @@
         <!-- Short of the footer line, so the two never meet in a T. -->
         <div class="my-2 w-px shrink-0 bg-(--solus-menu-hairline)"></div>
 
-        <div class="flex w-[200px] shrink-0 flex-col p-1.5">
+        <div class="flex w-[200px] shrink-0 flex-col overflow-y-auto p-1.5">
           <DropdownMenu.RadioGroup value={isAuto || previewReasoning ? "" : reasoningEffort}>
             <!-- Which model these levels belong to is said by the model row,
                  which keeps its wash (`data-menu-preview`) while its levels
@@ -820,10 +825,10 @@
            the last row keeps it to open its flyout. The flyout opens on a click,
            never on hover: a row this close to its neighbours would open it on
            the way past. -->
-      <div class="mx-2.5 h-px bg-(--solus-menu-hairline)"></div>
+      <div class="mx-2.5 h-px shrink-0 bg-(--solus-menu-hairline)"></div>
       <div
         role="none"
-        class="flex items-center gap-1 p-1.5"
+        class="flex shrink-0 items-center gap-1 p-1.5"
         onkeydowncapture={handlePickerKeyDown}
         onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
         onfocusin={() => { hoveredModelId = null; hoveredLevel = null; }}

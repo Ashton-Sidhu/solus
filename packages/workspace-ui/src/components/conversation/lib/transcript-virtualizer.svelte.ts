@@ -320,19 +320,20 @@ export class TranscriptVirtualizer {
   /** Put the reader back where `position` found them. A row that left the
    *  transcript since then has no place to return to; the caller follows
    *  the end instead. */
-  async restore(position: TranscriptPosition): Promise<boolean> {
+  async restore(position: TranscriptPosition, isCancelled: () => boolean = () => false): Promise<boolean> {
     if (this.geometry.top(position.key) === undefined) return false
-    await this.reveal(position.key, position.offset)
-    return true
+    await this.reveal(position.key, position.offset, isCancelled)
+    return !isCancelled()
   }
 
-  async reveal(key: string, offset = 0): Promise<void> {
-    if (!this.scroll) return
+  async reveal(key: string, offset = 0, isCancelled: () => boolean = () => false): Promise<void> {
+    if (!this.scroll || isCancelled()) return
     const top = this.top(key)
     if (top === undefined) return
     this.scroll.scrollTop = top + offset
     this.refresh()
     await tick()
+    if (isCancelled()) return
     // The estimate may change when markdown and expanded cards mount.
     const measured = this.top(key)
     if (measured !== undefined && this.scroll) this.scroll.scrollTop = measured + offset

@@ -91,7 +91,7 @@
           type="button"
           role="radio"
           aria-checked={selected}
-          class="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-workspace-chrome outline-none transition-colors hover:bg-[var(--wash-2)] focus-visible:bg-[var(--wash-2)] pointer-coarse:h-10 {selected
+          class="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-workspace-chrome outline-none transition-colors hover:bg-[var(--wash-2)] focus-visible:bg-[var(--wash-2)] pointer-coarse:tap-area {selected
             ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground'}"
           onclick={() => onSet(choice.kind, noteDraft)}
@@ -124,7 +124,7 @@
         <Button
           variant="ghost"
           size="sm"
-          class="h-8 justify-start gap-2 px-1 text-workspace-chrome text-muted-foreground hover:text-foreground pointer-coarse:h-10"
+          class="h-8 justify-start gap-2 px-1 text-workspace-chrome text-muted-foreground hover:text-foreground pointer-coarse:tap-area"
           onclick={clear}
         >
           <ClearIcon class="size-3.5" aria-hidden="true" />

@@ -240,7 +240,7 @@
         type="button"
         tabindex="-1"
         aria-label={`Close ${label}`}
-        class="group/close relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-inherit hover:bg-muted pointer-coarse:size-6"
+        class="group/close relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0 text-inherit hover:bg-muted pointer-coarse:tap-area"
         onclick={() => close(index)}
       >
         <span class="relative flex size-4 items-center justify-center group-hover/tab:hidden group-focus-visible/close:hidden">
@@ -273,7 +273,7 @@
           type="button"
           aria-label="Open a new tab"
           title="Open a new tab"
-          class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"
+          class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
         >
           <PlusIcon size={14} strokeWidth={1.5} />
         </button>
@@ -319,7 +319,7 @@
           {...props}
           type="button"
           aria-label={maximized ? "Restore panel size" : "Maximize panel"}
-          class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"
+          class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
           onclick={toggleMaximize}
         >
           {#if maximized}
@@ -341,7 +341,7 @@
           {...props}
           type="button"
           aria-label="Hide pane"
-          class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"
+          class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
           onclick={hidePane}
         >
           <XIcon size={14} strokeWidth={1.5} />

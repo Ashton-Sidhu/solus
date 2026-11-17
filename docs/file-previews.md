@@ -1,6 +1,8 @@
 # File previews
 
-File-name chips in assistant messages open the Files pane with the file
+Image and video chips in assistant messages open a media dialog on desktop
+and web. Close the dialog with its close button or Escape. Mobile opens its
+native media preview. Other file-name chips open the Files pane with the file
 selected and any linked line revealed. Text files inside
 the session's project or worktree support editing and autosave on desktop,
 web, and mobile. Files outside that directory and text previews truncated at

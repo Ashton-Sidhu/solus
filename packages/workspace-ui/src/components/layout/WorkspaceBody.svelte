@@ -681,6 +681,7 @@
   class:is-resizing={isResizingSecondary}
   class:sidebar-snap={sidebarSnapForOverlay}
   class:sidebar-collapsed={!sidebarOpen || sidebarIsDrawer}
+  class:has-inset-titlebar={shell.hasInsetTitlebar}
   class:sidebar-drawer-open={isDrawerOpen}
   class:page-flush={pageFlush}
   class:project-panel-open={railOpen}
@@ -688,6 +689,19 @@
   bind:clientWidth={workspaceBodyWidth}
 >
   <OuterScrollbar target={active ? outerScrollTarget : null} />
+  {#if !shell.hasInsetTitlebar && leadingRef?.name !== "settings"}
+    <!-- With no window buttons in the corner, the corner over the places
+         column is empty, so the frame toggle takes it: centred on the place
+         icons, on the line of the conversation band or a page's chrome row.
+         Under the drawer and its scrim, which carry their own collapse. -->
+    <div
+      class="no-drag absolute left-0 z-20 flex w-(--solus-places-column-w) items-center justify-center {showLeadingBand
+        ? 'top-1 h-[2.875rem]'
+        : 'top-0 h-(--solus-chrome-row-h)'}"
+    >
+      <FrameExpandButton variant="sidebar" size="header" />
+    </div>
+  {/if}
   {#if isDrawerOpen}
     <!-- Over the conversation, under the drawer: a press beside the list puts
          it away. Escape does the same from the keyboard. -->
@@ -826,7 +840,6 @@
                           <SessionBreadcrumb
                             tabId={leadingDraft ? "" : session.activeTabId}
                             draft={leadingDraft}
-                            paneId={leadingDraft ? session.router.leadingPane.id : undefined}
                             showNewSessionAction={bandOffersNewSession}
                           />
                         {/if}
@@ -838,15 +851,11 @@
                  traffic lights. Conversations rely on it too now: the chrome
                  row that used to carry their sidebar toggle is gone, and the
                  capsule is centred, so nothing collides at the left edge.
-                 Without an inset titlebar it centres on the row it sits in:
-                 the conversation band, or a page's own chrome row. -->
-                        {#if leadingRef?.name !== "settings"}
+                 Without an inset titlebar the toggle sits in the window's
+                 corner, over the places column (see the body's first child). -->
+                        {#if shell.hasInsetTitlebar && leadingRef?.name !== "settings"}
                           <div
-                            class="no-drag absolute left-(--solus-chrome-control-left) z-20 flex {shell.hasInsetTitlebar
-                              ? 'top-[var(--solus-titlebar-control-top)]'
-                              : showLeadingBand
-                                ? 'top-1 h-[2.875rem] items-center'
-                                : 'top-0 h-(--solus-chrome-row-h) items-center'}"
+                            class="no-drag absolute top-[var(--solus-titlebar-control-top)] left-(--solus-chrome-control-left) z-20 flex"
                           >
                             <FrameExpandButton variant="sidebar" size="header" />
                           </div>
@@ -1185,9 +1194,10 @@
      lights. Publish the lead inset here (not on the whole content column, which
      also holds the right-hand secondary pane) so only the leftmost surface
      reserves the space. The secondary pane provides its own inset when
-     maximized. No-op off the mac workspace window (the inset var is 0). */
-  .workspace-body.sidebar-collapsed .workspace-column,
-  .workspace-body.sidebar-collapsed .primary-column {
+     maximized. Only with an inset titlebar: elsewhere the toggle sits over
+     the places column, so the column has nothing to clear. */
+  .workspace-body.has-inset-titlebar.sidebar-collapsed .workspace-column,
+  .workspace-body.has-inset-titlebar.sidebar-collapsed .primary-column {
     /* The frame toggle owns the first safe app-control slot: one control gap
        after the traffic lights in window space, so the lights, the toggle,
        and the header read as one row whether or not the column has a gutter.

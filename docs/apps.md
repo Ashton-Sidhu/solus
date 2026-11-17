@@ -384,8 +384,9 @@ Where the copy runs:
   app's host reaches for you. The container runs there, and the app stays
   where it is.
 - **Solus Cloud.** The copy runs while each host of yours is off, and sleeps
-  when nobody uses it. Not open yet: Solus Cloud needs a domain for apps
-  (`docs/plans/app-deploy.md` §8.3).
+  when nobody uses it. It starts by itself for its next schedule. Its address
+  is `<app>-<five characters>-app.solus.sh`. It needs you signed in to Solus
+  on the host of the app, and you have ten copies at most.
 
 The section says what a place lacks before you publish: Docker that does not
 run, or no sign-in to Solus.

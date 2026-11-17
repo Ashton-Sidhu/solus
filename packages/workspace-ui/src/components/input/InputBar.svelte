@@ -606,20 +606,6 @@
     },
     { enabled: () => ownsComposerShortcuts },
   );
-  // The task picker sits in the session breadcrumb. The shortcut names this
-  // composer's pane so only its breadcrumb answers.
-  useKeybinding(
-    "global.session-task-picker",
-    () => {
-      composerEl?.focus();
-      window.dispatchEvent(
-        new CustomEvent("solus:toggle-session-task-picker", {
-          detail: { paneId: paneId ?? null },
-        }),
-      );
-    },
-    { enabled: () => ownsComposerShortcuts },
-  );
   // ─── Reference composer wiring ───
 
   /** Keep the target tab's plan/work/session refs in sync with the editor's tokens. */
@@ -770,9 +756,7 @@
            mic and send are chrome: the text preference grows prose relative to
            the controls, not with them (ADR-0013). -->
       <div
-        class="flex shrink-0 items-center gap-1 pointer-coarse:gap-2 {isTouch
-          ? 'pb-0.5'
-          : 'pb-1.5'}"
+        class="flex shrink-0 items-center gap-1 pb-1.5 pointer-coarse:gap-2"
       >
         {@render actionButtons()}
       </div>
@@ -870,9 +854,7 @@
               : canSteer
                 ? "Steer the live turn"
                 : "Send message"}
-            class="group pointer-coarse:tap-area flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isTouch
-              ? 'size-9'
-              : 'size-[1.875rem]'} {stopsRun
+            class="group pointer-coarse:tap-area flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {stopsRun
               ? 'text-white'
               : canSend
                 ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'

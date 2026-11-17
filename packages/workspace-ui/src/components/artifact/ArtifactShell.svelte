@@ -282,7 +282,7 @@
     {#if canSendComments}
       <Button
         size="sm"
-        class="h-[1.625rem] shrink-0 gap-1 rounded-full px-2.5 text-workspace-chrome pointer-coarse:h-10"
+        class="h-[1.625rem] shrink-0 gap-1 rounded-full px-2.5 text-workspace-chrome pointer-coarse:tap-area"
         title={`Send the open comments to an agent (${comboHint("artifact.send-comments")})`}
         disabled={sendingComments}
         data-testid="artifact-shell-send-comments"

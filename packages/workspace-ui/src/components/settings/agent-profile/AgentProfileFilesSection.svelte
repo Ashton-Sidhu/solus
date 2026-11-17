@@ -48,7 +48,7 @@
           </span>
         {/snippet}
         {#snippet action()}
-          <Button variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-destructive pointer-coarse:size-11" onclick={() => remove(agentProfileKeyOf(file))} aria-label="Remove {file.path}" title="Remove">
+          <Button variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area" onclick={() => remove(agentProfileKeyOf(file))} aria-label="Remove {file.path}" title="Remove">
             <Trash2 size={14} />
           </Button>
         {/snippet}

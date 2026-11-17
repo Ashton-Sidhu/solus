@@ -1,15 +1,13 @@
-import { join } from 'path'
-import { z } from 'zod'
 import { normalizeServerUrl } from '@solus/client-core/pairing'
 import { readHostHealth, refreshHostSession, type HostHealth } from '@solus/client-core/host-http'
 import type { HostIntroduction, IntroducedHostsSummary } from '@solus/contracts/host-api'
 import { getInstallationId, issueSessionToken, revokeDevice } from '../../admission/auth'
 import { createLogger } from '../../logger'
 import { hostDisplayName } from '../../platform/host-display-name'
-import { dataDir } from '../../platform/paths'
-import { secretStore } from '../../platform/secrets'
+import { readHostRecords, findHostRecord, saveHostRecord, saveHostConnection, hostCredential, removeHostConnection, removeHostListing, onHostRecordRemoved } from '../../host/host-list'
 import { hostIdentity } from '../../host/host-identity'
-import { hostIdentityKeySchema, newHealthNonce, routeNeedsProof } from '@solus/contracts/host-identity'
+import { newHealthNonce, routeNeedsProof } from '@solus/contracts/host-identity'
+import { routeForUrl } from '@solus/contracts/host-routes'
 import { verifyHostProof } from '@solus/contracts/host-proof'
 
 const log = createLogger('orchestration', 'introduced-hosts.ts')
@@ -17,27 +15,20 @@ const log = createLogger('orchestration', 'introduced-hosts.ts')
 /** A token older than this is refreshed at the next dial, so a host in use never reaches the 30-day expiry. */
 const REFRESH_AFTER_MS = 24 * 60 * 60 * 1000
 const PROBE_TIMEOUT_MS = 5_000
-const SECRET_KEY = 'introduced-hosts'
-
-const introducedHostSchema = z.object({
-  installationId: z.string().min(1),
-  label: z.string(),
-  url: z.string().min(1),
-  sessionToken: z.string().min(1),
-  identityKey: hostIdentityKeySchema,
-  introducedAt: z.number(),
-  refreshedAt: z.number(),
-  /** The device on this host that the introduced host uses to reach this one. */
-  grantedDeviceId: z.string().min(1),
-})
-type IntroducedHost = z.infer<typeof introducedHostSchema>
-const storedSchema = z.object({
-  hosts: z.array(introducedHostSchema),
-  /** Hosts the person forgot here: no client introduces them again until they are allowed. */
-  refused: z.array(z.object({ installationId: z.string().min(1), label: z.string() })),
-})
-type Stored = z.infer<typeof storedSchema>
-
+interface IntroducedHost {
+  installationId: string
+  label: string
+  url: string
+  sessionToken: string
+  identityKey: string
+  introducedAt: number
+  refreshedAt: number
+  grantedDeviceId: string
+}
+interface Stored {
+  hosts: IntroducedHost[]
+  refused: Array<{ installationId: string; label: string }>
+}
 
 /** This host, as an introduction needs it. */
 export interface IntroductionSelf {
@@ -71,7 +62,15 @@ export class IntroducedHosts {
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly now: () => number = Date.now,
     private readonly self: IntroductionSelf = thisHost,
-  ) {}
+  ) {
+    this.stopRemoval = onHostRecordRemoved((record) => {
+      if (record.introduction) this.self.revokeDevice(record.introduction.grantedDeviceId)
+    })
+  }
+
+  private readonly stopRemoval: () => void
+
+  dispose(): void { this.stopRemoval() }
 
   list(): IntroducedHostsSummary {
     const { hosts, refused } = this.load()
@@ -110,11 +109,10 @@ export class IntroducedHosts {
       if (!health) continue
       const sessionToken = await this.exchange(url, introduction.sessionToken)
       if (!sessionToken || sessionToken === 'refused') break
+      if (this.isRefused(introduction.installationId)) break
       const now = this.now()
       this.remove(introduction.installationId, grantedDeviceId)
-      const stored = this.load()
-      stored.hosts.push({ installationId: introduction.installationId, label: health.name ?? introduction.label, url, sessionToken, identityKey: introduction.identityKey, introducedAt: now, refreshedAt: now, grantedDeviceId })
-      this.save(stored)
+      this.save({ installationId: introduction.installationId, label: health.name ?? introduction.label, url, sessionToken, identityKey: introduction.identityKey, introducedAt: now, refreshedAt: now, grantedDeviceId })
       log.info('host_introduced', { installationId: introduction.installationId })
       return
     }
@@ -125,21 +123,17 @@ export class IntroducedHosts {
 
   /** Forgets an introduced host here, revokes its device, and refuses it until `allow`. */
   forget(installationId: string): boolean {
-    const host = this.remove(installationId)
-    if (!host) return false
-    const stored = this.load()
-    stored.refused.push({ installationId, label: host.label })
-    this.save(stored)
-    log.info('introduced_host_forgotten', { installationId })
-    return true
+    const forgotten = removeHostListing(installationId)
+    if (forgotten) log.info('introduced_host_forgotten', { installationId })
+    return forgotten
   }
 
   /** Lets clients introduce a forgotten host again. */
   allow(installationId: string): boolean {
-    const stored = this.load()
-    const refused = stored.refused.filter((entry) => entry.installationId !== installationId)
-    if (refused.length === stored.refused.length) return false
-    this.save({ ...stored, refused })
+    const record = findHostRecord(installationId)
+    if (!record?.forgotten) return false
+    // Allow removes the refusal; it does not restore a credential or a forward.
+    saveHostRecord({ ...record, forgotten: false })
     return true
   }
 
@@ -155,8 +149,10 @@ export class IntroducedHosts {
       log.warn('introduced_host_not_proven', { installationId })
       return null
     }
+    if (hostCredential(installationId, 'introduction') !== host.sessionToken) return null
     if (this.now() - host.refreshedAt < REFRESH_AFTER_MS) return host.sessionToken
     const refreshed = await this.exchange(host.url, host.sessionToken)
+    if (hostCredential(installationId, 'introduction') !== host.sessionToken) return null
     if (refreshed === 'refused') {
       this.remove(installationId)
       log.info('introduced_host_revoked_there', { installationId })
@@ -168,13 +164,13 @@ export class IntroducedHosts {
     if (kept) {
       kept.sessionToken = refreshed
       kept.refreshedAt = this.now()
-      this.save(stored)
+      this.save(kept)
     }
     return refreshed
   }
 
   private isRefused(installationId: string): boolean {
-    return this.load().refused.some((entry) => entry.installationId === installationId)
+    return findHostRecord(installationId)?.forgotten ?? false
   }
 
   /** Removes one introduced host and revokes its device here, unless it is `keepDeviceId`. */
@@ -182,7 +178,7 @@ export class IntroducedHosts {
     const stored = this.load()
     const host = stored.hosts.find((candidate) => candidate.installationId === installationId)
     if (!host) return null
-    this.save({ ...stored, hosts: stored.hosts.filter((candidate) => candidate !== host) })
+    removeHostConnection(installationId, 'introduction')
     if (host.grantedDeviceId !== keepDeviceId) this.self.revokeDevice(host.grantedDeviceId)
     return host
   }
@@ -206,14 +202,21 @@ export class IntroducedHosts {
   }
 
   private load(): Stored {
-    return secretStore().loadJson(SECRET_KEY, secretFile(), storedSchema) ?? { hosts: [], refused: [] }
+    const records = readHostRecords()
+    return {
+      hosts: records.flatMap(({ listing, introduction, forgotten }) => {
+        const sessionToken = hostCredential(listing.installationId, 'introduction')
+        if (forgotten || !introduction || !sessionToken || !listing.identityKey) return []
+        return [{ ...introduction, installationId: listing.installationId, label: listing.label,
+          identityKey: listing.identityKey, sessionToken }]
+      }),
+      refused: records.filter((record) => record.forgotten).map(({ listing }) => ({ installationId: listing.installationId, label: listing.label })),
+    }
   }
 
-  private save(stored: Stored): void {
-    secretStore().saveJson(SECRET_KEY, secretFile(), stored)
+  private save({ installationId, label, identityKey, sessionToken, ...settings }: IntroducedHost): void {
+    saveHostConnection({ id: installationId, installationId, label, identityKey,
+      lastConnected: this.now(), routes: [routeForUrl(settings.url)] },
+    { kind: 'introduction', settings, token: sessionToken })
   }
-}
-
-function secretFile(): string {
-  return join(dataDir(), 'introduced-hosts.bin')
 }

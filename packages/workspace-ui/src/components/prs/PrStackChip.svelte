@@ -54,7 +54,7 @@
       <button
         {...props}
         type="button"
-        class="ml-2 flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-1.5 text-xs text-muted-foreground tabular-nums transition-colors hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:h-10 {open
+        class="ml-2 flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border-0 bg-transparent px-1.5 text-xs text-muted-foreground tabular-nums transition-colors hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:tap-area {open
           ? 'bg-[var(--wash-2)] text-foreground'
           : ''}"
         aria-label="Stack, layer {membership.position} of {membership.size}"

@@ -57,8 +57,8 @@
         </button>
       </h3>
       <div class="flex shrink-0 gap-0.5 pr-0.5 {open ? '' : 'invisible'}">
-        <Carousel.Previous class="static size-6 border-0 bg-transparent shadow-none pointer-coarse:size-9" />
-        <Carousel.Next class="static size-6 border-0 bg-transparent shadow-none pointer-coarse:size-9" />
+        <Carousel.Previous class="static size-6 border-0 bg-transparent shadow-none pointer-coarse:tap-area" />
+        <Carousel.Next class="static size-6 border-0 bg-transparent shadow-none pointer-coarse:tap-area" />
       </div>
     </div>
     <!-- Closed, the row stays mounted and leaves the tab order when the body has shut. -->

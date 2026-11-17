@@ -111,7 +111,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="size-6.5 pointer-coarse:size-12"
+          class="size-6.5 pointer-coarse:tap-area"
           aria-label="Previous version"
           title="Previous version"
           disabled={selectedIndex === 0}
@@ -120,7 +120,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="size-6.5 pointer-coarse:size-12"
+          class="size-6.5 pointer-coarse:tap-area"
           aria-label="Next version"
           title="Next version"
           disabled={selected === latest}

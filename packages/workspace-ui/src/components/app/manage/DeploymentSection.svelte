@@ -186,7 +186,7 @@
             {#snippet control()}
               <span class="min-w-0 truncate font-mono text-[13px] text-foreground select-text" title={view.address}>{deploymentAddressText(view.address ?? "")}</span>
               <CopyButton text={link} title={view.access === "link" ? "Copy the link" : "Copy the address"} iconOnly refocusInput={false} />
-              <Button size="icon-xs" variant="ghost" class="shrink-0 text-muted-foreground hover:text-foreground pointer-coarse:size-9" title="Open the app" aria-label="Open the app in a browser" onclick={() => void localApi.openExternal(link)}>
+              <Button size="icon-xs" variant="ghost" class="shrink-0 text-muted-foreground hover:text-foreground pointer-coarse:tap-area" title="Open the app" aria-label="Open the app in a browser" onclick={() => void localApi.openExternal(link)}>
                 <OpenIcon size={14} />
               </Button>
             {/snippet}

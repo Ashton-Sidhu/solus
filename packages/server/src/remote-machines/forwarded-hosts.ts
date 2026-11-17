@@ -1,12 +1,9 @@
-import { join } from 'path'
-import { z } from 'zod'
-import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
+import type { HostListing } from '@solus/contracts/host-list'
 import { EARLIER_ROUTE_RECHECK_MS, type HostRoute } from '@solus/contracts/host-routes'
 import type { ForwardedHost, ForwardedHostState } from '@solus/contracts/remote-machines'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import { createLogger } from '../logger'
-import { dataDir } from '../platform/paths'
-import { secretStore } from '../platform/secrets'
+import { readHostRecords, saveHostConnection, hostCredential, removeHostListing, onHostRecordRemoved } from '../host/host-list'
 import type { SshTarget } from '../platform/ssh'
 import { AuthNeeded } from './ssh-provisioner'
 import type { MachineClient, MachineForward } from './wsl'
@@ -31,26 +28,23 @@ const log = createLogger('main', 'forwarded-hosts')
  * succeed, and a refused password counts against the account on the machine.
  */
 
-const SECRET_KEY = 'forwarded-hosts'
 const FIRST_RETRY_MS = 1_000
 /** A forward retries at most this often; a linked host also has its tunnel meanwhile (D9). */
 const MAX_RETRY_MS = EARLIER_ROUTE_RECHECK_MS
 
-const recordSchema = z.object({
-  installationId: z.string().min(1),
-  label: z.string(),
-  sshTarget: z.string().min(1),
-  identityFile: z.string().min(1).optional(),
-  os: z.enum(['macos', 'windows', 'linux']).optional(),
-  remotePort: z.number().int().positive(),
-  localPort: z.number().int().positive().optional(),
-  identityKey: hostIdentityKeySchema,
-  sessionToken: z.string().min(1),
-  startedBySolus: z.boolean(),
-  isLinked: z.boolean(),
-})
-type ForwardRecord = z.infer<typeof recordSchema>
-const storedSchema = z.object({ hosts: z.array(recordSchema) })
+interface ForwardRecord {
+  installationId: string
+  label: string
+  sshTarget: string
+  identityFile?: string
+  os?: HostOperatingSystem
+  remotePort: number
+  localPort?: number
+  identityKey: string
+  sessionToken: string
+  startedBySolus: boolean
+  isLinked: boolean
+}
 
 /** What a new forward needs: the host an add made, and this host's session there. */
 export interface NewForward {
@@ -92,7 +86,16 @@ export class ForwardedHosts {
   private readonly authSecrets = new Map<string, string>()
   private isClosed = false
 
-  constructor(private readonly deps: ForwardedHostsDeps) {}
+  private readonly stopRemoval: () => void
+
+  constructor(private readonly deps: ForwardedHostsDeps) {
+    this.stopRemoval = onHostRecordRemoved(({ listing }) => {
+      this.close(listing.installationId)
+      this.live.delete(listing.installationId)
+      this.authSecrets.delete(listing.installationId)
+      this.notify()
+    })
+  }
 
   /** Opens every saved forward. */
   start(): void {
@@ -105,7 +108,6 @@ export class ForwardedHosts {
 
   /** Saves the host and opens its forward. Resolves when the forward answers, or fails. */
   async add(host: NewForward): Promise<ForwardedHost> {
-    const stored = this.load().filter((record) => record.installationId !== host.installationId)
     const record: ForwardRecord = {
       installationId: host.installationId,
       label: host.label,
@@ -119,7 +121,8 @@ export class ForwardedHosts {
     if (host.target.identityFile) record.identityFile = host.target.identityFile
     if (host.os) record.os = host.os
     this.close(host.installationId)
-    this.save([...stored, record])
+    this.live.delete(host.installationId)
+    this.save(record)
     if (host.authSecret) this.authSecrets.set(host.installationId, host.authSecret)
     else this.authSecrets.delete(host.installationId)
     await this.open(record)
@@ -164,26 +167,21 @@ export class ForwardedHosts {
     const record = stored.find((candidate) => candidate.installationId === installationId)
     if (!record || record.isLinked) return
     record.isLinked = true
-    this.save(stored)
+    this.save(record)
     this.notify()
   }
 
   /** Closes the forward and forgets the host. */
   remove(installationId: string): boolean {
-    const stored = this.load()
-    if (!stored.some((record) => record.installationId === installationId)) return false
-    this.close(installationId)
-    this.live.delete(installationId)
-    this.authSecrets.delete(installationId)
-    this.save(stored.filter((record) => record.installationId !== installationId))
-    this.notify()
-    log.info('forwarded_host_removed', { installationId })
-    return true
+    const removed = removeHostListing(installationId)
+    if (removed) log.info('forwarded_host_removed', { installationId })
+    return removed
   }
 
   /** Closes every forward; the records stay for the next start. */
   closeAll(): void {
     this.isClosed = true
+    this.stopRemoval()
     for (const installationId of this.live.keys()) this.close(installationId)
   }
 
@@ -200,6 +198,7 @@ export class ForwardedHosts {
         if (error instanceof AuthNeeded) throw error
         return null
       }) ?? record.remotePort
+      if (this.isClosed || this.live.get(record.installationId) !== live) return
       const forward = await this.deps.ssh.forward(target, remotePort, '/health', record.localPort, authSecret)
       if (this.isClosed || this.live.get(record.installationId) !== live) {
         forward.close()
@@ -283,7 +282,7 @@ export class ForwardedHosts {
     if (!record || (record.localPort === ports.localPort && record.remotePort === ports.remotePort)) return
     record.localPort = ports.localPort
     record.remotePort = ports.remotePort
-    this.save(stored)
+    this.save(record)
   }
 
   private notify(): void {
@@ -295,11 +294,19 @@ export class ForwardedHosts {
   }
 
   private load(): ForwardRecord[] {
-    return secretStore().loadJson(SECRET_KEY, secretFile(), storedSchema)?.hosts ?? []
+    return readHostRecords().flatMap(({ listing, forward, forgotten }) => {
+      const sessionToken = hostCredential(listing.installationId, 'forward')
+      if (forgotten || !forward || !sessionToken || !listing.identityKey) return []
+      return [{ ...forward, installationId: listing.installationId, label: listing.label,
+        os: listing.os, identityKey: listing.identityKey, sessionToken }]
+    })
   }
 
-  private save(hosts: ForwardRecord[]): void {
-    secretStore().saveJson(SECRET_KEY, secretFile(), { hosts })
+  private save({ installationId, label, os, identityKey, sessionToken, ...settings }: ForwardRecord): void {
+    const listing: HostListing = { id: installationId, installationId, label, identityKey,
+      lastConnected: Date.now(), routes: settings.localPort ? [{ kind: 'forwarded', url: `http://127.0.0.1:${settings.localPort}`, viaHostId: this.deps.selfInstallationId(), source: 'ssh' }] : [] }
+    if (os) listing.os = os
+    saveHostConnection(listing, { kind: 'forward', settings, token: sessionToken })
   }
 }
 
@@ -307,8 +314,4 @@ function recordTarget(record: ForwardRecord): SshTarget {
   const target = parseSshTarget(record.sshTarget)
   if (record.identityFile) target.identityFile = record.identityFile
   return target
-}
-
-function secretFile(): string {
-  return join(dataDir(), 'forwarded-hosts.bin')
 }

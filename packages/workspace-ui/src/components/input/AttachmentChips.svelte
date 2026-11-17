@@ -194,7 +194,7 @@
         type="button"
         {@attach (el) => el.focus()}
         onclick={(e) => { e.stopPropagation(); closePreview() }}
-        class="absolute top-4 right-4 flex size-9 items-center justify-center rounded-full bg-white/15 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white pointer-coarse:size-11"
+        class="absolute top-4 right-4 flex size-9 items-center justify-center rounded-full bg-white/15 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white pointer-coarse:tap-area"
         title="Close (Esc)"
         aria-label="Close preview"
       >

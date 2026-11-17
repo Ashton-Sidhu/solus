@@ -208,7 +208,7 @@
     <Button
       type="button"
       variant="ghost"
-      class="inline-flex h-full shrink-0 cursor-pointer items-center justify-center rounded-none border-0 bg-transparent px-0 text-inherit shadow-none hover:text-inherit pointer-coarse:w-10 {layout === 'band'
+      class="inline-flex h-full shrink-0 cursor-pointer items-center justify-center rounded-none border-0 bg-transparent px-0 text-inherit shadow-none hover:text-inherit pointer-coarse:tap-area {layout === 'band'
         ? 'w-6 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)]'
         : 'w-7 hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)]'}"
       disabled={!!running}

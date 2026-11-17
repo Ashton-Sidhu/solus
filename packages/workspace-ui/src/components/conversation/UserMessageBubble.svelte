@@ -435,7 +435,7 @@
               aria-label="Download {attachmentDownloadName(a)}"
               title="Download"
               onclick={() => download(a)}
-              class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-primary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:size-11"
+              class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-primary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:tap-area"
             >
               <DownloadIcon size={16} aria-hidden="true" />
             </button>

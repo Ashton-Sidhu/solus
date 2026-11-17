@@ -336,7 +336,7 @@
         </div>
         <button
           type="button"
-          class="flex h-7.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-3 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45 pointer-coarse:h-[30px] pointer-coarse:px-[13px]"
+          class="flex h-7.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-3 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45 pointer-coarse:tap-area "
           onclick={submitDescription}
           disabled={!description.trim()}
         >

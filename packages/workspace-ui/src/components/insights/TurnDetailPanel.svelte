@@ -289,7 +289,7 @@
   <Button
     variant="ghost"
     size="sm"
-    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:h-10 @max-[44rem]:w-6.5 @max-[44rem]:px-0 @max-[44rem]:pointer-coarse:w-10"
+    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:tap-area @max-[44rem]:w-6.5 @max-[44rem]:px-0 @max-[44rem]:pointer-coarse:w-10"
     disabled={!sessionId}
     title="Open the conversation this turn belongs to"
     aria-label="Open session"
@@ -301,7 +301,7 @@
   <Button
     variant="ghost"
     size="sm"
-    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:h-10 @max-[44rem]:w-6.5 @max-[44rem]:px-0 @max-[44rem]:pointer-coarse:w-10"
+    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:tap-area @max-[44rem]:w-6.5 @max-[44rem]:px-0 @max-[44rem]:pointer-coarse:w-10"
     disabled={!sessionId}
     title={taskTitle ? `Open task: ${taskTitle}` : "Open the task this turn ran under"}
     aria-label="Open task"
@@ -317,7 +317,7 @@
           {...props}
           variant="ghost"
           size="icon"
-          class="size-6.5 rounded-full bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] aria-expanded:text-foreground pointer-coarse:size-10"
+          class="size-6.5 rounded-full bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] aria-expanded:text-foreground pointer-coarse:tap-area"
           title="More actions"
           aria-label="More actions"
         >

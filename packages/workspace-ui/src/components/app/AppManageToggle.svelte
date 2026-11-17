@@ -30,7 +30,7 @@
       <button
         {...props}
         type="button"
-        class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 font-medium pointer-coarse:w-auto! {isManage ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
+        class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 font-medium {isManage ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
         aria-pressed={isManage}
         aria-label={problemTone ? `Manage, ${problemsLabel(problemCount)}` : "Manage"}
         onclick={() => onSelect(isManage ? "app" : "manage")}

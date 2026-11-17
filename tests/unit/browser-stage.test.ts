@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   fillSize,
+  FillViewport,
   fitStage,
   placeGuest,
   resizeViewport,
@@ -20,6 +21,63 @@ function viewport(presetId: string, orientation: 'portrait' | 'landscape' = 'por
   if (!preset) throw new Error(`missing preset ${presetId}`)
   return viewportFor(preset, orientation)
 }
+
+describe('shared fill viewport', () => {
+  test('two panes settle after their local resize instead of answering each other', () => {
+    const desktop = new FillViewport()
+    const web = new FillViewport()
+    let shared = resolveViewport({ mode: 'fill', width: 1280, height: 800 })
+    const first = desktop.update('page', true, shared, 1193, 1129)
+    expect(first).toEqual({ mode: 'fill', width: 1193, height: 1129 })
+    shared = resolveViewport(first!)
+    const second = web.update('page', true, shared, 517, 660)
+    expect(second).toEqual({ mode: 'fill', width: 517, height: 660 })
+    shared = resolveViewport(second!)
+
+    // Publishing the second pane's size must not start the observed RPC loop.
+    expect(desktop.update('page', true, shared, 1193, 1129)).toBeNull()
+    expect(web.update('page', true, shared, 517, 660)).toBeNull()
+
+    const resized = desktop.update('page', true, shared, 1000, 900)
+    expect(resized).toEqual({ mode: 'fill', width: 1000, height: 900 })
+    shared = resolveViewport(resized!)
+    expect(web.update('page', true, shared, 517, 660)).toBeNull()
+    expect(fitStage(shared, 517, 660).scale).toBe(0.517)
+
+    // A mobile Fit to screen command must also survive the next publication.
+    shared = resolveViewport({ mode: 'fill', width: 390, height: 700 })
+    expect(desktop.update('page', true, shared, 1000, 900)).toBeNull()
+    expect(web.update('page', true, shared, 517, 660)).toBeNull()
+  })
+
+  test('a pane already at the shared size still remembers its local measurement', () => {
+    const pane = new FillViewport()
+    const shared = resolveViewport({ mode: 'fill', width: 517, height: 660 })
+    expect(pane.update('page', true, shared, 517, 660)).toBeNull()
+    const remote = resolveViewport({ mode: 'fill', width: 1193, height: 1129 })
+    expect(pane.update('page', true, remote, 517, 660)).toBeNull()
+  })
+
+  test('hidden and unmeasured panes wait; activation and page switches can size the page', () => {
+    const pane = new FillViewport()
+    const shared = resolveViewport({ mode: 'fill', width: 1280, height: 800 })
+    const request = { mode: 'fill', width: 517, height: 660 }
+    expect(pane.update('page', false, shared, 517, 660)).toBeNull()
+    expect(pane.update('page', true, shared, 0, 0)).toBeNull()
+    expect(pane.update('page', true, shared, 517, 660)).toEqual(request)
+    expect(pane.update('page', false, shared, 517, 660)).toBeNull()
+    expect(pane.update('page', true, shared, 517, 660)).toEqual(request)
+    expect(pane.update('other-page', true, shared, 517, 660)).toEqual(request)
+  })
+
+  test('remote mode changes do not turn a stationary pane into a resize command', () => {
+    const pane = new FillViewport()
+    expect(pane.update('page', true, viewport('iphone-15'), 517, 660)).toBeNull()
+    const shared = resolveViewport({ mode: 'fill', width: 390, height: 700 })
+    expect(pane.update('page', true, shared, 517, 660)).toBeNull()
+    expect(pane.update('page', true, shared, 600, 700)).toEqual({ mode: 'fill', width: 600, height: 700 })
+  })
+})
 
 describe('browser stage', () => {
   test('a device larger than the pane is scaled down, never narrowed', () => {

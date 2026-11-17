@@ -1,5 +1,8 @@
 # Host routes: learned routes, host identity, and adding a machine over SSH
 
+The local persistence and Forget rules are now defined in
+[Host record ownership](host-ownership.md), 2026-11-17.
+
 Status: implemented, 2026-10-25. Tested on Linux (omarchy) and Windows hosts; see §11.
 
 Amended 2026-10-25 (implementation). Where the text below differs, this list wins:
@@ -674,3 +677,22 @@ The account's short grant is not a paired token. D3 lets it travel on a proven
    pairing at such an address now saves that kind. A cloud that validates the kind
    with its own older enum would refuse the write. Check this before a release.
 3. Should the account grant also keep off plain `http:` routes? This is D3 as it is.
+
+### 12.9 Host settings visibility (2026-11-17)
+
+The desktop and web host overview shows Routes directly. For a saved remote,
+these are the routes this client tries, with the existing order and remove
+controls. A web host reached through the page connection also shows its routes,
+even when it has no saved remote record. Its routes are read-only.
+
+The desktop's own host shows the routes from its server info, read-only. These
+are addresses for other devices, not routes used by the desktop's IPC connection.
+Loading and failed reads have separate messages. Network settings remain in
+Access. Mobile host settings show saved route addresses below the Routes label;
+the row opens the existing route controls.
+
+Mobile Add Host uses the T3 Code grouped Address and Code rows. Pasting a
+pairing link or scanning a QR code fills the two fields separately. Continue
+checks the host before the trust step. The person can edit the code without
+editing a URL. Hosts that trust the local network still need no code. Providers
+and RPC contracts do not change.

@@ -50,7 +50,7 @@
       <Button
         size="icon-xs"
         variant="ghost"
-        class="shrink-0 text-muted-foreground hover:text-foreground pointer-coarse:size-9"
+        class="shrink-0 text-muted-foreground hover:text-foreground pointer-coarse:tap-area"
         title="Remove {row.name}"
         aria-label="Remove {row.name}"
         {disabled}

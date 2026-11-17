@@ -448,7 +448,7 @@
                     variant="ghost"
                     size="xs"
                     disabled={busy}
-                    class="h-6 cursor-pointer gap-1 rounded-md bg-[var(--wash-3)] px-2 text-xs font-medium text-foreground opacity-0 transition-opacity hover:bg-[var(--wash-3)] focus-visible:opacity-100 pointer-fine:group-hover/reviewer:opacity-100 pointer-coarse:size-7 pointer-coarse:px-0 pointer-coarse:opacity-100"
+                    class="h-6 cursor-pointer gap-1 rounded-md bg-[var(--wash-3)] px-2 text-xs font-medium text-foreground opacity-0 transition-opacity hover:bg-[var(--wash-3)] focus-visible:opacity-100 pointer-fine:group-hover/reviewer:opacity-100 pointer-coarse:tap-area pointer-coarse:opacity-100"
                     aria-label={action.kind === "remove"
                       ? `Remove ${reviewer.login} as a requested reviewer`
                       : `Request another review from ${reviewer.login}`}

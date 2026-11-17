@@ -469,6 +469,14 @@ describe('pairing input', () => {
     expect(decodePairInput('http://10.0.0.8:51234/pair#token=abc')).toEqual({ kind: 'link', url: 'http://10.0.0.8:51234', pairToken: 'abc' })
   })
 
+  test('a pasted link can fill separate fields, then accept a corrected code', () => {
+    const input = decodePairInput('https://studio.example.com/pair#token=old-code')
+    expect(input.kind).toBe('link')
+    if (input.kind !== 'link') throw new Error('Expected a pairing link')
+    expect(input.url).not.toContain('token')
+    expect(decodePairInput(input.url, ' new-code ')).toEqual({ kind: 'address', url: 'https://studio.example.com', pairToken: 'new-code' })
+  })
+
   test('a bare address assumes the Solus port and takes the typed code', () => {
     expect(decodePairInput('10.0.0.8', ' ABC123 ')).toEqual({ kind: 'address', url: 'http://10.0.0.8:3000', pairToken: 'ABC123' })
   })

@@ -1,10 +1,11 @@
+import { forgetHostConnections, type HostConnectionOwner } from '@solus/client-core/forget-host'
 import type { HostSupervisor } from '@solus/client-core/host-supervisor'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostFact, HostFacts } from '@solus/client-core/host-facts'
 import type { HostDiagnostics } from '@solus/client-core/host-diagnostics'
 import type { AddressReader } from '@solus/client-core/host-connection-check'
-import { HostIntroducer, type IntroducerHost } from '@solus/client-core/host-introducer'
+import { HostIntroducer } from '@solus/client-core/host-introducer'
 import { answersAsSavedHost, HostLink, isSavedHost, type LinkTransport, type SavedHostIdentity } from '@solus/client-core/host-link'
 import { readHostHealth } from '@solus/client-core/host-http'
 import { routeNeedsProof } from '@solus/contracts/host-identity'
@@ -306,15 +307,20 @@ export class HostConnections {
     return [...this.connections.values()].filter((connection) => connection.state.readiness === 'ready')
   }
 
+  /** Stop host-owned connections before removing this client's pairing. */
+  async forgetHost(installationId: string, routes: readonly HostRoute[]): Promise<void> {
+    await forgetHostConnections(installationId, routes, await this.ownedHosts())
+  }
+
   /** The connected hosts where this phone is the local owner. */
-  private async ownedHosts(): Promise<IntroducerHost[]> {
+  private async ownedHosts(): Promise<HostConnectionOwner[]> {
     const connected = this.readyConnections()
-    const hosts = await Promise.all(connected.map(async (connection): Promise<IntroducerHost | null> => {
+    const hosts = await Promise.all(connected.map(async (connection): Promise<HostConnectionOwner | null> => {
       const info = await connection.facts.when('serverInfo').catch(() => null)
       const host = this.deps.registry.host(connection.hostId)
       return info?.principal === 'local-owner' && host ? { installationId: host.id, label: host.label, api: connection.api } : null
     }))
-    return hosts.filter((host): host is IntroducerHost => host !== null)
+    return hosts.filter((host): host is HostConnectionOwner => host !== null)
   }
 
   /** The connected host is still making this person's Linux user and folders (docs/plans/member-isolation.md §8.1). */

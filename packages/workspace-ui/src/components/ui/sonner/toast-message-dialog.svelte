@@ -26,7 +26,7 @@
           <Dialog.Title class="min-w-0 flex-1 font-medium text-foreground">{message.title}</Dialog.Title>
           <Dialog.Close>
             {#snippet child({ props })}
-              <Button {...props} variant="ghost" size="icon-sm" class="-mt-1 -mr-2 text-muted-foreground pointer-coarse:size-11" aria-label="Close"><XIcon size={16} /></Button>
+              <Button {...props} variant="ghost" size="icon-sm" class="-mt-1 -mr-2 text-muted-foreground pointer-coarse:tap-area" aria-label="Close"><XIcon size={16} /></Button>
             {/snippet}
           </Dialog.Close>
         </div>

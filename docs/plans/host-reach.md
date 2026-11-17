@@ -1,5 +1,8 @@
 # Host reach: a person's hosts reach each other
 
+The local persistence and Forget rules are now defined in
+[Host record ownership](host-ownership.md), 2026-11-17.
+
 Status: implemented (2026-10-13). Replaces cross-host-sessions.md §5.1 (lent host
 access), §9 (host trust), §10 (paired hosts), and §10.5 (two-way pairing).
 

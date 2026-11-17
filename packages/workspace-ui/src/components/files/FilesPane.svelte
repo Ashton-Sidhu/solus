@@ -772,7 +772,7 @@
     {#if saveState === "conflict" && selectedPath}
       <button
         type="button"
-        class="inline-flex h-6.5 shrink-0 items-center rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-[background-color,scale] duration-150 hover:bg-[var(--wash-1)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) pointer-coarse:h-10"
+        class="inline-flex h-6.5 shrink-0 items-center rounded-full bg-background px-2.5 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-[background-color,scale] duration-150 hover:bg-[var(--wash-1)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) pointer-coarse:tap-area"
         onclick={() => selectedPath && openFile(selectedPath)}
       >
         Reload

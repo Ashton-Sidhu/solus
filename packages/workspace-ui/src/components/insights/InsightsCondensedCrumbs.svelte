@@ -80,7 +80,7 @@
 {@render crumb(sortChoice?.label ?? "Sorted", `Sort: ${sortChoice?.label ?? "by a table column"}`, sortMenu)}
 <button
   type="button"
-  class="ml-1 flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground pointer-coarse:size-9"
+  class="ml-1 flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground pointer-coarse:tap-area"
   onclick={onSearch}
   aria-label="Search turns"
   title="Search"

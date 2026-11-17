@@ -99,8 +99,8 @@
   const chatOffersHosts = $derived(
     !!chatHostId &&
       shouldShowRunOnPicker({
-        connectedRemoteCount: serversStore.connectedRemotes.length,
-        onRemoteHost: !!serversStore.hostFor(chatHostId) && !serversStore.hostFor(chatHostId)?.local,
+        connectedRemoteIds: serversStore.connectedRemotes.map((host) => host.id),
+        localHostId: hosts.device?.id ?? null,
         selectedHostId: chatHostId,
       }),
   );

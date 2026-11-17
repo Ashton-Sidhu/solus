@@ -10,6 +10,12 @@ import type { NativeHost } from './host-registry'
  */
 export function confirmForgetHost(app: SolusApp, host: NativeHost, onForgotten?: () => void): void {
   const forget = async () => {
+    try {
+      await app.connections.forgetHost(host.id, host.routes)
+    } catch (error) {
+      Alert.alert(`Could not remove ${host.label}`, error instanceof Error ? error.message : String(error))
+      return
+    }
     if (host.uplink && !(await app.account.removeHost(host))) {
       Alert.alert(`Could not remove ${host.label}`, 'Solus Cloud did not remove it from your account. Try again.')
       return

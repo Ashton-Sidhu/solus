@@ -48,6 +48,7 @@
   } from "./lib/browser-guest";
   import { nativeSurfaces } from "./lib/native-surface-coordinator.svelte";
   import BrowserStage from "./BrowserStage.svelte";
+  import { fillSize, type StageSize } from "./lib/stage-math";
   import BrowserToolbar from "./BrowserToolbar.svelte";
   import BrowserTargetPicker from "./BrowserTargetPicker.svelte";
   import { checkoutGit } from "../../contexts/workspace/run-location";
@@ -139,6 +140,7 @@
    * the dimensions and the picture they describe cannot disagree.
    */
   let stageScale = $state(0);
+  let stageSize = $state<StageSize | null>(null);
 
   // Every control here is one RPC to the host that owns the page, and the host
   // refuses what it cannot do — a surface it could not emulate, a preset it
@@ -332,6 +334,11 @@
    *  pane resizing under a filling page all ask for the same thing. */
   function setViewport(request: BrowserViewportRequest) {
     if (!activeKey) return;
+    // Selecting Fill pane must use this pane, even when another client last
+    // set the shared size and the page is already in fill mode.
+    if (request.mode === "fill" && stageSize && stageSize.width > 0 && stageSize.height > 0) {
+      request = { mode: "fill", ...fillSize(stageSize.width, stageSize.height) };
+    }
     browserStore.commitViewport(
       activeKey,
       request,
@@ -934,6 +941,7 @@
       {captureCount}
       onViewport={setViewport}
       onScale={(value) => (stageScale = value)}
+      onSize={(value) => (stageSize = value)}
       onReload={() =>
         void browserStore
           .navigate(activeKey, { kind: "reload" })

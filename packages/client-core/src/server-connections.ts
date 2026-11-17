@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { forgetHostConnections, type HostConnectionOwner } from './forget-host'
 import type { ConnectionsServerInfo, NativeSolusAPI, SolusAPI } from '@solus/contracts/host-api'
 import { mergeNativeOnlySolusApi } from './native-api-overlay'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
@@ -27,10 +28,10 @@ import { asHostApi, type HostApi } from './host-api'
 import type { HostCapabilities } from '@solus/contracts/types'
 import type { HostFacts, HostPresence } from './host-facts'
 import { HostGoneError } from './rpc-error'
-import { HostIntroducer, type IntroducerHost } from './host-introducer'
+import { HostIntroducer } from './host-introducer'
 import { answersAsSavedHost, HostLink, isSavedHost } from './host-link'
 import { readHostHealth, type HostHealth } from './host-http'
-import { dialChoicesOf, isEncryptedRouteUrl, routesForMachine } from '@solus/contracts/host-routes'
+import { dialChoicesOf, isEncryptedRouteUrl, routesForMachine, type HostRoute } from '@solus/contracts/host-routes'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
@@ -545,16 +546,21 @@ export class ServerConnections {
     }
   }
 
+  /** Stop host-owned connections before removing this client's pairing. */
+  async forgetHost(installationId: string, routes: readonly HostRoute[]): Promise<void> {
+    await forgetHostConnections(installationId, routes, await this.ownedHosts())
+  }
+
   /** The connected hosts where this client is the local owner: only they take part in introductions. */
-  private async ownedHosts(): Promise<IntroducerHost[]> {
+  private async ownedHosts(): Promise<HostConnectionOwner[]> {
     const connected = [...this.connections.values()].filter((connection) => connection.presence === 'present' && connection.link.readiness === 'ready')
-    const hosts = await Promise.all(connected.map(async (connection): Promise<IntroducerHost | null> => {
+    const hosts = await Promise.all(connected.map(async (connection): Promise<HostConnectionOwner | null> => {
       const info = await connection.facts.when('serverInfo').catch(() => null)
       if (info?.principal !== 'local-owner') return null
       const health = await this.probeHealth(connection.serverId)
       return health ? { installationId: health.installationId, label: health.name, api: asHostApi(connection.api) } : null
     }))
-    return hosts.filter((host): host is IntroducerHost => host !== null)
+    return hosts.filter((host): host is HostConnectionOwner => host !== null)
   }
 
   /**

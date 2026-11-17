@@ -60,6 +60,7 @@ import {
   ThreadWorkLog,
 } from "./thread-work-log";
 import { WorkLogBlock, WorkLogIconSlot, WorkLogPressable } from "./work-log-layout";
+import { ThreadFeedPlaceholder } from "./ThreadFeedPlaceholder";
 import { ThreadMarkdown } from "./ThreadMarkdown";
 import { FinalReplyMarkdown } from "./FinalReplyMarkdown";
 import { MarkdownImageAvailableWidthContext } from "./ThreadMarkdownImage";
@@ -514,35 +515,6 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   );
 }
 
-function ThreadFeedPlaceholder(props: {
-  readonly bottomInset: number;
-  readonly detail: string;
-  readonly horizontalPadding: number;
-  readonly title: string;
-  readonly topInset: number;
-}) {
-  return (
-    <View
-      style={{
-        flex: 1,
-        flexGrow: 1,
-        alignItems: "center",
-        justifyContent: "center",
-        paddingTop: props.topInset,
-        paddingBottom: props.bottomInset,
-        paddingHorizontal: props.horizontalPadding + 24,
-      }}
-    >
-      <View className="max-w-[320px] items-center gap-2">
-        <Text className="text-center font-t3-bold text-lg text-foreground">{props.title}</Text>
-        <Text className="text-center text-sm leading-normal text-foreground-secondary">
-          {props.detail}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
 /** Above the first loaded row: the control for earlier history or, at the
  *  start of the session, who started it. */
 function ThreadFeedListHeader(props: {
@@ -753,6 +725,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
 
   // The empty↔filled key remounts the list when rows first arrive, so it opens at the end.
   const listMountKey = `${props.threadKey}:${presentedFeed.some((row) => row.type !== "thinking") ? "filled" : "empty"}`;
+  const [loadedListKey, setLoadedListKey] = useState<string | null>(null);
+  const listReady = loadedListKey === listMountKey;
   useLayoutEffect(() => {
     const bottom = props.contentInsetEndAdjustment.value;
     if (bottom > 0) {
@@ -873,7 +847,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleTurnFold,
     ],
   );
-
   // Disclosures can mount existing offscreen rows as well as new work rows.
   // Fade those in after movement.
   const renderItem = useCallback(
@@ -908,7 +881,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           <KeyboardAwareLegendList
             ref={listRef}
             key={listMountKey}
-            style={{ flex: 1 }}
+            style={{ flex: 1, opacity: listReady ? 1 : 0 }}
+            accessibilityElementsHidden={!listReady}
+            importantForAccessibility={listReady ? "auto" : "no-hide-descendants"}
+            pointerEvents={listReady ? "auto" : "none"}
+            onLoad={() => setLoadedListKey(listMountKey)}
             // RN 0.81+ drops touches inside the contentInset area; the end space
             // after a send is pure inset, so without this it cannot be scrolled.
             applyWorkaroundForContentInsetHitTestBug
@@ -942,9 +919,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             // Chat-style bottom alignment: a short thread rests just above the composer.
             alignItemsAtEnd
             initialScrollAtEnd
-            // Older history loads while the reader is still a few screens from
-            // the top, so a page arrives before they reach it.
-            onStartReached={props.historyControls?.hasMoreHistory ? props.historyControls.onLoadEarlier : undefined}
+            onStartReached={listReady && props.historyControls?.hasMoreHistory ? props.historyControls.onLoadEarlier : undefined}
             onStartReachedThreshold={HISTORY_PREFETCH_SCREENS}
             onScroll={handleScroll}
             onScrollBeginDrag={handleScrollBeginDrag}

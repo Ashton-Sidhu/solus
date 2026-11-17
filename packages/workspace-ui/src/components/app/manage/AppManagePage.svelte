@@ -95,7 +95,7 @@
         {@const isActive = entry.id === section}
         <button
           type="button"
-          class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] border-0 px-3 text-workspace-chrome whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 {isActive
+          class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] border-0 px-3 text-workspace-chrome whitespace-nowrap transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area {isActive
             ? 'bg-[var(--wash-3)] font-medium text-foreground'
             : 'bg-transparent font-normal text-(--solus-text-secondary) hover:bg-[var(--wash-2)] hover:text-foreground'}"
           aria-current={isActive ? "page" : undefined}

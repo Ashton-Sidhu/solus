@@ -25,7 +25,7 @@
         {...props}
         variant="ghost"
         size="sm"
-        class="h-7 shrink-0 gap-1 rounded-md px-2 text-insights-chrome font-normal text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground aria-expanded:bg-[var(--wash-2)] aria-expanded:text-foreground pointer-coarse:h-10"
+        class="h-7 shrink-0 gap-1 rounded-md px-2 text-insights-chrome font-normal text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground aria-expanded:bg-[var(--wash-2)] aria-expanded:text-foreground pointer-coarse:tap-area"
         title="What the bar under the header shows"
         aria-label="Coverage bar: {active.label}"
       >

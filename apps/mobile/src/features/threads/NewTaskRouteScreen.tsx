@@ -403,7 +403,7 @@ function NewTaskDraftContent(props: {
     );
   };
 
-  const environmentControl = (
+  const environmentControl = environments.some((environment) => environment.hostId !== props.hostId) ? (
     <ComposerInlineControl
       accessibilityLabel={`Host: ${selectedEnvironmentLabel}`}
       chevronDirection="right"
@@ -420,7 +420,7 @@ function NewTaskDraftContent(props: {
       onPress={openEnvironmentPicker}
       showChevron
     />
-  );
+  ) : null;
   // A task without a project has no project to name, so it asks plainly and
   // puts the project picker beside the machine as a control.
   const hero = props.chat ? (

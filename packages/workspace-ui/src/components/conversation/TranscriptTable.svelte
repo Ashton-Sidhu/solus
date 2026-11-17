@@ -48,7 +48,7 @@
   >
     <button
       type="button"
-      class="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring aria-pressed:text-foreground pointer-coarse:size-9"
+      class="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring aria-pressed:text-foreground pointer-coarse:tap-area"
       aria-pressed={expanded}
       aria-label={expanded ? "Collapse table cells" : "Expand table cells"}
       title={expanded ? "Collapse table cells" : "Expand table cells"}
@@ -66,7 +66,7 @@
           <button
             {...props}
             type="button"
-            class="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring aria-expanded:text-foreground pointer-coarse:size-9"
+            class="flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring aria-expanded:text-foreground pointer-coarse:tap-area"
             aria-label={copied ? "Copied" : "Copy table"}
             title={copied ? "Copied" : "Copy table"}
           >

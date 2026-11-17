@@ -51,7 +51,7 @@
         type="button"
         aria-pressed={on}
         title="{entry.label}: {entry.fileCount} {entry.fileCount === 1 ? 'file' : 'files'}, {percent(entry.share)} of the change"
-        class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md border-0 px-2 text-xs transition-colors duration-(--duration-base) ease-(--ease-premium) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:h-9 {on
+        class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md border-0 px-2 text-xs transition-colors duration-(--duration-base) ease-(--ease-premium) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:tap-area {on
           ? 'bg-[color-mix(in_oklab,var(--solus-art-5)_11%,transparent)] text-[color-mix(in_oklab,var(--solus-art-5)_78%,var(--foreground))] shadow-[inset_0_0_0_.5px_color-mix(in_oklab,var(--solus-art-5)_38%,transparent)]'
           : 'bg-transparent text-(--solus-text-secondary) shadow-[inset_0_0_0_.5px_var(--hairline-strong)] hover:bg-[var(--wash-2)]'}"
         data-testid="artifacts-change-kind"

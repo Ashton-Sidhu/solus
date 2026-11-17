@@ -160,7 +160,7 @@
     <DropdownMenu.Root>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <Button {...props} bind:ref={menuTriggerEl} variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" disabled={isBusy || isOffline} aria-label="More actions for {integration.name}">
+          <Button {...props} bind:ref={menuTriggerEl} variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" disabled={isBusy || isOffline} aria-label="More actions for {integration.name}">
             <Ellipsis size={16} />
           </Button>
         {/snippet}
@@ -190,7 +190,7 @@
         </div>
       </Popover.Content>
     </Popover.Root>
-    <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" onclick={onToggle} aria-label="{isOpen ? 'Hide' : 'Show'} the details of {integration.name}" aria-expanded={isOpen}>
+    <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" onclick={onToggle} aria-label="{isOpen ? 'Hide' : 'Show'} the details of {integration.name}" aria-expanded={isOpen}>
       <ChevronRight size={16} class="transition-transform motion-reduce:transition-none {isOpen ? 'rotate-90' : ''}" />
     </Button>
   </div>

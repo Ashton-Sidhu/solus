@@ -27,8 +27,10 @@ chat moves to the host you select as a new chat there. See
 ## Run on
 
 The Run on picker lists every host, and ends with **Add a host…**. It shows only
-when another host is connected, or when the session already names a remote
-host. To add the first remote host, use Settings → Hosts. Each row is one
+when another host is connected, or when a desktop session names a remote
+host and can return to the local machine. A web client has no local execution
+host, so its sole connected host does not show the picker. Mobile also hides
+the host control when there is no other host choice. To add the first remote host, use Settings → Hosts. Each row is one
 line: the host name, then a mark for each organization the host belongs to.
 Organizations have no logo, so the mark is the first letter of the
 organization name; hover over it to see the full name. A personal host has no

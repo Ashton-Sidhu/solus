@@ -170,7 +170,7 @@
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <!-- One width for every role, so choosing another never moves the row. -->
-        <Button {...props} variant="ghost" size="sm" class="w-32 shrink-0 justify-end gap-1 px-2 text-workspace-chrome font-normal text-foreground aria-expanded:bg-transparent pointer-coarse:h-10" data-testid={testId} disabled={sharesStore.busy}>
+        <Button {...props} variant="ghost" size="sm" class="w-32 shrink-0 justify-end gap-1 px-2 text-workspace-chrome font-normal text-foreground aria-expanded:bg-transparent pointer-coarse:tap-area" data-testid={testId} disabled={sharesStore.busy}>
           {roleLabel(current)}
           <CaretDownIcon />
         </Button>
@@ -258,7 +258,7 @@
             {/if}
           </div>
         {/if}
-        <Button class="ml-auto h-10 w-32 shrink-0 gap-2 rounded-xl px-4 hover:bg-primary/90 pointer-coarse:h-11" onclick={copyLink} disabled={!canCopy} data-testid="share-copy-link" data-link={copyTarget?.text ?? undefined}>
+        <Button class="ml-auto h-10 w-32 shrink-0 gap-2 rounded-xl px-4 hover:bg-primary/90 pointer-coarse:tap-area" onclick={copyLink} disabled={!canCopy} data-testid="share-copy-link" data-link={copyTarget?.text ?? undefined}>
           {#if copied}<CheckIcon class="size-4" />{:else}<CopyIcon class="size-4" />{/if}
           {copied ? "Copied" : "Copy link"}
         </Button>
@@ -392,7 +392,7 @@
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger>
                   {#snippet child({ props })}
-                    <Button {...props} variant="ghost" size="sm" class="w-36 shrink-0 justify-end gap-1 px-2 text-workspace-chrome font-normal tabular-nums text-foreground aria-expanded:bg-transparent pointer-coarse:h-10" aria-describedby="share-link-expires-label" data-testid="share-link-lifetime" disabled={sharesStore.busy}>
+                    <Button {...props} variant="ghost" size="sm" class="w-36 shrink-0 justify-end gap-1 px-2 text-workspace-chrome font-normal tabular-nums text-foreground aria-expanded:bg-transparent pointer-coarse:tap-area" aria-describedby="share-link-expires-label" data-testid="share-link-lifetime" disabled={sharesStore.busy}>
                       <span data-testid="share-link-expiry">{linkExpiry}</span>
                       <CaretDownIcon />
                     </Button>

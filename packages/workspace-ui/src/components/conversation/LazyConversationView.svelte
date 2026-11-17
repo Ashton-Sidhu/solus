@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ComponentProps } from "svelte";
-  import ConversationSkeleton from "./ConversationSkeleton.svelte";
+  import ConversationLoading from "./ConversationLoading.svelte";
   import RouteLoadError from "../ui/RouteLoadError.svelte";
   import { loadConversationView } from "./lib/conversation-view-loader";
 
@@ -10,7 +10,7 @@
 
 {#key attempt}
 {#await loadConversationView()}
-  <ConversationSkeleton />
+  <ConversationLoading />
 {:then module}
   {@const ConversationView = module.default}
   <ConversationView {...props} />

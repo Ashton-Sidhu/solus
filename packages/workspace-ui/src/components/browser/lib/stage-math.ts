@@ -1,4 +1,4 @@
-import { clampDimension, type BrowserViewport } from '@solus/contracts/browser-types'
+import { clampDimension, type BrowserViewport, type BrowserViewportRequest } from '@solus/contracts/browser-types'
 import type { NativeSurfaceRect } from './native-surface-coordinator.svelte'
 
 /**
@@ -88,6 +88,26 @@ export function fillSize(
   availableHeight: number,
 ): StageSize {
   return { width: clampDimension(availableWidth), height: clampDimension(availableHeight) }
+}
+
+/** A shared viewport update is not a local resize. Remember the last measured
+ * pane, even outside fill mode, so two clients cannot resize each other forever.
+ * Explicit Fill pane commands use the measured size directly. */
+export class FillViewport {
+  private last: (StageSize & { pageKey: string }) | null = null
+
+  update(pageKey: string, active: boolean, viewport: BrowserViewport, width: number, height: number): BrowserViewportRequest | null {
+    if (!active || width < 1 || height < 1) {
+      this.last = null
+      return null
+    }
+    const size = fillSize(width, height)
+    const previous = this.last
+    this.last = { pageKey, ...size }
+    if (previous?.pageKey === pageKey && previous.width === size.width && previous.height === size.height) return null
+    if (viewport.mode !== 'fill' || (viewport.width === size.width && viewport.height === size.height)) return null
+    return { mode: 'fill', ...size }
+  }
 }
 
 /** Which edge of the stage a drag is holding. */

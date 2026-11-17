@@ -474,7 +474,7 @@
         type="button"
         onclick={() => selectTab(tab.id)}
         aria-current={session.settingsTab === tab.id ? "page" : undefined}
-        class="inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-workspace-chrome transition-colors [-webkit-tap-highlight-color:transparent] pointer-coarse:h-8 {session.settingsTab ===
+        class="inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-workspace-chrome transition-colors [-webkit-tap-highlight-color:transparent] pointer-coarse:tap-area {session.settingsTab ===
  tab.id
  ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
  : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground active:bg-[var(--wash-1)]'}"

@@ -1,8 +1,9 @@
 import { checkRouteToAdd, newRouteRefusalText, routeInUse, routeRows, withoutRoute, withRouteMoved, withUserRoute, type RouteRow, type RouteViewer } from '@solus/client-core/host-route-control'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { changeServer, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
+import { changeServer, LOCAL_SERVER_ID, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { ROUTE_CHECK_TIMEOUT_MS, routesFrom } from '@solus/contracts/host-routes'
 import { serversStore } from '../../contexts'
+import { hosts } from '../../contexts/hosts/hosts.svelte'
 
 /**
  * A person's control of one host's routes on this client (docs/plans/host-routes.md
@@ -19,15 +20,34 @@ class HostRoutesStore {
     return serversStore.remotes.find((server) => server.id === serverId)
   }
 
-  /** Every route of a saved host, in the order this client tries them. Empty for this computer's own host. */
+  isLocal(serverId: string): boolean {
+    return !!serversStore.local && serverId === LOCAL_SERVER_ID
+  }
+
+  localRoutesStatus(serverId: string): string | null {
+    if (!this.isLocal(serverId)) return null
+    const fact = hosts.get(serverId).serverInfo
+    if (fact.state === 'ready') return null
+    return fact.state === 'error' ? 'Could not read this host’s routes.' : 'Reading this host’s routes…'
+  }
+
+  /** Remote routes are client preferences; local routes are the addresses this host advertises. */
   rowsFor(serverId: string): RouteRow[] {
     const server = this.saved(serverId)
-    return server ? routeRows(server, this.viewer) : []
+    if (server) return routeRows(server, this.viewer)
+    if (!this.isLocal(serverId)) {
+      const connected = serversStore.servers.find((host) => host.id === serverId)
+      return connected ? routeRows(connected, this.viewer).map((row) => ({ ...row, canRemove: false })) : []
+    }
+    const fact = hosts.get(serverId).serverInfo
+    return fact.state === 'ready'
+      ? routeRows({ routes: fact.value.routes }, { clientOrigin: '' }).map((row) => ({ ...row, canRemove: false }))
+      : []
   }
 
   /** Whether this client can change the host's routes: Solus cloud owns a managed host's. */
   canChange(serverId: string): boolean {
-    return this.saved(serverId)?.uplink?.kind !== 'managed'
+    return !this.isLocal(serverId) && !!this.saved(serverId) && this.saved(serverId)?.uplink?.kind !== 'managed'
   }
 
   /** The route the link is on while the host is connected; null while it is not. */

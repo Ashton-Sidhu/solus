@@ -75,20 +75,6 @@ describe('session task shortcuts', () => {
     })
   })
 
-  test('gives the composer task chip its own id, unassigned by default', () => {
-    // WHY: `global.task-picker` navigates to a task; the composer chip files the
-    // session that composer is about to start. One id cannot answer both, and
-    // the chip is pointer-reachable, so it claims no key until a user assigns one.
-    expect(KEYBINDINGS['global.session-task-picker']).toMatchObject({
-      combo: null,
-      scope: 'global',
-      group: 'Tasks',
-    })
-    expect(KEYBINDINGS['global.session-task-picker'].label).not.toBe(
-      KEYBINDINGS['global.task-picker'].label,
-    )
-  })
-
   test('focuses sidebar task search with control slash', () => {
     // WHY: task search is a repeated navigation action. Control-slash stays
     // available without claiming ordinary slash input from the composer.

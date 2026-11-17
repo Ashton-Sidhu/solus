@@ -60,7 +60,7 @@
   <Button
     variant="ghost"
     size="icon-sm"
-    class="shrink-0 pointer-coarse:size-11 {isDefault ? 'text-foreground' : 'text-muted-foreground'}"
+    class="shrink-0 pointer-coarse:tap-area {isDefault ? 'text-foreground' : 'text-muted-foreground'}"
     title={action}
     aria-label={action}
     aria-pressed={isDefault}
@@ -92,10 +92,10 @@
       {:else}
         <span class="size-7 shrink-0 pointer-coarse:size-11" aria-hidden="true"></span>
       {/if}
-      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" title="Move up" aria-label="Move {model.label} up" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "up") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "up"))}><ArrowUp size={16} /></Button>
-      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" title="Move down" aria-label="Move {model.label} down" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "down") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "down"))}><ArrowDown size={16} /></Button>
+      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" title="Move up" aria-label="Move {model.label} up" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "up") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "up"))}><ArrowUp size={16} /></Button>
+      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" title="Move down" aria-label="Move {model.label} down" disabled={modelNeighbor(catalog.modelProfiles, order, model.id, "down") < 0} onclick={() => (instance = changeModelPreference(instance, model.id, "down"))}><ArrowDown size={16} /></Button>
       {#if !custom}
-        <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" disabled={model.id === defaultModelId && !hidden} title={model.id === defaultModelId && !hidden ? "The default model stays in the model picker" : hidden ? "Show in model picker" : "Hide from model picker"} aria-label="{hidden ? 'Show' : 'Hide'} {model.label} {hidden ? 'in' : 'from'} the model picker" aria-pressed={hidden} onclick={() => (instance = changeModelPreference(instance, model.id, "visibility"))}>{#if hidden}<EyeOff size={16} />{:else}<Eye size={16} />{/if}</Button>
+        <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" disabled={model.id === defaultModelId && !hidden} title={model.id === defaultModelId && !hidden ? "The default model stays in the model picker" : hidden ? "Show in model picker" : "Hide from model picker"} aria-label="{hidden ? 'Show' : 'Hide'} {model.label} {hidden ? 'in' : 'from'} the model picker" aria-pressed={hidden} onclick={() => (instance = changeModelPreference(instance, model.id, "visibility"))}>{#if hidden}<EyeOff size={16} />{:else}<Eye size={16} />{/if}</Button>
       {:else}
         <!-- A custom model is always in the picker; the gap keeps every row's menu in one column. -->
         <span class="size-7 shrink-0 pointer-coarse:size-11" aria-hidden="true"></span>
@@ -103,7 +103,7 @@
       <DropdownMenu.Root>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:size-11" title="More actions" aria-label="More actions for {model.label}"><Ellipsis size={16} /></Button>
+            <Button {...props} variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" title="More actions" aria-label="More actions for {model.label}"><Ellipsis size={16} /></Button>
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-52">

@@ -279,7 +279,7 @@
                 type="button"
                 role="radio"
                 aria-checked={sourceView === option.source}
-                class="h-7 rounded-md px-3 font-medium transition-colors pointer-coarse:h-10 {sourceView === option.source ? 'bg-(--solus-container-bg) text-(--solus-text-primary) shadow-xs' : 'text-(--solus-text-secondary) hover:text-(--solus-text-primary)'}"
+                class="h-7 rounded-md px-3 font-medium transition-colors pointer-coarse:tap-area {sourceView === option.source ? 'bg-(--solus-container-bg) text-(--solus-text-primary) shadow-xs' : 'text-(--solus-text-secondary) hover:text-(--solus-text-primary)'}"
                 onclick={() => (sourceView = option.source)}
               >{option.label}</button>
             {/each}
@@ -292,7 +292,7 @@
           {/if}
           <Dialog.Close>
             {#snippet child({ props })}
-              <Button {...props} variant="ghost" size="icon-sm" class="pointer-coarse:size-11" aria-label="Close history"><XIcon size={16} /></Button>
+              <Button {...props} variant="ghost" size="icon-sm" class="pointer-coarse:tap-area" aria-label="Close history"><XIcon size={16} /></Button>
             {/snippet}
           </Dialog.Close>
         </div>

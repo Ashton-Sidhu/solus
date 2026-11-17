@@ -56,6 +56,20 @@ Focused checks are in `tests/unit/routing-location.test.ts`,
 `tests/unit/history-swipe.test.ts`, and
 `tests/unit/static-compression.test.ts`.
 
+## Shared page size
+
+A browser page has one viewport, shared by desktop, web, mobile, and agents.
+In **Fill pane** mode, a desktop or web pane requests its size when it becomes
+visible, selects a different page, or changes its own dimensions. A viewport
+update from another client does not trigger another resize request. The pane
+scales the shared page to fit instead. This prevents two visible clients with
+different pane sizes from continuously overriding each other.
+
+Selecting **Fill pane** explicitly uses the current pane's dimensions, even
+when the page is already in fill mode. The mobile **Fit to screen** command
+also sets the shared viewport explicitly. Other stationary panes accept that
+size. Preset and custom sizes remain shared and do not follow pane dimensions.
+
 ## The phone's browser viewer
 
 The native mobile app shows a host's browser pages in T3 Code's browser

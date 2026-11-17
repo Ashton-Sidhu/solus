@@ -270,9 +270,6 @@ export const KEYBINDINGS = {
   'global.open-document':         { combo: null,                                           scope: 'global',             label: 'Open document…',           group: 'Navigation' },
   'global.open-automation':       { combo: null,                                           scope: 'global',             label: 'Open automation…',         group: 'Navigation' },
   'global.open-task':             { combo: null,                                           scope: 'global',             label: 'Open task…',               group: 'Navigation' },
-  // The composer's own task chip, not `global.task-picker` — that one navigates
-  // to a task, this one files the session the focused composer is about to start.
-  'global.session-task-picker':   { combo: null,                                           scope: 'global',             label: 'Choose task for this session', group: 'Tasks' },
   'global.permission-menu':       { combo: null,                                           scope: 'global',             label: 'Open permission mode menu', group: 'Agent' },
   'global.add-server':            { combo: null,                                           scope: 'global',             label: 'Add server',               group: 'General' },
   'global.find-hosts':            { combo: null,                                           scope: 'global',             label: 'Find hosts nearby',        group: 'General' },

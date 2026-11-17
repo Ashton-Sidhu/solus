@@ -93,7 +93,7 @@
 {/snippet}
 
 {#snippet removeButton(name: string, keys: AgentProfileKey[])}
-  <Button variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-destructive pointer-coarse:size-11" onclick={() => remove(...keys)} aria-label="Remove {name}" title="Remove">
+  <Button variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area" onclick={() => remove(...keys)} aria-label="Remove {name}" title="Remove">
     <Trash2 size={14} />
   </Button>
 {/snippet}
@@ -126,7 +126,7 @@
         <ProfileEntryRow label={skill.name} detail={skill.repo} testId="agent-profile-skill-result">
           {#snippet mark()}{@render tile("registry")}{/snippet}
           {#snippet action()}
-            <Button variant="ghost" size="icon-sm" class="text-muted-foreground pointer-coarse:size-11" onclick={() => localApi.openExternal(skill.url)} aria-label="Open {skill.name} on skills.sh" title="Open on skills.sh">
+            <Button variant="ghost" size="icon-sm" class="text-muted-foreground pointer-coarse:tap-area" onclick={() => localApi.openExternal(skill.url)} aria-label="Open {skill.name} on skills.sh" title="Open on skills.sh">
               <ExternalLink size={14} />
             </Button>
             {#if inProfile.has(skill.name)}

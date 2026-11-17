@@ -211,7 +211,7 @@
               aria-label="Connect {integration.name} on {hostLabel}">Connect</Button>
           {/if}
         {/if}
-        <Button variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-destructive pointer-coarse:size-11" onclick={() => remove(agentProfileKeyOf(integration))} aria-label="Remove {integration.name}" title="Remove">
+        <Button variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-destructive pointer-coarse:tap-area" onclick={() => remove(agentProfileKeyOf(integration))} aria-label="Remove {integration.name}" title="Remove">
           <Trash2 size={14} />
         </Button>
       {/snippet}

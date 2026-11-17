@@ -68,30 +68,20 @@ export function isRunOnHostLocked(session: Session | undefined): boolean {
 }
 
 export interface RunOnPickerVisibility {
-  /** Remotes reachable right now — a saved-but-offline host does not count, so
-   *  the picker only appears when there is a real machine to run on. */
-  connectedRemoteCount: number
-  /** True when the selected host resolves to a remote machine. */
-  onRemoteHost: boolean
+  /** Reachable execution hosts other than the client's own machine. */
+  connectedRemoteIds: readonly string[]
+  /** The client's own execution host; null on web. */
+  localHostId: string | null
   /** The host the run will start on, remembered even for a forgotten remote. */
   selectedHostId: string | null | undefined
 }
 
-/**
- * Whether the run-on picker is worth showing at all: only when there is a real
- * choice about which machine runs the work. The checkout type is the branch
- * chip's question, so one machine never shows this picker.
- */
+/** Show a host choice only when there is another machine to run on. */
 export function shouldShowRunOnPicker(input: RunOnPickerVisibility): boolean {
-  // A reachable remote is a genuine choice: run here, or run on that machine.
-  // Saved-but-offline hosts are filtered out before they reach this count.
-  if (input.connectedRemoteCount > 0) return true
-  // A session already living on a remote host names it, so the badge never
-  // silently reads as local — true even after that host has been forgotten.
-  return (
-    input.onRemoteHost ||
-    (!!input.selectedHostId && input.selectedHostId !== LOCAL_SERVER_ID)
-  )
+  if (input.connectedRemoteIds.some((hostId) => hostId !== input.selectedHostId)) return true
+  // Desktop can return to its own machine, including from a forgotten host.
+  // Web has no local machine: its sole connected host is not an extra choice.
+  return !!input.localHostId && !!input.selectedHostId && input.selectedHostId !== input.localHostId
 }
 
 /** Explains why this checkout cannot create a worktree. */

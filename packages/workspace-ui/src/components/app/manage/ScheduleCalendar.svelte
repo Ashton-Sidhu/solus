@@ -60,7 +60,7 @@
           type="button"
           role="radio"
           aria-checked={isActive}
-          class="flex h-6.5 cursor-pointer items-center rounded-[7px] border-0 px-2.5 text-[13px] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-9 {isActive
+          class="flex h-6.5 cursor-pointer items-center rounded-[7px] border-0 px-2.5 text-[13px] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area {isActive
             ? 'bg-background font-medium text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.06)]'
             : 'bg-transparent text-(--solus-text-tertiary) hover:text-foreground'}"
           onclick={() => onView(option.value)}>{option.label}</button

@@ -445,7 +445,7 @@
         <button
           {...props}
           type="button"
-          class="flex h-6.5 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:h-10"
+          class="flex h-6.5 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:tap-area"
           aria-label={activeStatus ? `Filter by status: ${activeStatus.label}` : "Filter by status"}
         >
           <ListFilterIcon class="size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
@@ -481,7 +481,7 @@
         <button
           {...props}
           type="button"
-          class="flex h-6.5 max-w-48 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:h-10"
+          class="flex h-6.5 max-w-48 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:tap-area"
           aria-label="Filter by host"
         >
           <span class="truncate">{activeHost?.label ?? "All hosts"}</span>
@@ -512,7 +512,7 @@
         <button
           {...props}
           type="button"
-          class="flex h-6.5 max-w-48 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:h-10"
+          class="flex h-6.5 max-w-48 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:tap-area"
           aria-label="Filter by user"
         >
           <span class="truncate">{activeUser?.label ?? "All users"}</span>
@@ -537,7 +537,7 @@
 {#snippet groupToggle()}
   <button
     type="button"
-    class="flex h-6.5 shrink-0 cursor-pointer items-center gap-2 rounded-full px-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-10 {grouped
+    class="flex h-6.5 shrink-0 cursor-pointer items-center gap-2 rounded-full px-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:tap-area {grouped
       ? 'bg-[var(--wash-3)]'
       : 'bg-background hover:bg-[var(--wash-1)]'}"
     aria-pressed={grouped}

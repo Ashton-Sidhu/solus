@@ -1,3 +1,4 @@
+import { onHostRecordRemoved } from './host/host-list'
 import type { VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
@@ -1093,6 +1094,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
   }
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts)
+  domainEventUnsubscribes.push(onHostRecordRemoved(({ listing }) => remoteHosts.disconnect(listing.installationId)))
   setRemoteHosts(remoteHosts)
   setSessionController({
     permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
@@ -1230,7 +1232,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerHostResourceHandlers(server, { reader: new HostResourceReader(), telemetry: resourceTelemetry })
   registerSkillsHandlers(server, { sessionRuntime: opts.sessionRuntime, seats })
   registerPinnedSessionsHandlers(server)
-  registerHostListHandlers(server, { broadcast: (topic, payload) => events.broadcast(topic, payload) })
+  domainEventUnsubscribes.push(registerHostListHandlers(server, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   registerSessionReadStateHandlers(server)
   phaseDone('domain_handlers_registered')
   const hostUpdates = new UpdateStatusService({
@@ -2157,6 +2159,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await tailscaleServe.shutdown(actualPort).catch((error) => log.warn('tailscale_serve_shutdown_failed', { error: error instanceof Error ? error.message : String(error) }))
         remoteHosts.close()
         forwardedHosts.closeAll()
+        introducedHosts.dispose()
         stopAutomationScheduler()
         appSchedules.stop()
         appWorkflows.stop()

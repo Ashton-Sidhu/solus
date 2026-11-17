@@ -115,9 +115,10 @@ The Completed shelf is the name of the place in the list.
    actions.
    The conversation header also has a task icon beside Share. It opens the
    searchable popover below the icon for a session with no task, or the task page for a linked
-   session. Drafts also show the task icon in the session breadcrumb, where it
-   opens the draft task picker. The input header has no task control. These
-   controls are shared by desktop, web, and mobile. The session
+   session. A draft has no task control: a session is linked to a task after
+   it starts, from that icon or the session menu. A draft that was started from
+   a task keeps its task crumb. These controls are shared by desktop, web, and
+   mobile. The session
    sidebar footer has Settings and Keyboard shortcuts icons; it has no Docs
    icon.
 

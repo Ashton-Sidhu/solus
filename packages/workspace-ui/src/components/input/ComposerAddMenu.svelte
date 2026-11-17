@@ -93,7 +93,7 @@
               {...props}
               type="button"
               aria-label="Add"
-              class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:size-10 {open
+              class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:tap-area {open
                 ? 'bg-(--solus-surface-hover) text-(--solus-text-secondary)'
                 : ''}"
             >

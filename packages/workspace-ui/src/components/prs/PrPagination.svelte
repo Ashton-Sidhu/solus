@@ -28,7 +28,7 @@
       type="button"
       variant="ghost"
       size="xs"
-      class="h-7 rounded-lg bg-card px-3 text-xs font-medium text-muted-foreground shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] hover:text-foreground pointer-coarse:h-10 pointer-coarse:px-4"
+      class="h-7 rounded-lg bg-card px-3 text-xs font-medium text-muted-foreground shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] hover:text-foreground pointer-coarse:tap-area "
       onclick={onLoad}
     >
       Load more pull requests

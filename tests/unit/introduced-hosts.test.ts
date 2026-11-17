@@ -1,8 +1,11 @@
-import { beforeEach, describe, expect, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+import { beforeEach, describe, expect, test, mock } from 'bun:test'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { IntroducedHosts, type IntroductionSelf } from '@solus/server/execution/orchestration/introduced-hosts'
+import type { IntroductionSelf } from '@solus/server/execution/orchestration/introduced-hosts'
+const { IntroducedHosts } = await import('@solus/server/execution/orchestration/introduced-hosts')
 import { loadHostIdentity, type HostIdentity } from '@solus/server/host/host-identity'
 
 // WHY: local reach (docs/plans/host-reach.md §4). A client that holds owner pairings
@@ -188,4 +191,36 @@ describe('the credential for a dial', () => {
     expect(await hosts.credential('install-b')).toBe('token-install-b-1')
     expect(await new IntroducedHosts(fetchImpl, () => now, selfHost().self).credential('install-b')).toBe('token-install-b-1')
   })
+})
+
+// Forget must win over a successful reply that was already in flight.
+describe('introduction removal during a request', () => {
+  for (const route of ['/health', '/auth/refresh']) {
+    test(`does not return a credential after removal during ${route}`, async () => {
+      const net = network(new Map([['http://10.0.0.5:7777', 'install-b']]))
+      let release!: () => void
+      let reached!: () => void
+      const waiting = new Promise<void>((resolve) => { release = resolve })
+      const started = new Promise<void>((resolve) => { reached = resolve })
+      let shouldWait = false
+      const fetchImpl: typeof fetch = async (input, init) => {
+        if (shouldWait && new URL(String(input)).pathname === route) {
+          reached()
+          await waiting
+        }
+        return net.fetchImpl(input, init)
+      }
+      const hosts = new IntroducedHosts(fetchImpl, () => now, selfHost().self)
+      await hosts.accept(B, 'device-of-b-here')
+      now += 2 * DAY
+      shouldWait = true
+      const credential = hosts.credential('install-b')
+      await started
+      hosts.forget('install-b')
+      release()
+      expect(await credential).toBeNull()
+      expect(hosts.list().hosts).toEqual([])
+      hosts.dispose()
+    })
+  }
 })

@@ -2,7 +2,7 @@
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Linking, Platform, StyleSheet, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, StyleSheet, View, type TextInputInstance } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,6 +11,8 @@ import { AppText as Text } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { ScreenProps } from "../../navigation/routes";
+import { PairingInputRow } from "../connection/PairingInputRow";
+import { SymbolView } from "../../components/AppSymbol";
 import { ConnectionFormField } from "../connection/ConnectionFormField";
 import { ConnectionSheetButton } from "../connection/ConnectionSheetButton";
 import { SettingsNote } from "../settings/components/SettingsNote";
@@ -59,6 +61,7 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
   const [target, setTarget] = useState<PairTarget | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const scannerLocked = useRef(false);
+  const codeField = useRef<TextInputInstance>(null);
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
   const nearby = useNearbyHosts();
@@ -120,10 +123,22 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
     [app, pairWith],
   );
 
+  const handleHostChange = useCallback((value: string) => {
+    const input = decodePairInput(value);
+    if (input.kind === "link") {
+      setHostInput(input.url);
+      setCodeInput(input.pairToken);
+    } else {
+      setHostInput(value);
+    }
+    setError(null);
+    setErrorDetail(null);
+  }, []);
+
   const link = route.params?.link;
   useEffect(() => {
-    if (link) void inspect(decodePairInput(link));
-  }, [inspect, link]);
+    if (link) handleHostChange(link);
+  }, [handleHostChange, link]);
 
   const openScanner = useCallback(async () => {
     if (cameraPermission?.granted) {
@@ -165,10 +180,18 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
         return;
       }
       scannerLocked.current = true;
+      const input = decodeScannedCode(data);
       setShowScanner(false);
-      void inspect(decodeScannedCode(data));
+      if (input.kind === "invalid") {
+        setError(input.message);
+        return;
+      }
+      setHostInput(input.url);
+      setCodeInput(input.pairToken ?? "");
+      setError(null);
+      setErrorDetail(null);
     },
-    [inspect],
+    [],
   );
 
   const pair = useCallback(async () => {
@@ -221,20 +244,20 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
         }}
       >
         <View collapsable={false} className="gap-5">
-          {showScanner && !target ? null : (
+          {!target ? null : (
             <PairingBridge phase={pairingPhase(step, target !== null)} host={target?.preview ?? null} />
           )}
           {target ? (
             <View collapsable={false} className="gap-5">
               <PairTargetHeading preview={target.preview} />
 
-              {target.pairToken === null && !target.preview.trusted ? (
+              {!target.preview.trusted ? (
                 <ConnectionFormField
                   label="Pairing code"
                   autoCapitalize="none"
                   autoCorrect={false}
                   placeholder="Shown on the host"
-                  value={codeInput}
+                  value={target.pairToken ?? ""}
                   onChangeText={(value) => {
                     setCodeInput(value);
                     setTarget({ ...target, pairToken: value.trim() || null });
@@ -311,33 +334,53 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
                 nearby={nearby}
                 onSelect={(server) => void inspect(decodePairInput(nearbyHostUrl(server)), server.source === "tailnet")}
               />
-              <View collapsable={false} className="gap-4">
-                <Text className="text-sm font-t3-medium text-foreground-muted" accessibilityRole="header">
-                  Enter an address
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Scan QR code"
+                disabled={isBusy}
+                onPress={() => void openScanner()}
+                className="h-56 items-center justify-center gap-4 rounded-[26px] border-continuous bg-grouped-card"
+              >
+                <View className="size-32 items-center justify-center gap-2 rounded-[28px] border-2 border-input-border">
+                  <SymbolView name="qrcode.viewfinder" size={44} tintColorClassName="accent-icon" />
+                  <Text className="text-sm font-t3-medium text-foreground-muted">Tap to scan</Text>
+                </View>
+                <Text className="px-4 text-center text-sm text-foreground-muted">Scan the code from the host’s Access settings</Text>
+              </Pressable>
+              <View collapsable={false} className="gap-2">
+                <Text className="px-4 text-sm font-t3-medium text-foreground-muted" accessibilityRole="header">
+                  Or enter it
                 </Text>
-                <ConnectionFormField
-                  label="Host"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                  placeholder="Address or pairing link"
-                  returnKeyType="next"
-                  value={hostInput}
-                  onChangeText={setHostInput}
-                />
-
-                <ConnectionFormField
-                  label="Pairing code"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="Shown on the host"
-                  returnKeyType="go"
-                  value={codeInput}
-                  onChangeText={setCodeInput}
-                  onSubmitEditing={() => {
-                    if (!connectDisabled) void inspect(decodePairInput(hostInput, codeInput));
-                  }}
-                />
+                <View collapsable={false} className="overflow-hidden rounded-[26px] border-continuous bg-grouped-card">
+                  <PairingInputRow
+                    label="Address"
+                    keyboardType="url"
+                    placeholder="192.168.1.100:3000"
+                    returnKeyType="next"
+                    onSubmitEditing={() => codeField.current?.focus()}
+                    editable={!isBusy}
+                    value={hostInput}
+                    onChangeText={handleHostChange}
+                  />
+                  <View className="ml-4 border-t border-border-subtle" />
+                  <PairingInputRow
+                    label="Code"
+                    ref={codeField}
+                    placeholder="Pairing code"
+                    returnKeyType="go"
+                    editable={!isBusy}
+                    value={codeInput}
+                    onChangeText={(value) => {
+                      setCodeInput(value);
+                      setError(null);
+                      setErrorDetail(null);
+                    }}
+                    onSubmitEditing={() => {
+                      if (!connectDisabled) void inspect(decodePairInput(hostInput, codeInput));
+                    }}
+                  />
+                </View>
+                <SettingsNote>Enter the host address and its pairing code in separate fields. A trusted local network needs no code.</SettingsNote>
 
                 {error ? <ErrorBanner message={error} detail={errorDetail} /> : null}
 

@@ -154,7 +154,7 @@
               type="button"
               role="tab"
               aria-selected={isCurrent}
-              class="flex h-7 shrink-0 cursor-pointer items-center rounded-full px-2.5 text-workspace-chrome outline-none transition-colors [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-8 {isCurrent
+              class="flex h-7 shrink-0 cursor-pointer items-center rounded-full px-2.5 text-workspace-chrome outline-none transition-colors [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:tap-area {isCurrent
                 ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
                 : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground'}"
               onclick={() => setView({ scope: choice.value })}

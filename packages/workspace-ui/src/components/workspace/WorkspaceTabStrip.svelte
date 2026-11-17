@@ -36,7 +36,7 @@
       aria-selected={isActive}
       data-testid="workspace-tab"
       data-tab={spec.id}
-      class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 {isActive
+      class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area {isActive
         ? 'bg-[var(--wash-3)] font-medium text-foreground shadow-[inset_0_0_0_.5px_var(--hairline-strong)]'
         : 'bg-transparent font-normal text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground'}"
       onclick={() => onSelect(spec.id)}

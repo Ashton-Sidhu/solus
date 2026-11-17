@@ -30,7 +30,7 @@
       aria-selected={isActive}
       data-testid="picker-type-tab"
       data-type={type}
-      class="h-7 shrink-0 cursor-pointer rounded-lg px-2.5 text-workspace-chrome whitespace-nowrap transition-colors duration-150 pointer-coarse:h-9 pointer-coarse:px-3 {isActive
+      class="h-7 shrink-0 cursor-pointer rounded-lg px-2.5 text-workspace-chrome whitespace-nowrap transition-colors duration-150 pointer-coarse:tap-area {isActive
         ? 'bg-[var(--wash-2)] font-medium text-foreground'
         : 'text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground'}"
       onclick={() => onChange(type)}

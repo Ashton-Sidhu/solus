@@ -177,7 +177,7 @@
             variant="secondary"
             disabled={isRetrying}
             onclick={() => void retry()}
-            class="pointer-coarse:h-11 pointer-coarse:px-4"
+            class="pointer-coarse:tap-area "
           >
             <RotateCwIcon aria-hidden="true" />
             {isRetrying ? "Retrying…" : "Retry"}
@@ -191,7 +191,7 @@
             target="_blank"
             rel="noopener noreferrer"
             download={label || undefined}
-            class="pointer-coarse:h-11 pointer-coarse:px-4"
+            class="pointer-coarse:tap-area "
           >
             <ExternalLinkIcon aria-hidden="true" />
             Open

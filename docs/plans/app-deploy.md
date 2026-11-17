@@ -128,6 +128,12 @@ Decided in the code on 2026-11-16, for a maintainer to confirm:
 22. **A webhook of a copy has the signing secret that it has in Solus.**
 23. **A person has at most ten copies on Solus Cloud.**
 
+Decided 2026-11-17 by the maintainers:
+
+24. **The cloud apps are on `solus.sh` for now,** at `<name>-app.solus.sh`,
+    with the `__Host-` prefix on the auth cookies of `app.solus.sh`. They move
+    to a domain of their own before other people publish public apps (§8.3).
+
 ## 5. The parts
 
 ```text
@@ -340,13 +346,23 @@ Built, and run on Cloudflare as a trial. Three parts, in `solus-cloud`:
   next: its next schedule, or a sleeping run. It sets an alarm for thirty
   seconds before that. A run in progress, or work that is due in two minutes,
   keeps an idle container.
-- **A machine's name** is the app's slug and six random bytes, and it is the
-  first label of the app's host name: `<slug>-<random>.<apps domain>`.
-- **The domain for apps is not `solus.sh`.** The page of an app is code that
-  an agent wrote, and a page on a host name under `solus.sh` can set cookies
-  for `app.solus.sh`. The production Worker (`wrangler.production.jsonc`) is
-  not deployed: the account has no such domain yet. The trial Worker serves
-  on workers.dev, which has one host name, so it holds one app.
+- **A machine's name** is the app's slug and five random characters that a
+  person can read, as in `notes-k7m2x`. The app answers at
+  `<name>-app.solus.sh`. The ending is random, so no person takes a bare name
+  such as `login`.
+- **The apps are on `solus.sh` for now** (decision 24). The production Worker
+  is `solus-apps`, with the route `*-app.solus.sh`, apart from the managed
+  hosts (`*-cf.solus.sh`) and the tunnels (`h-<id>.solus.sh`). The page of an
+  app is code that an agent wrote, and a page on a host name under `solus.sh`
+  can set a cookie for the whole domain. So each auth cookie of
+  `app.solus.sh` has the `__Host-` prefix, which a browser takes only from
+  that host. Two risks stay: a password manager can offer the `solus.sh`
+  sign-in on the page of an app, and one bad app can get the whole domain
+  flagged. Before other people publish public apps, the apps move to a domain
+  of their own: one config value (`APP_SUFFIX`) and the route. Each published
+  app then gets a new address.
+- **The trial Worker** (`solus-cloud-apps-test`) serves on workers.dev, which
+  has one host name, so it holds one app.
 - **The `solus-cloud` platform** of a Solus is `SolusCloudPlatform`. It asks
   the cloud application with the token the host holds for its owner. A host
   whose env names an app Worker (`SOLUS_CLOUD_APPS_URL`,
@@ -497,9 +513,11 @@ Not exercised:
 - **A release of the image.** The job in the release workflow did not run.
   The package on the registry is private at its first push: a maintainer
   makes it public once.
-- **The cloud application on Solus Cloud.** The API and the sign-in page are
-  tested against the real migration in PGlite. They are not deployed, and no
-  real host called them.
+- **The cloud application with a real host.** The API and the sign-in page
+  are in production, and they are tested against the real migration in
+  PGlite. The production app Worker ran a real publish with its own token. No
+  released host has the feature, so no host called the API of the cloud
+  application, and no person signed in to a copy through it.
 - **The Deployment section in a running client.**
 - **A run of the two real hosts.** A publish to a connected host is tested
   with the two services in one process and a real container. The connection
@@ -511,8 +529,7 @@ Not exercised:
 
 Not built:
 
-- **A domain for the cloud apps,** and with it the production app Worker
-  (§8.3).
+- **A domain of their own for the cloud apps** (§8.3, decision 24).
 - **The list of people on mobile** (§9).
 - **A link and named people at one time.** The access is one of three.
 - **A consent of the visitor** before the copy learns their name. The owner

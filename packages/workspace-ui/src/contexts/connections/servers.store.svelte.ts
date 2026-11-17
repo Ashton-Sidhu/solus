@@ -698,6 +698,18 @@ class ServersStore {
     requestInputFocus()
   }
 
+  private async forgetHostConnections(serverId: string): Promise<boolean> {
+    const server = this.remotes.find((candidate) => candidate.id === serverId)
+    try {
+      await serverConnections.forgetHost(server?.installationId ?? serverId, server?.routes ?? [])
+      return true
+    } catch (error) {
+      toasts.error(error instanceof Error ? error.message : String(error))
+      requestInputFocus()
+      return false
+    }
+  }
+
   /**
    * Forgets a host. A host the account lists is listed on every device, so its
    * registration ends first; forgetting it here alone would not last. Removing a
@@ -720,6 +732,7 @@ class ServersStore {
       requestInputFocus()
       return
     }
+    if (!await this.forgetHostConnections(serverId)) return
     if (server?.uplink && !(await uplinkAccountSource()?.removeHost(server.uplink.hostId))) {
       toasts.error(`Could not remove ${server.label} from your account`)
       requestInputFocus()

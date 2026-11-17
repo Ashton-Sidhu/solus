@@ -105,7 +105,7 @@
                 {...props}
                 size="icon-sm"
                 aria-label="Verdict: {selected?.label}"
-                class="w-6.5 rounded-l-none border-l border-l-background/25 bg-foreground text-background hover:bg-foreground/85 aria-expanded:bg-foreground/85 pointer-coarse:min-h-11 pointer-coarse:w-9"
+                class="w-6.5 rounded-l-none border-l border-l-background/25 bg-foreground text-background hover:bg-foreground/85 aria-expanded:bg-foreground/85 pointer-coarse:tap-area "
               >
                 <ChevronDown class="size-3.5" aria-hidden="true" />
               </Button>

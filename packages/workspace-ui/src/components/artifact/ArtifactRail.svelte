@@ -48,7 +48,7 @@
   />
   <button
     type="button"
-    class="artifact-rail__action inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-md pointer-coarse:size-12"
+    class="artifact-rail__action inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-md pointer-coarse:tap-area"
     data-testid="artifact-open-split"
     title="Open in split"
     aria-label="Open in split"

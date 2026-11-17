@@ -236,11 +236,11 @@
             {#if canManage}
               <div class="flex shrink-0 items-center opacity-0 transition-opacity group-hover/reviewer:opacity-100 group-focus-within/reviewer:opacity-100 pointer-coarse:opacity-100">
                 {#if reviewer.decision && !reviewer.isAwaiting && !reviewer.reviewerId.startsWith("guest:")}
-                  <Button variant="ghost" size="icon-xs" class="pointer-coarse:size-10" aria-label={`Request review from ${name} again`} title="Request review again" disabled={busy} onclick={() => requestReview([{ userId: reviewer.reviewerId, displayName: name }])}>
+                  <Button variant="ghost" size="icon-xs" class="pointer-coarse:tap-area" aria-label={`Request review from ${name} again`} title="Request review again" disabled={busy} onclick={() => requestReview([{ userId: reviewer.reviewerId, displayName: name }])}>
                     <RerequestIcon size={13} />
                   </Button>
                 {/if}
-                <Button variant="ghost" size="icon-xs" class="pointer-coarse:size-10" aria-label={`Remove ${name} as a reviewer`} title="Remove reviewer" disabled={busy} onclick={() => void run(async () => { await reviews.remove(workId, reviewer.reviewerId); })}>
+                <Button variant="ghost" size="icon-xs" class="pointer-coarse:tap-area" aria-label={`Remove ${name} as a reviewer`} title="Remove reviewer" disabled={busy} onclick={() => void run(async () => { await reviews.remove(workId, reviewer.reviewerId); })}>
                   <XIcon size={13} />
                 </Button>
               </div>
@@ -336,7 +336,7 @@
   <TooltipUI.Root>
     <TooltipUI.Trigger>
       {#snippet child({ props })}
-        <Button {...props} variant="ghost" size="icon-xs" class="rounded-full pointer-coarse:size-10" aria-label={label} disabled={busy} data-testid={testId} {onclick}>
+        <Button {...props} variant="ghost" size="icon-xs" class="rounded-full pointer-coarse:tap-area" aria-label={label} disabled={busy} data-testid={testId} {onclick}>
           <Icon size={14} />
         </Button>
       {/snippet}

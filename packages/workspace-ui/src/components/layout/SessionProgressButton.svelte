@@ -154,10 +154,12 @@
   <Popover.Trigger openOnHover openDelay={0} closeDelay={120}>
     {#snippet child({ props })}
       <!-- The page header's window-control circle, like the review
-           suggestion: the ring is the progress, and hovering opens the steps. -->
+           suggestion: the ring is the progress, and hovering opens the steps.
+           The `after:` box bridges the hover to the steps, so it is for a
+           mouse; under touch the circle's `tap-area` owns `::after`. -->
       <button
         {...props}
-        class="{PAGE_SOFT_ICON_BTN} progress-toggle relative p-0 after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-['']"
+        class="{PAGE_SOFT_ICON_BTN} progress-toggle relative p-0 pointer-fine:after:absolute pointer-fine:after:-inset-x-0.5 pointer-fine:after:-inset-y-2 pointer-fine:after:content-['']"
         class:progress-toggle-done={progressAllDone}
         aria-label={`Progress: step ${progress.currentStep} of ${progress.totalSteps}${progressHeader ? ` — ${progressHeader}` : ""}`}
       >

@@ -218,9 +218,9 @@ export const kv = defineTable('kv', {
 })
 
 /**
- * The hosts the owner connected to themselves while signed out (plans/031 D7): one
- * row per host id, the listing as the contract names it (`HostListing`), never a
- * credential. Signed in, the account document holds the list instead.
+ * One local host record per installation (docs/plans/host-ownership.md): its
+ * client-safe listing, SSH and introduction settings, or a forgotten refusal.
+ * Tokens are in secure storage. The account document shares listings only.
  */
 export const hostList = defineTable('host_list', {
   id: text({ primaryKey: true }),

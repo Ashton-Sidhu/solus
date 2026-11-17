@@ -81,6 +81,18 @@ describe('the frame bridge', () => {
 })
 
 describe('the native browser store', () => {
+  test('a shared viewport update does not override the phone’s explicit Fit to screen command', async () => {
+    const { browser, api, transports } = await setup([page('a')])
+    api.on('browserSetViewport', () => undefined)
+    await browser.setViewport('inst-a', 'a', { mode: 'fill', width: 390, height: 700 })
+    transports[0]!.emit('browser.pageChanged', { page: page('a', {
+      viewport: { ...defaultViewport(), width: 1193, height: 1129 },
+    }) })
+    expect(browser.pagesOf('inst-a')[0]!.viewport.width).toBe(1193)
+    expect(api.callsOf('browserSetViewport')).toEqual([['a', { mode: 'fill', width: 390, height: 700 }]])
+    browser.forgetHost('inst-a')
+  })
+
   test('follows the host pages through events, and records only reveal requests after it attached', async () => {
     const { browser, transports } = await setup([page('b', { createdAt: 2 }), page('a', { createdAt: 1 })])
     expect(browser.pagesOf('inst-a').map((entry) => entry.browserPageId)).toEqual(['a', 'b'])

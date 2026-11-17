@@ -9,7 +9,7 @@
   <Popover.Trigger
     title={label}
     aria-label={label}
-    class="inline-flex size-6.5 shrink-0 items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border) pointer-coarse:size-11"
+    class="inline-flex size-6.5 shrink-0 items-center justify-center rounded-full border-0 bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border) pointer-coarse:tap-area"
     data-testid="work-saved-status"
   >
     <Check size={16} aria-hidden="true" />

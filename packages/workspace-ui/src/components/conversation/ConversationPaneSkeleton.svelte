@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
-  import ConversationSkeleton from "./ConversationSkeleton.svelte";
+  import ConversationLoading from "./ConversationLoading.svelte";
   import { underStrip } from "../ui/lib/pane-strip";
 
   // The companion strip draws the seam for the pane it heads.
@@ -26,7 +26,7 @@
   </div>
 
   <div class="min-h-0 flex-1 overflow-hidden">
-    <ConversationSkeleton />
+    <ConversationLoading />
   </div>
 
   <div class="shrink-0 px-4 pt-2.5 pb-2.5">

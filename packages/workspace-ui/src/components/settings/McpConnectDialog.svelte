@@ -248,7 +248,7 @@
     >
       <Dialog.Close>
         {#snippet child({ props })}
-          <Button {...props} variant="ghost" size="icon-sm" class="absolute top-4 right-4 text-muted-foreground pointer-coarse:size-11" aria-label="Close"><X size={16} /></Button>
+          <Button {...props} variant="ghost" size="icon-sm" class="absolute top-4 right-4 text-muted-foreground pointer-coarse:tap-area" aria-label="Close"><X size={16} /></Button>
         {/snippet}
       </Dialog.Close>
 

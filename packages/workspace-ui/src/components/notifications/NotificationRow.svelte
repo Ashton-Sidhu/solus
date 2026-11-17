@@ -64,7 +64,7 @@
   <span class="flex shrink-0 items-center gap-0.5 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
     <button
       type="button"
-      class="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 pointer-coarse:size-11"
+      class="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 pointer-coarse:tap-area"
       disabled={!canChange}
       title={canChange ? (isUnread ? "Mark as read" : "Mark as unread") : disabledReason}
       aria-label={isUnread ? "Mark as read" : "Mark as unread"}
@@ -74,7 +74,7 @@
     </button>
     <button
       type="button"
-      class="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 pointer-coarse:size-11"
+      class="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_8%,transparent)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 pointer-coarse:tap-area"
       disabled={!canChange}
       title={canChange ? (isArchived ? "Restore" : "Archive") : disabledReason}
       aria-label={isArchived ? "Restore" : "Archive"}

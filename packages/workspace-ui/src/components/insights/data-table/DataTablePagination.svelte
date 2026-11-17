@@ -76,7 +76,7 @@
     <Button
       variant="ghost"
       size="icon"
-      class="size-8 rounded-full text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.94] disabled:opacity-35 disabled:shadow-none pointer-coarse:size-10"
+      class="size-8 rounded-full text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.94] disabled:opacity-35 disabled:shadow-none pointer-coarse:tap-area"
       disabled={!canPrevious}
       aria-label="Previous page"
       onclick={() => setPage(effectivePageIndex - 1)}
@@ -89,7 +89,7 @@
     <Button
       variant="ghost"
       size="icon"
-      class="size-8 rounded-full text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.94] disabled:opacity-35 disabled:shadow-none pointer-coarse:size-10"
+      class="size-8 rounded-full text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.94] disabled:opacity-35 disabled:shadow-none pointer-coarse:tap-area"
       disabled={!canNext}
       aria-label="Next page"
       onclick={() => setPage(effectivePageIndex + 1)}

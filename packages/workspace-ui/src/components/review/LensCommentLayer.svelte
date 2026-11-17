@@ -175,7 +175,7 @@
         </span>
         <button
           type="button"
-          class="ml-auto flex size-5 shrink-0 items-center justify-center rounded hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) pointer-coarse:size-10"
+          class="ml-auto flex size-5 shrink-0 items-center justify-center rounded hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) pointer-coarse:tap-area"
           aria-label="Close comment"
           onclick={close}
         >

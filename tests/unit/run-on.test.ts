@@ -34,8 +34,8 @@ type VisibilityInput = Parameters<typeof shouldShowRunOnPicker>[0]
 
 function visibility(overrides: Partial<VisibilityInput> = {}): VisibilityInput {
   return {
-    connectedRemoteCount: 0,
-    onRemoteHost: false,
+    connectedRemoteIds: [],
+    localHostId: LOCAL_SERVER_ID,
     selectedHostId: LOCAL_SERVER_ID,
     ...overrides,
   }
@@ -114,13 +114,31 @@ describe('run-on picker visibility', () => {
   })
 
   test('a reachable remote reveals the picker', () => {
-    expect(shouldShowRunOnPicker(visibility({ connectedRemoteCount: 1 }))).toBe(true)
+    expect(shouldShowRunOnPicker(visibility({ connectedRemoteIds: ['studio'] }))).toBe(true)
+  })
+
+  test('web hides the picker when the selected host is the only connected machine', () => {
+    expect(shouldShowRunOnPicker(visibility({
+      localHostId: null,
+      selectedHostId: 'serving-host',
+      connectedRemoteIds: ['serving-host'],
+    }))).toBe(false)
+  })
+
+  test('web offers another connected host, including when the selected host disconnects', () => {
+    for (const connectedRemoteIds of [['serving-host', 'studio'], ['studio']]) {
+      expect(shouldShowRunOnPicker(visibility({
+        localHostId: null,
+        selectedHostId: 'serving-host',
+        connectedRemoteIds,
+      }))).toBe(true)
+    }
   })
 
   test('a session already on a remote host shows the picker, even a forgotten one', () => {
     // WHY: the badge must never silently read as local. A run pointed at a
     // remote id names it whether or not that host is still in the saved list.
-    expect(shouldShowRunOnPicker(visibility({ onRemoteHost: true }))).toBe(true)
+    expect(shouldShowRunOnPicker(visibility({ selectedHostId: 'studio' }))).toBe(true)
     expect(shouldShowRunOnPicker(visibility({ selectedHostId: 'studio-forgotten' }))).toBe(true)
   })
 })

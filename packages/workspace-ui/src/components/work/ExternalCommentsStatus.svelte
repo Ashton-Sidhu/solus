@@ -46,7 +46,7 @@
     <Button
       variant="ghost"
       size="icon-xs"
-      class="pointer-coarse:size-10"
+      class="pointer-coarse:tap-area"
       onclick={refresh}
       disabled={checking || busy}
       title={`Refresh from ${providerLabel}`}

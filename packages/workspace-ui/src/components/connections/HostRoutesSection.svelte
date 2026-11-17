@@ -15,6 +15,8 @@
 
   let { serverId }: Props = $props();
 
+  const isLocal = $derived(hostRoutesStore.isLocal(serverId));
+  const localStatus = $derived(hostRoutesStore.localRoutesStatus(serverId));
   const rows = $derived(hostRoutesStore.rowsFor(serverId));
   const inUse = $derived(hostRoutesStore.inUseFor(serverId));
   const canChange = $derived(hostRoutesStore.canChange(serverId));
@@ -39,9 +41,11 @@
 
 <SettingsSection
   label="Routes"
-  description={canChange
+  description={isLocal
+    ? "Addresses this host shares with other devices. Network settings are in Access."
+    : canChange
     ? "Solus uses the first route that answers as this host, and moves back to an earlier route when it answers again. This list is for this device."
-    : "Solus Cloud sets how this host is reached."}
+    : "These routes are set by the host or its connection."}
 >
   {#each rows as row, index (row.url)}
     <div class="flex flex-col gap-2 px-4 py-3">
@@ -99,7 +103,7 @@
       {/if}
     </div>
   {:else}
-    <p class="px-4 py-6 text-center text-chrome-dense text-(--solus-text-tertiary)">This device has no route to this host.</p>
+    <p class="px-4 py-6 text-center text-chrome-dense text-(--solus-text-tertiary)">{localStatus ?? (isLocal ? "This host has no network routes. Check its network settings in Access." : "This device has no route to this host.")}</p>
   {/each}
 
   {#if canChange}

@@ -246,7 +246,7 @@
         <span class="text-xs text-(--solus-text-tertiary)">{openList.length} open</span>
         <button
           type="button"
-          class="ml-auto flex size-6 items-center justify-center rounded text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) pointer-coarse:size-10"
+          class="ml-auto flex size-6 items-center justify-center rounded text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) pointer-coarse:tap-area"
           aria-label="Close comments"
           onclick={() => (listOpen = false)}
         >
@@ -313,7 +313,7 @@
           </span>
           <Button
             size="icon"
-            class="size-7 rounded-full pointer-coarse:size-10"
+            class="size-7 rounded-full pointer-coarse:tap-area"
             aria-label="Send comments to agent"
             title="Send to agent"
             disabled={sending}

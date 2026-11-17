@@ -306,7 +306,7 @@
                 {...tooltipProps}
                 variant={pressed ? "secondary" : "ghost"}
                 size="icon"
-                class="size-7 rounded-lg text-(--solus-text-secondary) hover:bg-(--wash-2) hover:text-foreground aria-pressed:bg-(--wash-2) aria-pressed:text-foreground pointer-coarse:size-10"
+                class="size-7 rounded-lg text-(--solus-text-secondary) hover:bg-(--wash-2) hover:text-foreground aria-pressed:bg-(--wash-2) aria-pressed:text-foreground pointer-coarse:tap-area"
                 aria-label={label}
                 aria-pressed={pressed}
                 {disabled}
@@ -336,7 +336,7 @@
                     {...tooltipProps}
                     variant="ghost"
                     size="icon"
-                    class="size-[2.125rem] rounded-lg border border-(--hairline) bg-(--solus-popover-bg) text-foreground hover:bg-(--wash-2) pointer-coarse:size-10"
+                    class="size-[2.125rem] rounded-lg border border-(--hairline) bg-(--solus-popover-bg) text-foreground hover:bg-(--wash-2) pointer-coarse:tap-area"
                     aria-label="Back to lens"
                     onclick={closeStart}
                   >
