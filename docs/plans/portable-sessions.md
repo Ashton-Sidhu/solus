@@ -687,3 +687,13 @@ the branch and head. The schema remains version 1: a phase-1 manifest parses
 with these later fields absent. A sync must treat an absent field as unknown and
 get the fact from local records or stop when it cannot do so safely. This keeps
 old turn commits readable without inventing their missing facts.
+
+### Part B as implemented (2026-11-18)
+
+`git/session-code-restore.ts` fetches missing bundles in turn order, makes or
+reuses a session worktree, applies the final tree, checks its tree id, and then
+writes the snapshot refs and sidecar. A changed prior worktree is left intact.
+For a shared checkout, the new worktree uses `solus/session-<sessionId>` when
+the source branch is checked out in the main checkout. Git cannot check out
+one branch in both places. The session's own paths are applied to the base
+tree; the main checkout is not changed.

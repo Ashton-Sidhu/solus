@@ -217,10 +217,28 @@ export async function prepareTurnSnapshot(
  * the tree also holds what other authors changed; see "Which changes in a
  * checkout are the session's" below.
  */
-async function snapshotLiveTree(workTree: string, repoRoot: string): Promise<string> {
+export async function snapshotLiveTree(workTree: string, repoRoot: string): Promise<string> {
   const head = await headCommit(workTree) ?? await writeEmptyTree(workTree, repoRoot)
   const dirtyPaths = await listLiveChangedPaths(workTree, head)
   return writeTreeForPaths(workTree, repoRoot, head, dirtyPaths)
+}
+
+/** Install imported checkpoints after their objects and worktree tree have been checked. */
+export async function writeRestoredSessionSnapshots(
+  repoRoot: string, sessionId: string, baseSha: string, turns: TurnSnapshot[], sessionPaths: string[], latestTreeSha: string,
+): Promise<void> {
+  await inSnapshotQueue(repoRoot, async () => {
+    await runAsync('git', ['update-ref', refForBase(sessionId), baseSha], repoRoot)
+    for (const turn of turns) {
+      await runAsync('git', ['update-ref', refForTurn(sessionId, turn.index), turn.sha], repoRoot)
+      await runAsync('git', ['update-ref', refForTurnRange(sessionId, turn.index, 'from'), turn.fromTreeSha], repoRoot)
+      await runAsync('git', ['update-ref', refForTurnRange(sessionId, turn.index, 'to'), turn.toTreeSha], repoRoot)
+    }
+    writeSidecar(repoRoot, sessionId, {
+      baseSha, turns, latestTreeSha, sessionChangedFiles: sessionPaths,
+      turnPaths: [...new Set((await Promise.all(turns.map(turn => changedPathsBetween(repoRoot, turn.fromTreeSha, turn.toTreeSha)))).flat())],
+    })
+  })
 }
 
 /**
