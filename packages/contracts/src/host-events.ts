@@ -1,3 +1,4 @@
+import type { SessionHeadChanged } from './session-repositories'
 import type { PolicySet } from './policy'
 import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
 import type { AppActivityEvent, AppSignalOccurredEvent, AppsChangedEvent } from './apps'
@@ -55,6 +56,7 @@ export interface HostEventMap {
   'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.indexChanged': SessionIndexUpdatedEvent
   'session.titleChanged': SessionTitleChangedEvent
+  'session.headChanged': SessionHeadChanged
   /** This session became a lead (docs/plans/lead-session.md). A session never
    *  stops being one, so there is no reverse event. */
   'session.becameLead': { sessionId: string }
@@ -256,6 +258,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.errorReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'An enriched provider error arrived for a watched session.' },
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
+  'session.headChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud session repository facts changed.' },
   'session.becameLead': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session became a lead: it shows the Meta mode mark.' },
   'session.pullRequestsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's pull request links changed." },
   'session.artifactsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's artifacts changed: a pull request, work, file, or automation was linked or unlinked." },

@@ -559,3 +559,18 @@ An opt-in test, as works have (`tests/unit/work-storage.test.ts:311`, `ARTIFACTS
 - Which permission the host diff RPCs need, for the access rule of `sessionTurnDiff`. `packages/contracts/src/permissions.ts` settles it.
 - Whether the pinned Solus revision in solus-cloud (`ec7d86c7…`) has the phase 1 and 2 code. `git merge-base --is-ancestor` on the two revisions settles it. It matters only for the deploy order.
 - Whether a `git fetch` from a bare directory with alternates behaves as from a bundle in each case `SessionSync` has. A unit test in part D settles it.
+
+### Part K as implemented (2026-11-18)
+
+`packages/contracts/src/session-repositories.ts` exports these wire names:
+
+- Paths: `SESSION_REPOSITORY_TOKEN_PATH`, `SESSION_REPOSITORY_HEAD_PATH`, `LIST_MY_SESSIONS_OPERATION_PATH`, and `LIST_MY_SESSIONS_PATH`.
+- Scope: `sessionCloudScopeSchema`, `SessionCloudScope`, `parseSessionCloudScope`, and `formatSessionCloudScope`. The text is `person:<id>` or `organization:<id>`.
+- Four facts: `sessionRepositoryFactsSchema` and `SessionRepositoryFacts` have `head: 40-hex|null`, `syncedTurn: nonnegative integer`, `lastRunHostId: string|null`, and `runningHostId: string|null`.
+- Token route: `sessionRepositoryTokenRequestSchema` and `SessionRepositoryTokenRequest` have `hostId`, `sessionId`, and `access: read|write`. `sessionRepositoryTokenResponseSchema` and `SessionRepositoryTokenResponse` have the four facts plus `repository`, `remote`, `token`, `expiresAt`, and `storageScope`. `sessionRepositoryTokenRefusalSchema` and `SessionRepositoryTokenRefusal` have `code: unauthorized|forbidden|no_repository|storage_unavailable`.
+- Head route: `sessionRepositoryCardSchema` and `SessionRepositoryCard` have `title`, `provider`, `model`, `repositoryKey`, `branch`, and `lastActivityAt`. `sessionRepositoryHeadRequestSchema` and `SessionRepositoryHeadRequest` are `running`, `idle`, or `pushed`; `pushed` requires `head`, `syncedTurn`, and `card`. `sessionRepositoryHeadResponseSchema` and `SessionRepositoryHeadResponse` are the four facts. `sessionRepositoryHeadRefusalSchema` and `SessionRepositoryHeadRefusal` have the accepted `head` for HTTP 409.
+- Event: `sessionHeadChangedSchema` and `SessionHeadChanged` have `sessionId` and the four facts; `session.headChanged` is in `HostEventMap` and its definition registry.
+- List: `listMySessionsResponseSchema` and `ListMySessionsResponse` have `items` with `sessionId`, card fields, and the four facts. The `listMySessions` operation has `sessions:read` scope.
+- Prompt: `SESSION_DIVERGED` and `SessionPromptRefusalCode` name the refused-push prompt code. `StatusCardState.promptRefusalCode` can carry it beside `syncFailureReason`.
+
+The four plain optional fields are on `WorkspaceSession`, `SessionRecord`, and `SessionMeta`. `sessionMetaFromRecord` copies them. The token response adds `storageScope` to the design's example because the work breakdown asks for it. The head report success uses the shared facts because the design did not give a success body. The list uses a flat item to carry the card and facts. The conflict body has only `head`, as answer 2.3 states. `unauthorized` names the token route's 401 case. The head request uses a discriminated event so `pushed` cannot omit its commit facts. The API route registry has no implementation in this part; the API worker owns it.
