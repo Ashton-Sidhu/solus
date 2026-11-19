@@ -708,6 +708,8 @@ The order of work, the build steps, and the status of each part are in
 
 ### 13.1 The client chain
 
+**2026-11-18, MCP 2026-07-28 authorization.** The probe now selects a Client ID Metadata Document before dynamic registration when the authorization server advertises support. Solus does not yet host the required public HTTPS client document, so host sign-in still uses dynamic registration when no manual or first-party client applies. A present callback `iss` must match the recorded issuer before code exchange; an advertised `iss` is required. Dynamic registration sends `application_type: native` for loopback callbacks and `web` for HTTPS host callbacks. Saved clients and OAuth tokens are bound to the discovered issuer; a changed issuer requires a new client and sign-in.
+
 Status on 2026-10-23: steps 1 to 3 below work, and first-party clients for
 GitHub and Google work on the host path (`connect-with-less-setup.md`, step 6).
 

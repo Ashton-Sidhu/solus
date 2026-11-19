@@ -95,6 +95,11 @@ export class IntegrationConnections implements IntegrationCredentials {
     if (credential.location === 'account') return this.accountAuthorization(integration.id, personKey, credential.read)
     if (integration.auth.kind === 'bearer') return keyAuthorization(integration, credential.token.accessToken)
     try {
+      if (!(await this.deps.oauth.acceptsToken(integration, credential.token))) {
+        const changed = this.deps.store.upsert(integrationId, personKey, { status: 'needs-sign-in', error: 'The sign-in server changed. Sign in again.' }, accountId)
+        this.deps.events.connectionChanged(personKey, { integrationId, connection: changed })
+        return null
+      }
       const token = await this.deps.oauth.refreshIfDue(integrationId, personKey, credential.token, accountId)
       return token ? `Bearer ${token.accessToken}` : null
     } catch (error) {
@@ -292,6 +297,7 @@ export class IntegrationConnections implements IntegrationCredentials {
     const discover = new IntegrationSignIn(integration).discoverAddress
     if (!token.refreshToken || !discover) return null
     try {
+      if (!(await this.deps.oauth.acceptsToken(integration, token))) return null
       const tokenEndpoint = (await this.deps.oauth.tokenEndpointOf(integration)).href
       return { kind: 'oauth', token, client: this.deps.oauth.clientForToken(integration.id, token), tokenEndpoint, discover }
     } catch (error) {

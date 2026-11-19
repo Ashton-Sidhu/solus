@@ -16,6 +16,7 @@ const TOOLS = [
 
 let server: ReturnType<typeof Bun.serve>
 let base: string
+let metadataSupported = false
 
 function rpcResult(id: number | undefined, result: object): Response {
   return Response.json({ jsonrpc: '2.0', id, result })
@@ -70,6 +71,7 @@ beforeAll(() => {
             authorization_endpoint: `${base}/issuer/authorize`,
             token_endpoint: `${base}/issuer/token`,
             registration_endpoint: `${base}/issuer/register`,
+            client_id_metadata_document_supported: metadataSupported,
             response_types_supported: ['code'],
             code_challenge_methods_supported: ['S256'],
           })
@@ -128,6 +130,16 @@ describe('MCP probe', () => {
     })
     expect(result.signals).toContainEqual({ kind: 'resource-metadata', result: 'ok' })
     expect(result.signals).toContainEqual({ kind: 'authorization-server-metadata', result: 'ok' })
+  })
+
+  test('metadata documents take priority when dynamic registration is also advertised', async () => {
+    metadataSupported = true
+    try {
+      const result = await probeMcpServer(`${base}/oauth/mcp`, options)
+      expect(result).toMatchObject({ outcome: 'oauth', auth: { registration: 'metadata-document' } })
+    } finally {
+      metadataSupported = false
+    }
   })
 
   test('a 401 without OAuth metadata asks for credentials with the challenge scheme', async () => {

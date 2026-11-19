@@ -88,6 +88,7 @@ const authorizationServerSchema = z.object({
   response_types_supported: z.array(z.string()),
   code_challenge_methods_supported: z.array(z.string()).optional(),
   registration_endpoint: z.string().min(1).optional(),
+  client_id_metadata_document_supported: z.boolean().optional(),
 })
 
 function mediaOf(contentType: string | null): Media {
@@ -250,7 +251,7 @@ function toolSummaries(result: z.infer<typeof toolsResultSchema>): IntegrationTo
 }
 
 type OAuthFinding =
-  | { kind: 'advertised'; discover: string; registration: 'dynamic' | 'client-required'; firstParty?: FirstPartyClientId }
+  | { kind: 'advertised'; discover: string; registration: 'dynamic' | 'metadata-document' | 'client-required'; firstParty?: FirstPartyClientId }
   | { kind: 'unusable'; reason: 'unavailable' | 'oauth_unusable' }
   | { kind: 'not-advertised' }
 
@@ -331,7 +332,7 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
   }
 
   /** The authorization server's metadata, checked as a browser sign-in needs it. */
-  const readIssuer = async (issuer: URL): Promise<{ found: { url: URL; registration: 'dynamic' | 'client-required'; firstParty?: FirstPartyClientId } } | { failed: 'missing' | 'invalid' | 'unsupported' | 'blocked' | 'unavailable' }> => {
+  const readIssuer = async (issuer: URL): Promise<{ found: { url: URL; registration: 'dynamic' | 'metadata-document' | 'client-required'; firstParty?: FirstPartyClientId } } | { failed: 'missing' | 'invalid' | 'unsupported' | 'blocked' | 'unavailable' }> => {
     for (const location of issuerLocations(issuer)) {
       const answer = await metadata(location)
       if (answer === 'blocked') {
@@ -361,7 +362,7 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
       signals.push({ kind: 'authorization-server-metadata', result: 'ok' })
       // An authorization server Solus registered an app with signs in through that app (§13.1).
       const firstParty = firstPartyFor({ authorizationEndpoint: server.data.authorization_endpoint, tokenEndpoint: server.data.token_endpoint }, endpoint.href)
-      const registration = server.data.registration_endpoint ? 'dynamic' : 'client-required'
+      const registration = server.data.client_id_metadata_document_supported ? 'metadata-document' : server.data.registration_endpoint ? 'dynamic' : 'client-required'
       return { found: firstParty ? { url: location, registration, firstParty } : { url: location, registration } }
     }
     return { failed: 'missing' }

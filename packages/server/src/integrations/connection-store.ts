@@ -121,15 +121,17 @@ export class IntegrationConnectionStore {
  * vault's. A test passes its own.
  */
 export interface IntegrationClients {
-  client(integrationId: string): OAuthClient | null
+  client(integrationId: string, issuer: string): OAuthClient | null
   /** `EncryptionUnavailableError` when the store cannot save safely. */
-  saveClient(integrationId: string, client: OAuthClient): void
+  saveClient(integrationId: string, issuer: string, client: OAuthClient): void
   removeClient(integrationId: string): void
 }
 
-function clientKey(integrationId: string): string {
-  return `integration-client-${integrationId}`
+function clientKey(integrationId: string, issuer: string): string {
+  return `integration-client-${integrationId}-${Buffer.from(issuer).toString('base64url')}`
 }
+
+function issuerKey(integrationId: string): string { return `integration-client-issuer-${integrationId}` }
 
 function load<T>(key: string, schema: z.ZodType<T>): T | null {
   return secretStore().loadJson(key, join(dataDir(), `${key}.bin`), schema)
@@ -151,7 +153,16 @@ function remove(key: string): void {
 
 /** The host secret store (`platform/secrets.ts`), which the desktop encrypts with `safeStorage`. */
 export const hostIntegrationClients: IntegrationClients = {
-  client: (integrationId) => load(clientKey(integrationId), oauthClientSchema),
-  saveClient: (integrationId, client) => save(clientKey(integrationId), client),
-  removeClient: (integrationId) => remove(clientKey(integrationId)),
+  client: (integrationId, issuer) => load(clientKey(integrationId, issuer), oauthClientSchema),
+  saveClient: (integrationId, issuer, client) => {
+    const previous = load(issuerKey(integrationId), z.string())
+    if (previous && previous !== issuer) remove(clientKey(integrationId, previous))
+    save(clientKey(integrationId, issuer), client)
+    save(issuerKey(integrationId), issuer)
+  },
+  removeClient: (integrationId) => {
+    const issuer = load(issuerKey(integrationId), z.string())
+    if (issuer) remove(clientKey(integrationId, issuer))
+    remove(issuerKey(integrationId))
+  },
 }
