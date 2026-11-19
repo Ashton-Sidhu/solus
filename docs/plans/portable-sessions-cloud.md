@@ -612,3 +612,39 @@ Part A.
 - Gate: `sessionCloudSyncDecision(organizationId, actingPerson)` in the host policy store. It reads the host setting and `hostPolicies().forWork(organizationId)` at call time. No signed-in actor, a host switch that is off, an unavailable policy, and a policy that forbids sync each give a typed refusal.
 - The host-wide switch shows an MDM lock. An organization limit applies to its sessions but does not disable the host-wide switch for Local work.
 - An older host refuses a policy document that names the new key because its policy schema is strict. Hosts must ship before a console can set the key.
+
+### Part B as implemented (2026-11-18)
+
+The record service owns `session_repositories` on SQLite and Postgres. Its key is
+`(cloud_scope, session_id)`. The row stores the owner, API-computed repository name,
+storage scope, four cloud facts, running time, and list card. The existing
+`session_records` table remains the home of organization session list state.
+
+`POST /runner/session-repositories/token` accepts only a verified host delegation
+whose `act.host_id` equals the request `hostId`. A personal delegation reaches
+`person:<accountId>`; an organization delegation reaches only a published session
+for which the person has edit standing. The API computes the repository name.
+Read needs an existing row; write can create it. A successful answer has the Git
+remote, one repository token, its expiry, storage scope, and the four facts.
+The route answers `unauthorized` (401), `forbidden` (403), `no_repository` (404),
+or `storage_unavailable` (503). A person request budget applies.
+
+`POST /runner/session-repositories/head` uses the same admission. `running` sets
+the running host and time. `idle` clears only the reporting host. `pushed` accepts
+a larger turn count or the same count and head; a stale report gets 409 with the
+accepted head. Accepted changes send `session.headChanged` to the owner's
+connections for a personal scope, or to admitted readers of the published
+organization session. `GET /v1/me/sessions` lists the caller's personal cloud
+rows with a committed head and list card. Organization record reads join the
+four facts from the cloud row.
+
+`SOLUS_SESSION_STORAGE` is `off` by default, `local-git` for a file remote under
+the API data directory, or `cloudflare-artifacts`. Artifacts uses
+`SOLUS_ARTIFACTS_ACCOUNT_ID`, `SOLUS_ARTIFACTS_API_TOKEN`, and the session-only
+`SOLUS_SESSION_ARTIFACTS_NAMESPACE`. A changed storage scope or invalid
+configuration stops startup. The API never logs a repository token.
+
+Phase 3 keeps the machine as the home of a personal session (D2). Only a
+personal delegation reaches its repository (D3); both organization reads and
+writes require edit standing (D4). Sessions use a namespace separate from works
+(D6). Retention, size caps, and account deletion remain the D9 release gate.

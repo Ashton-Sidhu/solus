@@ -26,6 +26,7 @@ import type { ResolvedLinkShare } from '../sharing/share-manager'
 import type { ShareLinkResolver } from '../sharing/share-link-resolver'
 import { SHARE_LINK_UNKNOWN, shareLinkRequestSchema } from '@solus/contracts/sharing'
 import { registerRunnerRoutes, type RunnerDeliveryIntake } from './runner-routes'
+import { registerSessionRepositoryRoutes, type SessionRepositoryRoutes } from './session-repository-routes'
 import { delegateFromPresentedToken, type DelegationScope } from '../sync/delegations'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
@@ -101,6 +102,7 @@ export interface HttpServerOptions {
   shareLinks?: ShareLinkResolver
   /** The workspace service's runner routes (cloud-service-model.md §16); mounted in API mode only, so the routes exist nowhere else. */
   runner?: RunnerDeliveryIntake
+  sessionRepositories?: SessionRepositoryRoutes
   /** The device hub proxy's video routes (docs/plans/native-devices.md, D2). The token is the credential. */
   deviceHub?: { serve(token: string, route: string, signal: AbortSignal, request?: Request): Promise<Response> }
   /** Long-form voice transcription implementation supplied by the host. */
@@ -538,6 +540,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   }
 
   registerRunnerRoutes(app, opts)
+  registerSessionRepositoryRoutes(app, opts)
 
   app.post('/auth/revoke', async (c) => {
     if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
