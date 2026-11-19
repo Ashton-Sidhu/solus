@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { firstPartyClientById } from '@solus/contracts/first-party-clients'
 import { SOLUS_SERVERS } from '@solus/server/integrations/solus-servers'
 import { GoogleSolusServer } from '@solus/server/integrations/solus-servers/google'

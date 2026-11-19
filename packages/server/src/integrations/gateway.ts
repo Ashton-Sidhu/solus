@@ -1,18 +1,18 @@
 import { z } from 'zod'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { Client } from '@modelcontextprotocol/client'
+import { StreamableHTTPClientTransport, SdkHttpError } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from '@modelcontextprotocol/client'
+import type { Transport } from '@modelcontextprotocol/client'
 import {
-  ElicitRequestSchema,
-  McpError,
+  SdkError,
+  SdkErrorCode,
   type CallToolRequest,
-  ToolListChangedNotificationSchema,
   type ElicitRequest,
   type ElicitResult,
   type ReadResourceResult,
+  type PriorDiscovery,
   type Tool,
-} from '@modelcontextprotocol/sdk/types.js'
+} from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
@@ -35,6 +35,8 @@ const CALL_TIMEOUT_MS = 60 * 1000
 const SDK_TIMEOUT_OFF_MS = 24 * 60 * 60 * 1000
 /** A session's `Authorization` header is a snapshot: ask for it again after this, before a token expires (§4.1 rule 5). */
 const AUTHORIZATION_MAX_AGE_MS = 50 * 60 * 1000
+/** Re-probe old servers daily so an upgraded server can move to the modern revision. */
+const LEGACY_VERDICT_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 /** What `connection_status` reports about one person's connection to an integration. */
 export interface IntegrationConnectionReport {
@@ -53,7 +55,7 @@ class ConnectionRequiredError extends Error {
 }
 
 /** One upstream tool as `tools/list` reported it, kept whole: the tool bridge needs its input schema. */
-export type UpstreamTool = Pick<Tool, 'name' | 'title' | 'description' | 'inputSchema' | 'annotations' | '_meta'>
+export type UpstreamTool = Pick<Tool, 'name' | 'title' | 'description' | 'inputSchema' | 'outputSchema' | 'annotations' | '_meta'>
 
 /** A `tools/call` result as the SDK returns it. */
 type AppToolResult = Awaited<ReturnType<Client['callTool']>>
@@ -101,6 +103,7 @@ interface ToolCache {
   tools: UpstreamTool[]
   /** The session closed, so `tools/list_changed` could not reach it: list again on the next read. */
   stale: boolean
+  expiresAt: number | null
 }
 
 /**
@@ -112,6 +115,7 @@ interface ToolCache {
 export class IntegrationGateway {
   private readonly sessions = new Map<string, UpstreamSession>()
   private readonly caches = new Map<string, ToolCache>()
+  private readonly revisions = new Map<string, { prior: PriorDiscovery; checkedAt: number }>()
   private readonly listing = new Map<string, Promise<UpstreamTool[]>>()
   private readonly listeners: Array<(integrationId: string) => void> = []
   private readonly connectNeededListeners: Array<(request: IntegrationConnectNeeded) => void> = []
@@ -140,7 +144,7 @@ export class IntegrationGateway {
 
   /** Calls one tool for an MCP App with the current person's connection. It never starts an agent turn. */
   async callAppTool(integrationId: string, name: string, input: ToolArguments): Promise<AppToolResult> {
-    return this.withAppSession(integrationId, (client) => client.callTool({ name, arguments: input }, undefined, { timeout: CALL_TIMEOUT_MS }))
+    return this.withAppSession(integrationId, (client) => client.callTool({ name, arguments: input }, { timeout: CALL_TIMEOUT_MS }))
   }
 
   private async withAppSession<T>(integrationId: string, use: (client: Client) => Promise<T>): Promise<T> {
@@ -245,7 +249,6 @@ export class IntegrationGateway {
       startTimer()
       const result = await session.client.callTool(
         { name: tool, arguments: input },
-        undefined,
         { signal: AbortSignal.any([context.abortSignal, timeout.signal]), timeout: SDK_TIMEOUT_OFF_MS },
       )
       if (this.captureApp && !('isError' in result && result.isError)) await this.saveApp(this.captureApp, { integration, tool, input, result, context })
@@ -271,8 +274,12 @@ export class IntegrationGateway {
       if (context.abortSignal.aborted) return { ok: false, text: `The ${integration.name} call was stopped.` }
       if (timeout.signal.aborted) return { ok: false, text: `${integration.name} did not answer within ${CALL_TIMEOUT_MS / 1000} seconds.` }
       log.warn('integration_call_failed', { integrationId, tool, error: errorText(error) })
+      if (session?.client.getProtocolEra() === 'modern' && isLostResponse(error)) {
+        void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
+        return { ok: false, text: `${integration.name} lost the response for ${tool}. The request may have run, so Solus did not send it again.` }
+      }
       // A transport failure drops the session so the next call opens a new one; a server error keeps it.
-      if (session && !(error instanceof McpError)) void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
+      if (session && !(error instanceof SdkError)) void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
       return { ok: false, text: `${integration.name} could not run ${tool}: ${errorText(error)}` }
     } finally {
       stopTimer()
@@ -312,6 +319,7 @@ export class IntegrationGateway {
 
   /** Forget an integration's sessions and tool lists, as after an edit or a removal. */
   invalidate(integrationId: string): void {
+    this.revisions.delete(integrationId)
     for (const [key, cache] of this.caches) {
       if (cache.integrationId === integrationId) this.caches.delete(key)
     }
@@ -389,13 +397,13 @@ export class IntegrationGateway {
   private async upstreamTools(integrationId: string, personKey: string | null, allowAnonymous = false): Promise<UpstreamTool[]> {
     const key = sessionKey(integrationId, personKey)
     const cached = this.caches.get(key)
-    if (cached && !cached.stale) return cached.tools
+    if (cached && !cached.stale && (cached.expiresAt === null || Date.now() < cached.expiresAt)) return cached.tools
     let listed = this.listing.get(key)
     if (!listed) {
       listed = this.list(integrationId, personKey, allowAnonymous).finally(() => this.listing.delete(key))
       this.listing.set(key, listed)
     }
-    if (!cached) return listed
+    if (!cached || (cached.expiresAt !== null && Date.now() >= cached.expiresAt)) return listed
     listed.catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
     return cached.tools
   }
@@ -405,6 +413,7 @@ export class IntegrationGateway {
     const key = sessionKey(integrationId, personKey)
     const tools: UpstreamTool[] = []
     let cursor: string | undefined
+    let expiresAt: number | null = null
     do {
       let page: Awaited<ReturnType<Client['listTools']>>
       try {
@@ -420,13 +429,18 @@ export class IntegrationGateway {
         if (integration) this.signInRefused(session, integration, error)
         throw new ConnectionRequiredError()
       }
+      const ttl = z.number().safeParse(page.ttlMs)
+      if (ttl.success) {
+        const pageExpiry = Date.now() + Math.max(0, ttl.data)
+        expiresAt = expiresAt === null ? pageExpiry : Math.min(expiresAt, pageExpiry)
+      }
       for (const tool of page.tools) {
-        tools.push({ name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations, _meta: tool._meta })
+        tools.push({ name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, outputSchema: tool.outputSchema, annotations: tool.annotations, _meta: tool._meta })
       }
       cursor = page.nextCursor
     } while (cursor)
     const previous = this.caches.get(key)
-    this.caches.set(key, { integrationId, tools, stale: false })
+    this.caches.set(key, { integrationId, tools, stale: false, expiresAt })
     this.touch(key)
     log.info('integration_tools_listed', { integrationId, count: tools.length })
     if (previous && toolNames(previous.tools) !== toolNames(tools)) this.notify(integrationId)
@@ -475,21 +489,27 @@ export class IntegrationGateway {
     }
     this.retire(key)
     if (integration.auth.kind !== 'none' && !authorization && !allowAnonymous) throw new ConnectionRequiredError()
-    const client = new Client({ name: 'solus', version: '1.0.0' }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } } })
+    const client = new Client({ name: 'solus', version: '1.0.0' }, {
+      versionNegotiation: { mode: 'auto' },
+      capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } },
+      listChanged: { tools: { autoRefresh: false, onChanged: () => {
+        if (this.sessions.get(key) !== session) return
+        this.caches.delete(key)
+        this.notify(integrationId)
+      } } },
+    })
     const session: UpstreamSession = {
       integrationId, personKey, accountId, client, connected: Promise.resolve(), idleTimer: null, calls: [],
       authorized: !!authorization, openedAt: Date.now(), retired: false,
     }
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
-      if (this.sessions.get(key) !== session) return
-      this.caches.delete(key)
-      this.notify(integrationId)
-    })
-    client.setRequestHandler(ElicitRequestSchema, (request) => this.elicit(session, request))
-    session.connected = client.connect(this.transportFor(integration, personKey, authorization, accountId))
+    client.setRequestHandler('elicitation/create', (request) => this.elicit(session, request))
+    const prior = this.priorFor(integrationId)
+    session.connected = client.connect(this.transportFor(integration, personKey, authorization, accountId), prior ? { prior } : undefined)
     this.sessions.set(key, session)
     try {
       await session.connected
+      const discover = client.getDiscoverResult()
+      this.revisions.set(integrationId, { prior: discover ? { kind: 'modern', discover } : { kind: 'legacy' }, checkedAt: Date.now() })
     } catch (error) {
       if (this.sessions.get(key) === session) this.sessions.delete(key)
       void client.close().catch(() => undefined)
@@ -505,6 +525,14 @@ export class IntegrationGateway {
     // The list cached before an idle close may be old: read it again in the background.
     if (this.caches.get(key)?.stale) void this.list(integrationId, personKey, allowAnonymous).catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
     return session
+  }
+
+  /** An old verdict expires so a server upgrade can be found. */
+  private priorFor(integrationId: string): PriorDiscovery | undefined {
+    const saved = this.revisions.get(integrationId)
+    if (!saved) return undefined
+    if (saved.prior.kind === 'modern') return saved.prior
+    return Date.now() - saved.checkedAt < LEGACY_VERDICT_MAX_AGE_MS ? saved.prior : undefined
   }
 
   /** Asks the person behind the newest call, as Codex's elicitation does (codex-permissions.ts). */
@@ -539,7 +567,7 @@ export class IntegrationGateway {
   }
 
   /** The server refused the person's header: drop the session so the next use asks for a new one. */
-  private signInRefused(session: UpstreamSession, integration: Pick<Integration, 'name'>, error: StreamableHTTPError): void {
+  private signInRefused(session: UpstreamSession, integration: Pick<Integration, 'name'>, error: SdkHttpError): void {
     void this.closeSession(sessionKey(session.integrationId, session.personKey, session.accountId))
     if (session.personKey !== null) this.credentials?.markNeedsSignIn(session.integrationId, session.personKey, refusedMessage(integration, error), session.accountId)
   }
@@ -633,13 +661,18 @@ function refusedInFirstCall(session: UpstreamSession, result: AgentToolResult, r
   return !retried && session.authorized && !result.ok && REFUSED_IN_RESULT.test(result.text)
 }
 
-/** The server answered 401 or 403: it refused the header. */
-function isAuthFailure(cause: unknown): cause is StreamableHTTPError {
-  return cause instanceof StreamableHTTPError && (cause.code === 401 || cause.code === 403)
+/** An in-flight modern request has no SSE resume path after transport loss. */
+function isLostResponse(cause: unknown): boolean {
+  return !(cause instanceof SdkError) || cause.code === SdkErrorCode.ConnectionClosed || cause.code === SdkErrorCode.SendFailed
 }
 
-function refusedMessage(integration: Pick<Integration, 'name'>, error: StreamableHTTPError): string {
-  return `${integration.name} refused the saved sign-in (HTTP ${error.code}). Sign in again.`
+/** The server answered 401 or 403: it refused the header. */
+function isAuthFailure(cause: unknown): cause is SdkHttpError {
+  return cause instanceof SdkHttpError && (cause.status === 401 || cause.status === 403)
+}
+
+function refusedMessage(integration: Pick<Integration, 'name'>, error: SdkHttpError): string {
+  return `${integration.name} refused the saved sign-in (HTTP ${error.status}). Sign in again.`
 }
 
 function toolNames(tools: UpstreamTool[]): string {

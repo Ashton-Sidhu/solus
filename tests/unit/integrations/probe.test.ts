@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { probeMcpServer } from '@solus/server/integrations/probe'
 import { probeAddress } from '@solus/server/integrations/integration-create'
 import { integrationUrlSchema } from '@solus/contracts/integration-types'
+import { startFakeServers } from './fake-servers'
+import { readServerIdentity } from '@solus/server/integrations/server-identity'
 
 // docs/plans/mcp-integrations.md §3.2: the probe decides how an integration
 // authenticates from what the server answers without credentials. Each case is
@@ -97,6 +99,24 @@ afterAll(() => {
 const options = { allowLoopback: true }
 
 describe('MCP probe', () => {
+  test('the modern server identity comes from discover', async () => {
+    const fake = await startFakeServers()
+    try { expect(await readServerIdentity(fake.modernMcpUrl, 'Bearer test')).toEqual({ label: 'modern-fake' }) }
+    finally { await fake.close() }
+  })
+
+  test('a modern server is discovered without initialize and its revision is a signal', async () => {
+    const fake = await startFakeServers()
+    try {
+      const result = await probeMcpServer(fake.modernMcpUrl, options)
+      expect(result.outcome).toBe('anonymous')
+      if (result.outcome !== 'anonymous') return
+      expect(result.tools.map((tool) => tool.name)).toEqual(['echo', 'confirm', 'break_stream'])
+      expect(result.signals).toContainEqual({ kind: 'revision', revision: '2026-07-28' })
+      expect(result.signals.some((signal) => signal.kind === 'request' && signal.method === 'initialize')).toBe(false)
+    } finally { await fake.close() }
+  })
+
   test('a server that initializes and lists tools anonymously is anonymous, with its tool hints', async () => {
     // WHY: an anonymous server works for everyone without a connection.
     const result = await probeMcpServer(`${base}/anonymous/mcp`, options)
@@ -108,6 +128,7 @@ describe('MCP probe', () => {
       { name: 'delete_page', description: '', readOnly: false, destructive: true },
     ])
     expect(result.signals.filter((signal) => signal.kind === 'request')).toEqual([
+      { kind: 'request', method: 'server/discover', status: 400, media: 'text', answer: 'none' },
       { kind: 'request', method: 'initialize', status: 200, media: 'json', answer: 'result' },
       { kind: 'request', method: 'tools/list', status: 200, media: 'event-stream', answer: 'result' },
     ])
@@ -134,7 +155,7 @@ describe('MCP probe', () => {
     // WHY: a person pastes a key; the agent must never ask for one in chat.
     const result = await probeMcpServer(`${base}/key/mcp`, options)
     expect(result).toMatchObject({ outcome: 'credentials-required', auth: { kind: 'bearer', scheme: 'bearer' } })
-    expect(result.signals[0]).toEqual({ kind: 'request', method: 'initialize', status: 401, media: 'text', answer: 'none', challenge: { scheme: 'bearer', resourceMetadata: false, scope: false } })
+    expect(result.signals[0]).toEqual({ kind: 'request', method: 'server/discover', status: 401, media: 'text', answer: 'none', challenge: { scheme: 'bearer', resourceMetadata: false, scope: false } })
   })
 
   test('a web page is not an MCP server', async () => {

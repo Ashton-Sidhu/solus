@@ -3,8 +3,8 @@ import { z } from 'zod'
 import { executeAgentTool, type AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { adaptClaudeTools } from '@solus/server/execution/agents/claude/claude-tool-adapter'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { mapCallResult, upstreamToolToAgentTool } from '@solus/server/integrations/integration-tools'
 import type { UpstreamTool } from '@solus/server/integrations/gateway'
 
@@ -146,6 +146,9 @@ describe('integration call results', () => {
 
   test('structured content is the text when there is no text', () => {
     expect(mapCallResult({ content: [], structuredContent: { count: 2 } }).text).toBe('{\n  "count": 2\n}')
+    // WHY: modern servers can return any JSON value, including null and a number.
+    expect(mapCallResult({ content: [], structuredContent: null }).text).toBe('null')
+    expect(mapCallResult({ content: [], structuredContent: 7 }).text).toBe('7')
     expect(mapCallResult({ content: [{ type: 'text', text: 'two' }], structuredContent: { count: 2 } }).text).toBe('two')
   })
 

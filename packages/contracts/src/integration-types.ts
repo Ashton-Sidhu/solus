@@ -136,7 +136,7 @@ export function toolAccess(tool: Pick<IntegrationToolSummary, 'readOnly' | 'dest
 export const integrationProbeSignalSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('request'),
-    method: z.enum(['initialize', 'tools/list']),
+    method: z.enum(['server/discover', 'initialize', 'tools/list']),
     status: z.number().int(),
     media: z.enum(['json', 'event-stream', 'html', 'text', 'other', 'none']),
     answer: z.enum(['result', 'error', 'none']),
@@ -145,6 +145,10 @@ export const integrationProbeSignalSchema = z.discriminatedUnion('kind', [
       resourceMetadata: z.boolean(),
       scope: z.boolean(),
     }).optional(),
+  }),
+  z.object({
+    kind: z.literal('revision'),
+    revision: z.enum(['2026-07-28', 'legacy']),
   }),
   z.object({
     kind: z.literal('resource-metadata'),

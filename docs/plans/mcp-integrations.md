@@ -1073,3 +1073,13 @@ Microsoft 365 server.
 - **Retire it** when the vendor ships a usable MCP server: move the records
   to a Solus catalog entry (§13.5) for that server.
 - Tests run against recorded responses, with no live credential.
+
+### MCP revision migration (2026-11-18)
+
+The gateway uses the MCP TypeScript SDK 2.4 client in automatic version mode.
+It tries `server/discover` first and lets the SDK use `initialize` for an old
+server. It keeps each integration's revision verdict in process memory. A
+modern verdict includes the discovery result; an old verdict expires after one
+day so an upgraded server is checked again. The probe records the revision as a
+signal. The Solus Google servers use the modern revision over in-memory
+transports. Roots, Sampling, Logging, and HTTP+SSE are not built.

@@ -20,6 +20,7 @@ import { firstPartyFor } from './first-party'
  */
 
 const PROTOCOL_VERSION = '2025-06-18'
+const MODERN_PROTOCOL_VERSION = '2026-07-28'
 const MAX_ANSWER_BYTES = 16 * 1024 * 1024
 
 type Signal = IntegrationProbeSignal
@@ -63,6 +64,7 @@ const jsonRpcResponseSchema = z.object({
 })
 
 const initializeResultSchema = z.object({ protocolVersion: z.string().min(1) })
+const discoverResultSchema = z.object({ supportedVersions: z.array(z.string()).min(1) })
 
 const toolSchema = z.object({
   name: z.string().min(1),
@@ -275,7 +277,7 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
   const post = async (message: { method: string; id?: number; params?: object }, headers?: SessionHeaders): Promise<Exchange> => {
     const response = await send(endpoint, {
       method: 'POST',
-      headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...headers },
+      headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...(message.method === 'server/discover' || (headers?.['mcp-protocol-version'] === MODERN_PROTOCOL_VERSION) ? { 'mcp-method': message.method } : {}), ...headers },
       body: JSON.stringify({ jsonrpc: '2.0', ...message }),
     })
     const media = mediaOf(response.headers.get('content-type'))
@@ -485,6 +487,36 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
 
   let session: string | undefined
   try {
+    const discovered = await post({
+      method: 'server/discover',
+      id: 0,
+      params: { _meta: {
+        'io.modelcontextprotocol/protocolVersion': MODERN_PROTOCOL_VERSION,
+        'io.modelcontextprotocol/clientCapabilities': {},
+        'io.modelcontextprotocol/clientInfo': { name: 'solus', version: '1.0.0' },
+      } },
+    })
+    signals.push(signalOf('server/discover', discovered))
+    const modern = successful(discovered) && discovered.answer === 'result' && discoverResultSchema.safeParse(discovered.result).success && discoverResultSchema.parse(discovered.result).supportedVersions.includes(MODERN_PROTOCOL_VERSION)
+    if (modern) {
+      signals.push({ kind: 'revision', revision: MODERN_PROTOCOL_VERSION })
+      const headers: SessionHeaders = { 'mcp-protocol-version': MODERN_PROTOCOL_VERSION }
+      const tools = await post({ method: 'tools/list', id: 2, params: { _meta: {
+        'io.modelcontextprotocol/protocolVersion': MODERN_PROTOCOL_VERSION,
+        'io.modelcontextprotocol/clientCapabilities': {},
+        'io.modelcontextprotocol/clientInfo': { name: 'solus', version: '1.0.0' },
+      } } }, headers)
+      signals.push(signalOf('tools/list', tools))
+      if (!successful(tools)) return await unsuccessful(tools, 'tools_error')
+      if (tools.answer !== 'result') return undetermined('tools_error')
+      const oauth = await inspectOAuth(tools.authenticate ?? discovered.authenticate, false)
+      const auth: IntegrationAuth = oauth.kind === 'advertised' ? { kind: 'none', oauth: { discover: oauth.discover } } : { kind: 'none' }
+      const listed = toolsResultSchema.safeParse(tools.result)
+      return { outcome: 'anonymous', auth, tools: listed.success ? toolSummaries(listed.data) : [], signals }
+    }
+    if (discovered.status === 401 || discovered.status === 403) return await unsuccessful(discovered, 'not_mcp')
+    if (discovered.status === 429 || discovered.status >= 500) return await unsuccessful(discovered, 'unavailable')
+    signals.push({ kind: 'revision', revision: 'legacy' })
     const initialized = await post({
       method: 'initialize',
       id: 1,

@@ -1,10 +1,9 @@
 import { afterEach, expect, test } from 'bun:test'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js'
-import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { Client } from '@modelcontextprotocol/client'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import type { FetchLike } from '@modelcontextprotocol/client'
 import { cancellableFetch } from '@solus/server/integrations/cancellable-fetch'
 
 let server: Server | null = null
@@ -36,7 +35,7 @@ async function slowServer() {
     const message = JSON.parse(body)
     if (message.method === 'initialize') {
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: { name: 'slow', version: '1' } } }))
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: '2025-11-25', capabilities: { tools: {} }, serverInfo: { name: 'slow', version: '1' } } }))
     } else if (message.method === 'tools/call') {
       callArrived.fire()
     } else {
@@ -60,7 +59,7 @@ async function callFetchAborted(wrap: (base: FetchLike) => FetchLike): Promise<b
   client = new Client({ name: 'test', version: '1' })
   await client.connect(new StreamableHTTPClientTransport(slow.url, { fetch: wrap(recording) }))
   const stop = new AbortController()
-  const call = client.callTool({ name: 'slow', arguments: {} }, undefined, { signal: stop.signal })
+  const call = client.callTool({ name: 'slow', arguments: {} }, { signal: stop.signal })
   // Stop once the server holds the call, as a user's Stop would.
   await slow.callArrived.promise
   stop.abort(new Error('stopped'))

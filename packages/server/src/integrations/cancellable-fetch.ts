@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js'
+import type { FetchLike } from '@modelcontextprotocol/client'
 
 const requestIdSchema = z.union([z.string(), z.number()])
 /** The parts of a JSON-RPC message this fetch reads: a request's id, and the id a cancel names. */

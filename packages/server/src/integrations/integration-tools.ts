@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { mcpAppToolMetadataSchema } from '@solus/contracts/mcp-apps'
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ownerKeyOf, type Actor } from '../admission/actor'
 import { recordScopeOf } from '../admission/principal'
@@ -147,7 +147,7 @@ export function mapCallResult(result: CallToolResult | { toolResult: unknown }):
     } else if (part.type === 'resource_link') texts.push(`${part.name}: ${part.uri}`)
     else if (part.type === 'resource' && 'text' in part.resource) texts.push(part.resource.text)
   }
-  if (!texts.length && result.structuredContent) texts.push(JSON.stringify(result.structuredContent, null, 2))
+  if (!texts.length && result.structuredContent !== undefined) texts.push(JSON.stringify(result.structuredContent, null, 2))
   const mapped: AgentToolResult = { ok: result.isError !== true, text: texts.join('\n\n') }
   if (image) mapped.image = image
   return mapped

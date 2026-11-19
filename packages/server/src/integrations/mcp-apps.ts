@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
-import { ReadResourceResultSchema, type ReadResourceResult } from '@modelcontextprotocol/sdk/types.js'
+import { ReadResourceResultSchema } from '@modelcontextprotocol/core'
+import type { ReadResourceResult } from '@modelcontextprotocol/client'
 import { integrationToolName, type Integration } from '@solus/contracts/integration-types'
 import {
   MCP_APP_MAX_DATA_BYTES,

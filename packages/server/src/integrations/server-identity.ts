@@ -1,5 +1,6 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { z } from 'zod'
+import { Client } from '@modelcontextprotocol/client'
+import { StreamableHTTPClientTransport, SdkHttpError } from '@modelcontextprotocol/client'
 
 /** What `initialize` told Solus about the server: its title, else its name. */
 export interface ServerIdentity {
@@ -17,12 +18,12 @@ export class ServerCredentialRefusedError extends Error {
 const IDENTITY_TIMEOUT_MS = 15_000
 
 /**
- * One `initialize` and `tools/list` with a credential (§4.3 step 5), then the
+ * One `server/discover` (or the SDK legacy fallback) and `tools/list` with a credential, then the
  * session is closed. Proves the server accepts the credential and reads the
  * identity it reports. The credential goes to `url` only.
  */
 export async function readServerIdentity(url: string, authorization: string, fetchImpl: typeof fetch = fetch): Promise<ServerIdentity> {
-  const client = new Client({ name: 'solus', version: '1.0.0' })
+  const client = new Client({ name: 'solus', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } })
   const transport = new StreamableHTTPClientTransport(new URL(url), {
     requestInit: { headers: { authorization } },
     fetch: (input, init) => fetchImpl(input, { ...init, redirect: 'manual' }),
@@ -30,10 +31,13 @@ export async function readServerIdentity(url: string, authorization: string, fet
   try {
     await client.connect(transport, { timeout: IDENTITY_TIMEOUT_MS })
     await client.listTools(undefined, { timeout: IDENTITY_TIMEOUT_MS })
-    const info = client.getServerVersion()
-    return { label: info?.title ?? info?.name ?? null }
+    const discover = client.getDiscoverResult()
+    const info = z.object({ name: z.string(), title: z.string().optional() }).safeParse(discover?._meta?.['io.modelcontextprotocol/serverInfo'])
+    if (info.success) return { label: info.data.title ?? info.data.name }
+    const legacy = client.getServerVersion()
+    return { label: legacy?.title ?? legacy?.name ?? null }
   } catch (error) {
-    if (error instanceof StreamableHTTPError && (error.code === 401 || error.code === 403)) {
+    if (error instanceof SdkHttpError && (error.status === 401 || error.status === 403)) {
       throw new ServerCredentialRefusedError('The server refused this credential.')
     }
     throw new ServerCredentialRefusedError(`The server could not be used with this credential: ${error instanceof Error ? error.message.slice(0, 200) : String(error)}`)

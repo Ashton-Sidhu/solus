@@ -6,6 +6,7 @@ import { DatabaseSync } from '../helpers/bun-sqlite'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
+import { startFakeServers } from './fake-servers'
 import type { Integration, IntegrationConnectNeeded } from '@solus/contracts/integration-types'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
@@ -175,7 +176,7 @@ describe('integration gateway', () => {
     const result = await withActingScope(HOST_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'hi' }, context()))
     expect(result).toEqual({ ok: true, text: 'echo: hi' })
     // WHY: a second list and a call reuse the session the first list opened.
-    expect(upstream.length - opened).toBe(1)
+    expect(upstream.length - opened).toBe(2)
     await gateway.close()
   })
 
@@ -206,7 +207,7 @@ describe('integration gateway', () => {
     await withActingScope(MEMBER_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'b' }, context()))
     await withActingScope(MEMBER_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'c' }, context()))
     // WHY: a later sign-in puts each person's token on their own session (§4.1).
-    expect(upstream.length - opened).toBe(2)
+    expect(upstream.length - opened).toBe(3)
     await gateway.close()
   })
 
@@ -216,7 +217,7 @@ describe('integration gateway', () => {
     const opened = upstream.length
     gateway.invalidate(integration.id)
     expect((await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))).length).toBe(3)
-    expect(upstream.length - opened).toBe(1)
+    expect(upstream.length - opened).toBe(2)
     await gateway.close()
   })
 
@@ -260,6 +261,50 @@ describe('integration gateway', () => {
     expect(result.text).toContain('Fake')
     await gateway.close()
   })
+})
+
+test('a modern tool list expires when its server gives ttlMs zero', async () => {
+  const fake = await startFakeServers()
+  fake.modernTtlMs = 0
+  const gateway = gatewayFor({ ...integration, id: 'int-ttl', url: fake.modernMcpUrl })
+  try {
+    await withActingScope(HOST_SCOPE, () => gateway.tools('int-ttl'))
+    await withActingScope(HOST_SCOPE, () => gateway.tools('int-ttl'))
+    expect(fake.modernToolLists).toBe(2)
+  } finally { await gateway.close(); await fake.close() }
+})
+
+test('a broken modern response does not repeat a tool that can write', async () => {
+  const fake = await startFakeServers()
+  const gateway = gatewayFor({ ...integration, id: 'int-broken', url: fake.modernMcpUrl })
+  try {
+    const result = await withActingScope(HOST_SCOPE, () => gateway.call('int-broken', 'break_stream', {}, context()))
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('request may have run')
+    expect(fake.brokenCalls).toBe(1)
+  } finally { await gateway.close(); await fake.close() }
+})
+
+test('modern input_required uses the question card and resumes the paused call', async () => {
+  const fake = await startFakeServers()
+  const gateway = gatewayFor({ ...integration, id: 'int-modern', url: fake.modernMcpUrl })
+  const events: NormalizedEvent[] = []
+  const inputRequests = new InputRequests(fakeRuntime(events))
+  try {
+    const tools = await withActingScope(HOST_SCOPE, () => gateway.tools('int-modern'))
+    expect(tools.map((tool) => tool.name)).toEqual(['echo', 'confirm', 'break_stream'])
+    const call = withActingScope(HOST_SCOPE, () => gateway.call('int-modern', 'confirm', {}, {
+      ...context(), emit: (event) => {
+        events.push(event)
+        if (event.type === 'question_request') inputRequests.questionIdToSession.set(event.questionId, 'session-1')
+      },
+    }))
+    const asked = await waitFor(() => events.find((event) => event.type === 'question_request'))
+    expect(asked.type === 'question_request' && asked.kind).toBe('mcp_form')
+    if (asked.type !== 'question_request') throw new Error('no question')
+    expect(await inputRequests.respondToQuestion('session-1', asked.questionId, { colour: 'blue' }, { principal: { kind: 'system' }, user: null })).toBe(true)
+    expect(await call).toEqual({ ok: true, text: 'accept: blue' })
+  } finally { await gateway.close(); await fake.close() }
 })
 
 describe('integration gateway with sign-in', () => {
@@ -450,7 +495,7 @@ describe('integration gateway with sign-in', () => {
     expect(owner).toEqual({ ok: true, text: 'echo: owner' })
     expect(member.text).toStartWith('CONNECTION_REQUIRED:')
     expect(credentials.refused.map((entry) => entry.personKey)).toEqual(['member-1'])
-    expect(opened.length - sessionsBefore).toBe(1)
+    expect(opened.length - sessionsBefore).toBe(2)
     await gateway.close()
   })
 
