@@ -71,6 +71,8 @@ export class ConversationStore {
   readerAtEnd = true
   readonly closedMcpApps = new Set<string>()
   readonly mcpAppHeights = new Map<string, number>()
+  /** The context each app gave the agent, as the person can read it, by activity. */
+  readonly mcpAppContexts = new Map<string, string>()
 
   constructor(target: ConversationTarget, deps: Omit<ConversationDeps, 'onChange'>) {
     this.controller = new ConversationController(target, {

@@ -6,7 +6,8 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { z } from "zod";
 import type { HostApi } from "@solus/client-core/host-api";
 import { nativeMcpAppDocument, nativeMcpAppPost } from "@solus/client-core/mcp-app-document";
-import { createMcpAppHost, mcpAppContainerDimensions, type McpAppHost, type McpAppHostContext } from "@solus/client-core/mcp-app-host";
+import { mcpAppHostContext } from "@solus/client-core/mcp-app-context";
+import { createMcpAppHost, type McpAppHost } from "@solus/client-core/mcp-app-host";
 import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
 import type { McpAppReference, McpAppRequest, McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
@@ -20,6 +21,7 @@ import { useTranscriptItem } from "./use-transcript-items";
 
 const INITIAL_HEIGHT = 320;
 const CLOSED_APP: McpAppRead = { phase: "idle" };
+const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 const relayMessageSchema = z.object({ secret: z.string(), json: z.string().optional(), navigated: z.boolean().optional() });
 
 function confirmWithAlert(title: string, detail: string): Promise<boolean> {
@@ -58,7 +60,10 @@ function McpAppCard(props: {
   const [isClosed, setIsClosed] = useState(() => store.closedMcpApps.has(activityId));
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [height, setHeight] = useState(() => store.mcpAppHeights.get(activityId) ?? INITIAL_HEIGHT);
+  const [modelContext, setModelContext] = useState(() => store.mcpAppContexts.get(activityId));
   const insets = useSafeAreaInsets();
+  // The frame shown now: closing through it gives the app its teardown first.
+  const host = useRef<McpAppHost | null>(null);
 
   const subscribe = useCallback((listener: () => void) => (isClosed ? () => {} : apps.subscribe(request, listener)), [apps, request, isClosed]);
   const read = useCallback(() => (isClosed ? CLOSED_APP : apps.read(request)), [apps, request, isClosed]);
@@ -78,9 +83,17 @@ function McpAppCard(props: {
     store.mcpAppHeights.set(activityId, next);
     setHeight(next);
   };
+  const rememberModelContext = (text: string) => {
+    if (text) store.mcpAppContexts.set(activityId, text);
+    else store.mcpAppContexts.delete(activityId);
+    setModelContext(text || undefined);
+  };
+  // Closing an app takes back what it gave the agent, so the agent never acts on an app the person no longer sees.
   const close = () => {
     setClosed(true);
     setIsFullscreen(false);
+    if (store.mcpAppContexts.delete(activityId)) void api.mcpAppUpdateModelContext({ ...request, text: "" }).catch(() => {});
+    setModelContext(undefined);
   };
 
   if (isClosed) {
@@ -118,15 +131,23 @@ function McpAppCard(props: {
       api={api}
       request={request}
       store={store}
+      title={reference.title}
+      hostRef={host}
       isFullscreen={fullscreen}
+      safeAreaInsets={fullscreen ? { top: 0, right: insets.right, bottom: insets.bottom, left: insets.left } : NO_INSETS}
       onDisplayMode={setIsFullscreen}
       onHeight={rememberHeight}
+      onModelContext={rememberModelContext}
       onClose={close}
     />
   );
 
   return (
-    <View style={{ height, marginBottom: 8 }}>
+    <>
+    <View
+      style={{ height, marginBottom: 8 }}
+      className={state.snapshot.prefersBorder ? "overflow-hidden rounded-lg border border-border bg-card" : undefined}
+    >
       {isFullscreen ? null : frame(false)}
       <View className="absolute right-1.5 top-1.5 flex-row gap-1">
         <Pressable
@@ -140,14 +161,15 @@ function McpAppCard(props: {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close app"
-          onPress={() => setClosed(true)}
+          onPress={() => (host.current ? void host.current.close() : close())}
           className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
         >
           <SymbolView name="xmark" size={13} tintColorClassName="accent-icon-muted" />
         </Pressable>
       </View>
       <Modal visible={isFullscreen} animationType="slide" onRequestClose={() => setIsFullscreen(false)}>
-        <View className="flex-1 bg-screen" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
+        {/* The app runs under the home indicator and reads the covered part from its safe area insets. */}
+        <View className="flex-1 bg-screen" style={{ paddingTop: insets.top }}>
           <View className="min-h-12 flex-row items-center gap-2 px-4">
             <Text numberOfLines={1} className="flex-1 font-t3-medium text-base text-foreground">{reference.title}</Text>
             <Pressable
@@ -163,6 +185,18 @@ function McpAppCard(props: {
         </View>
       </Modal>
     </View>
+    {modelContext ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityHint="Shows the context"
+        onPress={() => Alert.alert("Context shared with the agent", `The agent gets this with each new turn of this session.\n\n${modelContext}`)}
+        className="mb-2 min-h-11 flex-row items-center gap-2"
+      >
+        <SymbolView name="sparkles" size={16} tintColorClassName="accent-icon-muted" />
+        <Text className="text-sm text-foreground-muted">Context shared with the agent</Text>
+      </Pressable>
+    ) : null}
+    </>
   );
 }
 
@@ -175,40 +209,52 @@ function McpAppWebView(props: {
   readonly api: HostApi;
   readonly request: McpAppRequest;
   readonly store: ConversationStore;
+  readonly title: string;
+  readonly hostRef: { current: McpAppHost | null };
   readonly isFullscreen: boolean;
+  readonly safeAreaInsets: { top: number; right: number; bottom: number; left: number };
   readonly onDisplayMode: (fullscreen: boolean) => void;
   readonly onHeight: (height: number) => void;
+  readonly onModelContext: (text: string) => void;
   readonly onClose: () => void;
 }) {
-  const { snapshot, api, request, store, isFullscreen } = props;
+  const { snapshot, api, request, store, title, hostRef, isFullscreen, safeAreaInsets } = props;
   const app = useApp();
   const theme = useUniwindTheme();
   const { themeAppearance } = useAppearancePreferences();
   const webView = useRef<WebView<object>>(null);
-  const host = useRef<McpAppHost | null>(null);
+  const host = hostRef;
   const [secret] = useState(() => app.platform.uuid());
   const [failed, setFailed] = useState(false);
   const [generation, setGeneration] = useState(0);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const source = useMemo(() => ({ html: nativeMcpAppDocument(snapshot, secret) }), [snapshot, secret]);
 
-  const context: McpAppHostContext = {
+  const context = mcpAppHostContext({
     theme: themeAppearance,
-    displayMode: isFullscreen ? "fullscreen" : "inline",
-    availableDisplayModes: ["inline", "fullscreen"],
-    containerDimensions: mcpAppContainerDimensions(frameSize, isFullscreen),
+    isFullscreen,
+    size: frameSize,
     platform: "mobile",
-    styles: {
-      variables: {
-        "--color-background-primary": theme["--color-screen"],
-        "--color-background-secondary": theme["--color-card"],
-        "--color-text-primary": theme["--color-foreground"],
-        "--color-text-secondary": theme["--color-foreground-muted"],
-        "--color-border-primary": theme["--color-border"],
-        "--font-sans": "-apple-system,system-ui,sans-serif",
-      },
+    touch: true,
+    hover: false,
+    safeAreaInsets,
+    palette: {
+      background: theme["--color-screen"],
+      raised: theme["--color-card"],
+      strong: theme["--color-card-alt"],
+      text: theme["--color-foreground"],
+      textSecondary: theme["--color-foreground-secondary"],
+      textTertiary: theme["--color-foreground-tertiary"],
+      border: theme["--color-border"],
+      accent: theme["--color-focus"],
+      info: theme["--color-adaptive-sky-600-400"],
+      danger: theme["--color-danger-foreground"],
+      success: theme["--color-adaptive-emerald-600-400"],
+      warning: theme["--color-warning-foreground"],
+      fontSans: "-apple-system,system-ui,sans-serif",
+      fontMono: "ui-monospace,Menlo,monospace",
     },
-  };
+  });
   // The bridge outlives renders; it reads the newest context and callbacks.
   const latest = useRef({ props, context });
   latest.current = { props, context };
@@ -216,13 +262,20 @@ function McpAppWebView(props: {
   useEffect(() => {
     const bridge = createMcpAppHost({
       snapshot,
+      title,
       context: () => latest.current.context,
+      // This client cannot hold a feature to one approved app inside the web view, so it grants none.
+      permissions: () => [],
       post: (json) => webView.current?.injectJavaScript(nativeMcpAppPost(json)),
       toolInfo: (name) => api.mcpAppToolInfo({ ...request, name }),
       callTool: (name, argumentsJson, approved) => api.mcpAppCallTool({ ...request, name, argumentsJson, approved }),
       readResource: (uri) => api.mcpAppReadResource({ ...request, uri }),
       confirm: confirmWithAlert,
       sendMessage: (text) => store.controller.send(text, { delivery: "queue" }),
+      updateModelContext: async (text) => {
+        await api.mcpAppUpdateModelContext({ ...request, text });
+        latest.current.props.onModelContext(text);
+      },
       openLink: (url) => app.platform.openBrowser(url),
       displayMode: (mode) => latest.current.props.onDisplayMode(mode === "fullscreen"),
       resize: (height) => latest.current.props.onHeight(height),
@@ -233,13 +286,13 @@ function McpAppWebView(props: {
       bridge.dispose();
       host.current = null;
     };
-  }, [app, snapshot, api, request, store, generation]);
+  }, [app, snapshot, title, host, api, request, store, generation]);
 
   // Inline, the app's own height report is not a change of the app's box.
   const frameHeight = isFullscreen ? frameSize.height : undefined;
   useEffect(() => {
     host.current?.updateContext();
-  }, [themeAppearance, isFullscreen, frameSize.width, frameHeight]);
+  }, [themeAppearance, isFullscreen, frameSize.width, frameHeight, safeAreaInsets.right, safeAreaInsets.bottom, safeAreaInsets.left]);
 
   const onMessage = (event: WebViewMessageEvent) => {
     let message: z.infer<typeof relayMessageSchema>;

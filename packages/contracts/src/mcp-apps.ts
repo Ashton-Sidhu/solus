@@ -3,6 +3,8 @@ import { z } from 'zod'
 export const MCP_APP_PROTOCOL_VERSION = '2026-01-26'
 export const MCP_APP_MAX_HTML_BYTES = 5 * 1024 * 1024
 export const MCP_APP_MAX_DATA_BYTES = 1024 * 1024
+/** The text an app may give the agent. The agent gets it with every turn, so it stays small. */
+export const MCP_APP_MAX_MODEL_CONTEXT_CHARS = 8_000
 
 const appResourceUri = z.string().startsWith('ui://').max(4096)
 
@@ -26,8 +28,22 @@ export const mcpAppCspSchema = z.object({
   resourceDomains: domains,
   connectDomains: domains,
   frameDomains: domains,
+  baseUriDomains: domains,
 })
 export type McpAppCsp = z.infer<typeof mcpAppCspSchema>
+
+export const MCP_APP_PERMISSIONS = ['camera', 'microphone', 'geolocation', 'clipboardWrite'] as const
+export type McpAppPermission = (typeof MCP_APP_PERMISSIONS)[number]
+
+const requested = z.object({}).optional().catch(undefined)
+/** The browser features an app asks for. A client grants one only after the person approves it. */
+export const mcpAppPermissionsSchema = z.object({
+  camera: requested,
+  microphone: requested,
+  geolocation: requested,
+  clipboardWrite: requested,
+})
+export type McpAppPermissions = z.infer<typeof mcpAppPermissionsSchema>
 
 const appReferenceFields = {
   title: z.string().max(256),
@@ -61,6 +77,9 @@ export const mcpAppSnapshotSchema = z.object({
   toolInputJson: jsonData,
   toolResultJson: jsonData,
   csp: mcpAppCspSchema,
+  /** Absent in an app saved before Solus read them. */
+  permissions: mcpAppPermissionsSchema.optional(),
+  prefersBorder: z.boolean().optional(),
 })
 export type McpAppSnapshot = z.infer<typeof mcpAppSnapshotSchema>
 
@@ -78,6 +97,10 @@ export type McpAppCallRequest = z.infer<typeof mcpAppCallRequestSchema>
 
 export const mcpAppResourceRequestSchema = mcpAppRequestSchema.extend({ uri: z.string().min(1).max(4096) })
 export type McpAppResourceRequest = z.infer<typeof mcpAppResourceRequestSchema>
+
+/** The app's latest context for the agent. Empty text clears it. */
+export const mcpAppModelContextRequestSchema = mcpAppRequestSchema.extend({ text: z.string().max(MCP_APP_MAX_MODEL_CONTEXT_CHARS) })
+export type McpAppModelContextRequest = z.infer<typeof mcpAppModelContextRequestSchema>
 
 export interface McpAppToolInfo {
   callable: boolean
@@ -104,7 +127,7 @@ export function mcpAppDocument(html: string, csp: McpAppCsp): string {
     `connect-src ${csp.connectDomains?.join(' ') || "'none'"}`,
     `frame-src ${csp.frameDomains?.join(' ') || "'none'"}`,
     "object-src 'none'",
-    "base-uri 'none'",
+    `base-uri ${csp.baseUriDomains?.join(' ') || "'none'"}`,
     "form-action 'none'",
   ].join('; ')
   return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${html}`

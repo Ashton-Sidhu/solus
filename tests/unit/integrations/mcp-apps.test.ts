@@ -15,6 +15,8 @@ const { newActivity, appendActivity } = await import('@solus/server/data/activit
 const { closeDb } = await import('@solus/server/db')
 const { closeDatabase } = await import('@solus/server/db/database')
 const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
+const { AppModelContexts } = await import('@solus/server/execution/sessions/app-model-contexts')
+const { MCP_APP_MAX_MODEL_CONTEXT_CHARS, mcpAppModelContextRequestSchema } = await import('@solus/contracts/mcp-apps')
 
 let nextSession = 0
 const ctx = withActor({ clientId: 'test', principal: memberPrincipal('alice', 'Alice') })
@@ -30,7 +32,8 @@ function setup() {
   const tools = spyOn(gateway, 'toolsFor').mockResolvedValue([{ name: 'save', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }])
   const call = spyOn(gateway, 'callAppTool').mockResolvedValue({ content: [{ type: 'text', text: 'saved' }] })
   const recorded: Activity[] = []
-  const runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession' | 'seatForTurn'> = {
+  const runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession' | 'seatForTurn' | 'appModelContexts'> = {
+    appModelContexts: new AppModelContexts(),
     seatForTurn: async () => null,
     actorOfSession: () => ctx.actor,
     recordActivity: async (subject, _actor, kind) => {
@@ -48,7 +51,7 @@ function setup() {
   }
   const apps = new IntegrationApps(gateway, runtime, claude)
   const capture: IntegrationAppCapture = { integration, tool: { name: 'chart', inputSchema: { type: 'object' }, _meta: { ui: { resourceUri: 'ui://chart' } } }, input: { region: 'west' }, result: { content: [{ type: 'text', text: '42' }] }, context: { provider: 'codex', cwd: '/fixture', sessionId: () => sessionId, abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} } }
-  return { apps, gateway, capture, recorded, read, tools, call, integration, claude, sessionId, request: () => ({ sessionId, activityId: recorded[0].id }) }
+  return { apps, gateway, capture, recorded, read, tools, call, integration, claude, sessionId, runtime, request: () => ({ sessionId, activityId: recorded[0].id }) }
 }
 
 test('a compatible completed tool captures an immutable UI and restores its tool data', async () => {
@@ -199,4 +202,32 @@ test("only the session's owner reaches a server of Claude's own", async () => {
   await s.apps.captureClaude(s.sessionId, claudeApp)
   await expect(s.apps.toolInfo({ ...s.request(), name: 'refresh' }, ctx)).rejects.toThrow('Only the person who ran this session')
   expect(s.claude.toolInfo).not.toHaveBeenCalled()
+})
+
+test('the saved app keeps the permissions and border the server asked for, and drops a malformed request', async () => {
+  const s = setup()
+  s.read.mockResolvedValue({ contents: [{ uri: 'ui://chart', mimeType: 'text/html;profile=mcp-app', text: '<p>Map</p>', _meta: { ui: {
+    permissions: { geolocation: {}, camera: 'yes' }, prefersBorder: true, csp: { baseUriDomains: ['https://cdn.example.com'] },
+  } } }] })
+  await s.apps.capture(s.capture)
+  const snapshot = await s.apps.read(s.request(), ctx)
+  expect(snapshot.permissions).toEqual({ geolocation: {} })
+  expect(snapshot.prefersBorder).toBe(true)
+  expect(snapshot.csp.baseUriDomains).toEqual(['https://cdn.example.com'])
+})
+
+test("an app's context for the agent is kept for its own session only", async () => {
+  // WHY: the context reaches the agent's next turns, so an app of another session must not write into this one.
+  const s = setup()
+  await s.apps.capture(s.capture)
+  await s.apps.updateModelContext({ ...s.request(), text: 'Region: west' }, ctx)
+  expect(s.runtime.appModelContexts.systemSection(s.sessionId)).toContain('Region: west')
+  await expect(s.apps.updateModelContext({ ...s.request(), sessionId: 'another-session', text: 'x' }, ctx)).rejects.toThrow('no longer available')
+  expect(s.runtime.appModelContexts.systemSection('another-session')).toBeNull()
+})
+
+test('a context over the size limit is refused before it reaches the host', () => {
+  const request = { sessionId: 's', activityId: 'a' }
+  expect(mcpAppModelContextRequestSchema.safeParse({ ...request, text: 'x'.repeat(MCP_APP_MAX_MODEL_CONTEXT_CHARS) }).success).toBe(true)
+  expect(mcpAppModelContextRequestSchema.safeParse({ ...request, text: 'x'.repeat(MCP_APP_MAX_MODEL_CONTEXT_CHARS + 1) }).success).toBe(false)
 })

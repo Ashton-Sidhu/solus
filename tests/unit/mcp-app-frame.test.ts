@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from 'bun:test'
 import type { McpAppHostOptions } from '@solus/client-core/mcp-app-host'
-import { connectMcpAppFrame, mcpAppContext } from '@solus/workspace-ui/components/conversation/lib/mcp-app-frame'
+import { connectMcpAppFrame, mcpAppContext, mcpAppSupportedPermissions } from '@solus/workspace-ui/components/conversation/lib/mcp-app-frame'
 
 const originalObserver = globalThis.ResizeObserver
 const originalWindow = globalThis.window
@@ -89,4 +89,36 @@ test('the context gives the app its frame', () => {
   globalThis.document ??= {} as unknown as Document
   expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, true, false).containerDimensions).toEqual({ width: 640, maxHeight: 2000 })
   expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, true, true).containerDimensions).toEqual({ width: 640, height: 320 })
+})
+
+test('the context names the client: the desktop app, or the web client', () => {
+  // SAFETY: mcpAppContext reads only getPropertyValue from the computed style.
+  globalThis.getComputedStyle = (() => ({ getPropertyValue: () => '' })) as unknown as typeof getComputedStyle
+  // SAFETY: mcpAppContext reads documentElement only to pass it to the stub above.
+  globalThis.document ??= {} as unknown as Document
+  // SAFETY: localApi reads only window.solus.getPlatform here.
+  globalThis.window = { solus: { getPlatform: () => 'darwin' } } as unknown as typeof globalThis.window
+  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, false, false).platform).toBe('desktop')
+  // SAFETY: as above.
+  globalThis.window = { solus: { getPlatform: () => 'web' } } as unknown as typeof globalThis.window
+  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, false, false).platform).toBe('web')
+})
+
+test('a client offers only the features it can give the frame', () => {
+  // WHY: an app is told a permission only when the client can enforce it. A page that is
+  // not secure has none; the desktop app has no macOS camera or location access.
+  const secure = globalThis.isSecureContext
+  try {
+    globalThis.isSecureContext = false
+    expect(mcpAppSupportedPermissions()).toEqual([])
+    globalThis.isSecureContext = true
+    // SAFETY: localApi reads only window.solus.getPlatform here.
+    globalThis.window = { solus: { getPlatform: () => 'darwin' } } as unknown as typeof globalThis.window
+    expect(mcpAppSupportedPermissions()).toEqual(['microphone', 'clipboardWrite'])
+    // SAFETY: as above.
+    globalThis.window = { solus: { getPlatform: () => 'web' } } as unknown as typeof globalThis.window
+    expect(mcpAppSupportedPermissions()).toEqual(['camera', 'microphone', 'geolocation', 'clipboardWrite'])
+  } finally {
+    globalThis.isSecureContext = secure
+  }
 })

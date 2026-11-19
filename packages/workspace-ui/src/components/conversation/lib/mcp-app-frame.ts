@@ -1,4 +1,7 @@
-import { createMcpAppHost, mcpAppContainerDimensions, type McpAppHostContext, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { localApi } from '@solus/client-core/local-api'
+import { mcpAppContainerDimensions, mcpAppHostContext, type McpAppHostContext } from '@solus/client-core/mcp-app-context'
+import { createMcpAppHost, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { MCP_APP_PERMISSIONS, type McpAppPermission } from '@solus/contracts/mcp-apps'
 
 /**
  * Connects an app iframe to its bridge. Only the frame's own messages reach the
@@ -58,25 +61,47 @@ function mcpAppFrameDimensions(frame: Pick<HTMLIFrameElement, 'clientWidth' | 'c
   return mcpAppContainerDimensions({ width: frame.clientWidth, height: frame.clientHeight }, isFullscreen)
 }
 
+/** The desktop app runs Electron; the web client reports itself as `web`. */
+function mcpAppPlatform(): 'web' | 'desktop' {
+  return localApi.getPlatform?.() === 'web' ? 'web' : 'desktop'
+}
+
+/**
+ * The features this client can give an app frame. Each one needs a secure
+ * page. The desktop app has no macOS camera or location usage text, so the
+ * system refuses those; a browser asks the person itself.
+ */
+export function mcpAppSupportedPermissions(): McpAppPermission[] {
+  if (!globalThis.isSecureContext) return []
+  return mcpAppPlatform() === 'desktop' ? ['microphone', 'clipboardWrite'] : [...MCP_APP_PERMISSIONS]
+}
+
 /** The theme and size an app is given. It reads the live palette, so call it only at initialize and on a change. */
 export function mcpAppContext(frame: Pick<HTMLIFrameElement, 'clientWidth' | 'clientHeight'>, isDark: boolean, isFullscreen: boolean): McpAppHostContext {
   const style = getComputedStyle(document.documentElement)
   const read = (name: string) => style.getPropertyValue(name).trim()
-  return {
+  return mcpAppHostContext({
     theme: isDark ? 'dark' : 'light',
-    displayMode: isFullscreen ? 'fullscreen' : 'inline',
-    availableDisplayModes: ['inline', 'fullscreen'],
-    containerDimensions: mcpAppFrameDimensions(frame, isFullscreen),
-    platform: 'web',
-    styles: {
-      variables: {
-        '--color-background-primary': read('--solus-container-bg'),
-        '--color-background-secondary': read('--solus-render-raised'),
-        '--color-text-primary': read('--solus-text-primary'),
-        '--color-text-secondary': read('--solus-text-secondary'),
-        '--color-border-primary': read('--solus-render-border'),
-        '--font-sans': read('--solus-font-family'),
-      },
+    isFullscreen,
+    size: { width: frame.clientWidth, height: frame.clientHeight },
+    platform: mcpAppPlatform(),
+    touch: globalThis.matchMedia?.('(pointer: coarse)').matches ?? false,
+    hover: globalThis.matchMedia?.('(hover: hover)').matches ?? true,
+    palette: {
+      background: read('--solus-container-bg'),
+      raised: read('--solus-render-raised'),
+      strong: read('--solus-surface-hover'),
+      text: read('--solus-text-primary'),
+      textSecondary: read('--solus-text-secondary'),
+      textTertiary: read('--solus-text-tertiary'),
+      border: read('--solus-render-border'),
+      accent: read('--solus-accent'),
+      info: read('--solus-status-unread'),
+      danger: read('--solus-status-error'),
+      success: read('--solus-status-complete'),
+      warning: read('--warning'),
+      fontSans: read('--solus-font-family'),
+      fontMono: read('--solus-code-font-family'),
     },
-  }
+  })
 }

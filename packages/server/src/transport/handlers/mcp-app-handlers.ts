@@ -1,4 +1,4 @@
-import { mcpAppRequestSchema, mcpAppToolRequestSchema, mcpAppCallRequestSchema, mcpAppResourceRequestSchema } from '@solus/contracts/mcp-apps'
+import { mcpAppRequestSchema, mcpAppToolRequestSchema, mcpAppCallRequestSchema, mcpAppResourceRequestSchema, mcpAppModelContextRequestSchema } from '@solus/contracts/mcp-apps'
 import type { IntegrationApps } from '../../integrations/mcp-apps'
 import type { SolusServer } from '../server'
 
@@ -7,4 +7,5 @@ export function registerMcpAppHandlers(server: SolusServer, apps: IntegrationApp
   server.register('mcpAppToolInfo', ([input], ctx) => apps.toolInfo(mcpAppToolRequestSchema.parse(input), ctx))
   server.register('mcpAppCallTool', ([input], ctx) => apps.callTool(mcpAppCallRequestSchema.parse(input), ctx))
   server.register('mcpAppReadResource', ([input], ctx) => apps.readResource(mcpAppResourceRequestSchema.parse(input), ctx))
+  server.register('mcpAppUpdateModelContext', ([input], ctx) => apps.updateModelContext(mcpAppModelContextRequestSchema.parse(input), ctx))
 }

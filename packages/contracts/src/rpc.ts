@@ -175,6 +175,7 @@ export const RPC_INVOKE_METHODS = [
   'mcpAppToolInfo',
   'mcpAppCallTool',
   'mcpAppReadResource',
+  'mcpAppUpdateModelContext',
   'loadSessionPreview',
   'loadSessionMessageWindow',
   'getSessionInfo',

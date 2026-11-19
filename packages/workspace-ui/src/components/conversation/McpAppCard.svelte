@@ -32,6 +32,12 @@
   let isNear = $state(false);
   let value = $state<McpAppRead>({ phase: "idle" });
 
+  /** Closing an app takes back what it gave the agent, so the agent never acts on an app the person no longer sees. */
+  function close() {
+    viewState.closedMcpApps.add(activityId);
+    if (viewState.mcpAppContexts.delete(activityId)) void api.mcpAppUpdateModelContext({ ...request, text: "" }).catch(() => {});
+  }
+
   $effect(() => {
     // A closed app releases its body so the store can drop it.
     if (isClosed) {
@@ -64,7 +70,11 @@
       {onSend}
       initialHeight={viewState.mcpAppHeights.get(activityId)}
       onHeight={(height) => viewState.mcpAppHeights.set(activityId, height)}
-      onClose={() => viewState.closedMcpApps.add(activityId)}
+      onClose={close}
+      modelContext={viewState.mcpAppContexts.get(activityId)}
+      onModelContext={(text) => (text ? viewState.mcpAppContexts.set(activityId, text) : viewState.mcpAppContexts.delete(activityId))}
+      permissions={viewState.mcpAppPermissions.get(activityId) ?? []}
+      onPermissions={(granted) => viewState.mcpAppPermissions.set(activityId, granted)}
     />
   {:else if value.phase === "error"}
     <div class="my-2 flex min-h-28 flex-col items-center justify-center gap-2 text-sm text-muted-foreground" role="alert">
