@@ -5,6 +5,7 @@
    *  your personal settings. Its analytics consent is on Telemetry. */
   import SettingsSection from "./SettingsSection.svelte";
   import RetentionSetting from "./RetentionSetting.svelte";
+  import SessionCloudSyncSetting from "./SessionCloudSyncSetting.svelte";
   import WebhookHostSettings from "../webhooks/WebhookHostSettings.svelte";
   import AppHostSettings from "../app/AppHostSettings.svelte";
   import { appHostSearchWords, retentionSearchWords, webhookHostSearchWords } from "./lib/settings-search-data";
@@ -14,6 +15,10 @@
   let { serverId, searchQuery = "" }: { serverId: string; searchQuery?: string } = $props();
   const matches = (words: string[]) => !searchQuery || words.some((word) => word.includes(searchQuery.toLowerCase()));
 </script>
+
+<SettingsSection label="Cloud sessions" description="Control what this host saves to your account." visible={matches(["cloud", "sessions", "sync", "conversation"])}>
+  <SessionCloudSyncSetting {serverId} />
+</SettingsSection>
 
 <SettingsSection {...settingsDefinitions["host.section-retention"]} visible={matches(retentionSearchWords)}>
   <RetentionSetting

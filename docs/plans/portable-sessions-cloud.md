@@ -604,3 +604,11 @@ Its constructor accepts an optional injected `fetch` as the fifth argument.
 The account credential stays in that class. Local work repositories still
 accept work names only. No API contract, host push, or deployment is part of
 Part A.
+
+### Part G as implemented
+
+- Policy key: `sessions.limits.sessionCloudSync`. An absent key allows cloud sync. An explicit `false` stops push and fetch. The first rule in MDM, cloud host, organization order wins.
+- Host setting: `hostConfig.sessionCloudSync`, shown as “Save sessions to Solus Cloud”, defaults to `true`, and is stored in `server-settings.json`.
+- Gate: `sessionCloudSyncDecision(organizationId, actingPerson)` in the host policy store. It reads the host setting and `hostPolicies().forWork(organizationId)` at call time. No signed-in actor, a host switch that is off, an unavailable policy, and a policy that forbids sync each give a typed refusal.
+- The host-wide switch shows an MDM lock. An organization limit applies to its sessions but does not disable the host-wide switch for Local work.
+- An older host refuses a policy document that names the new key because its policy schema is strict. Hosts must ship before a console can set the key.
