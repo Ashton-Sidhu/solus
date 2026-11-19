@@ -5,6 +5,9 @@ import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { SessionArchiveWriter } from './sync/sessions/session-archive-writer'
 import { SessionRepositories } from './sync/sessions/session-repository'
+import { SessionBundleTransfers } from './sync/sessions/session-bundle-transfers'
+import { AGENT_BIN } from '@solus/contracts/types'
+import { findOnPath, warmCliPath } from './cli-env'
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
@@ -178,6 +181,9 @@ import type { AgentId, IpcContext } from '@solus/contracts/types'
 import { DEFAULT_SERVER_PORT, isSessionBusyStatus } from '@solus/contracts/types'
 import { registerWindowHandlers, type WindowDeps } from './transport/handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './transport/handlers/session-handlers'
+import { registerSessionRepositoryHandlers } from './transport/handlers/session-repository-handlers'
+import { SessionSync } from './execution/sessions/session-sync'
+import { fetchSessionBundle } from './execution/sessions/session-bundle-source'
 import { registerWorktreeHandlers } from './transport/handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './transport/handlers/git-publish-handlers'
 import { registerFilesystemHandlers } from './transport/handlers/filesystem-handlers'
@@ -611,8 +617,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const workLive = new WorkLiveManager({ publish: (clientIds, type, payload) => { void events.publishToRoom({ kind: 'work', id: payload.workId }, clientIds, type, payload) } })
   const workStorageRuntime = await startWorkStorage({ database: getDatabase, cloud: apiMode, flushLive: workId => workLive.flushPersisted(workId) })
   // Each ended turn goes to the session's local repository (docs/plans/portable-sessions.md §7.2).
+  const sessionRepositories = new SessionRepositories(join(dataDir(), 'sessions', 'repositories'))
+  const sessionBundleTransfers = new SessionBundleTransfers(sessionRepositories)
   const sessionArchive = new SessionArchiveWriter({
-    repositories: new SessionRepositories(join(dataDir(), 'sessions', 'repositories')),
+    repositories: sessionRepositories,
     threadFiles: async (provider, threadId, projectPath) => await opts.sessionRuntime.backendFor(provider).threadFiles?.(threadId, projectPath) ?? [],
   })
   opts.sessionRuntime.useSessionArchive(sessionArchive)
@@ -773,6 +781,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     shares,
   }
   registerSessionHandlers(server, sessionDeps)
+  registerSessionRepositoryHandlers(server, sessionBundleTransfers, shares, opts.sessionRuntime)
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
     onHostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
@@ -1317,6 +1326,22 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).
   opts.sessionRuntime.launcher.prepareDispatchCheckout = setup.prepareDispatchCheckout
+  opts.sessionRuntime.useSessionSync(new SessionSync(opts.sessionRuntime, {
+    repositoryRoot: join(dataDir(), 'sessions', 'repositories'),
+    providerInstalled: async (provider) => {
+      const binary = AGENT_BIN[provider]
+      return binary ? !!findOnPath(binary, await warmCliPath()) : false
+    },
+    fetchBundle: (sessionId, have, sourceHostId, outFile, signal, actor) => {
+      const principal = actor.principal
+      const reach: ReachRequest = principal.kind === 'org-member'
+        ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
+        : principal.kind === 'owner' ? ownerReach() : { account: null, isOwner: false }
+      return fetchSessionBundle(remoteHosts, reach, sessionId, have, sourceHostId, outFile, signal)
+    },
+    prepareCheckout: setup.prepareDispatchCheckout,
+    claimSession: (sessionId, principal, isProject) => shares.claimSession(sessionId, principal, { shareWithOrganization: isProject }),
+  }))
   opts.sessionRuntime.launcher.dispatchCheckoutPathOf = setup.dispatchCheckoutPathOf
   registerDeviceHandlers(server, {
     domain: devices,
@@ -2207,6 +2232,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await new Promise<void>((resolve) => tunnelHttp.close(() => resolve()))
         await workStorageRuntime.stop()
         await sessionArchive.stop()
+        await sessionBundleTransfers.stop()
         await closeDatabaseForShutdown()
         lock?.release()
       })()

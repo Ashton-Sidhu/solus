@@ -25,6 +25,7 @@ export type PrepareDispatchCheckout = (
   repository: DispatchRepository,
   caller: { principal: Principal; deviceId?: string },
   progress: RepositoryProgress,
+  mode?: 'repository',
 ) => Promise<string>
 
 /**

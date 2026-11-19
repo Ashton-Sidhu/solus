@@ -100,6 +100,7 @@ export const RESOURCE_LOCATORS = {
   loadSessionPreview: sessionIdAt(0),
   loadSessionMessageWindow: sessionFieldAt(0, 'sessionId'),
   getSessionInfo: sessionIdAt(0),
+  sessionRepositoryBundle: sessionFieldAt(0, 'sessionId'),
   getSessionInfos: singleSessionIdAt(0),
   describeSession: sessionIdAt(0),
   loadPlanContent: sessionIdAt(0),
@@ -115,6 +116,7 @@ export const RESOURCE_LOCATORS = {
   togglePinnedSession: sessionFieldAt(0, 'sessionId'),
   // Sessions — driving
   prompt: ctxAt(0),
+  sessionPrepare: sessionFieldAt(0, 'sessionId'),
   compactSession: ctxAt(0),
   retry: ctxAt(0),
   decideSessionPlan: ctxAt(0),

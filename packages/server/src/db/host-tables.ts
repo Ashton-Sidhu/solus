@@ -364,6 +364,8 @@ export const sessionStorage = defineTable('session_storage', {
   session_id: text({ primaryKey: true }),
   repository: text({ notNull: true }),
   head: text(),
+  /** Number of turn commits at head; a session list never opens the repository. */
+  turn_count: integer({ notNull: true, default: 0 }),
   /** A safe text of the last failed turn commit; null after a commit that succeeded. */
   error: text(),
 })

@@ -709,3 +709,129 @@ directory. An identical file is left alone; an older prefix gains only new
 bytes. A divergent destination is a `conflict` result and is left unchanged.
 No side copy is made in the provider folder because the provider could mistake
 it for another thread file.
+
+### Part D as implemented (2026-11-18)
+
+`SessionSync` in `execution/sessions/session-sync.ts` makes a host current for
+one session. Two prepare calls for the same session join one in-flight sync.
+Stop aborts the sync. It stages an incoming repository under a temporary
+directory, reads its manifest, restores code with Part B, imports each thread
+with Part C, adopts a session record with the same id, and then advances the
+local repository and `session_storage` head. The source is one callback:
+`fetchBundle(sessionId, have, sourceHostId, outFile, signal)`. Phase 3 can put
+Artifacts behind it without changing the owner.
+
+The contract for no-cloud clients is:
+
+- `sessionPrepare({ sessionId, knownHead, sourceHostId?, repository? })`
+  answers `{ state: 'current', head }` or `{ state: 'started' }` at once.
+  `repository` is the existing `DispatchRepository`. An equal or absent
+  `knownHead` reads only `session_storage`; it makes no network request.
+- `PromptOptions` adds `knownHead?: string | null` and
+  `sourceHostId?: string`. A prompt behind the local head waits for sync and
+  then enters the normal admission and native resume path with its text kept.
+- `sessionRepositoryBundle({ sessionId, have })` answers `ready` with
+  `transferId`, byte `size`, and `head`, or `current`, `diverged`, or
+  `no-repository`. The RPC access gate requires `session.read.transcript`.
+  `sessionRepositoryBundleChunk({ transferId, offset })` answers base64 `data`
+  and `done`. Its handler checks that the same principal still has transcript
+  standing. A transfer expires after ten minutes without a read and closes
+  after its last chunk or when the server stops.
+- `getSessionInfo` and `getSessionInfos` include plain `head` and
+  `syncedTurn` properties on local `SessionMeta`, read from the
+  `session_storage` row. `turn_count` is written with each local turn commit or
+  sync; lists read neither a transcript nor Git.
+- One `status_card` uses id `session-sync-<sessionId>` and stable steps
+  `fetch`, `preflight`, `checkout`, `thread`, `records`. The states are
+  `pending`, `active`, `done`, and `error`. A failed card carries
+  `syncFailureReason`. Sync failures use the typed reasons
+  `provider-unavailable`, `seat-required`, `model-unavailable`,
+  `provider-too-old`, `source-offline`, `no-repository`,
+  `no-project-checkout`, `diverged`, `code-restore`, `thread-conflict`,
+  `interrupted`, and `failed`.
+
+The source host serves at most 1 MiB of binary bundle per chunk. Base64 makes
+the data field about 4/3 of that size, and each chunk costs one RPC round trip.
+The syncing host writes one decoded chunk at a time to a temporary file and
+checks the declared size. This uses `RemoteHosts` over its admitted WebSocket
+connection. There is no HTTP route or client relay.
+
+The checkout lookup uses `project.repositoryKey` against an existing dispatch
+checkout first. If none exists, the client may send `DispatchRepository`; the
+setup owner makes only its repository ready and Part B makes the one session
+worktree. With neither source, sync reports `no-project-checkout`. The
+manifest still has no clone URL or `.worktreeinclude` bytes. The restored
+worktree gets missing copied files from the client request. A local record
+supplies the old worktree path after a host restart, so Part B can reuse it.
+
+Differences from the earlier plan: the destination fetches a temporary bundle
+before provider preflight, because the manifest is inside that bundle. It does
+not advance its repository until preflight and restore finish. The manifest
+has no provider version, so `provider-too-old` is reserved for a future
+versioned manifest. Part A has no links field, so record adoption does not
+copy links. A projectless session uses a fresh local chat folder. The first
+turn after a successful sync gets one path mapping note in the system prompt.
+The source connection uses the acting person's reach: an owner uses their
+personal delegation or introduced hosts, and an organization member uses
+their organization delegation. When a client's head is stale and the source
+answers `current`, this host ends setup as current without a second restore.
+
+#### Part D verification and limits
+
+The focused Bun run covered 50 tests in 12 files: `session-archive-writer`,
+`session-repository-sync`, `session-code-restore`, `session-code-bundle`,
+`thread-import`, `thread-files`, `session-archive-turn-end`,
+`session-bundle-access`, `session-bundle-transfers`, `session-sync-gate`,
+`session-sync-prompt`, and `data-model-baseline`. All 50 passed. The new
+tests use temporary data directories, real Git, and fake providers. They
+check the unchanged fast path, a stale client head, a joined sync, Stop at each setup step, a
+projectless import, code tree and copied files in a project import, typed
+failures, transfer ownership, and the repository read gate. No test starts a
+real provider turn. `bun run lint:hosts` cannot run in this checkout: that
+script is absent. `bunx oxlint` found no issue in new files or changed lines;
+it still reports older findings in large existing files. Plain TypeScript
+checking still reports older repository errors. A full two-server test in one
+process was not run because boot and host data ownership use process globals.
+The two data directory Git test covers the transfer and restore semantics,
+but does not prove a live host-to-host socket or UI flow.
+
+The desktop preload exposes native shell methods only. The desktop renderer,
+web client, and mobile client build their host RPC API from the shared method
+registry; the three new names need no hand-written preload method. The RPC
+bundle start uses the existing session `read.transcript` access gate. A chunk
+also checks that its random transfer id belongs to the same principal and
+that the principal can still read that session. Each remote RPC call has the
+existing `RemoteHosts` 30-second timeout. Bundle generation or a chunk that
+takes longer fails the sync with `source-offline`; there is no resume token
+after a failed transfer. There is no cloud source or client relay in Part D.
+
+Part C writes lineage before provider files, as its own interface requires.
+If a later file reports `conflict`, the destination repository stays at its
+old head and a new worktree is removed, but that earlier lineage row can
+remain. An import that wrote one file before another failed can also leave
+provider files. A retry uses Part C's prefix and identical-file rules. These
+side effects are a limit of the Part C import contract; Part D has no
+transaction across provider homes, Git worktrees, and the session database.
+An interruption during record adoption can leave a claimed or started record
+before `session_storage` moves. The retry reads the old local head and can
+finish adoption. The session repository itself remains at its old head until
+the final fast-forward. A failure between that fast-forward and the storage
+row update can also leave the Git head ahead of `session_storage`; this needs
+a recovery transaction in a later change.
+
+The changed paths are `packages/contracts/src/{types,rpc,rpc-planes,host-api,permissions}.ts`,
+`packages/server/src/admission/access-policy.ts`, `packages/server/src/boot-server.ts`,
+`packages/server/src/db/host-tables.ts`, `packages/server/src/execution/agents/runtime-instructions.ts`,
+`packages/server/src/execution/session-runtime.ts`,
+`packages/server/src/execution/sessions/{dispatch-repository,run-launcher,session-bundle-source,session-sync}.ts`,
+`packages/server/src/sync/sessions/{session-archive-writer,session-bundle-transfers}.ts`,
+`packages/server/src/transport/handlers/{history-handlers,session-handlers,session-repository-handlers,session-sync-prompt,setup-handlers}.ts`,
+the generated SQLite migration and metadata `0003_session_turn_count`, the four
+new `tests/unit/session-{bundle-access,bundle-transfers,sync-gate,sync-prompt}.test.ts`
+files, `tests/unit/data-model-baseline.test.ts`, and this plan. The touched
+files above 600 lines are `contracts/src/types.ts`, `contracts/src/rpc.ts`,
+`contracts/src/host-api.ts`, `server/src/boot-server.ts`,
+`server/src/execution/session-runtime.ts`,
+`server/src/execution/sessions/run-launcher.ts`, and
+`server/src/transport/handlers/setup-handlers.ts`. They were already large;
+this change adds only small wiring there.

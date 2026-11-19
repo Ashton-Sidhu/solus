@@ -238,7 +238,7 @@ export class SessionArchiveWriter {
         ? head
         : await this.commitTurn(storage.repository, head, manifest, row.operation_id, pending)
       withTx(() => {
-        db.prepare('UPDATE session_storage SET head = ?, error = NULL WHERE session_id = ?').run(commit, sessionId)
+        db.prepare('UPDATE session_storage SET head = ?, turn_count = ?, error = NULL WHERE session_id = ?').run(commit, manifest.turns.length, sessionId)
         db.prepare('DELETE FROM session_storage_turns WHERE operation_id = ?').run(row.operation_id)
       })
     }
