@@ -2141,6 +2141,8 @@ export interface PromptOptions {
   knownHead?: string | null
   /** Last run host when the host must sync before this turn. */
   sourceHostId?: string
+  /** Source session to sync before the first prompt of a fork. The head and host above refer to this source. */
+  forkSourceSessionId?: string
   /** Explicit source of this turn for observability. Queue drain replaces it
    *  with `queued`; a remote execution host receives `dispatch`. */
   promptSource?: PromptSource

@@ -45,3 +45,70 @@ test('the prompt gate does not fetch on equal heads and keeps a behind prompt', 
   expect(resumed?.session.workingDirectory).toBe('/host-b/project')
   expect(resumed?.session.repository).toBeUndefined()
 })
+
+// WHY: a fork on a current host must use the native fork path without a fetch.
+test('a current fork source starts without sync', () => {
+  let prepares = 0
+  const sync = {
+    localHead: (sessionId: string) => { expect(sessionId).toBe('source'); return 'source-head' },
+    isRunning: () => false,
+    prepare: () => { prepares++ },
+  } as SessionSync
+  const runtime = { sessionSync: sync } as SessionRuntime
+  const ctx = { session: { sessionId: 'fork' } } as IpcContext
+  const options = { prompt: 'fork here', forked: true, forkSourceSessionId: 'source', knownHead: 'source-head' }
+  expect(queuePromptAfterSessionSync({} as SolusServer, runtime, ctx, options, {} as HandlerCtx)).toBe(false)
+  expect(prepares).toBe(0)
+})
+
+// WHY: a behind source must become current before the new session forks its thread.
+test('a behind fork source syncs and then sends the fork prompt', async () => {
+  let preparedSessionId = ''
+  let sent: PromptOptions | undefined
+  let resumed: IpcContext | undefined
+  let finish!: () => void
+  const delivered = new Promise<void>((resolve) => { finish = resolve })
+  const sync = {
+    localHead: () => null, isRunning: () => false,
+    prepare: (request: { sessionId: string }) => { preparedSessionId = request.sessionId; return { state: 'started' } },
+    wait: async () => ({ state: 'current', head: 'source-head' }),
+  } as SessionSync
+  const runtime = { sessionSync: sync } as SessionRuntime
+  const server = { handle: async (_method: string, args: [IpcContext, PromptOptions]) => {
+    ;[resumed, sent] = args
+    finish()
+  } } as SolusServer
+  const ctx = { session: { sessionId: 'fork', workingDirectory: '/fork' } } as IpcContext
+  const options = { prompt: 'fork here', forked: true, forkSourceSessionId: 'source', knownHead: 'source-head', sourceHostId: 'host-a' }
+  expect(queuePromptAfterSessionSync(server, runtime, ctx, options, {} as HandlerCtx)).toBe(true)
+  await delivered
+  expect(preparedSessionId).toBe('source')
+  expect(resumed).toBe(ctx)
+  expect(sent).toEqual(options)
+})
+
+// WHY: a source sync failure must appear in the new fork conversation and must not start a provider.
+test('a failed source sync reports its typed reason on the fork', async () => {
+  let handled = false
+  let publishedSessionId = ''
+  let publishedReason = ''
+  let finish!: () => void
+  const delivered = new Promise<void>((resolve) => { finish = resolve })
+  const sync = {
+    localHead: () => null, isRunning: () => false,
+    prepare: () => ({ state: 'started' }),
+    wait: async () => ({ state: 'failed', reason: 'source-offline', message: 'Source host is offline.' }),
+  } as SessionSync
+  const runtime = { sessionSync: sync, publish: (sessionId: string, event: { card: { syncFailureReason: string } }) => {
+    publishedSessionId = sessionId
+    publishedReason = event.card.syncFailureReason
+    finish()
+  } } as SessionRuntime
+  const server = { handle: async () => { handled = true } } as SolusServer
+  expect(queuePromptAfterSessionSync(server, runtime, { session: { sessionId: 'fork' } } as IpcContext,
+    { prompt: 'fork here', forked: true, forkSourceSessionId: 'source', knownHead: 'source-head' }, {} as HandlerCtx)).toBe(true)
+  await delivered
+  expect(publishedSessionId).toBe('fork')
+  expect(publishedReason).toBe('source-offline')
+  expect(handled).toBe(false)
+})

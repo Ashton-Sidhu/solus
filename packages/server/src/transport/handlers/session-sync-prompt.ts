@@ -7,7 +7,9 @@ const log = createLogger('main', 'session-sync-prompt.ts')
 
 /** Accept a behind-host prompt now and send the same prompt after sync. */
 export function queuePromptAfterSessionSync(server: SolusServer, runtime: SessionRuntime, ctx: IpcContext, options: PromptOptions, caller: HandlerCtx): boolean {
-  const sessionId = ctx.session.sessionId
+  const forkSessionId = ctx.session.sessionId
+  const sourceSessionId = options.forked && options.forkSourceSessionId ? options.forkSourceSessionId : undefined
+  const sessionId = sourceSessionId ?? forkSessionId
   const sync = runtime.sessionSync
   if (!sync || (!sync.isRunning(sessionId) && (!options.knownHead || sync.localHead(sessionId) === options.knownHead))) return false
   if (!sync.isRunning(sessionId)) sync.prepare({
@@ -16,9 +18,16 @@ export function queuePromptAfterSessionSync(server: SolusServer, runtime: Sessio
   }, caller.actor, caller.deviceId)
   // The prompt enters the usual admission and native resume path with its text intact.
   void sync.wait(sessionId).then(async (result) => {
+    if (sourceSessionId && result?.state === 'failed') {
+      runtime.publish(forkSessionId, { type: 'status_card', card: {
+        id: `session-sync-${forkSessionId}`, title: 'Session sync failed', icon: 'server', status: 'error',
+        steps: [{ id: 'fetch', label: 'Syncing source session', status: 'error', detail: result.message }],
+        syncFailureReason: result.reason,
+      } })
+    }
     if (!result || result.state !== 'current') return
-    const checkout = runtime.sessionCheckouts.getGitContext(sessionId)
-    const resumed: IpcContext = { ...ctx, session: {
+    const checkout = sourceSessionId ? undefined : runtime.sessionCheckouts.getGitContext(sessionId)
+    const resumed: IpcContext = sourceSessionId ? ctx : { ...ctx, session: {
       ...ctx.session,
       workingDirectory: sync.workingDirectory(sessionId) ?? checkout?.worktreePath ?? ctx.session.workingDirectory,
       projectPath: checkout?.repoRoot ?? ctx.session.projectPath,

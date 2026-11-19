@@ -835,3 +835,21 @@ files above 600 lines are `contracts/src/types.ts`, `contracts/src/rpc.ts`,
 `server/src/execution/sessions/run-launcher.ts`, and
 `server/src/transport/handlers/setup-handlers.ts`. They were already large;
 this change adds only small wiring there.
+
+### Part E as implemented (2026-11-18)
+
+`PromptOptions.forkSourceSessionId?: string` names the source session of a
+fork's first prompt. When `forked` and this id are both set, `knownHead` and
+`sourceHostId` name the source state. The prompt gate compares the source's
+local head, joins or starts `SessionSync` for the source if needed, and then
+replays the unchanged fork context through the existing fork path. An equal
+head makes no network request. A normal prompt still gates on its own id.
+
+The source sync publishes progress on the source session. On failure, the
+gate publishes `session-sync-<fork session id>` with `syncFailureReason` on
+the fork conversation and does not start a provider. The card belongs to the
+fork because that is the tab where the person sent the prompt. The new fork
+session keeps its own id and first turn repository. The writer records the
+new thread's files and marks its first lineage member `fork`. The optional
+`forkedFrom` manifest field is deferred: the writer does not receive the
+source session id and exact source turn count at the fork point.
