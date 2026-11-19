@@ -4,12 +4,16 @@ import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
-import type { AgentId, TurnSnapshot } from '@solus/contracts/types'
+import type { AgentId, PermissionMode, ReasoningEffort, SessionLineageMember, TurnSnapshot } from '@solus/contracts/types'
+import { sessionStarterSchema } from '@solus/contracts/session-starter'
+import { ANY_ORGANIZATION } from '../../admission/principal'
+import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
+import { getSessionRecord } from '../../data/sessions/session-records'
 import { getDb, withTx } from '../../db'
 import { runAsync } from '../../git/exec'
 import { resolveRepoRoot, resolveRepositoryKey } from '../../git/git-helpers'
 import { writeTurnCodeBundle, writeTurnDiffPatch, type TurnCodeBundle } from '../../git/session-code-bundle'
-import { getSessionBaseSha, listTurnSnapshots } from '../../git/session-snapshots'
+import { getSessionBaseSha, getSessionPaths, listTurnSnapshots } from '../../git/session-snapshots'
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
 import { captureActingScope, withActingScope, withUserScope } from '../../vault/acting-scope'
@@ -49,6 +53,9 @@ export interface TurnEnd {
   /** The session's checkout on this host; absent for a session with no folder. */
   workTree?: string
   partial: boolean
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  permissionMode?: PermissionMode
 }
 
 const pendingTurnSchema = z.object({
@@ -57,6 +64,16 @@ const pendingTurnSchema = z.object({
   threadId: z.string(),
   partial: z.boolean(),
   endedAt: z.number(),
+  model: z.string().optional(),
+  reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).optional(),
+  permissionMode: z.enum(['supervised', 'accept-edits', 'auto', 'full-access', 'plan']).optional(),
+  title: z.string().nullable().optional(),
+  startedBy: sessionStarterSchema.nullable().optional(),
+  parentSessionId: z.string().nullable().optional(),
+  rootSessionId: z.string().nullable().optional(),
+  lineage: z.array(z.object({ threadId: z.string(), provider: z.string(), startedAs: z.enum(['start', 'fork', 'handoff']) })).optional(),
+  sessionPaths: z.object({ turnPaths: z.array(z.string()), sessionChangedFiles: z.array(z.string()) }).nullable().optional(),
+  lastProjectRoot: z.string().nullable().optional(),
   files: z.array(z.object({ key: z.string(), relativePath: z.string(), path: z.string(), length: z.number() })),
   /** The checkout facts when the turn ended; null for a session with no repository. */
   checkout: z.object({
@@ -140,16 +157,24 @@ export class SessionArchiveWriter {
   }
 
   private async capture(turn: TurnEnd): Promise<PendingTurn> {
+    const record = await getSessionRecord(ANY_ORGANIZATION, turn.sessionId).catch(() => null)
     const files: PendingTurn['files'] = []
     for (const file of await this.deps.threadFiles(turn.provider, turn.threadId, turn.projectPath).catch(() => [])) {
       // A file that cannot be read (it is gone, or it is another user's) is left out.
       const length = await stat(file.path).then((stats) => stats.size, () => null)
       if (length !== null) files.push({ ...file, length })
     }
+    const checkout = await this.checkoutOf(turn).catch(() => null)
     return {
       organizationId: turn.organizationId, provider: turn.provider, threadId: turn.threadId, partial: turn.partial, endedAt: this.now(), files,
+      title: record?.customTitle ?? record?.title ?? null,
+      model: turn.model, reasoningEffort: turn.reasoningEffort, permissionMode: turn.permissionMode,
+      startedBy: record?.startedBy ?? null, parentSessionId: record?.parentSessionId ?? null, rootSessionId: record?.rootSessionId ?? null,
+      lineage: manifestLineage(resolveSessionLineageById(turn.sessionId, this.database())?.members ?? [], turn, !!record?.parentSessionId),
+      lastProjectRoot: turn.projectPath ?? null,
       // A folder that cannot be read as a checkout still leaves the thread of the turn to write.
-      checkout: await this.checkoutOf(turn).catch(() => null),
+      checkout,
+      sessionPaths: checkout ? await getSessionPaths(checkout.repoRoot, turn.sessionId) : null,
     }
   }
 
@@ -232,6 +257,16 @@ export class SessionArchiveWriter {
       }
       if (pending.checkout) entries.push(...await this.codeEntries(manifest, turn, index, pending.checkout, scratch))
       if (!entries.length) return head
+      Object.assign(manifest.session, {
+        title: pending.title ?? null, model: pending.model ?? null,
+        reasoningEffort: pending.reasoningEffort ?? null, permissionMode: pending.permissionMode ?? null,
+        startedBy: pending.startedBy ?? null, parentSessionId: pending.parentSessionId ?? null,
+        rootSessionId: pending.rootSessionId ?? null,
+      })
+      manifest.lineage = pending.lineage ?? manifest.lineage ?? []
+      manifest.sessionPaths = pending.sessionPaths ?? manifest.sessionPaths ?? { turnPaths: [], sessionChangedFiles: [] }
+      manifest.lastProjectRoot = pending.lastProjectRoot ?? null
+      for (const thread of manifest.threads) thread.startedAs = manifest.lineage.find((member) => member.threadId === thread.threadId)?.startedAs
       manifest.turns.push(turn)
       entries.push({ path: 'manifest.json', content: JSON.stringify(manifest) })
       try {
@@ -282,6 +317,14 @@ export class SessionArchiveWriter {
     }
     return entries
   }
+}
+
+function manifestLineage(members: SessionLineageMember[], turn: TurnEnd, isFork: boolean): NonNullable<PendingTurn['lineage']> {
+  if (!members.length) return [{ threadId: turn.threadId, provider: turn.provider, startedAs: isFork ? 'fork' : 'start' }]
+  return members.map((member, index) => ({
+    threadId: member.providerSessionId ?? (index === members.length - 1 ? turn.threadId : ''),
+    provider: member.provider, startedAs: index > 0 ? 'handoff' as const : isFork ? 'fork' as const : 'start' as const,
+  })).filter((member) => member.threadId)
 }
 
 /**

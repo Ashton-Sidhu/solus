@@ -126,6 +126,7 @@ describe('the end of a turn and the session repository', () => {
   // Another host continues the session from exactly these.
   test('a turn that ends is handed to the writer with its thread and its folder', async () => {
     expect(await endedTurn('solus-archive-turn')).toEqual({
+      model: 'claude-opus-5', reasoningEffort: 'medium', permissionMode: 'supervised',
       sessionId: 'solus-archive-turn', organizationId: 'local', provider: 'claude-code', threadId: 'thread-of-solus-archive-turn',
       projectPath: process.cwd(), workTree: process.cwd(), partial: false,
     })

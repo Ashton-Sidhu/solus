@@ -19,6 +19,8 @@ let repositoryName: typeof import('@solus/server/sync/sessions/session-repositor
 let manifestSchema: typeof import('@solus/server/sync/sessions/session-manifest').sessionManifestSchema
 let checkpoints: typeof import('@solus/server/git/turn-checkpoints')
 let bundleRef: typeof import('@solus/server/git/session-code-bundle').bundleRef
+let records: typeof import('@solus/server/data/sessions/session-records')
+let lineage: typeof import('@solus/server/data/sessions/session-lineage')
 
 const dirs: string[] = []
 function tempDir(name: string): string {
@@ -36,6 +38,8 @@ beforeAll(async () => {
   manifestSchema = (await import('@solus/server/sync/sessions/session-manifest')).sessionManifestSchema
   checkpoints = await import('@solus/server/git/turn-checkpoints')
   bundleRef = (await import('@solus/server/git/session-code-bundle')).bundleRef
+  records = await import('@solus/server/data/sessions/session-records')
+  lineage = await import('@solus/server/data/sessions/session-lineage')
   // The writer starts Git in the project; with no caller, it acts as the host (plans/019).
   ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
 })
@@ -90,6 +94,40 @@ function pendingCount(): number {
 }
 
 describe('session archive writer', () => {
+  // WHY: a host needs the session settings, provider lineage, project root,
+  // and own paths before it can run the next turn in the same session.
+  test('each new manifest holds the session facts needed by a second host', async () => {
+    const workTree = tempDir('project')
+    git(workTree, ['init', '--initial-branch=main'])
+    git(workTree, ['config', 'user.email', 'test@example.com'])
+    git(workTree, ['config', 'user.name', 'Test'])
+    writeFileSync(join(workTree, 'base.txt'), 'base\n')
+    git(workTree, ['add', '.'])
+    git(workTree, ['commit', '-m', 'base'])
+    await records.upsertOwnSessionRecord({ sessionId: SESSION, provider: 'claude-code', projectPath: workTree,
+      title: 'Portable work', parentSessionId: 'parent', rootSessionId: 'parent',
+      startedBy: { kind: 'session', sessionId: 'parent' }, lastActivityAt: 1 })
+    lineage.registerSessionLineage({ sessionId: SESSION, provider: 'claude-code', providerSessionId: THREAD, cwd: workTree })
+    const transcript = join(tempDir('thread'), 'thread.jsonl')
+    writeFileSync(transcript, '{"turn":1}\n')
+    const repositories = new Repositories(tempDir('repositories'))
+    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript) })
+    const target = { sessionId: SESSION, workTree }
+    await checkpoints.beginTurnCheckpoint(target)
+    writeFileSync(join(workTree, 'changed.txt'), 'changed\n')
+    await checkpoints.endTurnCheckpoint(target, { partial: false })
+    await writer.turnEnded(turnEnd({ workTree, projectPath: workTree, model: 'claude-sonnet-5', reasoningEffort: 'high', permissionMode: 'auto' }))
+    await writer.idle()
+    const manifest = await readManifest(repositories)
+    expect(manifest.session).toMatchObject({ title: 'Portable work', model: 'claude-sonnet-5', reasoningEffort: 'high',
+      permissionMode: 'auto', parentSessionId: 'parent', rootSessionId: 'parent',
+      startedBy: { kind: 'session', sessionId: 'parent' } })
+    expect(manifest.lineage).toEqual([{ threadId: THREAD, provider: 'claude-code', startedAs: 'fork' }])
+    expect(manifest.threads[0].startedAs).toBe('fork')
+    expect(manifest.sessionPaths?.turnPaths).toContain('changed.txt')
+    expect(manifest.sessionPaths?.sessionChangedFiles).toContain('changed.txt')
+    expect(manifest.lastProjectRoot).toBe(workTree)
+  })
   // WHY: another host continues the provider thread from these bytes. A file that
   // differs by one byte is a thread the provider cannot resume. The turn commit is
   // built in the background, so bytes the next turn already wrote must stay out of it.

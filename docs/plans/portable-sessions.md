@@ -671,3 +671,19 @@ Part D uses all three.
   and record adoption in order, with stop and progress events;
   `sessionPrepare` and `sessionRepositoryBundle` in the RPC contract and their
   handlers; `knownHead` on the prompt and the local comparison at turn start.
+
+### Part A implemented
+
+`SessionRepositories.bundleSince` writes a full or incremental Git bundle and
+answers `current` or `diverged` without writing one. `fetchBundle` checks the
+incoming history in a temporary bare repository before it moves local `main`;
+a divergent bundle raises `SessionBundleDivergedError`. The read side parses a
+head manifest and streams thread parts and code bundles to disk. Git reads the
+bare copies only with `--git-dir`.
+
+New turn commits hold the session settings, starter, lineage order,
+`sessionPaths`, and the last host's project root as text. The turn already holds
+the branch and head. The schema remains version 1: a phase-1 manifest parses
+with these later fields absent. A sync must treat an absent field as unknown and
+get the fact from local records or stop when it cannot do so safely. This keeps
+old turn commits readable without inventing their missing facts.

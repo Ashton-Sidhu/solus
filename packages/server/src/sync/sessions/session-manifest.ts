@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { sessionStarterSchema } from '@solus/contracts/session-starter'
 
 /**
  * `manifest.json` of a session repository (docs/plans/portable-sessions.md §5.1).
@@ -32,6 +33,8 @@ const threadFileSchema = z.object({
 const threadSchema = z.object({
   threadId: z.string(),
   provider: z.string(),
+  /** Missing in phase-1 commits. */
+  startedAs: z.enum(['start', 'fork', 'handoff']).optional(),
   files: z.array(threadFileSchema),
 })
 
@@ -62,8 +65,19 @@ const turnSchema = z.object({
 
 export const sessionManifestSchema = z.object({
   schemaVersion: z.literal(1),
-  session: z.object({ id: z.string(), organizationId: z.string() }),
+  session: z.object({
+    id: z.string(), organizationId: z.string(),
+    title: z.string().nullable().optional(), model: z.string().nullable().optional(),
+    reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).nullable().optional(),
+    permissionMode: z.enum(['supervised', 'accept-edits', 'auto', 'full-access', 'plan']).nullable().optional(),
+    startedBy: sessionStarterSchema.nullable().optional(), parentSessionId: z.string().nullable().optional(),
+    rootSessionId: z.string().nullable().optional(),
+  }),
   threads: z.array(threadSchema),
+  /** Absent in phase-1 commits. */
+  lineage: z.array(z.object({ threadId: z.string(), provider: z.string(), startedAs: z.enum(['start', 'fork', 'handoff']) })).optional(),
+  sessionPaths: z.object({ turnPaths: z.array(z.string()), sessionChangedFiles: z.array(z.string()) }).optional(),
+  lastProjectRoot: z.string().nullable().optional(),
   project: z.object({
     repositoryKey: z.string().nullable(),
     baseSha: z.string(),
