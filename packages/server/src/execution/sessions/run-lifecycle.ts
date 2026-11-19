@@ -268,6 +268,9 @@ function archiveTurn(rt: SessionRuntime, request: SessionRunRequest, run: Sessio
     projectPath: workTree,
     workTree,
     partial: status !== 'completed',
+    model: run.input.model,
+    reasoningEffort: run.input.reasoningEffort,
+    permissionMode: run.input.permissionMode,
   }))
 }
 

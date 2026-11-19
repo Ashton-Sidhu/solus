@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { hostCliEnv } from '../../cli-env'
 import { withUserScope } from '../../vault/acting-scope'
+import { sessionManifestSchema, type SessionManifest, type SessionManifestThreadFile } from './session-manifest'
 
 /**
  * The local copies of session repositories (docs/plans/portable-sessions.md §5
@@ -52,6 +53,11 @@ export class SessionHeadMovedError extends Error {
   }
 }
 
+/** The incoming repository does not continue this copy's head. */
+export class SessionBundleDivergedError extends Error {
+  constructor() { super('The session bundle is not a fast-forward of the local head.') }
+}
+
 export class SessionRepositories {
   constructor(private readonly root: string, private readonly signal?: AbortSignal) {}
 
@@ -96,6 +102,57 @@ export class SessionRepositories {
 
   async readText(repository: string, commit: string, path: string): Promise<string> {
     return this.git(repository, ['cat-file', 'blob', `${commit}:${checkedPath(path)}`])
+  }
+
+  /** The manifest of `commit`, including phase-1 manifests with absent sync fields. */
+  async readManifest(repository: string, commit: string): Promise<SessionManifest> {
+    return sessionManifestSchema.parse(JSON.parse(await this.readText(repository, commit, 'manifest.json')))
+  }
+
+  /** Write a provider file by joining its byte ranges in manifest order. */
+  async writeThreadFile(repository: string, commit: string, threadId: string, file: SessionManifestThreadFile, outFile: string): Promise<void> {
+    await rm(outFile, { force: true })
+    await this.appendFiles(repository, commit, file.parts.map((part) => `threads/${threadId}/${file.key}/${part}`), outFile)
+  }
+
+  /** Write commits after `have`; a divergent `have` gets no bundle. */
+  async bundleSince(repository: string, have: string | null, outFile: string): Promise<{ kind: 'written'; head: string } | { kind: 'current'; head: string | null } | { kind: 'diverged'; head: string | null }> {
+    if (have && !/^[a-f0-9]{40}$/.test(have)) throw new Error('Invalid session repository head.')
+    const head = await this.head(repository)
+    if (!head || head === have) return { kind: 'current', head }
+    if (have) {
+      const isAncestor = await this.git(repository, ['merge-base', '--is-ancestor', have, head]).then(() => true, () => false)
+      if (!isAncestor) return { kind: 'diverged', head }
+    }
+    await this.git(repository, ['bundle', 'create', outFile, 'refs/heads/main', ...(have ? [`^${have}`] : [])])
+    return { kind: 'written', head }
+  }
+
+  /** Import a bundle only when its main continues the local main. */
+  async fetchBundle(repository: string, bundleFile: string): Promise<string> {
+    const localHead = await this.head(repository)
+    const staging = sessionRepositoryName('staging', randomUUID())
+    const stagingPath = this.path(staging)
+    try {
+      await this.open(staging)
+      if (localHead) {
+        await mkdir(join(stagingPath, 'objects', 'info'), { recursive: true })
+        await writeFile(join(stagingPath, 'objects', 'info', 'alternates'), `${join(this.path(repository), 'objects')}\n`)
+      }
+      await this.git(staging, ['fetch', bundleFile, 'refs/heads/main'])
+      const incomingHead = await this.git(staging, ['rev-parse', 'FETCH_HEAD'])
+      if (localHead) {
+        const isAncestor = await this.git(staging, ['merge-base', '--is-ancestor', localHead, incomingHead]).then(() => true, () => false)
+        if (!isAncestor) throw new SessionBundleDivergedError()
+      }
+      if (!localHead) await this.open(repository)
+      await this.git(repository, ['fetch', bundleFile, 'refs/heads/main'])
+      await this.git(repository, ['update-ref', 'refs/heads/main', incomingHead, localHead ?? ZERO_SHA])
+        .catch(() => { throw new SessionBundleDivergedError() })
+      return incomingHead
+    } finally {
+      await rm(stagingPath, { recursive: true, force: true })
+    }
   }
 
   /** Append the content of each path at `commit`, in order, to `outFile`. */

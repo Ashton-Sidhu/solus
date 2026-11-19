@@ -110,6 +110,13 @@ export function getSessionSnapshotRange(
   }
 }
 
+/** The path facts a second host needs to restore a shared checkout. */
+export async function getSessionPaths(repoRoot: string, sessionId: string): Promise<{ turnPaths: string[]; sessionChangedFiles: string[] } | null> {
+  const sidecar = readSidecar(repoRoot, sessionId)
+  if (!sidecar) return null
+  return { turnPaths: await turnPathsOf(repoRoot, sidecar), sessionChangedFiles: sidecar.sessionChangedFiles ?? [] }
+}
+
 function writeSidecar(repoRoot: string, sessionId: string, data: Sidecar): void {
   ensureSolusDirs(repoRoot)
   // Machine-written, machine-read, and rewritten at every turn boundary — the
