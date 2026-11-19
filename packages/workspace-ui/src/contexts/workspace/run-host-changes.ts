@@ -2,7 +2,7 @@ import type { DispatchRepository, PromptOptions, RunLocation, Session, SessionMe
 import type { SessionPrepareRequest, SessionPrepareResult } from '@solus/contracts/rpc'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { readSessionMeta } from '@solus/client-core/session-meta'
-import { newestSessionHost, sessionSyncSource, type SessionHostTurn } from '@solus/client-core/session-heads'
+import { newestSessionHost, sessionSyncOrigin, type SessionCloudHead, type SessionHostTurn, type SessionSyncOrigin } from '@solus/client-core/session-heads'
 import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
 import { moveTabToHost, repoKeyForPath, syncRepository, type RunOnWorkspace } from '../../components/servers/run-on'
 import { serversStore } from '../connections/servers.store.svelte'
@@ -12,12 +12,22 @@ import { checkoutGit, checkoutPlace, openFolder, pendingClone, runHost, workingP
 /** What the run host changes read and call on the workspace. */
 export interface RunHostWorkspace extends RunOnWorkspace {
   tabIdForSession(sessionId: string): string | undefined
+  /** Loads a session's conversation into a tab that shows none of it yet. */
+  opening?: { resumeSession(meta: SessionMeta, opts: { intoTabId: string }): Promise<string> }
 }
 
 /** The hosts and facts the run host changes use. Replaced in tests. */
 export interface RunHostDeps {
   resolveId(serverId: string): string
   hostTurnsFor(sessionId: string): readonly SessionHostTurn[]
+  /** What the cloud knows of a session; null when signed out or not in the cloud. */
+  cloudHeadFor(sessionId: string): SessionCloudHead | null
+  /** The connected host that runs a turn of this session now, as the cloud says. */
+  runningServerFor(sessionId: string): string | null
+  /** The repository key a cloud-only session's card names. */
+  cloudRepositoryKeyOf(sessionId: string): string | null
+  /** The run host refused this session's prompts after its push, or uses the newer copy now. */
+  notePushRefused(serverId: string, sessionId: string, isRefused: boolean): void
   /** Read one session's info from one host; the answer also updates the facts. */
   readMeta(serverId: string, sessionId: string): Promise<SessionMeta | null>
   prepare(serverId: string, request: SessionPrepareRequest): Promise<SessionPrepareResult>
@@ -31,6 +41,10 @@ export interface RunHostDeps {
 const registryDeps: RunHostDeps = {
   resolveId: (serverId) => serverConnections.resolveId(serverId),
   hostTurnsFor: (sessionId) => sessionListStore.hostTurnsFor(sessionId),
+  cloudHeadFor: (sessionId) => sessionListStore.cloud.headFor(sessionId),
+  runningServerFor: (sessionId) => sessionListStore.cloud.runningServerFor(sessionId),
+  cloudRepositoryKeyOf: (sessionId) => sessionListStore.listed(sessionId)?.repositoryKey ?? null,
+  notePushRefused: (serverId, sessionId, isRefused) => sessionListStore.notePushRefused(serverId, sessionId, isRefused),
   readMeta: (serverId, sessionId) => readSessionMeta(serverId, sessionId),
   prepare: (serverId, request) => serverConnections.apiFor(serverId).sessionPrepare(request),
   hostRef: (serverId) => {
@@ -46,6 +60,13 @@ const registryDeps: RunHostDeps = {
     return repoKeyForPath(serversStore.projectIdentitiesFor(folder.serverId), checkoutGit({ location })?.repoRoot ?? folder.path)
   },
   repository: syncRepository,
+}
+
+/** A started session that shows no conversation yet: it opened from the cloud
+ *  with no host that has it (portable-sessions-cloud §5.5). */
+function showsNoConversation(session: Session): boolean {
+  return !!session.agentSessionId && !session.forked && session.messages.length === 0 && !session.loadingHistory
+    && (session.status === 'idle' || session.status === 'completed')
 }
 
 /** The session a tab syncs: a pending fork syncs its source (plan §10, decision 14). */
@@ -65,6 +86,8 @@ export class RunHostChanges {
    *  new run host is current. Tab persistence saves this one, so a reload
    *  never restores a tab on a host that has no copy of its conversation. */
   private readonly unconfirmed = new Map<string, RunLocation>()
+  /** Sessions whose conversation is read again when the run host is current. */
+  private readonly reloadsConversation = new Set<string>()
 
   constructor(
     private readonly workspace: RunHostWorkspace,
@@ -94,8 +117,26 @@ export class RunHostChanges {
   opened(tabId: string): void {
     const session = this.workspace.sessionFor(tabId)
     if (!session) return
-    const runServerId = this.deps.resolveId(runHost(session.run))
-    if (sessionSyncSource(this.deps.hostTurnsFor(syncedSessionId(session)), runServerId)) void this.prepare(tabId)
+    if (this.originFor(session)) void this.prepare(tabId)
+  }
+
+  /** A host is ready again: a conversation on it that shows nothing yet loads now. */
+  hostReady(serverId: string): void {
+    for (const tabId of this.workspace.tabOrder) {
+      const session = this.workspace.sessionFor(tabId)
+      if (session && this.deps.resolveId(runHost(session.run)) === serverId && showsNoConversation(session)) void this.prepare(tabId)
+    }
+  }
+
+  /** Where the tab's run host syncs its session from (plan §7.1, with the cloud). */
+  private originFor(session: Session): SessionSyncOrigin | null {
+    const sessionId = syncedSessionId(session)
+    return sessionSyncOrigin(this.deps.hostTurnsFor(sessionId), this.deps.resolveId(runHost(session.run)), this.deps.cloudHeadFor(sessionId))
+  }
+
+  /** The id the run host finds a source host by. */
+  private sourceRef(origin: SessionSyncOrigin): string | undefined {
+    return origin.sourceHostId ?? (origin.sourceServerId ? this.deps.hostRef(origin.sourceServerId) : undefined)
   }
 
   /**
@@ -111,8 +152,9 @@ export class RunHostChanges {
     const runServerId = this.deps.resolveId(runHost(session.run))
     const newest = newestSessionHost(this.deps.hostTurnsFor(sessionId), runServerId)?.serverId
       ?? (opts.previousServerId ? this.deps.resolveId(opts.previousServerId) : null)
+    // The cloud's head arrives by event; a host's head only by a read.
     if (newest && newest !== runServerId) await this.deps.readMeta(newest, sessionId).catch(() => null)
-    const source = sessionSyncSource(this.deps.hostTurnsFor(sessionId), runServerId)
+    const source = this.originFor(session)
     const isStale = () => this.workspace.sessionFor(tabId) !== session || session.run.location !== location
     if (isStale()) return
     if (!source) {
@@ -121,13 +163,18 @@ export class RunHostChanges {
       if (session.id === sessionId) void this.adoptRunHost(tabId, runServerId)
       return
     }
-    const repository = await this.deps.repository(session.run, opts.repoKey ?? this.deps.repoKeyOf(location))
+    await this.requestPrepare(tabId, session, source, opts.repoKey, isStale)
+  }
+
+  /** Ask the run host to sync to `origin`, and adopt it when it answers current. */
+  private async requestPrepare(tabId: string, session: Session, origin: SessionSyncOrigin, repoKey: string | null | undefined, isStale: () => boolean): Promise<void> {
+    const sessionId = syncedSessionId(session)
+    const runServerId = this.deps.resolveId(runHost(session.run))
+    const repository = await this.deps.repository(session.run, repoKey ?? this.deps.repoKeyOf(session.run.location) ?? this.deps.cloudRepositoryKeyOf(sessionId))
     if (isStale()) return
-    const request: SessionPrepareRequest = {
-      sessionId,
-      knownHead: source.knownHead,
-      sourceHostId: this.deps.hostRef(source.sourceServerId),
-    }
+    const request: SessionPrepareRequest = { sessionId, knownHead: origin.knownHead }
+    const sourceHostId = this.sourceRef(origin)
+    if (sourceHostId) request.sourceHostId = sourceHostId
     if (repository) request.repository = repository
     try {
       const result = await this.deps.prepare(runServerId, request)
@@ -139,6 +186,34 @@ export class RunHostChanges {
       // An older host has no prepare; the prompt still carries the head and syncs there.
       console.warn('[Solus] Session prepare failed; the next prompt syncs instead.', error)
     }
+  }
+
+  /**
+   * "Use the newer copy" after a refused push (design answer 3.4): a prepare
+   * with the cloud head makes the run host current, and its conversation is
+   * read again. The turns this host ran stay in its provider files; Fork keeps
+   * them as a new session.
+   */
+  async useNewerCopy(tabId: string): Promise<void> {
+    const session = this.workspace.sessionFor(tabId)
+    const cloud = session ? this.deps.cloudHeadFor(session.id) : null
+    if (!session || !cloud?.head) return
+    const location = session.run.location
+    const origin: SessionSyncOrigin = { knownHead: cloud.head, sourceServerId: cloud.lastRunServerId, sourceHostId: cloud.lastRunHostId }
+    this.reloadsConversation.add(session.id)
+    await this.requestPrepare(tabId, session, origin, null, () => this.workspace.sessionFor(tabId) !== session || session.run.location !== location)
+  }
+
+  /**
+   * Before a prompt: while another connected host runs a turn of this session,
+   * the prompt goes to that host (plan §4 decision 5), so the tab moves there
+   * first, as a Run on pick would move it.
+   */
+  followRunningHost(tabId: string): void {
+    const session = this.workspace.sessionFor(tabId)
+    const runningServerId = session ? this.deps.runningServerFor(session.id) : null
+    if (!session || !runningServerId || runningServerId === this.deps.resolveId(runHost(session.run))) return
+    this.change(tabId, openFolder(session.run.location, { serverId: runningServerId, path: workingPlace(session.run).path }, { keepProject: true }))
   }
 
   /** The run host's sync card for a session changed. */
@@ -160,8 +235,19 @@ export class RunHostChanges {
     if (!session) return
     this.confirm(session.id)
     const meta = await this.deps.readMeta(serverId, session.id).catch(() => null)
-    if (!meta?.cwd || this.workspace.sessionFor(tabId) !== session) return
+    if (!meta || this.workspace.sessionFor(tabId) !== session) return
     if (this.deps.resolveId(runHost(session.run)) !== serverId || session.status !== 'idle' && session.status !== 'completed') return
+    const reload = this.reloadsConversation.delete(session.id)
+    if (reload) this.deps.notePushRefused(serverId, session.id, false)
+    // A conversation that came from the cloud with no host, or that this host
+    // replaced with the newer copy, is read from the host that has it now.
+    if (this.workspace.opening && (reload || showsNoConversation(session))) {
+      session.messages.splice(0, session.messages.length)
+      await this.workspace.opening.resumeSession(meta, { intoTabId: tabId })
+        .catch((error) => console.warn('[Solus] The conversation did not load from the run host.', error))
+      return
+    }
+    if (!meta.cwd) return
     if (workingPlace(session.run).path === meta.cwd) return
     session.run.location = openFolder(session.run.location, { serverId: runHost(session.run), path: meta.cwd }, { keepProject: true })
     this.refreshRunEnvironment(tabId)
@@ -185,12 +271,11 @@ export class RunHostChanges {
    */
   promptFields(session: Session): Pick<PromptOptions, 'knownHead' | 'sourceHostId' | 'forkSourceSessionId'> {
     const sessionId = syncedSessionId(session)
-    const source = sessionSyncSource(this.deps.hostTurnsFor(sessionId), this.deps.resolveId(runHost(session.run)))
+    const source = this.originFor(session)
     if (!source) return {}
-    const fields: Pick<PromptOptions, 'knownHead' | 'sourceHostId' | 'forkSourceSessionId'> = {
-      knownHead: source.knownHead,
-      sourceHostId: this.deps.hostRef(source.sourceServerId),
-    }
+    const fields: Pick<PromptOptions, 'knownHead' | 'sourceHostId' | 'forkSourceSessionId'> = { knownHead: source.knownHead }
+    const sourceHostId = this.sourceRef(source)
+    if (sourceHostId) fields.sourceHostId = sourceHostId
     if (sessionId !== session.id) fields.forkSourceSessionId = sessionId
     return fields
   }

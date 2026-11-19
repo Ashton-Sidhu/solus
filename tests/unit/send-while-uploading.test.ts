@@ -67,7 +67,7 @@ function harness(opts: { status?: Session['status'] } = {}) {
   } as unknown as Session
   const workspace = {
     sessionFor: () => session,
-    runHosts: { promptFields: () => ({}), confirm: () => {} },
+    runHosts: { promptFields: () => ({}), confirm: () => {}, followRunningHost: () => {} },
     promptComposer: new PromptComposer({} as never, {} as never),
     settings: { activeAgent: 'claude-code' },
     tasksStore: { taskForSession: () => null },

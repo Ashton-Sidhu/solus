@@ -22,6 +22,8 @@ import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { localApi } from '@solus/client-core/local-api'
 import { sendOutbox, classifySendFailure, type OutboxRecord } from '@solus/client-core/send-outbox'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
+import { SESSION_DIVERGED } from '@solus/contracts/session-repositories'
+import { sessionListStore } from './session-list.store.svelte'
 import { SEAT_REQUIRED_CODE } from '@solus/contracts/seats'
 import { turnRefusalSchema } from '@solus/contracts/organization-scope'
 import { seatProviderOf, seatsStore } from '../seats/seats.store.svelte'
@@ -160,6 +162,8 @@ export class PromptDispatch {
   }
 
   promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; goalObjective?: string; isLead?: boolean }): void {
+    // While another host runs a turn of this session, the prompt goes there (plan §4 decision 5).
+    this.workspace.runHosts.followRunningHost(tabId)
     const api = this.workspace.apiFor(tabId)
     const promptSession = this.workspace.sessionFor(tabId)
     const watchedSessionId = promptSession?.id
@@ -249,6 +253,11 @@ export class PromptDispatch {
           }
           // The card says which organization the turn needs and what to do; only this client sees it.
           if (refusal.success) turnRefusalStore.note({ serverId: runHost(session.run), sessionId: session.id, code: refusal.data, message: err.message })
+          // This host's push was refused: the conversation offers Fork and the newer copy, and the text waits.
+          if (rpcErrorCode(err) === SESSION_DIVERGED) {
+            sessionListStore.notePushRefused(serverConnections.resolveId(runHost(session.run)), session.id, true)
+            if (!session.prompt.text) session.prompt.text = options.displayPrompt || options.prompt
+          }
         }
       })
   }

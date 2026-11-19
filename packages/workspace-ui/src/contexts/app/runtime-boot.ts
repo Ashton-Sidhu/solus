@@ -128,6 +128,8 @@ export function initializeRuntime(
     // A shown conversation whose transcript read failed while its host was away
     // reads again now (docs/plans/host-readiness.md); a loaded one is left as it is.
     session.loadShownConversations()
+    // A session opened from the cloud on this host shows its conversation once this host has it.
+    session.runHosts.hostReady(serverId)
   })
 
   // A new notice can be a session shared with the reader: the list reads again,

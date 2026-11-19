@@ -146,7 +146,27 @@ A fork runs where its source runs, as before. Before its first prompt, Run on
 is open on the fork: choose another host, and that host gets the source session
 first, then makes the fork there.
 
-These rules need both hosts online: there is no cloud copy of a session yet.
+When you are not signed in, these rules need both hosts online.
+
+When you are signed in, each turn is also saved to Solus Cloud
+([cloud design](plans/portable-sessions-cloud.md)). Then:
+
+- The host that you choose gets the newest turn from the cloud, so the host
+  that ran the last turn can be offline.
+- "Not synced yet" next to Run on means that the newest turn is not in the
+  cloud yet. It goes away when the push ends.
+- "Running on <host>" next to Run on means that another host runs a turn of
+  this session now. Run on is locked, and a prompt that you send goes to that
+  host, as a queued prompt.
+- If another host saved a turn first, the push of this host is refused. The
+  conversation says "This session continued on <host>. The turns on this
+  machine are not in it." **Fork** keeps the turns of this machine as a new
+  session. **Use the newer copy** gets the cloud copy on this host, and the
+  conversation shows that copy.
+- A session that only the cloud lists (no connected host has it) opens with an
+  empty conversation that says it shows when you select a machine in Run on.
+  You can type at once. When the host you choose has synced, the conversation
+  shows.
 
 On a host where each member uses their own seat, a new session shows **Connect
 Claude** or **Connect Codex** before the first send when you have no seat for

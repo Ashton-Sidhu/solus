@@ -64,6 +64,7 @@ function harness(opts: { worktreeBaseBranch: string | null; startTarget: Promise
     runHosts: {
       promptFields: () => opts.syncFields ?? {},
       confirm: (sessionId: string) => { confirmed.push(sessionId) },
+      followRunningHost: () => {},
     },
   }
   const dispatch = new PromptDispatch(workspace as never)

@@ -10,6 +10,7 @@ import { serversStore } from '../connections/servers.store.svelte'
 import { chooseRunOnHost, type RunOnChoice, type RunOnHost } from '../projects/run-on-rule'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
+import { isSolusApiId } from '@solus/contracts/uplink'
 import { type Task } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { makeSession, makeTab } from './session.factories'
@@ -402,7 +403,10 @@ export class SessionOpening {
     let tabId = intoTabId ?? this.workspace.activeTabId
     const targetTab = intoTabId ? this.workspace.tabs[intoTabId] : this.workspace.activeTab
     const targetSession = intoTabId ? this.workspace.sessionFor(intoTabId) : this.workspace.activeSession
-    const canTakeOver = targetTab && targetSession && !targetSession.agentSessionId
+    // A tab that already names this session and shows none of it (it opened
+    // from the cloud before a host had it) takes the resume too.
+    const canTakeOver = targetTab && targetSession
+      && (!targetSession.agentSessionId || (!!intoTabId && targetSession.id === resumedSessionId))
       && targetSession.status !== 'connecting' && targetSession.status !== 'running'
       && targetSession.messages.length === 0
     if (intoTabId && !canTakeOver) {
@@ -604,6 +608,49 @@ export class SessionOpening {
     if (intoTabId) requestInputFocus({ tabId })
     track('session_resumed', {})
     return tabId
+  }
+
+  /**
+   * Open a session only the cloud lists (portable-sessions-cloud §5.5). No
+   * host that this client reaches has its conversation, so the tab opens with
+   * none: on the host that ran its last turn when this client keeps it (the
+   * composer then says that host is offline), else on the Run on host. The
+   * person can type at once and pick a host in Run on; the host syncs from the
+   * cloud, and the conversation shows when it is current.
+   */
+  async openCloudSession(sessionId: string): Promise<void> {
+    const listed = sessionListStore.listed(sessionId)
+    if (!listed?.cloudOnly) return
+    const openTabId = findOpenTabForSession(sessionId, this.workspace.tabs, this.workspace.sessions.byId, this.workspace.tabOrder)
+    if (openTabId) {
+      this.workspace.selectTab(openTabId, 'click')
+      return
+    }
+    const serverId = isSolusApiId(listed.serverId) ? (hosts.runOn?.id ?? null) : listed.serverId
+    if (!serverId) {
+      toasts.error('Connect a machine to continue this session')
+      return
+    }
+    const provider = listed.opensWith.provider ?? this.workspace.settings.activeAgent
+    const tabId = await this.workspace.createTab(NEW_CHAT_DIRECTORY, {
+      activate: true,
+      gitContext: null,
+      gitInitialization: 'skip',
+      skipPluginCommands: true,
+      worktreeRequested: false,
+      serverId,
+      thread: { provider, model: sessionListStore.cloud.modelOf(sessionId) },
+    })
+    const session = this.workspace.sessionFor(tabId)
+    if (!session) return
+    session.threadProvider = provider
+    session.agentSessionId = sessionId
+    session.title = listed.title ?? 'Session'
+    session.organizationId = null
+    this.workspace.adoptSessionId(tabId, sessionId)
+    this.workspace.revealConversation()
+    this.workspace.runHosts.opened(tabId)
+    requestInputFocus({ tabId })
   }
 
   /**

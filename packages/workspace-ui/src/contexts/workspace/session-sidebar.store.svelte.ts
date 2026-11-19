@@ -1132,7 +1132,7 @@ export class SessionSidebarStore {
   /** Start the reads opening a listed session needs at the click, before the
    *  deferred switch: its metadata, then its first history page. */
   prepareOpen(row: SidebarTask): void {
-    if (row.tabIds.length || !row.sessionId || !row.serverId) return
+    if (row.tabIds.length || !row.sessionId || !row.serverId || sessionListStore.listed(row.sessionId)?.cloudOnly) return
     // Pointer down and the click both ask; one read serves both.
     if (this.preparedOpen?.rowKey === row.key && Date.now() - this.preparedOpen.at < 2_000) return
     // The list already holds what the page is read with: ask for it now, beside
@@ -1149,6 +1149,8 @@ export class SessionSidebarStore {
   /** Open a listed session that has no conversation here. */
   private async openListedSession(row: SidebarTask): Promise<void> {
     if (!row.sessionId || !row.serverId) return
+    // No connected host has it: it opens with no conversation until a machine is chosen.
+    if (sessionListStore.listed(row.sessionId)?.cloudOnly) return this.session.opening.openCloudSession(row.sessionId)
     const prepared = this.preparedOpen?.rowKey === row.key && Date.now() - this.preparedOpen.at < 2_000
       ? this.preparedOpen.meta
       : null
