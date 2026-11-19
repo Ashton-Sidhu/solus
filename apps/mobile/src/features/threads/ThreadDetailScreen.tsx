@@ -67,8 +67,9 @@ import { useAgentRoster } from "./ThreadAgents";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { endQueuedMessageEdit, useQueuedMessageEdit } from "./queued-message-edit";
 import { agentsPillLabel } from "./agent-card-presentation";
-import { threadHostChrome } from "./lib/thread-host-chrome";
+import { threadHostChrome, withRunHostChoice } from "./lib/thread-host-chrome";
 import { HostGraceWhisper } from "./ThreadHostLines";
+import { ThreadRunHostRow, useRunHostRow } from "./ThreadRunHostRow";
 import { HostAsleepCard } from "../hosts/HostAsleepCard";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
 import { ThreadBrowserFloat } from "../browser/ThreadBrowserFloat";
@@ -90,6 +91,8 @@ export interface ThreadDetailScreenProps {
   readonly startedBy?: SessionStarterFromHost | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
+  /** Runs the next prompt of this started session on another host (docs/plans/portable-sessions.md §10). */
+  readonly onChooseHost?: (hostId: string) => void;
 }
 
 /** A turn is producing output: the live slot and the working timer show. */
@@ -201,7 +204,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const canStop = mayDrive && (turnActive || isBackground);
   const working = isWorkingStatus(meta.status);
   const activeWorkStartedAt = workStartedAt(store, working);
-  const hostChrome = threadHostChrome(props.hostReadiness);
+  const runHostRow = useRunHostRow(store, meta);
+  const hostChrome = withRunHostChoice(threadHostChrome(props.hostReadiness), runHostRow.keepsComposerWhileAway);
   const hostLabel = props.hostLabel ?? "This host";
   // Nobody can answer a request while the host is away: its cards come back with the host.
   const activePendingApproval = hostChrome.showsRequestCards ? (meta.permissions[0] ?? null) : null;
@@ -677,6 +681,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 activeUserInputRequestId !== null || !hostChrome.showsComposer ? { display: "none" } : undefined
               }
             >
+              <ThreadRunHostRow
+                store={store}
+                view={runHostRow}
+                onChooseHost={props.onChooseHost}
+                onClosed={() => composerEditorRef.current?.focus()}
+              />
               <ThreadComposer
                 store={store}
                 meta={meta}

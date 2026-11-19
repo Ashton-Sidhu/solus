@@ -3,7 +3,7 @@ import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, urlHost } from '@solus/client-core/pairing'
 import { askHostsToDiscover, mergeDiscovered } from '@solus/client-core/discovery-through-hosts'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
-import { replaceModelProfiles, type AgentId, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
+import { replaceModelProfiles, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
 import { toBase64Url } from '@solus/contracts/host-identity'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { AddressReader } from '@solus/client-core/host-connection-check'
@@ -20,6 +20,7 @@ import { KeyboardCommands } from '../features/keyboard/keyboard-commands'
 import { HostRegistry, type NativeHost } from '../features/hosts/host-registry'
 import { previewHost, type HostPreview, type PreviewResult } from '../features/hosts/lib/pair-input'
 import { ThreadDirectory } from '../features/threads/thread-directory'
+import { SessionRunHosts } from '../features/threads/session-run-hosts'
 import { ThreadListState } from '../features/threads/thread-list-state'
 import { NativeNotificationHub } from '../features/notifications/notification-hub'
 import { DiffFilterPreference } from '../features/review/diff-filter-preference'
@@ -113,6 +114,8 @@ export class SolusApp {
   readonly account: AccountSession
   /** Every session on every host, as T3 Code's home list reads it. */
   readonly threads: ThreadDirectory
+  /** What each host holds of each session, and where the next turn syncs from (docs/plans/portable-sessions.md §10). */
+  readonly runHosts: SessionRunHosts
   /** Each host's shelf (settled, snoozed), live status, and PR links, as T3 Code's list shows them. */
   readonly threadList: ThreadListState
   /** Whether this device shows agent work as a Live Activity (iOS). */
@@ -197,7 +200,10 @@ export class SolusApp {
       readAddress: platform.readAddress,
       healthNonce: platform.accountCrypto?.randomBytes ? () => toBase64Url(platform.accountCrypto!.randomBytes!(16)) : undefined,
     })
-    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId))
+    this.runHosts = new SessionRunHosts({
+      readyConnection: (hostId) => this.connections.readyConnections().find((connection) => connection.hostId === hostId) ?? null,
+    })
+    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId), this.runHosts)
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
     this.liveActivity = new LiveActivityPreference(storage)
     this.diffFilter = new DiffFilterPreference(storage)
@@ -337,7 +343,7 @@ export class SolusApp {
 
   /** The open conversation for a saved session or a new one. One store per
    *  conversation, so a remount keeps the transcript, scroll, and watch. */
-  conversation(hostId: string, target: { record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle'>; newSession?: { sessionId: string; provider: AgentId; workingDirectory: string } }): ConversationStore | null {
+  conversation(hostId: string, target: Omit<ConversationTarget, 'hostId' | 'record'> & { record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle'> }): ConversationStore | null {
     const key = conversationKey(hostId, target.record?.sessionId ?? target.newSession?.sessionId ?? '')
     const existing = this.conversations.get(key)
     if (existing) return existing
@@ -353,10 +359,33 @@ export class SolusApp {
       organizationId: () => this.account.organizationId,
       uuid: this.platform.uuid,
       attachmentIo: this.platform.attachmentIo,
+      runHosts: this.runHosts,
     })
     this.conversations.set(key, store)
     void store.controller.load()
     return store
+  }
+
+  /**
+   * The person chose another host to run the next turn of a started session
+   * (docs/plans/portable-sessions.md §10). The conversation opens on that host
+   * at once, with the transcript it shows and its draft, and the one on the
+   * host it leaves closes. That host syncs in the background when it is
+   * behind; nothing waits for it. Null when the host cannot be reached.
+   */
+  moveConversation(store: ConversationStore, hostId: string): ConversationStore | null {
+    const { controller } = store
+    const record = controller.target.record
+    if (!record || hostId === controller.hostId || !this.connections.connection(hostId)) return null
+    // A conversation left open there earlier shows an old transcript.
+    const earlier = this.conversations.get(conversationKey(hostId, record.sessionId))
+    if (earlier) this.closeConversation(earlier)
+    const moved = this.conversation(hostId, { record, movedFrom: controller.hostId, carriedTranscript: controller.model })
+    if (!moved) return null
+    this.saveDraft(hostId, record.sessionId, this.draft(controller.hostId, record.sessionId))
+    this.saveDraft(controller.hostId, record.sessionId, '')
+    this.closeConversation(store)
+    return moved
   }
 
   /** The conversation already open under this id, for a sheet presented over its thread. */
@@ -446,6 +475,7 @@ export class SolusApp {
       store.close()
     }
     this.threads.forgetHost(hostId)
+    this.runHosts.forgetHost(hostId)
     this.threadList.forgetHost(hostId)
     this.hostSettings.forgetHost(hostId)
     this.hostCloudLink.forgetHost(hostId)

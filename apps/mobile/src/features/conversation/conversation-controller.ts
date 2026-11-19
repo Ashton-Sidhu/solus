@@ -41,6 +41,8 @@ import type { Integration, IntegrationConnectNeeded, IntegrationCustomServerNeed
 import { Listeners } from '../../lib/listeners'
 import { SessionSuggestionsFeed } from './session-suggestions'
 import { loweredPermissionMode, workPolicy } from '../policy/lib/policy-view'
+import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
+import type { SessionRunHosts } from '../threads/session-run-hosts'
 
 /**
  * One open conversation on one host (plan 017 stage 3). It owns the watch,
@@ -69,6 +71,13 @@ export interface ConversationTarget {
    *  A record's `role` is the reader's, from the list (docs/plans/access-model.md §2.7). */
   record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role'> & Partial<Pick<SessionRecord, 'organizationId'>>
   newSession?: { sessionId: string; provider: AgentId; workingDirectory: string }
+  /** The host this saved session was open on before the person chose this
+   *  one to run its next turn (docs/plans/portable-sessions.md §10). */
+  movedFrom?: string
+  /** The transcript it showed there. It shows here until this host is current
+   *  and reads its own history, so the conversation stays on screen while the
+   *  host syncs. */
+  carriedTranscript?: TranscriptModel
 }
 
 export interface ConversationDeps {
@@ -86,6 +95,9 @@ export interface ConversationDeps {
   uuid(): string
   /** Reads and sends picked files; absent where attaching is not offered. */
   attachmentIo?: AttachmentIo
+  /** What each host holds of the session's repository: the prompt carries the
+   *  newest head, and an open asks a host that is behind to sync. */
+  runHosts?: Pick<SessionRunHosts, 'noteMeta' | 'noteTurnSettled' | 'promptFields' | 'opened'>
   onChange(changes: { items: string[]; order: boolean; meta: boolean }): void
 }
 
@@ -160,6 +172,12 @@ export class ConversationController {
   private liveEvents = 0
   private closed = false
   private readonly cleanups: Array<() => void> = []
+  /** The transcript another host showed, until this host is current (`ConversationTarget.carriedTranscript`). */
+  private carried: TranscriptModel | null
+  /** The first load asked the run host to sync when it is behind. */
+  private openedOnHost = false
+  /** Turns this conversation saw end, so a replayed event counts a turn once. */
+  private readonly settledTurnIds = new Set<string>()
   /** Saved artifact reads in flight, per transcript: a rebuilt transcript reads again. */
   private readonly artifactReads = new WeakMap<TranscriptModel, Map<string, Promise<void>>>()
 
@@ -212,7 +230,8 @@ export class ConversationController {
     this.run = initialRun(target, deps.organizationId(), deps.uuid)
     this.started = !!target.record
     this.threadProvider = target.record?.provider ?? null
-    this.model = new TranscriptModel(this.run.sessionId)
+    this.carried = target.record ? target.carriedTranscript ?? null : null
+    this.model = this.carried ?? new TranscriptModel(this.run.sessionId)
     const { connection } = deps
     this.auth = new AgentAuthFlow({ connection, notice: (text, tone) => {
       this.model.addNotice(text, tone)
@@ -381,6 +400,10 @@ export class ConversationController {
       // Every load, reconnects included: a change missed while away is read again.
       if (this.started) void this.suggestions.refresh()
       this.flush(true)
+      if (this.started && !this.openedOnHost) {
+        this.openedOnHost = true
+        void this.prepareRunHost()
+      }
       void this.drainOutbox()
     } catch (error) {
       if (generation !== this.loadGeneration) return
@@ -482,11 +505,19 @@ export class ConversationController {
     const description = await api.describeSession(this.run.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
     this.startedBy = hostStarterOf(description?.meta?.startedBy)
+    this.deps.runHosts?.noteMeta(this.hostId, description?.meta)
+    // A host that has the session keeps it in its own folder, not the one the
+    // host it came from used.
+    if (this.target.movedFrom && description?.meta?.cwd) {
+      this.run.workingDirectory = description.meta.cwd
+      this.projectPath = description.meta.projectPath
+    }
     const lineage = description?.lineage
     if (lineage) {
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
       this.followThread(lineage.active.provider)
     }
+    if (this.carried) return this.carried
     const page = await api.loadSessionPage({ ...this.historySource, turnLimit: INITIAL_HISTORY_TURNS })
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
@@ -1009,9 +1040,14 @@ export class ConversationController {
       this.run.contextWindow = event.modelConfig.contextWindow
       if (event.result) this.run.agentSessionId = event.result.restoredSessionId ?? null
     }
+    if (event.type === 'turn_settled' && !this.settledTurnIds.has(event.turnId)) {
+      this.settledTurnIds.add(event.turnId)
+      this.deps.runHosts?.noteTurnSettled(this.hostId, this.run.sessionId)
+    }
     this.model.apply(event)
     this.run.status = this.model.status
     this.flush(event.type === 'session_queue' || event.type === 'provider_switch_applied' || event.type === 'activity')
+    if (event.type === 'status_card' && event.card.status === 'done' && isSessionSyncCard(event.card, this.run.sessionId)) this.adoptHostHistory()
   }
 
   private async watch(): Promise<WatchSessionResult> {
@@ -1094,6 +1130,9 @@ export class ConversationController {
         const ctx = this.context()
         this.policyRefusals.delete(record.clientPromptId)
         const result = await this.deps.connection.api.prompt(ctx, {
+          // The newest head this device knows, from reads that already
+          // happened: a host that is behind syncs before the turn (plan §7.1).
+          ...this.deps.runHosts?.promptFields(this.run.sessionId, this.hostId),
           prompt: record.payload?.prompt ?? record.text,
           displayPrompt: record.payload?.displayPrompt ?? record.text,
           clientPromptId: record.clientPromptId,
@@ -1116,7 +1155,32 @@ export class ConversationController {
       this.syncDeliveryFromOutbox()
       // A prompt enqueued while a drain ran was not in that drain's snapshot.
     } while (rounds < 5 && this.deps.outbox.entriesFor(this.outboxKey).some((entry) => entry.attempts === 0 && entry.lastError === null))
-    this.flush()
+    // The host control reads whether a prompt still waits (`hasUnsentPrompts`).
+    this.flush(true)
+  }
+
+  /** Prompts this device holds that the host has not taken yet. */
+  get hasUnsentPrompts(): boolean {
+    return this.deps.outbox.entriesFor(this.outboxKey).length > 0
+  }
+
+  /**
+   * The conversation opened on this host: when another host has a newer turn,
+   * or the person just chose this host, this host starts a sync now, so the
+   * next prompt does not wait for it (plan §10). A host that is current already
+   * shows its own history.
+   */
+  private async prepareRunHost(): Promise<void> {
+    const result = await this.deps.runHosts?.opened(this.run.sessionId, this.hostId, this.target.movedFrom ?? null)
+    if (result?.state === 'current') this.adoptHostHistory()
+  }
+
+  /** This host is current: the carried transcript gives way to the host's own
+   *  history, read in the folder where the host keeps the session. */
+  private adoptHostHistory(): void {
+    if (!this.carried || this.closed) return
+    this.carried = null
+    void this.load()
   }
 
   private syncDeliveryFromOutbox(): void {

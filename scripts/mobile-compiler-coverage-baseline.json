@@ -2050,6 +2050,13 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/threads/ThreadRunHostRow.tsx": {
+      "compiled": [
+        "ThreadRunHostRow",
+        "useRunHostRow"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/threads/ThreadSettingsRows.tsx": {
       "compiled": [
         "AutoRow",
@@ -2162,9 +2169,11 @@
     },
     "apps/mobile/src/features/threads/WorktreeSetupCard.tsx": {
       "compiled": [
+        "SessionSyncFailure",
         "SetupDetails",
         "StageRow",
-        "WorktreeSetupCard"
+        "WorktreeSetupCard",
+        "useSessionSyncNames"
       ],
       "skipped": []
     },
