@@ -79,6 +79,7 @@ export type SessionRepositoryBundleResult =
   | { state: 'current'; head: string | null }
   | { state: 'diverged'; head: string | null }
   | { state: 'no-repository' }
+  | { state: 'commit-failed' }
 export interface SessionRepositoryBundleChunkRequest { transferId: string; offset: number }
 export interface SessionRepositoryBundleChunkResult { data: string; done: boolean }
 export interface SessionPrepareRequest {
@@ -89,7 +90,7 @@ export interface SessionPrepareRequest {
 }
 export type SessionSyncFailure =
   | 'provider-unavailable' | 'seat-required' | 'model-unavailable' | 'provider-too-old'
-  | 'source-offline' | 'no-repository' | 'no-project-checkout' | 'diverged'
+  | 'source-offline' | 'no-repository' | 'not-signed-in' | 'commit-failed' | 'no-project-checkout' | 'diverged'
   | 'code-restore' | 'thread-conflict' | 'interrupted' | 'failed'
 export type SessionPrepareResult =
   | { state: 'current'; head: string | null }

@@ -28,8 +28,8 @@ const steps = ['fetch', 'preflight', 'checkout', 'thread', 'records'] as const
 type Step = typeof steps[number]
 
 export type SourceBundle =
-  | { state: 'ready'; file: string; head: string }
-  | { state: 'current' | 'diverged' | 'no-repository' }
+  | { state: 'ready'; repositoryPath: string; head: string; source?: 'cloud' | 'host' }
+  | { state: 'current' | 'diverged' | 'no-repository' | 'commit-failed' }
 
 export type SessionSyncResult =
   | { state: 'current'; head: string }
@@ -42,7 +42,7 @@ export class SessionSyncError extends Error {
 export interface SessionSyncDeps {
   repositoryRoot: string
   providerInstalled(provider: AgentId): Promise<boolean>
-  fetchBundle(sessionId: string, have: string | null, sourceHostId: string | undefined, outFile: string, signal: AbortSignal, actor: Actor): Promise<SourceBundle>
+  fetchBundle(sessionId: string, have: string | null, wantedHead: string | null, sourceHostId: string | undefined, outFile: string, signal: AbortSignal, actor: Actor): Promise<SourceBundle>
   prepareCheckout: PrepareDispatchCheckout
   claimSession?: (sessionId: string, principal: Principal, isProject: boolean) => Promise<void>
 }
@@ -119,13 +119,13 @@ export class SessionSync {
       // The manifest is in the source bundle. Nothing local changes before it is read.
       publish('fetch', 'active')
       signal.throwIfAborted()
-      const fetched = await this.deps.fetchBundle(sessionId, local?.head ?? null, request.sourceHostId, join(scratch, 'source.bundle'), signal, actor)
+      const fetched = await this.deps.fetchBundle(sessionId, local?.head ?? null, request.knownHead, request.sourceHostId, join(scratch, 'source.bundle'), signal, actor)
       signal.throwIfAborted()
       if (fetched.state === 'current' && local?.head) {
         publish('fetch', 'done', undefined, undefined, true)
         return { state: 'current', head: local.head }
       }
-      if (fetched.state !== 'ready') throw new SessionSyncError(fetched.state === 'diverged' ? 'diverged' : 'no-repository', `Source host returned ${fetched.state}.`)
+      if (fetched.state !== 'ready') throw new SessionSyncError(fetched.state === 'diverged' ? 'diverged' : fetched.state === 'commit-failed' ? 'commit-failed' : 'no-repository', `Source host returned ${fetched.state}.`)
       const stagingRepository = local?.repository ?? sessionRepositoryName('staging', sessionId)
       const repository = stagingRepository
       const localPath = join(this.deps.repositoryRoot, `${repository}.git`)
@@ -134,7 +134,7 @@ export class SessionSync {
         await cp(localPath, join(stagingRoot, `${repository}.git`), { recursive: true })
       }
       const staged = new SessionRepositories(stagingRoot, signal)
-      const head = await staged.fetchBundle(repository, fetched.file)
+      const head = await staged.fetchBundle(repository, fetched.repositoryPath)
       const manifest = await staged.readManifest(repository, head)
       if (manifest.session.id !== sessionId) throw new SessionSyncError('diverged', 'The bundle names another session.')
       if (local && repository !== sessionRepositoryName(manifest.session.organizationId, sessionId)) throw new SessionSyncError('diverged', 'The bundle names another organization.')
@@ -245,9 +245,14 @@ export class SessionSync {
       signal.throwIfAborted()
       const finalRepository = local?.repository ?? sessionRepositoryName(manifest.session.organizationId, sessionId)
       const finalRepositories = new SessionRepositories(this.deps.repositoryRoot, signal)
-      await finalRepositories.fetchBundle(finalRepository, fetched.file)
+      await finalRepositories.fetchBundle(finalRepository, fetched.repositoryPath)
       getDb().prepare('INSERT INTO session_storage (session_id, repository, head, turn_count) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET head = excluded.head, turn_count = excluded.turn_count')
         .run(sessionId, finalRepository, head, manifest.turns.length)
+      // Part C adds this column. A fetched cloud head is already pushed.
+      // SAFETY: SQLite PRAGMA table_info returns a name for each column.
+      if (fetched.source === 'cloud' && (getDb().prepare('PRAGMA table_info(session_storage)').all() as Array<{ name: string }>).some((column) => column.name === 'pushed_head')) {
+        getDb().prepare('UPDATE session_storage SET pushed_head = ? WHERE session_id = ?').run(head, sessionId)
+      }
       if (gitCheckout) this.rt.sessionCheckouts.setSessionGitEnvironment(sessionId, cwd, gitCheckout)
       this.workingDirectories.set(sessionId, cwd)
       if (manifest.lastProjectRoot && manifest.lastProjectRoot !== (projectRoot ?? cwd)) {

@@ -8,13 +8,16 @@ const principal: Principal = {
 }
 
 // WHY: the repository holds full provider transcripts. A person with no
-// read.transcript standing must not get a bundle transfer id.
-test('a repository bundle needs the session transcript standing', async () => {
+// drive.prompt standing must not get a bundle transfer id.
+test('a repository bundle needs the session prompt standing', async () => {
   const args = [{ sessionId: 'session-one', have: null }]
   await expect(assertRpcAccess('sessionRepositoryBundle', principal, args, {
     standingFor: async () => ({ role: 'none' }),
   }, true)).rejects.toMatchObject({ code: 'FORBIDDEN' })
   await expect(assertRpcAccess('sessionRepositoryBundle', principal, args, {
     standingFor: async () => ({ role: 'viewer' }),
+  }, true)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  await expect(assertRpcAccess('sessionRepositoryBundle', principal, args, {
+    standingFor: async () => ({ role: 'editor' }),
   }, true)).resolves.toBeUndefined()
 })
