@@ -14,7 +14,7 @@ import {
   normalizeOtelSettings,
 } from '@solus/contracts/host-config'
 import type { HostConfig, HostConfigKey, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
-import type { ManagedHostKey } from '@solus/contracts/policy'
+import { settingManagedMessage, type ManagedHostKey } from '@solus/contracts/policy'
 import { enforce, hostPolicies } from './policy/host-policy-store'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
@@ -176,6 +176,12 @@ const LOCKABLE_HOST_CONFIG: ReadonlyArray<readonly [ManagedHostKey & HostConfigK
   ['analyticsEnabled', 'Analytics'],
 ]
 
+/** A session limit can lock the host switch only when MDM governs all work. */
+function sessionCloudSyncSettingDenial(): void {
+  const rule = hostPolicies().forWork('local').sessionCloudSync()
+  if (rule?.value === false) enforce({ code: 'SETTING_MANAGED', message: settingManagedMessage('Save sessions to Solus Cloud', rule.source) })
+}
+
 /** The policies' locked host keys laid over the owner's config; the stored file never holds them. */
 function withHostLocks(config: HostConfig): HostConfig {
   const policies = hostPolicies()
@@ -236,6 +242,7 @@ export function setHostUserSettings(hostUser: HostUserSettings): void {
 }
 
 export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
+  if (patch.sessionCloudSync !== undefined) sessionCloudSyncSettingDenial()
   for (const [key, label] of LOCKABLE_HOST_CONFIG) {
     if (key in patch) enforce(hostPolicies().settingChangeDenial(key, label))
   }

@@ -16,6 +16,8 @@ import { CONFIGURABLE_SOLUS_TOOL_NAMES, type SolusToolPreferences } from './agen
 import type { OtelSettings } from './types'
 
 export interface HostConfig {
+  /** Whether this host may save sessions to Solus Cloud when the person is signed in. */
+  sessionCloudSync: boolean
   solusTools: SolusToolPreferences
   /** Restart continuation policy; managed cloud hosts always disable it. */
   continueSessionsAfterHostRestart: boolean
@@ -91,6 +93,7 @@ function field<const Value, Patch>(
 }
 
 export const HOST_CONFIG_FIELDS = {
+  sessionCloudSync: field(z.boolean().catch(true), true),
   solusTools: field(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()).describe('Solus agent tools on or off on this host, by tool name. A tool that is off is removed from the tool list of every agent and refused if called. A tool not named is on.'), {}),
   continueSessionsAfterHostRestart: field(z.boolean().catch(true), true),
   reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}).describe('By project path on this host: when true, the host writes review guides before they are asked for, for open pull requests that are not drafts, when their head has not changed for a minute.'), {}),

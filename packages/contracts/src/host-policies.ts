@@ -126,6 +126,17 @@ export class HostPolicies {
   }
 }
 
+export interface SessionCloudSyncSwitchState { checked: boolean; lockedBy: string | null }
+
+/** The host-wide switch shows an MDM ban. Organization limits apply to their work only. */
+export function sessionCloudSyncSwitchState(policies: HostPolicies, enabled: boolean): SessionCloudSyncSwitchState {
+  const rule = policies.forWork(LOCAL_POLICY_ORGANIZATION_ID).sessionCloudSync()
+  return {
+    checked: rule?.value === false ? false : enabled,
+    lockedBy: rule?.value === false ? settingManagedMessage('Save sessions to Solus Cloud', rule.source) : null,
+  }
+}
+
 /**
  * What governs one organization's work on one host: the MDM policy, then the
  * organization's host policy for this host, then its organization policy — first
@@ -258,6 +269,11 @@ export class WorkPolicy {
   /** Whether every session of the organization sends its Insights; null when no policy says. */
   syncsAllInsights(): boolean | null {
     return this.limit('insights')?.value.syncAll ?? null
+  }
+
+  /** The first policy in precedence order owns this limit, including an explicit true. */
+  sessionCloudSync(): ResolvedRule<boolean> | null {
+    return this.limit('sessionCloudSync')
   }
 
   /** An unverified webhook may start this work. Off unless a policy turns it on; personal work is allowed unless the MDM policy says no. */

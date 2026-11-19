@@ -9,6 +9,7 @@ import {
   type PolicySource,
 } from '@solus/contracts/policy'
 import { createLogger } from '../../logger'
+import { getServerSettings } from '../settings'
 import type { HostStanding } from '../organizations'
 import type { MdmPolicy } from './mdm-policy'
 
@@ -125,4 +126,17 @@ export function hostPolicyStore(): HostPolicyStore {
 /** The policies that govern work on this host now. */
 export function hostPolicies(): HostPolicies {
   return installed.current()
+}
+
+export type SessionCloudSyncRefusal = 'person-not-signed-in' | 'setting-off' | 'policy-forbids' | 'policy-not-available'
+export type SessionCloudSyncDecision = { allowed: true } | { allowed: false; reason: SessionCloudSyncRefusal }
+
+/** Answer at push or fetch time. A missing organization policy stops cloud sync. */
+export function sessionCloudSyncDecision(organizationId: string, actingPerson: { accountId: string } | null): SessionCloudSyncDecision {
+  if (!actingPerson) return { allowed: false, reason: 'person-not-signed-in' }
+  if (!getServerSettings().hostConfig.sessionCloudSync) return { allowed: false, reason: 'setting-off' }
+  const policy = hostPolicies().forWork(organizationId)
+  if (policy.refusal) return { allowed: false, reason: 'policy-not-available' }
+  if (policy.sessionCloudSync()?.value === false) return { allowed: false, reason: 'policy-forbids' }
+  return { allowed: true }
 }

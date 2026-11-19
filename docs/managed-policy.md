@@ -169,6 +169,7 @@ Comfort settings (fonts, theme, layout, notifications) are not manageable.
 | Key | What it does |
 | --- | --- |
 | `maxPermissionMode` | The highest permission mode. The order is `plan` < `supervised` < `accept-edits` < `auto` < `full-access`. A run above the limit is refused. A default or an automatic grant is lowered to the limit. An old session above the limit gets no turns until the person sends a lower mode. |
+| `sessionCloudSync` | `false` stops cloud push and fetch of the full conversation and code that is not committed. An MDM policy also covers Local sessions. A missing organization policy stops cloud sync for that organization's work. When no policy sets it, cloud sync is allowed. The first policy in the normal MDM, host, organization order wins. Older hosts refuse a document that has this unknown key. Update hosts before you set it in a cloud policy. |
 | `providers.allowed` | The only providers that can run: `claude-code`, `codex`, `opencode`, `replay`. |
 | `providers.launch` | For each provider: `environment` (a list of `{ name, value }`), `binaryPath`, and `launchArgs` that every launch uses. Under a `maxPermissionMode`, the launch fields of the person are not used. Only these pins and the Solus defaults apply. |
 | `models` | For each provider, the only model ids that can run. A provider that is not named is not limited. |

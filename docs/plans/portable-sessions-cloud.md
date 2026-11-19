@@ -559,3 +559,11 @@ An opt-in test, as works have (`tests/unit/work-storage.test.ts:311`, `ARTIFACTS
 - Which permission the host diff RPCs need, for the access rule of `sessionTurnDiff`. `packages/contracts/src/permissions.ts` settles it.
 - Whether the pinned Solus revision in solus-cloud (`ec7d86c7…`) has the phase 1 and 2 code. `git merge-base --is-ancestor` on the two revisions settles it. It matters only for the deploy order.
 - Whether a `git fetch` from a bare directory with alternates behaves as from a bundle in each case `SessionSync` has. A unit test in part D settles it.
+
+### Part G as implemented
+
+- Policy key: `sessions.limits.sessionCloudSync`. An absent key allows cloud sync. An explicit `false` stops push and fetch. The first rule in MDM, cloud host, organization order wins.
+- Host setting: `hostConfig.sessionCloudSync`, shown as “Save sessions to Solus Cloud”, defaults to `true`, and is stored in `server-settings.json`.
+- Gate: `sessionCloudSyncDecision(organizationId, actingPerson)` in the host policy store. It reads the host setting and `hostPolicies().forWork(organizationId)` at call time. No signed-in actor, a host switch that is off, an unavailable policy, and a policy that forbids sync each give a typed refusal.
+- The host-wide switch shows an MDM lock. An organization limit applies to its sessions but does not disable the host-wide switch for Local work.
+- An older host refuses a policy document that names the new key because its policy schema is strict. Hosts must ship before a console can set the key.
