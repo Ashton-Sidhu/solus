@@ -7,7 +7,7 @@ const tokenSchema = z.object({ success: z.literal(true), result: z.object({ plai
 /** Account credentials remain in this server-side control-plane client only. */
 export class CloudflareWorkRepositories implements WorkRepositoryAccess {
   private readonly base: string
-  constructor(private readonly accountId: string, namespace: string, private readonly apiToken: string, private readonly signal?: AbortSignal) {
+  constructor(private readonly accountId: string, namespace: string, private readonly apiToken: string, private readonly signal?: AbortSignal, private readonly requestFetch: typeof fetch = fetch) {
     if (!/^[a-f0-9]{32}$/.test(accountId) || !/^[a-z0-9][a-z0-9-]*$/.test(namespace) || !apiToken) throw new Error('Invalid Artifacts account, namespace or server credential.')
     this.base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/artifacts/namespaces/${namespace}`
   }
@@ -18,14 +18,14 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
       signal: this.signal ? AbortSignal.any([this.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     }
     if (method !== 'GET' && body !== undefined) init.body = body
-    return fetch(`${this.base}${path}`, init)
+    return this.requestFetch(`${this.base}${path}`, init)
   }
 
   private checkName(repository: string): void {
-    if (!/^work-[a-f0-9]{48}$/.test(repository)) throw new Error('Invalid Solus work repository name.')
+    if (!/^(?:work|session)-[a-f0-9]{48}$/.test(repository)) throw new Error('Invalid Solus repository name.')
   }
 
-  async remote(repository: string): Promise<{ url: string; token: string }> {
+  async remote(repository: string, scope: 'read' | 'write' = 'write'): Promise<{ url: string; token: string }> {
     this.checkName(repository)
     let response = await this.request(`/repos/${repository}`)
     if (response.status === 404) {
@@ -36,7 +36,7 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
     const url = repositorySchema.parse(await response.json()).result.remote
     const remote = new URL(url)
     if (remote.protocol !== 'https:' || remote.hostname !== `${this.accountId}.artifacts.cloudflare.net` || remote.username || remote.password || remote.search || remote.hash) throw new Error('Unexpected Artifacts Git remote.')
-    const issued = await this.request('/tokens', 'POST', JSON.stringify({ repo: repository, scope: 'write', ttl: 900 }))
+    const issued = await this.request('/tokens', 'POST', JSON.stringify({ repo: repository, scope, ttl: 900 }))
     if (!issued.ok) throw new Error('The Artifacts repository token could not be issued.')
     return { url, token: tokenSchema.parse(await issued.json()).result.plaintext }
   }

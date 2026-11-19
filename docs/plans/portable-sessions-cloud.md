@@ -574,3 +574,33 @@ An opt-in test, as works have (`tests/unit/work-storage.test.ts:311`, `ARTIFACTS
 - Prompt: `SESSION_DIVERGED` and `SessionPromptRefusalCode` name the refused-push prompt code. `StatusCardState.promptRefusalCode` can carry it beside `syncFailureReason`.
 
 The four plain optional fields are on `WorkspaceSession`, `SessionRecord`, and `SessionMeta`. `sessionMetaFromRecord` copies them. The token response adds `storageScope` to the design's example because the work breakdown asks for it. The head report success uses the shared facts because the design did not give a success body. The list uses a flat item to carry the card and facts. The conflict body has only `head`, as answer 2.3 states. `unauthorized` names the token route's 401 case. The head request uses a discriminated event so `pushed` cannot omit its commit facts. The API route registry has no implementation in this part; the API worker owns it.
+
+### Part A as implemented (2026-11-18)
+
+`sync/git-remote.ts` exports `GitRemote`, `GitRemoteOptions`, and
+`CheckedPushResult`. `GitRemote.open({ gitDir, remote, token?, signal?,
+timeoutMs, outputLimitBytes?, authorDate? })` validates an HTTPS or file remote,
+creates a temporary askpass file, and prepares a Git environment without
+global or system config, hooks, credential helpers, or trace output. The token
+is in the process environment only. `git(args, input?)` runs a command with
+`--git-dir`; `remoteHead()` reads `refs/heads/main`; `checkedPush(commit,
+expectedHead)` pushes the fixed commit with a lease and reads the remote head
+again. Its result is `accepted` with the commit, `refused` with the remote head
+(or `null`), or `failed` with a safe `transport` or `timeout` reason. `close()`
+removes the askpass file. A caller must close it in `finally`.
+
+The time limit covers the whole open transport lifetime. Works give 120 seconds
+and a 16 MiB output limit, then build commits in a scratch bare repository as
+before. Session callers must give a longer hard `timeoutMs` and an appropriate
+`outputLimitBytes` for their operation. Git also uses a 60-second HTTP stall
+limit. A `file://` remote needs no token. A retry that finds its commit at the
+remote head returns `accepted`; a failed push reads the head again to distinguish
+a lost response from a moved head. The shared module does not check ancestry;
+the session writer must do that before it calls `checkedPush`.
+
+`CloudflareWorkRepositories.remote(repository, scope = 'write')` accepts
+`read` or `write` and validates both `work-<48 hex>` and `session-<48 hex>`.
+Its constructor accepts an optional injected `fetch` as the fifth argument.
+The account credential stays in that class. Local work repositories still
+accept work names only. No API contract, host push, or deployment is part of
+Part A.
