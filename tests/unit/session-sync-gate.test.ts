@@ -77,7 +77,7 @@ test('different heads join one sync and Stop aborts it', async () => {
   const sync = new SessionSync(runtime, {
     repositoryRoot: root,
     providerInstalled: async () => true,
-    fetchBundle: async (_sessionId, _have, _source, _outFile, signal) => {
+    fetchBundle: async (_sessionId, _have, _wanted, _source, _outFile, signal) => {
       fetches++
       started?.()
       await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
@@ -132,9 +132,9 @@ test('a projectless session sync imports its thread and record at the same id', 
   const sync = new SessionSync(runtime, {
     repositoryRoot: join(root, 'destination'),
     providerInstalled: async () => true,
-    fetchBundle: async (_id, _have, _sourceHostId, outFile) => {
+    fetchBundle: async (_id, _have, _wanted, _sourceHostId, outFile) => {
       await source.bundleSince(repository, null, outFile)
-      return { state: 'ready', file: outFile, head }
+      return { state: 'ready', repositoryPath: outFile, head }
     },
     prepareCheckout: async () => { throw new Error('Projectless sync must not prepare a checkout') },
   })
@@ -219,9 +219,9 @@ test('a project sync restores the exact tree and binds the same session id', asy
   const sync = new SessionSync(runtime, {
     repositoryRoot: join(root, 'destination-project'),
     providerInstalled: async () => true,
-    fetchBundle: async (_id, _have, _source, outFile) => {
+    fetchBundle: async (_id, _have, _wanted, _source, outFile) => {
       await source.bundleSince(repository, null, outFile)
-      return { state: 'ready', file: outFile, head }
+      return { state: 'ready', repositoryPath: outFile, head }
     },
     prepareCheckout: async () => { throw new Error('The existing checkout must be used') },
   })
@@ -260,7 +260,7 @@ test('preflight, offline source, divergence, and thread conflict keep the reposi
   const request = { sessionId, knownHead: head, sourceHostId: 'source' }
   const sourceBundle = async (_id: string, _have: string | null, _source: string | undefined, outFile: string) => {
     await source.bundleSince(repository, null, outFile)
-    return { state: 'ready' as const, file: outFile, head }
+    return { state: 'ready' as const, repositoryPath: outFile, head }
   }
   const runtimeFor = (importStatus: 'written' | 'conflict') => ({
     publish: () => {}, getMetadataFor: () => ({ available: true }), seatForTurn: async () => null,
@@ -308,7 +308,7 @@ test('code restore reports its typed failure without a worktree', async () => {
     sessionCheckouts: { getGitContext: () => undefined } } as SessionRuntime
   const sync = new SessionSync(runtime, {
     repositoryRoot: join(root, 'code-failure-destination'), providerInstalled: async () => true,
-    fetchBundle: async (_id, _have, _source, outFile) => { await source.bundleSince(repository, null, outFile); return { state: 'ready', file: outFile, head } },
+    fetchBundle: async (_id, _have, _wanted, _source, outFile) => { await source.bundleSince(repository, null, outFile); return { state: 'ready', repositoryPath: outFile, head } },
     prepareCheckout: async () => checkout,
   })
   expect(sync.prepare({ sessionId, knownHead: head, sourceHostId: 'source', repository: { cloneUrl: 'https://github.com/acme/missing-code.git' } }, HOST_ACTOR)).toEqual({ state: 'started' })
@@ -341,7 +341,7 @@ test('Stop interrupts every sync step before the local head advances', async () 
     } as SessionRuntime
     sync = new SessionSync(runtime, {
       repositoryRoot: join(root, 'stop-destination'), providerInstalled: async () => true,
-      fetchBundle: async (_id, _have, _source, outFile) => { await source.bundleSince(repository, null, outFile); return { state: 'ready', file: outFile, head } },
+      fetchBundle: async (_id, _have, _wanted, _source, outFile) => { await source.bundleSince(repository, null, outFile); return { state: 'ready', repositoryPath: outFile, head } },
       prepareCheckout: async () => { throw new Error('No checkout expected') },
     })
     expect(sync.prepare({ sessionId, knownHead: head, sourceHostId: 'source' }, HOST_ACTOR)).toEqual({ state: 'started' })
@@ -349,4 +349,43 @@ test('Stop interrupts every sync step before the local head advances', async () 
     expect(sync.localHead(sessionId)).toBeNull()
   }
   expect((await getSessionRecord('local', sessionId))?.sessionId).toBeUndefined()
+})
+
+// WHY: a second host must adopt the same native thread and session head from a cloud Git remote.
+test('a full projectless sync can fetch a file remote', async () => {
+  const { fetchSessionArtifacts } = await import('@solus/server/execution/sessions/session-artifacts-source')
+  const { pathToFileURL } = await import('node:url')
+  const sessionId = 'portable-cloud-chat'
+  const threadId = 'thread-portable-cloud-chat'
+  const repository = sessionRepositoryName('local', sessionId)
+  const sourceRoot = join(root, 'source-cloud-chat')
+  const source = new SessionRepositories(sourceRoot)
+  const manifest = emptySessionManifest(sessionId, 'local')
+  manifest.lineage = [{ threadId, provider: 'claude-code', startedAs: 'start' }]
+  manifest.threads = [{ threadId, provider: 'claude-code', files: [{ key: 'main', relativePath: 'thread.jsonl', length: 6, parts: [0] }] }]
+  manifest.turns = [{ operationId: 'one', endedAt: Date.now(), provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }]
+  const head = await source.commit(repository, { expectedHead: null, message: 'turn', entries: [
+    { path: `threads/${threadId}/main/0`, content: 'hello\n' }, { path: 'manifest.json', content: JSON.stringify(manifest) },
+  ] })
+  let imported = ''
+  const runtime = {
+    publish: () => {}, getMetadataFor: () => ({ available: true }), seatForTurn: async () => null,
+    backendFor: () => ({ importThread: async (request: { files: Array<{ path: string }> }) => {
+      imported = readFileSync(request.files[0]!.path, 'utf8')
+      return { files: [{ relativePath: 'thread.jsonl', status: 'written', bytes: imported.length }], bytesWritten: imported.length }
+    } }),
+  } as SessionRuntime
+  const sync = new SessionSync(runtime, {
+    repositoryRoot: join(root, 'destination-cloud-chat'), providerInstalled: async () => true,
+    fetchBundle: (id, have, wanted, _host, outFile, signal, actor) => fetchSessionArtifacts(async () => ({
+      repository, remote: pathToFileURL(join(sourceRoot, `${repository}.git`)).href, token: '',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(), storageScope: 'test',
+      head, syncedTurn: 1, lastRunHostId: 'host-a', runningHostId: null,
+    }), null, id, actor, have, wanted, outFile, signal),
+    prepareCheckout: async () => { throw new Error('Projectless sync must not prepare a checkout') },
+  })
+  expect(sync.prepare({ sessionId, knownHead: head }, HOST_ACTOR)).toEqual({ state: 'started' })
+  expect(await sync.wait(sessionId)).toEqual({ state: 'current', head })
+  expect(imported).toBe('hello\n')
+  expect(sync.localHead(sessionId)).toBe(head)
 })

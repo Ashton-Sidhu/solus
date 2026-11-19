@@ -184,8 +184,12 @@ import { DEFAULT_SERVER_PORT, isSessionBusyStatus } from '@solus/contracts/types
 import { registerWindowHandlers, type WindowDeps } from './transport/handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './transport/handlers/session-handlers'
 import { registerSessionRepositoryHandlers } from './transport/handlers/session-repository-handlers'
-import { SessionSync } from './execution/sessions/session-sync'
+import { SessionSync, SessionSyncError } from './execution/sessions/session-sync'
 import { fetchSessionBundle } from './execution/sessions/session-bundle-source'
+import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionReadAccess } from './execution/sessions/session-artifacts-source'
+import { sessionCloudSyncDecision } from './host/policy/host-policy-store'
+import { insightsAccountOf } from './admission/actor'
+import { getSessionRecord } from './data/sessions/session-records'
 import { registerWorktreeHandlers } from './transport/handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './transport/handlers/git-publish-handlers'
 import { registerFilesystemHandlers } from './transport/handlers/filesystem-handlers'
@@ -299,6 +303,8 @@ const log = createLogger('main', 'server-boot')
 
 export interface BootOptions {
   sessionRuntime: SessionRuntime
+  /** Part C supplies the read-token client here when its host access module is merged. */
+  sessionReadAccess?: SessionReadAccess
   /**
    * What kind of machine this process is (organization-scope §3.1): the desktop
    * app's own execution host is `personal`; the standalone server declares
@@ -785,7 +791,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     shares,
   }
   registerSessionHandlers(server, sessionDeps)
-  registerSessionRepositoryHandlers(server, sessionBundleTransfers, shares, opts.sessionRuntime)
+  registerSessionRepositoryHandlers(server, sessionBundleTransfers, shares, opts.sessionRuntime, sessionArchive)
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
     onHostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
@@ -1336,12 +1342,32 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       const binary = AGENT_BIN[provider]
       return binary ? !!findOnPath(binary, await warmCliPath()) : false
     },
-    fetchBundle: (sessionId, have, sourceHostId, outFile, signal, actor) => {
+    // eslint-disable-next-line complexity
+    fetchBundle: async (sessionId, have, wantedHead, sourceHostId, outFile, signal, actor) => {
       const principal = actor.principal
       const reach: ReachRequest = principal.kind === 'org-member'
         ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
         : principal.kind === 'owner' ? ownerReach() : { account: null, isOwner: false }
-      return fetchSessionBundle(remoteHosts, reach, sessionId, have, sourceHostId, outFile, signal)
+      const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
+      const account = insightsAccountOf(actor)
+      const decision = sessionCloudSyncDecision(record?.organizationId ?? (principal.kind === 'org-member' ? principal.organizationId : 'local'), account?.id.kind === 'account' ? { accountId: account.id.accountId } : null)
+      // SAFETY: the query selects only the repository column.
+      const storage = getDb().prepare('SELECT repository FROM session_storage WHERE session_id = ?').get(sessionId) as { repository: string } | undefined
+      const localPath = storage ? join(dataDir(), 'sessions', 'repositories', `${storage.repository}.git`) : null
+      const readAccess = opts.sessionReadAccess
+      return chooseSessionRepositorySource(decision.allowed && readAccess
+        ? () => fetchSessionArtifacts(readAccess, localPath, sessionId, actor, have, wantedHead, outFile, signal) : null,
+      async () => {
+        if (!sourceHostId && !decision.allowed && decision.reason === 'person-not-signed-in') throw new SessionSyncError('not-signed-in', 'Sign in or connect to the last run host.')
+        if (!sourceHostId) throw new SessionSyncError('no-repository', 'No session repository is available.')
+        try { return await fetchSessionBundle(remoteHosts, reach, sessionId, have, sourceHostId, outFile, signal) }
+        catch (error) {
+          if (error instanceof SessionSyncError && error.reason === 'source-offline' && decision.allowed) {
+            throw new SessionSyncError('source-offline', `${sourceHostId} is offline and the cloud copy is behind the requested head.`)
+          }
+          throw error
+        }
+      })
     },
     prepareCheckout: setup.prepareDispatchCheckout,
     claimSession: (sessionId, principal, isProject) => shares.claimSession(sessionId, principal, { shareWithOrganization: isProject }),

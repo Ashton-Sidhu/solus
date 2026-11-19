@@ -94,6 +94,23 @@ function pendingCount(): number {
 }
 
 describe('session archive writer', () => {
+  // WHY: a bundle requested at turn end must include the commit even while its transcript is still being captured.
+  test('the per-session wait includes an in-progress capture and commit', async () => {
+    const transcript = join(tempDir('late-turn'), 'thread.jsonl')
+    writeFileSync(transcript, 'turn\n')
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const repositories = new Repositories(tempDir('late-repository'))
+    const writer = new Writer({ repositories, threadFiles: async () => { await gate; return oneThreadFile(transcript)('claude-code', THREAD) } })
+    const ending = writer.turnEnded(turnEnd())
+    const waiting = writer.waitForSession(SESSION, 10_000)
+    release?.()
+    await ending
+    expect(await waiting).toBe(true)
+    expect(storageRow()?.head).toBeTruthy()
+    expect(pendingCount()).toBe(0)
+    await writer.stop()
+  })
   // WHY: a host needs the session settings, provider lineage, project root,
   // and own paths before it can run the next turn in the same session.
   test('each new manifest holds the session facts needed by a second host', async () => {
@@ -216,6 +233,7 @@ describe('session archive writer', () => {
     await crashing.stop()
     expect(pendingCount()).toBe(1)
     expect(storageRow()?.error).toBeString()
+    expect(await crashing.waitForSession(SESSION, 100)).toBe(false)
 
     const repositories = new Repositories(repositoriesRoot)
     const restarted = new Writer({ repositories, threadFiles: oneThreadFile(transcript) })

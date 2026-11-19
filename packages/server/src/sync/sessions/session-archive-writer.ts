@@ -108,6 +108,9 @@ export class SessionArchiveWriter {
   private readonly now: () => number
   /** One Git job at a time on a host. */
   private queue: Promise<void> = Promise.resolve()
+  private readonly sessionJobs = new Map<string, Promise<void>>()
+  private readonly sessionCommits = new Map<string, Promise<void>>()
+  private readonly captureErrors = new Set<string>()
   private readonly retries = new Map<string, { timer: ReturnType<typeof setTimeout>; waitMs: number }>()
   private stopped = false
 
@@ -118,12 +121,20 @@ export class SessionArchiveWriter {
 
   /** Record that a turn ended. The turn commit is written in the background. Never rejects: the turn is over. */
   async turnEnded(turn: TurnEnd): Promise<void> {
-    try {
-      // Reading the checkout starts Git, and each process acts as someone: whoever ran the turn, or the host.
-      await (captureActingScope() ? this.record(turn) : withUserScope(null, () => this.record(turn)))
-    } catch (error) {
-      log.warn('session_turn_record_failed', { sessionId: turn.sessionId, error: error instanceof Error ? error.message : String(error) })
-    }
+    const previous = this.sessionJobs.get(turn.sessionId)
+    const work = (async () => {
+      if (previous) await previous
+      try {
+        await (captureActingScope() ? this.record(turn) : withUserScope(null, () => this.record(turn)))
+        this.captureErrors.delete(turn.sessionId)
+      } catch (error) {
+        this.captureErrors.add(turn.sessionId)
+        log.warn('session_turn_record_failed', { sessionId: turn.sessionId, error: error instanceof Error ? error.message : String(error) })
+      }
+    })()
+    this.sessionJobs.set(turn.sessionId, work)
+    await work
+    if (this.sessionJobs.get(turn.sessionId) === work) this.sessionJobs.delete(turn.sessionId)
   }
 
   private async record(turn: TurnEnd): Promise<void> {
@@ -148,6 +159,28 @@ export class SessionArchiveWriter {
   /** Settles when no turn commit is in progress. */
   async idle(): Promise<void> {
     await this.queue
+  }
+
+  /** Wait for this session's capture and commit. False means its pending turn failed or timed out. */
+  async waitForSession(sessionId: string, timeoutMs: number): Promise<boolean> {
+    const wait = async (): Promise<boolean> => {
+      for (;;) {
+        const capture = this.sessionJobs.get(sessionId)
+        if (capture) await capture
+        const commit = this.sessionCommits.get(sessionId)
+        if (commit) await commit
+        if (capture !== this.sessionJobs.get(sessionId) || commit !== this.sessionCommits.get(sessionId)) continue
+        // SAFETY: the query selects only the nullable error column.
+        const row = this.database().prepare('SELECT error FROM session_storage WHERE session_id = ?').get(sessionId) as { error: string | null } | undefined
+        return !row?.error && !this.captureErrors.has(sessionId)
+      }
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([wait(), new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); timer.unref() })])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   async stop(): Promise<void> {
@@ -202,6 +235,9 @@ export class SessionArchiveWriter {
       () => { this.clearRetry(sessionId) },
       (error) => { this.failed(sessionId, error instanceof Error ? error.message : String(error)) },
     )
+    const scheduled = this.queue
+    this.sessionCommits.set(sessionId, scheduled)
+    void scheduled.then(() => { if (this.sessionCommits.get(sessionId) === scheduled) this.sessionCommits.delete(sessionId) })
   }
 
   private failed(sessionId: string, reason: string): void {

@@ -657,3 +657,32 @@ writes require edit standing (D4). Sessions use a namespace separate from works
 `SessionPusher` in `session-push.ts` owns one host-wide push queue, apart from the turn commit queue. `committed`, `resume`, `established`, `signedOut`, `idle`, `stop`, and `refusedHead` are its public operations. It checks `sessionCloudSyncDecision` before upload. It selects an organization scope only for published organization work; other sessions use the person's scope. It pushes a fixed commit from the local bare repository, confirms the result, then reports the head and turn count. A report is retried without a second push. A remote head that is not an ancestor stops the push for that session. The later prompt gate and Fork action are not in this part.
 
 `session_storage` adds `cloud_scope`, `pushed_head`, `reported_head`, `push_due_at`, `push_attempts`, `push_error`, and `push_refused_head`. The SQLite migration is `0004_session_cloud_push.sql`. The Git push limit is one hour with a 60-second low-speed stall limit. No repository file is held in memory by the push.
+
+### Part D as implemented (2026-11-18)
+
+`execution/sessions/session-artifacts-source.ts` exports `SessionReadAccess`,
+`fetchSessionArtifacts`, and `chooseSessionRepositorySource`. The source asks an
+injected `SessionReadAccess(sessionId, actor, signal)` for a read token and
+remote, fetches `main` into a temporary bare Git repository with `GitRemote`,
+uses a local object alternate when one exists, and returns that repository path
+to `SessionSync`. It never holds repository bytes in memory. `SessionSync` passes
+the client's wanted head to its one source seam, accepts a bundle or bare
+repository at `repositoryPath`, and records a cloud head as `pushed_head` when
+Part C's column exists. The boot seam is `BootOptions.sessionReadAccess`; Part C
+must connect its route client there.
+
+A signed-in host with cloud sync allowed by the host setting and work policy
+tries cloud first. It uses cloud only when its history contains the wanted
+head. A missing cloud repository or wanted turn uses the last run host. If that
+host is offline, `source-offline` says that the cloud copy is behind. Without
+sign-in, the host path remains; without a last run host, the result is
+`not-signed-in`. A missing repository gives `no-repository`; unrelated local
+and cloud histories give `diverged`. A policy refusal or disabled host setting
+forbids cloud download as well as upload. A host connection can still fetch.
+
+The source host waits up to 30 seconds for that session's pending capture and
+commit before it serves a bundle. An error or timeout answers the typed
+`commit-failed` state. Both the bundle request and each chunk now require
+`drive.prompt` standing, because thread files contain full tool result bodies.
+The cloud token route client and the `pushed_head` migration belong to Part C.
+No Cloudflare credential, deployment, or live service was used for this part.

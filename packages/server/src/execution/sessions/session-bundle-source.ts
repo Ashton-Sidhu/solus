@@ -38,7 +38,7 @@ export async function fetchSessionBundle(
     } finally {
       await file.close()
     }
-    return { state: 'ready', file: outFile, head: answer.head }
+    return { state: 'ready', repositoryPath: outFile, head: answer.head, source: 'host' }
   } catch (error) {
     signal.throwIfAborted()
     throw new SessionSyncError('source-offline', `${target.label} is offline or its session bundle could not be read: ${error instanceof Error ? error.message : String(error)}`)
