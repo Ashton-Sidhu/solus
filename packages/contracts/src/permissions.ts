@@ -402,7 +402,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   acceptPlan: 'drive.approve', rateLimitDecision: 'drive.approve',
   attachUpload: 'drive.attach', attachUploadToken: 'drive.attach',
   deviceOpen: 'drive.devices', deviceClose: 'drive.devices',
-  mcpAppToolInfo: 'drive.apps', mcpAppCallTool: 'drive.apps', mcpAppReadResource: 'drive.apps',
+  mcpAppToolInfo: 'drive.apps', mcpAppCallTool: 'drive.apps', mcpAppReadResource: 'drive.apps', mcpAppUpdateModelContext: 'drive.apps',
   // Sessions — editing the record
   setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit',
   sessionPullRequestWatch: 'edit',

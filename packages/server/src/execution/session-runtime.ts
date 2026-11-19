@@ -15,6 +15,7 @@ import { AttentionService } from '../attention/attention-service'
 import { prepareSessionTask } from '../data/tasks/session-task'
 import { recordSessionExecutionPreferences } from '../data/sessions/session-states'
 import { ResponseTextBuffer } from './sessions/response-text-buffer'
+import { AppModelContexts } from './sessions/app-model-contexts'
 import { inheritedOrganizationOf, parentSessionIdOf, recordSessionSettings } from './sessions/session-settings'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import { organizationOfSession } from '../data/sessions/session-records'
@@ -191,6 +192,8 @@ export class SessionRuntime extends EventEmitter {
   readonly handoffs: ProviderHandoffs
   readonly sessionCheckouts: SessionCheckouts
   readonly dispatch = new PromptDispatch(this)
+  /** What the session's open MCP Apps report to the agent; each turn carries it. */
+  readonly appModelContexts = new AppModelContexts()
 
   readonly sessionPermissionModes: SessionPermissionStore
   isShuttingDown = false

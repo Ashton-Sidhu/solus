@@ -1,3 +1,4 @@
+import type { McpAppPermission } from '@solus/contracts/mcp-apps'
 import type { Tab } from '@solus/contracts/types'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { TranscriptDisclosure } from './transcript-disclosure.svelte'
@@ -14,6 +15,10 @@ export class ConversationViewState {
   readonly turnExpansion = new SvelteMap<string, boolean>()
   readonly closedMcpApps = new SvelteSet<string>()
   readonly mcpAppHeights = new SvelteMap<string, number>()
+  /** The context each app gave the agent, as the person can read it, by activity. */
+  readonly mcpAppContexts = new SvelteMap<string, string>()
+  /** The browser features the person granted each app, by activity. */
+  readonly mcpAppPermissions = new SvelteMap<string, McpAppPermission[]>()
   /** The row and offset the reader was at; null while they follow the end. */
   position: TranscriptPosition | null = null
   readonly virtualizer = new TranscriptVirtualizer(() => this.position === null)

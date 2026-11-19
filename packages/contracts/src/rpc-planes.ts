@@ -118,6 +118,7 @@ export const RPC_PLANES = {
   mcpAppToolInfo: 'execution',
   mcpAppCallTool: 'execution',
   mcpAppReadResource: 'execution',
+  mcpAppUpdateModelContext: 'execution',
   loadSessionPreview: 'collaboration',
   loadSessionMessageWindow: 'collaboration',
   getSessionInfo: 'collaboration',

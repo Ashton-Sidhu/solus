@@ -6,9 +6,11 @@ import {
   MCP_APP_MAX_DATA_BYTES,
   MCP_APP_MAX_HTML_BYTES,
   mcpAppCspSchema,
+  mcpAppPermissionsSchema,
   mcpAppSnapshotSchema,
   mcpAppToolMetadataSchema,
   type McpAppCallRequest,
+  type McpAppModelContextRequest,
   type McpAppReference,
   type McpAppRequest,
   type McpAppResourceRequest,
@@ -33,7 +35,13 @@ const APP_UNAVAILABLE = 'This app is no longer available.'
 /** The agent waits for its tool result while the app is saved, so a capture waits less than a call. */
 const CAPTURE_TIMEOUT_MS = 15_000
 
-const resourceMetadataSchema = z.object({ ui: z.object({ csp: mcpAppCspSchema.optional() }).optional() })
+const resourceMetadataSchema = z.object({
+  ui: z.object({
+    csp: mcpAppCspSchema.optional(),
+    permissions: mcpAppPermissionsSchema.optional().catch(undefined),
+    prefersBorder: z.boolean().optional().catch(undefined),
+  }).optional(),
+})
 const argumentsSchema = z.record(z.string(), z.json())
 
 /** A saved app and the caller's own integration that it runs on. */
@@ -56,7 +64,7 @@ type AppResult = ReadResourceResult | ClaudeMcpApp['resource'] | ClaudeMcpApp['r
 export class IntegrationApps {
   constructor(
     private readonly gateway: IntegrationGateway,
-    private readonly runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession' | 'seatForTurn'>,
+    private readonly runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession' | 'seatForTurn' | 'appModelContexts'>,
     private readonly claude: Pick<ClaudeAppProcesses, 'toolInfo' | 'access' | 'callTool' | 'readResource'>,
   ) {}
 
@@ -135,6 +143,12 @@ export class IntegrationApps {
     return boundedJson(await this.gateway.readAppResource(app.integrationId, request.uri))
   }
 
+  /** Keeps the app's latest context for the session's next turns, whichever provider runs them. */
+  async updateModelContext(request: McpAppModelContextRequest, ctx: HandlerCtx): Promise<void> {
+    const app = await this.reference(request, ctx)
+    this.runtime.appModelContexts.set(request.sessionId, request.activityId, app.title, request.text)
+  }
+
   /** The app of one activity of the requested session, in the caller's scope. */
   private async reference(request: McpAppRequest, ctx: HandlerCtx): Promise<McpAppReference> {
     const activity = (await activityFor(recordScopeOf(ctx.principal), { kind: 'session', id: request.sessionId }))
@@ -196,8 +210,8 @@ function appSnapshot(resource: ReadResourceResult, resourceUri: string, call: { 
   const toolResultJson = JSON.stringify(call.result)
   if (Buffer.byteLength(toolInputJson) > MCP_APP_MAX_DATA_BYTES || Buffer.byteLength(toolResultJson) > MCP_APP_MAX_DATA_BYTES) return null
   const metadata = resourceMetadataSchema.safeParse(document._meta)
-  const csp = (metadata.success ? metadata.data.ui?.csp : undefined) ?? {}
-  return mcpAppSnapshotSchema.parse({ html, toolInputJson, toolResultJson, csp })
+  const ui = metadata.success ? metadata.data.ui : undefined
+  return mcpAppSnapshotSchema.parse({ html, toolInputJson, toolResultJson, csp: ui?.csp ?? {}, permissions: ui?.permissions, prefersBorder: ui?.prefersBorder })
 }
 
 /** A host result as JSON for the app, refused over the data limit. */

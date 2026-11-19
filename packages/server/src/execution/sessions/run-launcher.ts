@@ -883,6 +883,8 @@ export class RunLauncher {
         userInstructions,
         options.systemPrompt,
         handoffPayload?.seedSystemAppend,
+        // Last, so an app's new state leaves the rest of the prompt as it was.
+        this.rt.appModelContexts.systemSection(sessionId),
       ].filter(Boolean).join('\n\n')
       this.rt.sessionEmitter.recordSystemPrompt(request.sessionId, systemPrompt)
       // Image bytes are read here, not carried through the turn: `options` keeps

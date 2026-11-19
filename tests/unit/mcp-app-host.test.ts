@@ -1,14 +1,18 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { z } from 'zod'
-import { createMcpAppHost, MCP_APP_MAX_HEIGHT, mcpAppContainerDimensions, type McpAppHostContext, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { MCP_APP_MAX_HEIGHT, mcpAppContainerDimensions, mcpAppHostContext, type McpAppHostContext, type McpAppPalette } from '@solus/client-core/mcp-app-context'
+import { createMcpAppHost, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { mcpAppAllowAttribute, mcpAppPermissionRequest } from '@solus/client-core/mcp-app-permissions'
 import { nativeMcpAppDocument } from '@solus/client-core/mcp-app-document'
 import { McpAppStore } from '@solus/client-core/mcp-app-store'
-import { mcpAppDocument, mcpAppCspSchema, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
+import { MCP_APP_MAX_MODEL_CONTEXT_CHARS, mcpAppDocument, mcpAppCspSchema, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
 
 const snapshot: McpAppSnapshot = { html: '<button>Filter</button>', toolInputJson: '{"region":"west"}', toolResultJson: '{"content":[{"type":"text","text":"42"}]}', csp: {} }
-const context: McpAppHostContext = { theme: 'dark', displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], containerDimensions: { width: 640, maxHeight: 2000 }, platform: 'web', styles: { variables: {
-  '--color-background-primary': '#111', '--color-background-secondary': '#222', '--color-text-primary': '#eee', '--color-text-secondary': '#aaa', '--color-border-primary': '#333', '--font-sans': 'system-ui',
-} } }
+const palette: McpAppPalette = {
+  background: '#111', raised: '#222', strong: '#333', text: '#eee', textSecondary: '#aaa', textTertiary: '#888', border: '#444',
+  accent: '#d97757', info: '#7cc0ea', danger: '#e3645e', success: '#5a9e6f', warning: '#fbbf24', fontSans: 'system-ui', fontMono: 'monospace',
+}
+const context: McpAppHostContext = mcpAppHostContext({ theme: 'dark', isFullscreen: false, size: { width: 640, height: 320 }, platform: 'web', touch: false, hover: true, palette })
 const jsonParams = z.json()
 const request = (method: string, params: z.infer<typeof jsonParams> = {}, id?: number) => JSON.stringify({ jsonrpc: '2.0', ...(id === undefined ? {} : { id }), method, params })
 
@@ -17,14 +21,16 @@ function setup(overrides: Partial<McpAppHostOptions> = {}) {
   const calls: Array<{ name: string; input: string; approved: boolean }> = []
   const prompts: string[] = []
   const sizes: number[] = []
-  const host = createMcpAppHost({ snapshot, context: () => context, post: (json) => posted.push(json),
+  const contexts: string[] = []
+  let closes = 0
+  const host = createMcpAppHost({ snapshot, title: 'Charts', context: () => context, permissions: () => [], post: (json) => posted.push(json),
     toolInfo: async (name) => ({ callable: true, readOnly: false, title: name }),
     callTool: async (name, input, approved) => { calls.push({ name, input, approved }); return '{"content":[]}' },
     readResource: async () => '{"contents":[]}', confirm: async () => false,
-    sendMessage: async (text) => { prompts.push(text) }, openLink: async () => {},
-    displayMode: () => {}, resize: (height) => sizes.push(height), close: () => {}, ...overrides,
+    sendMessage: async (text) => { prompts.push(text) }, updateModelContext: async (text) => { contexts.push(text) }, openLink: async () => {},
+    displayMode: () => {}, resize: (height) => sizes.push(height), close: () => { closes++ }, ...overrides,
   })
-  return { host, posted, calls, prompts, sizes }
+  return { host, posted, calls, prompts, sizes, contexts, closes: () => closes }
 }
 
 describe('MCP App container dimensions', () => {
@@ -153,4 +159,126 @@ describe('MCP App documents and cache', () => {
     expect(requests.filter((input) => store.read(input).phase === 'ready')).toHaveLength(4)
   })
 
+})
+
+const SPEC_STYLE_VARIABLES = [
+  ...['primary', 'secondary', 'tertiary', 'inverse', 'ghost', 'info', 'danger', 'success', 'warning', 'disabled'].map((name) => `--color-background-${name}`),
+  ...['primary', 'secondary', 'tertiary', 'inverse', 'info', 'danger', 'success', 'warning', 'disabled', 'ghost'].map((name) => `--color-text-${name}`),
+  ...['primary', 'secondary', 'tertiary', 'inverse', 'ghost', 'info', 'danger', 'success', 'warning', 'disabled'].map((name) => `--color-border-${name}`),
+  ...['primary', 'secondary', 'inverse', 'info', 'danger', 'success', 'warning'].map((name) => `--color-ring-${name}`),
+  '--font-sans', '--font-mono',
+  ...['normal', 'medium', 'semibold', 'bold'].map((name) => `--font-weight-${name}`),
+  ...['xs', 'sm', 'md', 'lg'].flatMap((size) => [`--font-text-${size}-size`, `--font-text-${size}-line-height`]),
+  ...['xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl'].flatMap((size) => [`--font-heading-${size}-size`, `--font-heading-${size}-line-height`]),
+  ...['xs', 'sm', 'md', 'lg', 'xl', 'full'].map((size) => `--border-radius-${size}`),
+  '--border-width-regular', '--shadow-hairline', '--shadow-sm', '--shadow-md', '--shadow-lg',
+]
+
+describe('MCP App host context', () => {
+  test('an app gets every style variable the specification names, from the Solus palette', () => {
+    // WHY: an app falls back to its own value for a variable a host omits, so a partial set mixes two themes in one card.
+    expect(Object.keys(context.styles.variables).sort()).toEqual([...SPEC_STYLE_VARIABLES].sort())
+    expect(context.styles.variables['--color-background-primary']).toBe(palette.background)
+    expect(context.styles.variables['--color-text-inverse']).toBe(palette.background)
+  })
+
+  test('the context names the client, the locale, the time zone, and the device', () => {
+    expect(context).toMatchObject({ platform: 'web', deviceCapabilities: { touch: false, hover: true } })
+    expect(context.locale).toBe(Intl.DateTimeFormat().resolvedOptions().locale)
+    expect(context.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    expect(context.safeAreaInsets).toBeUndefined()
+    const phone = mcpAppHostContext({ theme: 'light', isFullscreen: true, size: { width: 390, height: 700 }, platform: 'mobile', touch: true, hover: false, safeAreaInsets: { top: 0, right: 0, bottom: 34, left: 0 }, palette })
+    expect(phone).toMatchObject({ platform: 'mobile', displayMode: 'fullscreen', safeAreaInsets: { bottom: 34 } })
+  })
+})
+
+describe('MCP App permissions', () => {
+  test('a client asks only for what the app requested and the client can deliver', () => {
+    expect(mcpAppPermissionRequest({ camera: {}, clipboardWrite: {} }, ['microphone', 'clipboardWrite'])).toEqual(['clipboardWrite'])
+    expect(mcpAppPermissionRequest(undefined, ['camera'])).toEqual([])
+    expect(mcpAppAllowAttribute(['microphone', 'clipboardWrite'])).toBe('microphone; clipboard-write')
+  })
+
+  test('the app is told only the permissions the person granted', async () => {
+    // WHY: a permission the person has not approved must not reach the frame, and the app must not be told it has one.
+    const ungranted = setup({ snapshot: { ...snapshot, permissions: { camera: {} } } })
+    await ungranted.host.receive(request('ui/initialize', {}, 1))
+    expect(JSON.parse(ungranted.posted[0]).result.hostCapabilities.sandbox.permissions).toEqual({})
+    expect(mcpAppAllowAttribute([])).toBe('')
+    const granted = setup({ snapshot: { ...snapshot, permissions: { camera: {} } }, permissions: () => ['camera'] })
+    await granted.host.receive(request('ui/initialize', {}, 1))
+    expect(JSON.parse(granted.posted[0]).result.hostCapabilities.sandbox.permissions).toEqual({ camera: {} })
+  })
+
+  test('a base URI is allowed only from the declared origins', () => {
+    expect(mcpAppDocument('', {})).toContain("base-uri 'none'")
+    expect(mcpAppDocument('', { baseUriDomains: ['https://cdn.example.com'] })).toContain('base-uri https://cdn.example.com')
+  })
+})
+
+describe('MCP App model context', () => {
+  test('the host advertises what context it accepts', async () => {
+    const { host, posted } = setup()
+    await host.receive(request('ui/initialize', {}, 1))
+    expect(JSON.parse(posted[0]).result.hostCapabilities).toMatchObject({ updateModelContext: { text: {}, structuredContent: {} }, logging: {} })
+  })
+
+  test('text and structured content reach the host as one text, and the same update is sent once', async () => {
+    const { host, contexts, posted } = setup()
+    const update = { content: [{ type: 'text', text: 'Region: west' }], structuredContent: { selected: 3 } }
+    await host.receive(request('ui/update-model-context', update, 1))
+    await host.receive(request('ui/update-model-context', update, 2))
+    expect(contexts).toEqual(['Region: west\n\n{"selected":3}'])
+    expect(posted.map((json) => JSON.parse(json).result)).toEqual([{}, {}])
+    await host.receive(request('ui/update-model-context', {}, 3))
+    expect(contexts.at(-1)).toBe('')
+  })
+
+  test('a context over the limit or with a non-text block is refused and nothing reaches the host', async () => {
+    const { host, contexts, posted } = setup()
+    await host.receive(request('ui/update-model-context', { content: [{ type: 'text', text: 'x'.repeat(MCP_APP_MAX_MODEL_CONTEXT_CHARS + 1) }] }, 1))
+    await host.receive(request('ui/update-model-context', { content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] }, 2))
+    expect(contexts).toEqual([])
+    expect(posted.map((json) => JSON.parse(json).error.message)).toEqual(['This context is too large for the agent.', 'Only text context is supported.'])
+  })
+})
+
+describe('MCP App teardown and logs', () => {
+  const debug = spyOn(console, 'debug').mockImplementation(() => {})
+  afterEach(() => debug.mockClear())
+
+  test('closing a ready app sends its teardown and waits for the answer', async () => {
+    const s = setup()
+    await s.host.receive(request('ui/notifications/initialized'))
+    const closing = s.host.close()
+    await Promise.resolve()
+    const teardown = JSON.parse(s.posted.at(-1)!)
+    expect(teardown).toMatchObject({ method: 'ui/resource-teardown', params: {} })
+    expect(s.closes()).toBe(0)
+    await s.host.receive(JSON.stringify({ jsonrpc: '2.0', id: teardown.id, result: {} }))
+    await closing
+    expect(s.closes()).toBe(1)
+  })
+
+  test('an app that asks to close gets its teardown too; an app that is not ready closes at once', async () => {
+    const ready = setup()
+    await ready.host.receive(request('ui/notifications/initialized'))
+    await ready.host.receive(request('ui/notifications/request-teardown'))
+    expect(JSON.parse(ready.posted.at(-1)!).method).toBe('ui/resource-teardown')
+    const early = setup()
+    await early.host.close()
+    expect(early.posted).toEqual([])
+    expect(early.closes()).toBe(1)
+  })
+
+  test('app log messages go to debug output only, bounded in size and count', async () => {
+    const { host, posted } = setup()
+    await host.receive(request('notifications/message', { level: 'info', logger: 'chart', data: 'x'.repeat(5000) }))
+    expect(debug.mock.calls[0]?.[0]).toBe('[MCP App Charts] info')
+    expect(String(debug.mock.calls[0]?.[1])).toHaveLength(2000)
+    for (let i = 0; i < 200; i++) await host.receive(request('notifications/message', { level: 'debug', data: { i } }))
+    expect(debug).toHaveBeenCalledTimes(101)
+    expect(debug.mock.calls.at(-1)?.[1]).toBe('Further log messages of this app are dropped.')
+    expect(posted).toEqual([])
+  })
 })
