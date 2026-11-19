@@ -337,6 +337,14 @@ export const workspaceSessionSchema = z.strictObject({
   projectPath: z.string().max(4096),
   projectRemote: nullableText(4096),
   runnerHostId: workspaceIdSchema.nullable(),
+  /** Latest pushed session repository commit. */
+  head: z.string().nullable().optional(),
+  /** Turn count at the latest pushed commit. */
+  syncedTurn: z.number().int().min(0).optional(),
+  /** Host that ran the latest pushed turn. */
+  lastRunHostId: workspaceIdSchema.nullable().optional(),
+  /** Host with an active turn, when known. */
+  runningHostId: workspaceIdSchema.nullable().optional(),
   status: z.enum(['idle', 'running', 'interrupted']),
   model: nullableText(256),
   reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).nullable(),

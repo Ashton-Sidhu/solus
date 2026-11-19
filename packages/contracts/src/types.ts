@@ -1868,6 +1868,8 @@ export interface StatusCardState {
   status: 'active' | 'done' | 'error'
   /** Present on a failed portable session sync, for a typed recovery message. */
   syncFailureReason?: import('./rpc').SessionSyncFailure
+  /** This host cannot accept another prompt after its cloud push was refused. */
+  promptRefusalCode?: import('./session-repositories').SessionPromptRefusalCode
   steps: StatusCardStep[]
   /** Explicit recovery choices: `worktree` after an isolated checkout fails to
    *  prepare; `connect-github` when a host could not clone without the account's
@@ -2585,6 +2587,10 @@ export interface SessionMeta {
   /** Local session repository facts from one row, with no Git read. */
   head?: string | null
   syncedTurn?: number
+  /** Host that ran the latest pushed turn. */
+  lastRunHostId?: string | null
+  /** Host with an active turn, when known. */
+  runningHostId?: string | null
   slug: string | null
   firstMessage: string | null
   /** User-set or auto-generated session name; wins over slug/firstMessage everywhere a session is listed. */
@@ -2683,6 +2689,14 @@ export interface SessionRecord {
   projectRemote: string | null
   /** The runner holding the transcript; null for the host answering the read. */
   runnerHostId: string | null
+  /** Latest pushed session repository commit. */
+  head?: string | null
+  /** Turn count at the latest pushed commit. */
+  syncedTurn?: number
+  /** Host that ran the latest pushed turn. */
+  lastRunHostId?: string | null
+  /** Host with an active turn, when known. */
+  runningHostId?: string | null
   /** The derived name: the first prompt, or the provider's slug. */
   title: string | null
   customTitle: string | null
