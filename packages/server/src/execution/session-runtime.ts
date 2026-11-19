@@ -47,6 +47,7 @@ import { SessionCheckouts } from './sessions/session-checkouts'
 import { PromptDispatch } from './sessions/prompt-dispatch'
 import { hasOpenBackgroundQuery } from './sessions/background-work'
 import { TurnStops } from './sessions/turn-stops'
+import type { SessionArchiveWriter } from '../sync/sessions/session-archive-writer'
 
 const log = createLogger('SessionRuntime', 'session-runtime.ts')
 
@@ -206,6 +207,8 @@ export class SessionRuntime extends EventEmitter {
   readonly usageLimits = new UsageLimitsStore()
   /** Owns every exchange between sessions; wired once the host boots. */
   orchestration: OrchestrationHooks | null = null
+  /** Writes each ended turn to the session repository (docs/plans/portable-sessions.md); wired once the host boots. */
+  sessionArchive: Pick<SessionArchiveWriter, 'turnEnded'> | null = null
   /** Server-side per-session needs-attention state; outlives connected clients
    *  and persists across restarts. Fed by `setStatus` transitions; read by the
    *  `listAttention` RPC and broadcast on the `attention-changed` topic. */
@@ -366,6 +369,10 @@ export class SessionRuntime extends EventEmitter {
     }
     await this.recordActivity({ kind: 'session', id: sessionId }, actor, decided)
     return result
+  }
+
+  useSessionArchive(sessionArchive: Pick<SessionArchiveWriter, 'turnEnded'>): void {
+    this.sessionArchive = sessionArchive
   }
 
   /** Hands every exchange between sessions to the orchestrator. */

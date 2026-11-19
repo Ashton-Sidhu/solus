@@ -1,6 +1,6 @@
-import { open } from 'node:fs/promises'
+import { open, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { ContextCompaction } from '@solus/contracts/types'
@@ -8,6 +8,7 @@ import { encodePathAsFolder, stripInjectedContext } from '../utils'
 import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { claudeToolResultText, parseClaudeTaskNotification } from './claude-subagent-protocol'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
+import type { ThreadFile } from '../../../sync/sessions/session-archive-writer'
 
 const HEAD_BYTES = 4096
 export const MAX_SESSION_HEAD_BYTES = 4 * 1024 * 1024
@@ -45,6 +46,25 @@ export function resolveClaudeSessionFilePath(
   if (!fallbackProjectPath || fallbackProjectPath === requestedProjectPath) return null
   const fallbackFilePath = filePathFor(fallbackProjectPath)
   return existsSync(fallbackFilePath) ? fallbackFilePath : null
+}
+
+/**
+ * The files Claude keeps for one thread: its transcript, and everything under
+ * the `<threadId>/` folder beside it (subagent transcripts and the tool results
+ * that the transcript names by path). Another host needs all of them to
+ * continue the thread.
+ */
+export async function claudeThreadFiles(transcriptPath: string, threadId: string): Promise<ThreadFile[]> {
+  const files: ThreadFile[] = [{ key: 'main', relativePath: `${threadId}.jsonl`, path: transcriptPath }]
+  const folder = join(dirname(transcriptPath), threadId)
+  const entries = await readdir(folder, { withFileTypes: true, recursive: true }).catch(() => [])
+  for (const entry of entries) {
+    if (!entry.isFile()) continue
+    const path = join(entry.parentPath, entry.name)
+    const inFolder = path.slice(folder.length + 1).split(/[\\/]/)
+    files.push({ key: inFolder.join('_').replace(/[^A-Za-z0-9._-]/g, '_'), relativePath: [threadId, ...inFolder].join('/'), path })
+  }
+  return files
 }
 
 const claudeTextBlockSchema = z.object({ type: z.literal('text'), text: z.string() })

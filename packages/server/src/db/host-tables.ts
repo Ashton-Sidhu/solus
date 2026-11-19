@@ -353,6 +353,35 @@ export const turnFlags = defineTable('turn_flags', {
   updated_at: bigint({ notNull: true }),
 }, { primaryKey: ['created_by', 'trace_id'] })
 
+// --- Session repositories ----------------------------------------------------
+
+/**
+ * The local copy of a session repository (docs/plans/portable-sessions.md
+ * §6.2): its name, fixed at the first turn, and the newest turn commit this
+ * host wrote or fetched.
+ */
+export const sessionStorage = defineTable('session_storage', {
+  session_id: text({ primaryKey: true }),
+  repository: text({ notNull: true }),
+  head: text(),
+  /** A safe text of the last failed turn commit; null after a commit that succeeded. */
+  error: text(),
+})
+
+/**
+ * Turns that ended and are not in the session repository yet. A row is written
+ * when the turn ends and deleted with the write of its turn commit, so a restart
+ * between the two loses no turn. `operation_id` is in the commit's manifest:
+ * a row whose commit landed before a crash is found there and not written twice.
+ */
+export const sessionStorageTurns = defineTable('session_storage_turns', {
+  operation_id: text({ primaryKey: true }),
+  session_id: text({ notNull: true }),
+  created_at: bigint({ notNull: true }),
+  /** `PendingTurn` JSON (`sync/sessions/session-archive-writer.ts`). */
+  facts: json({ notNull: true }),
+}, { indexes: [{ name: 'session_storage_turns_by_session', columns: ['session_id', 'created_at'] }] })
+
 /** Every host table, in declaration order. */
 export const HOST_TABLES = [
   transcriptIndex, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases, pinnedSessions,
@@ -360,4 +389,5 @@ export const HOST_TABLES = [
   outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, memberFolder, automations, automationRuns, browserProfiles,
   integration, integrationConnection, notificationPrObservations, savedMetricsQueries, turnFlags,
+  sessionStorage, sessionStorageTurns,
 ] as const

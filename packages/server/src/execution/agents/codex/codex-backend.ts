@@ -32,6 +32,8 @@ import {
 } from '../../../plans/plan-index'
 import { activeThreadOf } from '../../../data/sessions/session-lineage'
 import { beginTurnCheckpoint, endTurnCheckpoint, type CheckpointTarget } from '../../../git/turn-checkpoints'
+import type { ThreadFile } from '../../../sync/sessions/session-archive-writer'
+import { codexThreadFiles } from './codex-thread-files'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import { type AgentRunRequest, type AgentRunSessionState } from '../agent-runner'
 import type {
@@ -72,6 +74,7 @@ import type {
   CodexThreadGoalResponse,
   CodexThreadListResponse,
   CodexThreadStartParams,
+  CodexThreadReadResponse,
   CodexThreadStartResponse,
   CodexTurnStartParams,
   CodexTurnStartResponse,
@@ -1128,6 +1131,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       this.armThreadIdle(client, sessionId)
       return loadCodexTurns(client, sessionId)
     }
+  }
+
+  async threadFiles(threadId: string): Promise<ThreadFile[]> {
+    // The seat that ran the turn has the thread loaded; the picker's rule applies: start no process for this.
+    const client = await this.readerFor(threadId, { startSeatClient: false })
+    const response = await client.request<CodexThreadReadResponse>('thread/read', { threadId, includeTurns: false })
+    return codexThreadFiles(response.thread.path)
   }
 
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {

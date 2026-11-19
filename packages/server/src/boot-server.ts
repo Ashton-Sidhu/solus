@@ -3,6 +3,8 @@ import type { VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionar
 import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
+import { SessionArchiveWriter } from './sync/sessions/session-archive-writer'
+import { SessionRepositories } from './sync/sessions/session-repository'
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
@@ -608,6 +610,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // its updates go to that room only, never to everyone with access.
   const workLive = new WorkLiveManager({ publish: (clientIds, type, payload) => { void events.publishToRoom({ kind: 'work', id: payload.workId }, clientIds, type, payload) } })
   const workStorageRuntime = await startWorkStorage({ database: getDatabase, cloud: apiMode, flushLive: workId => workLive.flushPersisted(workId) })
+  // Each ended turn goes to the session's local repository (docs/plans/portable-sessions.md §7.2).
+  const sessionArchive = new SessionArchiveWriter({
+    repositories: new SessionRepositories(join(dataDir(), 'sessions', 'repositories')),
+    threadFiles: async (provider, threadId, projectPath) => await opts.sessionRuntime.backendFor(provider).threadFiles?.(threadId, projectPath) ?? [],
+  })
+  opts.sessionRuntime.useSessionArchive(sessionArchive)
+  sessionArchive.resume()
   // Who is here (docs/plans/multiplayer-presence.md): one entry per connected
   // client, named from its principal at admission. The host room is one
   // organization's — the whole host, or each organization of the workspace
@@ -2197,6 +2206,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await new Promise<void>((resolve) => http.close(() => resolve()))
         await new Promise<void>((resolve) => tunnelHttp.close(() => resolve()))
         await workStorageRuntime.stop()
+        await sessionArchive.stop()
         await closeDatabaseForShutdown()
         lock?.release()
       })()

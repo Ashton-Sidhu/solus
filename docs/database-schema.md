@@ -22,7 +22,9 @@ records are read through `getDatabase()`, which points at Postgres.
 - **Host tables** exist on every machine, whatever its records engine: the
   index of the transcripts on the machine's own disk (`transcript_index`,
   `session_messages`, `session_fts`), the execution ledger, the delivery
-  queues, and host-local settings. They are read synchronously through
+  queues, the local copies of session repositories (`session_storage`,
+  `session_storage_turns`; docs/plans/portable-sessions.md), and host-local
+  settings. They are read synchronously through
   `getDb()`.
 - **Ported records** are the durable, replicated records, such as works and
   `session`, and the host's task cache. They are written once in `defineTable` and generated

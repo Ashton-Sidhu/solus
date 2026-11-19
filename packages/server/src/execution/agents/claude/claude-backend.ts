@@ -34,6 +34,7 @@ import { recordOtelDuration } from '../../../otel'
 import { resolveHomePath } from '../../../platform/paths'
 import { beginTurnCheckpoint, endTurnCheckpoint } from '../../../git/turn-checkpoints'
 import type { AgentBackend, RunHandle } from '../agent-backend'
+import type { ThreadFile } from '../../../sync/sessions/session-archive-writer'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { MODEL_PROFILES, SOLUS_WORKTREE_ENCODED_MARKER, providerModelsFor } from '@solus/contracts/types'
 import type {
@@ -55,6 +56,7 @@ import {
   parseJsonlLine,
   findClaudeForkResumeId,
   resolveClaudeSessionFilePath,
+  claudeThreadFiles,
 } from './claude-session-helpers'
 import {
   _planListCache,
@@ -547,6 +549,11 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const filePath = this.sessionFilePath(sessionId, projectPath)
     if (!filePath) return { messages: [], before: null }
     return loadClaudeHistoryPage(filePath, turnLimit, before)
+  }
+
+  async threadFiles(threadId: string, projectPath?: string): Promise<ThreadFile[]> {
+    const filePath = this.sessionFilePath(threadId, projectPath)
+    return filePath ? claudeThreadFiles(filePath, threadId) : []
   }
 
   async loadSessionFirstTurn(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]> {
