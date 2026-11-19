@@ -25,6 +25,7 @@ export interface FakeServers {
   modernMcpUrl: string
   brokenCalls: number
   modernToolLists: number
+  modernToolChanged(): void
   modernTtlMs: number
   resourceMetadataUrl: string
   /** Authorization header values the MCP server accepts. */
@@ -54,6 +55,7 @@ function json(res: ServerResponse, status: number, body: object): void {
 }
 
 export async function startFakeServers(): Promise<FakeServers> {
+  const modernListeners = new Set<ServerResponse>()
   const codes = new Map<string, IssuedCode>()
   const refreshTokens = new Set<string>()
   let counter = 0
@@ -65,6 +67,9 @@ export async function startFakeServers(): Promise<FakeServers> {
     mcpAuthorizations: [],
     brokenCalls: 0,
     modernToolLists: 0,
+    modernToolChanged() {
+      for (const listener of modernListeners) listener.write(`data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed', params: {} })}\n\n`)
+    },
     modernTtlMs: 60_000,
     options: { registration: true, refuseRefresh: false, expiresIn: 3600 },
     issueCode(challenge, resource, redirectUri) {
@@ -120,7 +125,14 @@ export async function startFakeServers(): Promise<FakeServers> {
     const path = new URL(req.url ?? '/', base).pathname
     if (path === '/modern/mcp' && req.method === 'POST') {
       const message = JSON.parse(await readBody(req)) as { id: number; method: string; params?: { name?: string; arguments?: { text?: string }; inputResponses?: { answer?: { action?: string; content?: { colour?: string } } } } }
-      if (message.method === 'server/discover') return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', supportedVersions: ['2026-07-28'], capabilities: { tools: { listChanged: false } }, ttlMs: 60_000, cacheScope: 'private', _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'modern-fake', version: '1.0.0' } } } })
+      if (message.method === 'server/discover') return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', supportedVersions: ['2026-07-28'], capabilities: { tools: { listChanged: true } }, ttlMs: 60_000, cacheScope: 'private', _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'modern-fake', version: '1.0.0' } } } })
+      if (message.method === 'subscriptions/listen') {
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+        modernListeners.add(res)
+        res.on('close', () => modernListeners.delete(res))
+        res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/subscriptions/acknowledged', params: { _meta: { 'io.modelcontextprotocol/subscriptionId': message.id }, notifications: { toolsListChanged: true } } })}\n\n`)
+        return
+      }
       if (message.method === 'tools/list') {
         fake.modernToolLists++
         return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', ttlMs: fake.modernTtlMs, cacheScope: 'private', tools: [{ name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }, { name: 'confirm', inputSchema: { type: 'object' } }, { name: 'break_stream', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }] } })

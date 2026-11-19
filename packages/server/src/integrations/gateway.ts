@@ -125,7 +125,7 @@ export class IntegrationGateway {
   private captureApp: ((call: IntegrationAppCapture) => Promise<void>) | null = null
 
   /** The integration records; the tool bridge lists a scope's integrations through it. */
-  constructor(readonly store: Pick<IntegrationStore, 'get' | 'list'>) {}
+  constructor(readonly store: Pick<IntegrationStore, 'get' | 'list'>, private readonly callClock: Pick<typeof globalThis, 'setTimeout' | 'clearTimeout'> = globalThis) {}
 
   /** Installed once at boot: how a session reads a person's sign-in. */
   useCredentials(credentials: IntegrationCredentials): void {
@@ -239,8 +239,8 @@ export class IntegrationGateway {
     const integrationId = integration.id
     let timer: ReturnType<typeof setTimeout> | null = null
     const timeout = new AbortController()
-    const startTimer = () => { timer ??= setTimeout(() => timeout.abort(new Error('timeout')), CALL_TIMEOUT_MS) }
-    const stopTimer = () => { if (timer) clearTimeout(timer); timer = null }
+    const startTimer = () => { timer ??= this.callClock.setTimeout(() => timeout.abort(new Error('timeout')), CALL_TIMEOUT_MS) }
+    const stopTimer = () => { if (timer) this.callClock.clearTimeout(timer); timer = null }
     const call: ActiveCall = { integrationName: integration.name, context, pauseTimeout: stopTimer, resumeTimeout: startTimer }
     let session: UpstreamSession | null = null
     try {

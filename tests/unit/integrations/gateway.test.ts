@@ -274,6 +274,20 @@ test('a modern tool list expires when its server gives ttlMs zero', async () => 
   } finally { await gateway.close(); await fake.close() }
 })
 
+test('a modern list change makes the gateway read tools again', async () => {
+  const fake = await startFakeServers()
+  const gateway = gatewayFor({ ...integration, id: 'int-modern-change', url: fake.modernMcpUrl })
+  try {
+    await withActingScope(HOST_SCOPE, () => gateway.tools('int-modern-change'))
+    expect(fake.modernToolLists).toBe(1)
+    const changed = new Promise<string>((resolve) => gateway.onToolsChanged(resolve))
+    fake.modernToolChanged()
+    expect(await changed).toBe('int-modern-change')
+    await withActingScope(HOST_SCOPE, () => gateway.tools('int-modern-change'))
+    expect(fake.modernToolLists).toBe(2)
+  } finally { await gateway.close(); await fake.close() }
+})
+
 test('a broken modern response does not repeat a tool that can write', async () => {
   const fake = await startFakeServers()
   const gateway = gatewayFor({ ...integration, id: 'int-broken', url: fake.modernMcpUrl })
@@ -304,6 +318,41 @@ test('modern input_required uses the question card and resumes the paused call',
     if (asked.type !== 'question_request') throw new Error('no question')
     expect(await inputRequests.respondToQuestion('session-1', asked.questionId, { colour: 'blue' }, { principal: { kind: 'system' }, user: null })).toBe(true)
     expect(await call).toEqual({ ok: true, text: 'accept: blue' })
+  } finally { await gateway.close(); await fake.close() }
+})
+
+test('the call timeout stays paused while the person answers', async () => {
+  const fake = await startFakeServers()
+  const timers = new Map<number, () => void>()
+  let nextTimer = 0
+  let now = 0
+  const deadlines = new Map<number, number>()
+  const clock = {
+    setTimeout: (callback: () => void, delay: number) => { const id = ++nextTimer; timers.set(id, callback); deadlines.set(id, now + delay); return id as unknown as ReturnType<typeof setTimeout> },
+    clearTimeout: (id: ReturnType<typeof setTimeout>) => { timers.delete(id as unknown as number); deadlines.delete(id as unknown as number) },
+    advance: (milliseconds: number) => {
+      now += milliseconds
+      for (const [id, deadline] of [...deadlines]) if (deadline <= now) { deadlines.delete(id); timers.get(id)?.(); timers.delete(id) }
+    },
+  }
+  const gateway = new IntegrationGateway({ get: () => ({ ...integration, id: 'int-clock', url: fake.modernMcpUrl }), list: () => [] }, clock as Pick<typeof globalThis, 'setTimeout' | 'clearTimeout'>)
+  const events: NormalizedEvent[] = []
+  const inputRequests = new InputRequests(fakeRuntime(events))
+  try {
+    const call = withActingScope(HOST_SCOPE, () => gateway.call('int-clock', 'confirm', {}, {
+      ...context(), emit: (event) => {
+        events.push(event)
+        if (event.type === 'question_request') inputRequests.questionIdToSession.set(event.questionId, 'session-1')
+      },
+    }))
+    const asked = await waitFor(() => events.find((event) => event.type === 'question_request'))
+    if (asked.type !== 'question_request') throw new Error('no question')
+    // The person can take longer than the call limit without using a real wait.
+    expect(timers.size).toBe(0)
+    clock.advance(61_000)
+    expect(await inputRequests.respondToQuestion('session-1', asked.questionId, { colour: 'blue' }, { principal: { kind: 'system' }, user: null })).toBe(true)
+    expect(await call).toEqual({ ok: true, text: 'accept: blue' })
+    expect(timers.size).toBe(0)
   } finally { await gateway.close(); await fake.close() }
 })
 
