@@ -648,3 +648,12 @@ Phase 3 keeps the machine as the home of a personal session (D2). Only a
 personal delegation reaches its repository (D3); both organization reads and
 writes require edit standing (D4). Sessions use a namespace separate from works
 (D6). Retention, size caps, and account deletion remain the D9 release gate.
+
+
+### Part C as implemented (2026-11-18)
+
+`session-remote-access.ts` exports `SessionRemoteAccess`, `SessionRemoteResult`, and `DelegatedSessionRemoteAccess`. It calls the token and head routes with the acting person's personal or organization delegation. HTTP 404 and 503 answer `unavailable`.
+
+`SessionPusher` in `session-push.ts` owns one host-wide push queue, apart from the turn commit queue. `committed`, `resume`, `established`, `signedOut`, `idle`, `stop`, and `refusedHead` are its public operations. It checks `sessionCloudSyncDecision` before upload. It selects an organization scope only for published organization work; other sessions use the person's scope. It pushes a fixed commit from the local bare repository, confirms the result, then reports the head and turn count. A report is retried without a second push. A remote head that is not an ancestor stops the push for that session. The later prompt gate and Fork action are not in this part.
+
+`session_storage` adds `cloud_scope`, `pushed_head`, `reported_head`, `push_due_at`, `push_attempts`, `push_error`, and `push_refused_head`. The SQLite migration is `0004_session_cloud_push.sql`. The Git push limit is one hour with a 60-second low-speed stall limit. No repository file is held in memory by the push.

@@ -368,6 +368,13 @@ export const sessionStorage = defineTable('session_storage', {
   turn_count: integer({ notNull: true, default: 0 }),
   /** A safe text of the last failed turn commit; null after a commit that succeeded. */
   error: text(),
+  cloud_scope: text(),
+  pushed_head: text(),
+  reported_head: text(),
+  push_due_at: bigint(),
+  push_attempts: integer({ notNull: true, default: 0 }),
+  push_error: text(),
+  push_refused_head: text(),
 })
 
 /**

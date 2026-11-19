@@ -98,6 +98,7 @@ export interface SessionArchiveDeps {
   now?: () => number
   /** The wait before a failed turn commit is tried again; it doubles up to `MAX_RETRY_MS`. */
   retryMs?: number
+  onCommit?: (sessionId: string) => void
 }
 
 const MAX_RETRY_MS = 30 * 60_000
@@ -241,6 +242,7 @@ export class SessionArchiveWriter {
         db.prepare('UPDATE session_storage SET head = ?, turn_count = ?, error = NULL WHERE session_id = ?').run(commit, manifest.turns.length, sessionId)
         db.prepare('DELETE FROM session_storage_turns WHERE operation_id = ?').run(row.operation_id)
       })
+      this.deps.onCommit?.(sessionId)
     }
   }
 

@@ -4,6 +4,8 @@ import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { SessionArchiveWriter } from './sync/sessions/session-archive-writer'
+import { SessionPusher } from './sync/sessions/session-push'
+import { DelegatedSessionRemoteAccess } from './sync/sessions/session-remote-access'
 import { SessionRepositories } from './sync/sessions/session-repository'
 import { SessionBundleTransfers } from './sync/sessions/session-bundle-transfers'
 import { AGENT_BIN } from '@solus/contracts/types'
@@ -619,8 +621,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Each ended turn goes to the session's local repository (docs/plans/portable-sessions.md §7.2).
   const sessionRepositories = new SessionRepositories(join(dataDir(), 'sessions', 'repositories'))
   const sessionBundleTransfers = new SessionBundleTransfers(sessionRepositories)
+  let sessionPusher: SessionPusher | null = null
   const sessionArchive = new SessionArchiveWriter({
     repositories: sessionRepositories,
+    onCommit: sessionId => sessionPusher?.committed(sessionId),
     threadFiles: async (provider, threadId, projectPath) => await opts.sessionRuntime.backendFor(provider).threadFiles?.(threadId, projectPath) ?? [],
   })
   opts.sessionRuntime.useSessionArchive(sessionArchive)
@@ -1418,6 +1422,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // client is watching.
   opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => {
     events.broadcast('session.statusChanged', event)
+    if (event.status === 'running') sessionPusher?.running(event.sessionId)
     // A turn started or settled: the room's "whose turn" line follows the status,
     // and so does the roster row of everyone who has the session focused.
     publishSessionPresence(event.sessionId)
@@ -1549,6 +1554,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         credentialVault.forgetAll()
         void integrationGateway.close()
         if (scope === 'personal') {
+          sessionPusher?.signedOut()
           log.info('delegation_revoked', { userId, scope, refusal })
           return
         }
@@ -1562,6 +1568,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         })
       },
       onEstablished: (userId, scope) => {
+        sessionPusher?.established()
         // A person's client presented on this machine (a cloud machine has no local client):
         // rows that waited for someone to deliver them as go now, not at the next five-minute poll.
         if (scope !== 'personal') {
@@ -1579,6 +1586,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       renew: (userId) => userId === hostOrganizations.owner()?.userId ? localClient.renew() : Promise.resolve(),
     })
     delegations = hostDelegations
+    sessionPusher = new SessionPusher({ repositories: sessionRepositories,
+      access: new DelegatedSessionRemoteAccess(() => registrar.current(), hostDelegations),
+      hostId: () => registrar.current()?.hostId ?? null })
+    sessionPusher.resume()
     // A member the host object removed may act here no more: their credentials leave
     // the disk and their sessions stop, as when their delegation ends.
     memberUsers?.watch(({ added, removed, layoutChanged }) => {
@@ -2232,6 +2243,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await new Promise<void>((resolve) => tunnelHttp.close(() => resolve()))
         await workStorageRuntime.stop()
         await sessionArchive.stop()
+        await sessionPusher?.stop()
         await sessionBundleTransfers.stop()
         await closeDatabaseForShutdown()
         lock?.release()
