@@ -77,7 +77,7 @@ const METRICS_INDEXES = [
   'spans_trace', 'spans_turn_open', 'spans_turn_pulled',
 ]
 
-function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; triggers: string[]; files: number } {
+function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; triggers: string[]; files: number; sessionStorageColumns: string[] } {
   const migrations = readMigrationFiles({ migrationsFolder: join(drizzle, folder) })
   const db = new Database(':memory:')
   try {
@@ -87,7 +87,10 @@ function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; t
       .all(type)
       .map((row) => row.name)
       .filter((name) => !FTS_SHADOW.test(name))
-    return { tables: names('table'), indexes: names('index'), triggers: names('trigger'), files: migrations.length }
+    const sessionStorageColumns = folder === 'sqlite'
+      ? db.query<{ name: string }, []>('PRAGMA table_info(session_storage)').all().map((row) => row.name)
+      : []
+    return { tables: names('table'), indexes: names('index'), triggers: names('trigger'), files: migrations.length, sessionStorageColumns }
   } finally {
     db.close()
   }
@@ -95,10 +98,12 @@ function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; t
 
 describe('the data model of each database', () => {
   test('solus.db holds exactly the declared tables, indexes, and triggers', () => {
-    const { tables, indexes, triggers } = sqliteObjects('sqlite')
+    const { tables, indexes, triggers, sessionStorageColumns } = sqliteObjects('sqlite')
     expect(tables).toEqual(SOLUS_TABLES)
     expect(indexes).toEqual(SOLUS_INDEXES)
     expect(triggers).toEqual(SOLUS_TRIGGERS)
+    // WHY: list reads use this stored count and must never start Git for each row.
+    expect(sessionStorageColumns).toContain('turn_count')
   })
 
   test('metrics.db holds exactly the declared tables and indexes', () => {

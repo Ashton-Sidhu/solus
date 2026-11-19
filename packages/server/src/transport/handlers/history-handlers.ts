@@ -11,6 +11,7 @@ import { attributionOf } from '../../admission/actor'
 import { stampComments } from '../../annotations/stored-comments'
 import { notifyAnnotationsChanged } from '../../annotations/annotation-events'
 import { getIndexedSession, getSessionMessageWindow, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
+import { getDb } from '../../db'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { getSessionRecord, organizationOfSession, upsertSessionRecord } from '../../data/sessions/session-records'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
@@ -60,7 +61,12 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
    *  (docs/plans/workspace-and-machines.md §6). The workspace service has only the record. */
   const withRecord = async (handlerCtx: HandlerCtx, sessionId: string, meta: SessionMeta | null): Promise<SessionMeta | null> => {
     const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
-    if (!meta) return isApiMode() && record ? sessionMetaFromRecord(record) : null
+    if (!meta) meta = record ? sessionMetaFromRecord(record) : null
+    if (!meta) return null
+    const storage = !isApiMode() ? z.object({ head: z.string().nullable(), turn_count: z.number() }).nullish().parse(
+      getDb().prepare('SELECT head, turn_count FROM session_storage WHERE session_id = ?').get(sessionId),
+    ) : null
+    if (!isApiMode()) meta = { ...meta, head: storage?.head ?? null, syncedTurn: storage?.turn_count ?? 0 }
     if (!record) return meta
     const described: SessionMeta = { ...meta, organizationId: record.organizationId, publication: record.publication }
     if (record.isLead) described.isLead = true

@@ -222,6 +222,9 @@ export interface SolusAPI {
   watchSession(input: WatchSessionInput): Promise<WatchSessionResult>
   unwatchSession(sessionId: string): Promise<void>
   prompt(ctx: IpcContext, options: PromptOptions): Promise<PromptDispatchResult>
+  sessionPrepare(request: import('./rpc').SessionPrepareRequest): Promise<import('./rpc').SessionPrepareResult>
+  sessionRepositoryBundle(request: import('./rpc').SessionRepositoryBundleRequest): Promise<import('./rpc').SessionRepositoryBundleResult>
+  sessionRepositoryBundleChunk(request: import('./rpc').SessionRepositoryBundleChunkRequest): Promise<import('./rpc').SessionRepositoryBundleChunkResult>
   retry(ctx: IpcContext, options: PromptOptions): Promise<void>
   sessionQueue(ctx: IpcContext): Promise<SessionQueueSnapshot>
   sessionQueueChange(ctx: IpcContext, mutation: SessionQueueMutation): Promise<SessionQueueSnapshot>

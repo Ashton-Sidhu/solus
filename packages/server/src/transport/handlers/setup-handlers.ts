@@ -544,11 +544,13 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
    * checkout they have, or a new partial clone. Answers the folder the run
    * starts in. The prompt that carries the repository was admitted already.
    */
-  const prepareDispatchCheckout: PrepareDispatchCheckout = async (repository, caller, progress) => {
+  // Repository-only preparation avoids a second worktree before session code restore.
+  // eslint-disable-next-line complexity
+  const prepareDispatchCheckout: PrepareDispatchCheckout = async (repository, caller, progress, mode) => {
     const checkoutPath = dispatchCheckoutPathOf(repository, caller)
     const ownerKey = dispatchCheckoutOwnerKey(caller.principal, requireDispatchDevice(caller.deviceId))
     const { cloneUrl, credential: rawCredential, worktreePath, baseBranch, newWorktree, files = [] } = dispatchRepositorySchema.parse(repository)
-    if (!worktreePath && !newWorktree && !checkouts) throw new Error('The checkout service is not available')
+    if (mode !== 'repository' && !worktreePath && !newWorktree && !checkouts) throw new Error('The checkout service is not available')
     const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(cloneUrl)
 
@@ -561,6 +563,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const choose = async (path: string): Promise<string> => {
       // A checkout cloned with `--depth=1` before partial clones gets its full history once, here.
       await ensureFullHistory(path)
+      if (mode === 'repository') return path
       if (worktreePath) return resolveDispatchWorktree(path, worktreePath)
       // A new worktree is made from the repository, whatever branch the checkout holds.
       if (newWorktree) return path

@@ -1866,6 +1866,8 @@ export interface StatusCardState {
   /** Icon hint for the header; the renderer maps it to a component. */
   icon?: 'git-branch' | 'server'
   status: 'active' | 'done' | 'error'
+  /** Present on a failed portable session sync, for a typed recovery message. */
+  syncFailureReason?: import('./rpc').SessionSyncFailure
   steps: StatusCardStep[]
   /** Explicit recovery choices: `worktree` after an isolated checkout fails to
    *  prepare; `connect-github` when a host could not clone without the account's
@@ -2135,6 +2137,10 @@ export interface PromptOptions {
   queueAttachments?: QueueAttachment[]
   queueAttachmentContext?: string
   prompt: string
+  /** Head known to the client when it sent this turn. */
+  knownHead?: string | null
+  /** Last run host when the host must sync before this turn. */
+  sourceHostId?: string
   /** Explicit source of this turn for observability. Queue drain replaces it
    *  with `queued`; a remote execution host receives `dispatch`. */
   promptSource?: PromptSource
@@ -2574,6 +2580,9 @@ export interface EnrichedError {
 export interface SessionMeta {
   provider: AgentId
   sessionId: string
+  /** Local session repository facts from one row, with no Git read. */
+  head?: string | null
+  syncedTurn?: number
   slug: string | null
   firstMessage: string | null
   /** User-set or auto-generated session name; wins over slug/firstMessage everywhere a session is listed. */

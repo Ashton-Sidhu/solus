@@ -104,6 +104,11 @@ export interface AgentRuntime {
   workingDirectory?: string
 }
 
+/** One first-turn note after a session sync changed the run host's paths. */
+export function portableSessionPathNote(from: string, to: string): string {
+  return `This session continued on another host. Its previous project root was ${JSON.stringify(from)}. Its project root on this host is ${JSON.stringify(to)}. Paths in earlier turns map from the previous root to this root.`
+}
+
 /** The one rule for credentials across Solus tools: a tool takes a `secretRef`, never a secret; a shell command reads a private file. */
 const SECRET_REF_INSTRUCTIONS = 'A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it, or use `delivery: "file"` for a shell command and read the file inside the command. Never ask for a secret in chat and never invent one. Sudo: if `sudo -n <cmd>` says a password is required, call `request_secret` with `delivery: "file"` and run `sudo -S -p \'\' <cmd> < "$file"`; stdin carries the password, so give other input as a file argument.'
 

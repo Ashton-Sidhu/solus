@@ -48,6 +48,7 @@ import { PromptDispatch } from './sessions/prompt-dispatch'
 import { hasOpenBackgroundQuery } from './sessions/background-work'
 import { TurnStops } from './sessions/turn-stops'
 import type { SessionArchiveWriter } from '../sync/sessions/session-archive-writer'
+import type { SessionSync } from './sessions/session-sync'
 
 const log = createLogger('SessionRuntime', 'session-runtime.ts')
 
@@ -209,6 +210,7 @@ export class SessionRuntime extends EventEmitter {
   orchestration: OrchestrationHooks | null = null
   /** Writes each ended turn to the session repository (docs/plans/portable-sessions.md); wired once the host boots. */
   sessionArchive: Pick<SessionArchiveWriter, 'turnEnded'> | null = null
+  sessionSync: SessionSync | null = null
   /** Server-side per-session needs-attention state; outlives connected clients
    *  and persists across restarts. Fed by `setStatus` transitions; read by the
    *  `listAttention` RPC and broadcast on the `attention-changed` topic. */
@@ -373,6 +375,10 @@ export class SessionRuntime extends EventEmitter {
 
   useSessionArchive(sessionArchive: Pick<SessionArchiveWriter, 'turnEnded'>): void {
     this.sessionArchive = sessionArchive
+  }
+
+  useSessionSync(sessionSync: SessionSync): void {
+    this.sessionSync = sessionSync
   }
 
   /** Hands every exchange between sessions to the orchestrator. */
@@ -668,6 +674,7 @@ export class SessionRuntime extends EventEmitter {
    * stop only this session.
    */
   stopSession(sessionId: string, actor: Actor, agent?: AgentVia): boolean {
+    if (this.sessionSync?.stop(sessionId)) return true
     // Read first: stopping the parent settles the messages that name its children.
     const children = actor.user && !agent ? this.orchestration?.childrenAtWork(sessionId) ?? [] : []
     const stopped = this.interruptSession(sessionId, actor, agent)

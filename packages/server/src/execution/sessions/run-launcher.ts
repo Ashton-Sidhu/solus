@@ -15,6 +15,7 @@ import { resolvePromptImages } from '../agents/prompt-image-refs'
 import { unattendedModelInputFor, providerConversationFor } from '../agents/run-input'
 import { composeHandoffSeed } from '../agents/session-handoff'
 import { buildSystemPrompt } from '../agents/system-hint'
+import { portableSessionPathNote } from '../agents/runtime-instructions'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { SessionShelf } from '../../data/sessions/session-states'
 import { organizationOfSession, sessionIsOrganizationWork } from '../../data/sessions/session-records'
@@ -879,10 +880,12 @@ export class RunLauncher {
         extraInstructions: effectiveInput.extraInstructions,
         modelInstructions: effectiveInput.modelInstructions,
       })
+      const pathNote = this.rt.sessionSync?.takeNote(sessionId)
       const systemPrompt = [
         userInstructions,
         options.systemPrompt,
         handoffPayload?.seedSystemAppend,
+        pathNote ? portableSessionPathNote(pathNote.from, pathNote.to) : null,
       ].filter(Boolean).join('\n\n')
       this.rt.sessionEmitter.recordSystemPrompt(request.sessionId, systemPrompt)
       // Image bytes are read here, not carried through the turn: `options` keeps
