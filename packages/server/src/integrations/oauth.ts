@@ -80,6 +80,8 @@ const FLOW_TTL_MS = 10 * 60_000
 const EXPIRED_MESSAGE = 'This sign-in expired. Start it again.'
 
 interface PendingFlow {
+  issuer: string
+  requiresIssuerResponse: boolean
   flowId: string
   state: string
   integrationId: string
@@ -177,6 +179,8 @@ export class IntegrationOAuth {
     const { resource, options: signIn } = signInFor(integration)
     const { url, state, verifier } = await this.protocol.authorization({ metadata, client, redirectUri, resource, options: signIn })
     const flow: PendingFlow = {
+      issuer: metadata.issuer,
+      requiresIssuerResponse: metadata.authorizationResponseIssParameterSupported === true,
       flowId: randomUUID(),
       state,
       integrationId: integration.id,
@@ -266,6 +270,7 @@ export class IntegrationOAuth {
       return
     }
     try {
+      if (!(await this.acceptsToken(integration, token))) return
       const status = await this.protocol.revoke(await this.metadata(integration), this.clientForToken(integration.id, token), token)
       if (status !== null) log.info('integration_token_revoked', { integrationId: integration.id, status })
     } catch (error) {
@@ -278,9 +283,19 @@ export class IntegrationOAuth {
     return (await this.metadata(integration)).tokenEndpoint
   }
 
+  async issuerOf(integration: Integration): Promise<string> {
+    return (await this.metadata(integration)).issuer
+  }
+
+  /** A token is usable only with the issuer that gave it. */
+  async acceptsToken(integration: Integration, token: OAuthToken): Promise<boolean> {
+    if (integration.auth.kind !== 'oauth') return true
+    return token.issuer === (await this.metadata(integration)).issuer
+  }
+
   /** The client that issued a token: the saved one when it is the same, else a public client by its ID. */
   clientForToken(integrationId: string, token: OAuthToken): OAuthClient {
-    const saved = this.deps.clients.client(integrationId)
+    const saved = token.issuer ? this.deps.clients.client(integrationId, token.issuer) : null
     if (saved && (!token.clientId || saved.clientId === token.clientId)) return saved
     if (!token.clientId) throw new Error('the token names no client')
     return { clientId: token.clientId }
@@ -307,6 +322,9 @@ export class IntegrationOAuth {
       return { ok: false, status, title, message }
     }
     if (this.now() > flow.expiresAt) return failed(400, 'Sign-in expired', EXPIRED_MESSAGE)
+    const responseIssuer = params.get('iss')
+    if (responseIssuer !== null && responseIssuer !== flow.issuer) return failed(400, 'Sign-in failed', 'The sign-in response came from a different issuer. Start the sign-in again.')
+    if (responseIssuer === null && flow.requiresIssuerResponse) return failed(400, 'Sign-in failed', 'The server did not identify its issuer. Start the sign-in again.')
     if (params.get('error')) {
       const message = 'The sign-in was cancelled.'
       this.deps.events.authFinished(user, { flowId, integrationId, outcome: 'cancelled', message })
@@ -318,6 +336,7 @@ export class IntegrationOAuth {
     if (!integration) return failed(400, 'Sign-in failed', 'That integration is no longer on this host.')
     try {
       const token = await this.protocol.exchange({ tokenEndpoint: flow.tokenEndpoint, client: flow.client, code, redirectUri: flow.redirectUri, verifier: flow.verifier, resource: flow.resource })
+      token.issuer = flow.issuer
       const label = await identityLabel(integration, token.accessToken, this.fetch)
       // A browser already signed in to one account can skip the chooser; one account never becomes two (§13.3).
       const duplicate = label && this.deps.connections.accounts(integrationId, user).find((account) => account.accountId !== flow.accountId && account.label === label)
@@ -349,7 +368,12 @@ export class IntegrationOAuth {
     if (!integration) return null
     try {
       const metadata = await this.metadata(integration)
+      if (token.issuer !== metadata.issuer) {
+        this.record(integrationId, personKey, 'needs-sign-in', 'The sign-in server changed. Sign in again.', accountId)
+        return null
+      }
       const refreshed = await this.protocol.refresh({ tokenEndpoint: metadata.tokenEndpoint, client: this.clientForToken(integrationId, token), refreshToken, resource: signInFor(integration).resource })
+      refreshed.issuer = metadata.issuer
       try {
         this.deps.vault.save(personKey, mcpCredentialRef(integration, accountId), refreshed)
       } catch (error) {
@@ -385,7 +409,7 @@ export class IntegrationOAuth {
    * themselves, so their client is not checked against this one.
    */
   private async clientFor(integration: Integration, metadata: OAuthMetadata, redirectUri: string): Promise<OAuthClient> {
-    const saved = this.deps.clients.client(integration.id)
+    const saved = this.deps.clients.client(integration.id, metadata.issuer)
     if (saved?.redirectUris?.includes(redirectUri)) return saved
     const adminClientId = integration.auth.kind === 'oauth' ? integration.auth.clientId : undefined
     if (adminClientId) return saved?.clientId === adminClientId ? saved : { clientId: adminClientId }
@@ -396,7 +420,7 @@ export class IntegrationOAuth {
     if (!metadata.registrationEndpoint) throw new OAuthClientRequiredError(OAUTH_CLIENT_REQUIRED_MESSAGE)
     try {
       const client = await this.protocol.register(metadata, [...(saved?.redirectUris ?? []), redirectUri])
-      this.deps.clients.saveClient(integration.id, client)
+      this.deps.clients.saveClient(integration.id, metadata.issuer, client)
       log.info('integration_client_registered', { integrationId: integration.id })
       return client
     } catch (error) {

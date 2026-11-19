@@ -99,6 +99,28 @@ afterAll(async () => {
 })
 
 describe('integration OAuth', () => {
+  test('a wrong issuer in the callback cannot redeem the code', async () => {
+    const { oauth } = setup()
+    const flow = await startAs(ALICE, oauth)
+    const params = approve(flow.url)
+    params.set('iss', 'https://other.example')
+    const before = fake.tokenRequests.length
+    const page = await oauth.complete(params)
+    expect(page.status).toBe(400)
+    expect(page.html).toContain('different issuer')
+    expect(fake.tokenRequests.length).toBe(before)
+  })
+
+  test('a token from another issuer is never accepted', async () => {
+    const { oauth } = setup()
+    expect(await oauth.acceptsToken(integration, { accessToken: 'old', tokenType: 'Bearer', issuer: 'https://other.example' })).toBe(false)
+  })
+
+  test('a saved client for one issuer is not found under another issuer', () => {
+    const clients = memoryClients()
+    clients.saveClient(integration.id, 'https://issuer-a.example', { clientId: 'client-a' })
+    expect(clients.client(integration.id, 'https://issuer-b.example')).toBeNull()
+  })
   test('discovers from resource metadata and builds an S256 authorization URL bound to the server', async () => {
     const { oauth } = setup()
     const result = await startAs(ALICE, oauth)

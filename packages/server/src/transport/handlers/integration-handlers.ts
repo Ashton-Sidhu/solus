@@ -116,7 +116,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
       if (oauthClient === null) clients.removeClient(id)
       else {
         const { clientId, clientSecret } = oauthClient
-        clients.saveClient(id, clientSecret
+        const issuer = await oauth.issuerOf({ ...existing, auth: auth ?? existing.auth, url: url ?? existing.url })
+        clients.saveClient(id, issuer, clientSecret
           ? { clientId, clientSecret, tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] }
           : { clientId, tokenEndpointAuthMethod: 'none', redirectUris: [] })
       }

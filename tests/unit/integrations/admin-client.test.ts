@@ -113,7 +113,7 @@ describe('the owner\'s OAuth client', () => {
     // WHY: the record crosses the wire; it may say a secret exists but never carry it.
     expect(updated.auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required', clientId: 'zoom-client', hasClientSecret: true })
     expect(JSON.stringify(updated)).not.toContain('zoom-secret')
-    expect(secrets.clients.get(integration.id)).toEqual({ clientId: 'zoom-client', clientSecret: 'zoom-secret', tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] })
+    expect([...secrets.clients.values()]).toContainEqual({ clientId: 'zoom-client', clientSecret: 'zoom-secret', tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] })
     expect(invalidated).toContain(integration.id)
     expect(changed.at(-1)).toEqual({ integrationId: integration.id, change: 'updated' })
 
@@ -153,7 +153,7 @@ describe('the owner\'s OAuth client', () => {
     const { update, secrets, integration } = setup()
     const updated = await update({ clientId: 'public-client' })
     expect(updated.auth).toMatchObject({ clientId: 'public-client', hasClientSecret: false })
-    expect(secrets.clients.get(integration.id)).toEqual({ clientId: 'public-client', tokenEndpointAuthMethod: 'none', redirectUris: [] })
+    expect([...secrets.clients.values()]).toContainEqual({ clientId: 'public-client', tokenEndpointAuthMethod: 'none', redirectUris: [] })
   })
 
   test('null removes the client from the record and the secret store', async () => {

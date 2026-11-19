@@ -36,6 +36,7 @@ export type OAuthClient = z.infer<typeof oauthClientSchema>
  */
 export const oauthTokenSchema = z.object({
   accessToken: z.string().min(1),
+  issuer: z.string().min(1).optional(),
   refreshToken: z.string().min(1).optional(),
   expiresAt: z.number().optional(),
   tokenType: z.string().min(1),
@@ -46,12 +47,15 @@ export type OAuthToken = z.infer<typeof oauthTokenSchema>
 
 /** What discovery found for one server, with every endpoint checked. */
 export interface OAuthMetadata {
+  issuer: string
   authorizationEndpoint: URL
   tokenEndpoint: URL
   registrationEndpoint?: URL
   revocationEndpoint?: URL
   authMethods?: string[]
   scopes?: string[]
+  clientIdMetadataDocumentSupported?: boolean
+  authorizationResponseIssParameterSupported?: boolean
 }
 
 /** A failure the person can act on; its message is shown as it is. */
@@ -117,6 +121,7 @@ const resourceMetadataSchema = z.object({
 })
 
 const authorizationServerSchema = z.object({
+  issuer: z.string().min(1),
   authorization_endpoint: z.string().min(1),
   token_endpoint: z.string().min(1),
   response_types_supported: z.array(z.string()),
@@ -124,6 +129,8 @@ const authorizationServerSchema = z.object({
   registration_endpoint: z.string().min(1).optional(),
   revocation_endpoint: z.string().min(1).optional(),
   token_endpoint_auth_methods_supported: z.array(z.string()).optional(),
+  client_id_metadata_document_supported: z.boolean().optional(),
+  authorization_response_iss_parameter_supported: z.boolean().optional(),
 })
 
 const registrationSchema = z.object({
@@ -201,11 +208,14 @@ export class McpOAuth {
   async register(metadata: OAuthMetadata, redirectUris: string[]): Promise<OAuthClient> {
     if (!metadata.registrationEndpoint) throw new OAuthClientRequiredError(OAUTH_CLIENT_REQUIRED_MESSAGE)
     const method = chooseAuthMethod(metadata.authMethods)
+    // OIDC treats loopback callbacks as native apps and HTTPS host callbacks as web apps.
+    const applicationType = redirectUris.every((uri) => isLoopback(new URL(uri).hostname)) ? 'native' : 'web'
     const response = await this.fetch(metadata.registrationEndpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({
         client_name: 'Solus',
+        application_type: applicationType,
         redirect_uris: redirectUris,
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
@@ -308,17 +318,23 @@ export class McpOAuth {
     }
     const server = authorizationServerSchema.safeParse(document)
     if (!server.success) throw new OAuthSignInError('The server does not publish a usable sign-in.')
+    if (resource.success && server.data.issuer !== resource.data.authorization_servers[0]) {
+      throw new OAuthSignInError('The server published sign-in details for a different issuer.')
+    }
     const pkce = server.data.code_challenge_methods_supported
     if (!server.data.response_types_supported.includes('code') || (pkce && !pkce.includes('S256'))) {
       throw new OAuthSignInError('The server does not support a sign-in Solus can use.')
     }
     const metadata: OAuthMetadata = {
+      issuer: server.data.issuer,
       authorizationEndpoint: endpoint(server.data.authorization_endpoint),
       tokenEndpoint: endpoint(server.data.token_endpoint),
     }
     if (server.data.registration_endpoint) metadata.registrationEndpoint = endpoint(server.data.registration_endpoint)
     if (server.data.revocation_endpoint) metadata.revocationEndpoint = endpoint(server.data.revocation_endpoint)
     if (server.data.token_endpoint_auth_methods_supported) metadata.authMethods = server.data.token_endpoint_auth_methods_supported
+    metadata.clientIdMetadataDocumentSupported = server.data.client_id_metadata_document_supported === true
+    metadata.authorizationResponseIssParameterSupported = server.data.authorization_response_iss_parameter_supported === true
     if (resource.success && resource.data.scopes_supported) metadata.scopes = resource.data.scopes_supported
     return metadata
   }
