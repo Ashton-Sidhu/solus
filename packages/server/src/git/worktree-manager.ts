@@ -153,6 +153,34 @@ export function otherWorktreeHoldingBranch(projectPath: string, branch: string):
   })
 }
 
+/** Make an isolated checkout for an imported session at its recorded tip. */
+export async function createRestoredSessionWorktree(
+  projectPath: string, sessionId: string, branch: string, headSha: string, occupiedPath?: string, signal?: AbortSignal,
+): Promise<GitCheckout> {
+  const mainBranch = await getWorkingBranch(projectPath)
+  if (mainBranch === branch) branch = `solus/session-${sessionId}`
+  const holder = otherWorktreeHoldingBranch(projectPath, branch)
+  if (holder && (!occupiedPath || realpathSync(holder.path) !== realpathSync(occupiedPath))) throw new Error(`Branch ${branch} is in another worktree: ${holder.path}`)
+  if (holder) {
+    const parkedBranch = `solus/saved-${randomBytes(8).toString('hex')}`
+    await runAsync('git', ['branch', '-m', branch, parkedBranch], holder.path, { signal })
+  }
+  const worktreePath = worktreePathFor(projectPath, `session-${sessionId}-${randomBytes(4).toString('hex')}`)
+  try {
+    const hasBranch = await gitCommitExists(projectPath, `refs/heads/${branch}`)
+    if (hasBranch) {
+      await runAsync('git', ['update-ref', `refs/heads/${branch}`, headSha], projectPath, { signal })
+      await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath, { signal, timeout: 0 })
+    } else {
+      await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, headSha], projectPath, { signal, timeout: 0 })
+    }
+    return { repoRoot: projectPath, branch, targetBranch: branch, worktreePath }
+  } catch (error) {
+    if (existsSync(worktreePath)) await runAsync('git', ['worktree', 'remove', '--force', worktreePath], projectPath).catch(() => {})
+    throw error
+  }
+}
+
 /** The local branch a PR checks out onto. Same-repository PRs live on their real
  *  head branch so agent commits update the PR; fork PRs get a local
  *  `solus/pr-<n>` review branch the base repo can own. */

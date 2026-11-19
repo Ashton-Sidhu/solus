@@ -671,3 +671,13 @@ Part D uses all three.
   and record adoption in order, with stop and progress events;
   `sessionPrepare` and `sessionRepositoryBundle` in the RPC contract and their
   handlers; `knownHead` on the prompt and the local comparison at turn start.
+
+### Part B as implemented (2026-11-18)
+
+`git/session-code-restore.ts` fetches missing bundles in turn order, makes or
+reuses a session worktree, applies the final tree, checks its tree id, and then
+writes the snapshot refs and sidecar. A changed prior worktree is left intact.
+For a shared checkout, the new worktree uses `solus/session-<sessionId>` when
+the source branch is checked out in the main checkout. Git cannot check out
+one branch in both places. The session's own paths are applied to the base
+tree; the main checkout is not changed.
