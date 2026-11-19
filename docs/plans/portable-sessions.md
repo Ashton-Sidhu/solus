@@ -697,3 +697,15 @@ For a shared checkout, the new worktree uses `solus/session-<sessionId>` when
 the source branch is checked out in the main checkout. Git cannot check out
 one branch in both places. The session's own paths are applied to the base
 tree; the main checkout is not changed.
+
+### 19.C Thread import implementation (2026-11-18)
+
+`AgentBackend.importThread` takes a session id, thread id, complete source files,
+this host's working directory, an optional seat or private provider runtime, and
+an abort signal. It returns each file's status and the bytes written. Claude
+binds lineage before it writes any file. Codex unloads, writes at the path of
+an existing state row when one exists, then resumes with the new working
+directory. An identical file is left alone; an older prefix gains only new
+bytes. A divergent destination is a `conflict` result and is left unchanged.
+No side copy is made in the provider folder because the provider could mistake
+it for another thread file.

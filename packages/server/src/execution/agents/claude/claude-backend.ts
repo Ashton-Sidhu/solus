@@ -35,6 +35,8 @@ import { resolveHomePath } from '../../../platform/paths'
 import { beginTurnCheckpoint, endTurnCheckpoint } from '../../../git/turn-checkpoints'
 import type { AgentBackend, RunHandle } from '../agent-backend'
 import type { ThreadFile } from '../../../sync/sessions/session-archive-writer'
+import type { ThreadImportRequest, ThreadImportResult } from '../thread-import'
+import { importClaudeThread } from './claude-thread-import'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { MODEL_PROFILES, SOLUS_WORKTREE_ENCODED_MARKER, providerModelsFor } from '@solus/contracts/types'
 import type {
@@ -554,6 +556,13 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   async threadFiles(threadId: string, projectPath?: string): Promise<ThreadFile[]> {
     const filePath = this.sessionFilePath(threadId, projectPath)
     return filePath ? claudeThreadFiles(filePath, threadId) : []
+  }
+
+  async importThread(request: ThreadImportRequest): Promise<ThreadImportResult> {
+    const personKey = captureActingScope()?.personKey
+    const privateHome = personKey ? privateProviderInstances().threadHome(personKey, 'claude-code', request.threadId) : undefined
+    const home = request.providerRuntime?.homePath ?? privateHome ?? claudeConfigDir(request.seat ? claudeSeatOf(request.seat) : undefined)
+    return importClaudeThread(request, home)
   }
 
   async loadSessionFirstTurn(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]> {

@@ -17,6 +17,7 @@ import type { ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } fr
 import type { AgentRunRequest, AgentRunSessionState } from './agent-runner'
 import type { TurnSeat } from '../seats/seat-manager'
 import type { ThreadFile } from '../../sync/sessions/session-archive-writer'
+import type { ThreadImportRequest, ThreadImportResult } from './thread-import'
 
 export interface PermissionResponder {
   getPendingInfo(questionId: string): { toolName: string; sessionId: string | null } | undefined
@@ -121,6 +122,8 @@ export interface AgentBackend extends EventEmitter {
   /** The provider's own files of a thread on this host, which a turn commit of the session
    *  repository carries (docs/plans/portable-sessions.md §5). Absent for a provider that keeps none. */
   threadFiles?(threadId: string, projectPath?: string): Promise<ThreadFile[]>
+  /** Restore provider files under the acting person's home before the next turn. */
+  importThread?(request: ThreadImportRequest): Promise<ThreadImportResult>
   listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   invalidatePlanCache?(sessionId: string): void
   loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
