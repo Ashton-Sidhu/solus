@@ -32,7 +32,7 @@ export type IntegrationListState =
 
 export type IntegrationToolsState =
   | { kind: 'loading' }
-  | { kind: 'loaded'; tools: IntegrationToolSummary[] }
+  | { kind: 'loaded'; tools: IntegrationToolSummary[]; instructions: string | null }
   | { kind: 'error'; message: string }
 
 /** One page of the catalog search. `total` counts every match of the query. */

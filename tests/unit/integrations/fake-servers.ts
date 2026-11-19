@@ -125,7 +125,7 @@ export async function startFakeServers(): Promise<FakeServers> {
     const path = new URL(req.url ?? '/', base).pathname
     if (path === '/modern/mcp' && req.method === 'POST') {
       const message = JSON.parse(await readBody(req)) as { id: number; method: string; params?: { name?: string; arguments?: { text?: string }; inputResponses?: { answer?: { action?: string; content?: { colour?: string } } } } }
-      if (message.method === 'server/discover') return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', supportedVersions: ['2026-07-28'], capabilities: { tools: { listChanged: true } }, ttlMs: 60_000, cacheScope: 'private', _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'modern-fake', version: '1.0.0' } } } })
+      if (message.method === 'server/discover') return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', supportedVersions: ['2026-07-28'], capabilities: { tools: { listChanged: true } }, instructions: 'Use modern echo for text.', ttlMs: 60_000, cacheScope: 'private', _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'modern-fake', version: '1.0.0' } } } })
       if (message.method === 'subscriptions/listen') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
         modernListeners.add(res)

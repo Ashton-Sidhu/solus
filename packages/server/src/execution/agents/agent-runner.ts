@@ -3,6 +3,7 @@ import type { ProviderRuntime } from '../seats/provider-runtime'
 import { ROOT_CONTEXT, type Span } from '@opentelemetry/api'
 import type { AgentBackend, RunHandle } from './agent-backend'
 import type { AgentTool } from './tools/agent-tool'
+import type { IntegrationInstruction } from '../../integrations/integration-tools'
 import { assertUniqueAgentTools } from './tools/agent-tool'
 import type {
   AgentId,
@@ -65,6 +66,7 @@ export interface AgentRunRequest {
   contextWindow?: number | null
   fastMode?: boolean
   systemPrompt?: string
+  integrationInstructions?: IntegrationInstruction[]
   maxTurns?: number
   maxBudgetUsd?: number
   timeoutMs?: number

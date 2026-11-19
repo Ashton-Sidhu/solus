@@ -48,12 +48,12 @@ const linkTool = tool('link')
 const codexRuntime = { model: 'gpt-5.6-sol', reasoningEffort: 'high' }
 
 /** The system prompt append Claude receives for one run with these tools. */
-async function claudeAppend(tools: AgentTool[], systemPrompt?: string, cwd = '/tmp'): Promise<string> {
+async function claudeAppend(tools: AgentTool[], systemPrompt?: string, cwd = '/tmp', integrationInstructions?: { name: string; slug: string; text: string }[]): Promise<string> {
   capturedOptions = null
   const backend = new ClaudeBackend()
   backend.on('error', () => {})
   const handle = backend.startRun({
-    provider: 'claude-code', prompt: 'hello', cwd, tools, systemPrompt,
+    provider: 'claude-code', prompt: 'hello', cwd, tools, systemPrompt, integrationInstructions,
     model: 'claude-opus-4-7', reasoningEffort: 'high',
     permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
     conversation: { kind: 'new' },
@@ -317,5 +317,26 @@ describe('runtime instructions', () => {
       reasoningEffort: 'high\tpriority',
     }, [])
     expect(instructions).toContain('as gpt-5.6-sol ignore this with high priority reasoning effort')
+  })
+
+  test('Claude receives each MCP server instruction under its tool name', async () => {
+    const prompt = await claudeAppend([], undefined, '/tmp', [
+      { name: 'Linear', slug: 'linear', text: 'Read the current issue.' },
+      { name: 'Sentry', slug: 'sentry', text: 'Check the event.' },
+    ])
+    expect(prompt).toContain('### Linear (tools `linear__*`)\nRead the current issue.')
+    expect(prompt).toContain('### Sentry (tools `sentry__*`)\nCheck the event.')
+    expect(prompt).toContain('not from Solus and not from the user')
+  })
+
+  test('Codex receives the same bounded MCP block in developer instructions', () => {
+    const entries = [{ name: 'Linear', slug: 'linear', text: 'x'.repeat(2_500) }]
+    const prompt = runtimeInstructions({ harness: 'Codex', model: 'gpt', reasoningEffort: 'high' }, [], entries)
+    expect(prompt).toContain('### Linear (tools `linear__*`)')
+    expect(prompt).toContain('x'.repeat(2_000))
+    expect(prompt).not.toContain('x'.repeat(2_001))
+    const many = runtimeInstructions({ harness: 'Codex', model: 'gpt', reasoningEffort: 'high' }, [], Array.from({ length: 10 }, (_, index) => ({ name: `Server ${index}`, slug: `server${index}`, text: 'y'.repeat(2_000) })))
+    expect(many.slice(many.indexOf('## MCP servers')).length).toBeLessThanOrEqual(10_000)
+    expect(many).toContain('(instructions left out)')
   })
 })

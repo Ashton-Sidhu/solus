@@ -8,7 +8,7 @@ import { memberPrincipal, withActor } from '../helpers/actors'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { IntegrationGateway } = await import('@solus/server/integrations/gateway')
-const { integrationAgentTools, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
+const { integrationToolbox, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
 const { IntegrationApps } = await import('@solus/server/integrations/mcp-apps')
 const { ownerKeyOf } = await import('@solus/server/admission/actor')
 const { newActivity, appendActivity } = await import('@solus/server/data/activity/activity')
@@ -127,7 +127,7 @@ test('app-only tools stay out of the provider list while model tools remain avai
   ])
   setIntegrationGateway(s.gateway)
   try {
-    const tools = await integrationAgentTools(ctx.actor)
+    const { tools } = await integrationToolbox(ctx.actor)
     expect(tools.map((tool) => tool.name)).toEqual(['charts__visible', 'charts__only_model'])
   } finally { setIntegrationGateway(null) }
 })

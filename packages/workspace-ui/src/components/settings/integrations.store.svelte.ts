@@ -1,5 +1,5 @@
 import { connectionNeedsAttention, isFirstIntegrationAccount } from '@solus/contracts/integration-types'
-import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary } from '@solus/contracts/integration-types'
+import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationFacts, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { onServerRemoving } from '@solus/client-core/server-registry'
@@ -55,6 +55,7 @@ interface IntegrationsState {
   integrations: Integration[] | null
   /** The tools of each integration whose tools were asked for. */
   tools: SvelteMap<string, IntegrationToolSummary[]>
+  facts: SvelteMap<string, IntegrationFacts>
   /** Why one integration's tools could not load. */
   toolErrors: SvelteMap<string, string>
   loading: boolean
@@ -91,7 +92,7 @@ function errorText(cause: unknown, fallback: string): string {
 
 function emptyState(): IntegrationsState {
   return {
-    integrations: null, tools: new SvelteMap(), toolErrors: new SvelteMap(), loading: false, error: '', saving: false, writeError: '', isUnsupported: false, isDisconnected: false, revision: 0,
+    integrations: null, tools: new SvelteMap(), facts: new SvelteMap(), toolErrors: new SvelteMap(), loading: false, error: '', saving: false, writeError: '', isUnsupported: false, isDisconnected: false, revision: 0,
     connections: new SvelteMap(), connectionsStatus: 'loading', connectFlows: new SvelteMap(),
   }
 }
@@ -246,7 +247,7 @@ class IntegrationsStore {
       if (current?.revision !== revision) return
       this.states.set(serverId, { ...current, integrations, loading: false, error: '', isUnsupported: false, isDisconnected: false })
       for (const id of current.tools.keys()) {
-        if (!integrations.some((integration) => integration.id === id)) current.tools.delete(id)
+        if (!integrations.some((integration) => integration.id === id)) { current.tools.delete(id); current.facts.delete(id) }
       }
     } catch (cause) {
       const current = this.states.get(serverId)
@@ -262,8 +263,12 @@ class IntegrationsStore {
     if (!state) return
     state.toolErrors.delete(integrationId)
     try {
-      const tools = await serverConnections.apiFor(serverId).integrationTools({ id: integrationId })
+      const [tools, facts] = await Promise.all([
+        serverConnections.apiFor(serverId).integrationTools({ id: integrationId }),
+        serverConnections.apiFor(serverId).integrationFacts({ id: integrationId }),
+      ])
       this.states.get(serverId)?.tools.set(integrationId, tools)
+      this.states.get(serverId)?.facts.set(integrationId, facts)
     } catch (cause) {
       this.states.get(serverId)?.toolErrors.set(integrationId, errorText(cause, 'Could not load the tools.'))
     }
@@ -606,7 +611,7 @@ class IntegrationsStore {
   private async applyChange(serverId: string, { integrationId, change }: IntegrationChangedEvent): Promise<void> {
     const state = this.states.get(serverId)
     if (!state) return
-    if (change === 'tools') {
+    if (change === 'tools' || change === 'facts') {
       if (state.tools.has(integrationId)) void this.loadTools(serverId, integrationId)
       return
     }
@@ -750,6 +755,7 @@ class IntegrationsStore {
     const state = this.states.get(serverId)
     if (!state) return
     state.tools.delete(integrationId)
+    state.facts.delete(integrationId)
     state.toolErrors.delete(integrationId)
     state.connections.delete(integrationId)
     this.nextAttempt(serverId, integrationId)

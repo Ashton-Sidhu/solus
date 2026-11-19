@@ -644,7 +644,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const tools = this.dynamicToolsUnavailable ? [] : enabledAgentTools(request.tools)
       const developerInstructions = [
         request.systemPrompt?.trim(),
-        runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, tools),
+        runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, tools, request.integrationInstructions),
       ].filter(Boolean).join('\n\n')
       const threadConfig: CodexThreadStartParams = {
         model,

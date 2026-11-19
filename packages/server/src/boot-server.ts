@@ -822,7 +822,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSharingHandlers(server, { shares })
   registerCloudUploadHandlers(server, { shares })
   // Integrations (docs/plans/mcp-integrations.md): a run lists its person's tools
-  // when it starts (`integrationAgentTools`), so nothing is listed at boot.
+  // when it starts (`integrationToolbox`), so nothing is listed at boot.
   const integrations = new IntegrationStore()
   const integrationGateway = new IntegrationGateway(integrations)
   const claudeAppProcesses = new ClaudeAppProcesses()
@@ -926,6 +926,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   )
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
+  integrationGateway.onFactsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
   integrationGateway.onCustomServerNeeded((request) => { void events.broadcast('integration.customServerNeeded', request) })
   // A connection is one person's (§4.1): its events go to that person's clients.

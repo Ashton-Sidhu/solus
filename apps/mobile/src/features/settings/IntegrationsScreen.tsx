@@ -358,6 +358,7 @@ function IntegrationTools(props: {
   readonly onToggle: (toolName: string, isOn: boolean) => void;
 }) {
   const { tools } = props;
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
   if (!tools || tools.kind === "loading") {
     return (
       <View className="items-center py-2">
@@ -366,9 +367,17 @@ function IntegrationTools(props: {
     );
   }
   if (tools.kind === "error") return <View className="px-4 pb-2"><SettingsNote tone="danger">{`Tools could not be read: ${tools.message}`}</SettingsNote></View>;
-  if (tools.tools.length === 0) return <View className="px-4 pb-2"><SettingsNote>This server lists no tools.</SettingsNote></View>;
   return (
     <View className="gap-3 px-4 pb-3 pl-[58px]">
+      {tools.instructions ? (
+        <View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Instructions for the agent" accessibilityState={{ expanded: instructionsOpen }} onPress={() => setInstructionsOpen((open) => !open)}>
+            <Text className="text-sm text-foreground">Instructions for the agent {instructionsOpen ? "−" : "+"}</Text>
+          </Pressable>
+          {instructionsOpen ? <Text className="mt-2 text-sm text-foreground-muted" selectable>{tools.instructions}</Text> : null}
+        </View>
+      ) : null}
+      {tools.tools.length === 0 ? <SettingsNote>This server lists no tools.</SettingsNote> : null}
       {tools.tools.map((tool) => (
         <ToolLine
           key={tool.name}

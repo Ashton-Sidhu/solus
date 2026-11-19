@@ -223,7 +223,7 @@ const PERMISSION_OF_METHOD = {
   seatConnectCancel: HOST_USE, seatConnectToken: HOST_USE, seatDisconnect: HOST_USE, agentAuthStart: HOST_USE,
   agentAuthSubmit: HOST_USE, agentAuthCancel: HOST_USE, agentAuthSignOut: HOST_USE, integrationCatalogList: HOST_USE,
   integrationProbe: HOST_USE, integrationList: HOST_USE, integrationGet: HOST_USE, integrationCreate: HOST_USE,
-  integrationUpdate: HOST_USE, integrationRemove: HOST_USE, integrationTools: HOST_USE,
+  integrationUpdate: HOST_USE, integrationRemove: HOST_USE, integrationTools: HOST_USE, integrationFacts: HOST_USE,
   integrationConnectionList: HOST_USE, integrationConnectStart: HOST_USE, integrationConnectSubmit: HOST_USE,
   integrationConnectCancel: HOST_USE, integrationDisconnect: HOST_USE, agentProfileApply: HOST_USE,
   agentProfilePull: HOST_USE, agentProfileStatus: HOST_USE, typeSafeKeyStatus: HOST_USE, configGet: HOST_USE,

@@ -49,7 +49,7 @@ const CATALOG_DELAY_MS = 250
 /**
  * The MCP servers of one host for its MCP screen. Read on connect, on focus,
  * and on reconnect; `integration.changed` reads the list again and, on
- * `tools`, the tools of an open server. A reply that arrives after a newer
+ * `tools` or `facts`, the open server's details. A reply that arrives after a newer
  * request, or from a connection that has gone, is dropped. A change the host
  * refused throws; the screen says why. The person's own connections are read
  * beside the list and follow `integration.connectionChanged`; the connect
@@ -154,8 +154,8 @@ export function useIntegrations(hostId: string) {
       setTools((previous) => new Map(previous).set(integrationId, next))
     }
     setTools((previous) => (previous.get(integrationId)?.kind === 'loaded' ? previous : new Map(previous).set(integrationId, { kind: 'loading' })))
-    current.api.integrationTools({ id: integrationId }).then(
-      (summaries) => put({ kind: 'loaded', tools: summaries }),
+    Promise.all([current.api.integrationTools({ id: integrationId }), current.api.integrationFacts({ id: integrationId })]).then(
+      ([summaries, facts]) => put({ kind: 'loaded', tools: summaries, instructions: facts.instructions }),
       (cause: unknown) => put({ kind: 'error', message: errorMessage(cause) }),
     )
   }, [connection])
@@ -203,7 +203,7 @@ export function useIntegrations(hostId: string) {
     if (!current) return
     return current.events.subscribe('integration.changed', ({ integrationId, change }) => {
       if (change === 'removed') collapse(integrationId)
-      if (change === 'tools') {
+      if (change === 'tools' || change === 'facts') {
         loadTools(integrationId)
         return
       }

@@ -151,6 +151,12 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     return gateway.tools(id)
   })
 
+  server.register('integrationFacts', (args, ctx) => {
+    const { id } = integrationIdRequestSchema.parse(args[0])
+    requireIntegration(id, ctx.actor)
+    return gateway.facts(id)
+  })
+
   server.register('integrationConnectionList', () => {
     const personKey = currentPersonKey()
     return personKey === null ? [] : connectionStore.list(personKey)

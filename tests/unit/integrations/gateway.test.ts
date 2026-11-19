@@ -18,7 +18,7 @@ const { IntegrationGateway } = await import('@solus/server/integrations/gateway'
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY, HOST_SCOPE } = await import('@solus/server/execution/seats/acting-identity')
 const { InputRequests } = await import('@solus/server/execution/sessions/input-requests')
-const { integrationAgentTools, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
+const { integrationToolbox, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
 const { HOST_ACTOR } = await import('@solus/server/admission/actor')
 
 /**
@@ -39,7 +39,7 @@ let httpServer: Server
 let integration: Integration
 
 function makeServer(): McpServer {
-  const server = new McpServer({ name: 'fake', version: '1.0.0' })
+  const server = new McpServer({ name: 'fake', version: '1.0.0' }, { instructions: 'Use the echo tool for text.' })
   server.registerTool('echo', {
     description: 'Echo the text.',
     inputSchema: { text: z.string() },
@@ -188,7 +188,11 @@ describe('integration gateway', () => {
     await withActingScope(HOST_SCOPE, () => gateway.tools(record.id))
     setIntegrationGateway(gateway)
     try {
-      expect((await integrationAgentTools(HOST_ACTOR)).map((tool) => tool.name).sort()).toEqual(['fake__confirm', 'fake__echo'])
+      const toolbox = await integrationToolbox(HOST_ACTOR)
+      expect(toolbox.tools.map((tool) => tool.name).sort()).toEqual(['fake__confirm', 'fake__echo'])
+      expect(toolbox.instructions).toEqual([{ name: 'Fake', slug: 'fake', text: 'Use the echo tool for text.' }])
+      record.disabledTools = ['echo', 'delete_all', 'confirm']
+      expect((await integrationToolbox(HOST_ACTOR)).instructions).toEqual([])
       const refused = await withActingScope(HOST_SCOPE, () => gateway.call(record.id, 'delete_all', {}, context()))
       expect(refused.ok).toBe(false)
       expect(refused.text).toContain('turned off')
@@ -272,6 +276,16 @@ test('a modern tool list expires when its server gives ttlMs zero', async () => 
     await withActingScope(HOST_SCOPE, () => gateway.tools('int-ttl'))
     expect(fake.modernToolLists).toBe(2)
   } finally { await gateway.close(); await fake.close() }
+})
+
+test('legacy and modern server facts carry their server instructions', async () => {
+  const legacy = gatewayFor(integration)
+  const fake = await startFakeServers()
+  const modern = gatewayFor({ ...integration, id: 'int-facts', url: fake.modernMcpUrl })
+  try {
+    expect((await withActingScope(HOST_SCOPE, () => legacy.facts(integration.id)))).toMatchObject({ era: 'legacy', instructions: 'Use the echo tool for text.' })
+    expect((await withActingScope(HOST_SCOPE, () => modern.facts('int-facts')))).toMatchObject({ era: 'modern', instructions: 'Use modern echo for text.' })
+  } finally { await legacy.close(); await modern.close(); await fake.close() }
 })
 
 test('a modern list change makes the gateway read tools again', async () => {
@@ -568,13 +582,13 @@ describe('integration gateway with sign-in', () => {
     }
     setIntegrationGateway(gateway)
     try {
-      const names = (await integrationAgentTools(memberActor)).map((tool) => tool.name).sort()
+      const names = (await integrationToolbox(memberActor)).tools.map((tool) => tool.name).sort()
       expect(names).toEqual(['secure__confirm', 'secure__delete_all', 'secure__echo', 'secure__query'])
       // The host's own work has no person: the server refuses it, and nothing is cached as the member's.
       seen.length = 0
       const fresh = signedInGateway(new Map([['member-1', 'Bearer good']]), personal).gateway
       setIntegrationGateway(fresh)
-      expect(await integrationAgentTools(HOST_ACTOR)).toEqual([])
+      expect(await integrationToolbox(HOST_ACTOR)).toEqual({ tools: [], instructions: [] })
       expect(seen.every((header) => header === undefined)).toBe(true)
       await fresh.close()
     } finally {

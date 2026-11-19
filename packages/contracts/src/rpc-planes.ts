@@ -279,6 +279,7 @@ export const RPC_PLANES = {
   integrationUpdate: 'execution',
   integrationRemove: 'execution',
   integrationTools: 'execution',
+  integrationFacts: 'execution',
   // The host runs the sign-in and keeps the token (mcp-integrations.md §4.2)
   integrationConnectionList: 'execution',
   integrationConnectStart: 'execution',

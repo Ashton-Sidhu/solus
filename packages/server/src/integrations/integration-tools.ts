@@ -51,13 +51,16 @@ async function toolsForRun(source: IntegrationGateway, integration: Integration,
  * with that person's connection, less the tools the owner turned off (§6.1).
  * A server that does not list its tools in time adds none to this run.
  */
-export async function integrationAgentTools(actor: Actor): Promise<AgentTool[]> {
+export interface IntegrationInstruction { name: string; slug: string; text: string }
+
+export async function integrationToolbox(actor: Actor, _projectKey?: string): Promise<{ tools: AgentTool[]; instructions: IntegrationInstruction[] }> {
   const current = gateway
-  if (!current) return []
+  if (!current) return { tools: [], instructions: [] }
   const personKey = ownerKeyOf(actor)
   const integrations = current.store.list(recordScopeOf(actor.principal), personKey)
   const listed = await Promise.all(integrations.map((integration) => toolsForRun(current, integration, personKey)))
   const tools: AgentTool[] = []
+  const included = new Set<string>()
   const names = new Set<string>()
   integrations.forEach((integration, index) => {
     const disabled = new Set(integration.disabledTools)
@@ -76,9 +79,14 @@ export async function integrationAgentTools(actor: Actor): Promise<AgentTool[]> 
       }
       names.add(agentTool.name)
       tools.push(agentTool)
+      included.add(integration.id)
     }
   })
-  return tools
+  const instructions = (await Promise.all(integrations.filter((integration) => included.has(integration.id)).map(async (integration) => {
+    const text = (await current.factsFor(integration.id, personKey)).instructions
+    return text ? { name: integration.name, slug: integration.slug, text } : null
+  }))).filter((entry): entry is IntegrationInstruction => entry !== null)
+  return { tools, instructions }
 }
 
 /** One upstream tool as a Solus agent tool that calls it through the gateway. */

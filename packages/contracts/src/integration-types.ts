@@ -121,6 +121,13 @@ export const integrationToolSummarySchema = z.object({
 })
 export type IntegrationToolSummary = z.infer<typeof integrationToolSummarySchema>
 
+/** What the gateway read from one MCP server for the caller. No credential enters this reply. */
+export interface IntegrationFacts {
+  era: 'modern' | 'legacy' | null
+  instructions: string | null
+  capabilities: { prompts: boolean; resources: boolean; resourceSubscribe: boolean; tasks: boolean }
+}
+
 /** What a tool does, from the server's own hints: a tool with no read-only hint may write. */
 export type ToolAccess = 'Read' | 'Write' | 'Destructive'
 
@@ -297,7 +304,7 @@ export interface CatalogPage {
 /** An integration or its tool list changed; read it again by id. */
 export interface IntegrationChangedEvent {
   integrationId: string
-  change: 'created' | 'updated' | 'removed' | 'tools'
+  change: 'created' | 'updated' | 'removed' | 'tools' | 'facts'
 }
 
 /**

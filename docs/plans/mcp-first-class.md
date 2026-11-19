@@ -1,6 +1,6 @@
 # MCP as a first-class feature
 
-Status: plan, written 2026-11-18. Nothing here is built. This plan continues
+Status: phased plan, written 2026-11-18. P0 and A1 are built. This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -118,7 +118,7 @@ The UI says **MCP server**, as Settings → MCP does today.
 | **Integration kind** | `mcp`: a server at a URL, over Streamable HTTP. `solus`: a server in the host process. `stdio` (new): a command that the host starts. | `integration-types.ts` |
 | **Upstream session** | The gateway's client for one (integration, person, account). The word is from `mcp-integrations.md` §5.1. In 2026-07-28 it is not a protocol session: the protocol has none. For a `stdio` integration it owns one process. | `integrations/gateway.ts` |
 | **Era** | `modern` (the server answers `server/discover`) or `legacy` (it needs `initialize`). The SDK's word. | the SDK client |
-| **Verdict** | The saved answer of the revision check for one upstream session: the SDK's `PriorDiscovery`. | `integrations/server-facts-store.ts` |
+| **Verdict** | The answer of the revision check for one upstream session: the SDK's `PriorDiscovery`. The HTTP gateway keeps it in memory. B1 adds saved facts for stdio. | `integrations/gateway.ts`; B1: `integrations/server-facts-store.ts` |
 | **Server facts** | What the gateway read from one server for one person: era, server instructions, capabilities, and the lists (tools, MCP prompts, MCP resources, resource templates). It replaces `ToolCache`. | `integrations/gateway.ts` |
 | **Server instructions** | The text a server gives for the agent (`instructions`). | gateway; `runtime-instructions.ts` |
 | **Launch** | The command, the arguments, and the working directory of a `stdio` integration. | `integration-types.ts` |
@@ -187,6 +187,11 @@ The UI says **MCP server**, as Settings → MCP does today.
 
 **Records.** None. The text is part of server facts, in memory. For a `stdio`
 integration it is also saved (§7.5).
+
+P0 keeps the HTTP revision verdict in the gateway's in-memory `revisions` map.
+A1 keeps the server facts in the gateway's in-memory `serverFacts` map. The
+`integration_server_facts` table and `server-facts-store.ts` belong to B1,
+when stdio needs saved facts. This corrects the earlier verdict owner in §2.
 
 **Owner.** The gateway reads `client.getInstructions()` when it opens an
 upstream session. `integrationAgentTools` in `integration-tools.ts` becomes
@@ -1401,8 +1406,10 @@ Each section lists its tests. All are unit tests under
 integration tests use today) and a fake stdio server script. They use a
 temporary `SOLUS_DATA_DIR`, temporary files, and a fake clock in place of a
 sleep. None needs a live credential, a real provider turn, a build, or a dev
-server. Each phase also runs `bun run lint:types`, `bun run lint:hosts`, and
-the mobile tests for its screens (`tests/unit/native-mobile-integrations.test.ts`).
+server. Each phase runs targeted package `check` scripts and `oxlint` on its
+changed files, and the mobile tests for its screens
+(`tests/unit/native-mobile-integrations.test.ts`). The root package has no
+`lint:types` or `lint:hosts` script; the earlier names were stale.
 
 ## 18. Phases
 

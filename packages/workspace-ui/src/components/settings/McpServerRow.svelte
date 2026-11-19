@@ -216,6 +216,12 @@
         {@render field("Account", account)}
       {/if}
       {@render field("Tools", tools)}
+      {#if hostState?.facts.get(integration.id)?.instructions}
+        <details class="py-3 text-workspace-chrome">
+          <summary class="cursor-pointer text-(--solus-text-secondary)">Instructions for the agent</summary>
+          <p class="mt-2 whitespace-pre-wrap break-words text-foreground" data-testid="integration-instructions">{hostState.facts.get(integration.id)?.instructions}</p>
+        </details>
+      {/if}
     </div>
   {/if}
 </div>

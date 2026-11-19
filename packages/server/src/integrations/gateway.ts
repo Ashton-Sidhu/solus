@@ -13,7 +13,7 @@ import {
   type PriorDiscovery,
   type Tool,
 } from '@modelcontextprotocol/client'
-import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
 import { solusServerFor } from './solus-servers'
@@ -98,9 +98,12 @@ interface UpstreamSession {
   retired: boolean
 }
 
-interface ToolCache {
+interface ServerFacts {
   integrationId: string
   tools: UpstreamTool[]
+  era: IntegrationFacts['era']
+  instructions: string | null
+  capabilities: IntegrationFacts['capabilities']
   /** The session closed, so `tools/list_changed` could not reach it: list again on the next read. */
   stale: boolean
   expiresAt: number | null
@@ -114,10 +117,11 @@ interface ToolCache {
  */
 export class IntegrationGateway {
   private readonly sessions = new Map<string, UpstreamSession>()
-  private readonly caches = new Map<string, ToolCache>()
+  private readonly serverFacts = new Map<string, ServerFacts>()
   private readonly revisions = new Map<string, { prior: PriorDiscovery; checkedAt: number }>()
   private readonly listing = new Map<string, Promise<UpstreamTool[]>>()
   private readonly listeners: Array<(integrationId: string) => void> = []
+  private readonly factsListeners: Array<(integrationId: string) => void> = []
   private readonly connectNeededListeners: Array<(request: IntegrationConnectNeeded) => void> = []
   private readonly customServerNeededListeners: Array<(request: IntegrationCustomServerNeeded) => void> = []
   private readonly opening = new Map<string, Promise<UpstreamSession>>()
@@ -161,6 +165,19 @@ export class IntegrationGateway {
     return (await this.toolsFor(integrationId, currentPersonKey())).map(toolSummary)
   }
 
+  /** The caller's server facts. A list read also refreshes instructions and capabilities. */
+  async facts(integrationId: string): Promise<IntegrationFacts> {
+    return this.factsFor(integrationId, currentPersonKey())
+  }
+
+  async factsFor(integrationId: string, personKey: string | null): Promise<IntegrationFacts> {
+    await this.toolsFor(integrationId, personKey)
+    const facts = this.serverFacts.get(sessionKey(integrationId, personKey))
+    return facts
+      ? { era: facts.era, instructions: facts.instructions, capabilities: facts.capabilities }
+      : { era: null, instructions: null, capabilities: { prompts: false, resources: false, resourceSubscribe: false, tasks: false } }
+  }
+
   /**
    * One person's tools of an integration, with their input schemas, listed with
    * that person's connection on first use. A person with no connection, and the
@@ -183,7 +200,7 @@ export class IntegrationGateway {
 
   /** A list any person's session cached: the tools are the server's, only their use is per person. */
   private anyCachedTools(integrationId: string): UpstreamTool[] | undefined {
-    for (const cache of this.caches.values()) {
+    for (const cache of this.serverFacts.values()) {
       if (cache.integrationId === integrationId) return cache.tools
     }
     return undefined
@@ -320,8 +337,8 @@ export class IntegrationGateway {
   /** Forget an integration's sessions and tool lists, as after an edit or a removal. */
   invalidate(integrationId: string): void {
     this.revisions.delete(integrationId)
-    for (const [key, cache] of this.caches) {
-      if (cache.integrationId === integrationId) this.caches.delete(key)
+    for (const [key, cache] of this.serverFacts) {
+      if (cache.integrationId === integrationId) this.serverFacts.delete(key)
     }
     for (const [key, session] of this.sessions) {
       if (session.integrationId === integrationId) void this.closeSession(key)
@@ -380,6 +397,10 @@ export class IntegrationGateway {
     this.listeners.push(listener)
   }
 
+  onFactsChanged(listener: (integrationId: string) => void): void {
+    this.factsListeners.push(listener)
+  }
+
   /** A call needs the person to sign in (§4.1 rule 2); the conversation shows the connect card. */
   onConnectNeeded(listener: (request: IntegrationConnectNeeded) => void): void {
     this.connectNeededListeners.push(listener)
@@ -396,7 +417,7 @@ export class IntegrationGateway {
    */
   private async upstreamTools(integrationId: string, personKey: string | null, allowAnonymous = false): Promise<UpstreamTool[]> {
     const key = sessionKey(integrationId, personKey)
-    const cached = this.caches.get(key)
+    const cached = this.serverFacts.get(key)
     if (cached && !cached.stale && (cached.expiresAt === null || Date.now() < cached.expiresAt)) return cached.tools
     let listed = this.listing.get(key)
     if (!listed) {
@@ -439,8 +460,23 @@ export class IntegrationGateway {
       }
       cursor = page.nextCursor
     } while (cursor)
-    const previous = this.caches.get(key)
-    this.caches.set(key, { integrationId, tools, stale: false, expiresAt })
+    const previous = this.serverFacts.get(key)
+    const capabilities = session.client.getServerCapabilities()
+    const instructions = session.client.getInstructions() ?? null
+    this.serverFacts.set(key, {
+      integrationId, tools, stale: false, expiresAt,
+      era: session.client.getProtocolEra() ?? null, instructions,
+      capabilities: {
+        prompts: !!capabilities?.prompts,
+        resources: !!capabilities?.resources,
+        resourceSubscribe: !!capabilities?.resources?.subscribe,
+        tasks: !!capabilities?.extensions?.['io.modelcontextprotocol/tasks'],
+      },
+    })
+    if (previous?.instructions !== instructions) {
+      log.info('integration_instructions_changed', { integrationId, length: instructions?.length ?? 0 })
+      for (const listener of this.factsListeners) listener(integrationId)
+    }
     this.touch(key)
     log.info('integration_tools_listed', { integrationId, count: tools.length })
     if (previous && toolNames(previous.tools) !== toolNames(tools)) this.notify(integrationId)
@@ -494,7 +530,7 @@ export class IntegrationGateway {
       capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } },
       listChanged: { tools: { autoRefresh: false, onChanged: () => {
         if (this.sessions.get(key) !== session) return
-        this.caches.delete(key)
+        this.serverFacts.delete(key)
         this.notify(integrationId)
       } } },
     })
@@ -523,7 +559,7 @@ export class IntegrationGateway {
     log.info('integration_session_opened', { integrationId, personKey, authorized: session.authorized })
     this.touch(key)
     // The list cached before an idle close may be old: read it again in the background.
-    if (this.caches.get(key)?.stale) void this.list(integrationId, personKey, allowAnonymous).catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
+    if (this.serverFacts.get(key)?.stale) void this.list(integrationId, personKey, allowAnonymous).catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
     return session
   }
 
@@ -617,7 +653,7 @@ export class IntegrationGateway {
     if (!session) return
     this.sessions.delete(key)
     if (session.idleTimer) clearTimeout(session.idleTimer)
-    const cache = this.caches.get(key)
+    const cache = this.serverFacts.get(key)
     if (cache) cache.stale = true
     await session.client.close().catch((error) => log.warn('integration_session_close_failed', { integrationId: session.integrationId, error: errorText(error) }))
     log.info('integration_session_closed', { integrationId: session.integrationId })

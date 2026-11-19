@@ -32,6 +32,10 @@ and its decisions are in [`plans/mcp-integrations.md`](plans/mcp-integrations.md
   server's record, so it applies to every person on the host; who may change
   it is the same as who may rename the server. A tool the server adds later
   is on.
+- **Instructions for the agent.** A server can give text that helps an agent
+  use its tools. Open the server row to read it in a closed section. A run gets
+  this text only when that server adds a tool to the run. Solus marks it as
+  server text and limits its length.
 - **Catalog.** The catalog shows the most popular servers first in two
   columns, with the number of matches. More load below as you scroll near
   the end, so the servers you read never move; Show more does the same from
