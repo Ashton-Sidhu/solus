@@ -6,6 +6,7 @@ import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { SessionArchiveWriter } from './sync/sessions/session-archive-writer'
 import { SessionPusher } from './sync/sessions/session-push'
 import { DelegatedSessionRemoteAccess } from './sync/sessions/session-remote-access'
+import { sessionCloudScope } from './sync/sessions/session-cloud-scope'
 import { SessionRepositories } from './sync/sessions/session-repository'
 import { SessionBundleTransfers } from './sync/sessions/session-bundle-transfers'
 import { AGENT_BIN } from '@solus/contracts/types'
@@ -628,6 +629,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const sessionRepositories = new SessionRepositories(join(dataDir(), 'sessions', 'repositories'))
   const sessionBundleTransfers = new SessionBundleTransfers(sessionRepositories)
   let sessionPusher: SessionPusher | null = null
+  let sessionRemoteAccess: DelegatedSessionRemoteAccess | null = null
   const sessionArchive = new SessionArchiveWriter({
     repositories: sessionRepositories,
     onCommit: sessionId => sessionPusher?.committed(sessionId),
@@ -1354,9 +1356,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       // SAFETY: the query selects only the repository column.
       const storage = getDb().prepare('SELECT repository FROM session_storage WHERE session_id = ?').get(sessionId) as { repository: string } | undefined
       const localPath = storage ? join(dataDir(), 'sessions', 'repositories', `${storage.repository}.git`) : null
-      const readAccess = opts.sessionReadAccess
+      const readAccess: SessionReadAccess | undefined = opts.sessionReadAccess ?? (sessionRemoteAccess ? async (readSessionId, readActor) => {
+        const person = insightsAccountOf(readActor)
+        if (person?.id.kind !== 'account') return null
+        const localRecord = await getSessionRecord(ANY_ORGANIZATION, readSessionId)
+        const answer = await sessionRemoteAccess!.remote(readSessionId, sessionCloudScope(localRecord, person.id.accountId), person.id.accountId, 'read')
+        return answer.status === 'ready' ? answer.remote : null
+      } : undefined)
       return chooseSessionRepositorySource(decision.allowed && readAccess
-        ? () => fetchSessionArtifacts(readAccess, localPath, sessionId, actor, have, wantedHead, outFile, signal) : null,
+        ? () => fetchSessionArtifacts(readAccess, localPath, sessionId, actor, sessionPusher?.refusedHead(sessionId) ? null : have, wantedHead, outFile, signal) : null,
       async () => {
         if (!sourceHostId && !decision.allowed && decision.reason === 'person-not-signed-in') throw new SessionSyncError('not-signed-in', 'Sign in or connect to the last run host.')
         if (!sourceHostId) throw new SessionSyncError('no-repository', 'No session repository is available.')
@@ -1612,9 +1620,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       renew: (userId) => userId === hostOrganizations.owner()?.userId ? localClient.renew() : Promise.resolve(),
     })
     delegations = hostDelegations
+    sessionRemoteAccess = new DelegatedSessionRemoteAccess(() => registrar.current(), hostDelegations)
     sessionPusher = new SessionPusher({ repositories: sessionRepositories,
-      access: new DelegatedSessionRemoteAccess(() => registrar.current(), hostDelegations),
+      access: sessionRemoteAccess,
       hostId: () => registrar.current()?.hostId ?? null })
+    opts.sessionRuntime.dispatch.refusedHead = sessionId => sessionPusher?.refusedHead(sessionId) ?? null
     sessionPusher.resume()
     // A member the host object removed may act here no more: their credentials leave
     // the disk and their sessions stop, as when their delegation ends.

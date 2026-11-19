@@ -134,7 +134,10 @@ export class SessionSync {
         await cp(localPath, join(stagingRoot, `${repository}.git`), { recursive: true })
       }
       const staged = new SessionRepositories(stagingRoot, signal)
-      const head = await staged.fetchBundle(repository, fetched.repositoryPath)
+      const refusedRow = z.object({ push_refused_head: z.string().nullable() }).nullish().parse(
+        getDb().prepare('SELECT push_refused_head FROM session_storage WHERE session_id = ?').get(sessionId))
+      const wasRefused = !!refusedRow?.push_refused_head && fetched.source === 'cloud'
+      const head = await staged.fetchBundle(repository, fetched.repositoryPath, wasRefused)
       const manifest = await staged.readManifest(repository, head)
       if (manifest.session.id !== sessionId) throw new SessionSyncError('diverged', 'The bundle names another session.')
       if (local && repository !== sessionRepositoryName(manifest.session.organizationId, sessionId)) throw new SessionSyncError('diverged', 'The bundle names another organization.')
@@ -245,13 +248,13 @@ export class SessionSync {
       signal.throwIfAborted()
       const finalRepository = local?.repository ?? sessionRepositoryName(manifest.session.organizationId, sessionId)
       const finalRepositories = new SessionRepositories(this.deps.repositoryRoot, signal)
-      await finalRepositories.fetchBundle(finalRepository, fetched.repositoryPath)
+      await finalRepositories.fetchBundle(finalRepository, fetched.repositoryPath, wasRefused)
       getDb().prepare('INSERT INTO session_storage (session_id, repository, head, turn_count) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET head = excluded.head, turn_count = excluded.turn_count')
         .run(sessionId, finalRepository, head, manifest.turns.length)
       // Part C adds this column. A fetched cloud head is already pushed.
       // SAFETY: SQLite PRAGMA table_info returns a name for each column.
       if (fetched.source === 'cloud' && (getDb().prepare('PRAGMA table_info(session_storage)').all() as Array<{ name: string }>).some((column) => column.name === 'pushed_head')) {
-        getDb().prepare('UPDATE session_storage SET pushed_head = ? WHERE session_id = ?').run(head, sessionId)
+        getDb().prepare('UPDATE session_storage SET pushed_head = ?, reported_head = ?, push_refused_head = NULL, push_error = NULL WHERE session_id = ?').run(head, head, sessionId)
       }
       if (gitCheckout) this.rt.sessionCheckouts.setSessionGitEnvironment(sessionId, cwd, gitCheckout)
       this.workingDirectories.set(sessionId, cwd)

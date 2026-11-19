@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { SessionRepositoryTokenResponse } from '@solus/contracts/session-repositories'
+import type { HostRegistration } from '@solus/contracts/uplink'
+import type { Delegations } from '@solus/server/sync/delegations'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { actAsHostForTests } = await import('@solus/server/execution/seats/acting-identity')
@@ -24,6 +26,39 @@ const access = async (): Promise<SessionRepositoryTokenResponse> => ({
   head: second, syncedTurn: 2, lastRunHostId: 'host-a', runningHostId: null,
 })
 const signal = new AbortController().signal
+
+// WHY: The real route client must give the cloud fetch a remote for a session this host has not seen.
+test('delegated token route feeds a cloud fetch', async () => {
+  const { DelegatedSessionRemoteAccess } = await import('@solus/server/sync/sessions/session-remote-access')
+  let requests = 0
+  const route = new DelegatedSessionRemoteAccess(
+    // SAFETY: the token route uses only these registration fields.
+    () => ({ hostId: 'host-b', apiUrl: 'https://api.example.invalid/' }) as HostRegistration,
+    // SAFETY: the route uses only accessToken.
+    { accessToken: async () => 'delegation' } as Delegations,
+    async (_url, init) => {
+      requests++
+      expect(init?.method).toBe('POST')
+      return Response.json(await access())
+    },
+  )
+  const result = await fetchSessionArtifacts(async () => {
+    const answer = await route.remote('cloud-test', 'person:person', 'person', 'read')
+    return answer.status === 'ready' ? answer.remote : null
+  }, null, 'cloud-test', HOST_ACTOR, null, second, join(root, 'route'), signal)
+  expect(result).toMatchObject({ state: 'ready', head: second, source: 'cloud' })
+  expect(requests).toBe(1)
+})
+
+// WHY: Adopting the winning cloud head must keep refused local turns reachable for a later fork.
+test('a divergent local head stays under a ref when cloud wins', async () => {
+  const local = new SessionRepositories(join(root, 'refused-local'))
+  const localHead = await local.commit(repository, { expectedHead: null, message: 'local turn', entries: [{ path: 'manifest.json', content: 'local' }] })
+  expect(await local.fetchBundle(repository, remotePath, true)).toBe(second)
+  expect(await local.head(repository)).toBe(second)
+  const { execFileSync } = await import('node:child_process')
+  expect(execFileSync('git', ['--git-dir', join(root, 'refused-local', `${repository}.git`), 'rev-parse', `refs/solus/refused/${localHead}`], { encoding: 'utf8' }).trim()).toBe(localHead)
+})
 
 // WHY: an empty destination must get the full cloud history without a host relay.
 test('cloud source gives a ready bare repository', async () => {

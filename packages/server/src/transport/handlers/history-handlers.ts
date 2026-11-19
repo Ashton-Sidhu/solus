@@ -63,10 +63,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
     if (!meta) meta = record ? sessionMetaFromRecord(record) : null
     if (!meta) return null
-    const storage = !isApiMode() ? z.object({ head: z.string().nullable(), turn_count: z.number() }).nullish().parse(
-      getDb().prepare('SELECT head, turn_count FROM session_storage WHERE session_id = ?').get(sessionId),
+    const storage = !isApiMode() ? z.object({ head: z.string().nullable(), turn_count: z.number(), push_refused_head: z.string().nullable() }).nullish().parse(
+      getDb().prepare('SELECT head, turn_count, push_refused_head FROM session_storage WHERE session_id = ?').get(sessionId),
     ) : null
-    if (!isApiMode()) meta = { ...meta, head: storage?.head ?? null, syncedTurn: storage?.turn_count ?? 0 }
+    if (!isApiMode()) meta = { ...meta, head: storage?.head ?? null, syncedTurn: storage?.turn_count ?? 0, pushRefused: !!storage?.push_refused_head }
     if (!record) return meta
     const described: SessionMeta = { ...meta, organizationId: record.organizationId, publication: record.publication }
     if (record.isLead) described.isLead = true

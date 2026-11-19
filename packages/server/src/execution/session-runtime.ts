@@ -510,6 +510,7 @@ export class SessionRuntime extends EventEmitter {
 
   async runTurn(request: SessionRunRequest, deviceId?: string): Promise<SessionRunLifecycle> {
     if (this.isShuttingDown) throw new Error('The host is shutting down')
+    this.dispatch.assertSessionCurrent(request.sessionId)
     // Existing automation runs, watch wakes, and agent follow-ups drain with
     // their parent work. User submissions, new automation triggers, and new
     // watch probes are gated separately.

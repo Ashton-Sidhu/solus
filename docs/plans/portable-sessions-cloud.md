@@ -656,7 +656,7 @@ writes require edit standing (D4). Sessions use a namespace separate from works
 
 `SessionPusher` in `session-push.ts` owns one host-wide push queue, apart from the turn commit queue. `committed`, `resume`, `established`, `signedOut`, `idle`, `stop`, and `refusedHead` are its public operations. It checks `sessionCloudSyncDecision` before upload. It selects an organization scope only for published organization work; other sessions use the person's scope. It pushes a fixed commit from the local bare repository, confirms the result, then reports the head and turn count. A report is retried without a second push. A remote head that is not an ancestor stops the push for that session. The later prompt gate and Fork action are not in this part.
 
-`session_storage` adds `cloud_scope`, `pushed_head`, `reported_head`, `push_due_at`, `push_attempts`, `push_error`, and `push_refused_head`. The SQLite migration is `0004_session_cloud_push.sql`. The Git push limit is one hour with a 60-second low-speed stall limit. No repository file is held in memory by the push.
+`session_storage` adds `cloud_scope`, `pushed_head`, `reported_head`, `push_due_at`, `push_attempts`, `push_error`, and `push_refused_head`. The SQLite migration is `0005_session_cloud_push.sql`. The Git push limit is one hour with a 60-second low-speed stall limit. No repository file is held in memory by the push.
 
 ### Part D as implemented (2026-11-18)
 
@@ -686,3 +686,15 @@ commit before it serves a bundle. An error or timeout answers the typed
 `drive.prompt` standing, because thread files contain full tool result bodies.
 The cloud token route client and the `pushed_head` migration belong to Part C.
 No Cloudflare credential, deployment, or live service was used for this part.
+
+### Part F as implemented (2026-11-18)
+
+`session-cloud-scope.ts` owns the cloud scope rule for push and read. A host with
+no local session record reads in the acting person's scope. The boot composition
+uses `DelegatedSessionRemoteAccess` for reads; test injection remains available.
+
+`PromptDispatch.admitTurn` checks the durable refused head before it starts a
+provider. It returns `SESSION_DIVERGED` for every prompt route that admits a
+turn. `SessionMeta.pushRefused` exposes the state to clients. A remote-head sync
+keeps the previous local head at `refs/solus/refused/<sha>`, then adopts the
+cloud head and clears the refusal. The local turns remain in that Git history.

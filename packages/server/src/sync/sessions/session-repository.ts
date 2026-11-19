@@ -130,7 +130,7 @@ export class SessionRepositories {
   }
 
   /** Import a bundle only when its main continues the local main. */
-  async fetchBundle(repository: string, bundleFile: string): Promise<string> {
+  async fetchBundle(repository: string, bundleFile: string, preserveLocalHead = false): Promise<string> {
     const localHead = await this.head(repository)
     const staging = sessionRepositoryName('staging', randomUUID())
     const stagingPath = this.path(staging)
@@ -142,12 +142,13 @@ export class SessionRepositories {
       }
       await this.git(staging, ['fetch', bundleFile, 'refs/heads/main'])
       const incomingHead = await this.git(staging, ['rev-parse', 'FETCH_HEAD'])
-      if (localHead) {
+      if (localHead && !preserveLocalHead) {
         const isAncestor = await this.git(staging, ['merge-base', '--is-ancestor', localHead, incomingHead]).then(() => true, () => false)
         if (!isAncestor) throw new SessionBundleDivergedError()
       }
       if (!localHead) await this.open(repository)
       await this.git(repository, ['fetch', bundleFile, 'refs/heads/main'])
+      if (localHead && preserveLocalHead) await this.git(repository, ['update-ref', `refs/solus/refused/${localHead}`, localHead])
       await this.git(repository, ['update-ref', 'refs/heads/main', incomingHead, localHead ?? ZERO_SHA])
         .catch(() => { throw new SessionBundleDivergedError() })
       return incomingHead

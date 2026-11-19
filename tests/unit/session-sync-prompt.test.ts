@@ -1,9 +1,29 @@
-import { expect, test } from 'bun:test'
+import { expect, mock, test } from 'bun:test'
 import type { IpcContext, PromptOptions } from '@solus/contracts/types'
 import { queuePromptAfterSessionSync } from '@solus/server/transport/handlers/session-sync-prompt'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import type { SessionSync } from '@solus/server/execution/sessions/session-sync'
 import type { HandlerCtx, SolusServer } from '@solus/server/transport/server'
+import { HOST_ACTOR } from '@solus/server/admission/actor'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+
+// WHY: All prompt senders share admission, so a refused push must stop before a provider starts.
+test('refused history stops turn admission without a network request', async () => {
+  const { PromptDispatch } = await import('@solus/server/execution/sessions/prompt-dispatch')
+  const dispatch = new PromptDispatch({} as SessionRuntime)
+  dispatch.refusedHead = sessionId => sessionId === 'refused' ? 'remote-head' : null
+  const context = { session: { sessionId: 'refused' } } as IpcContext
+  try {
+    await dispatch.admitTurn(context, HOST_ACTOR)
+    throw new Error('Expected refusal')
+  } catch (error) {
+    expect(error).toMatchObject({ code: 'SESSION_DIVERGED' })
+  }
+  // A fork has its own id and may start from the retained local copy.
+  expect(() => dispatch.assertSessionCurrent('fork')).not.toThrow()
+})
 
 // WHY: an equal head uses the ordinary prompt path with no sync call. A
 // different head accepts the prompt now and sends the same text after sync.
