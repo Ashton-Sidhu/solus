@@ -50,6 +50,7 @@ type PromptDispatchWorkspace = Pick<WorkspaceContext,
   | 'eventReducer'
   | 'focusedSourceId'
   | 'promptComposer'
+  | 'runHosts'
   | 'serverIdFor'
   | 'sessionFor'
   | 'settings'
@@ -202,7 +203,11 @@ export class PromptDispatch {
         // submission to avoid a phantom run that can never be cancelled.
         const session = this.workspace.sessionFor(tabId)
         if (!session) return
-        return api.prompt(ctx, resolved)
+        // The newest head this client knows, read with the session's info
+        // earlier (portable-sessions §7.1). The session continues on this host.
+        const syncFields = this.workspace.runHosts.promptFields(session)
+        this.workspace.runHosts.confirm(session.id)
+        return api.prompt(ctx, { ...resolved, ...syncFields })
           .then(() => {
             // The host accepted the prompt: its durable copy has done its job.
             if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
@@ -257,7 +262,10 @@ export class PromptDispatch {
       sendOutbox.remove(serverId, record.clientPromptId)
       return
     }
+    const session = this.workspace.sessionFor(tabId)
+    const syncFields = session ? this.workspace.runHosts.promptFields(session) : undefined
     const result = await this.workspace.apiFor(tabId).prompt(await this.sendContext(tabId), {
+      ...syncFields,
       prompt: record.payload.prompt,
       displayPrompt: record.payload.displayPrompt || record.text,
       clientPromptId: record.clientPromptId,

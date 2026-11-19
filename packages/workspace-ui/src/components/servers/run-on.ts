@@ -1,16 +1,16 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
-import type { CloneCheckout, CopiedProjectFile, DispatchRepository, GithubDelegatedCredential, IpcContext, ProjectIdentity, RunLocation, Session } from '@solus/contracts/types'
+import { isSessionBusyStatus, type CloneCheckout, type CopiedProjectFile, type DispatchRepository, type GithubDelegatedCredential, type IpcContext, type ProjectIdentity, type RunConfig, type RunLocation, type Session } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { hasSessionStarted } from '../../lib/sessionUtils'
-import { projectHome, runHost, startsWorktree, workingPlace } from '../../contexts/workspace/run-location'
+import { pendingClone, projectHome, runHost, startsWorktree, workingPlace } from '../../contexts/workspace/run-location'
 
 /** Exactly what moving a tab to another host needs from the workspace context. */
 export interface RunOnWorkspace {
   tabOrder: string[]
   sessionFor(tabId: string): Session | undefined
   ctxFor(tabId: string): IpcContext
-  apiFor(tabId: string): { unwatchSession(sessionId: string): Promise<void> }
+  apiFor(tabId: string): Pick<SolusAPI, 'unwatchSession' | 'watchSession'>
   refreshStartTarget(tabId: string, path: string, worktree: boolean): void | Promise<void>
 }
 
@@ -22,13 +22,15 @@ export interface MoveTabToHostOptions {
 }
 
 /**
- * Point a tab's run somewhere new, before anything has started on it.
+ * Point a tab's run somewhere new: before its first send, or between turns of
+ * a started session (docs/plans/portable-sessions.md §10).
  *
- * A *session* never moves between machines — it is created on the host it will
- * live on and stays there. What moves is the tab: its speculative registration
- * on the previously-chosen host is closed, and that host's connection is
- * released once no other tab still needs it. Every caller is therefore
- * pre-start, which is what `isRunOnHostLocked` enforces at the picker.
+ * No host owns a session; the run host changes. The tab stops listening on
+ * the host it leaves, and that host's connection is released once no other
+ * tab still needs it. A started session is watched on the new host at once,
+ * so the sync card and the next turn's events reach this tab. A pending fork
+ * has no session there yet; its first prompt watches it. `isRunOnHostLocked`
+ * keeps the host while a turn runs.
  *
  * Resolves with the Git read of the new folder when the host changed, so Send
  * can wait for the checkout it is about to start in.
@@ -50,6 +52,9 @@ export function moveTabToHost(opts: MoveTabToHostOptions): { ok: true; refreshSt
   session.run.location = location
 
   if (!movingHosts) return { ok: true }
+  if (hasSessionStarted(session) && !session.forked) {
+    void workspace.apiFor(tabId).watchSession({ sessionId: session.id }).catch(() => {})
+  }
   const refreshed = workspace.refreshStartTarget(tabId, workingPlace(session.run).path, startsWorktree(session.run))
   const refreshStartTarget = refreshed instanceof Promise ? refreshed : undefined
   const stillInUse = workspace.tabOrder.some(
@@ -62,9 +67,18 @@ export function moveTabToHost(opts: MoveTabToHostOptions): { ok: true; refreshSt
   return refreshStartTarget ? { ok: true, refreshStartTarget } : { ok: true }
 }
 
-export function isRunOnHostLocked(session: Session | undefined): boolean {
+/**
+ * Whether Run on keeps the tab's host. A started session can change its run
+ * host between turns (plan §10); while a turn runs, or a sent prompt still
+ * waits for its host, every prompt goes to the host that runs it (§4 decision 5).
+ */
+export function isRunOnHostLocked(session: Pick<Session, 'status' | 'outboundPrompts' | 'readOnlyReason'> | undefined): boolean {
   // A tab with no session at all has no host to move, so it is locked too.
-  return !session || hasSessionStarted(session)
+  if (!session) return true
+  return isSessionBusyStatus(session.status)
+    || session.status === 'background'
+    || (session.outboundPrompts?.length ?? 0) > 0
+    || !!session.readOnlyReason
 }
 
 export interface RunOnPickerVisibility {
@@ -115,6 +129,30 @@ export function dispatchRepository(clone: CloneCheckout): DispatchRepository | n
   // branch. A run on the default branch works in the checkout itself.
   if (start.kind === 'new-worktree') return start.baseBranch ? { cloneUrl, newWorktree: true, baseBranch: start.baseBranch } : { cloneUrl, newWorktree: true }
   return clone.defaultBranch ? { cloneUrl, baseBranch: clone.defaultBranch } : { cloneUrl }
+}
+
+/**
+ * The repository a host needs to sync a started session when it has no
+ * checkout of the project (plan §19, Part D): the one a Run on send builds,
+ * with the client's GitHub credential and the copied files. A clone run
+ * names it; a folder run names it by the project's repository key. Undefined
+ * for a chat or a project with no remote.
+ */
+export async function syncRepository(
+  run: Pick<RunConfig, 'location'>,
+  repoKey: string | null,
+): Promise<DispatchRepository | undefined> {
+  const clone = pendingClone(run)
+  const cloneUrl = !clone && repoKey ? cloneUrlForRepoKey(repoKey) : null
+  const repository = clone ? dispatchRepository(clone) : cloneUrl ? { cloneUrl } : null
+  if (!repository) return undefined
+  const [credential, files] = await Promise.all([
+    delegatedGithubCredential(runHost(run)),
+    copiedProjectFiles(run),
+  ])
+  if (credential) repository.credential = credential
+  if (files.length > 0) repository.files = files
+  return repository
 }
 
 /**

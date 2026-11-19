@@ -52,6 +52,7 @@ describe('restored tab metadata', () => {
       tabOrder: [tab.id],
       tabs: { [tab.id]: tab },
       sessionFor: () => session,
+      runHosts: { persistedLocation: (saved: { run: { location: unknown } }) => saved.run.location },
     } as never)
 
     expect(snapshot[0]).toMatchObject({
@@ -78,6 +79,7 @@ describe('restored tab metadata', () => {
       tabOrder: [tab.id],
       tabs: { [tab.id]: tab },
       sessionFor: () => session,
+      runHosts: { persistedLocation: (saved: { run: { location: unknown } }) => saved.run.location },
     } as never)
 
     expect(snapshot[0]?.status).toBe('idle')
@@ -110,6 +112,7 @@ describe('restored tab metadata', () => {
       tabOrder: [tab.id],
       tabs: { [tab.id]: tab },
       sessionFor: () => session,
+      runHosts: { persistedLocation: (saved: { run: { location: unknown } }) => saved.run.location },
     } as never)
 
     expect(session.organizationId).toBe('org')

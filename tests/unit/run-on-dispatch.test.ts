@@ -40,6 +40,9 @@ const MAIN = { branch: 'main', targetBranch: 'main', repoRoot: '/home/dev/solus'
 function workspaceWith(location: RunLocation = folderLocation(HOME)) {
   const built = {
     id: 'session-1',
+    agentSessionId: null,
+    messages: [],
+    status: 'idle',
     run: { location },
     task: { kind: 'existing', taskId: 'old-project-task' },
   } as Session

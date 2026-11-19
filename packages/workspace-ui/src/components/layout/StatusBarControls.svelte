@@ -17,7 +17,8 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { MiddleTruncate } from "@solus/workspace-ui/components/ui/middle-truncate";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { checkoutGit, checkoutPlace, cloneBaseBranch, pendingClone, startsWorktree, workingPlace, worktreeBaseBranch } from "../../contexts/workspace/run-location";
+  import { checkoutGit, checkoutPlace, cloneBaseBranch, pendingClone, runHost, startsWorktree, workingPlace, worktreeBaseBranch } from "../../contexts/workspace/run-location";
+  import { hasSessionStarted } from "../../lib/sessionUtils";
 
   interface Props {
     active: boolean;
@@ -182,7 +183,9 @@
   /** Every destination choice this row offers lands on whichever the source is:
    *  a started session's run, or the draft's, where nothing starts until Send. */
   function applyRun(next: RunConfig) {
-    if (sess) sess.run = next;
+    // A started session changes its run host between turns, with a sync there.
+    if (sess && hasSessionStarted(sess) && runHost(next) !== runHost(sess.run)) session.runHosts.change(source, next.location);
+    else if (sess) sess.run = next;
     else draft?.applyRun(next);
   }
 

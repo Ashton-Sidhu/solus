@@ -16,6 +16,22 @@ export interface SessionRecordMeta {
   runnerHostId: string | null
 }
 
+/** Hears each session metadata that a host answered, with the host it came from. */
+export type SessionMetaReadListener = (serverId: string, meta: SessionMeta) => void
+
+const metaReadListeners = new Set<SessionMetaReadListener>()
+
+/**
+ * Hear every session metadata the batching reader gets from a host. A store
+ * that keeps facts from session info (the session repository head of each
+ * host, docs/plans/portable-sessions.md §9) learns them here, from the reads
+ * that already happen, and makes no request of its own.
+ */
+export function onSessionMetaRead(listener: SessionMetaReadListener): () => void {
+  metaReadListeners.add(listener)
+  return () => metaReadListeners.delete(listener)
+}
+
 interface PendingSessionMeta {
   resolve(read: SessionRecordMeta): void
 }
@@ -61,6 +77,7 @@ class SessionMetaReader {
       // The workspace service answers the runner in `serverId`; stamping names the host read from.
       const runnerHostId = isSolusApiId(serverId) ? answered?.serverId ?? null : null
       const meta = stampSessionMeta(answered, serverId)
+      if (meta) for (const listener of metaReadListeners) listener(serverId, meta)
       for (const listener of pending.get(sessionId) ?? []) listener.resolve({ meta, runnerHostId })
     }
   }

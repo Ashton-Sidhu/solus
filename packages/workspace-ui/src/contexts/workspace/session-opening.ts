@@ -63,6 +63,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'projectPageScope'
   | 'moveChatSurfaceToMain'
   | 'revealConversation'
+  | 'runHosts'
   | 'router'
   | 'runFor'
   | 'selectTab'
@@ -153,7 +154,8 @@ export class SessionOpening {
       forkedFromSessionId: null,
       messages: copiedMessages,
       additionalDirs: [...sourceSession.additionalDirs],
-      // A fork runs exactly where its source does.
+      // A fork runs where its source does until the person picks another
+      // host in Run on; that host syncs the source first (plan §10).
       run: {
         ...sourceSession.run,
         modelConfig: { ...sourceSession.run.modelConfig },
@@ -165,6 +167,7 @@ export class SessionOpening {
     })
 
     forkedSession.title = `Fork: ${originalTitle}`
+    forkedSession.forkSourceSessionId = sourceSession.id
     const forkTab = makeTab(forkedSession.id, { id: tabId })
 
     this.workspace.sessions.byId[forkedSession.id] = forkedSession
@@ -331,7 +334,8 @@ export class SessionOpening {
       this.workspace.openSessionRecord(meta.sessionId, meta.serverId)
       return ''
     }
-    const selectedApi = serverConnections.apiFor(meta.serverId)
+    const selectedServerId = meta.serverId
+    const selectedApi = serverConnections.apiFor(selectedServerId)
     if (!opts?.intoTabId) this.prefetchFirstPage(meta)
     // `meta.sessionId` is the session id; its lineage names the thread to read
     // (docs/plans/session-identity.md).
@@ -472,6 +476,9 @@ export class SessionOpening {
     }
     this.workspace.adoptSessionId(tabId, resumedSessionId)
     if (!background && !intoTabId) this.workspace.revealConversation()
+    // A host that is behind gets ready before the person sends (portable-sessions §10).
+    sessionListStore.noteSessionMeta(selectedServerId, meta)
+    this.workspace.runHosts.opened(tabId)
 
     // The watch also attaches to the live runtime, which is what a separate
     // bind used to do after it.

@@ -81,6 +81,25 @@ describe('references to a machine that is gone', () => {
     expect(closed).toEqual(['managed:gone'])
   })
 
+  test('a started tab on a gone machine runs next on a host that holds a copy of its session', () => {
+    // WHY: docs/plans/portable-sessions.md §4. No host owns a session: when
+    // another host has synced it, forgetting one machine does not close the
+    // conversation; it continues where a copy is. A copy on a gone host is no copy.
+    const closed: string[] = []
+    const movedTo: string[] = []
+    const tab = (serverId: string, copyHostIds: string[]): StartedTab => ({
+      run: run(serverId),
+      close: () => closed.push(serverId),
+      copyHostIds,
+      runOn: (target) => movedTo.push(target),
+    })
+
+    reconcileMachineReferences(owner(null, [], [tab('managed:gone', ['managed:gone', 'laptop']), tab('managed:gone', ['managed:other'])]), presenceOf, () => false)
+
+    expect(movedTo).toEqual(['laptop'])
+    expect(closed).toEqual(['managed:gone'])
+  })
+
   test('a started tab on a turned-off local host stays open and unstarted work there moves', () => {
     // WHY: docs/plans/desktop-remote-only.md. The host is off, not removed: its tab
     // restores when it comes back. A draft must be able to run, so it moves.

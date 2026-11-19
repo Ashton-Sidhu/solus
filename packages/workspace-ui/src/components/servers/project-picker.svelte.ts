@@ -10,7 +10,8 @@ import { toasts } from '../../lib/toasts'
 import { hostOnboardingStore } from './host-onboarding.store.svelte'
 import type { HostOption, ProjectSource } from './lib/open-project-flow'
 import { openProjectStore } from './open-project.store.svelte'
-import { isRunOnHostLocked, moveTabToHost } from './run-on'
+import { moveTabToHost } from './run-on'
+import { hasSessionStarted } from '../../lib/sessionUtils'
 import { checkoutPlace, openFolder, runHost } from '../../contexts/workspace/run-location'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 
@@ -294,7 +295,7 @@ export function createProjectPicker(session: WorkspaceContext) {
     const requesterDraft = tabId ? session.drafts.sessionDrafts.get(tabId) : undefined
     // A started session keeps its folder — the project opens beside it instead.
     const reusableTabId =
-      !requesterDraft && tabId && session.tabs[tabId] && !isRunOnHostLocked(session.sessionFor(tabId))
+      !requesterDraft && tabId && session.tabs[tabId] && !hasSessionStarted(session.sessionFor(tabId))
         ? tabId
         : null
     // A reusable tab is moved across; with none, the project opens as a draft

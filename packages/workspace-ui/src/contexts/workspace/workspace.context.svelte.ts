@@ -79,6 +79,7 @@ import { isWaitingForHost } from '@solus/client-core/host-readiness'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
+import { RunHostChanges } from './run-host-changes'
 import { hostKey } from '@solus/client-core/host-key'
 import { workPolicy } from '../policy/work-policy.svelte'
 import { isPristineSplitTab } from '../../lib/split-chat'
@@ -195,6 +196,8 @@ export class WorkspaceContext implements SurfaceContext {
   readonly opening: SessionOpening
   readonly drafts: SessionDrafts
   readonly dispatch: PromptDispatch
+  /** A started session's run host changes between turns (docs/plans/portable-sessions.md §10). */
+  readonly runHosts: RunHostChanges
   lifecycle: WorkspaceLifecycleStore
   pendingInput = $state<string | null>(null)
   eventReducer: SessionEventReducer
@@ -246,6 +249,9 @@ export class WorkspaceContext implements SurfaceContext {
     this.opening = new SessionOpening(this)
     this.drafts = new SessionDrafts(this)
     this.dispatch = new PromptDispatch(this)
+    this.runHosts = new RunHostChanges(this, (tabId) => {
+      void this.environment.refreshEnvironment(this, { sourceId: tabId, level: 'full', force: true }).catch(() => null)
+    })
     this.settings = settings
     // Background work captures the person's preferences when it is made (plans/018 §6).
     this.automationsStore.executionPreferences = () => settings.executionPreferences

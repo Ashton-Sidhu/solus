@@ -171,6 +171,7 @@ function cloneRunHarness() {
   })
   const workspace = {
     tabs: { 'tab-1': { id: 'tab-1', sessionId: session.id } },
+    runHosts: { promptFields: () => ({}), confirm: () => {} },
     tabOrder: ['tab-1'],
     activeTabId: 'tab-1',
     focusedSourceId: null,

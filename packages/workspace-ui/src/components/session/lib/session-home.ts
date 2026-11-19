@@ -14,6 +14,9 @@
 export interface SessionHomeHosts {
   isSolusApi(serverId: string | null | undefined): boolean
   isConnected(serverId: string | null | undefined): boolean
+  /** Of the connected hosts that list one session, the one that has its newest
+   *  turn (docs/plans/portable-sessions.md §9). Absent or null: the first. */
+  newestHostOf?(sessionId: string, serverIds: readonly string[]): string | null
 }
 
 export interface SessionHomeRow {
@@ -51,7 +54,12 @@ export function mergeSessionHomes<Row extends SessionHomeRow>(rows: readonly Row
     const group = entry.homes
     const runners = group.filter((row) => !hosts.isSolusApi(row.serverId))
     const record = group.find((row) => hosts.isSolusApi(row.serverId))
-    const connectedRunner = runners.find((row) => hosts.isConnected(row.serverId))
+    // A session whose run host changed is on two machines; the newer copy is the row.
+    const connectedRunners = runners.filter((row) => hosts.isConnected(row.serverId))
+    const newest = connectedRunners.length > 1
+      ? hosts.newestHostOf?.(entry.sessionId, connectedRunners.map((row) => row.serverId!)) ?? null
+      : null
+    const connectedRunner = connectedRunners.find((row) => row.serverId === newest) ?? connectedRunners[0]
     if (connectedRunner) {
       merged.push(connectedRunner)
       continue

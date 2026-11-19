@@ -1,0 +1,221 @@
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import type { DispatchRepository, RunLocation, Session, SessionMeta } from '@solus/contracts/types'
+import type { SessionPrepareRequest, SessionPrepareResult } from '@solus/contracts/rpc'
+import { withSessionHostTurn, type SessionHostTurn } from '@solus/client-core/session-heads'
+import { singleHostServerConnections } from './helpers/server-connections-mock'
+
+const connectionCalls: string[] = []
+mock.module('@solus/client-core/server-connections', () => ({
+  serverConnections: {
+    ...singleHostServerConnections(),
+    retain: (id: string) => connectionCalls.push(`retain:${id}`),
+    unretain: (id: string) => connectionCalls.push(`unretain:${id}`),
+    release: (id: string) => connectionCalls.push(`release:${id}`),
+    ensure: (id: string) => connectionCalls.push(`ensure:${id}`),
+    localServerId: () => 'local',
+  },
+}))
+mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({ serversStore: {} }))
+mock.module('@solus/workspace-ui/contexts/workspace/session-list.store.svelte', () => ({ sessionListStore: {} }))
+const runes = globalThis as unknown as { $state?: unknown; $derived?: unknown }
+const previousRunes = { $state: runes.$state, $derived: runes.$derived }
+runes.$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value, raw: <T>(value: T) => value })
+runes.$derived = Object.assign(<T>(value: T) => value, { by: <T>(fn: () => T) => fn() })
+afterAll(() => Object.assign(runes, previousRunes))
+
+const { RunHostChanges } = await import('@solus/workspace-ui/contexts/workspace/run-host-changes')
+const { isRunOnHostLocked } = await import('@solus/workspace-ui/components/servers/run-on')
+const { folderLocation, openFolder, runHost, workingPlace } = await import('@solus/workspace-ui/contexts/workspace/run-location')
+
+// A started session's run host changes between turns
+// (docs/plans/portable-sessions.md §10). The pick moves the tab at once; the
+// new host syncs in the background; the prompt carries the newest head.
+
+const ON_A = folderLocation({ serverId: 'host-a', path: '/a/solus' })
+const ON_B = openFolder(ON_A, { serverId: 'host-b', path: '/b/solus' })
+const REPOSITORY: DispatchRepository = { cloneUrl: 'https://github.com/solus-sh/solus.git' }
+
+function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareResult?: SessionPrepareResult } = {}) {
+  let turns: readonly SessionHostTurn[] = opts.turns ?? [{ serverId: 'host-a', head: 'head-3', syncedTurn: 3 }]
+  const session = {
+    id: opts.forked ? 'fork-1' : 'session-1',
+    agentSessionId: 'thread-1',
+    forked: !!opts.forked,
+    forkSourceSessionId: opts.forked ? 'session-1' : null,
+    messages: [{ id: 'm1' }],
+    status: 'idle',
+    outboundPrompts: [],
+    readOnlyReason: null,
+    run: { location: ON_A },
+  } as unknown as Session
+  const prepared: Array<{ serverId: string; request: SessionPrepareRequest }> = []
+  const watched: string[] = []
+  const reads: string[] = []
+  const metaByHost = new Map<string, SessionMeta>()
+  const refreshed: string[] = []
+  const workspace = {
+    tabOrder: ['tab-1'],
+    sessionFor: () => session,
+    ctxFor: () => ({}) as never,
+    apiFor: () => ({
+      unwatchSession: async () => {},
+      watchSession: async () => { watched.push(runHost(session.run)); return {} },
+    }) as never,
+    refreshStartTarget: () => {},
+    tabIdForSession: () => 'tab-1',
+  }
+  const changes = new RunHostChanges(workspace, (tabId) => { refreshed.push(tabId) }, {
+    resolveId: (serverId) => serverId,
+    hostTurnsFor: () => turns,
+    readMeta: async (serverId, sessionId) => {
+      reads.push(`${serverId}:${sessionId}`)
+      const meta = metaByHost.get(serverId) ?? null
+      if (meta?.syncedTurn !== undefined) turns = withSessionHostTurn(turns, { serverId, head: meta.head ?? null, syncedTurn: meta.syncedTurn })
+      return meta
+    },
+    prepare: async (serverId, request) => {
+      prepared.push({ serverId, request })
+      return opts.prepareResult ?? { state: 'started' }
+    },
+    hostRef: (serverId) => `installation-of-${serverId}`,
+    repoKeyOf: () => 'github.com/solus-sh/solus',
+    repository: async () => ({ ...REPOSITORY }),
+  })
+  return { changes, session, prepared, watched, reads, metaByHost, refreshed, setTurns: (next: SessionHostTurn[]) => { turns = next } }
+}
+
+async function settle(): Promise<void> {
+  for (let i = 0; i < 20; i++) await Promise.resolve()
+}
+
+beforeEach(() => {
+  connectionCalls.length = 0
+})
+
+describe('Run on for a started session', () => {
+  test('is open between turns and locked while a turn runs', () => {
+    // WHY: no host owns a session (§4 decision 3), but one turn runs at a time
+    // and its prompts go to the host that runs it (§4 decision 5).
+    const idle = { status: 'idle', outboundPrompts: [], readOnlyReason: null } as unknown as Session
+    expect(isRunOnHostLocked(idle)).toBe(false)
+    expect(isRunOnHostLocked({ ...idle, status: 'completed' })).toBe(false)
+    expect(isRunOnHostLocked({ ...idle, status: 'running' })).toBe(true)
+    expect(isRunOnHostLocked({ ...idle, status: 'connecting' })).toBe(true)
+    expect(isRunOnHostLocked({ ...idle, status: 'background' })).toBe(true)
+    // A prompt that still waits for its host goes to that host.
+    expect(isRunOnHostLocked({ ...idle, outboundPrompts: [{ clientPromptId: 'p' }] } as unknown as Session)).toBe(true)
+    expect(isRunOnHostLocked(undefined)).toBe(true)
+  })
+
+  test('a pick moves the tab at once and prepares the new host with the newest head, its host, and the repository', async () => {
+    // WHY: the pick must not wait for the network (flow first). The new host
+    // gets what it needs to sync without a checkout of its own.
+    const { changes, session, prepared, watched, reads } = harness()
+    expect(changes.change('tab-1', ON_B)).toBe(true)
+    // Synchronous: the tab is on the new host before any reply.
+    expect(runHost(session.run)).toBe('host-b')
+    expect(connectionCalls).toContain('retain:host-b')
+    await settle()
+    // The new host hears this session's sync card and next turn.
+    expect(watched).toEqual(['host-b'])
+    // The newest host is read once, for a head newer than the client saw.
+    expect(reads).toEqual(['host-a:session-1'])
+    expect(prepared).toEqual([{
+      serverId: 'host-b',
+      request: { sessionId: 'session-1', knownHead: 'head-3', sourceHostId: 'installation-of-host-a', repository: REPOSITORY },
+    }])
+  })
+
+  test('a host that is current already is adopted where it keeps the session', async () => {
+    // WHY: a host that ran the session before has its own worktree there; the
+    // next turn must run in it, not in the project folder the pick named.
+    const { changes, session, metaByHost, refreshed } = harness({ prepareResult: { state: 'current', head: 'head-3' } })
+    metaByHost.set('host-b', { sessionId: 'session-1', cwd: '/b/solus/.worktrees/s1', head: 'head-3', syncedTurn: 3 } as SessionMeta)
+    changes.change('tab-1', ON_B)
+    await settle()
+    expect(workingPlace(session.run)).toEqual({ serverId: 'host-b', path: '/b/solus/.worktrees/s1' })
+    expect(refreshed).toEqual(['tab-1'])
+  })
+
+  test('the sync card that ends done adopts the new host', async () => {
+    const { changes, session, metaByHost } = harness()
+    metaByHost.set('host-b', { sessionId: 'session-1', cwd: '/b/restored', head: 'head-3', syncedTurn: 3 } as SessionMeta)
+    changes.change('tab-1', ON_B)
+    await settle()
+    changes.syncCardChanged('host-b', 'session-1', { id: 'session-sync-session-1', title: '', status: 'done', steps: [] })
+    await settle()
+    expect(workingPlace(session.run).path).toBe('/b/restored')
+  })
+})
+
+describe('what a prompt carries', () => {
+  test('the newest head and the host that has it, when the run host is behind', () => {
+    // WHY: §7.1. The host compares the head with its own and syncs first; the
+    // client makes no request on the send path for it.
+    const { changes, session } = harness()
+    session.run.location = ON_B
+    expect(changes.promptFields(session)).toEqual({ knownHead: 'head-3', sourceHostId: 'installation-of-host-a' })
+  })
+
+  test('nothing when the run host has the newest turn', () => {
+    const { changes, session } = harness()
+    expect(changes.promptFields(session)).toEqual({})
+  })
+})
+
+describe('a restored tab', () => {
+  test('keeps the host that has the conversation until the new host is current, then the new host', async () => {
+    // WHY: a reload before the sync would restore a tab on a host with no copy
+    // of its conversation, and show it empty.
+    const { changes, session } = harness()
+    changes.change('tab-1', ON_B)
+    expect(changes.persistedLocation(session)).toBe(ON_A)
+    changes.confirm(session.id)
+    expect(changes.persistedLocation(session)).toBe(session.run.location)
+    expect(runHost({ location: changes.persistedLocation(session) as RunLocation })).toBe('host-b')
+  })
+
+  test('a pick back to the host it came from needs no confirmation', () => {
+    const { changes, session } = harness()
+    changes.change('tab-1', ON_B)
+    changes.change('tab-1', openFolder(ON_B, { serverId: 'host-a', path: '/a/solus' }))
+    expect(runHost({ location: changes.persistedLocation(session) })).toBe('host-a')
+  })
+})
+
+describe('a fork on another host', () => {
+  test('prepares the source session there and sends its first prompt with the source facts', async () => {
+    // WHY: decision 14. The fork is made from the source thread, so the new
+    // host syncs the source session first; a fork on the source host is as today.
+    const { changes, session, prepared, watched } = harness({ forked: true })
+    expect(changes.promptFields(session)).toEqual({})
+    changes.change('tab-1', ON_B)
+    await settle()
+    // The fork has no session on the new host until its first prompt.
+    expect(watched).toEqual([])
+    expect(prepared[0]?.request.sessionId).toBe('session-1')
+    expect(changes.promptFields(session)).toEqual({
+      knownHead: 'head-3',
+      sourceHostId: 'installation-of-host-a',
+      forkSourceSessionId: 'session-1',
+    })
+    // A pending fork keeps its pick across a reload: it has no conversation anywhere yet.
+    expect(changes.persistedLocation(session)).toBe(session.run.location)
+  })
+})
+
+describe('opening a session', () => {
+  test('prepares a run host that is behind, and asks nothing of one that is current', async () => {
+    // WHY: §10. A host that ran the session before is ready when the person sends.
+    const current = harness()
+    current.changes.opened('tab-1')
+    await settle()
+    expect(current.prepared).toEqual([])
+
+    const behind = harness({ turns: [{ serverId: 'host-a', head: 'head-3', syncedTurn: 3 }, { serverId: 'host-b', head: 'head-2', syncedTurn: 2 }] })
+    behind.session.run.location = ON_B
+    behind.changes.opened('tab-1')
+    await settle()
+    expect(behind.prepared.map((entry) => entry.serverId)).toEqual(['host-b'])
+  })
+})

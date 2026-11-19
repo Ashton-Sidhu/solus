@@ -47,3 +47,14 @@ describe('merging a session across its homes', () => {
     expect(merged[1]).toBe(draft)
   })
 })
+
+describe('a session whose run host changed', () => {
+  test('two connected hosts list it: the picker shows the one with the newest turn', () => {
+    // WHY: docs/plans/portable-sessions.md §9. The same session id is on both
+    // machines after a sync; the row opens the copy that has the newest turn.
+    const withNewest: SessionHomeHosts = { ...hosts(['mac', 'linux']), newestHostOf: () => 'linux' }
+    expect(mergeSessionHomes([row('s1', 'mac'), row('s1', 'linux')], withNewest)).toEqual([row('s1', 'linux')])
+    // No facts: the first connected host, as before.
+    expect(mergeSessionHomes([row('s1', 'mac'), row('s1', 'linux')], hosts(['mac', 'linux']))).toEqual([row('s1', 'mac')])
+  })
+})

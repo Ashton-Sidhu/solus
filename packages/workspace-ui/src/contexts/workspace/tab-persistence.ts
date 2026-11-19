@@ -27,11 +27,16 @@ export interface PersistedTab {
   projectInstallationId?: string
   agentSessionId: string | null
   /** A pending fork owns no provider thread yet. Keep its preview until send. */
-  pendingFork?: { messages: Message[]; excludeLatestTurn: boolean }
+  /** `sourceSessionId`: the session the fork branches from, which a fork on
+   *  another host syncs first (docs/plans/portable-sessions.md §10). */
+  pendingFork?: { messages: Message[]; excludeLatestTurn: boolean; sourceSessionId?: string }
   forkedFromSessionId?: string | null
   provider: AgentId | null
   handoffFrom?: SessionHandoffLineage
-  /** Where the run works. Its checkout's host routes the tab. */
+  /** Where the run works. Its checkout's host routes the tab. After a Run on
+   *  change of a started session, the new host is saved once it is current
+   *  (`RunHostChanges.persistedLocation`); until then the host that has the
+   *  conversation is. */
   location: RunLocation
   additionalDirs: string[]
   modelConfig: ModelConfig

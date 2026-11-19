@@ -359,6 +359,7 @@ function _materializeTabs(
         // by session, so a restored split pane has to find the same one back.
         agentSessionId: snapTab.agentSessionId,
         forked: !!snapTab.pendingFork,
+        forkSourceSessionId: snapTab.pendingFork?.sourceSessionId ?? null,
         forkExcludeLatestTurn: snapTab.pendingFork?.excludeLatestTurn ?? false,
         forkedFromSessionId: snapTab.forkedFromSessionId ?? null,
         messages: snapTab.pendingFork?.messages ?? [],

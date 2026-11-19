@@ -41,8 +41,10 @@ export interface MachineReferenceOwner {
   /** Runs nothing has happened in yet, each with the command that moves it
    *  through its owner, so a moved draft reads its new checkout. */
   unstartedRuns(): { run: RunConfig; moveTo(next: RunLocation): void }[]
-  /** Tabs something has happened in, each with the command that closes it. */
-  startedTabs(): { run: RunConfig; close(): void }[]
+  /** Tabs something has happened in, each with the command that closes it,
+   *  the hosts known to hold a copy of its session, and the command that makes
+   *  one of them its run host (docs/plans/portable-sessions.md §10). */
+  startedTabs(): { run: RunConfig; close(): void; copyHostIds?: readonly string[]; runOn?(serverId: string): void }[]
   /** Where a new session starts once the remembered project is cleared. */
   readonly defaultRunConfig: RunConfig
   /** The project lists kept from each host's last read. */
@@ -64,10 +66,11 @@ export interface MachineReferenceOwner {
  *   move to, it stays: there is nothing better to point it at, and its Run-on
  *   chip asks for a machine.
  * - A draft opened from a task keeps the task's home unless that is gone too.
- * - A started tab closes. Forgetting a machine takes its conversations with it;
- *   an organization session is still in the list its Solus API keeps. A tab on a
- *   host that is only turned off stays, and restores when the host comes back
- *   (docs/plans/desktop-remote-only.md).
+ * - A started tab whose session another host holds runs there next: no host
+ *   owns a session (portable-sessions §4). Else it closes. Forgetting a machine
+ *   takes the conversations only it held; an organization session is still in
+ *   the list its Solus API keeps. A tab on a host that is only turned off
+ *   stays, and restores when the host comes back (docs/plans/desktop-remote-only.md).
  *
  * Call it only once the saved hosts are authoritative — after a directory read
  * succeeded, or when there is no directory — so a failed read never throws
@@ -88,7 +91,10 @@ export function reconcileMachineReferences(
   }
 
   for (const tab of owner.startedTabs()) {
-    if (isGone(runHost(tab.run)) && !isTurnedOff(runHost(tab.run))) tab.close()
+    if (!isGone(runHost(tab.run)) || isTurnedOff(runHost(tab.run))) continue
+    const copyHostId = tab.copyHostIds?.find((serverId) => !isGone(serverId))
+    if (copyHostId && tab.runOn) tab.runOn(copyHostId)
+    else tab.close()
   }
 
   const orphaned = owner.unstartedRuns().filter(({ run }) => isGone(runHost(run)))
