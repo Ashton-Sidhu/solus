@@ -177,6 +177,16 @@ Every machine's server starts the sweep in `bootCore`. The desktop defers it
 until its window first paints (`deferSessionIndex`, then `startSessionIndex()`).
 The Solus API has no sweep and always answers `indexing: false`.
 
+## A session on two hosts
+
+A session can run its turns on more than one host
+([Portable sessions](plans/portable-sessions.md)). Each host that ran it, or
+synced it, lists it under the same session id. The list, the picker, and search
+show it once, from the host with the higher `syncedTurn` (the head facts that
+`getSessionInfos` gives). When the list sees one session on two homes, it reads
+each home's session info once to learn them; the rule is `listedSessionHost` in
+`client-core/session-heads.ts`.
+
 ## Known difference
 
 The record list has one row per session: a session that changed provider is

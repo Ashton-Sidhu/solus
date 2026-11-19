@@ -1216,6 +1216,9 @@ export interface Session {
   forkedFromSessionId: string | null
   /** True until the fork initializes, so the provider branches from agentSessionId. */
   forked: boolean
+  /** The Solus session a pending fork branches from. A fork that runs on another
+   *  host syncs this session there first (docs/plans/portable-sessions.md §10). */
+  forkSourceSessionId?: string | null
   /** True when the fork was requested during an active source turn. The provider
    *  must omit that latest turn when it creates the fork, if it supports a cutoff. */
   forkExcludeLatestTurn?: boolean

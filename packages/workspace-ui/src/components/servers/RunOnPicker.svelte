@@ -48,9 +48,9 @@
     /** Correlates the async pairing flow back to this picker. A tab id for a
      *  conversation, a draft id for a draft — any stable id serves. */
     requesterId: string;
-    /** Whether the host is fixed. A started session's is; a draft's never is.
-     *  The two variants disagree on the no-session case, so the caller decides
-     *  rather than this picker guessing. */
+    /** Whether the host is fixed. A started session's is while a turn runs
+     *  (`isRunOnHostLocked`); a draft's never is. The caller decides rather
+     *  than this picker guessing. */
     locked?: boolean;
     /**
      * Where the next session will run, after this picker changes it. Nothing
@@ -401,7 +401,7 @@
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content
-        value={`Runs on ${selectedServer ? hostLabel(selectedServer) : "an unknown host"} — sessions stay on the host they started on`}
+        value={`Runs on ${selectedServer ? hostLabel(selectedServer) : "an unknown host"} — the host can change when no turn runs`}
       />
     </TooltipUI.Root>
   {:else}
@@ -472,7 +472,7 @@
                 {/snippet}
               </TooltipUI.Trigger>
               <TooltipUI.Content
-                value={`Where the next session runs — now: ${hostLabel(selectedServer)}${draft?.balance === "chosen" ? " · chosen by Auto balance" : draft?.balance === "unavailable" ? " · Auto balance unavailable, choose a host" : ""}`}
+                value={`${draft ? "Where the next session runs" : "Where the next turn runs"} — now: ${hostLabel(selectedServer)}${draft?.balance === "chosen" ? " · chosen by Auto balance" : draft?.balance === "unavailable" ? " · Auto balance unavailable, choose a host" : ""}`}
               />
             </TooltipUI.Root>
           {:else}

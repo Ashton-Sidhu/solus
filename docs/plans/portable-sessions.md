@@ -1,6 +1,6 @@
 # Portable sessions
 
-Status: phase 1 implemented, 2026-11-18, on branch `solus/portable-sessions` (§17). Phase 0 ran on 2026-11-18 (§18): the two provider tests passed. Phase 2 is in progress (§19).
+Status: phase 1 implemented, 2026-11-18, on branch `solus/portable-sessions` (§17). Phase 0 ran on 2026-11-18 (§18): the two provider tests passed. Phase 2 is in progress (§19). Phase 4A (desktop and web clients) is implemented (§20).
 
 Related: [Run location](run-location.md) (run host, checkout),
 [Session identity](session-identity.md) (session id, thread id, lineage),
@@ -853,3 +853,134 @@ session keeps its own id and first turn repository. The writer records the
 new thread's files and marks its first lineage member `fork`. The optional
 `forkedFrom` manifest field is deferred: the writer does not receive the
 source session id and exact source turn count at the fork point.
+
+## 20. Phase 4A as implemented (2026-11-18)
+
+Desktop and web (`packages/workspace-ui/`, `packages/client-core/`). No server
+change; mobile is the next part and reuses the client-core modules below.
+
+### What the client does
+
+- **Run on is open for a started session** between turns.
+  `isRunOnHostLocked` (`components/servers/run-on.ts`) locks it only while a
+  turn runs (`isSessionBusyStatus`, or `background`), while a sent prompt
+  still waits for its host (`outboundPrompts`), or when the session is read
+  only. A started session had no Run on control in the composer; it now has
+  one row under the composer card (`components/input/RunHostRow.svelte`), at
+  the place where a draft's destination strip is.
+- **One owner for a run host change**: `RunHostChanges`
+  (`contexts/workspace/run-host-changes.ts`, `workspace.runHosts`). A pick
+  calls `moveTabToHost` at once: the tab's location changes, the old host is
+  unwatched and released, the new host is retained and watched (a pending
+  fork is not watched; its first prompt watches it). Then, in the
+  background, it reads the session info of the host that has the newest turn
+  once (its head changes with each turn), and calls `sessionPrepare` on the
+  new host with `knownHead`, `sourceHostId`, and `repository`. The
+  repository is the one a Run on send builds (`syncRepository` in
+  `run-on.ts`): the clone's repository, or `cloneUrl` from the project's
+  repository key, with the client's GitHub credential and the copied files.
+  Nothing waits for it; focus stays in the composer.
+- **Adopting the run host.** When `sessionPrepare` answers `current`, or the
+  `session-sync-<sessionId>` card from the run host ends `done`, the owner
+  reads the session info of the run host and points the tab at its `cwd` (the
+  worktree that host restored or kept), then reads Git there again.
+- **Every prompt carries `knownHead` and `sourceHostId`**
+  (`prompt-dispatch.ts`, `RunHostChanges.promptFields`) when another host has
+  a newer turn than the run host. When the run host has the newest turn
+  that this client knows, the prompt carries neither, so the host starts the
+  turn with no sync (§7.1). The facts come from reads that already happen;
+  the send path makes no request for them. An outbox redelivery carries them
+  too.
+- **Facts.** `SessionListStore` keeps, for each session, the `head` and
+  `syncedTurn` that each host answered (`hostTurnsFor`). It learns them from
+  every batched session info read (`onSessionMetaRead` in
+  `client-core/session-meta.ts`), from `resumeSession`, and from each
+  `turn_settled` event: the host that ran the turn has one more turn than any
+  host this client knows (`afterTurnSettled`).
+- **One session, shown once.** The list keeps each home's record of a session
+  (`listedRecords`) and draws the row from the home with the higher
+  `syncedTurn` (`listedSessionHost`). When two homes list the same session,
+  the store reads each home's session info once. The picker and search merge
+  rows with `mergeSessionHomes`, which now asks `newestHostOf` among the
+  connected hosts.
+- **Opening a session** calls `RunHostChanges.opened`, which prepares the run
+  host only when the known facts say another host is ahead.
+- **States.** The sync card shows plain step labels and a text for each
+  `syncFailureReason` (`client-core/session-sync-card.ts`). The labels are
+  set once, when the card's event arrives (`hooks/agentEvents.svelte.ts`,
+  `conversation/lib/session-sync-view.ts`), so every reader of the card shows
+  the same words. `SessionStatusCard.svelte` draws it, with **Connect
+  Claude** / **Connect Codex** for `seat-required` (it opens the existing
+  seat connect card) and **Choose a host** for the reasons that another host
+  can fix (it opens the Run on list). The session row's host line names the
+  host with the newest turn and says "Last ran on <host>" on hover. The Run on
+  row says "<host> is offline" when the host with the newest turn is offline;
+  when that host is the run host and it is away, the composer stays (typing
+  is possible) instead of the host panel, if another host can be chosen.
+- **Fork.** `forkTab` keeps its default and now records
+  `forkSourceSessionId` on the fork (persisted in `pendingFork`). A pick of
+  another host for a fork that has no prompt yet prepares the source session
+  on that host, and the fork's first prompt carries `forkSourceSessionId`,
+  `knownHead`, and `sourceHostId` of the source.
+- **Persistence.** A tab snapshot keeps the host that has the conversation
+  until the new run host is confirmed current (prepare answered `current`, the
+  sync card ended `done`, or a prompt went there), then the new host
+  (`RunHostChanges.persistedLocation`). A pending fork keeps its pick at once.
+- **A removed host.** `reconcileMachineReferences` moves a started tab on a
+  gone host to a host that has a copy of its session (from the facts) instead
+  of closing it; with no copy it closes as before.
+
+### Client-core for mobile
+
+- `session-heads.ts`: `SessionHostTurn`, `sessionHostTurnOf`,
+  `withSessionHostTurn`, `afterTurnSettled`, `newestSessionHost`,
+  `sessionSyncSource`, `listedSessionHost`.
+- `session-sync-card.ts`: `isSessionSyncCard`, `sessionSyncStepLabel`,
+  `sessionSyncFailureAction`, `sessionSyncFailureText`, `sessionSyncCardView`.
+- `session-meta.ts`: `onSessionMetaRead`.
+
+### Decisions
+
+1. **The source host id is the installation id** of that host (from its
+   server info, else the saved server), because the run host finds the source
+   with `RemoteHosts.find`, which matches a host id, an installation id, or a
+   label. A client server id such as `local` means nothing to another host.
+2. **No head is sent when the run host has the newest turn.** A stale head of
+   the run host itself would start a sync from no source.
+3. **A pick reads the newest host's session info once** before
+   `sessionPrepare`, so the head is the one after its last turn. This is a
+   background read at pick time, not on the send path.
+4. **The tab is pointed at the restored `cwd` after the sync**, because a
+   later prompt on a current host uses the client's working directory.
+5. **The started-session Run on is a new row under the composer card**, not
+   the toolbar, because the toolbar hides destination controls for a started
+   session and the draft strip is where the person already looks for Run on.
+   "<host> is offline" sits in the same row. The sync card's **Choose a host**
+   opens it through the existing `solus:toggle-run-picker` event.
+6. **"Last ran on <host>"** is on the session row's host line (its hover title
+   and label); no new banner.
+7. **A reload before the new host is current restores the old host**, so a tab
+   never comes back on a host that has no copy of its conversation.
+8. **`ConversationView.svelte` had 998 lines.** The setup card slot moved
+   into `SessionStatusCard.svelte` so the file stays under 1000 lines.
+9. **A project picked in the project flow for a started session still opens
+   beside it** (`project-picker.svelte.ts` now asks `hasSessionStarted`, not
+   the Run on lock).
+
+### Limits
+
+- The host writes its turn commit after `turn_settled`. A pick within that
+  short time reads the old head; when the new host already has that head, it
+  does not sync, and its next turn starts from the turn before. A server
+  answer that compares turn counts would close this gap.
+- An archive or snooze goes to the home that shows the row. With two homes
+  (no cloud), the other home still lists the session until it is archived
+  there too.
+- A session with no session repository (from before phase 1) has no facts; a
+  pick moves the tab and nothing syncs.
+- The sync card for a fork's source is published on the source session, so
+  the fork tab shows only the failure card that the prompt path publishes.
+- The **Choose a host** action opens the Run on list of the main composer; a
+  conversation in another pane opens its own list with the Run on shortcut.
+- Not built in this phase: "Not synced yet", read-only open with no host
+  online, and the signed-in home (§10, phase 3 and 5).

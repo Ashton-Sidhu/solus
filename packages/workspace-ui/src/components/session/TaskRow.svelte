@@ -16,6 +16,7 @@
   import { shouldActivateRenameableRow } from "../../lib/rename-input";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "../servers/lib/managed-host";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
@@ -205,7 +206,11 @@
   // sessions can sit on different hosts, and no single mark is true of all of
   // them — so the question moves to the task page, where each can answer it.
   const showsHost = $derived(!isGuest && sessions.length <= 1);
-  const host = $derived(serversStore.hostFor(task.serverId));
+  // A session that ran on several hosts names the one with its newest turn
+  // (docs/plans/portable-sessions.md §10): that is where it continues from.
+  const lastRunServerId = $derived(task.sessionId ? sessionListStore.newestHostFor(task.sessionId, task.serverId) : null);
+  const host = $derived(serversStore.hostFor(lastRunServerId ?? task.serverId));
+  const hostTitle = $derived(lastRunServerId ? `Last ran on ${host?.label ?? "Local"}` : host?.label);
   // A task with no server on it has nothing open, and nothing open runs here.
   const isRemote = $derived(!!host && !host.local);
   // A host Solus no longer has a saved entry for names no operating system;
@@ -747,7 +752,7 @@
               {#if isRemote}
                 <span
                   class="flex min-w-0 max-w-[45%] items-center gap-1"
-                  title={host?.label}
+                  title={hostTitle}
                 >
                   <HostOperatingSystemIcon
                     os={remoteOs}
@@ -761,7 +766,7 @@
                 <LaptopIcon
                   size={12}
                   class="size-3 shrink-0 @max-[15rem]:hidden"
-                  aria-label="Local"
+                  aria-label={hostTitle ?? "Local"}
                 />
               {/if}
             {/if}

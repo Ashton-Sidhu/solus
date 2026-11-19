@@ -6,6 +6,10 @@
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import InputBar from "./InputBar.svelte";
   import InputBarFooter from "./InputBarFooter.svelte";
+  import RunHostRow from "./RunHostRow.svelte";
+  import { isRunOnHostLocked, shouldShowRunOnPicker } from "../servers/run-on";
+  import { keepsComposerWhileAway } from "./lib/run-host-row";
+  import { hosts } from "../../contexts";
   import InputToolbar from "./InputToolbar.svelte";
   import { sessionComposerMode, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
   import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
@@ -54,7 +58,20 @@
   const composerMode = $derived(sess ? sessionComposerMode(runHost(sess.run), sess.id) : "prompt");
   let prompt = $derived(session.inputFor(targetTabId));
   const hostState = $derived(sess ? serversStore.readinessFor(runHost(sess.run)) : null);
-  const awayHostId = $derived(sess && hostState?.away ? runHost(sess.run) : null);
+  // A started session whose run host is away can still choose another host:
+  // its composer stays, and Run on beside it says the host is offline.
+  const canChooseAnotherHost = $derived(
+    keepsComposerWhileAway({
+      hasStarted: started,
+      isRunHostLocked: isRunOnHostLocked(sess),
+      hasOtherHost: shouldShowRunOnPicker({
+        connectedRemoteIds: serversStore.connectedRemotes.map((host) => host.id),
+        localHostId: hosts.device?.id ?? null,
+        selectedHostId: sess ? runHost(sess.run) : null,
+      }),
+    }),
+  );
+  const awayHostId = $derived(sess && hostState?.away && !canChooseAnotherHost ? runHost(sess.run) : null);
   // Inside the grace the composer stays, and one whisper over it says the host
   // is coming back. The window's own host says so on the connection overlay,
   // and the desktop's local host runs beside the window.
@@ -148,7 +165,7 @@
   </div>
   <!--
     Destination is only editable pre-flight, so the strip mounts for exactly
-    that long. `{#if}` beats the renderer's usual hide-don't-unmount rule here:
+    that long; a started session then gets only its Run on row. `{#if}` beats the renderer's usual hide-don't-unmount rule here:
     it flips once per session lifetime, and the alternative is keeping a
     GitDropdown and a RunOnPicker alive for every tab forever. It sits under the
     card rather than inside it: it describes the session about to start, not the
@@ -158,6 +175,9 @@
     <!-- Raw `tabId`, not the active-resolved one: unset for the workspace dock,
          which is what keeps it answering the global git-dropdown shortcut. -->
     <InputBarFooter {active} sourceId={tabId} {paneId} {isPrimary} />
+  {:else if targetTabId}
+    <!-- A started session keeps one destination choice: the host of its next turn. -->
+    <RunHostRow tabId={targetTabId} {paneId} />
   {/if}
   {/if}
 </div>

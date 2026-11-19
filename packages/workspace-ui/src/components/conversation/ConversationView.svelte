@@ -43,7 +43,7 @@
   import ComposingLine from "../presence/ComposingLine.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import SuggestionGroup from "./suggestions/SuggestionGroup.svelte";
-  import StatusCard from "./StatusCard.svelte";
+  import SessionStatusCard from "./SessionStatusCard.svelte";
 
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import DiffSummaryCard from "./DiffSummaryCard.svelte";
@@ -816,14 +816,7 @@
           {#if !isHostAway}
           <!-- A finished setup card belongs to the turn its send started, so the
                last turn draws it; this slot is for setup that runs or failed. -->
-          {#if sess.statusCard && sess.statusCard.status !== "done"}
-            <StatusCard
-              card={sess.statusCard}
-              onRetry={() => session.controls.recoverWorktreeSetup(tabId, false)}
-              onWorkLocally={() => session.controls.recoverWorktreeSetup(tabId, true)}
-              onCancel={stopRun}
-            />
-          {/if}
+          <SessionStatusCard {sess} {tabId} onCancel={stopRun} />
 
           {#if sess.permissionQueue.length > 0}
             <PermissionCard

@@ -25,8 +25,10 @@ function deferred(): Deferred {
   return { promise, resolve }
 }
 
-function harness(opts: { worktreeBaseBranch: string | null; startTarget: Promise<void> | null }) {
+function harness(opts: { worktreeBaseBranch: string | null; startTarget: Promise<void> | null; syncFields?: Record<string, string> }) {
   const calls: string[] = []
+  const sentOptions: unknown[] = []
+  const confirmed: string[] = []
   const watchReply = deferred()
   const session = {
     id: 'session-1',
@@ -46,8 +48,9 @@ function harness(opts: { worktreeBaseBranch: string | null; startTarget: Promise
       calls.push('watchSession')
       return watchReply.promise
     },
-    prompt: async () => {
+    prompt: async (_ctx: unknown, options: unknown) => {
       calls.push('prompt')
+      sentOptions.push(options)
       return { disposition: 'started' }
     },
   }
@@ -58,9 +61,13 @@ function harness(opts: { worktreeBaseBranch: string | null; startTarget: Promise
     config: { pendingSessionStartTarget: () => opts.startTarget },
     tasksStore: {},
     eventReducer: { handleError: () => {} },
+    runHosts: {
+      promptFields: () => opts.syncFields ?? {},
+      confirm: (sessionId: string) => { confirmed.push(sessionId) },
+    },
   }
   const dispatch = new PromptDispatch(workspace as never)
-  return { calls, watchReply, dispatch }
+  return { calls, watchReply, dispatch, sentOptions, confirmed }
 }
 
 /** Let every queued step of the send run. */
@@ -69,6 +76,21 @@ async function settle(): Promise<void> {
 }
 
 describe('promptTab', () => {
+  test('a prompt carries the newest head and the host that has it', async () => {
+    // WHY: docs/plans/portable-sessions.md §7.1. The run host compares the head
+    // with its own and syncs before the turn; the send makes no extra request.
+    const { dispatch, sentOptions, confirmed } = harness({
+      worktreeBaseBranch: null,
+      startTarget: null,
+      syncFields: { knownHead: 'head-3', sourceHostId: 'installation-a' },
+    })
+    dispatch.promptTab('tab-1', { prompt: 'hello', displayPrompt: 'hello' })
+    await settle()
+    expect(sentOptions[0]).toMatchObject({ prompt: 'hello', knownHead: 'head-3', sourceHostId: 'installation-a' })
+    // The session continues on this host, so a reload keeps the tab here.
+    expect(confirmed).toEqual(['session-1'])
+  })
+
   test('sends the prompt without waiting for the watch reply', async () => {
     const { calls, dispatch } = harness({ worktreeBaseBranch: null, startTarget: null })
     dispatch.promptTab('tab-1', { prompt: 'hello', displayPrompt: 'hello' })

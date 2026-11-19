@@ -320,3 +320,26 @@ test('a listed session keeps what the Workspace page shows of it: its activity, 
     restore()
   }
 })
+
+test('a session on two hosts is one row, from the host with the newer turn, and the other host takes it when that one stops listing it', async () => {
+  // WHY: docs/plans/portable-sessions.md §9. After a run host change both hosts
+  // keep a record with the same session id. The list shows it once, from the
+  // copy with the higher syncedTurn, so a click opens the newest conversation.
+  const { store, fakes, restore } = fakeHomes({ mac: [record('moved', { title: 'on mac' })], studio: [record('moved', { title: 'on studio' })] })
+  try {
+    await store.load()
+    expect(store.sessions.filter((listed) => listed.sessionId === 'moved')).toHaveLength(1)
+    store.noteSessionMeta('mac', { sessionId: 'moved', head: 'h2', syncedTurn: 2 })
+    store.noteSessionMeta('studio', { sessionId: 'moved', head: 'h5', syncedTurn: 5 })
+    expect(store.listed('moved')?.homeServerId).toBe('studio')
+    expect(store.listed('moved')?.title).toBe('on studio')
+    expect(store.newestHostFor('moved', 'mac')).toBe('studio')
+    // A turn this client saw end on mac makes mac the newest.
+    store.noteTurnSettled('mac', 'moved')
+    expect(store.listed('moved')?.homeServerId).toBe('mac')
+    // Mac no longer lists it: studio's record is the row, not nothing.
+    fakes.get('mac')!.records = []
+    await store.load()
+    expect(store.listed('moved')?.homeServerId).toBe('studio')
+  } finally { restore() }
+})

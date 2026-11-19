@@ -182,6 +182,8 @@ test('the saved fork retains its preview and cutoff without claiming a provider 
   const fork = context.sessionFor(tabId) as Session
   fork.forkExcludeLatestTurn = true
   context.tabOrder = [tabId]
+  // A pending fork keeps its own run host across a reload.
+  Object.assign(context, { runHosts: { persistedLocation: (saved: Session) => saved.run.location } })
   const parsed = source('tab-snapshot.ts')
   const declaration = parsed.statements.find(ts.isFunctionDeclaration)!
   const snapshot = new Function('loadServers', 'LOCAL_SERVER_ID', 'existingTaskId', transpile(`${declaration.getText(parsed).replace(/^export /, '')}; return snapshotPersistedTabs`))(
@@ -190,6 +192,9 @@ test('the saved fork retains its preview and cutoff without claiming a provider 
   const saved = JSON.parse(JSON.stringify(snapshot(context)))[0]
   expect(saved.pendingFork.messages).toEqual(fork.messages)
   expect(saved.pendingFork.excludeLatestTurn).toBe(true)
+  // WHY: a fork that runs on another host syncs its source session there first
+  // (docs/plans/portable-sessions.md §10), so a reload must keep which one it is.
+  expect(saved.pendingFork.sourceSessionId).toBe(fork.forkSourceSessionId)
   expect(saved.forkedFromSessionId).toBeNull()
   expect(saved.pendingTaskId).toBe('same-subtask')
   expect(saved.agentSessionId).toBe('source-provider')
