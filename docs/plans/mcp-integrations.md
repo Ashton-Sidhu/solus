@@ -8,6 +8,8 @@ Executor v2 (`UsefulSoftwareCo/executor`, branch `v2`) and maps it onto Solus.
 It locks the vocabulary and the ownership. It names what Solus takes from
 Executor, what it does not take, and why.
 
+The next steps (server instructions, progress, full result content, stdio, discovery, prompts, resources, MCP tasks, and live MCP Apps) are in `mcp-first-class.md`.
+
 ## 0. What Executor v2 is
 
 Executor is a layer between agents and services. Its model, in its own words:
