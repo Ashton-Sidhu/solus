@@ -12,6 +12,9 @@ import type { Principal } from '../../admission/principal'
 import type { WorkspaceAdmission, WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import type { WorkspaceOperations } from '../../data/workspace/operations'
 import { WorkspaceRequestBudgets } from './limits'
+import { LIST_MY_SESSIONS_OPERATION_PATH } from '@solus/contracts/session-repositories'
+import { listPersonalSessionRepositories } from '../../data/sessions/session-repositories'
+import { getDatabase } from '../../db/database'
 
 const log = createLogger('server', 'solus-api')
 
@@ -96,6 +99,13 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
   const authority = (c: ApiContext) => c.get('authority')
 
   app.get(routes.capabilities.path, c => { query(c, routes.capabilities.query); return c.json(options.capabilities) })
+
+  app.get(LIST_MY_SESSIONS_OPERATION_PATH, async c => {
+    query(c, routes.listMySessions.query)
+    const principal = authority(c).principal
+    if (principal.kind !== 'org-member' && (principal.kind !== 'owner' || principal.via !== 'grant')) throw new SolusApiError(403, 'FORBIDDEN', 'A person is required.')
+    return c.json(await listPersonalSessionRepositories(getDatabase(), principal.userId))
+  })
 
   app.put(routes.putLink.path, limitBody(16 * 1024), async c => {
     query(c, routes.putLink.query)

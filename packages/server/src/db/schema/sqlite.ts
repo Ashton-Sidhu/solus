@@ -38,6 +38,7 @@ export const plan_index_providers = plansSchema.planIndexProviders.sqlite
 export const comment_threads = commentsSchema.commentThreads.sqlite
 export const acl_entry = sharingSchema.aclEntry.sqlite
 export const session = sessionsSchema.session.sqlite
+export const session_repositories = sessionsSchema.sessionRepositories.sqlite
 export const resource_links = linksSchema.resourceLinks.sqlite
 export const pull_request_observations = linksSchema.pullRequestObservations.sqlite
 export const personal_resource_state = personalStateSchema.personalResourceState.sqlite

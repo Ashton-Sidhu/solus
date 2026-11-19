@@ -29,6 +29,13 @@
       "when": 1795054583518,
       "tag": "0003_session_turn_count",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1795061760762,
+      "tag": "0004_session_repositories",
+      "breakpoints": true
     }
   ]
 }

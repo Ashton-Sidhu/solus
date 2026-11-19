@@ -24,6 +24,10 @@ import { publishNotificationChanges } from './notifications/hub-events'
 import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
+import { sessionRemoteProvider } from './sync/sessions/session-remote-provider'
+import { userKey } from '@solus/contracts/user'
+import { readSessionRepository } from './data/sessions/session-repositories'
+import { formatSessionCloudScope } from '@solus/contracts/session-repositories'
 import { createWorkspaceOperations } from './data/workspace/service'
 import { applyRunnerDelivery } from './sync/runner-intake'
 import { SolusServer } from './transport/server'
@@ -118,17 +122,28 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   server.useRoles(new Set(['collaboration']))
   server.useResourceAccess(shares)
   let socket: ReturnType<typeof attachWebSocketTransport> | undefined
-  const clients = new ClientEventRegistry((clientId, event) => {
+  const clients = new ClientEventRegistry(async (clientId, event) => {
     const principal = socket?.principalOf(clientId)
-    return principal ? eventVisibleTo(principal, event, shares) : false
+    if (!principal) return false
+    if (event.type === 'session.headChanged') {
+      if (principal.kind !== 'org-member' && (principal.kind !== 'owner' || principal.via !== 'grant')) return false
+      if (await readSessionRepository(db, formatSessionCloudScope('person', principal.userId), event.payload.sessionId)) return true
+      if (principal.kind !== 'org-member') return false
+      const organization = await readSessionRepository(db, formatSessionCloudScope('organization', principal.organizationId), event.payload.sessionId)
+      return !!organization && await shares.roleFor(principal, { kind: 'session', id: event.payload.sessionId }) !== 'none'
+    }
+    return eventVisibleTo(principal, event, shares)
   })
   const events = new HostEventPublisher(clients)
   // Organization works are edited live here, where they are stored (work review plan, phase 3b).
   const workLive = new WorkLiveManager({ publish: (clientIds, type, payload) => { void events.publishToRoom({ kind: 'work', id: payload.workId }, clientIds, type, payload) } })
-  let workStorageRuntime: Awaited<ReturnType<typeof startWorkStorage>>
+  let workStorageRuntime: Awaited<ReturnType<typeof startWorkStorage>> | undefined
+  let sessionStorage: Awaited<ReturnType<typeof sessionRemoteProvider>>
   try {
     workStorageRuntime = await startWorkStorage({ database: getDatabase, cloud: true, flushLive: workId => workLive.flushPersisted(workId) })
+    sessionStorage = await sessionRemoteProvider(db)
   } catch (error) {
+    await workStorageRuntime?.stop()
     await closeDatabase(); closeDb(); throw error
   }
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
@@ -143,6 +158,23 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     shareLinks: new ShareLinkResolver({ shares, hostRoutes: options.hostRoutes }),
     runner: {
       deliver: (runner, request) => applyRunnerDelivery(runner, request, { shares, webhookAdmin: options.webhookAdmin, onTranscriptChanged: sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) } }),
+    },
+    sessionRepositories: {
+      database: db, storage: sessionStorage, shares,
+      async changed(scope, sessionId, facts) {
+        const payload = { sessionId, ...facts }
+        if (scope.startsWith('person:')) {
+          const people = new PersonConnections(() => clients.routableClientIds(), clientId => socket?.principalOf(clientId))
+          await events.publish(people.of(userKey({ kind: 'account', accountId: scope.slice(7) })), 'session.headChanged', payload)
+        } else {
+          const organizationId = scope.slice(13)
+          const recipients = clients.routableClientIds().filter(clientId => {
+            const principal = socket?.principalOf(clientId)
+            return principal?.kind === 'org-member' && principal.organizationId === organizationId
+          })
+          await events.publish(recipients, 'session.headChanged', payload)
+        }
+      },
     },
   })
   // A client's records go over its socket, with the socket's principal as their authority (docs/api/README.md).
@@ -209,7 +241,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
         closeLiveTransport()
         // Disconnected rooms write their bodies in the background; finish before the database closes.
         await workLive.flushAll()
-        await workStorageRuntime.stop()
+        await workStorageRuntime?.stop()
         await closeDatabase(); closeDb()
       })()
     },

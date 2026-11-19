@@ -90,7 +90,27 @@ export const session = defineTable('session_records', {
   ],
 })
 
+/** Cloud repository facts and list card. The cloud scope is part of the key. */
+export const sessionRepositories = defineTable('session_repositories', {
+  cloud_scope: text({ notNull: true }),
+  session_id: text({ notNull: true }),
+  owner_user_id: text({ notNull: true }),
+  repository: text({ notNull: true }),
+  storage_scope: text({ notNull: true }),
+  head: text(),
+  synced_turn: integer({ notNull: true, default: 0 }),
+  last_run_host_id: text(),
+  running_host_id: text(),
+  running_since: bigint(),
+  title: text(),
+  provider: text(),
+  model: text(),
+  repository_key: text(),
+  branch: text(),
+  last_activity_at: bigint({ notNull: true, default: 0 }),
+}, { primaryKey: ['cloud_scope', 'session_id'], indexes: [{ name: 'session_repositories_owner', columns: ['owner_user_id', 'last_activity_at'], descending: ['last_activity_at'] }] })
+
 // A session's pull requests, its file and automation links, and its watches
 // are edges of `resource_links` (data/links/schema.ts); a session delete
 // removes them explicitly (`deleteEdgesOf`), as no foreign key can.
-export const SESSION_TABLES = [session]
+export const SESSION_TABLES = [session, sessionRepositories]

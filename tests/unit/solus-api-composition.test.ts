@@ -13,7 +13,7 @@ import { resetTestDatabase } from './helpers/test-db'
 // it opened, after a successful boot and after a failed one.
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
-const environment = ['SOLUS_DATA_DIR', 'SOLUS_API', 'SOLUS_DB', 'DATABASE_URL', 'SOLUS_CLOUD_ISSUER', 'SOLUS_CLOUD_JWKS_URL', 'SOLUS_API_SIGNING_KEY', 'SOLUS_WORK_STORAGE', 'SOLUS_ARTIFACTS_ACCOUNT_ID', 'SOLUS_ARTIFACTS_NAMESPACE', 'SOLUS_ARTIFACTS_API_TOKEN'] as const
+const environment = ['SOLUS_DATA_DIR', 'SOLUS_API', 'SOLUS_DB', 'DATABASE_URL', 'SOLUS_CLOUD_ISSUER', 'SOLUS_CLOUD_JWKS_URL', 'SOLUS_API_SIGNING_KEY', 'SOLUS_WORK_STORAGE', 'SOLUS_SESSION_STORAGE', 'SOLUS_ARTIFACTS_ACCOUNT_ID', 'SOLUS_ARTIFACTS_NAMESPACE', 'SOLUS_SESSION_ARTIFACTS_NAMESPACE', 'SOLUS_ARTIFACTS_API_TOKEN'] as const
 const previous = environment.map(key => [key, process.env[key]] as const)
 type ServiceModule = typeof import('@solus/server/boot-solus-api')
 let api: ServiceModule
@@ -60,6 +60,9 @@ test('the record service answers its own paths on a listener it does not own, an
     expect((await fetch(url + '/v1/openapi.json')).status).toBe(200)
     // Bearer admission still guards records: no credential, no works.
     expect((await fetch(url + '/v1/works')).status).toBe(401)
+    // WHY: the record service must serve cloud session routes when no run host exists.
+    expect((await fetch(url + '/v1/me/sessions')).status).toBe(401)
+    expect((await fetch(url + '/runner/session-repositories/token', { method: 'POST' })).status).toBe(400)
     expect((await fetch(url + '/health')).status).toBe(200)
     // The site's paths never reach the record service.
     expect(await (await fetch(url + '/account')).text()).toBe('site')
@@ -132,6 +135,22 @@ test('the record service starts the selected work adapter and refuses missing Ar
     await service.close()
   } finally {
     for (const [key, value] of previous.filter(([key]) => key === 'SOLUS_WORK_STORAGE' || key.startsWith('SOLUS_ARTIFACTS_'))) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value
+    }
+  }
+})
+
+test('session storage configuration fails startup before the API accepts traffic', async () => {
+  // WHY: a configured cloud API must not answer token routes with a broken namespace.
+  process.env.SOLUS_SESSION_STORAGE = 'cloudflare-artifacts'
+  delete process.env.SOLUS_SESSION_ARTIFACTS_NAMESPACE
+  try {
+    await expect(api.createSolusApiService({ host: '127.0.0.1', port: () => 0 })).rejects.toThrow('SOLUS_SESSION_ARTIFACTS_NAMESPACE')
+    process.env.SOLUS_SESSION_STORAGE = 'off'
+    const service = await api.createSolusApiService({ host: '127.0.0.1', port: () => 0 })
+    await service.close()
+  } finally {
+    for (const [key, value] of previous.filter(([key]) => key === 'SOLUS_SESSION_STORAGE' || key === 'SOLUS_SESSION_ARTIFACTS_NAMESPACE')) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value
     }
   }
