@@ -381,3 +381,40 @@ export function cancelProvisionalSessionHandoff(
     throw error
   }
 }
+
+/** Bind a restored thread before its Claude transcript can be indexed. */
+export function ensureImportedSessionLineage(
+  input: { sessionId: string; provider: AgentId; threadId: string; cwd: string },
+  db: DatabaseSync = getDb(),
+): SessionLineageResolution {
+  const bound = resolveSessionLineage(input.provider, input.threadId, db)
+  if (bound) {
+    if (bound.sessionId !== input.sessionId) throw new Error(`Thread ${input.threadId} belongs to another session`)
+    return bound
+  }
+  const current = resolveSessionLineageById(input.sessionId, db)
+  if (!current) return registerSessionLineage({ sessionId: input.sessionId, provider: input.provider, providerSessionId: input.threadId, cwd: input.cwd }, db)
+  if (current.active.providerSessionId === null) {
+    return completeSessionHandoff(input.sessionId, input.provider, input.threadId, input.cwd, db)
+  }
+  forgetLineageReads(db)
+  recordSessionChange(input.sessionId)
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    const rows = rowsForLineage(db, input.sessionId)
+    const last = rows.at(-1)
+    if (!last) throw new Error(`Session ${input.sessionId} lineage vanished`)
+    const now = Date.now()
+    db.prepare(`UPDATE session_lineage_members SET ended_at = ?, updated_at = ? WHERE session_id = ? AND position = ?`)
+      .run(now, now, input.sessionId, last.position)
+    db.prepare(`INSERT INTO session_lineage_members(session_id, position, provider, provider_session_id, cwd, started_at, ended_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`).run(input.sessionId, last.position + 1, input.provider, input.threadId, input.cwd, now, now)
+    const result = resolutionFromRows(rowsForLineage(db, input.sessionId))
+    if (!result) throw new Error(`Failed to import lineage for ${input.sessionId}`)
+    db.exec('COMMIT')
+    return result
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}

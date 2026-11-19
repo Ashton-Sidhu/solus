@@ -671,3 +671,15 @@ Part D uses all three.
   and record adoption in order, with stop and progress events;
   `sessionPrepare` and `sessionRepositoryBundle` in the RPC contract and their
   handlers; `knownHead` on the prompt and the local comparison at turn start.
+
+### 19.C Thread import implementation (2026-11-18)
+
+`AgentBackend.importThread` takes a session id, thread id, complete source files,
+this host's working directory, an optional seat or private provider runtime, and
+an abort signal. It returns each file's status and the bytes written. Claude
+binds lineage before it writes any file. Codex unloads, writes at the path of
+an existing state row when one exists, then resumes with the new working
+directory. An identical file is left alone; an older prefix gains only new
+bytes. A divergent destination is a `conflict` result and is left unchanged.
+No side copy is made in the provider folder because the provider could mistake
+it for another thread file.

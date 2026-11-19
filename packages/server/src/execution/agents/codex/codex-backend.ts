@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { instanceRuntime, providerHistoryInstanceId, type ProviderRuntime } from '../../seats/provider-runtime'
 import { privateProviderInstances } from '../../seats/provider-instances'
 import { requireActingScope } from '../../../vault/acting-scope'
@@ -33,6 +35,8 @@ import {
 import { activeThreadOf } from '../../../data/sessions/session-lineage'
 import { beginTurnCheckpoint, endTurnCheckpoint, type CheckpointTarget } from '../../../git/turn-checkpoints'
 import type { ThreadFile } from '../../../sync/sessions/session-archive-writer'
+import type { ThreadImportRequest, ThreadImportResult } from '../thread-import'
+import { importCodexThread } from './codex-thread-import'
 import { codexThreadFiles } from './codex-thread-files'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import { type AgentRunRequest, type AgentRunSessionState } from '../agent-runner'
@@ -1138,6 +1142,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const client = await this.readerFor(threadId, { startSeatClient: false })
     const response = await client.request<CodexThreadReadResponse>('thread/read', { threadId, includeTurns: false })
     return codexThreadFiles(response.thread.path)
+  }
+
+  async importThread(request: ThreadImportRequest): Promise<ThreadImportResult> {
+    if (this.isSessionRunning(request.threadId)) throw new Error('Cannot import a running Codex thread')
+    const client = request.providerRuntime ? this.clientFor(request.seat, request.providerRuntime)
+      : request.seat ? this.clientFor(request.seat)
+        : await this.readerFor(request.threadId, { startSeatClient: true })
+    const home = request.providerRuntime?.homePath ?? client.codexHome ?? request.seat?.home ?? join(homedir(), '.codex')
+    return importCodexThread(request, home, client)
   }
 
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
