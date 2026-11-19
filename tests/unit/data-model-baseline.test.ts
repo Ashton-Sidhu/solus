@@ -104,6 +104,8 @@ describe('the data model of each database', () => {
     expect(triggers).toEqual(SOLUS_TRIGGERS)
     // WHY: list reads use this stored count and must never start Git for each row.
     expect(sessionStorageColumns).toContain('turn_count')
+    // WHY: a restart must keep the confirmed head, retry, and refused state.
+    for (const column of ['cloud_scope', 'pushed_head', 'reported_head', 'push_due_at', 'push_attempts', 'push_error', 'push_refused_head']) expect(sessionStorageColumns).toContain(column)
   })
 
   test('metrics.db holds exactly the declared tables and indexes', () => {

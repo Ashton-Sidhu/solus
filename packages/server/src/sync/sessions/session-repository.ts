@@ -4,6 +4,7 @@ import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
+import { GitRemote, type CheckedPushResult } from '../git-remote'
 import { hostCliEnv } from '../../cli-env'
 import { withUserScope } from '../../vault/acting-scope'
 import { sessionManifestSchema, type SessionManifest, type SessionManifestThreadFile } from './session-manifest'
@@ -153,6 +154,26 @@ export class SessionRepositories {
     } finally {
       await rm(stagingPath, { recursive: true, force: true })
     }
+  }
+
+  /** Open the local bare copy through the shared, credential-safe Git transport. */
+  async remoteHead(repository: string, remote: string, token?: string): Promise<string | null> {
+    const git = await GitRemote.open({ gitDir: this.path(repository), remote, token, timeoutMs: 60 * 60_000 })
+    try { return await git.remoteHead() } finally { await git.close() }
+  }
+
+  /** Push a fixed commit only when the remote still has the expected head. */
+  async push(repository: string, remote: string, commit: string, expectedHead: string | null, token?: string, signal?: AbortSignal): Promise<CheckedPushResult> {
+    const git = await GitRemote.open({ gitDir: this.path(repository), remote, token, signal, timeoutMs: 60 * 60_000 })
+    try {
+      const remoteHead = await git.remoteHead()
+      if (remoteHead === commit) return { status: 'accepted', head: commit }
+      if (remoteHead && remoteHead !== expectedHead) {
+        const ancestor = await git.git(['merge-base', '--is-ancestor', remoteHead, commit]).then(() => true, () => false)
+        if (!ancestor) return { status: 'refused', head: remoteHead }
+      }
+      return await git.checkedPush(commit, remoteHead)
+    } finally { await git.close() }
   }
 
   /** Append the content of each path at `commit`, in order, to `outFile`. */
