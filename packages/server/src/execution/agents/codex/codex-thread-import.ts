@@ -30,7 +30,7 @@ export async function importCodexThread(request: ThreadImportRequest, home: stri
   const files = statePath
     ? [{ path: request.files[0].path, relativePath: relative(home, statePath).split(sep).join('/') }]
     : request.files
-  const result = await importThreadFiles(home, files, request.signal)
+  const result = await importThreadFiles(home, files, request.signal, request.replaceConflicts)
   if (statePath) result.files[0].relativePath = request.files[0].relativePath
   if (result.files.some((file) => file.status === 'conflict')) return result
   request.signal?.throwIfAborted()

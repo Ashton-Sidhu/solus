@@ -156,6 +156,19 @@ describe('local reach: introduced hosts (§4)', () => {
     expect(listed.map((target) => [target.label, target.source])).toEqual([['Studio Mini', 'account'], ['Laptop', 'account']])
   })
 
+  // WHY: a local HTTP route from the account directory needs the key already
+  // proved by an introduction before one host can send a reach token to another.
+  test('an account target uses the introduced identity key for a local route', async () => {
+    const introduced = { ...studio, identityKey: 'proved-host-key' }
+    const hosts = hostsOf([host('h-mini', 'Studio Mini', { routes: [{ kind: 'tunnel', url: 'http://127.0.0.1:7777' }] })],
+      { introduced: introductionsOf([introduced]) })
+    const found = await hosts.find(OWNER, 'h-mini')
+    if ('error' in found) throw new Error(found.error)
+    expect(found.source).toBe('account')
+    expect(found.identityKey).toBe('proved-host-key')
+    expect(await found.credential()).toBe('reach-token-alice-h-mini')
+  })
+
   test('introduced hosts stay reachable when the account does not answer', async () => {
     expect(await hostsOf(null, { introduced: introductionsOf([studio]) }).list(OWNER)).toEqual([expect.objectContaining({ label: 'Studio Mini', source: 'introduced' })])
   })

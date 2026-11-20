@@ -190,6 +190,7 @@ export class RemoteHosts {
       return []
     }
     const self = this.selfHostId()
+    const introduced = new Map(this.introduced.list().hosts.map((host) => [host.installationId, host.identityKey]))
     const scopeKey = actor.scope === 'personal' ? 'personal' : actor.scope.organizationId
     const now = Date.now()
     return directory.flatMap((host): HostTarget[] => {
@@ -204,7 +205,7 @@ export class RemoteHosts {
         label: host.label,
         managedState: host.managedState,
         routes,
-        identityKey: learned?.identityKey,
+        identityKey: learned?.identityKey ?? introduced.get(host.installationId),
         source: 'account',
         connectionKey: `account:${actor.userId}:${scopeKey}:${host.hostId}`,
         credential: () => reach.accessToken(host.hostId),

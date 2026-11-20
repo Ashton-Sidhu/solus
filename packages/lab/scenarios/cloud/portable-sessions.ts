@@ -6,8 +6,9 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import type { IpcContext, SessionCtx, SettingsCtx, StatusBarCtx } from '@solus/contracts/types'
 import { cloudModeScenario } from '../../src/cloud-mode'
-import { ownedRegisteredHost } from '../../src/cloud-fixtures'
+import { directory, localRpc, ownedRegisteredHost } from '../../src/cloud-fixtures'
 import { hostClient } from '../../src/cloud-sign-in'
+import { LabRpcError } from '../../src/client'
 import { projectFixture } from '../../src/project-fixture'
 import { recordedRuns } from '../../src/oracle'
 
@@ -27,6 +28,13 @@ export default cloudModeScenario('portable sessions: two hosts use one cloud his
   ctx.defer('the project fixture is removed', async () => project.stop())
   const a = await ownedRegisteredHost(ctx)
   const b = await ownedRegisteredHost(ctx)
+  const hosts = await directory(ctx.stack, a.alice)
+  const aInstallation = hosts.find(host => host.hostId === a.hostId)!.installationId
+  const bInstallation = hosts.find(host => host.hostId === b.hostId)!.installationId
+  const fromA = await localRpc(a.host, a.alice.persona, 'hostIntroductionIssue', { installationId: bInstallation, label: 'host B' })
+  const fromB = await localRpc(b.host, b.alice.persona, 'hostIntroductionIssue', { installationId: aInstallation, label: 'host A' })
+  await localRpc(a.host, a.alice.persona, 'hostIntroductionAccept', { introduction: fromB, grantedDeviceId: fromA.deviceId })
+  await localRpc(b.host, b.alice.persona, 'hostIntroductionAccept', { introduction: fromA, grantedDeviceId: fromB.deviceId })
   const cloneA = project.clone('host-a')
   const cloneB = project.clone('host-b')
   const sessionId = randomUUID()
@@ -112,4 +120,51 @@ export default cloudModeScenario('portable sessions: two hosts use one cloud his
   await b.owner.rpc('sessionPrepare', { sessionId: offlineId, knownHead: offlineA!.head, sourceHostId: a.hostId })
   const failed = await ctx.until(() => b.owner.received('session.eventReceived').find(event => event.payload.sessionId === offlineId && event.payload.event.type === 'status_card' && event.payload.event.card.status === 'error'), event => !!event, 30_000)
   ctx.check('the client gets typed source-offline', failed?.payload.event.type === 'status_card' && failed.payload.event.card.syncFailureReason === 'source-offline', JSON.stringify(failed?.payload.event))
+
+  ctx.step('two hosts write from one head; the second push is refused')
+  const conflictHost = await ctx.restartHost(a.host)
+  const conflictOwner = hostClient(conflictHost, a.alice, a.hostId, { asOwner: true })
+  ctx.defer('alice closes the conflict host socket', async () => conflictOwner.close())
+  if (!(await conflictOwner.connect()).ok) throw new Error('alice could not reconnect to host A')
+  await conflictOwner.rpc('configUpdate', { sessionCloudSync: true })
+  await b.owner.rpc('configUpdate', { sessionCloudSync: true })
+  const conflictId = sessionId
+  await conflictOwner.rpc('watchSession', { sessionId: conflictId })
+  const common = apiRow(conflictId)
+  ctx.check('both hosts start from one cloud head', !!common?.head)
+  await b.owner.rpc('sessionPrepare', { sessionId: conflictId, knownHead: common!.head, sourceHostId: a.hostId })
+  const preparedConflict = await ctx.until(() => localRow(hostB, conflictId), row => row?.head === common?.head, 30_000)
+  ctx.check('host B has the common head', preparedConflict?.head === common?.head)
+  await conflictOwner.rpc('configUpdate', { sessionCloudSync: false })
+  await conflictOwner.rpc('prompt', promptContext(conflictId, cloneA, 'mock-session-001'), { prompt: 'A local turn', clientPromptId: `${conflictId}-4a` })
+  const localConflict = await ctx.until(() => localRow(hostA, conflictId), row => row?.turn_count === 4, 15_000)
+  ctx.check('host A has an unpushed next turn', localConflict?.turn_count === 4 && apiRow(conflictId)?.head === common?.head)
+  await b.owner.rpc('prompt', promptContext(conflictId, cloneB, 'mock-session-001'), { prompt: 'B cloud turn', clientPromptId: `${conflictId}-2b` })
+  const cloudConflict = await ctx.until(() => apiRow(conflictId), row => row?.synced_turn === 4, 30_000)
+  ctx.check('host B published the competing next turn', cloudConflict?.synced_turn === 4 && cloudConflict.head !== localConflict?.head)
+  await conflictOwner.rpc('configUpdate', { sessionCloudSync: true })
+  conflictOwner.close()
+  const resumedConflictHost = await ctx.restartHost(conflictHost)
+  const resumedOwner = hostClient(resumedConflictHost, a.alice, a.hostId, { asOwner: true })
+  ctx.defer('alice closes the resumed conflict socket', async () => resumedOwner.close())
+  if (!(await resumedOwner.connect()).ok) throw new Error('alice could not reconnect after the refused push')
+  const refused = await ctx.until(() => hostA.query('SELECT push_refused_head FROM session_storage WHERE session_id = ?').get(conflictId) as { push_refused_head: string | null } | null,
+    row => !!row?.push_refused_head, 30_000)
+  ctx.check('host A records the refused cloud head', refused?.push_refused_head === cloudConflict?.head)
+  try {
+    await resumedOwner.rpc('prompt', promptContext(conflictId, cloneA, 'mock-session-001'), { prompt: 'refused next turn', clientPromptId: `${conflictId}-3` })
+    ctx.check('a further turn is refused with SESSION_DIVERGED', false)
+  } catch (error) {
+    ctx.check('a further turn is refused with SESSION_DIVERGED', error instanceof LabRpcError && error.code === 'SESSION_DIVERGED', String(error))
+  }
+
+  ctx.step('Fork keeps the local turns; Use the newer copy adopts the cloud head')
+  const recoveryForkId = randomUUID()
+  await resumedOwner.rpc('watchSession', { sessionId: recoveryForkId })
+  await resumedOwner.rpc('prompt', promptContext(recoveryForkId, cloneA, 'mock-session-001', true), { prompt: 'keep A turns', clientPromptId: `${recoveryForkId}-1` })
+  const recoveryFork = await ctx.until(() => localRow(hostA, recoveryForkId), row => !!row?.head, 30_000)
+  ctx.check('Fork makes a separate session from A local history', !!recoveryFork?.head && recoveryForkId !== conflictId)
+  await resumedOwner.rpc('sessionPrepare', { sessionId: conflictId, knownHead: cloudConflict!.head, sourceHostId: b.hostId })
+  const recovered = await ctx.until(() => localRow(hostA, conflictId), row => row?.head === cloudConflict?.head, 30_000)
+  ctx.check('Use the newer copy adopts B cloud head', recovered?.head === cloudConflict?.head)
 })
