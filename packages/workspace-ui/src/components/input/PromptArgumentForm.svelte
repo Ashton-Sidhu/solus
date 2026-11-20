@@ -143,7 +143,7 @@
         {error}
       {:else}
         <span class="font-mono text-(--solus-text-primary)">⇥</span> next field ·
-        <span class="font-mono text-(--solus-text-primary)">⏎</span> send ·
+        <span class="font-mono text-(--solus-text-primary)">⏎</span> {submitLabel.toLowerCase()} ·
         <span class="font-mono text-(--solus-text-primary)">esc</span> close
       {/if}
     </span>
