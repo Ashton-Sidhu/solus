@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { checkRouteToAdd, newRouteRefusalText, routeInUse, routeRows, routeUrlFromInput, withoutRoute, withRouteMoved, withUserRoute, type NewRouteInput, type RouteHolder } from '@solus/client-core/host-route-control'
-import { listingOf } from '@solus/client-core/host-list-source'
-import type { SavedServer } from '@solus/client-core/server-registry'
-import { mergeDirectoryIntoSaved, withDiscoveredRoutes } from '@solus/client-core/uplink-session'
+import { listingOf } from '@solus/client-core/host-catalog'
+import type { KnownHost } from '@solus/client-core/known-host'
+import { catalogOf, fakeDirectory, fakeList, listingFor, memoryCredentials } from './helpers/host-catalog-world'
 import { dialableRoutes, dialChoicesOf, type HostRoute } from '@solus/contracts/host-routes'
 import { hostIdentityFor, identityKeyFor, signedHealth } from './helpers/signing-host'
 
@@ -166,10 +166,14 @@ describe('routes on web and desktop', () => {
   const NOW = 100
   const listed = { hostId: 'cloud-1', installationId: INSTALLATION, label: 'Studio', routes: [{ kind: 'tunnel' as const, url: tunnel.url }], kind: 'personal' as const, category: 'personal' as const, organizationIds: [] }
 
-  test('a directory read keeps what the person chose', () => {
-    const saved: SavedServer = { id: INSTALLATION, label: 'Studio', sessionToken: 'token', installationId: INSTALLATION, lastConnected: 1, routes: [pairing], routeOrder: [pairing.url], tokenPairedOverHttps: true }
-    const [merged] = mergeDirectoryIntoSaved([saved], [listed], 'https://app.solus.sh', NOW, '')
-    expect(merged).toMatchObject({ routeOrder: [pairing.url], tokenPairedOverHttps: true })
+  test('a directory read keeps what the person chose', async () => {
+    const directory = fakeDirectory('https://app.solus.sh')
+    directory.answer([listed])
+    const catalog = catalogOf({ credentials: memoryCredentials([], { [INSTALLATION]: { token: 'token', routes: [pairing], routeOrder: [pairing.url], tokenPairedOverHttps: true } }), directory, now: NOW })
+    await catalog.useListSource(fakeList([], 'account', [listingFor(INSTALLATION, { routes: [pairing] })]).source)
+    await catalog.refreshDirectory()
+    expect(catalog.find(INSTALLATION)).toMatchObject({ routeOrder: [pairing.url], tokenPairedOverHttps: true })
+    expect(catalog.find(INSTALLATION)?.routes.map((route) => route.url)).toEqual([tunnel.url, pairing.url])
   })
 
   test('the first dial obeys the order and the token rule', () => {
@@ -180,15 +184,16 @@ describe('routes on web and desktop', () => {
     expect(first({ ...holder, tokenPairedOverHttps: true })).toBe(tunnel.url)
   })
 
-  test('a scan through Tailscale says tailnet, not a guess from the range', () => {
-    const saved: SavedServer = { id: INSTALLATION, label: 'Studio', sessionToken: 'token', installationId: INSTALLATION, lastConnected: 1, routes: [pairing] }
-    const next = withDiscoveredRoutes([saved], [{ host: '100.64.0.2', port: 3000, name: 'Studio', installationId: INSTALLATION, source: 'tailnet' }], NOW)
-    expect(next?.[0]?.routes.find((route) => route.source === 'discovery')?.kind).toBe('tailnet')
+  test('a scan through Tailscale says tailnet, not a guess from the range', async () => {
+    const catalog = catalogOf({ credentials: memoryCredentials([], { [INSTALLATION]: { token: 'token', routes: [pairing] } }), directory: null, now: NOW })
+    await catalog.useListSource(fakeList([], 'host:local', [listingFor(INSTALLATION, { routes: [pairing] })]).source)
+    catalog.applyDiscovered([{ host: '100.64.0.2', port: 3000, name: 'Studio', installationId: INSTALLATION, source: 'tailnet' }])
+    expect(catalog.find(INSTALLATION)?.routes.find((route) => route.source === 'discovery')?.kind).toBe('tailnet')
   })
 })
 
 describe('routes and the host list', () => {
-  const server = (overrides: Partial<SavedServer> = {}): SavedServer => ({
+  const server = (overrides: Partial<KnownHost> = {}): KnownHost => ({
     id: INSTALLATION, label: 'Studio', sessionToken: 'token', installationId: INSTALLATION, lastConnected: 1, routes: [pairing], ...overrides,
   })
 
@@ -203,5 +208,22 @@ describe('routes and the host list', () => {
     expect(local.routes.map((route) => route.url)).toEqual([learned.url, tunnel.url])
     expect(local).toMatchObject({ tokenPairedOverHttps: true, routeOrder: [tunnel.url, learned.url] })
     expect(listingOf(local)?.routes.map((route) => route.url)).not.toContain(pairing.url)
+  })
+
+  test('a change the person makes goes to this device\'s credential, and the list follows a removed pairing route', async () => {
+    // WHY: plans/033 §4.1 — the routes this device knows live in its credential; the
+    // pairing address is also in the host's listing, so the listing changes with it.
+    const journal: string[] = []
+    const credentials = memoryCredentials(journal, { [INSTALLATION]: { token: 'token', routes: [pairing] } })
+    const catalog = catalogOf({ credentials, directory: null, now: 5 })
+    const list = fakeList(journal, 'host:local', [listingFor(INSTALLATION, { routes: [pairing, learned] })])
+    await catalog.useListSource(list.source)
+    await catalog.changeRoutes(INSTALLATION, (holder) => withRouteMoved(withUserRoute(holder, 'https://solus.example.com', 5), learned.url, -1))
+    expect(credentials.stored.get(INSTALLATION)?.routes.map((route) => `${route.source} ${route.url}`)).toEqual([`pairing ${pairing.url}`, 'user https://solus.example.com'])
+    expect(credentials.stored.get(INSTALLATION)?.routeOrder?.[0]).toBe(learned.url)
+
+    await catalog.changeRoutes(INSTALLATION, (holder) => withoutRoute(holder, pairing.url))
+    await Promise.resolve()
+    expect(list.state.listings.get(INSTALLATION)?.routes.map((route) => route.url)).toEqual([learned.url])
   })
 })

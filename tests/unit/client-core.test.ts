@@ -3,7 +3,8 @@ import { localApi } from '@solus/client-core/local-api'
 import { mergeNativeOnlySolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
 import { normalizeServerUrl, pairServer, parsePairLink } from '@solus/client-core/pairing'
-import { serverFromSshAdd, withForwardedRoutes } from '@solus/client-core/server-registry'
+import { serverFromSshAdd } from '@solus/client-core/known-host'
+import { catalogOf, fakeList, memoryCredentials } from './helpers/host-catalog-world'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { encodeQrByteMode } from '@solus/client-core/qr'
 import {
@@ -378,11 +379,16 @@ describe('a machine added over SSH with no account', () => {
     expect(server).toMatchObject({ id: 'install-box', sessionToken: 'token-box', identityKey: forwarded.identityKey, routes: [{ ...forwarded.route, seenAt: 10 }] })
   })
 
-  test('follows the forward when it opens again on another port, and loses the route when the forward goes', () => {
-    const saved = [serverFromSshAdd({ status: 'forwarded', host: forwarded, sessionToken: 'token-box' }, null, 10)]
-    const moved = withForwardedRoutes(saved, [{ ...forwarded, route: { ...forwarded.route, url: 'http://127.0.0.1:50001' } }], 20)
-    expect(moved?.[0]?.routes.map((route) => route.url)).toEqual(['http://127.0.0.1:50001'])
-    expect(withForwardedRoutes(moved ?? [], [], 30)?.[0]?.routes).toEqual([])
-    expect(withForwardedRoutes(moved ?? [], [{ ...forwarded, route: { ...forwarded.route, url: 'http://127.0.0.1:50001' } }], 21)).toBeNull()
+  test('follows the forward when it opens again on another port, and loses the route when the forward goes', async () => {
+    const catalog = catalogOf({ credentials: memoryCredentials([]), directory: null, now: 20 })
+    await catalog.useListSource(fakeList([], 'host:local').source)
+    await catalog.pair(serverFromSshAdd({ status: 'forwarded', host: forwarded, sessionToken: 'token-box' }, null, 10))
+    const moved = { ...forwarded, route: { ...forwarded.route, url: 'http://127.0.0.1:50001' } }
+    expect(catalog.applyForwarded([moved])).toBe(true)
+    expect(catalog.find('install-box')?.routes.map((route) => route.url)).toEqual(['http://127.0.0.1:50001'])
+    // Nothing new: nothing changes.
+    expect(catalog.applyForwarded([moved])).toBe(false)
+    expect(catalog.applyForwarded([])).toBe(true)
+    expect(catalog.find('install-box')?.routes).toEqual([])
   })
 })

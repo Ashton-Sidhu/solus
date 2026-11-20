@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'bun:test'
 import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
 import { DEFAULT_HOST_RULES, directoryResponseSchema, type DirectoryHost, type DirectoryWorkspace } from '@solus/contracts/uplink'
-import { loadServers, saveServers } from '@solus/client-core/server-registry'
-import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
-import { activeWorkspace, loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget } from '@solus/client-core/workspace-registry'
+import type { HostCatalog } from '@solus/client-core/host-catalog'
+import { activeWorkspace, workspaceTarget } from '@solus/client-core/workspace-registry'
+import { catalogOf, fakeDirectory, fakeList, memoryCredentials } from './helpers/host-catalog-world'
 
 // docs/plans/workspace-and-machines.md §4. WHY: a workspace service is a cloud
 // service, never a host. A fresh account on its first sign-in logged "hosts: 1"
@@ -11,29 +11,14 @@ import { activeWorkspace, loadWorkspaces, saveDirectoryWorkspaces, workspaceTarg
 // workspace service into the saved hosts.
 
 const DIRECTORY = 'https://app.solus.test'
-const previousLocalStorage = globalThis.localStorage
-const store = new Map<string, string>()
+let directory = fakeDirectory(DIRECTORY)
+let catalog: HostCatalog = catalogOf({ credentials: memoryCredentials([]), directory })
 
-beforeEach(() => {
-  store.clear()
+beforeEach(async () => {
   windowOrganizationSelection.reconcile([])
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    writable: true,
-    value: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => void store.set(key, value),
-      removeItem: (key: string) => void store.delete(key),
-    },
-  })
-})
-
-afterEach(() => {
-  if (previousLocalStorage === undefined) {
-    delete (globalThis as unknown as { localStorage?: Storage }).localStorage
-  } else {
-    Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: previousLocalStorage })
-  }
+  directory = fakeDirectory(DIRECTORY)
+  catalog = catalogOf({ credentials: memoryCredentials([]), directory })
+  await catalog.useListSource(fakeList([], 'account').source)
 })
 
 const acme: DirectoryWorkspace = { organizationId: 'org-1', label: 'Acme', routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }], isActive: true, hostRules: DEFAULT_HOST_RULES }
@@ -44,42 +29,40 @@ const machine: DirectoryHost = {
   organizationIds: [],
 }
 
-/** What a client does with one directory read. */
-function adopt(directory: { hosts: DirectoryHost[]; workspaces: DirectoryWorkspace[] }): void {
-  saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, DIRECTORY, 1))
-  saveDirectoryWorkspaces(directory.workspaces, DIRECTORY)
+/** One directory read. */
+async function adopt(answer: { hosts: DirectoryHost[]; workspaces: DirectoryWorkspace[] }): Promise<void> {
+  directory.answer(answer.hosts, answer.workspaces)
+  await catalog.refreshDirectory()
 }
 
 describe('the directory\'s workspace services', () => {
-  test('a fresh account saves no host, only its organization\'s workspace service', () => {
-    adopt(directoryResponseSchema.parse({ hosts: [], workspaces: [acme] }))
-    expect(loadServers()).toEqual([])
-    expect(loadWorkspaces().map((workspace) => workspace.organizationId)).toEqual(['org-1'])
+  test('a fresh account has no host, only its organization\'s workspace service', async () => {
+    await adopt(directoryResponseSchema.parse({ hosts: [], workspaces: [acme] }))
+    expect(catalog.hosts()).toEqual([])
+    expect(catalog.workspaces().map((workspace) => workspace.organizationId)).toEqual(['org-1'])
   })
 
-  test('linking a machine adds one host and leaves the workspaces apart', () => {
-    adopt({ hosts: [], workspaces: [acme] })
-    adopt({ hosts: [machine], workspaces: [acme] })
-    expect(loadServers().map((server) => server.id)).toEqual(['inst-1'])
-    expect(loadWorkspaces()).toHaveLength(1)
+  test('linking a machine adds one host and leaves the workspaces apart', async () => {
+    await adopt({ hosts: [], workspaces: [acme] })
+    await adopt({ hosts: [machine], workspaces: [acme] })
+    expect(catalog.hosts().map((host) => host.id)).toEqual(['inst-1'])
+    expect(catalog.workspaces()).toHaveLength(1)
   })
 
-  test('the window keeps its organization until the directory drops it', () => {
-    adopt({ hosts: [], workspaces: [acme, beta] })
-    expect(activeWorkspace(loadWorkspaces())?.organizationId).toBe('org-1')
-    adopt({ hosts: [], workspaces: [{ ...acme, isActive: false }, { ...beta, isActive: true }] })
-    expect(activeWorkspace(loadWorkspaces())?.organizationId).toBe('org-1')
-    adopt({ hosts: [], workspaces: [{ ...beta, isActive: true }] })
-    expect(loadWorkspaces().map((workspace) => workspace.organizationId)).toEqual(['org-2'])
+  test('the window keeps its organization until the directory drops it', async () => {
+    await adopt({ hosts: [], workspaces: [acme, beta] })
+    expect(activeWorkspace(catalog.workspaces())?.organizationId).toBe('org-1')
+    await adopt({ hosts: [], workspaces: [{ ...acme, isActive: false }, { ...beta, isActive: true }] })
+    expect(activeWorkspace(catalog.workspaces())?.organizationId).toBe('org-1')
+    await adopt({ hosts: [], workspaces: [{ ...beta, isActive: true }] })
+    expect(catalog.workspaces().map((workspace) => workspace.organizationId)).toEqual(['org-2'])
   })
 
-  test('another directory origin\'s workspaces are left alone', () => {
-    saveDirectoryWorkspaces([beta], 'https://other.solus.test')
-    adopt({ hosts: [], workspaces: [acme] })
-    expect(loadWorkspaces().map((workspace) => [workspace.organizationId, workspace.directoryUrl])).toEqual([
-      ['org-2', 'https://other.solus.test'],
-      ['org-1', DIRECTORY],
-    ])
+  test('a failed read keeps the workspaces the last read listed', async () => {
+    await adopt({ hosts: [], workspaces: [acme] })
+    directory.state.answer = null
+    await catalog.refreshDirectory()
+    expect(catalog.workspaces().map((workspace) => workspace.organizationId)).toEqual(['org-1'])
   })
 
   test('malformed or missing directory facts are rejected instead of guessed', () => {
@@ -92,9 +75,9 @@ describe('the directory\'s workspace services', () => {
     expect(directoryResponseSchema.safeParse({ hosts: [machine], workspaces: [{ ...acme, hostRules: undefined }] }).success).toBe(false)
   })
 
-  test('a workspace is dialed on its tunnel alone, with a grant for its own id', () => {
-    const [saved] = saveDirectoryWorkspaces([{ ...acme, routes: [{ kind: 'lan', url: 'http://10.0.0.1:1' }, ...acme.routes] }], DIRECTORY)
-    expect(workspaceTarget(saved)).toEqual({
+  test('a workspace is dialed on its tunnel alone, with a grant for its own id', async () => {
+    await adopt({ hosts: [], workspaces: [{ ...acme, routes: [{ kind: 'lan', url: 'http://10.0.0.1:1' }, ...acme.routes] }] })
+    expect(workspaceTarget(catalog.workspaceFor('workspace:org-1')!)).toEqual({
       id: 'workspace:org-1',
       label: 'Acme',
       url: 'https://workspace.solus.test',
@@ -105,13 +88,13 @@ describe('the directory\'s workspace services', () => {
     })
   })
 
-  test('the window\'s choice picks the active workspace; a choice the directory dropped falls back', () => {
+  test('the window\'s choice picks the active workspace; a choice the directory dropped falls back', async () => {
     // WHY (organization-scope §2, §7): each window selects one organization, and the
     // account's active mark only seeds a window that has not chosen.
-    adopt({ hosts: [], workspaces: [acme, beta] })
+    await adopt({ hosts: [], workspaces: [acme, beta] })
     windowOrganizationSelection.set('org-2')
-    expect(activeWorkspace(loadWorkspaces())?.organizationId).toBe('org-2')
-    adopt({ hosts: [], workspaces: [acme] })
-    expect(activeWorkspace(loadWorkspaces())?.organizationId).toBe('org-1')
+    expect(activeWorkspace(catalog.workspaces())?.organizationId).toBe('org-2')
+    await adopt({ hosts: [], workspaces: [acme] })
+    expect(activeWorkspace(catalog.workspaces())?.organizationId).toBe('org-1')
   })
 })

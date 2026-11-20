@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import { routesForMachine, type HostRoute } from '@solus/contracts/host-routes'
-import { preferredRouteUrl, savedServerTarget } from '@solus/client-core/server-connection'
-import type { SavedServer } from '@solus/client-core/server-registry'
+import { knownHostTarget, preferredRouteUrl } from '@solus/client-core/server-connection'
+import type { KnownHost } from '@solus/client-core/known-host'
 import { advertisedRoutes } from '@solus/server/transport/endpoints'
 import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
 
@@ -23,13 +23,13 @@ test('managed routes exclude all private paths; personal machines keep their rou
   expect(routesForMachine([internal], 'managed')).toEqual([])
 })
 
-test('desktop and web restore a managed host on its tunnel despite a saved internal route', () => {
-  const saved: SavedServer = {
+test('desktop and web restore a managed host on its tunnel despite a known internal route', () => {
+  const saved: KnownHost = {
     id: 'managed:test', installationId: 'managed:test', label: 'Cloud host',
     sessionToken: '', lastConnected: 0, routes: [internal, tunnel],
     uplink: { hostId: 'test', directoryUrl: 'https://account.example.test', kind: 'managed' },
   }
   expect(preferredRouteUrl(saved, 'http://localhost:3001')).toBe(tunnel.url)
-  expect(savedServerTarget(saved)).toMatchObject({ url: tunnel.url, routes: [tunnel] })
+  expect(knownHostTarget(saved)).toMatchObject({ url: tunnel.url, routes: [tunnel] })
   expect(preferredRouteUrl({ ...saved, routes: [internal] }, 'http://localhost:3001')).toBe('')
 })

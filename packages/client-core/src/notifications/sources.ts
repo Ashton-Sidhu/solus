@@ -1,5 +1,5 @@
 import { solusApiId } from '@solus/contracts/uplink'
-import { ambiguousOrganizationIds, type SavedWorkspace } from '../workspace-registry'
+import { ambiguousOrganizationIds, type KnownWorkspace } from '../workspace-registry'
 import type { NotificationSource } from './hub-client'
 
 export type { NotificationSource }
@@ -22,7 +22,7 @@ export interface NotificationSourceList {
  * every host this client reaches and every organization home the account
  * directory lists, whatever organization the window has selected.
  */
-export function notificationSources(hosts: readonly NotificationHostEntry[], workspaces: readonly SavedWorkspace[]): NotificationSourceList {
+export function notificationSources(hosts: readonly NotificationHostEntry[], workspaces: readonly KnownWorkspace[]): NotificationSourceList {
   const sources: NotificationSource[] = []
   const seenHosts = new Set<string>()
   for (const host of hosts) {

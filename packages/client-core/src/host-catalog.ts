@@ -1,0 +1,683 @@
+/// <reference types="vite/client" />
+/**
+ * The one in-memory owner of the hosts a client knows (plans/033 §4.1). It joins
+ * three answers by host id: the person's host list (`HostListSource`), the
+ * account directory (its hosts and the organizations' workspace services), and
+ * this device's credentials (`host-credentials.ts`). Only the credentials are
+ * kept on the device; the rest is read again on each start (§3 Q2).
+ *
+ * Framework-free: the desktop and web hosts store and the mobile store each wrap
+ * it, and `ServerConnections` reads it to dial.
+ */
+
+import type { HostListing } from '@solus/contracts/host-list'
+import type { HostOperatingSystem, DiscoveredServer } from '@solus/contracts/types'
+import type { DirectoryHost, UplinkDirectory } from '@solus/contracts/uplink'
+import type { ForwardedHost } from '@solus/contracts/remote-machines'
+import { dialableRoutes, listedRoutes, mergeRoutes, routeForUrl, routesFrom, withReadRoutes, type HostRoute, type RouteSource } from '@solus/contracts/host-routes'
+import type { HostListSource } from './host-list-source'
+import { DEVICE_ROUTE_SOURCES, deviceRoutes, isDeviceRoute, localStorageCredentials, type HostCredential, type HostCredentialStorage } from './host-credentials'
+import { getActiveServerId, LOCAL_SERVER_ID, pairedAddress, setActiveServerId, type KnownHost, type KnownHostUplink } from './known-host'
+import { workspaceFor, type KnownWorkspace } from './workspace-registry'
+import { windowOrganizationSelection } from './organization-selection'
+import { takeStartupDirectoryRead, uplinkAccountSource } from './uplink-account'
+import type { AdvertisedHost } from './host-link'
+import type { RouteHolder } from './host-route-control'
+import { urlHost } from './pairing'
+
+/** Where one answer is: not read yet, read, or never read because each read failed (§3 Q2). */
+export type AnswerState = 'loading' | 'ready' | 'failed'
+
+/** What the catalog needs of the account's sign-in. */
+export interface HostDirectoryReader {
+  /** Null when signed out or the account did not answer. */
+  listDirectory(): Promise<UplinkDirectory | null>
+  isSignedOut(): boolean
+}
+
+export interface HostCatalogOptions {
+  credentials: HostCredentialStorage
+  /** The account's directory now; null where this client has no account. */
+  directory?: () => HostDirectoryReader | null
+  /** A directory read that boot started already (web); taken once. */
+  startupDirectory?: () => Promise<UplinkDirectory | null> | null
+  now?: () => number
+  /** The page's origin: an `https:` page cannot reach an `http:`-only directory host. */
+  clientOrigin?: () => string
+}
+
+/** One directory answer. */
+export interface DirectoryAnswer {
+  directoryUrl: string
+  hosts: readonly DirectoryHost[]
+  workspaces: readonly KnownWorkspace[]
+}
+
+/** What this client learned about a host while it runs; never written to the device. */
+export interface LearnedFacts {
+  /** Routes by source, each replacing that source's routes in the join. */
+  routes?: Partial<Record<RouteSource, HostRoute[]>>
+  identityKey?: string
+  os?: HostOperatingSystem
+  lastConnected?: number
+}
+
+/** The answers the join reads. */
+export interface CatalogAnswers {
+  /** The list's last answer with this client's unconfirmed writes over it; empty before one. */
+  listings: ReadonlyMap<string, HostListing>
+  listState: AnswerState
+  directory: DirectoryAnswer | null
+  credentials: ReadonlyMap<string, HostCredential>
+  learned: ReadonlyMap<string, LearnedFacts>
+}
+
+/** What `pair` did: the host, and why its listing did not reach the list (it is sent again at the next read). */
+export interface PairOutcome {
+  host: KnownHost
+  listError: Error | null
+}
+
+/** What the registry keeps of a directory row beyond its routes. */
+function uplinkOf(host: DirectoryHost, directoryUrl: string): KnownHostUplink {
+  const uplink: KnownHostUplink = { hostId: host.hostId, directoryUrl, kind: host.kind, category: host.category }
+  if (host.organizationIds.length > 0) uplink.organizationIds = [...host.organizationIds]
+  if (host.ownerName) uplink.ownerName = host.ownerName
+  if (host.ownerUserId) uplink.ownerUserId = host.ownerUserId
+  if (host.managedState) uplink.managedState = host.managedState
+  return uplink
+}
+
+/**
+ * Whether this page can reach a host the directory lists. A registered host that is
+ * not linked is listed with no route, and a client reaches it only on a network it
+ * shares with the host. An `https:` page cannot dial an `http:` address (mixed
+ * content), so there such a host is shown only when this client knows an `https:`
+ * route to it. A managed host is always shown: it has no route while it is stopped,
+ * and the page can start it.
+ */
+function isListingReachable(host: DirectoryHost, routes: readonly HostRoute[], clientOrigin: string): boolean {
+  return host.kind === 'managed' || !clientOrigin.startsWith('https:') || dialableRoutes(routes, clientOrigin).length > 0
+}
+
+/** The routes after `learned` replaced each source it holds. */
+function withLearnedRoutes(routes: readonly HostRoute[], learned: LearnedFacts | undefined): HostRoute[] {
+  const sources = learned?.routes
+  if (!sources) return [...routes]
+  const replaced = new Set(Object.keys(sources))
+  // SAFETY: the keys of `LearnedFacts.routes` are route sources.
+  const added = (Object.keys(sources) as RouteSource[]).flatMap((source) => sources[source] ?? [])
+  return [...routes.filter((route) => !replaced.has(route.source ?? 'pairing')), ...added]
+}
+
+/** What each answer says about one host. */
+interface HostAnswers {
+  base: KnownHost
+  listed: DirectoryHost | undefined
+  credential: HostCredential | undefined
+  learned: LearnedFacts | undefined
+}
+
+/** A host's routes from every answer; null when only the directory names it and this page cannot reach it. */
+function joinedRoutes({ base, listed, credential, learned }: HostAnswers, now: number, clientOrigin: string): HostRoute[] | null {
+  // The device's routes come from its credential; the list's copy of them is another device's.
+  const own = credential ? [...credential.routes, ...base.routes.filter((route) => !isDeviceRoute(route))] : base.routes
+  const routes = withLearnedRoutes(own, learned)
+  if (!listed) return routes
+  // The directory's routes replace its earlier ones. Routes from the host, a pairing,
+  // or this client's network stay: `chooseRoute` asks each one, so a stale address
+  // costs one parallel check and never wins.
+  const merged = mergeRoutes(routes, listed.routes, 'directory', now)
+  return credential?.token || isListingReachable(listed, merged, clientOrigin) ? merged : null
+}
+
+/** What this device's credential gives a host. */
+function credentialFacts(credential: HostCredential | undefined): Pick<KnownHost, 'sessionToken' | 'routeOrder' | 'tokenPairedOverHttps' | 'identityKey'> {
+  if (!credential) return { sessionToken: '' }
+  const facts: Pick<KnownHost, 'sessionToken' | 'routeOrder' | 'tokenPairedOverHttps' | 'identityKey'> = { sessionToken: credential.token }
+  if (credential.routeOrder) facts.routeOrder = credential.routeOrder
+  if (credential.tokenPairedOverHttps) facts.tokenPairedOverHttps = true
+  if (credential.identityKey) facts.identityKey = credential.identityKey
+  return facts
+}
+
+function joinedHost(answers: HostAnswers, routes: HostRoute[], directoryUrl: string): KnownHost {
+  const { base, listed, learned } = answers
+  const { identityKey: pairedKey, ...credential } = credentialFacts(answers.credential)
+  const host: KnownHost = {
+    id: base.id,
+    // A managed host's name is the one members give it on the account site, so a
+    // rename there reaches every client. A name typed here still wins (`hasUserLabel`).
+    label: listed?.kind === 'managed' ? listed.label : base.label,
+    installationId: base.installationId,
+    lastConnected: Math.max(base.lastConnected, learned?.lastConnected ?? 0),
+    routes,
+    ...credential,
+  }
+  if (base.hasUserLabel) host.hasUserLabel = true
+  const os = learned?.os ?? base.os ?? listed?.os
+  if (os) host.os = os
+  const identityKey = pairedKey ?? learned?.identityKey ?? base.identityKey
+  if (identityKey) host.identityKey = identityKey
+  if (listed) host.uplink = uplinkOf(listed, directoryUrl)
+  return host
+}
+
+/**
+ * The hosts a client knows, joined by id (plans/033 §4.1):
+ *
+ * - each listed host, with this device's token and its own routes when it holds a credential;
+ * - each directory host, merged with its listing by installation id; one only listed
+ *   there that this page cannot reach is left out (`isListingReachable`);
+ * - a host this device holds a credential for that no answer names shows only while
+ *   the list read failed, so a client with no network still reaches the hosts it paired.
+ *   While the list loads it waits, so boot dials the listed hosts after the read.
+ */
+export function joinHosts(answers: CatalogAnswers, now: number, clientOrigin: string): KnownHost[] {
+  const directoryUrl = answers.directory?.directoryUrl ?? ''
+  const byInstallation = new Map((answers.directory?.hosts ?? []).map((host) => [host.installationId, host]))
+  const joined: KnownHost[] = []
+  const seen = new Set<string>()
+  const add = (base: KnownHost, listed: DirectoryHost | undefined): void => {
+    seen.add(base.id)
+    const hostAnswers: HostAnswers = { base, listed, credential: answers.credentials.get(base.id), learned: answers.learned.get(base.id) }
+    const routes = joinedRoutes(hostAnswers, now, clientOrigin)
+    if (routes) joined.push(joinedHost(hostAnswers, routes, directoryUrl))
+  }
+  for (const listing of answers.listings.values()) {
+    const listed = byInstallation.get(listing.installationId)
+    byInstallation.delete(listing.installationId)
+    add(hostOfListing(listing), listed)
+  }
+  for (const listed of byInstallation.values()) {
+    if (seen.has(listed.installationId)) continue
+    add({ id: listed.installationId, label: listed.label, sessionToken: '', installationId: listed.installationId, lastConnected: 0, routes: [], os: listed.os }, listed)
+  }
+  if (answers.listState === 'failed') {
+    for (const [id, credential] of answers.credentials) {
+      if (seen.has(id) || id === LOCAL_SERVER_ID) continue
+      const address = pairedAddress(credential)
+      add({ id, label: address ? urlHost(address) : id, sessionToken: '', installationId: id, lastConnected: 0, routes: [] }, undefined)
+    }
+  }
+  return joined
+}
+
+function hostOfListing(listing: HostListing): KnownHost {
+  const host: KnownHost = { id: listing.id, label: listing.label, sessionToken: '', installationId: listing.installationId, lastConnected: listing.lastConnected, routes: listing.routes }
+  if (listing.hasUserLabel) host.hasUserLabel = true
+  if (listing.os) host.os = listing.os
+  if (listing.identityKey) host.identityKey = listing.identityKey
+  return host
+}
+
+/**
+ * The listing of a host this client connected to itself: paired, added over SSH,
+ * or forwarded, so it holds a token. The local host and a managed host are not on
+ * the list. The listing never carries the token.
+ */
+export function listingOf(host: KnownHost): HostListing | null {
+  if (host.id === LOCAL_SERVER_ID || host.uplink?.kind === 'managed' || !host.sessionToken) return null
+  const listing: HostListing = { id: host.id, label: host.label, installationId: host.installationId, routes: listedRoutes(host.routes), lastConnected: host.lastConnected }
+  if (host.hasUserLabel) listing.hasUserLabel = true
+  if (host.os) listing.os = host.os
+  if (host.identityKey) listing.identityKey = host.identityKey
+  return listing
+}
+
+/** The credential a host this client paired gives the device. */
+function credentialOf(host: KnownHost): HostCredential {
+  const credential: HostCredential = { token: host.sessionToken, routes: deviceRoutes(host.routes) }
+  if (host.identityKey) credential.identityKey = host.identityKey
+  if (host.tokenPairedOverHttps) credential.tokenPairedOverHttps = true
+  if (host.routeOrder) credential.routeOrder = host.routeOrder
+  return credential
+}
+
+export class HostCatalog {
+  private readonly credentials = new Map<string, HostCredential>()
+  private loaded: Promise<void> | null = null
+  private source: HostListSource | null = null
+  private stopSourceEvents: (() => void) | null = null
+  /** The list's last answer for the current source; null before one. */
+  private listings: Map<string, HostListing> | null = null
+  /** Listings this client wrote that no read has confirmed yet; each is sent again at the next read. */
+  private readonly unconfirmed = new Map<string, HostListing>()
+  private listStateValue: AnswerState = 'loading'
+  private listGeneration = 0
+  private directory: DirectoryAnswer | null = null
+  private directoryStateValue: AnswerState = 'loading'
+  private directorySignedInValue: boolean | null = null
+  private directoryRead: Promise<void> | null = null
+  private readonly learned = new Map<string, LearnedFacts>()
+  private joined: KnownHost[] = []
+  private byId = new Map<string, KnownHost>()
+  private managedIds: ReadonlySet<string> = new Set()
+  private readonly listeners = new Set<() => void>()
+  private readonly forgottenListeners = new Set<(host: KnownHost) => void>()
+
+  constructor(private readonly options: HostCatalogOptions) {}
+
+  /** Reads this device's credentials once. Boot awaits it before it dials; every command awaits it too. */
+  load(): Promise<void> {
+    this.loaded ??= this.options.credentials.read().then((stored) => {
+      for (const [hostId, credential] of stored) if (!this.credentials.has(hostId)) this.credentials.set(hostId, credential)
+      this.rejoin()
+    }, () => {})
+    return this.loaded
+  }
+
+  hosts(): readonly KnownHost[] {
+    return this.joined
+  }
+
+  find(id: string): KnownHost | undefined {
+    return this.byId.get(id)
+  }
+
+  /** The hosts provisioned for an organization (`uplink.kind === 'managed'`). */
+  managedHostIds(): ReadonlySet<string> {
+    return this.managedIds
+  }
+
+  /** The organizations' workspace services, as the directory last listed them. */
+  workspaces(): readonly KnownWorkspace[] {
+    return this.directory?.workspaces ?? []
+  }
+
+  /** The workspace service a `workspace:<organizationId>` id names; null when none. */
+  workspaceFor(serviceId: string): KnownWorkspace | null {
+    return workspaceFor(this.workspaces(), serviceId)
+  }
+
+  listState(): AnswerState {
+    return this.listStateValue
+  }
+
+  directoryState(): AnswerState {
+    return this.directoryStateValue
+  }
+
+  /** What the directory's last read said about the sign-in: null until one settles. */
+  directorySignedIn(): boolean | null {
+    return this.directorySignedInValue
+  }
+
+  /** The key of the source the list is read from now (`HostListSource.key`); null with none. */
+  listSourceKey(): string | null {
+    return this.source?.key ?? null
+  }
+
+  /** Every change of what `hosts()`, `workspaces()`, or a state answers. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  /**
+   * A host leaves this client: forgotten here, replaced by a host paired again at its
+   * address, or forgotten on another device (§3 Q1). Its caches leave with it.
+   */
+  onForgotten(listener: (host: KnownHost) => void): () => void {
+    this.forgottenListeners.add(listener)
+    return () => this.forgottenListeners.delete(listener)
+  }
+
+  /**
+   * Reads the list from another source (signing in or out changes it; 031 D7) and
+   * reads it at once. The credentials stay. Each listed host this client holds a
+   * credential for goes to the new source at its first read, so a sign-in does not
+   * forget the hosts paired while signed out. The same key keeps the list as it is.
+   */
+  useListSource(next: HostListSource | null): Promise<void> {
+    if (next?.key === this.source?.key && this.source) {
+      this.source = next
+      return this.refreshList()
+    }
+    this.stopSourceEvents?.()
+    this.stopSourceEvents = null
+    for (const listing of this.listings?.values() ?? []) {
+      if (this.credentials.get(listing.id)?.token) this.unconfirmed.set(listing.id, listing)
+    }
+    this.source = next
+    this.listings = null
+    this.listStateValue = 'loading'
+    this.listGeneration += 1
+    this.rejoin()
+    if (!next) return Promise.resolve()
+    // Another client of the same list changed it: read it again.
+    this.stopSourceEvents = next.subscribe?.(() => void this.refreshList()) ?? null
+    return this.refreshList()
+  }
+
+  /** Reads both answers again. */
+  async refresh(): Promise<void> {
+    await Promise.all([this.refreshList(), this.refreshDirectory()])
+  }
+
+  /**
+   * Reads the person's list. A failed read keeps the last answer; before any answer
+   * the list is `failed` (§3 Q2). A read that a newer read or another source
+   * overtook is dropped.
+   */
+  async refreshList(): Promise<void> {
+    await this.load()
+    const source = this.source
+    if (!source) return
+    const generation = ++this.listGeneration
+    const listed = await source.read()
+    if (generation !== this.listGeneration || source !== this.source) return
+    if (!listed) {
+      if (this.listStateValue === 'loading') {
+        this.listStateValue = 'failed'
+        this.rejoin()
+      }
+      return
+    }
+    this.listings = new Map(listed.map((listing) => [listing.id, listing]))
+    this.listStateValue = 'ready'
+    // A write that the list now holds is confirmed; one it does not is sent again,
+    // while this device still holds the host's credential.
+    for (const [id, listing] of this.unconfirmed) {
+      if (this.listings.has(id) || !this.credentials.get(id)?.token) this.unconfirmed.delete(id)
+      else void this.send(listing)
+    }
+    this.forgetUnnamed()
+    this.rejoin()
+  }
+
+  /**
+   * Reads the account's directory: its hosts and the organizations' workspace
+   * services. Signed out, the answer is that there are none. A failed read keeps
+   * the last answer. A read in flight is shared.
+   */
+  refreshDirectory(): Promise<void> {
+    this.directoryRead ??= this.readDirectory().finally(() => { this.directoryRead = null })
+    return this.directoryRead
+  }
+
+  private async readDirectory(): Promise<void> {
+    await this.load()
+    const reader = this.options.directory?.() ?? null
+    const directory = reader ? await (this.options.startupDirectory?.() ?? reader.listDirectory()).catch(() => null) : null
+    this.directorySignedInValue = !!directory
+    if (!directory && reader && !reader.isSignedOut()) {
+      if (this.directoryStateValue === 'loading') this.directoryStateValue = 'failed'
+      this.rejoin()
+      return
+    }
+    this.directory = directory
+      ? { directoryUrl: directory.directoryUrl, hosts: directory.hosts, workspaces: directory.workspaces.map((workspace) => ({ ...workspace, directoryUrl: directory.directoryUrl })) }
+      : null
+    this.directoryStateValue = 'ready'
+    this.forgetUnnamed()
+    this.rejoin()
+  }
+
+  /**
+   * Pairs a host: writes this device's credential, then puts the listing to the
+   * person's list (§4.1). A host paired again at the same address after a reinstall
+   * replaces the old one. A listing that does not reach the list is kept here and
+   * sent again at the next read; `listError` says why.
+   */
+  async pair(paired: KnownHost): Promise<PairOutcome> {
+    await this.load()
+    const address = pairedAddress(paired)
+    const replaced = address
+      ? this.joined.find((host) => host.id !== paired.id && !!this.credentials.get(host.id)?.token && pairedAddress(host) === address)
+      : undefined
+    if (replaced) await this.forget(replaced.id).catch(() => this.dropCredential(replaced))
+    const credential = credentialOf(paired)
+    await this.options.credentials.write(paired.id, credential)
+    this.credentials.set(paired.id, credential)
+    this.learned.delete(paired.id)
+    const listing = listingOf(paired)
+    if (listing) this.unconfirmed.set(listing.id, listing)
+    this.rejoin()
+    const listError = listing ? await this.send(listing) : null
+    return { host: this.find(paired.id) ?? paired, listError }
+  }
+
+  /**
+   * Forgets a host on this client: removes its listing from the person's list, then
+   * deletes this device's credential (§4.1). A list that does not answer deletes
+   * nothing, and the call throws. A host the directory lists stays listed there:
+   * the caller ends that registration first.
+   */
+  async forget(id: string): Promise<void> {
+    await this.load()
+    const host = this.find(id)
+    if (!this.source && (this.credentials.get(id)?.token || this.listings?.has(id))) {
+      throw new Error('The host list is not read yet; forget the host again in a moment.')
+    }
+    const mayBeListed = this.listStateValue !== 'ready' || !!this.listings?.has(id) || this.unconfirmed.has(id)
+    if (mayBeListed) await this.source?.remove(id)
+    this.unconfirmed.delete(id)
+    this.listings?.delete(id)
+    this.learned.delete(id)
+    if (host) this.announceForgotten(host)
+    if (this.credentials.delete(id)) await this.options.credentials.remove(id)
+    if (getActiveServerId() === id) setActiveServerId(LOCAL_SERVER_ID)
+    this.rejoin()
+  }
+
+  /** The host's session token was refreshed. Only a host this device holds a credential for keeps it. */
+  async renewToken(id: string, token: string): Promise<void> {
+    await this.load()
+    const credential = this.credentials.get(id)
+    if (!credential || credential.token === token) return
+    await this.writeCredential(id, { ...credential, token })
+    this.rejoin()
+  }
+
+  /** This client connected to the host now. */
+  touchLastConnected(id: string): void {
+    if (!this.find(id)) return
+    this.learn(id, { lastConnected: (this.options.now ?? Date.now)() })
+    this.rejoin()
+    this.sendListingOf(id)
+  }
+
+  /** What `/health` said the host runs on. */
+  stampOperatingSystem(id: string, os: HostOperatingSystem): void {
+    const host = this.find(id)
+    if (!host || host.os === os) return
+    this.learn(id, { os })
+    this.rejoin()
+    this.sendListingOf(id)
+  }
+
+  /**
+   * Keeps what a connected host says about itself (docs/plans/host-routes.md D2): its
+   * routes replace its earlier `host` routes, and its identity key is kept when this
+   * client has none yet. The connection that carried it already passed the identity
+   * check. Null when nothing changed.
+   */
+  applyAdvertised(id: string, advertised: AdvertisedHost): KnownHost | null {
+    const host = this.find(id)
+    if (!host) return null
+    const routes = withReadRoutes(host.routes, advertised.routes, 'host', (this.options.now ?? Date.now)())
+    const identityKey = host.identityKey ?? advertised.identityKey
+    if (!routes && identityKey === host.identityKey) return null
+    if (routes) this.keepRoutes(host, routes, 'host')
+    if (identityKey !== host.identityKey) {
+      const credential = this.credentials.get(id)
+      if (credential) void this.writeCredential(id, { ...credential, identityKey })
+      else this.learn(id, { identityKey })
+    }
+    this.rejoin()
+    this.sendListingOf(id)
+    return this.find(id) ?? null
+  }
+
+  /**
+   * Keeps the forwarded routes the same as the forwards this machine's own host
+   * holds (D7). A forward's port can change when it opens again, and a host that is
+   * no longer forwarded loses its forwarded route. Only the machine that holds the
+   * forwards calls this. False when nothing changed.
+   */
+  applyForwarded(forwarded: readonly ForwardedHost[]): boolean {
+    const byInstallation = new Map(forwarded.map((host) => [host.installationId, host.route]))
+    return this.applyRead('ssh', (host) => {
+      const route = byInstallation.get(host.installationId)
+      return route ? [route] : []
+    })
+  }
+
+  /**
+   * A scan of this client's networks (docs/plans/host-routes.md D1): each host the
+   * scan found gets the address it answered at as a `discovery` route. A host the
+   * scan did not find keeps its earlier discovery route until it expires, so a laptop
+   * that comes back to the network dials the host there again. False when nothing changed.
+   */
+  applyDiscovered(discovered: readonly DiscoveredServer[]): boolean {
+    const found = new Map(discovered.map((server) => [server.installationId, server]))
+    return this.applyRead('discovery', (host) => {
+      const nearby = found.get(host.installationId)
+      return nearby ? [routeForUrl(`http://${nearby.host}:${nearby.port}`, nearby.source === 'tailnet')] : null
+    })
+  }
+
+  /**
+   * A person changed a host's routes (`host-route-control.ts`). This device's routes
+   * and their order go to its credential; a host this device holds no token for
+   * keeps them as a credential with no token. Null when the host is not known.
+   */
+  async changeRoutes(id: string, change: (holder: RouteHolder) => RouteHolder): Promise<KnownHost | null> {
+    await this.load()
+    const host = this.find(id)
+    if (!host) return null
+    const changed = change({ routes: host.routes, routeOrder: host.routeOrder, tokenPairedOverHttps: host.tokenPairedOverHttps, uplink: host.uplink })
+    const credential = this.credentials.get(id) ?? { token: '', routes: [] }
+    const next: HostCredential = { ...credential, routes: deviceRoutes(changed.routes) }
+    if (changed.routeOrder) next.routeOrder = changed.routeOrder
+    else delete next.routeOrder
+    await this.writeCredential(id, next)
+    this.rejoin()
+    // A pairing route is in the host's listing, so the listing changes with it.
+    this.sendListingOf(id)
+    return this.find(id) ?? null
+  }
+
+  private applyRead(source: RouteSource, incoming: (host: KnownHost) => HostRoute[] | null): boolean {
+    const now = (this.options.now ?? Date.now)()
+    let changed = false
+    for (const host of this.joined) {
+      const read = incoming(host)
+      const routes = read ? withReadRoutes(host.routes, read, source, now) : null
+      if (!routes) continue
+      changed = true
+      this.keepRoutes(host, routes, source)
+    }
+    if (!changed) return false
+    this.rejoin()
+    return true
+  }
+
+  /** Keeps one source's routes: in the credential when it is this device's and the device holds one, else for this run only. */
+  private keepRoutes(host: KnownHost, routes: readonly HostRoute[], source: RouteSource): void {
+    const credential = this.credentials.get(host.id)
+    if (credential && DEVICE_ROUTE_SOURCES.has(source)) {
+      void this.writeCredential(host.id, { ...credential, routes: deviceRoutes(routes) })
+      return
+    }
+    const learned = this.learned.get(host.id)
+    this.learn(host.id, { routes: { ...learned?.routes, [source]: routesFrom(routes, source) } })
+  }
+
+  private learn(id: string, facts: LearnedFacts): void {
+    this.learned.set(id, { ...this.learned.get(id), ...facts })
+  }
+
+  private async writeCredential(id: string, credential: HostCredential): Promise<void> {
+    this.credentials.set(id, credential)
+    await this.options.credentials.write(id, credential).catch(() => {})
+  }
+
+  /** Sends the listing of a host this client paired again when what the list holds of it changed. */
+  private sendListingOf(id: string): void {
+    const host = this.find(id)
+    const listing = host ? listingOf(host) : null
+    if (!listing || !this.credentials.get(id)?.token) return
+    this.unconfirmed.set(id, listing)
+    void this.send(listing)
+  }
+
+  /** Puts a listing to the list; null when it landed. It stays unconfirmed until a read holds it. */
+  private async send(listing: HostListing): Promise<Error | null> {
+    const source = this.source
+    if (!source) return new Error('The host list is not read yet; the host goes on it at the next read.')
+    try {
+      await source.put(listing)
+      if (source === this.source) this.listings?.set(listing.id, listing)
+      return null
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error))
+    }
+  }
+
+  /**
+   * §3 Q1: once the list and the directory both answered, a credential for a host
+   * that neither names was forgotten elsewhere (or the list was wiped), so it is
+   * deleted here too. Only a successful read calls this: a failed read deletes nothing.
+   */
+  private forgetUnnamed(): void {
+    if (this.listStateValue !== 'ready' || this.directoryStateValue !== 'ready' || !this.listings) return
+    const named = new Set([...this.listings.keys(), ...this.unconfirmed.keys()])
+    for (const host of this.directory?.hosts ?? []) named.add(host.installationId)
+    for (const id of this.credentials.keys()) {
+      if (named.has(id)) continue
+      const host = this.find(id) ?? { id, label: id, sessionToken: '', installationId: id, lastConnected: 0, routes: [] }
+      this.dropCredential(host)
+    }
+  }
+
+  private dropCredential(host: KnownHost): void {
+    this.announceForgotten(host)
+    this.credentials.delete(host.id)
+    this.learned.delete(host.id)
+    void this.options.credentials.remove(host.id).catch(() => {})
+  }
+
+  private announceForgotten(host: KnownHost): void {
+    for (const listener of this.forgottenListeners) listener(host)
+  }
+
+  private rejoin(): void {
+    const listings = new Map(this.listings ?? [])
+    for (const [id, listing] of this.unconfirmed) listings.set(id, listing)
+    this.joined = joinHosts({
+      listings,
+      listState: this.listStateValue,
+      directory: this.directory,
+      credentials: this.credentials,
+      learned: this.learned,
+    }, (this.options.now ?? Date.now)(), this.options.clientOrigin?.() ?? globalThis.location?.origin ?? '')
+    this.byId = new Map(this.joined.map((host) => [host.id, host]))
+    this.managedIds = new Set(this.joined.filter((host) => host.uplink?.kind === 'managed').map((host) => host.id))
+    for (const listener of this.listeners) listener()
+  }
+}
+
+/**
+ * One catalog per page, as `serverConnections` is one registry per page: a
+ * re-evaluated module would otherwise hold a second, empty catalog. Desktop and
+ * web keep their credentials in `localStorage`; mobile builds its own catalog with
+ * its keychain.
+ */
+export const hostCatalog: HostCatalog = import.meta.hot
+  ? (import.meta.hot.data.hostCatalog ??= browserHostCatalog())
+  : browserHostCatalog()
+
+function browserHostCatalog(): HostCatalog {
+  return new HostCatalog({
+    credentials: localStorageCredentials(),
+    directory: () => uplinkAccountSource(),
+    startupDirectory: takeStartupDirectoryRead,
+  })
+}
+
+/** The organization this window works in, read from the catalog's workspaces; null with none. */
+export function activeOrganizationId(): string | null {
+  return windowOrganizationSelection.reconcile(hostCatalog.workspaces())
+}
