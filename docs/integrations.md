@@ -459,6 +459,47 @@ Claude Code (`projects["<path>"].mcpServers`, the default of `claude mcp add`)
 never loads in a Solus run: Solus starts Claude Code without the `local`
 setting source.
 
+### MCP servers that run on the host
+
+Found on this host also lists MCP servers that run on the host's own loopback
+(`docs/plans/mcp-first-class.md` §9). The host finds them through its list of
+running servers (`docs/running-servers.md`).
+
+- **Which listeners get a request.** Only an endpoint that the running-servers
+  list already knows as HTTP: a Server URL of a project that answered its
+  check. Automatic discovery sends no bytes to an unknown service, so a
+  listener that the list shows as TCP gets no request, and does not show
+  here. To find a server that an agent or a terminal started, add its address
+  to **Server URLs** in the project panel.
+- **What it gets.** One `POST` of `server/discover` to `/mcp`, and one to `/`
+  only when its `GET /` did not answer with HTML. An address with a path gets
+  one request, to that path. No `initialize` follows: an older server answers
+  `server/discover` with a JSON-RPC error, and that is enough. The request
+  goes to 127.0.0.1 or ::1 only, with no credential, follows no redirect,
+  waits at most 1.5 seconds, and reads at most 16 KB. At most four run at one
+  time. The answer, also "not MCP", is kept until the process lets go of its
+  port, so a refresh sends nothing again.
+- **When.** Only while Settings → MCP is open on a client (it holds the
+  host's running-servers lease), or when a person reads this view. No client,
+  no scan.
+- **The row** shows the address, the port, the process name, the checkout,
+  and what the server said about itself. Solus did not verify any of it: any
+  program on the host can answer on a port. **Add** checks the address again,
+  exactly as a typed `http://localhost` address, and nothing is added without
+  it. A server that a config file also names is one row with both places.
+- **Not running.** An installed server on the host's loopback says **Not
+  running** when the host's newest list (at most 10 seconds old) has no
+  listener on its port. It is not an error, and it is never saved. When the
+  server runs again, the host drops its old tool list, and the next run lists
+  its tools. Without a fresh list the row shows no state. A call to it while it
+  is down says "`<name>` is not running on `<host>`. Start it, then try again."
+- **A server that an agent started.** When the host first finds an MCP server
+  whose process an agent started, it shows the custom server card in that
+  session, with the address filled in. The agent is also told that it can ask
+  for a server it started with `connect_integration`.
+- If the host cannot list its listeners, the view says why, and the config
+  files still list.
+
 ## Long tool calls (MCP tasks)
 
 A server of revision 2026-07-28 can run a tool call as an MCP task (the

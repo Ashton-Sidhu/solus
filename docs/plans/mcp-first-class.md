@@ -4,7 +4,8 @@ Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, C1, C2, E,
 F1, G, H1, H2, and the Client ID Metadata Document are built and merged on one
 branch with `main` (`mcp-wave5-handoff.md` records that merge and the items
 between the phases; `mcp-wave3-handoff.md` the earlier one; each phase has its
-own handoff). F2, the watch of resources, is not built. This plan continues
+own handoff). D, running local servers, is built on its own branch
+(`mcp-d-handoff.md`). F2, the watch of resources, is not built. This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -207,6 +208,39 @@ some of them. This plan follows the sources.
     `projects["<path>"].mcpServers` neither loads nor starts; with `local`
     added it does; with `local` and the deny list of §8.5 it does not start.
     So the skip covers that scope too, should Solus ever pass `local`.
+38. **Running-servers discovery sends no probe** (found in D; it corrects
+    item 16). The scanner is gone. `ServerDiscovery` sends no byte to a
+    listener it finds: an agent's or a terminal's server is a TCP row with
+    `response: null`. Only a Server URL of a project (`serverUrls` in
+    `.solus/config.json`) gets a `GET`, of that URL. So "the scanner's `GET /`"
+    of §9.1 is the `GET` of a Server URL, and D sends `server/discover` only to
+    an endpoint whose `response.protocol` is `http`. A server that an agent or
+    a terminal started is found only when its address is a Server URL; §9.4
+    applies to those, and the runtime sentence covers the rest.
+39. **The list holds only the processes Solus started, and Server URLs**
+    (found in D). A server that the person started in another terminal is not
+    in it, so "a fresh list has a listener on that port" (§9.3) would say Not
+    running for a server that runs. D reads the ports of every loopback and
+    wildcard listener of the scan (`ServerDiscovery.listeningPorts`, any owner),
+    which the discovery already read and dropped.
+40. **The registry had no reader on the host** (found in D). It publishes to
+    clients only, on a change of the server list. D adds
+    `RunningServerRegistry.observeScans`, called after each scan and each
+    failed scan; it starts no scan and no timer.
+41. **One POST, or two** (D). §9.1 allows `POST /mcp` and `POST /`; the
+    security line says "One POST for one process". D follows §9.1: at most two
+    for one endpoint of one process, one when the address has a path.
+42. **No retry after a timeout** (D). §9.1 tries a timeout again after 30
+    seconds. D keeps every answer, a timeout too, until the process lets go of
+    its port, so a listener never gets a request on each refresh. The registry
+    lists a Server URL only after its `GET` answered, so a server that is still
+    starting is checked when it first answers.
+43. **An added server stays in the list** (D). §9.2 lists only an endpoint
+    "that is not an integration of the caller". D shows it as **Added**, as a
+    file row does, so the person sees the state and its reverse (Remove).
+44. **There is no block that goes with `connect_integration`** (D).
+    `runtime-instructions.ts` had none. The §9.4 sentence is its own entry
+    block, given to a run that has `connect_integration`.
 
 ## 2. Vocabulary
 
@@ -1150,6 +1184,50 @@ a verdict is not asked twice for one `serverId`; a new `serverId` is checked
 again; `reachable` is `unknown` without a fresh list; a refused call gives
 the "not running" text; a listener that comes back drops the facts; an
 endpoint of an agent's process raises one card in that session.
+
+### 9.5 As built (D)
+
+`mcp-d-handoff.md` has the detail; §1 items 38 to 44 the corrections.
+
+- **Owner.** `integrations/local-servers.ts` (`LocalMcpServers`). Boot makes
+  it beside `FoundServers` and calls `follow(registry)` once the
+  running-servers registry exists. It follows `observeScans`; a read of Found
+  on this host with no fresh list asks the registry for one list.
+- **Requests.** Only to an endpoint with `response.protocol: 'http'` on
+  `127.0.0.1` or `::1`. Path `/`: `POST /mcp`, then `POST /` when the `GET`
+  was not HTML. Another path: one `POST` to it. The body is `server/discover`
+  of revision 2026-07-28 with the header `mcp-method`, as `probe.ts` sends it;
+  no credential, `redirect: 'manual'`, 1.5 seconds, 16 KB, four at a time. No
+  `initialize` follows: a JSON-RPC error already says MCP, and an `initialize`
+  would open a session on a server the person has not chosen. The add's own
+  probe (`probe.ts`) sends `initialize` to a legacy server, after the person's
+  Add. The answer is kept by process and endpoint until the port has no
+  listener or another listed process holds it.
+- **Contracts.** `FoundPortPlace`, `FoundPortScan`, `IntegrationReachable`,
+  and `loopbackServerPort` are in `contracts/src/integrations/local-servers.ts`
+  (out of the first screen); `FoundServer.foundIn` takes both places,
+  `FoundServerList.portScan` says whether the host could look, and
+  `IntegrationFacts.reachable` is set for a loopback integration. No new
+  method or event: the found list and `integration.changed` with
+  `change: 'facts'` carry it.
+- **Add.** `integrationFoundAdd` with the port server's `foundId` and
+  `fingerprint` (the URL and what the server said) runs `createIntegration`,
+  the probe and record of a typed URL. A process that ended, or another
+  answer, gives `found-changed`.
+- **Not running.** The `integrationFacts` handler sets `reachable`. When
+  nothing listens, a failed list does not fail the facts read. A port that has
+  a listener again, or another listed process on it, calls
+  `gateway.invalidate` and sends the facts event. A refused call of a loopback
+  integration answers the "not running" text.
+- **Clients.** Desktop and web: `SettingsTabMcp` reads the host's
+  running-servers store (the lease) while open and reads the found list again
+  on its change; `McpFoundRow` and `McpFoundDialog` show the port place;
+  `McpServerRow` shows Not running and the reason in place of the tools.
+  Mobile: `useCommandProcesses` holds the lease and reads the facts of
+  loopback servers; `FoundServersSection` shows the port row and the alert;
+  the installed row shows Not running.
+- **Not built.** The Running servers card's **Add to MCP** (§9.2): another
+  session rewrites that card's client code now.
 
 ## 10. MCP prompts as slash commands
 
