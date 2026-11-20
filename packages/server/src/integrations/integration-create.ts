@@ -5,6 +5,7 @@ import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
 import { resolveProjectKey, resolveProjectRoot } from '../project-config/project-config'
 import type { HostEventPublisher } from '../transport/events/host-event-publisher'
+import { cliSkipLog } from './cli-skips'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from './command-admission'
 import type { IntegrationConnections } from './connections'
 import type { IntegrationGateway } from './gateway'
@@ -133,6 +134,7 @@ export function updateCommand(deps: CommandChangeDeps, existing: Integration, re
   const integration = deps.store.update(existing.id, patch, recordScopeOf(principal))
   if (!integration) throw new Error('That integration is no longer on this host.')
   deps.gateway.forget(existing.id)
+  cliSkipLog.forget(existing.id)
   if (request.envNames) deps.connections.removeAllFor(existing)
   void deps.events.broadcast('integration.changed', { integrationId: existing.id, change: 'updated' })
   return integration

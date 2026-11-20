@@ -193,6 +193,20 @@ export interface IntegrationProcessFacts {
   startFailure?: 'not-installed' | 'not-runnable'
 }
 
+/**
+ * A provider CLI's own copy of a server that Solus runs, which the caller's last
+ * run on that provider left out (the CLI skip, mcp-first-class.md §8.5). Claude
+ * Code leaves a copy out by its address and does not say which copy it had, so
+ * its entry has no `serverName` or `scope`. Codex names the copy and the config
+ * layer it came from: `user` (`~/.codex/config.toml`) or `project`
+ * (`.codex/config.toml` in the project). No path crosses.
+ */
+export interface IntegrationCliSkip {
+  provider: 'claude-code' | 'codex'
+  serverName?: string
+  scope?: 'user' | 'project'
+}
+
 /** What the gateway read from one MCP server for the caller. No credential enters this reply. */
 export interface IntegrationFacts {
   era: 'modern' | 'legacy' | null
@@ -200,6 +214,8 @@ export interface IntegrationFacts {
   capabilities: { prompts: boolean; resources: boolean; resourceSubscribe: boolean; tasks: boolean }
   /** `stdio` integrations only. */
   process?: IntegrationProcessFacts
+  /** The CLI copies the caller's runs left out (§8.5). Absent when none did, and from a host before C2. */
+  cliSkips?: IntegrationCliSkip[]
 }
 
 /** What a tool does, from the server's own hints: a tool with no read-only hint may write. */

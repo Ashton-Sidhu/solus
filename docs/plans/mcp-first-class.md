@@ -2,7 +2,8 @@
 
 Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, and H1 are built
 (`mcp-b1-handoff.md` has the B1 contract; `mcp-wave3-handoff.md` records the
-merge of A2, A3, B1, and H1). This plan continues
+merge of A2, A3, B1, and H1). C2 is built on its own branch
+(`mcp-c2-handoff.md`). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -135,6 +136,21 @@ some of them. This plan follows the sources.
     kept each `input_json_delta` and sent the input whole on
     `tool_call_complete`. H1 adds the partial input for Solus integration
     tools only (§14.1, step 4).
+24. **`disabledMcpjsonServers` is not needed** (found in C2). A
+    `deniedMcpServers` entry by command or by URL also leaves out a server of
+    the project's `.mcp.json`, so C2 sends no names and reads no `.mcp.json`.
+25. **Claude Code does not report a denied server** (C2). `mcpServerStatus()`
+    and the init event leave it out; they do not list it as `disabled`. Solus
+    cannot read back which Claude copy a run left out, only that the deny was
+    sent. §8.5 shows the Claude line by address.
+26. **A Solus run never loads Claude's local scope** (C2). Solus starts Claude
+    with `settingSources: ['user', 'project']`. A server of the local scope
+    (`projects["<path>"].mcpServers` in `~/.claude.json`, the default of
+    `claude mcp add`) loads only with the `local` source, so it is never in a
+    Solus run and needs no skip. §8.1 lists that key as a config file of C1.
+27. **Codex's `mcpServerStatus/list` ignores the thread config** (C2). It lists
+    a server with `enabled = false` as configured. The proof counts the starts
+    of the server process instead.
 
 ## 2. Vocabulary
 
@@ -155,7 +171,7 @@ The UI says **MCP server**, as Settings → MCP does today.
 | **Config file** | One of the files of §8.1 in which another tool keeps MCP servers. | `integrations/found-servers.ts` |
 | **Found server** | An MCP server that Solus read from a config file or saw on a loopback port. It is not an integration until the person adds it. | `integrations/found-servers.ts` |
 | **Running server** | A process that listens on the host, as `docs/running-servers.md` defines it. | `host/running-servers/` |
-| **CLI skip** | A setting of one run that makes the provider CLI leave out a server that Solus runs (§8.5). | the two provider backends |
+| **CLI skip** | A setting of one run that makes the provider CLI leave out a server that Solus runs (§8.5). | `integrations/cli-skips.ts` decides; each provider adapter applies it |
 | **MCP prompt** | One prompt a server lists (`prompts/list`). The person starts it as a slash command. | gateway; `integrations/prompt-content.ts` |
 | **Argument form** | The small form that takes the arguments of an MCP prompt or of a resource template. | `components/input/` |
 | **MCP resource**, **resource template** | One resource a server lists, and one URI template it lists. | gateway |
@@ -877,6 +893,49 @@ integration in that run's toolbox:
 The skip lasts for one run and is in memory. Solus never edits the person's
 files. Removing the integration ends the skip at the next run. A server that
 Solus did not take stays with the CLI, and `/mcp login` works for it as today.
+
+As built (C2; `mcp-c2-handoff.md` has the proof):
+
+- **The rule.** `sameServerAddress` in `integrations/cli-skips.ts`. A URL:
+  equal after `comparableServerUrl` (the URL parser folds the case of the
+  scheme and the host and drops the default port; the fragment and a slash at
+  the end of the path go; the query stays). A command: the same program and
+  the same arguments in the same order, exactly. The environment is not part
+  of the address. `npx` and its full path are two servers.
+- **Which servers.** `integrationToolbox` returns `cliSkip`: each integration
+  that adds at least one tool to the run. One that adds none (every tool off,
+  not listed in time, not signed in) leaves the CLI's copy alone, so the agent
+  never loses the server. A project integration is in the toolbox only for
+  runs of its project (§8.4), so its skip is too. A `solus` server has no
+  address a CLI could have.
+- **Claude.** `claudeRunSkip` (`claude/claude-cli-skip.ts`) gives one
+  `deniedMcpServers` entry for each server, in the run's flag settings:
+  `serverCommand` for a command, and `serverUrl` in both forms (with and
+  without the slash at the end), because the CLI folds the host's case and
+  the default port but not the slash. A URL with `*` is not denied: `*` is a
+  wildcard there. No `disabledMcpjsonServers` (§1, item 24). The fallback
+  `toggleMcpServer` is not used: the deny list covers the user and the project
+  scope, and the toggle would start the server first.
+- **Codex.** `readCodexSkipConfig` (`codex/codex-cli-skip.ts`) sends
+  `config/read` for the run's working directory on the run's own app-server
+  client, only when the run has a server to leave out. Each configured server
+  with an equal address (and not turned off already) gets
+  `mcp_servers.<name>.enabled = false` in the config of `thread/start`,
+  `thread/resume`, and `thread/fork`. A failed read leaves every copy loaded.
+  Proven for `thread/start`. Not proven for `thread/resume` of a thread that
+  the app-server still holds: a resume needs a thread with a turn, and a turn
+  costs money.
+- **The visible state.** Each adapter reports what it left out. `CliSkipLog`
+  keeps, in memory, the last report of each provider for each person and
+  integration; `integrationFacts` answers it as `cliSkips`
+  (`IntegrationCliSkip`: the provider, and for Codex the copy's name and its
+  layer, `user` or `project`). A change sends `integration.changed` with
+  `change: 'facts'`. An update or a removal of the integration drops the
+  entries; the next run writes them again. The open row in Settings → MCP shows
+  the field **CLI copy** on desktop and web (`McpCliSkipNote.svelte`) and on
+  mobile (`IntegrationsScreen.tsx`), with the words of
+  `client-core/mcp-cli-skips.ts`. The row has no action: Remove, or turning
+  off the tools, is the reverse.
 
 This also answers the open item of `mcp-integrations.md` §13: the Claude Code
 setting that turns off the claude.ai connectors is
@@ -1607,6 +1666,7 @@ interface IntegrationFacts {
   capabilities: { prompts: boolean; resources: boolean; resourceSubscribe: boolean; tasks: boolean }
   process?: { state: 'stopped' | 'running' | 'failed'; message?: string; stderrTail?: string }   // stdio only
   reachable?: 'running' | 'not-running' | 'unknown'                                               // loopback only
+  cliSkips?: { provider: 'claude-code' | 'codex'; serverName?: string; scope?: 'user' | 'project' }[]   // §8.5, C2
 }
 ```
 
@@ -1732,7 +1792,8 @@ default.
   `mcp_servers.<name>.enabled = false` in the thread config, which
   `bareThreadConfig` uses today. One point is not confirmed by the
   documents: that Claude's flag settings apply the deny list to a server of
-  the user scope. Phase C2 proves it first.
+  the user scope. Phase C2 proved it (`mcp-c2-handoff.md`): the user and the
+  project scope are both left out, and the server does not start.
 - **Recommended.** Skip automatically (§8.5): when a run's toolbox has an
   integration with the same address as a CLI server, the CLI leaves that
   server out for that run. The agent sees each tool once, through Solus,

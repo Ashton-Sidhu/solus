@@ -9,6 +9,7 @@ import { resolveProjectKey } from '../project-config/project-config'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
 import { mayRunCommands, type CommandStarter } from './command-admission'
+import { cliSkipLog, cliSkipOf, type CliSkip, type RunCliSkip } from './cli-skips'
 
 const log = createLogger('integrations', 'integration-tools.ts')
 
@@ -68,10 +69,14 @@ function joinsRun(integration: Integration, actor: Actor, projectKey: () => stri
   return integration.projectKey === undefined || integration.projectKey === projectKey()
 }
 
-/** `projectPath`: the run's working directory, whose project key a project integration must match. */
-export async function integrationToolbox(actor: Actor, projectPath?: string | null): Promise<{ tools: AgentTool[]; instructions: IntegrationInstruction[] }> {
+/**
+ * `projectPath`: the run's working directory, whose project key a project integration must match.
+ * `cliSkip`: each integration that adds a tool to this run, whose CLI copy the run leaves out (§8.5).
+ * One that adds none (every tool off, not listed in time, not signed in) leaves the CLI's copy alone.
+ */
+export async function integrationToolbox(actor: Actor, projectPath?: string | null): Promise<{ tools: AgentTool[]; instructions: IntegrationInstruction[]; cliSkip: RunCliSkip }> {
   const current = gateway
-  if (!current) return { tools: [], instructions: [] }
+  if (!current) return { tools: [], instructions: [], cliSkip: runCliSkip(null, [], []) }
   const personKey = ownerKeyOf(actor)
   // The key asks git for the project root, so it is read only when a project integration needs it.
   let projectKey: string | null | undefined
@@ -105,7 +110,13 @@ export async function integrationToolbox(actor: Actor, projectPath?: string | nu
     const text = (await current.factsFor(integration.id, personKey)).instructions
     return text ? { name: integration.name, slug: integration.slug, text } : null
   }))).filter((entry): entry is IntegrationInstruction => entry !== null)
-  return { tools, instructions }
+  const skips = integrations.filter((integration) => included.has(integration.id)).map(cliSkipOf).filter((skip): skip is CliSkip => skip !== null)
+  return { tools, instructions, cliSkip: runCliSkip(personKey, integrations.map((integration) => integration.id), skips) }
+}
+
+/** `joined`: every integration of this run, so a report also clears the entry of one that added no tool this time. */
+function runCliSkip(personKey: string | null, joined: string[], servers: CliSkip[]): RunCliSkip {
+  return { servers, report: (provider, applied) => cliSkipLog.record(personKey, provider, joined, applied) }
 }
 
 /** One upstream tool as a Solus agent tool that calls it through the gateway. */

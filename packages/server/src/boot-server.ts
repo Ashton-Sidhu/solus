@@ -118,6 +118,7 @@ import { hostIntegrationClients, IntegrationConnectionStore } from './integratio
 import { IntegrationConnections } from './integrations/connections'
 import { IntegrationOAuth, type IntegrationConnectionEvents } from './integrations/oauth'
 import { setIntegrationGateway } from './integrations/integration-tools'
+import { cliSkipLog } from './integrations/cli-skips'
 import { AgentProfileManager, hostProfileHomes, type AgentProfileTarget } from './execution/seats/agent-profile'
 import { profileIntegrations } from './integrations/profile-integrations'
 import { listInstalledSkills } from './skills/skills-provider'
@@ -932,6 +933,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onFactsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) })
+  cliSkipLog.onChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
   integrationGateway.onCustomServerNeeded((request) => { void events.broadcast('integration.customServerNeeded', request) })
   // A connection is one person's (§4.1): its events go to that person's clients.

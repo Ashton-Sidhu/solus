@@ -130,6 +130,25 @@ the agent and the tool call both get a note that names the limit. Data that
 does not match the tool's output schema fails the call with that reason
 (`plans/mcp-first-class.md` §6).
 
+**A server that a CLI also has.** You can have the same server in Settings →
+MCP and in a provider CLI file (`.mcp.json`, `~/.claude.json`,
+`~/.codex/config.toml`, or `.codex/config.toml` in the project). Then each run
+that Solus starts tells the CLI to leave out its own copy: Claude Code gets the
+setting `deniedMcpServers` for that run, and Codex gets
+`mcp_servers.<name>.enabled = false` for that thread. The agent sees each tool
+once, through Solus, and the CLI does not start the copy or read its
+credential. Two servers are the same when their addresses are equal: the same
+URL (the case of the host, the default port, and a slash at the end do not
+count; the query does), or the same command with the same arguments in the
+same order (the environment does not count). Only a server that gives the run
+at least one tool is left out, and a project server only in runs of its
+project. The skip is for one run: Solus never changes the CLI's files. Remove
+the server in Settings, or turn off all of its tools, and the next run loads
+the CLI's copy again. The open row of the server shows **CLI copy** after a
+run left a copy out: Claude Code does not say which copy it had, so its line
+names the address; Codex names the copy and its file. A run outside Solus
+(the CLI in your terminal) is not changed.
+
 When you ask the agent to use a service that has no tools in the session, it
 can call `connect_integration` with the service's name. The tool uses your
 server for that service if you have one. Otherwise it adds the one catalog

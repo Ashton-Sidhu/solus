@@ -11,6 +11,7 @@ import { rememberCodexModels } from './listed-models'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
+import { readCodexSkipConfig } from './codex-cli-skip'
 import { unlistedCodexModelProfiles } from './codex-models'
 import type { Model } from './generated/v2/Model'
 import { seatKey, type SeatManager, type TurnSeat } from '../../seats/seat-manager'
@@ -646,6 +647,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         request.systemPrompt?.trim(),
         runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, tools, request.integrationInstructions),
       ].filter(Boolean).join('\n\n')
+      const cliSkipConfig = await readCodexSkipConfig(handle.client, handle.cwd, request)
       const threadConfig: CodexThreadStartParams = {
         model,
         serviceTier: request.fastMode ? 'fast' : null,
@@ -655,7 +657,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         experimentalRawEvents: false,
         persistExtendedHistory: request.persistence === 'session',
         ephemeral: request.persistence === 'ephemeral',
-        config: request.bare ? { ...THREAD_CONFIG, ...await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess) } : THREAD_CONFIG,
+        config: request.bare ? { ...THREAD_CONFIG, ...await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess) } : { ...THREAD_CONFIG, ...cliSkipConfig },
       }
       threadConfig.developerInstructions = developerInstructions
       // Dynamic tools (list/read/update_work) are an experimental app-server
@@ -685,7 +687,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           threadId: sourceThreadId,
           lastTurnId,
           developerInstructions,
-          config: THREAD_CONFIG,
+          config: { ...THREAD_CONFIG, ...cliSkipConfig },
         }))
         threadId = response.thread.id
       } else if (!threadId) {
