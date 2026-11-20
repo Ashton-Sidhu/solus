@@ -53,8 +53,10 @@ connections offer:
 - the GitHub Projects that your GitHub connection can see;
 - the Jira projects and the Jira boards of the connected Atlassian site.
 
-A kind that offers nothing says why, for example "Connect GitHub in Settings
-first".
+A kind that offers nothing says why in the one-row footer of the menu: the
+logo of each provider with a problem, and "Connect GitHub, Jira, and Linear",
+which opens Settings › Integrations. Each logo shows its full reason as a
+tooltip, for example "Connect GitHub again to add Projects".
 
 To add a source that the list does not show, type or paste it into the search
 field of the control:
@@ -291,14 +293,23 @@ A refused check leaves the prompt available for Retry.
 Add repository task sources from task source setup on the Tasks page.
 Removing a source does not change a project or delete provider issues.
 
-### Linear connection
+### Connections
 
-Add a Linear team in task source setup. A signed-in person selects **Open account
-connections**, then adds a personal Linear API key on the Solus account website.
-The account vault checks the key, seals it, and gives the acting host the key
-through its existing delegated credential read. The key is never saved in task
-sources or personal settings. A host that is not linked to an account can keep
-the host owner's key in its secure store. A guest cannot save a connection.
+Connect GitHub, Atlassian (Jira), and Linear in **Settings › Integrations**. GitHub
+is also in **Settings › Source Control**. On mobile, open the host's settings and
+select **Integrations**. The footer of task source setup opens the same page.
+
+Linear connects with a personal API key (Linear Settings › Security & access):
+
+- Signed out, the host checks the key with Linear and keeps it in its own vault.
+  Only a host administrator (`host.admin.connections`) can save it.
+- Signed in, the client saves the key in your Solus account vault, which checks
+  and seals it. Every host you use reads it through its delegated credential read.
+- When you sign in, the host moves a key that it keeps into your account. A key
+  that your account has already wins. When Solus Cloud cannot be reached, the
+  host keeps the key and tries again at the next delegation.
+
+The key is never saved in task sources or personal settings.
 
 Linear supports reads, creation, title and description changes, labels, one
 assignee, priority, due date, workflow transitions, comments and reactions.
@@ -351,6 +362,23 @@ open their native provider form so required fields and validation are preserved.
 Native task screens read `tasksStoreFor(context, hostId)` from the Tasks
 feature. The store is created on first use and shared by the task list, task
 details and source setup for that host. Reading it does not start a request.
-`TasksStore` in client-core owns task state and commands. The feature owns its
+`TasksStore` in client-core owns list and source state and task commands.
+Its per-task `TaskDataStore` owns detail and provider reads. The feature owns its
 cache and clears state when the account or organization changes, or when a host
 is removed. `SolusApp` does not construct or cache task stores.
+
+## Task data reads
+
+Task data uses one RPC with typed read sections:
+
+```ts
+api.tasksGet(taskId) // TaskDetails: fields, description, comments, links, activity
+api.tasksGet(taskId, { section: 'provider' }) // TaskProviderData: history, reactions, people, PR facts
+api.tasksGet(taskId, { section: 'provider', cursor }) // Older provider history
+```
+
+The default details call is unchanged. A provider response does not include the task
+body or its comments. Both client surfaces use `TaskDataStore` for cached reads,
+loading state, errors and stale-response checks. Reads of the same section share
+an in-flight request. A failed section keeps its last value and does not clear
+the other section. There is no separate inspection RPC or inspection store.

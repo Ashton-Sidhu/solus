@@ -1,6 +1,7 @@
 import { connectionNeedsAttention, isFirstIntegrationAccount } from '@solus/contracts/integration-types'
-import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary } from '@solus/contracts/integration-types'
-import { SvelteMap } from 'svelte/reactivity'
+import { loopbackServerPort } from '@solus/contracts/integrations/local-servers'
+import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationCreateRequest, IntegrationEnvValue, IntegrationFacts, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from '@solus/contracts/integration-types'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { onServerRemoving } from '@solus/client-core/server-registry'
 import { localApi } from '@solus/client-core/local-api'
@@ -18,11 +19,14 @@ import type { SetupHandoff } from '@solus/contracts/integrations/setup-handoff'
  * waiting flow: its end arrives as `host.integrationAuthFinished`. A flow
  * `through: 'cloud'` runs at Solus Cloud, not on the host (plans/020 §5.3):
  * its end is read by polling the account, and no host flow exists to cancel.
+ * `values` asks for the environment values of a command (mcp-first-class.md
+ * §7.7): the names only; the values stay in the form until the submit.
  */
 export type IntegrationConnectFlow =
   | { kind: 'starting' }
   | { kind: 'waiting'; flowId: string; url: string; input: 'callback' | 'redirect-url'; expiresAt: string; error?: string; through?: 'cloud' }
   | { kind: 'token'; error?: string; through?: 'cloud' }
+  | { kind: 'values'; names: string[]; error?: string }
   | { kind: 'submitting'; flowId?: string; through?: 'cloud' }
   | { kind: 'disconnecting' }
   | { kind: 'failed'; message: string }
@@ -55,6 +59,7 @@ interface IntegrationsState {
   integrations: Integration[] | null
   /** The tools of each integration whose tools were asked for. */
   tools: SvelteMap<string, IntegrationToolSummary[]>
+  facts: SvelteMap<string, IntegrationFacts>
   /** Why one integration's tools could not load. */
   toolErrors: SvelteMap<string, string>
   loading: boolean
@@ -74,6 +79,10 @@ interface IntegrationsState {
   connectionsStatus: ConnectionsStatus
   /** The sign-in that runs for each integration, by integration ID. */
   connectFlows: SvelteMap<string, IntegrationConnectFlow>
+  /** The commands whose start or test from this client runs now (mcp-first-class.md §7.7). */
+  processStarts: SvelteSet<string>
+  /** Why the last start or stop of a command from this client failed, by integration ID. */
+  processErrors: SvelteMap<string, string>
 }
 
 export type ProbeAttempt = { result: IntegrationProbeResult } | { error: string }
@@ -84,6 +93,11 @@ export function isUnsupportedHostError(cause: unknown): boolean {
   return /no handler for|unknown method|unknown rpc|not registered|not a function/i.test(message)
 }
 
+/** A command's row shows its process state, and a server on the host's loopback whether it runs (mcp-first-class.md §9.3). */
+function showsFactsOnRow(integration: Integration | undefined): boolean {
+  return integration?.kind === 'stdio' || (integration?.kind === 'mcp' && loopbackServerPort(integration.url) !== null)
+}
+
 function errorText(cause: unknown, fallback: string): string {
   const message = cause instanceof Error ? cause.message.trim() : ''
   return message || fallback
@@ -91,8 +105,8 @@ function errorText(cause: unknown, fallback: string): string {
 
 function emptyState(): IntegrationsState {
   return {
-    integrations: null, tools: new SvelteMap(), toolErrors: new SvelteMap(), loading: false, error: '', saving: false, writeError: '', isUnsupported: false, isDisconnected: false, revision: 0,
-    connections: new SvelteMap(), connectionsStatus: 'loading', connectFlows: new SvelteMap(),
+    integrations: null, tools: new SvelteMap(), facts: new SvelteMap(), toolErrors: new SvelteMap(), loading: false, error: '', saving: false, writeError: '', isUnsupported: false, isDisconnected: false, revision: 0,
+    connections: new SvelteMap(), connectionsStatus: 'loading', connectFlows: new SvelteMap(), processStarts: new SvelteSet(), processErrors: new SvelteMap(),
   }
 }
 
@@ -147,6 +161,8 @@ class IntegrationsStore {
   private cloud: CloudSignInPort | null = null
   /** Set by `listen`: told when a working sign-in stops working while the app runs. */
   private onSignInExpired: ((serverId: string, integrationName: string) => void) | null = null
+  /** Per host and integration: bumped by every facts read, so an older read does not land. */
+  private factsReads = new Map<string, number>()
 
   /** Installs where a synced person's own sign-ins run. Until then every sign-in runs on the host. */
   useCloudSignIn(port: CloudSignInPort | null): void {
@@ -161,6 +177,8 @@ class IntegrationsStore {
   private cloudFor(integration: Integration | undefined): CloudSignInPort | null {
     const cloud = this.cloud
     if (!cloud || !integration || cloud.accountUserId() === null) return null
+    // The environment values of a command stay on the host that runs it (mcp-first-class.md §7.8).
+    if (integration.auth.kind === 'env') return null
     return integration.auth.kind === 'oauth' && (integration.auth.registration === 'client-required' || !!integration.auth.clientId) ? null : cloud
   }
 
@@ -246,8 +264,10 @@ class IntegrationsStore {
       if (current?.revision !== revision) return
       this.states.set(serverId, { ...current, integrations, loading: false, error: '', isUnsupported: false, isDisconnected: false })
       for (const id of current.tools.keys()) {
-        if (!integrations.some((integration) => integration.id === id)) current.tools.delete(id)
+        if (!integrations.some((integration) => integration.id === id)) { current.tools.delete(id); current.facts.delete(id) }
       }
+      // A command's row shows its process state, and a loopback server's row whether it runs, so their facts load with the list.
+      for (const integration of integrations) if (showsFactsOnRow(integration)) void this.loadFacts(serverId, integration.id)
     } catch (cause) {
       const current = this.states.get(serverId)
       if (current?.revision !== revision) return
@@ -261,6 +281,16 @@ class IntegrationsStore {
     const state = this.states.get(serverId)
     if (!state) return
     state.toolErrors.delete(integrationId)
+    // The facts only add the instructions section: a facts read that fails, or an
+    // older host without it, leaves the section out and keeps the tools.
+    void (async () => {
+      try {
+        const facts = await serverConnections.apiFor(serverId).integrationFacts({ id: integrationId })
+        this.states.get(serverId)?.facts.set(integrationId, facts)
+      } catch {
+        this.states.get(serverId)?.facts.delete(integrationId)
+      }
+    })()
     try {
       const tools = await serverConnections.apiFor(serverId).integrationTools({ id: integrationId })
       this.states.get(serverId)?.tools.set(integrationId, tools)
@@ -269,7 +299,65 @@ class IntegrationsStore {
     }
   }
 
-  async create(serverId: string, request: { name: string; url: string }): Promise<Integration | null> {
+  /**
+   * The caller's server facts of one integration; for a command, its process
+   * state. A read starts no command (§7.3). An older read does not land.
+   */
+  async loadFacts(serverId: string, integrationId: string): Promise<void> {
+    const read = this.nextFactsRead(serverId, integrationId)
+    try {
+      const facts = await serverConnections.apiFor(serverId).integrationFacts({ id: integrationId })
+      if (this.factsReads.get(this.flowKey(serverId, integrationId)) !== read) return
+      const state = this.states.get(serverId)
+      state?.facts.set(integrationId, facts)
+      // A loopback server that runs again lists its tools in an open row, not the error of when it stopped (§9.3).
+      if (facts.reachable === 'running') state?.toolErrors.delete(integrationId)
+    } catch {
+      // The row keeps the last state it read; the next event or reconnect reads again.
+    }
+  }
+
+  /**
+   * Start and test, Start again, or with `recheck` Test again (§7.7): the host
+   * starts the caller's process and lists its tools. The answer is the new
+   * state; a refusal or a failed start is kept to show beside it.
+   */
+  async startProcess(serverId: string, integrationId: string, recheck = false): Promise<boolean> {
+    const state = this.states.get(serverId)
+    if (!state || state.processStarts.has(integrationId)) return false
+    state.processStarts.add(integrationId)
+    state.processErrors.delete(integrationId)
+    try {
+      const facts = await serverConnections.apiFor(serverId).integrationProcessStart({ id: integrationId, recheck })
+      this.nextFactsRead(serverId, integrationId)
+      state.facts.set(integrationId, facts)
+      void this.loadTools(serverId, integrationId)
+      return true
+    } catch (cause) {
+      state.processErrors.set(integrationId, errorText(cause, 'The command did not start.'))
+      void this.loadFacts(serverId, integrationId)
+      return false
+    } finally {
+      state.processStarts.delete(integrationId)
+    }
+  }
+
+  /** Stop, and Cancel of a start that runs (§7.7): the next use starts the command again. */
+  async stopProcess(serverId: string, integrationId: string): Promise<boolean> {
+    const state = this.states.get(serverId)
+    if (!state) return false
+    state.processErrors.delete(integrationId)
+    try {
+      await serverConnections.apiFor(serverId).integrationProcessStop({ id: integrationId })
+      await this.loadFacts(serverId, integrationId)
+      return true
+    } catch (cause) {
+      state.processErrors.set(integrationId, errorText(cause, 'Could not stop the command.'))
+      return false
+    }
+  }
+
+  async create(serverId: string, request: IntegrationCreateRequest): Promise<Integration | null> {
     return this.write(serverId, 'Could not add the integration.', async () => {
       const integration = await serverConnections.apiFor(serverId).integrationCreate(request)
       this.upsert(serverId, integration)
@@ -277,7 +365,7 @@ class IntegrationsStore {
     })
   }
 
-  async update(serverId: string, request: { id: string; name?: string; url?: string; disabledTools?: string[] }): Promise<Integration | null> {
+  async update(serverId: string, request: IntegrationUpdateRequest): Promise<Integration | null> {
     return this.write(serverId, 'Could not save the integration.', async () => {
       const integration = await serverConnections.apiFor(serverId).integrationUpdate(request)
       this.upsert(serverId, integration)
@@ -416,6 +504,8 @@ class IntegrationsStore {
         this.clearFlow(serverId, integrationId)
       } else if (result.kind === 'token') {
         this.setFlow(serverId, integrationId, { kind: 'token' })
+      } else if (result.kind === 'env') {
+        this.setFlow(serverId, integrationId, { kind: 'values', names: result.names })
       } else {
         this.setFlow(serverId, integrationId, { kind: 'waiting', flowId: result.flowId, url: result.url, input: result.input, expiresAt: result.expiresAt })
         this.scheduleExpiry(serverId, integrationId, result.flowId, result.expiresAt)
@@ -450,6 +540,28 @@ class IntegrationsStore {
     } catch (cause) {
       if (this.isCurrent(serverId, integrationId, attempt)) {
         this.setFlow(serverId, integrationId, { ...flow, error: errorText(cause, 'The sign-in did not accept that.') })
+      }
+      return false
+    }
+  }
+
+  /**
+   * Hands over the environment values of a command (§7.7), one for each name.
+   * They go to the host in this one call and are never kept here: not in the
+   * flow, not in an error. True when the host saved them.
+   */
+  async submitValues(serverId: string, integrationId: string, values: IntegrationEnvValue[]): Promise<boolean> {
+    const flow = this.states.get(serverId)?.connectFlows.get(integrationId)
+    const names = flow?.kind === 'values' ? flow.names : values.map((value) => value.name)
+    const attempt = this.nextAttempt(serverId, integrationId)
+    this.setFlow(serverId, integrationId, { kind: 'submitting' })
+    try {
+      await serverConnections.apiFor(serverId).integrationConnectSubmit({ id: integrationId, values })
+      await this.settleConnected(serverId, integrationId, attempt)
+      return true
+    } catch (cause) {
+      if (this.isCurrent(serverId, integrationId, attempt)) {
+        this.setFlow(serverId, integrationId, { kind: 'values', names, error: errorText(cause, 'The host did not save the values.') })
       }
       return false
     }
@@ -606,8 +718,10 @@ class IntegrationsStore {
   private async applyChange(serverId: string, { integrationId, change }: IntegrationChangedEvent): Promise<void> {
     const state = this.states.get(serverId)
     if (!state) return
-    if (change === 'tools') {
+    if (change === 'tools' || change === 'facts') {
       if (state.tools.has(integrationId)) void this.loadTools(serverId, integrationId)
+      // A command's process state, and whether a loopback server runs, show on its row, open or not.
+      else if (showsFactsOnRow(state.integrations?.find((item) => item.id === integrationId))) void this.loadFacts(serverId, integrationId)
       return
     }
     // A list read in flight, or none yet: read the whole list again instead.
@@ -627,6 +741,8 @@ class IntegrationsStore {
       if (this.eventSequence.get(key) !== sequence || this.states.get(serverId)?.loading) return
       if (integration) this.upsert(serverId, integration)
       else this.drop(serverId, integrationId)
+      // A changed command stopped and lost its facts (§7.6).
+      if (integration?.kind === 'stdio') void this.loadFacts(serverId, integrationId)
     } catch {
       if (this.eventSequence.get(key) === sequence) void this.load(serverId)
     }
@@ -680,7 +796,7 @@ class IntegrationsStore {
     const state = this.states.get(serverId)
     if (!state) return
     for (const [integrationId, flow] of state.connectFlows) {
-      if (flow.kind === 'token' || flow.kind === 'failed' || isCloudFlow(flow)) continue
+      if (flow.kind === 'token' || flow.kind === 'values' || flow.kind === 'failed' || isCloudFlow(flow)) continue
       this.nextAttempt(serverId, integrationId)
       this.clearFlow(serverId, integrationId)
     }
@@ -704,6 +820,14 @@ class IntegrationsStore {
 
   private flowKey(serverId: string, integrationId: string): string {
     return `${serverId}\u0000${integrationId}`
+  }
+
+  /** A newer facts answer is coming: an older read must not land over it. */
+  private nextFactsRead(serverId: string, integrationId: string): number {
+    const key = this.flowKey(serverId, integrationId)
+    const read = (this.factsReads.get(key) ?? 0) + 1
+    this.factsReads.set(key, read)
+    return read
   }
 
   private nextAttempt(serverId: string, integrationId: string): number {
@@ -750,8 +874,10 @@ class IntegrationsStore {
     const state = this.states.get(serverId)
     if (!state) return
     state.tools.delete(integrationId)
+    state.facts.delete(integrationId)
     state.toolErrors.delete(integrationId)
     state.connections.delete(integrationId)
+    state.processErrors.delete(integrationId)
     this.nextAttempt(serverId, integrationId)
     this.clearFlow(serverId, integrationId)
     if (state.integrations?.some((item) => item.id === integrationId)) {

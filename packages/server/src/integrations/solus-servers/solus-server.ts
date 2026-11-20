@@ -1,8 +1,9 @@
 import { z } from 'zod'
+import { ToolSchema } from '@modelcontextprotocol/core'
 // The low-level server: `McpServer` types schemas against the SDK's own zod copy,
 // and these tools use the workspace's zod 4, so the tools publish JSON Schema.
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolRequest, type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js'
+import { Server } from '@modelcontextprotocol/server'
+import { type CallToolRequest, type CallToolResult, type Tool } from '@modelcontextprotocol/server'
 import type { CatalogCategoryId } from '@solus/contracts/integration-types'
 import type { OAuthSignInOptions } from '@solus/contracts/integrations/oauth-protocol'
 import type { FirstPartyClientId } from '@solus/contracts/first-party-clients'
@@ -158,22 +159,16 @@ function requestHeaders(authorization: string, init: SolusFetchInit): Headers {
 }
 
 /** The part of a tool's JSON Schema `tools/list` carries: an object's properties and required names. */
-const objectJsonSchema = z.object({
-  properties: z.record(z.string(), z.object({}).loose()).optional(),
-  required: z.array(z.string()).optional(),
-}).loose()
-
 /** One tool as `tools/list` describes it, with the hints approval relies on. */
 function listedTool(tool: SolusServerTool): Tool {
-  const schema = objectJsonSchema.parse(z.toJSONSchema(tool.inputSchema, { target: 'draft-7', io: 'input' }))
-  const listed: Tool = {
+  const schema = z.toJSONSchema(tool.inputSchema, { target: 'draft-7', io: 'input' })
+  const listed = {
     name: tool.name,
     description: tool.description,
-    inputSchema: { ...schema, type: 'object' },
+    inputSchema: { ...schema, type: 'object' as const },
     annotations: { readOnlyHint: tool.readOnly, destructiveHint: tool.destructive },
   }
-  if (tool.title) listed.title = tool.title
-  return listed
+  return ToolSchema.parse(tool.title ? { ...listed, title: tool.title } : listed)
 }
 
 function resultText(value: VendorAnswer): string {
@@ -184,12 +179,12 @@ function resultText(value: VendorAnswer): string {
 /** The MCP server one person's session talks to. */
 export function solusMcpServer(definition: SolusServerDefinition, deps: SolusSessionDeps): Server {
   const server = new Server({ name: `solus-${definition.id}`, version: '1.0.0' }, { capabilities: { tools: {} } })
-  server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: definition.tools.map(listedTool) }))
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
+  server.setRequestHandler('tools/list', () => ({ tools: definition.tools.map(listedTool) }))
+  server.setRequestHandler('tools/call', async (request, extra): Promise<CallToolResult> => {
     const tool = definition.tools.find((candidate) => candidate.name === request.params.name)
     if (!tool) return { isError: true, content: [{ type: 'text', text: `${definition.name} has no tool named ${request.params.name}.` }] }
     try {
-      const value = await tool.call(request.params.arguments, { fetch: boundFetch(definition, deps, extra.signal), signal: extra.signal })
+      const value = await tool.call(request.params.arguments, { fetch: boundFetch(definition, deps, extra.mcpReq.signal), signal: extra.mcpReq.signal })
       return { content: [{ type: 'text', text: resultText(value) }] }
     } catch (error) {
       return { isError: true, content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }] }

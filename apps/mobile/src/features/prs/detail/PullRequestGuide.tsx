@@ -140,7 +140,23 @@ function GuideStop(props: {
           <SymbolView name="chevron.left" size={13} tintColorClassName="accent-icon-muted" />
           <Text className="text-sm text-foreground-muted">All stops</Text>
         </Pressable>
-        <Text className="text-xs text-foreground-muted">{`Stop ${position + 1} of ${count}`}</Text>
+        <View className="min-w-0 flex-1 items-center gap-1.5">
+          <Text className="text-xs text-foreground-muted">{`Stop ${position + 1} of ${count}`}</Text>
+          {count >= 3 ? (
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              className="max-w-32 flex-row flex-wrap justify-center gap-1"
+            >
+              {Array.from({ length: count }, (_, index) => (
+                <View
+                  key={index}
+                  className={`h-0.5 w-[11px] rounded-full bg-foreground ${index === position ? '' : 'opacity-35'}`}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Previous stop" disabled={position === 0} onPress={() => props.onMove(position - 1)} className="size-11 items-center justify-center disabled:opacity-30 active:opacity-60">
           <SymbolView name="arrow.left" size={16} tintColorClassName="accent-icon-muted" />
         </Pressable>

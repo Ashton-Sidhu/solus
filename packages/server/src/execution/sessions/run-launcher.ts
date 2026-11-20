@@ -36,7 +36,7 @@ import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observabili
 import { shareTurnTranscripts } from '../seats/member-transcripts'
 import { SeatRequiredError } from '../seats/seat-manager'
 import { HOST_ACTOR, ownerKeyOf, type Actor } from '../../admission/actor'
-import { integrationAgentTools } from '../../integrations/integration-tools'
+import { integrationToolbox } from '../../integrations/integration-tools'
 import { appOperationAgentTools } from '../agents/tools/app-tools'
 import { withActorScope } from '../seats/acting-identity'
 import { AGENT_SETUP_STEP, WORKTREE_SETUP_STEPS, worktreeSetupCardId } from '@solus/contracts/setup-card'
@@ -886,6 +886,8 @@ export class RunLauncher {
         options.systemPrompt,
         handoffPayload?.seedSystemAppend,
         pathNote ? portableSessionPathNote(pathNote.from, pathNote.to) : null,
+        // Last, so an app's new state leaves the rest of the prompt as it was.
+        this.rt.appModelContexts.systemSection(sessionId),
       ].filter(Boolean).join('\n\n')
       this.rt.sessionEmitter.recordSystemPrompt(request.sessionId, systemPrompt)
       // Image bytes are read here, not carried through the turn: `options` keeps
@@ -901,7 +903,7 @@ export class RunLauncher {
       const turnStartedAt = Date.now()
       // The MCP servers' tools are listed here, for the run's person, so every run —
       // typed, queued, restored, or started by an agent — gets that person's own.
-      const integrationTools = await integrationAgentTools(request.actor ?? HOST_ACTOR)
+      const { tools: integrationTools, instructions: integrationInstructions, cliSkip } = await integrationToolbox(request.actor ?? HOST_ACTOR, effectiveCwd)
       // The operations of the host's apps are tools too (docs/plans/apps.md §7.1); a name already in the run stays with its tool.
       const appTools = await appOperationAgentTools(request.actor ?? HOST_ACTOR, new Set([...request.tools, ...integrationTools].map((tool) => tool.name)))
       if (this.rt.isShuttingDown) throw new Error('Interrupted')
@@ -955,6 +957,8 @@ export class RunLauncher {
         contextWindow: effectiveInput.contextWindow,
         fastMode: effectiveInput.fastMode,
         systemPrompt,
+        integrationInstructions,
+        cliSkip,
         maxTurns: options.maxTurns,
         maxBudgetUsd: options.maxBudgetUsd,
         seat: seat ?? undefined,

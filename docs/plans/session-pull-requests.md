@@ -183,7 +183,7 @@ missing.
 The rail's Git card shows one pull request with its review guide, checks, and
 next move (`GitSection`, `LinkedPullRequestRows`): the branch's own until a
 person chooses another, and the first linked one when the branch has none.
-Under it, as "Also linked", one row for each other open pull request the
+Under it, behind "Show N more", one row for each other open pull request the
 session links, in any repository, read as the list and the review
 pane read one: the lifecycle as the glyph's shape (open, draft), mergeability
 as its tone (`readinessTone`: red cannot merge, green can, purple merged), the

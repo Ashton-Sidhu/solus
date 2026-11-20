@@ -15,7 +15,8 @@ import { createTV } from 'tailwind-variants'
  * different property group than tailwind-merge would assume. Bare-word colour
  * utilities are safe (an unknown word defaults to the colour group, which is
  * what a colour wants); sizes and other non-colour `text-*`/`font-*` keys are
- * not. `lib/utils.test.ts` fails if a key is added to `@theme` and missed here.
+ * not. `tests/unit/tw-merge-theme-sizes.test.ts` fails if a key is added to
+ * `@theme` and missed here.
  */
 export const twMergeConfig = {
   extend: {
@@ -36,6 +37,15 @@ export const twMergeConfig = {
         'text-symbol-card-code',
         'text-transcript-card',
         'text-transcript-meta',
+        'text-sidebar-time',
+        'text-conversation-gutter',
+        'text-insights-table',
+        'text-menu-heading',
+        'text-review-control',
+        'text-activity-label',
+        'text-tool-step',
+        'text-description-prose',
+        'text-pr-prose-compact',
         // The content ladder (ADR-0013). Every rung lands here or it gets read
         // as a colour and dropped against the neighbouring text-(--…). Chrome
         // uses stock sizes, which tailwind-merge already knows.

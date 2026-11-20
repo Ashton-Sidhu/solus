@@ -5,36 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1794630801137,
+      "when": 1795199629466,
       "tag": "0000_baseline",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1794717600240,
-      "tag": "0001_app_run_versions",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1794960733757,
-      "tag": "0002_task_assignees",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1794961743745,
-      "tag": "0003_task_source_pages",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1795061761268,
-      "tag": "0004_session_repositories",
       "breakpoints": true
     }
   ]

@@ -27,8 +27,13 @@ import {
 import { attachmentKind } from '@solus/contracts/media-types';
 import { uuid } from '@solus/contracts/uuid';
 import { attachmentUploads, uploadFileObjects } from './attachment-uploads.svelte';
+import { integrationResources } from '../../settings/integration-resources.store.svelte';
+import type { AttachedIntegrationResource, IntegrationResource, IntegrationResourceTemplate } from '@solus/contracts/integration-types';
+import type { ArgumentField, ArgumentValue } from '@solus/client-core/integration-prompts';
 import { checkoutPlace, runHost } from '../../../contexts/workspace/run-location';
 import { suggestionsStore } from '../../../contexts/sharing/suggestions.store.svelte';
+import { connectRequestStore } from '../../../contexts/connections/connect-request.store.svelte';
+import type { McpPromptComposer } from './mcp-prompt-composer.svelte';
 
 interface ComposerCommandOptions {
   isReadOnly: boolean;
@@ -140,6 +145,43 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     prompt.text = "";
     composerEl?.clearEditor();
   }
+
+  // MCP prompts (mcp-first-class.md §10): the expanded text is sent as this composer's own message.
+  // The module loads after the first screen; until it lands no prompt list exists, so no line can name one.
+  let mcpPrompts = $state<McpPromptComposer | null>(null);
+  void import('./mcp-prompt-composer.svelte').then(({ useMcpPromptComposer }) => mcpPrompts = useMcpPromptComposer({
+    serverId: () => runHost(getOptions().run),
+    projectPath: () => getOptions().composerCwd || undefined,
+    sessionId: () => getOptions().sessionId,
+    draftId: () => getOptions().draftId,
+    send: (text, attachments) => {
+      getOptions().prompt.attachments.push(...attachments);
+      return sendPrompt(text);
+    },
+    report: (message) => {
+      const { targetTabId } = getOptions();
+      if (targetTabId) session.addSystemMessage(message, targetTabId);
+      else toasts.info(message);
+    },
+    openSignIn: (server) => {
+      const { run, sessionId, refocusComposer } = getOptions();
+      const serverId = runHost(run);
+      if (serverId && sessionId) {
+        connectRequestStore.requestIntegration(serverId, sessionId, server);
+        refocusComposer();
+        return;
+      }
+      toasts.info(`Sign in to ${server.integrationName} in Settings → MCP to use its prompts.`);
+      session.showSettings("mcp");
+    },
+    setComposerText: (text) => {
+      const { prompt, editor: composerEl } = getOptions();
+      prompt.text = text;
+      composerEl?.setValueAndCursor(text);
+    },
+    clearComposer,
+    refocus: () => getOptions().refocusComposer(),
+  }));
 
   const handleGoalCommand = createGoalCommand({
     isReadOnly: () => getOptions().isReadOnly,
@@ -404,6 +446,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       refocusComposer();
       return false;
     }
+    if (mcpPrompts?.startFromLine(text)) return false;
 
     return sendPrompt(text, {
       delivery,
@@ -555,6 +598,46 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     }
   }
 
+  /**
+   * An MCP resource picked under `@` (mcp-first-class.md §11.3): its chip reads
+   * it on the run's host. A template opens the argument form first.
+   */
+  async function attachResource(resource: IntegrationResource | IntegrationResourceTemplate) {
+    if ("uriTemplate" in resource) {
+      // The form's rules load with it, not with the first screen.
+      const { templateArgumentFields } = await import('@solus/client-core/integration-prompts');
+      const fields = templateArgumentFields(resource.uriTemplate);
+      if (fields) resourceTemplateForm = { template: resource, fields };
+      return;
+    }
+    readResource(resource);
+  }
+
+  function readResource(resource: AttachedIntegrationResource) {
+    const { run, prompt, targetTabId, draftId } = getOptions();
+    const composerSourceId = targetTabId ?? draftId;
+    const ctx = composerSourceId
+      ? session.ctxFor(composerSourceId)
+      : session.ctxForDirectory(checkoutPlace(run)?.path ?? session.ctx.session.workingDirectory);
+    integrationResources.attach({ api: session.apiForRun(run), ctx, serverId: runHost(run) ?? LOCAL_SERVER_ID, resource, attachments: prompt.attachments });
+  }
+
+  // The argument form of a resource template: the values name one resource, and its chip reads it (§11.3).
+  let resourceTemplateForm = $state<{ template: IntegrationResourceTemplate; fields: ArgumentField[] } | null>(null);
+
+  function submitResourceTemplate(values: ArgumentValue[]) {
+    if (!resourceTemplateForm) return;
+    const { template } = resourceTemplateForm;
+    resourceTemplateForm = null;
+    readResource({ ...template, arguments: values.map((entry) => ({ name: entry.name, value: entry.value.trim() })) });
+    getOptions().refocusComposer();
+  }
+
+  function closeResourceTemplate() {
+    resourceTemplateForm = null;
+    getOptions().refocusComposer();
+  }
+
   async function handlePaste(e: ClipboardEvent) {
     const { isReadOnly, run, prompt, targetTabId, draftId } = getOptions();
     if (isReadOnly) return;
@@ -653,5 +736,14 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       }
     }
   }
-  return { sendPrompt, handleSend, handleSolusCommand, stopRun, handleKeyDown, handleEditorChange, handlePaste };
+  return {
+    sendPrompt, handleSend, handleSolusCommand, attachResource, stopRun, handleKeyDown, handleEditorChange, handlePaste,
+    get mcpPrompts() {
+      return mcpPrompts;
+    },
+    get resourceTemplateForm() {
+      return resourceTemplateForm;
+    },
+    submitResourceTemplate, closeResourceTemplate,
+  };
 }

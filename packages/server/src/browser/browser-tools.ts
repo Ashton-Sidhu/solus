@@ -412,7 +412,7 @@ export const browserSnapshotAgentTool = browserTool({
       })
     }
     const result = ok(filed ? `${text}\n\n${filed}` : text)
-    if (image) result.image = image
+    if (image) result.images = [image]
     return result
   },
 })

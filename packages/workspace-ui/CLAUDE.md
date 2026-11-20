@@ -8,6 +8,7 @@
 - **Surfaces read stores and shell facts, never the tab strip.** The board surfaces (`tasks/`, `work/`, `workspace/`, `document-shell/`, `diagram/`, `session/record/`, `insights/`) are mounted by desktop, web, and phone. To reach a session they use a context command — `revealSession`, `sessionForHostSession`, `activeSession` — not `tabs`, `tabOrder`, `activeTabId`, `selectTab`, or `tabIdForHostSession`. The record surfaces (the task, pull request, and works boards; a task, a work, a session record; and the transcript and markdown they render) read `getSurfaceContext()` and ask its `workspace` before a workspace-only command, so a record renders when the only connection is the organization's Solus API (`docs/plans/cloud-console-native-pages.md` §4 and §9; `cloud-service-model.md` §15 "One door"). `bun run lint:surfaces` enforces both. Leaves (rows, chips, cards, renderers) take props alone.
 - `lib/` is colocated per-feature. Only cross-feature utils go in `src/renderer/lib/`.
 - Flag any file > 600 lines in review. Hard-split > 1000 lines.
+- **A list menu filters its own rows.** Every `Command.Root` sets `shouldFilter={false}` and filters with `matchesSearch` (`lib/search-match.ts`). The command's own filter sorts rows by moving their DOM nodes, and a keyed `{#each}` then leaves stale rows on screen. `tests/unit/menu-search-filter.test.ts` enforces it.
 - `SvelteMap` / `SvelteSet` for reactive maps/sets. Use `$effect` only when `$derived` genuinely can't — no exceptions.
 
 ## When a token "looks wrong", check whether it ever applied

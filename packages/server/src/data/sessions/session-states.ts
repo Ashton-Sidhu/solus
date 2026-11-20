@@ -184,7 +184,8 @@ function personRow(sessionId: string, personKey: string): SQL {
 /**
  * One person's own view of one session: their settle, archive, and snooze. It
  * changes that person's list, and nobody else's. Each change is announced to
- * that person with the view it leaves.
+ * that person with the view it leaves. A settle or an archive also ends their
+ * pin (`pinned-sessions.ts`); a snooze keeps it, and a return does not restore it.
  */
 export class SessionViewer {
   constructor(readonly sessionId: string, readonly personKey: string) {}
@@ -200,7 +201,7 @@ export class SessionViewer {
 
   /** Settle the session in this person's list. Returns false when they settled it already. */
   async settle(at = Date.now()): Promise<boolean> {
-    return this.write(sql`settled_at = ${at}`, sql`settled_at IS NULL`, { settled_at: at })
+    return this.write(sql`settled_at = ${at}, pinned_at = NULL`, sql`settled_at IS NULL`, { settled_at: at })
   }
 
   /** End this person's settle. Returns false when they had not settled it. */
@@ -210,7 +211,7 @@ export class SessionViewer {
 
   /** Take the session out of this person's list. Returns false when it was out already. */
   async archive(at = Date.now()): Promise<boolean> {
-    return this.write(sql`archived_at = ${at}`, sql`archived_at IS NULL`, { archived_at: at })
+    return this.write(sql`archived_at = ${at}, pinned_at = NULL`, sql`archived_at IS NULL`, { archived_at: at })
   }
 
   /** Return the session to this person's list, on the shelf it left. Returns false when it was in the list. */

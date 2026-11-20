@@ -18,6 +18,7 @@ import type { IntegrationStore } from './integration-store'
 import { readServerIdentity, ServerCredentialRefusedError } from './server-identity'
 import { solusServerFor } from './solus-servers'
 import { firstPartyOAuthClient } from './first-party'
+import { PublishedClientMetadata } from './client-metadata'
 import { firstPartyClientById } from '@solus/contracts/first-party-clients'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { boundFetch } from './solus-servers/solus-server'
@@ -80,6 +81,8 @@ const FLOW_TTL_MS = 10 * 60_000
 const EXPIRED_MESSAGE = 'This sign-in expired. Start it again.'
 
 interface PendingFlow {
+  issuer: string
+  requiresIssuerResponse: boolean
   flowId: string
   state: string
   integrationId: string
@@ -143,6 +146,7 @@ export class IntegrationOAuth {
   private readonly flows = new Map<string, PendingFlow>()
   private readonly refreshing = new Map<string, Promise<OAuthToken | null>>()
   private readonly protocol: McpOAuth
+  private readonly clientMetadata: PublishedClientMetadata
   private readonly fetch: typeof fetch
   private readonly now: () => number
 
@@ -150,6 +154,12 @@ export class IntegrationOAuth {
     this.fetch = deps.fetch ?? fetch
     this.now = deps.now ?? Date.now
     this.protocol = new McpOAuth({ fetch: this.fetch, now: this.now })
+    this.clientMetadata = new PublishedClientMetadata({ fetch: this.fetch, now: this.now })
+  }
+
+  /** Whether the host can sign in with Solus's Client ID Metadata Document now (§13.1). Reads it when its copy is old; never throws. */
+  async clientDocumentConfirmed(): Promise<boolean> {
+    return (await this.clientMetadata.current()) !== null
   }
 
   /** Starts the acting person's sign-in, or returns the one they already have open for this integration and callback. */
@@ -177,6 +187,8 @@ export class IntegrationOAuth {
     const { resource, options: signIn } = signInFor(integration)
     const { url, state, verifier } = await this.protocol.authorization({ metadata, client, redirectUri, resource, options: signIn })
     const flow: PendingFlow = {
+      issuer: metadata.issuer,
+      requiresIssuerResponse: metadata.authorizationResponseIssParameterSupported === true,
       flowId: randomUUID(),
       state,
       integrationId: integration.id,
@@ -266,6 +278,7 @@ export class IntegrationOAuth {
       return
     }
     try {
+      if (!(await this.acceptsToken(integration, token))) return
       const status = await this.protocol.revoke(await this.metadata(integration), this.clientForToken(integration.id, token), token)
       if (status !== null) log.info('integration_token_revoked', { integrationId: integration.id, status })
     } catch (error) {
@@ -278,9 +291,19 @@ export class IntegrationOAuth {
     return (await this.metadata(integration)).tokenEndpoint
   }
 
+  async issuerOf(integration: Integration): Promise<string> {
+    return (await this.metadata(integration)).issuer
+  }
+
+  /** A token is usable only with the issuer that gave it. */
+  async acceptsToken(integration: Integration, token: OAuthToken): Promise<boolean> {
+    if (integration.auth.kind !== 'oauth') return true
+    return token.issuer === (await this.metadata(integration)).issuer
+  }
+
   /** The client that issued a token: the saved one when it is the same, else a public client by its ID. */
   clientForToken(integrationId: string, token: OAuthToken): OAuthClient {
-    const saved = this.deps.clients.client(integrationId)
+    const saved = token.issuer ? this.deps.clients.client(integrationId, token.issuer) : null
     if (saved && (!token.clientId || saved.clientId === token.clientId)) return saved
     if (!token.clientId) throw new Error('the token names no client')
     return { clientId: token.clientId }
@@ -307,6 +330,9 @@ export class IntegrationOAuth {
       return { ok: false, status, title, message }
     }
     if (this.now() > flow.expiresAt) return failed(400, 'Sign-in expired', EXPIRED_MESSAGE)
+    const responseIssuer = params.get('iss')
+    if (responseIssuer !== null && responseIssuer !== flow.issuer) return failed(400, 'Sign-in failed', 'The sign-in response came from a different issuer. Start the sign-in again.')
+    if (responseIssuer === null && flow.requiresIssuerResponse) return failed(400, 'Sign-in failed', 'The server did not identify its issuer. Start the sign-in again.')
     if (params.get('error')) {
       const message = 'The sign-in was cancelled.'
       this.deps.events.authFinished(user, { flowId, integrationId, outcome: 'cancelled', message })
@@ -318,6 +344,7 @@ export class IntegrationOAuth {
     if (!integration) return failed(400, 'Sign-in failed', 'That integration is no longer on this host.')
     try {
       const token = await this.protocol.exchange({ tokenEndpoint: flow.tokenEndpoint, client: flow.client, code, redirectUri: flow.redirectUri, verifier: flow.verifier, resource: flow.resource })
+      token.issuer = flow.issuer
       const label = await identityLabel(integration, token.accessToken, this.fetch)
       // A browser already signed in to one account can skip the chooser; one account never becomes two (§13.3).
       const duplicate = label && this.deps.connections.accounts(integrationId, user).find((account) => account.accountId !== flow.accountId && account.label === label)
@@ -349,7 +376,12 @@ export class IntegrationOAuth {
     if (!integration) return null
     try {
       const metadata = await this.metadata(integration)
+      if (token.issuer !== metadata.issuer) {
+        this.record(integrationId, personKey, 'needs-sign-in', 'The sign-in server changed. Sign in again.', accountId)
+        return null
+      }
       const refreshed = await this.protocol.refresh({ tokenEndpoint: metadata.tokenEndpoint, client: this.clientForToken(integrationId, token), refreshToken, resource: signInFor(integration).resource })
+      refreshed.issuer = metadata.issuer
       try {
         this.deps.vault.save(personKey, mcpCredentialRef(integration, accountId), refreshed)
       } catch (error) {
@@ -379,30 +411,61 @@ export class IntegrationOAuth {
   }
 
   /**
-   * A saved client registered for this callback, else the owner's client (with
-   * its saved secret and token-endpoint method), else a new registration, else a
-   * plain refusal. The owner registered their redirect addresses at the server
+   * The client chain (docs/plans/mcp-integrations.md §13.1): the owner's
+   * client (with its saved secret and token-endpoint method), else Solus's app
+   * for this vendor, else Solus's Client ID Metadata Document, else a saved
+   * dynamic registration for this callback, else a new one, else a plain
+   * refusal. The owner registered their redirect addresses at the server
    * themselves, so their client is not checked against this one.
    */
   private async clientFor(integration: Integration, metadata: OAuthMetadata, redirectUri: string): Promise<OAuthClient> {
-    const saved = this.deps.clients.client(integration.id)
-    if (saved?.redirectUris?.includes(redirectUri)) return saved
+    const saved = this.deps.clients.client(integration.id, metadata.issuer)
     const adminClientId = integration.auth.kind === 'oauth' ? integration.auth.clientId : undefined
     if (adminClientId) return saved?.clientId === adminClientId ? saved : { clientId: adminClientId }
     // The app Solus registered with this vendor, when there is no owner's client (§13.1).
     const firstPartyId = new IntegrationSignIn(integration).firstParty
     const firstParty = firstPartyId ? firstPartyOAuthClient(firstPartyId) : null
     if (firstParty) return firstParty
+    const documentClient = await this.metadataDocumentClient(metadata, redirectUri)
+    if (documentClient) {
+      log.info('integration_client_metadata_document', { integrationId: integration.id })
+      return documentClient
+    }
+    if (saved?.redirectUris?.includes(redirectUri)) return saved
     if (!metadata.registrationEndpoint) throw new OAuthClientRequiredError(OAUTH_CLIENT_REQUIRED_MESSAGE)
     try {
       const client = await this.protocol.register(metadata, [...(saved?.redirectUris ?? []), redirectUri])
-      this.deps.clients.saveClient(integration.id, client)
+      this.deps.clients.saveClient(integration.id, metadata.issuer, client)
       log.info('integration_client_registered', { integrationId: integration.id })
       return client
     } catch (error) {
       log.warn('integration_client_registration_failed', { integrationId: integration.id, error: errorText(error) })
       throw error
     }
+  }
+
+  /**
+   * Solus's metadata document as the client, when the server reads such
+   * documents, the host confirmed the document is published, and the document
+   * names this exact callback. An authorization server compares the callback
+   * as a plain string, so a callback the document does not name, or one that
+   * only differs in its loopback port, registers dynamically instead:
+   *
+   * - The desktop app on its own host: `http://127.0.0.1:3001` (or `localhost`)
+   *   is in the document; a moved port is not.
+   * - A standalone host reached on loopback at its default port 3000: served.
+   *   Reached on its own origin (LAN, tailnet, public, tunnel): the document
+   *   cannot name it, so it registers dynamically.
+   * - A sign-in that starts at Solus Cloud: the cloud's flow, not this one; its
+   *   callback is on app.solus.sh, which this document does not name.
+   *
+   * Nothing is saved: the client ID is the document's URL.
+   */
+  private async metadataDocumentClient(metadata: OAuthMetadata, redirectUri: string): Promise<OAuthClient | null> {
+    if (!metadata.clientIdMetadataDocumentSupported) return null
+    const published = await this.clientMetadata.current()
+    if (!published?.redirect_uris.includes(redirectUri)) return null
+    return { clientId: published.client_id, tokenEndpointAuthMethod: 'none', redirectUris: published.redirect_uris }
   }
 
   private record(integrationId: string, personKey: string, status: 'needs-sign-in' | 'error', error: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): void {

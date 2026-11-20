@@ -22,6 +22,11 @@ interface IssuedCode {
 export interface FakeServers {
   base: string
   mcpUrl: string
+  modernMcpUrl: string
+  brokenCalls: number
+  modernToolLists: number
+  modernToolChanged(): void
+  modernTtlMs: number
   resourceMetadataUrl: string
   /** Authorization header values the MCP server accepts. */
   accepted: Set<string>
@@ -30,8 +35,8 @@ export interface FakeServers {
   revoked: string[]
   /** Every Authorization header the MCP endpoint saw. */
   mcpAuthorizations: Array<string | undefined>
-  /** Whether the authorization server offers dynamic registration. */
-  options: { registration: boolean; refuseRefresh: boolean; expiresIn: number }
+  /** Whether the authorization server offers dynamic registration, and whether it reads Client ID Metadata Documents. */
+  options: { registration: boolean; metadataDocument: boolean; refuseRefresh: boolean; expiresIn: number }
   issueCode(challenge: string, resource: string | null, redirectUri: string | null): string
   close(): Promise<void>
 }
@@ -50,6 +55,7 @@ function json(res: ServerResponse, status: number, body: object): void {
 }
 
 export async function startFakeServers(): Promise<FakeServers> {
+  const modernListeners = new Set<ServerResponse>()
   const codes = new Map<string, IssuedCode>()
   const refreshTokens = new Set<string>()
   let counter = 0
@@ -59,7 +65,13 @@ export async function startFakeServers(): Promise<FakeServers> {
     tokenRequests: [],
     revoked: [],
     mcpAuthorizations: [],
-    options: { registration: true, refuseRefresh: false, expiresIn: 3600 },
+    brokenCalls: 0,
+    modernToolLists: 0,
+    modernToolChanged() {
+      for (const listener of modernListeners) listener.write(`data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed', params: {} })}\n\n`)
+    },
+    modernTtlMs: 60_000,
+    options: { registration: true, metadataDocument: false, refuseRefresh: false, expiresIn: 3600 },
     issueCode(challenge, resource, redirectUri) {
       const code = `code-${++counter}`
       codes.set(code, { challenge, resource, redirectUri })
@@ -111,6 +123,28 @@ export async function startFakeServers(): Promise<FakeServers> {
 
   const route = async (req: IncomingMessage, res: ServerResponse) => {
     const path = new URL(req.url ?? '/', base).pathname
+    if (path === '/modern/mcp' && req.method === 'POST') {
+      const message = JSON.parse(await readBody(req)) as { id: number; method: string; params?: { name?: string; arguments?: { text?: string }; inputResponses?: { answer?: { action?: string; content?: { colour?: string } } } } }
+      if (message.method === 'server/discover') return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', supportedVersions: ['2026-07-28'], capabilities: { tools: { listChanged: true } }, instructions: 'Use modern echo for text.', ttlMs: 60_000, cacheScope: 'private', _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'modern-fake', version: '1.0.0' } } } })
+      if (message.method === 'subscriptions/listen') {
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+        modernListeners.add(res)
+        res.on('close', () => modernListeners.delete(res))
+        res.write(`data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/subscriptions/acknowledged', params: { _meta: { 'io.modelcontextprotocol/subscriptionId': message.id }, notifications: { toolsListChanged: true } } })}\n\n`)
+        return
+      }
+      if (message.method === 'tools/list') {
+        fake.modernToolLists++
+        return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', ttlMs: fake.modernTtlMs, cacheScope: 'private', tools: [{ name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, outputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }, { name: 'confirm', inputSchema: { type: 'object' } }, { name: 'break_stream', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }] } })
+      }
+      if (message.method === 'tools/call') {
+        if (message.params?.name === 'break_stream') { fake.brokenCalls++; res.destroy(); return }
+        if (message.params?.name === 'confirm' && !message.params.inputResponses?.answer) return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'input_required', inputRequests: { answer: { method: 'elicitation/create', params: { message: 'Which colour?', requestedSchema: { type: 'object', properties: { colour: { type: 'string', enum: ['red', 'blue'] } }, required: ['colour'] } } } } } })
+        const answer = message.params?.name === 'confirm' ? `accept: ${message.params.inputResponses?.answer?.content?.colour}` : `echo: ${message.params?.arguments?.text}`
+        return json(res, 200, { jsonrpc: '2.0', id: message.id, result: { resultType: 'complete', content: [{ type: 'text', text: answer }] } })
+      }
+      return json(res, 200, { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } })
+    }
     if (path === '/mcp') return mcp(req, res)
     if (path === '/.well-known/oauth-protected-resource') {
       return json(res, 200, { resource: `${base}/mcp`, authorization_servers: [`${base}/as`], scopes_supported: ['read', 'write'] })
@@ -124,6 +158,7 @@ export async function startFakeServers(): Promise<FakeServers> {
         response_types_supported: ['code'],
         code_challenge_methods_supported: ['S256'],
         token_endpoint_auth_methods_supported: ['none'],
+        ...(fake.options.metadataDocument ? { client_id_metadata_document_supported: true } : {}),
       }
       return json(res, 200, fake.options.registration ? { ...metadata, registration_endpoint: `${base}/as/register` } : metadata)
     }
@@ -150,8 +185,13 @@ export async function startFakeServers(): Promise<FakeServers> {
   base = `http://127.0.0.1:${port}`
   return {
     ...fake,
+    get brokenCalls() { return fake.brokenCalls },
+    get modernToolLists() { return fake.modernToolLists },
+    get modernTtlMs() { return fake.modernTtlMs },
+    set modernTtlMs(value: number) { fake.modernTtlMs = value },
     base,
     mcpUrl: `${base}/mcp`,
+    modernMcpUrl: `${base}/modern/mcp`,
     resourceMetadataUrl: `${base}/.well-known/oauth-protected-resource`,
     async close() {
       http.closeAllConnections()

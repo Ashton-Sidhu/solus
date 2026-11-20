@@ -8,6 +8,8 @@
   import { cloudConnectionsPointerUrl } from "../seats/lib/cloud-connections";
   import AtlassianProviderSettings from "../atlassian/AtlassianProviderSettings.svelte";
   import GoogleProviderSettings from "../google/GoogleProviderSettings.svelte";
+  import GitHubConnect from "../connections/GitHubConnect.svelte";
+  import LinearConnection from "./LinearConnection.svelte";
   import { ensureIconCollections } from "../../lib/iconify";
   import SettingsSection from "./SettingsSection.svelte";
   import { PROVIDER_LOGOS } from "./lib/provider-logos";
@@ -20,9 +22,9 @@
 
   ensureIconCollections();
 
-  // A signed-in person keeps their Google and Atlassian connections in their
-  // Solus account, not on the host; each row shows the account's status and
-  // points there. GitHub is on the Source Control page.
+  // A signed-in person keeps their GitHub, Google, and Atlassian connections in
+  // their Solus account, not on the host; each row shows the account's status
+  // and points there. GitHub is on the Source Control page too.
   $effect(() => {
     void accountStore.state;
     const targetServerId = serverId;
@@ -44,10 +46,18 @@
 <SettingsSection
   {...settingsDefinitions["integrations.section-connections"]}
   description={cloudConnectionsUrl
-    ? "These live in your Solus account, so every host you work on can use them. Each opens your account to change it."
+    ? "These live in your Solus account, so every host you work on can use them."
     : "These connect on this host. Sign in to Solus to keep them in your account for every host."}
 >
   {#if cloudConnectionsUrl}
+    <AccountConnectionRow
+      url={cloudConnectionsUrl}
+      {...settingsDefinitions["integrations.github"]}
+      purpose="Read repositories, issues, Projects, and pull requests."
+      status={accountVaultStore.providerStatus("github")}
+      icon={githubLogo}
+      testId="connections-row-github-account"
+    />
     <AccountConnectionRow
       url={cloudConnectionsUrl}
       {...settingsDefinitions["integrations.google-drive"]}
@@ -65,10 +75,16 @@
       testId="connections-row-atlassian-account"
     />
   {:else}
+    <GitHubConnect {serverId} />
     <GoogleProviderSettings {serverId} />
     <AtlassianProviderSettings {serverId} />
   {/if}
+  <LinearConnection {serverId} />
 </SettingsSection>
+
+{#snippet githubLogo()}
+  <Icon icon={PROVIDER_LOGOS.github} width={16} height={16} />
+{/snippet}
 
 {#snippet googleLogo()}
   <Icon icon={PROVIDER_LOGOS.google} width={16} height={16} />

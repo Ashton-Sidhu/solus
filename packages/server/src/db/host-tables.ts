@@ -102,16 +102,6 @@ export const sessionThreadAliases = defineTable('session_thread_aliases', {
   session_id: text({ notNull: true }),
 }, { primaryKey: ['provider_session_id', 'provider'] })
 
-/** A session a person pinned on this host. */
-export const pinnedSessions = defineTable('pinned_sessions', {
-  session_id: text({ notNull: true }),
-  server_id: text({ notNull: true, default: '' }),
-  provider: text(),
-  title: text(),
-  cwd: text(),
-  pinned_at: bigint(),
-}, { primaryKey: ['session_id', 'server_id'] })
-
 // --- Execution ledger -------------------------------------------------------
 
 export const runs = defineTable('runs', {
@@ -301,10 +291,89 @@ export const integration = defineTable('integration', {
   url: text({ notNull: true }),
   auth: json({ notNull: true }),
   disabled_tools: json({ notNull: true, default: '[]' }),
+  /** The command of a `stdio` integration (docs/plans/mcp-first-class.md §7.1); null for the other kinds. */
+  launch: json(),
+  /** The project an integration joins the runs of (§8.4); null joins every run of its owner. */
+  project_key: text(),
+  /** The folder name of that project when the integration was added, for the row's "Only in <project>" (§8.4). */
+  project_name: text(),
   created_at: text({ notNull: true }),
   updated_at: text({ notNull: true }),
 }, {
   indexes: [{ name: 'integration_slug', columns: ['organization_id', 'created_by', 'slug'], unique: true }],
+})
+
+/**
+ * What the gateway read from a `stdio` integration for one person and account
+ * (docs/plans/mcp-first-class.md §7.5), so the command starts once and a run
+ * start starts nothing. `verdict` is the SDK's `PriorDiscovery`, and
+ * `verdict_at` the time a revision check made it; `facts` is the tool list,
+ * the server instructions, and the capabilities. Never shared between people:
+ * the SDK forbids it for a saved `DiscoverResult`.
+ */
+export const integrationServerFacts = defineTable('integration_server_facts', {
+  integration_id: text({ notNull: true }),
+  user_id: text({ notNull: true }),
+  account_id: text({ notNull: true }),
+  verdict: json(),
+  verdict_at: bigint(),
+  facts: json(),
+  stored_at: bigint({ notNull: true }),
+}, { primaryKey: ['integration_id', 'user_id', 'account_id'] })
+
+/**
+ * One tool call that a server runs as an MCP task (docs/plans/mcp-first-class.md
+ * §12.2). The host polls it as `user_id`, the person who made the call, and
+ * gives its end to `session_id` once: `delivered_at` is set in the same write
+ * that claims the delivery. `upstream_task_id` can act as a bearer token, so it
+ * never leaves the host.
+ */
+export const mcpTask = defineTable('mcp_task', {
+  id: text({ primaryKey: true }),
+  organization_id: text({ notNull: true }),
+  session_id: text({ notNull: true }),
+  integration_id: text({ notNull: true }),
+  user_id: text({ notNull: true }),
+  account_id: text({ notNull: true }),
+  tool: text({ notNull: true }),
+  upstream_task_id: text({ notNull: true }),
+  status: text({ notNull: true }),
+  status_message: text(),
+  traceparent: text(),
+  created_at: bigint({ notNull: true }),
+  updated_at: bigint({ notNull: true }),
+  expires_at: bigint({ notNull: true }),
+  delivered_at: bigint(),
+}, {
+  indexes: [{ name: 'mcp_task_by_session', columns: ['session_id', 'created_at'] }],
+})
+
+/**
+ * One session's subscription to one MCP resource (docs/plans/mcp-first-class.md
+ * §11.5). The host keeps it open as `user_id`, the person whose agent asked,
+ * with that person's connection, and a change starts the session's agent again.
+ * `status` is `live` or `ended`; `end_reason` says why it ended. `wakes` and
+ * `last_wake_at` hold the limits across a restart of the host.
+ */
+export const integrationResourceWatch = defineTable('integration_resource_watch', {
+  id: text({ primaryKey: true }),
+  organization_id: text({ notNull: true }),
+  session_id: text({ notNull: true }),
+  integration_id: text({ notNull: true }),
+  user_id: text({ notNull: true }),
+  account_id: text({ notNull: true }),
+  uri: text({ notNull: true }),
+  name: text({ notNull: true }),
+  status: text({ notNull: true }),
+  end_reason: text(),
+  status_message: text(),
+  wakes: integer({ notNull: true }),
+  last_wake_at: bigint(),
+  created_at: bigint({ notNull: true }),
+  updated_at: bigint({ notNull: true }),
+  expires_at: bigint({ notNull: true }),
+}, {
+  indexes: [{ name: 'integration_resource_watch_by_session', columns: ['session_id', 'created_at'] }],
 })
 
 export const integrationConnection = defineTable('integration_connection', {
@@ -393,10 +462,10 @@ export const sessionStorageTurns = defineTable('session_storage_turns', {
 
 /** Every host table, in declaration order. */
 export const HOST_TABLES = [
-  transcriptIndex, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases, pinnedSessions,
+  transcriptIndex, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases,
   runs, runQueue, runExchanges, asyncQuestions,
   outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, memberFolder, automations, automationRuns, browserProfiles,
-  integration, integrationConnection, notificationPrObservations, savedMetricsQueries, turnFlags,
+  integration, integrationConnection, integrationServerFacts, mcpTask, integrationResourceWatch, notificationPrObservations, savedMetricsQueries, turnFlags,
   sessionStorage, sessionStorageTurns,
 ] as const

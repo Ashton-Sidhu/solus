@@ -6,7 +6,9 @@ import { isAuthFailureMessage } from '../auth-failure'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
 import { claudeToolResultText } from './claude-subagent-protocol'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
+import { toolResultMedia } from '../../../data/assets/tool-result-media'
 import { catalogClaudeModelId } from './claude-models'
+import { ClaudePartialToolInputs } from './claude-partial-input'
 import { z } from 'zod'
 
 export const SDK_TO_UI_PERMISSION_MODE = {
@@ -71,6 +73,7 @@ function normalize(
   raw: ClaudeEvent,
   pendingToolInputs: Map<number, string>,
   thinkingBlocks: Map<number, string>,
+  partialInputs: ClaudePartialToolInputs,
 ): NormalizedEvent[] {
   switch (raw.type) {
     case 'system':
@@ -79,7 +82,7 @@ function normalize(
 
     case 'stream_event':
       // SAFETY: ClaudeEvent.type is the provider discriminant for stream events.
-      return normalizeStreamEvent(raw as StreamEvent, pendingToolInputs, thinkingBlocks)
+      return normalizeStreamEvent(raw as StreamEvent, pendingToolInputs, thinkingBlocks, partialInputs)
 
     case 'assistant':
       // SAFETY: ClaudeEvent.type is the provider discriminant for assistant events.
@@ -122,6 +125,8 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // thinking blocks to know whose span just closed, with the text their
   // thinking_delta events carried. Cleared alongside the inputs.
   private readonly thinkingBlocks = new Map<number, string>()
+  // The input so far of a Solus integration tool, for its live app card.
+  private readonly partialInputs: ClaudePartialToolInputs
   // The provider returns every tool result through the same shape. Remember
   // which calls launched subagents so their final answer can be marked before
   // the server projects ordinary output away.
@@ -147,6 +152,10 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // after a seam as a new turn with its usage at zero, so the final result
   // reports only the last segment, and this is added to it.
   private earlierSegmentsUsage: UsageData = {}
+
+  constructor(now?: () => number) {
+    this.partialInputs = new ClaudePartialToolInputs(now)
+  }
 
   get summary(): TurnSummary {
     return this.turnSummary
@@ -180,7 +189,7 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       }
     }
 
-    const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks)
+    const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks, this.partialInputs)
     // SAFETY: ClaudeEvent.type is the provider discriminant for result events.
     const failedTurnUsage = raw.type === 'result' ? this.failedTurnUsage(raw as ResultEvent) : null
     if (failedTurnUsage) normalized.push(failedTurnUsage)
@@ -405,15 +414,17 @@ function normalizeStreamEvent(
   event: StreamEvent,
   pendingToolInputs: Map<number, string>,
   thinkingBlocks: Map<number, string>,
+  partialInputs: ClaudePartialToolInputs,
 ): NormalizedEvent[] {
   const sub = event.event
   if (!sub) return []
 
   const parentToolUseId = event.parent_tool_use_id || undefined
   const events = normalizeStreamSub(sub, pendingToolInputs, thinkingBlocks)
-  return parentToolUseId
-    ? events.map((normalized) => parentSubagentEvent(normalized, parentToolUseId))
-    : events
+  // A call inside a subagent has no live app card, so only the main thread streams an input.
+  if (parentToolUseId) return events.map((normalized) => parentSubagentEvent(normalized, parentToolUseId))
+  const partial = partialInputs.follow(sub, pendingToolInputs)
+  return partial ? [...events, partial] : events
 }
 
 function normalizeStreamSub(
@@ -612,6 +623,7 @@ function normalizeUser(event: UserEvent): NormalizedEvent[] {
     if (isAsyncLaunch) result.isAsyncLaunch = true
     const toolImages = storeToolResultImages(block.content)
     if (toolImages) result.toolImages = toolImages
+    Object.assign(result, toolResultMedia(result.content))
     events.push(result)
   }
   return events

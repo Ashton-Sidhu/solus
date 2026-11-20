@@ -106,11 +106,76 @@ the expected frame. Navigation stops its bridge. Closing disposes it; reopening
 or full-screen native presentation initializes a new frame.
 
 Supported protocol operations are initialize, initial tool data, tool calls,
-resource reads, text messages, external HTTP(S) links, display mode, size,
-and close. The host sends light/dark context and Solus CSS variables. It does
-not advertise file downloads or model-context updates. Unsupported requests
-receive a protocol error. Snapshot HTML is limited to 5 MiB, and tool data and
-interaction results to 1 MiB. Each frame can hold at most sixteen requests.
+resource reads, text messages, model-context updates, log messages, external
+HTTP(S) links, display mode, size, and close with teardown. It does not
+advertise file downloads. Unsupported requests receive a protocol error.
+Snapshot HTML is limited to 5 MiB, and tool data and interaction results to
+1 MiB. Each frame can hold at most sixteen requests.
+
+The host context (`client-core/mcp-app-context.ts`) names the client
+(`desktop`, `web`, or `mobile`), the locale and time zone of the device, touch
+and hover, the display mode and frame size, and every style variable of the
+specification. Each client reads a small Solus palette from its own theme for
+the current light or dark mode; the shared module makes the variables from it,
+so the clients cannot differ. Mobile also sends safe area insets: zero inline,
+and in full screen the parts that the device covers, because the frame runs
+under the home indicator there.
+
+`ui/update-model-context` gives the agent an app's state without a message.
+The bridge joins the text blocks and the structured content (as JSON) into one
+text of at most 8,000 characters; an image or other block is refused, and the
+same text again is not sent. The host keeps the latest text of each app
+(`execution/sessions/app-model-contexts.ts`), for at most four apps of a
+session, in memory. Every later turn of the session carries it at the end of
+its system prompt, for Claude and Codex the same way, so a reload never shows
+it as the person's text and a change of it leaves the rest of the prompt as it
+was. The block says the text is data from the app, not instructions. Below the
+card, "Context shared with the agent" shows the text the agent gets. Closing a
+card clears its context. A host restart drops the contexts; an app that is open
+again sends its context again.
+
+An app can ask for browser features in `_meta.ui.permissions`. A frame gets a
+feature only after the person approves it for that app: the card shows "This
+app asks for …", and the approval reloads the frame with the feature in its
+`allow` attribute. The app is told only the features it was granted
+(`hostCapabilities.sandbox.permissions`). A client offers only what it can give:
+the web client all four features on a secure page, the desktop app the
+microphone and clipboard writes (it has no macOS camera or location usage text),
+and mobile none, because a web view cannot hold a feature to one approved frame.
+The frame keeps its opaque sandbox origin. A grant lasts while the client keeps
+the conversation's view state.
+
+`prefersBorder: true` draws a border and a card surface around the frame;
+`false` or no value keeps the frame bare. The bordered box is the reported
+height plus both 1 px edges (`mcpAppFrameHeight` in client-core), so the app
+gets all the height it asked for on desktop, web, and mobile. `baseUriDomains` sets the frame's
+`base-uri`; with none it stays `'none'`, which is stricter than `'self'` for an
+opaque origin.
+
+Before a frame closes, because the person closed it or the app sent
+`ui/notifications/request-teardown`, the host sends `ui/resource-teardown` and
+waits up to 1.5 seconds for the answer. An app that is not ready closes at once.
+A frame that unmounts with its conversation gets no teardown, because the
+client cannot wait there. App log messages (`notifications/message`) go to the
+client's debug output only: 2,000 characters each, and 100 for each frame.
+
+A Solus integration tool's app also shows while its call runs: the live app
+card (`docs/plans/mcp-first-class.md` §14.1). The host says which tool has an
+app, and only for the person whose integration runs the call
+(`mcpAppLiveRead`). The card gets the input as it streams, healed and at most
+ten times a second (`tool-input-partial`), then `tool-input`, then the result
+of the saved app in the same frame, or `tool-cancelled` when the call is
+stopped or fails. Claude streams the input. Codex gives the input of a Solus
+tool whole, so a Codex card gets `tool-input` when the call starts and no
+partial input. A server of Claude's own and a call inside a subagent have no
+live card. Until the call has a result, the app cannot call a tool, read a
+resource, or give the agent context.
+
+Not built: Picture-in-picture needs a pane that keeps
+one live frame above the conversation while the card scrolls or unmounts, with
+a way back to inline, on every client. A stable `domain` origin needs a served
+origin per app (a host-served subdomain or a sandbox domain), so the frame stops
+being an opaque `srcdoc` document, plus a rule for which domains a host accepts.
 
 Writes need approval. A user message and external link also need approval.
 Read-only tools can run directly. A host call rechecks current read-only hints,

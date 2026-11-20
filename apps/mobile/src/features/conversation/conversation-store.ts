@@ -88,6 +88,15 @@ export class ConversationStore {
   readerAtEnd = true
   readonly closedMcpApps = new Set<string>()
   readonly mcpAppHeights = new Map<string, number>()
+  /** The context each app gave the agent, as the person can read it, by activity. */
+  readonly mcpAppContexts = new Map<string, string>()
+  /**
+   * The one saved app docked above the composer in picture-in-picture
+   * (docs/plans/mcp-first-class.md §14.2), by activity. Its card in the feed
+   * shows a line in its place.
+   */
+  mcpAppPip: { readonly activityId: string; readonly title: string } | null = null
+  readonly mcpAppPipChanges = new Listeners()
 
   constructor(target: ConversationTarget, deps: Omit<ConversationDeps, 'onChange'>, private readonly frames = {
     request: (callback: () => void): number => requestAnimationFrame(callback),
@@ -126,6 +135,13 @@ export class ConversationStore {
       },
     })
     this.metaSnapshot = this.readMeta()
+  }
+
+  /** Docks one app; the app docked before goes back to its card. Null gives the docked app back. */
+  setMcpAppPip(next: { readonly activityId: string; readonly title: string } | null): void {
+    if (next?.activityId === this.mcpAppPip?.activityId) return
+    this.mcpAppPip = next
+    this.mcpAppPipChanges.notify()
   }
 
   private cancelItemFrame(): void {

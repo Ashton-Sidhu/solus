@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowUpRight, Bot, CircleArrowUp, Plus, Power, RefreshCw } from "@lucide/svelte";
+  import { ArrowUpRight, Bot, CircleArrowUp, Plus, Power, RefreshCw, Trash2 } from "@lucide/svelte";
   import * as ContextMenu from "../ui/context-menu";
   import type { FleetMachine } from "./lib/fleet-model";
 
@@ -18,10 +18,11 @@
     onRetry: () => void;
     onStart: () => void;
     onUpdate: () => void;
+    onRemove: () => void;
     onClose: () => void;
   }
 
-  let { x, y, machine, onAsk, onOpen, onNewSession, onRetry, onStart, onUpdate, onClose }: Props = $props();
+  let { x, y, machine, onAsk, onOpen, onNewSession, onRetry, onStart, onUpdate, onRemove, onClose }: Props = $props();
 
   const answers = $derived(machine.state === "running" || machine.state === "idle");
   const canRetry = $derived(machine.state === "unreachable");
@@ -72,6 +73,13 @@
           Update
         </ContextMenu.Item>
       {/if}
+    {/if}
+    {#if !machine.isThisDevice && !machine.isManaged}
+      <ContextMenu.Separator />
+      <ContextMenu.Item variant="destructive" onSelect={() => select(onRemove)}>
+        <Trash2 />
+        Remove
+      </ContextMenu.Item>
     {/if}
   </ContextMenu.Content>
 </ContextMenu.Root>

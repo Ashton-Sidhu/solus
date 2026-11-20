@@ -3,7 +3,7 @@ import { CodexAppServerClient } from './codex-agent'
 import type { CodexPendingServerRequest } from './codex-event-normalizer'
 import type { PermissionResponder } from '../agent-backend'
 import type { PermissionOption, QuestionItem } from '@solus/contracts/types'
-import type { ElicitResult } from '@modelcontextprotocol/sdk/types.js'
+import type { ElicitResult } from '@modelcontextprotocol/client'
 import type {
   GrantedPermissionProfile,
   McpServerElicitationRequestResponse,

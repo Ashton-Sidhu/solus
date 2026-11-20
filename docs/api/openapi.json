@@ -16483,6 +16483,11 @@
                             "assetId": {
                               "type": "string",
                               "minLength": 1
+                            },
+                            "toolUseId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
                             }
                           },
                           "required": [
@@ -16518,6 +16523,11 @@
                             "assetId": {
                               "type": "string",
                               "minLength": 1
+                            },
+                            "toolUseId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
                             }
                           },
                           "required": [

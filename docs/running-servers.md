@@ -1,15 +1,20 @@
 # Running servers
 
 The Running servers card sits below Git in the desktop and web project panel.
-It lists the selected checkout's servers. **All on host** includes other
-checkouts and unassigned servers. The card has its own collapse and visibility
-controls. It hides when discovery confirms that the selected scope is empty.
-Discovery stays subscribed, so the card returns when a server appears. Loading,
-disconnected, and error states stay visible. Stop is red.
+It lists the selected checkout's servers. When other checkouts on the host have
+servers, a link under the list shows how many (**2 in other checkouts**). It
+adds those servers and unassigned servers, and each row then names its checkout after its title.
+**Only this checkout** goes back. The card has its own collapse and visibility
+controls. It is visible only when the selected scope has server rows. Loading, disconnected,
+and failed scans with no rows do not show a card. Discovery stays subscribed, so
+the card returns when a server appears. The mobile server screen keeps its status
+and retry controls available. On desktop and web, a row shows its copy, forward,
+and stop buttons when the pointer is on it or keyboard focus is in it. Stop turns
+red on hover. On a touch screen, the buttons always show.
 
 Native mobile exposes the same list and Stop action from the session header's
 server button. Both clients start with four endpoint rows and offer **Show more**.
-Each row shows Agent, Terminal, or Configured as its source. The starting session
+Each row shows Agent, Terminal, or Configured as its source. On desktop and web, a row is one line: its icon shows the source (the Claude or Codex mark of the agent's session, a terminal, or a globe for a configured URL), and its tooltip names it. The starting session
 is separate from the server's checkout. Solus resolves the active checkout root
 on the host. A session in a subfolder sees that checkout's servers, without
 including a main checkout or a nested or sibling worktree.
@@ -21,7 +26,9 @@ agent or a terminal opened from Solus. It excludes Solus, provider CLIs,
 interactive shells, unowned processes, LAN-only listeners, and ports held by
 multiple processes. IPv4 and IPv6 rows for the same process and port are combined.
 **Automatic discovery sends no HTTP or TLS probes.** An unprobed row says TCP;
-its default browser address uses HTTP.
+its default browser address uses HTTP. The MCP owner on the host, not this
+feature, sends one `server/discover` request to a loopback TCP row of a Solus
+process (`docs/integrations.md`, "MCP servers that run on the host").
 
 For HTTPS, a specific path, or a server started outside Solus, use **Server URLs**
 in the project panel menu. On mobile, use **Server URLs** on the server screen.
@@ -58,9 +65,11 @@ Open uses the Browser pane on the selected host, including for APIs. Copy host
 URL copies that host's address: `127.0.0.1` refers to the host.
 
 The desktop shell can forward an endpoint to an unused loopback TCP port on this
-computer. The card shows the local port and a control to stop forwarding. Copy
+computer. The forward control shows only for a host on another machine: the
+desktop's own local server is already on this computer. The card shows the local port and a control to stop forwarding. Copy
 then uses the forwarded URL. A modified or middle click forwards the endpoint
-and opens it in the system browser. HTTP paths and WebSockets work through the
+and opens it in the system browser. For the desktop's own local server, it opens
+the endpoint URL without a forward. HTTP paths and WebSockets work through the
 same TCP channel. HTTPS keeps its scheme and certificate behavior.
 
 The host issues a short-lived capability for one listed endpoint. The WebSocket
@@ -77,10 +86,33 @@ the host's address.
 
 ## State and Stop
 
-`host.runningServers` is the reactive Svelte interface. Plain TypeScript in
-`client-core` owns the shared state, lease, stale-answer guards, URL commands,
-and forwarding state. Native mobile binds to the same owner with React. No
-component loads the domain list directly.
+The running-server feature owns its collection stores. `runningServers.forHost(hostId)`
+returns the desktop/web Svelte store. Its registry uses `SvelteMap`, and each
+store owns `servers`, `status`, and `error` through Svelte runes and exposes
+checkout rows. Neither `Host` nor `SolusApp` owns this collection. Native mobile
+has a feature-owned registry scoped to its host connections and shares the same
+connection and lifecycle controller.
+
+Each entry is a stable `RunningServers` instance. It owns its process identity, endpoint
+labels, checkout matching, Stop, forwarded ports, renewal, and system-browser
+opening. Removing a server disposes its forwards and invalidates commands held
+by old callers. A refresh updates the same instance when its identity is unchanged.
+A shared controller owns subscriptions, reconnect guards, configured URLs, and checkout
+roots. It writes directly into the Svelte store's state on desktop/web and uses React's
+external-store interface on mobile. Per-entry state is reactive too, so a held
+`RunningServers` instance updates without replacing its identity. There is no
+`createSubscriber` bridge or lazy loading from property getters.
+
+On the host, `ServerDiscovery.discover(paths)` returns serializable server records.
+It encapsulates operating-system reads, ownership rules, configured probes, caches,
+and identity checks. Private operating-system adapters and stateless parsers stay
+separate implementation details. Records cross the typed RPC transport; client
+class instances and Svelte state do not cross that transport.
+
+`RunningServerRegistry` on the host owns scan sharing and connection leases. It
+is a Node owner, separate from the reactive client registry. It does not depend on
+Svelte. Its discovery operations run in the host's acting scope, including tunnel
+upgrades that start outside an RPC.
 
 The host scans every three seconds while a client holds a lease. Clients renew
 every eight seconds. Readers and active forwards retain that lease. The last

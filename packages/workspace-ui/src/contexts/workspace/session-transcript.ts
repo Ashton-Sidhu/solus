@@ -247,6 +247,8 @@ export function materializeSessionTranscript(
         target.errorHead = m.errorHead
         target.contentBytes = m.contentBytes
         if (m.toolImages) target.toolImages = m.toolImages
+        if (m.toolAudio) target.toolAudio = m.toolAudio
+        if (m.toolLeftOut) target.toolLeftOut = m.toolLeftOut
         target.toolStatus = m.status === 'error' ? 'error' : 'completed'
         if (m.timestamp) target.toolCompletedAt = m.timestamp
       } else if (before !== undefined && m.toolResultForId) {
@@ -283,6 +285,8 @@ export function materializeSessionTranscript(
             errorHead: m.errorHead,
             contentBytes: m.contentBytes,
             toolImages: m.toolImages,
+            toolAudio: m.toolAudio,
+            toolLeftOut: m.toolLeftOut,
             timestamp: m.timestamp ?? Date.now(),
           }
           parent.subMessages.push(child)
@@ -359,6 +363,8 @@ export function materializeSessionTranscript(
       msg.errorHead = m.errorHead
       msg.contentBytes = m.contentBytes
       if (m.toolImages) msg.toolImages = m.toolImages
+      if (m.toolAudio) msg.toolAudio = m.toolAudio
+      if (m.toolLeftOut) msg.toolLeftOut = m.toolLeftOut
     }
 
     // A subagent tool call (Task/Agent, codex_subagent, or claude_subagent) renders as a

@@ -58,6 +58,26 @@ describe('integrations store', () => {
     stop()
   })
 
+  test('a facts read that fails leaves the instructions out and keeps the tools', async () => {
+    connections.registerHost('facts', {
+      integrationList: async () => [integration('wiki'), integration('docs')],
+      integrationTools: async () => [tool('search')],
+      integrationFacts: async ({ id }: { id: string }) => {
+        if (id === 'docs') throw new Error('SolusServer: no handler for "integrationFacts"')
+        return { era: 'modern', instructions: 'Search first.', capabilities: { prompts: false, resources: false, resourceSubscribe: false, tasks: false } }
+      },
+    })
+    await store.load('facts')
+    await store.loadTools('facts', 'wiki')
+    await store.loadTools('facts', 'docs')
+    await flush()
+    const state = store.states.get('facts')
+    expect(state?.facts.get('wiki')?.instructions).toBe('Search first.')
+    expect(state?.tools.get('docs')).toEqual([tool('search')])
+    expect(state?.toolErrors.has('docs')).toBe(false)
+    expect(state?.facts.has('docs')).toBe(false)
+  })
+
   test('an older host without integrations reads as unsupported, not as an error', async () => {
     connections.registerHost('old', { integrationList: async () => { throw new Error('SolusServer: no handler for "integrationList"') } })
     await store.load('old')

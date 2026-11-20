@@ -1,6 +1,8 @@
+import type { TaskDetailsRead, TaskProviderRead, TaskReadOptions } from './task-read'
+import type { VaultKeyRef, VaultKeySave, VaultKeyStatus } from './vault-keys'
 import type { PrReactionContent, PrReactions, PrUrlInspection } from './pr-social'
 import type { RepoRef } from './providers'
-import type { TaskInvolvement, TaskInspection, TaskReactionContent, TaskTemplate, TaskExternalIssue } from './task-inspection'
+import type { TaskInvolvement, TaskProviderData, TaskReactionContent, TaskTemplate, TaskExternalIssue } from './task-data'
 import type { RunningServer, StopRunningServerResult, RunningServerTunnel, NativeServerForward, NativeServerForwardRequest } from './running-servers'
 import type { VoiceTranscriptionOptions } from './voice-dictionary'
 import type { VoiceTranscript, VoicePartial, VoiceStreamRequest, VoiceStreamFeedRequest, VoiceWarmRequest } from './voice-stream'
@@ -35,7 +37,7 @@ import type { NotificationCount, NotificationHubCapability, NotificationListRequ
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserDialogAnswer, BrowserPageDialog, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { DeviceActionRequest, DeviceHostConfig, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
-import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
+import type { McpAppCallRequest, McpAppLiveDocument, McpAppLiveRequest, McpAppModelContextRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
 import type {
   AppAgentAccessRequest, AppUpdateRequest, AppBuildLog, AppConfigSetRequest, AppCallDetail, AppCallReadRequest, AppCallStats, AppCallStatsRequest, AppCallRequest, AppCallsRequest, AppCallView, AppDeployReceipt, AppDeployRequest,
   AppFileRequest, AppFileView, AppMetrics, AppRequest, AppRevisionDiff, AppRevisionRequest, AppRevisionView, AppStepSource, AppStepSourceRequest, AppRunDetail, AppRunRequest, AppRunsRequest, AppRunView,
@@ -100,7 +102,10 @@ import type { SessionActionLeaf } from './permissions'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
-import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationIdRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
+import type { McpTask, McpTaskAnswerRequest, McpTaskIdRequest, McpTaskListRequest } from './integrations/mcp-task'
+import type { IntegrationResourceWatchListRequest, IntegrationResourceWatchStopRequest, ResourceWatch } from './integrations/resource-watch'
+import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundListRequest, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationResourceAttachRequest, IntegrationResourceListRequest, IntegrationResourceLists, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
+import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptListRequest, IntegrationPromptText } from './integrations/prompts'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
@@ -548,12 +553,16 @@ export interface SolusAPI {
   integrationProbe(request: IntegrationProbeRequest): Promise<IntegrationProbeResult>
   /** An MCP App card's saved document and tool data (docs/plans/conversation-card-parity.md). */
   mcpAppRead(request: McpAppRequest): Promise<McpAppSnapshot>
+  /** The app of a tool call that has not ended, for the caller's own integration; null when the tool has no app or the caller is not its owner. */
+  mcpAppLiveRead(request: McpAppLiveRequest): Promise<McpAppLiveDocument | null>
   /** Whether the app may call a tool now, and whether that tool only reads. */
   mcpAppToolInfo(request: McpAppToolRequest): Promise<McpAppToolInfo>
   /** Calls a tool of the app's integration with the caller's connection; a write needs `approved`. Returns the result as JSON. */
   mcpAppCallTool(request: McpAppCallRequest): Promise<string>
   /** Reads a resource of the app's integration with the caller's connection. Returns the result as JSON. */
   mcpAppReadResource(request: McpAppResourceRequest): Promise<string>
+  /** Replaces the app's context for the agent, which the session's next turns carry. Empty text clears it. */
+  mcpAppUpdateModelContext(request: McpAppModelContextRequest): Promise<void>
   /** Apps (docs/plans/apps.md): the apps of this host that the caller may use. */
   appList(): Promise<AppSummary[]>
   /** What a client needs to show one app: its header and the policy of its frame. `appId` is an id or a slug. */
@@ -662,7 +671,7 @@ export interface SolusAPI {
   appModelCallCancel(request: AppModelCallRequest): Promise<AppModelCallView>
   integrationList(): Promise<Integration[]>
   integrationGet(request: IntegrationIdRequest): Promise<Integration | null>
-  /** Host administrator: probes the address, then writes the record. Changes arrive as `integration.changed`. */
+  /** Probes an address, then writes the record; a command (`stdio`) needs a host administrator and starts nothing. Changes arrive as `integration.changed`. */
   integrationCreate(request: IntegrationCreateRequest): Promise<Integration>
   /** Host administrator. */
   integrationUpdate(request: IntegrationUpdateRequest): Promise<Integration>
@@ -670,6 +679,33 @@ export interface SolusAPI {
   integrationRemove(request: IntegrationIdRequest): Promise<{ removed: boolean }>
   /** The upstream tools of one integration, as the gateway last listed them. */
   integrationTools(request: IntegrationIdRequest): Promise<IntegrationToolSummary[]>
+  integrationFacts(request: IntegrationIdRequest): Promise<IntegrationFacts>
+  /** Host administrator, owner: starts the caller's process of a `stdio` integration and lists its tools; `recheck` checks the revision again. */
+  integrationProcessStart(request: IntegrationProcessStartRequest): Promise<IntegrationFacts>
+  /** Owner: closes the caller's sessions of a `stdio` integration, which stops their processes. The next use starts one again. */
+  integrationProcessStop(request: IntegrationIdRequest): Promise<{ stopped: boolean }>
+  /** The MCP servers in this host's config files, names only; the user files only for a host administrator. */
+  integrationFoundList(request: IntegrationFoundListRequest): Promise<FoundServerList>
+  /** Reads the file again and adds the found server the person saw; a command needs a host administrator and starts nothing. */
+  integrationFoundAdd(request: IntegrationFoundAddRequest): Promise<IntegrationFoundAddResult>
+  /** The MCP prompts of the caller's integrations for one project, and the servers that need the caller's sign-in first (mcp-first-class.md §10). */
+  integrationPromptList(request: IntegrationPromptListRequest): Promise<IntegrationPromptList>
+  /** Owner: expands one MCP prompt with the caller's connection; the text becomes the caller's message. */
+  integrationPromptGet(request: IntegrationPromptGetRequest): Promise<IntegrationPromptText>
+  /** The caller's MCP resources and templates (docs/plans/mcp-first-class.md §11.4). A list-changed notification arrives as `integration.changed` with `change: 'facts'`. */
+  integrationResourceList(request: IntegrationResourceListRequest): Promise<IntegrationResourceLists>
+  /** Reads one MCP resource as the caller and keeps its contents in the conversation's attachment store: one attachment for each content item. */
+  integrationResourceAttach(ctx: IpcContext, request: IntegrationResourceAttachRequest): Promise<Attachment[]>
+  /** A session's resource watches that are live or ended in the last day (mcp-first-class.md §11.5). Changes arrive as `integration.resourceWatchChanged`. */
+  integrationResourceWatchList(request: IntegrationResourceWatchListRequest): Promise<ResourceWatch[]>
+  /** Stops one resource watch and tells the server. False when it is not live. */
+  integrationResourceWatchStop(request: IntegrationResourceWatchStopRequest): Promise<boolean>
+  /** A session's MCP tasks that are live or ended in the last day (mcp-first-class.md §12.5). Changes arrive as `mcpTask.changed`. */
+  mcpTaskList(request: McpTaskListRequest): Promise<McpTask[]>
+  /** Asks the server to cancel one MCP task. Cooperative: the row says "Cancelling…" until the server reports an end. False when it is not live. */
+  mcpTaskCancel(request: McpTaskIdRequest): Promise<boolean>
+  /** Answers one question of an MCP task that needs input. False when the question is no longer open. */
+  mcpTaskAnswer(request: McpTaskAnswerRequest): Promise<boolean>
   /** The caller's own connections (§4). Changes arrive as `integration.connectionChanged`. */
   integrationConnectionList(): Promise<IntegrationConnection[]>
   /** Starts the caller's sign-in to one integration. The end of a `waiting` flow arrives as `host.integrationAuthFinished`. */
@@ -697,6 +733,9 @@ export interface SolusAPI {
   presenceSetEditing(request: PresenceSetEditingRequest): Promise<void>
   /** The caller's own TypeSafe key: where it is, never its value. */
   typeSafeKeyStatus(): Promise<TypeSafeKeyStatus>
+  vaultKeyStatus(ref: VaultKeyRef): Promise<VaultKeyStatus>
+  vaultKeySave(input: VaultKeySave): Promise<void>
+  vaultKeyDisconnect(ref: VaultKeyRef): Promise<void>
   /** Saves or (with null) removes the caller's key, where this host keeps it. */
   typeSafeKeySet(apiKey: string | null): Promise<TypeSafeKeyStatus>
   /** This host's durable config. */
@@ -1071,7 +1110,6 @@ export interface SolusAPI {
   /** What the caller can choose as a task source. */
   tasksLoadMore(source: TaskSource): Promise<void>
   tasksSourceOptions(): Promise<TaskSourceOptions>
-  tasksConnectLinear(key: string | null): Promise<void>
   /** Ask the provider for the tasks of these sources that match `query`.
    *  The only way to reach a task that a truncated source did not list. */
   tasksSearch(sources: TaskSource[], query: string, involvement?: TaskInvolvement): Promise<TaskSummary[]>
@@ -1081,8 +1119,9 @@ export interface SolusAPI {
   /** Read one task from its provider, with its comments and its attachments on
    *  this host. Answers the host's last copy, with `fromCache`, when the
    *  provider does not answer. */
-  tasksGet(id: string): Promise<TaskDetails>
-  tasksInspect(id: string, cursor?: string): Promise<TaskInspection>
+  tasksGet(id: string, read?: TaskDetailsRead): Promise<TaskDetails>
+  tasksGet(id: string, read: TaskProviderRead): Promise<TaskProviderData>
+  tasksGet(id: string, read?: TaskReadOptions): Promise<TaskDetails | TaskProviderData>
   tasksReact(id: string, targetId: string, content: TaskReactionContent, add: boolean): Promise<void>
   tasksTemplates(source: TaskSource): Promise<TaskTemplate[]>
   tasksResolve(url: string): Promise<TaskExternalIssue>

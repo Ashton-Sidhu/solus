@@ -26,10 +26,27 @@ person's turn gets a refusal and can open Insights to see their own turns.
 `connect_integration` adds a server only to the calling person's own servers,
 and only from an exact catalog match. For any other address it opens a card
 where the person enters and adds the server (docs/integrations.md).
+`list_integration_resources`, `read_integration_resource`, and
+`watch_integration_resource` join a run only when one of that person's servers
+in the run has resources (the watch tool: one that sends changes). They are
+deferred, reach only those servers by slug, and read as the person. A watch
+starts the agent again in its session when the resource changes, within the
+limits that docs/integrations.md lists.
 
 These switches control Solus tools only. Provider-native tools and external MCP
 servers keep their own settings. The internal `submit_review_guide` output tool
 is required by review runs and is not a user-configurable tool.
+
+**Which MCP servers are whose.** An MCP server that you add in Settings → MCP
+is Solus's: the host runs it and gives its tools to the agent as Solus tools
+named `<slug>__<tool>`, with your sign-in and your tool switches. A server in a
+provider CLI file (`.mcp.json`, `~/.claude.json`, `~/.codex/config.toml`, or
+`.codex/config.toml` in a project) is the CLI's: the CLI starts it and holds
+its credential. When both have the same server, a run that Solus starts leaves
+out the CLI's copy, so the agent sees each tool once and the credential stays
+out of the agent process (the CLI skip, `docs/integrations.md`). Only the
+server with the same address is left out, and only in that run; Solus does not
+change the CLI's files.
 
 The shared catalog lives in `packages/contracts/src/agent-tools.ts`. Host config
 stores a sparse `solusTools` map: a missing entry means enabled. Patches merge

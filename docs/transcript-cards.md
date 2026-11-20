@@ -364,7 +364,10 @@ and padding. Each card has one keyboard and accessibility target.
 
 Review feedback can appear as file-and-code cards inside a user message. MCP
 Apps appear as sandboxed interactive documents with close/reopen and full-screen
-actions. Provider subagent rows can open recorded child activity, including a separate Codex
+actions. The app of a Solus integration tool shows while its call runs, below
+the call's activity row, and keeps its frame when the call ends; a stopped or
+failed call removes it and leaves the tool row. In the approval dialog of an
+app, tool arguments show as code and every other detail as text. Provider subagent rows can open recorded child activity, including a separate Codex
 history read through the parent tool. These surfaces follow the T3 reference
 with Solus colors; they are deliberate exceptions to the general transcript
 card shell. See [the capability and protocol rules](plans/conversation-card-parity.md).

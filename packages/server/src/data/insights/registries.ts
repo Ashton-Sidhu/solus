@@ -22,6 +22,8 @@ export const SPAN_KINDS = {
   appRun: 'app_run',
   /** One thing a call or a run waited for: a request, an integration tool, the SQL, a file, a signal, a step. */
   appWork: 'app_work',
+  /** One request the MCP gateway sent to a server for a turn's tool call (docs/plans/mcp-first-class.md §13). */
+  integrationCall: 'integration_call',
   internalDispatchStep: 'internal.dispatch_step',
   internalRpc: 'internal.rpc',
   internalIndexerSweep: 'internal.indexer_sweep',

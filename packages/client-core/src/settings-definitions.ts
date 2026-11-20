@@ -379,11 +379,15 @@ export const settingsDefinitions = {
   "integrations.section-connections": {
     label: "Connections",
   },
+  "integrations.github": githubSetting,
   "integrations.google-drive": {
     label: "Google Drive",
   },
   "integrations.atlassian": {
     label: "Atlassian",
+  },
+  "integrations.linear": {
+    label: "Linear",
   },
   "providers.section-instance": {
     label: "Instance",
@@ -486,6 +490,9 @@ export const settingsDefinitions = {
   },
   "mcp.section-connect-by-address": {
     label: "Connect by address",
+  },
+  "mcp.section-found": {
+    label: "Found on this host",
   },
   "host.section-retention": {
     label: "Retention",

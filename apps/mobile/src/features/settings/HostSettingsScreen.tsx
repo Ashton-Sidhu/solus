@@ -27,6 +27,7 @@ import { accountConnectionValue } from "./lib/account-connections";
 import { retentionDayChoices, retentionDaysLabel } from "./lib/retention-choices";
 import { hostUpdateControls, serverUpdateText, updateStatusText } from "./lib/update-status";
 import { useGithubConnection } from "./use-github-connection";
+import { linearConnectionValue, useLinearConnection } from "./use-linear-connection";
 import { hostSettingsErrorText } from "./host-settings";
 import { useHostSettings } from "./use-host-settings";
 import { useHostUpdateStatus } from "./use-host-update-status";
@@ -49,6 +50,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
   const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness);
   const hostReadiness = useListened(app.connections.changes, () => app.connections.readiness(hostId));
   const github = useGithubConnection(hostId);
+  const linearValue = linearConnectionValue(useLinearConnection(hostId).state);
   const { state, reload, update } = useHostSettings(hostId);
   const hostUpdate = useHostUpdateStatus(hostId);
   const { version, status } = hostUpdate;
@@ -327,6 +329,24 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                   ? "Pull requests on this host use the GitHub connection in your Solus account."
                   : "Pull requests on this host use its GitHub connection."}
               </SettingsNote>
+            </View>
+
+            <View className="gap-3">
+              <SettingsSection title="Integrations">
+                <SettingsRow
+                  icon="arrow.triangle.branch"
+                  label={settingsDefinitions["integrations.github"].label}
+                  value={githubValue}
+                  onPress={() => navigation.navigate("GitHubConnection", { hostId })}
+                />
+                <SettingsRow
+                  icon="checklist"
+                  label={settingsDefinitions["integrations.linear"].label}
+                  value={linearValue}
+                  onPress={() => navigation.navigate("LinearConnection", { hostId })}
+                />
+              </SettingsSection>
+              <SettingsNote>Tasks read GitHub and Linear through these connections.</SettingsNote>
             </View>
           </>
         )}

@@ -9,6 +9,8 @@
     type ToasterProps as SonnerProps,
   } from "svelte-sonner";
   import ToastMessageDialog from "./toast-message-dialog.svelte";
+  import { Portal } from "bits-ui";
+  import { toastSurface } from "./toast-surface.svelte";
   let { ...restProps }: SonnerProps = $props();
 </script>
 
@@ -16,6 +18,7 @@
      beside it (hostless and pairing pages included). -->
 <ToastMessageDialog />
 
+<Portal to={toastSurface.target ?? document.body}>
 <Sonner
   theme="system"
   class="toaster group no-drag"
@@ -41,8 +44,15 @@
     <TriangleAlertIcon class="size-4" />
   {/snippet}
 </Sonner>
+</Portal>
 
 <style>
+  /* Dialog scroll locks disable pointer events on the body. Toast actions must
+     stay usable, including while a modal is open. */
+  :global(.toaster [data-sonner-toast]) {
+    pointer-events: auto;
+  }
+
   /* Sonner's action buttons never shrink, so a long message beside them
      squeezes to one word per line and then breaks mid-word. Give the content
      the leftover row width instead: text wraps at word boundaries while the

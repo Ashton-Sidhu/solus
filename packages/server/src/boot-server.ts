@@ -84,6 +84,12 @@ import { GUEST_VISIT_TTL_MS } from './admission/doors'
 import { profileTargetFor, registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { registerIntegrationHandlers } from './transport/handlers/integration-handlers'
 import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
+import { registerMcpTaskHandlers } from './transport/handlers/mcp-task-handlers'
+import { McpTasks } from './integrations/mcp-tasks'
+import { McpTaskStore } from './integrations/mcp-task-store'
+import { registerResourceWatchHandlers } from './transport/handlers/resource-watch-handlers'
+import { ResourceWatches } from './integrations/resource-watches'
+import { ResourceWatchStore } from './integrations/resource-watch-store'
 import { registerAppHandlers } from './transport/handlers/app-handlers'
 import { Apps } from './apps/apps'
 import { AppDeployments } from './apps/deployments/app-deployments'
@@ -120,12 +126,16 @@ import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
 import { installConnectIntegrationTool } from './integrations/connect-integration-tool'
 import { createIntegration } from './integrations/integration-create'
+import { FoundServers } from './integrations/found-servers'
+import { LocalMcpServers } from './integrations/local-servers'
 import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationGateway } from './integrations/gateway'
+import { ServerFactsStore } from './integrations/server-facts-store'
 import { hostIntegrationClients, IntegrationConnectionStore } from './integrations/connection-store'
 import { IntegrationConnections } from './integrations/connections'
 import { IntegrationOAuth, type IntegrationConnectionEvents } from './integrations/oauth'
 import { setIntegrationGateway } from './integrations/integration-tools'
+import { cliSkipLog } from './integrations/cli-skips'
 import { AgentProfileManager, hostProfileHomes, type AgentProfileTarget } from './execution/seats/agent-profile'
 import { profileIntegrations } from './integrations/profile-integrations'
 import { listInstalledSkills } from './skills/skills-provider'
@@ -134,6 +144,7 @@ import { publishPresenceRoom, registerPresenceHandlers } from './transport/handl
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
 import { CodexBackend } from './execution/agents/codex/codex-backend'
+import { getCodexAppServerClient } from './execution/agents/codex/codex-agent'
 import { ActingIdentities, hostSecretFilesFolder, identityFor, useActingIdentities, withHostScope } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { currentHostUser, hostUserKey, useHostUser } from './host/host-user'
@@ -151,7 +162,7 @@ import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabaseForShutdown, getDatabase } from './db/database'
-import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
+import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, onSessionRecordDeleted, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
 import { isLeadSession, onSessionBecameLead } from './data/sessions/lead-sessions'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
@@ -182,7 +193,7 @@ import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
-import type { AgentId, IpcContext } from '@solus/contracts/types'
+import type { AgentId, IpcContext, PromptOptions } from '@solus/contracts/types'
 import { DEFAULT_SERVER_PORT, isSessionBusyStatus } from '@solus/contracts/types'
 import { registerWindowHandlers, type WindowDeps } from './transport/handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './transport/handlers/session-handlers'
@@ -245,6 +256,7 @@ import { registerProviderHandlers } from './transport/handlers/provider-handlers
 import { PrSync } from './prs/pr-sync'
 import { PrWatcher } from './prs/pr-watcher'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
+import { registerVaultHandlers } from './transport/handlers/vault-handlers'
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
 import { setConnectionConnectNeededListener } from './connections/connection-tools'
 import { setConfigToolHost } from './execution/agents/tools/config-tools'
@@ -279,7 +291,7 @@ import { emitSessionTasksChanged } from './data/tasks/task-sessions'
 import { onSessionPullRequestsChanged } from './data/sessions/session-pull-requests'
 import { emitSessionArtifactsChanged, onSessionArtifactsChanged } from './data/sessions/session-artifacts'
 import { onPullRequestWatchesChanged, stopSessionPullRequestWatches } from './data/sessions/pull-request-watches'
-import { onSessionReadStateChanged, onSessionStateChanged } from './data/sessions/session-states'
+import { onSessionReadStateChanged, onSessionStateChanged, onSessionViewChanged } from './data/sessions/session-states'
 import { onOutboxChanged } from './sync/outbox/outbox-store'
 import { registerOutboxHandlers } from './transport/handlers/outbox-handlers'
 import { registerTaskOutboxApplier } from './data/tasks/task-applier'
@@ -860,14 +872,54 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSharingHandlers(server, { shares })
   registerCloudUploadHandlers(server, { shares })
   // Integrations (docs/plans/mcp-integrations.md): a run lists its person's tools
-  // when it starts (`integrationAgentTools`), so nothing is listed at boot.
+  // when it starts (`integrationToolbox`), so nothing is listed at boot.
   const integrations = new IntegrationStore()
-  const integrationGateway = new IntegrationGateway(integrations)
+  // A command's verdict and facts are saved, so it starts once and a run start starts nothing (mcp-first-class.md §7.5).
+  const integrationGateway = new IntegrationGateway(integrations, undefined, { savedFacts: new ServerFactsStore() })
   const claudeAppProcesses = new ClaudeAppProcesses()
   const integrationApps = new IntegrationApps(integrationGateway, opts.sessionRuntime, claudeAppProcesses)
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))
+  integrationGateway.useTurnContext((sessionId, toolUseId) => opts.sessionRuntime.sessionEmitter.turnContextOf(sessionId, toolUseId))
   useClaudeAppCapture((sessionId, app) => integrationApps.captureClaude(sessionId, app))
   registerMcpAppHandlers(server, integrationApps)
+  // MCP tasks (mcp-first-class.md §12): a tool call that a server runs as an MCP task
+  // becomes the session's background work, and its end starts the agent again once.
+  const mcpTasks = new McpTasks({
+    store: new McpTaskStore(),
+    gateway: integrationGateway,
+    wake: async (sessionId, text, images) => {
+      const origin: Pick<PromptOptions, 'via' | 'imageAttachmentRefs'> = { via: 'mcp-task' }
+      if (images.length) origin.imageAttachmentRefs = images
+      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', origin)
+    },
+    publish: (event) => { void events.broadcast('mcpTask.changed', event) },
+    backgroundEnded: (sessionId) => opts.sessionRuntime.providerEvents.endBackgroundWait(sessionId),
+  })
+  integrationGateway.useMcpTasks(mcpTasks)
+  opts.sessionRuntime.useMcpTaskHolds((sessionId) => mcpTasks.holdsSession(sessionId))
+  registerMcpTaskHandlers(server, mcpTasks)
+  mcpTasks.start()
+  // Resource watches (mcp-first-class.md §11.5): a change of a watched MCP resource
+  // starts the session's agent again, once for a burst, after a running turn.
+  const resourceWatches = new ResourceWatches({
+    store: new ResourceWatchStore(),
+    gateway: integrationGateway,
+    wake: async (sessionId, text, images) => {
+      const origin: Pick<PromptOptions, 'via' | 'imageAttachmentRefs'> = { via: 'resource-watch' }
+      if (images.length) origin.imageAttachmentRefs = images
+      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', origin)
+    },
+    publish: (event) => { void events.broadcast('integration.resourceWatchChanged', event) },
+    isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
+  })
+  integrationGateway.useResourceWatches(resourceWatches)
+  opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => resourceWatches.sessionStatusChanged(event.sessionId, event.status))
+  domainEventUnsubscribes.push(
+    onSessionRecordDeleted((sessionId) => resourceWatches.sessionDeleted(sessionId)),
+    onSessionViewChanged((change) => { if (change.view.archivedAt !== null) resourceWatches.sessionArchived(change.sessionId, change.personKey) }),
+  )
+  registerResourceWatchHandlers(server, resourceWatches)
+  resourceWatches.start()
   // Apps (docs/plans/apps.md): a backend on this host with its own data. An app's
   // integration calls go through the gateway; its operations run in its own runner.
   // An app's calls are spans of the host's one tracer: in metrics.db always, and at a collector when export is on.
@@ -964,6 +1016,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   )
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
+  integrationGateway.onFactsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) })
+  cliSkipLog.onChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
   integrationGateway.onCustomServerNeeded((request) => { void events.broadcast('integration.customServerNeeded', request) })
   // A connection is one person's (§4.1): its events go to that person's clients.
@@ -1057,6 +1111,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     catalog: integrationCatalog,
     create: (principal, owner, request) => createIntegration({ store: integrations, events, profile: integrationProfile }, principal, owner, request),
   })
+  // The MCP servers on this host's loopback follow the running-servers list once it exists (mcp-first-class.md §9).
+  const localMcpServers = new LocalMcpServers({
+    integrations: () => integrations.listAnyOwner(ANY_ORGANIZATION),
+    gateway: integrationGateway,
+    factsChanged: (integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) },
+  })
   registerIntegrationHandlers(server, {
     store: integrations,
     catalog: integrationCatalog,
@@ -1068,6 +1128,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     clients: hostIntegrationClients,
     getServerInfo: () => ({ host, port: actualPort }),
     profile: integrationProfile,
+    found: new FoundServers({
+      store: integrations,
+      events,
+      profile: integrationProfile,
+      gateway: integrationGateway,
+      connections: integrationConnections,
+      // Codex reads its own files, with its rule for a trusted project (mcp-first-class.md §8.1).
+      codexLayers: codexBackend ? async (cwd) => (await getCodexAppServerClient().request('config/read', { includeLayers: true, cwd })).layers ?? [] : undefined,
+      local: localMcpServers,
+    }),
+    local: localMcpServers,
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   const guides = new ReviewGuideJobs((event) => publishGuideStatus(events, event), { pr: prGuideSource, local: localGuideSource })
@@ -1222,6 +1293,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerWorkOutboxApplier()
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
   registerAtlassianHandlers(server)
+  registerVaultHandlers(server)
   setAtlassianOAuthCompletedListener((event) => events.broadcast('atlassian.oauthCompleted', event))
   setConnectionConnectNeededListener((request) => events.broadcast('connection.connectNeeded', request))
   // A config write from an agent tool converges every mounted client the same
@@ -1262,6 +1334,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) }, withHostScope)
   const serverTunnels = registerRunningServerHandlers(server, serverRegistry)
+  localMcpServers.follow(serverRegistry)
   const resourceTelemetry = new ResourceTelemetry({
     resolvePath: resolveResourceMonitorPath,
     createMonitor: (options) => new ResourceMonitor(options),
@@ -2284,6 +2357,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
+        // Before the gateway closes its processes: a host stop is not the end of an MCP task (§12.4).
+        mcpTasks.stop()
+        resourceWatches.stop()
         await integrationGateway.close()
         agentAuth.stopAll()
         await lanDiscovery.close()

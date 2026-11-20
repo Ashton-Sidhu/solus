@@ -22,6 +22,7 @@
   import ProjectRowAction from "../ui/ProjectRowAction.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { MenuSearch } from "../ui/menu";
+  import { matchesSearch } from "../../lib/search-match";
   import {
     projectChipOptions,
     type ProjectChipOption,
@@ -95,6 +96,7 @@
   let tooltipOpen = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let query = $state("");
+  const shownProjects = $derived(projects.filter((project) => matchesSearch(`${project.label} ${project.key}`, query)));
   let commandEl = $state<HTMLDivElement | null>(null);
 
   // The chip is no longer the only way in, so the list loads off the open state
@@ -218,7 +220,9 @@
     onCloseAutoFocus={handleCloseAutoFocus}
     class="menu-surface z-[10002] {onAllProjects ? 'w-[min(32rem,calc(100vw-2rem))]' : 'w-[288px]'} gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
   >
-    <Command.Root bind:ref={commandEl}>
+    <!-- The rows filter themselves (`matchesSearch`): the command's own filter
+         moves row DOM nodes behind the keyed list. -->
+    <Command.Root bind:ref={commandEl} shouldFilter={false}>
       <MenuSearch bind:value={query} placeholder="Search projects" />
       <Command.List class="max-h-[256px] overflow-y-auto p-1.5">
         <Command.Empty
@@ -226,7 +230,7 @@
         >
           No projects match
         </Command.Empty>
-        {#if onAllProjects}
+        {#if onAllProjects && matchesSearch("All projects", query)}
           <Command.Item value="All projects" data-menu-current={!projectDir ? "" : undefined} onSelect={() => { open = false; onAllProjects?.(); }}>
             <LayersIcon size={14} class="shrink-0" />
             <span class="flex-1">All projects</span>
@@ -234,8 +238,9 @@
           </Command.Item>
           <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
         {/if}
+        {#if shownProjects.length > 0}
         <Command.Group heading="Projects">
-          {#each projects as project (project.key)}
+          {#each shownProjects as project (project.key)}
             {@const isCurrent = project.key === currentKey}
             <Command.Item
               value="{project.label} {project.key}"
@@ -262,19 +267,24 @@
             </Command.Item>
           {/each}
         </Command.Group>
+        {/if}
 
         {#if !onAllProjects}
         <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
 
+        {#if matchesSearch("new project create", query)}
         <Command.Item value="new project create" onSelect={openNewProjectFlow}>
           <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate">New project…</span>
         </Command.Item>
+        {/if}
+        {#if matchesSearch("open project folder clone", query)}
         <Command.Item value="open project folder clone" onSelect={browse}>
           <FolderOpenIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate">Open project…</span>
         </Command.Item>
-        {#if !inChat}
+        {/if}
+        {#if !inChat && matchesSearch("switch to chat no project", query)}
           <div class="mx-1 my-1.5 h-px bg-(--solus-menu-hairline)"></div>
           <Command.Item value="switch to chat no project" onSelect={switchToChat}>
             <ChatIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />

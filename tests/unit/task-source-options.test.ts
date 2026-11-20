@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { TaskSourceOptionsDeps } from '@solus/server/data/tasks/source-options'
-import { JiraRequestError } from '@solus/server/data/tasks/providers/types'
+import { JiraRequestError, TaskProviderError } from '@solus/server/data/tasks/providers/types'
 
 // The module's default connections reach the vault, which loads the database module.
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -126,4 +126,11 @@ test('a refused Linear connection does not hide GitHub or Jira source choices', 
   expect(options.github.repositories).toHaveLength(2)
   expect(options.jira.projects).toHaveLength(1)
   expect(options.linear).toMatchObject({ connected: false, teams: [], error: 'Linear key expired' })
+})
+
+test('Linear with no saved key is not connected, not failed', async () => {
+  // WHY: the menu says "Connect Linear to add teams" for this case. The
+  // provider's own words ("to read these tasks") do not fit a source picker.
+  const options = await taskSourceOptions(deps({ linear: async () => { throw new TaskProviderError('not_connected', 'Connect Linear to read these tasks.') } }))
+  expect(options.linear).toEqual({ connected: false, teams: [] })
 })

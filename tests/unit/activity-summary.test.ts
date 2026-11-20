@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   activityDurationMs,
   describeBackgroundWait,
+  failedToolLabel,
   getToolDescription,
   getToolDescriptionFromParsed,
   liveActivityLabel,
@@ -10,6 +11,7 @@ import {
   settledBackgroundWait,
   toolActivityTarget,
 } from '@solus/workspace-ui/components/conversation/lib/activity-summary'
+import { mcpToolLabel } from '@solus/client-core/mcp-tool-label'
 import type { GroupedItem } from '@solus/workspace-ui/components/conversation/lib/turns'
 import type { Message } from '@solus/contracts/types'
 
@@ -331,8 +333,23 @@ describe('getToolDescription', () => {
         { truncate: false },
       ),
     ).toBe(
-      'mcp__github__get_pull_request: {"owner":"openai","repo":"solus","pull_number":42}',
+      'github · get_pull_request: {"owner":"openai","repo":"solus","pull_number":42}',
     )
+  })
+
+  // WHY: a failed MCP call named its raw provider name twice
+  // ("mcp__solus__linear__export_issues failed  mcp__solus__linear__export_issues").
+  // The row names the server and the tool once, as the MCP task rows do.
+  test('names an MCP tool by its server and tool, once', () => {
+    expect(failedToolLabel('mcp__solus__linear__export_issues')).toBe('linear · export_issues failed')
+    expect(failedToolLabel('mcp__linear__export_issues')).toBe('linear · export_issues failed')
+    expect(getToolDescription('mcp__solus__linear__export_issues')).toBe('linear · export_issues')
+    expect(getToolDescription('mcp__solus__linear__export_issues', '{}')).toBe('linear · export_issues')
+    expect(toolActivityTarget('mcp__solus__linear__export_issues', '{}')).toBe('')
+    expect(toolActivityTarget('mcp__solus__linear__export_issues', '{"team":"ENG"}')).toBe('{"team":"ENG"}')
+    // A Solus tool keeps its own label.
+    expect(failedToolLabel('mcp__solus__create_work')).toBe('Create work failed')
+    expect(mcpToolLabel('mcp__solus__create_work')).toBeNull()
   })
 
   test('keeps argument-free Solus tools concise', () => {

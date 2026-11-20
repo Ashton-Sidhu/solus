@@ -6,10 +6,12 @@ import { DatabaseSync } from '../helpers/bun-sqlite'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
+import { startFakeServers } from './fake-servers'
 import type { Integration, IntegrationConnectNeeded } from '@solus/contracts/integration-types'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
+import type { CallClock } from '@solus/server/integrations/call-progress'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -17,7 +19,7 @@ const { IntegrationGateway } = await import('@solus/server/integrations/gateway'
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY, HOST_SCOPE } = await import('@solus/server/execution/seats/acting-identity')
 const { InputRequests } = await import('@solus/server/execution/sessions/input-requests')
-const { integrationAgentTools, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
+const { integrationToolbox, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
 const { HOST_ACTOR } = await import('@solus/server/admission/actor')
 
 /**
@@ -38,7 +40,7 @@ let httpServer: Server
 let integration: Integration
 
 function makeServer(): McpServer {
-  const server = new McpServer({ name: 'fake', version: '1.0.0' })
+  const server = new McpServer({ name: 'fake', version: '1.0.0' }, { instructions: 'Use the echo tool for text.' })
   server.registerTool('echo', {
     description: 'Echo the text.',
     inputSchema: { text: z.string() },
@@ -139,7 +141,7 @@ describe('integration gateway', () => {
     const captures: string[] = []
     gateway.useAppCapture(async (call) => {
       expect(call.tool._meta).toEqual({ ui: { resourceUri: 'ui://echo' } })
-      const resource = await gateway.readAppResource(call.integration.id, 'ui://echo')
+      const resource = await gateway.readResource(call.integration.id, 'ui://echo')
       captures.push('text' in resource.contents[0] ? resource.contents[0].text : '')
     })
     try {
@@ -175,7 +177,7 @@ describe('integration gateway', () => {
     const result = await withActingScope(HOST_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'hi' }, context()))
     expect(result).toEqual({ ok: true, text: 'echo: hi' })
     // WHY: a second list and a call reuse the session the first list opened.
-    expect(upstream.length - opened).toBe(1)
+    expect(upstream.length - opened).toBe(2)
     await gateway.close()
   })
 
@@ -187,7 +189,12 @@ describe('integration gateway', () => {
     await withActingScope(HOST_SCOPE, () => gateway.tools(record.id))
     setIntegrationGateway(gateway)
     try {
-      expect((await integrationAgentTools(HOST_ACTOR)).map((tool) => tool.name).sort()).toEqual(['fake__confirm', 'fake__echo'])
+      const toolbox = await integrationToolbox(HOST_ACTOR)
+      // The server also lists a resource, so the two resource tools join (mcp-first-class.md §11.2).
+      expect(toolbox.tools.map((tool) => tool.name).filter((name) => name.startsWith('fake__')).sort()).toEqual(['fake__confirm', 'fake__echo'])
+      expect(toolbox.instructions).toEqual([{ name: 'Fake', slug: 'fake', text: 'Use the echo tool for text.' }])
+      record.disabledTools = ['echo', 'delete_all', 'confirm']
+      expect((await integrationToolbox(HOST_ACTOR)).instructions).toEqual([])
       const refused = await withActingScope(HOST_SCOPE, () => gateway.call(record.id, 'delete_all', {}, context()))
       expect(refused.ok).toBe(false)
       expect(refused.text).toContain('turned off')
@@ -206,7 +213,7 @@ describe('integration gateway', () => {
     await withActingScope(MEMBER_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'b' }, context()))
     await withActingScope(MEMBER_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'c' }, context()))
     // WHY: a later sign-in puts each person's token on their own session (§4.1).
-    expect(upstream.length - opened).toBe(2)
+    expect(upstream.length - opened).toBe(3)
     await gateway.close()
   })
 
@@ -216,7 +223,7 @@ describe('integration gateway', () => {
     const opened = upstream.length
     gateway.invalidate(integration.id)
     expect((await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))).length).toBe(3)
-    expect(upstream.length - opened).toBe(1)
+    expect(upstream.length - opened).toBe(2)
     await gateway.close()
   })
 
@@ -260,6 +267,110 @@ describe('integration gateway', () => {
     expect(result.text).toContain('Fake')
     await gateway.close()
   })
+})
+
+test('a modern tool list expires when its server gives ttlMs zero', async () => {
+  const fake = await startFakeServers()
+  fake.modernTtlMs = 0
+  const gateway = gatewayFor({ ...integration, id: 'int-ttl', url: fake.modernMcpUrl })
+  try {
+    await withActingScope(HOST_SCOPE, () => gateway.tools('int-ttl'))
+    await withActingScope(HOST_SCOPE, () => gateway.tools('int-ttl'))
+    expect(fake.modernToolLists).toBe(2)
+  } finally { await gateway.close(); await fake.close() }
+})
+
+test('legacy and modern server facts carry their server instructions', async () => {
+  const legacy = gatewayFor(integration)
+  const fake = await startFakeServers()
+  const modern = gatewayFor({ ...integration, id: 'int-facts', url: fake.modernMcpUrl })
+  try {
+    expect((await withActingScope(HOST_SCOPE, () => legacy.facts(integration.id)))).toMatchObject({ era: 'legacy', instructions: 'Use the echo tool for text.' })
+    expect((await withActingScope(HOST_SCOPE, () => modern.facts('int-facts')))).toMatchObject({ era: 'modern', instructions: 'Use modern echo for text.' })
+  } finally { await legacy.close(); await modern.close(); await fake.close() }
+})
+
+test('a modern list change makes the gateway read tools again', async () => {
+  const fake = await startFakeServers()
+  const gateway = gatewayFor({ ...integration, id: 'int-modern-change', url: fake.modernMcpUrl })
+  try {
+    await withActingScope(HOST_SCOPE, () => gateway.tools('int-modern-change'))
+    expect(fake.modernToolLists).toBe(1)
+    const changed = new Promise<string>((resolve) => gateway.onToolsChanged(resolve))
+    fake.modernToolChanged()
+    expect(await changed).toBe('int-modern-change')
+    await withActingScope(HOST_SCOPE, () => gateway.tools('int-modern-change'))
+    expect(fake.modernToolLists).toBe(2)
+  } finally { await gateway.close(); await fake.close() }
+})
+
+test('a broken modern response does not repeat a tool that can write', async () => {
+  const fake = await startFakeServers()
+  const gateway = gatewayFor({ ...integration, id: 'int-broken', url: fake.modernMcpUrl })
+  try {
+    const result = await withActingScope(HOST_SCOPE, () => gateway.call('int-broken', 'break_stream', {}, context()))
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('request may have run')
+    expect(fake.brokenCalls).toBe(1)
+  } finally { await gateway.close(); await fake.close() }
+})
+
+test('modern input_required uses the question card and resumes the paused call', async () => {
+  const fake = await startFakeServers()
+  const gateway = gatewayFor({ ...integration, id: 'int-modern', url: fake.modernMcpUrl })
+  const events: NormalizedEvent[] = []
+  const inputRequests = new InputRequests(fakeRuntime(events))
+  try {
+    const tools = await withActingScope(HOST_SCOPE, () => gateway.tools('int-modern'))
+    expect(tools.map((tool) => tool.name)).toEqual(['echo', 'confirm', 'break_stream'])
+    const call = withActingScope(HOST_SCOPE, () => gateway.call('int-modern', 'confirm', {}, {
+      ...context(), emit: (event) => {
+        events.push(event)
+        if (event.type === 'question_request') inputRequests.questionIdToSession.set(event.questionId, 'session-1')
+      },
+    }))
+    const asked = await waitFor(() => events.find((event) => event.type === 'question_request'))
+    expect(asked.type === 'question_request' && asked.kind).toBe('mcp_form')
+    if (asked.type !== 'question_request') throw new Error('no question')
+    expect(await inputRequests.respondToQuestion('session-1', asked.questionId, { colour: 'blue' }, { principal: { kind: 'system' }, user: null })).toBe(true)
+    expect(await call).toEqual({ ok: true, text: 'accept: blue' })
+  } finally { await gateway.close(); await fake.close() }
+})
+
+test('the call timeout stays paused while the person answers', async () => {
+  const fake = await startFakeServers()
+  const timers = new Map<number, () => void>()
+  let nextTimer = 0
+  let now = 0
+  const deadlines = new Map<number, number>()
+  const clock = {
+    setTimeout: (callback: () => void, delay: number) => { const id = ++nextTimer; timers.set(id, callback); deadlines.set(id, now + delay); return id as unknown as ReturnType<typeof setTimeout> },
+    clearTimeout: (id: ReturnType<typeof setTimeout>) => { timers.delete(id as unknown as number); deadlines.delete(id as unknown as number) },
+    now: () => now,
+    advance: (milliseconds: number) => {
+      now += milliseconds
+      for (const [id, deadline] of [...deadlines]) if (deadline <= now) { deadlines.delete(id); timers.get(id)?.(); timers.delete(id) }
+    },
+  }
+  const gateway = new IntegrationGateway({ get: () => ({ ...integration, id: 'int-clock', url: fake.modernMcpUrl }), list: () => [] }, clock as unknown as CallClock)
+  const events: NormalizedEvent[] = []
+  const inputRequests = new InputRequests(fakeRuntime(events))
+  try {
+    const call = withActingScope(HOST_SCOPE, () => gateway.call('int-clock', 'confirm', {}, {
+      ...context(), emit: (event) => {
+        events.push(event)
+        if (event.type === 'question_request') inputRequests.questionIdToSession.set(event.questionId, 'session-1')
+      },
+    }))
+    const asked = await waitFor(() => events.find((event) => event.type === 'question_request'))
+    if (asked.type !== 'question_request') throw new Error('no question')
+    // The person can take longer than the call limit without using a real wait.
+    expect(timers.size).toBe(0)
+    clock.advance(61_000)
+    expect(await inputRequests.respondToQuestion('session-1', asked.questionId, { colour: 'blue' }, { principal: { kind: 'system' }, user: null })).toBe(true)
+    expect(await call).toEqual({ ok: true, text: 'accept: blue' })
+    expect(timers.size).toBe(0)
+  } finally { await gateway.close(); await fake.close() }
 })
 
 describe('integration gateway with sign-in', () => {
@@ -450,7 +561,7 @@ describe('integration gateway with sign-in', () => {
     expect(owner).toEqual({ ok: true, text: 'echo: owner' })
     expect(member.text).toStartWith('CONNECTION_REQUIRED:')
     expect(credentials.refused.map((entry) => entry.personKey)).toEqual(['member-1'])
-    expect(opened.length - sessionsBefore).toBe(1)
+    expect(opened.length - sessionsBefore).toBe(2)
     await gateway.close()
   })
 
@@ -474,13 +585,14 @@ describe('integration gateway with sign-in', () => {
     }
     setIntegrationGateway(gateway)
     try {
-      const names = (await integrationAgentTools(memberActor)).map((tool) => tool.name).sort()
+      const names = (await integrationToolbox(memberActor)).tools.map((tool) => tool.name).filter((name) => name.startsWith('secure__')).sort()
       expect(names).toEqual(['secure__confirm', 'secure__delete_all', 'secure__echo', 'secure__query'])
       // The host's own work has no person: the server refuses it, and nothing is cached as the member's.
       seen.length = 0
       const fresh = signedInGateway(new Map([['member-1', 'Bearer good']]), personal).gateway
       setIntegrationGateway(fresh)
-      expect(await integrationAgentTools(HOST_ACTOR)).toEqual([])
+      const hostWork = await integrationToolbox(HOST_ACTOR)
+      expect({ tools: hostWork.tools, instructions: hostWork.instructions, skipped: hostWork.cliSkip.servers }).toEqual({ tools: [], instructions: [], skipped: [] })
       expect(seen.every((header) => header === undefined)).toBe(true)
       await fresh.close()
     } finally {

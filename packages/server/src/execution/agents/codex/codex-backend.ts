@@ -14,6 +14,7 @@ import { rememberCodexModels } from './listed-models'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
+import { readCodexSkipConfig } from './codex-cli-skip'
 import { watchCommandStops } from '../../../host/running-servers/command-stops'
 import { unlistedCodexModelProfiles } from './codex-models'
 import type { Model } from './generated/v2/Model'
@@ -122,7 +123,7 @@ import {
   codexBackgroundCommandWake,
   codexSubagentWake,
 } from './codex-utils'
-import { adaptCodexTools, bareAgentToolName, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
+import { adaptCodexTools, bareAgentToolName, codexDynamicCallId, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
 import { CodexNativeChildren, type ChildStop, type ChildTurn, type SettledChild } from './codex-native-children'
 import type { Turn } from './generated/v2/Turn'
 import { z } from 'zod'
@@ -661,8 +662,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const tools = this.dynamicToolsUnavailable ? [] : enabledAgentTools(request.tools)
       const developerInstructions = [
         request.systemPrompt?.trim(),
-        runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, tools),
+        runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, tools, request.integrationInstructions),
       ].filter(Boolean).join('\n\n')
+      const cliSkipConfig = await readCodexSkipConfig(handle.client, handle.cwd, request)
       const config = { ...THREAD_CONFIG, [`shell_environment_policy.set.${RUNNING_SERVER_SESSION_ENV}`]: handle.sessionId ?? '' }
       const threadConfig: CodexThreadStartParams = {
         model,
@@ -673,7 +675,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         experimentalRawEvents: false,
         persistExtendedHistory: request.persistence === 'session',
         ephemeral: request.persistence === 'ephemeral',
-        config: request.bare ? { ...config, ...await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess) } : config,
+        config: request.bare ? { ...config, ...await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess) } : { ...config, ...cliSkipConfig },
       }
       threadConfig.developerInstructions = developerInstructions
       // Dynamic tools (list/read/update_work) are an experimental app-server
@@ -703,7 +705,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           threadId: sourceThreadId,
           lastTurnId,
           developerInstructions,
-          config,
+          config: { ...config, ...cliSkipConfig },
         }))
         threadId = response.thread.id
       } else if (!threadId) {
@@ -1561,8 +1563,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         ?? optionalString(params?.name)
         ?? optionalString(params?.toolName)
         ?? ''
-      const respondWithToolText = (text: string, success: boolean, image?: AgentToolImage) => {
-        client.respond(msg.id, { success, contentItems: codexToolContentItems(text, image) })
+      const respondWithToolText = (text: string, success: boolean, images?: AgentToolImage[]) => {
+        client.respond(msg.id, { success, contentItems: codexToolContentItems(text, images) })
       }
       let args = params?.arguments ?? params?.input ?? params?.args ?? {}
       const serializedArgs = optionalString(args)
@@ -1574,14 +1576,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         respondWithToolText(toolName ? `Unsupported dynamic tool: ${bareAgentToolName(toolName)}` : 'Unsupported dynamic tool call.', false)
         return
       }
+      // The call's own id: its transcript row, its approval, and the tool's context all name it.
+      const parentToolUseId = codexDynamicCallId(params, msg.id)
       const respondWithResult = async (approved: boolean) => {
         if (!approved) {
           respondWithToolText(`The user declined ${selectedTool.name}.`, false)
           return
         }
-        const parentToolUseId = optionalString(params?.callId) || String(msg.id)
         const result = await handle.toolDispatcher.execute(toolName, args, parentToolUseId)
-        respondWithToolText(result.text, result.ok, result.image)
+        respondWithToolText(result.text, result.ok, result.images)
       }
       if (!selectedTool.requiresApproval) { void respondWithResult(true); return }
       if (handle.permissionMode === 'plan') {

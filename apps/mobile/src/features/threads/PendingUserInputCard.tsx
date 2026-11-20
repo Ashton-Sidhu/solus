@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/PendingUserInputCard.tsx (MIT, see UPSTREAM.md).
 import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
-import { formatAnswer, questionKey } from "@solus/contracts/question-answer";
+import { formatAnswer, previewMarkdown, questionKey } from "@solus/contracts/question-answer";
 import { requestExpiryText, type QuestionItem } from "@solus/contracts/types";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
@@ -196,10 +196,10 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         {questions.map((question) => {
           const key = questionKey(question);
           const draft = drafts[key];
-          // As on desktop and web: the chosen option's preview, else the first option's.
+          // As on desktop and web: the chosen option's preview, else the first option that has one.
           const previewOption =
-            question.options.find((option) => draft?.selected.includes(option.label)) ??
-            question.options[0];
+            question.options.find((option) => draft?.selected.includes(option.label) && option.preview?.trim()) ??
+            question.options.find((option) => option.preview?.trim());
           return (
             <View key={key} className="gap-2 pt-1">
               {question.header ? (
@@ -268,7 +268,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                   <Text className="font-t3-bold text-xs text-foreground-muted">
                     Preview · {previewOption.label}
                   </Text>
-                  <ThreadMarkdown markdown={previewOption.preview} tone="assistant" store={props.store} />
+                  <ThreadMarkdown markdown={previewMarkdown(previewOption.preview)} tone="assistant" store={props.store} />
                 </View>
               ) : null}
               {/* Uncontrolled: a controlled value rebuilds the native text on each

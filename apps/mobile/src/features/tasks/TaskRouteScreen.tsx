@@ -20,28 +20,29 @@ export function TaskRouteScreen({ route, navigation }: ScreenProps<'Task'>) {
   const { hostId, taskId, readOnly } = route.params
   const app = useApp(),
     { store, state } = useTasks(hostId)
-  const details = state.details.get(taskId),
-    task = details?.task
-  const inspectionStore = store.inspection(taskId)
-  const inspection = useSyncExternalStore(
-    inspectionStore.subscribe,
-    () => inspectionStore.current,
-    () => inspectionStore.current
+  const dataStore = store.data(taskId)
+  const data = useSyncExternalStore(
+    dataStore.subscribe,
+    () => dataStore.current,
+    () => dataStore.current
   )
+  const details = data.details.value,
+    task = details?.task,
+    provider = data.provider
   const [error, setError] = useState<string | null>(null),
     [busy, setBusy] = useState(false)
   const issueId = parseTaskKey(taskId)?.id ?? ''
   useFocusEffect(
     useCallback(() => {
       let active = true
-      void store.detail(taskId).catch((failure) => {
+      void dataStore.loadDetails().catch((failure) => {
         if (active) setError(taskFailure(failure))
       })
-      void inspectionStore.refresh()
+      void dataStore.loadProvider()
       const connection = app.connections.connection(hostId)
       const off = connection?.events.subscribe('tasks.invalidated', (event) => {
         if (!event.taskId || event.taskId === taskId)
-          void store.detail(taskId).catch((failure) => {
+          void dataStore.loadDetails().catch((failure) => {
             if (active) setError(taskFailure(failure))
           })
       })
@@ -49,7 +50,7 @@ export function TaskRouteScreen({ route, navigation }: ScreenProps<'Task'>) {
         active = false
         off?.()
       }
-    }, [app, store, taskId, hostId, inspectionStore])
+    }, [app, store, taskId, hostId, dataStore])
   )
   const act = async (action: () => Promise<void>) => {
     setBusy(true)
@@ -74,7 +75,7 @@ export function TaskRouteScreen({ route, navigation }: ScreenProps<'Task'>) {
           <TaskAction
             onPress={() =>
               void act(async () => {
-                await store.detail(taskId)
+                await dataStore.loadDetails()
               })
             }
           >
@@ -112,8 +113,8 @@ export function TaskRouteScreen({ route, navigation }: ScreenProps<'Task'>) {
             <Text className="text-base font-t3-medium text-foreground">Issue reactions</Text>
             <TaskReactions
               targetId={issueId}
-              inspection={inspection}
-              store={inspectionStore}
+              provider={provider}
+              store={dataStore}
               busy={busy || !!readOnly}
               act={act}
             />
@@ -121,7 +122,7 @@ export function TaskRouteScreen({ route, navigation }: ScreenProps<'Task'>) {
               <TaskComments
                 details={details}
                 store={store}
-                inspection={inspection}
+                provider={provider}
                 busy={busy}
                 readOnly={!!readOnly}
                 act={act}
@@ -138,17 +139,13 @@ export function TaskRouteScreen({ route, navigation }: ScreenProps<'Task'>) {
                 onError={setError}
               />
             ) : null}
-            <TaskProviderContext
-              inspection={inspection}
-              inspectionStore={inspectionStore}
-              onError={setError}
-            />
+            <TaskProviderContext provider={provider} dataStore={dataStore} onError={setError} />
             <TaskAction
               disabled={busy}
               onPress={() =>
                 void act(async () => {
-                  await store.detail(taskId)
-                  await inspectionStore.refresh()
+                  await dataStore.loadDetails()
+                  await dataStore.loadProvider()
                 })
               }
             >

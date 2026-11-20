@@ -1,4 +1,4 @@
-import type { TaskInvolvement } from '@solus/contracts/task-inspection'
+import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { TaskSource } from '@solus/contracts/task-sources'
 import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
 import { jiraStatusCategory } from '../status-category'

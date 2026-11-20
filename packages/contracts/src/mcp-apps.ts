@@ -3,6 +3,8 @@ import { z } from 'zod'
 export const MCP_APP_PROTOCOL_VERSION = '2026-01-26'
 export const MCP_APP_MAX_HTML_BYTES = 5 * 1024 * 1024
 export const MCP_APP_MAX_DATA_BYTES = 1024 * 1024
+/** The text an app may give the agent. The agent gets it with every turn, so it stays small. */
+export const MCP_APP_MAX_MODEL_CONTEXT_CHARS = 8_000
 
 const appResourceUri = z.string().startsWith('ui://').max(4096)
 
@@ -26,14 +28,30 @@ export const mcpAppCspSchema = z.object({
   resourceDomains: domains,
   connectDomains: domains,
   frameDomains: domains,
+  baseUriDomains: domains,
 })
 export type McpAppCsp = z.infer<typeof mcpAppCspSchema>
+
+export const MCP_APP_PERMISSIONS = ['camera', 'microphone', 'geolocation', 'clipboardWrite'] as const
+export type McpAppPermission = (typeof MCP_APP_PERMISSIONS)[number]
+
+const requested = z.object({}).optional().catch(undefined)
+/** The browser features an app asks for. A client grants one only after the person approves it. */
+export const mcpAppPermissionsSchema = z.object({
+  camera: requested,
+  microphone: requested,
+  geolocation: requested,
+  clipboardWrite: requested,
+})
+export type McpAppPermissions = z.infer<typeof mcpAppPermissionsSchema>
 
 const appReferenceFields = {
   title: z.string().max(256),
   tool: z.string().max(256),
   resourceUri: appResourceUri,
   assetId: z.string().min(1),
+  /** The tool call that showed the app. A live app card takes the saved app by it. Absent in an app saved before Solus kept it. */
+  toolUseId: z.string().min(1).max(256).optional(),
 }
 
 /**
@@ -61,6 +79,9 @@ export const mcpAppSnapshotSchema = z.object({
   toolInputJson: jsonData,
   toolResultJson: jsonData,
   csp: mcpAppCspSchema,
+  /** Absent in an app saved before Solus read them. */
+  permissions: mcpAppPermissionsSchema.optional(),
+  prefersBorder: z.boolean().optional(),
 })
 export type McpAppSnapshot = z.infer<typeof mcpAppSnapshotSchema>
 
@@ -79,6 +100,35 @@ export type McpAppCallRequest = z.infer<typeof mcpAppCallRequestSchema>
 export const mcpAppResourceRequestSchema = mcpAppRequestSchema.extend({ uri: z.string().min(1).max(4096) })
 export type McpAppResourceRequest = z.infer<typeof mcpAppResourceRequestSchema>
 
+/** The app's latest context for the agent. Empty text clears it. */
+export const mcpAppModelContextRequestSchema = mcpAppRequestSchema.extend({ text: z.string().max(MCP_APP_MAX_MODEL_CONTEXT_CHARS) })
+export type McpAppModelContextRequest = z.infer<typeof mcpAppModelContextRequestSchema>
+
+/** The app of a tool call that has not ended (docs/plans/mcp-first-class.md §14.1). `toolName` is the Solus tool name `<slug>__<tool>`. */
+export const mcpAppLiveRequestSchema = z.object({ sessionId: z.string().min(1), toolName: z.string().min(1).max(256) })
+export type McpAppLiveRequest = z.infer<typeof mcpAppLiveRequestSchema>
+
+/** The document of a live app card: the app's HTML and policy, without the call's data. */
+export interface McpAppLiveDocument extends Omit<McpAppSnapshot, 'toolInputJson' | 'toolResultJson'> {
+  title: string
+}
+
+/** Why a tool call gave its live app card no result (`ui/notifications/tool-cancelled`). */
+export const MCP_APP_CANCEL_REASONS = ['stopped', 'denied', 'timeout', 'failed'] as const
+export type McpAppCancelReason = (typeof MCP_APP_CANCEL_REASONS)[number]
+
+/**
+ * The Solus tool name `<slug>__<tool>` of a transcript tool call that can have
+ * a live app card, or null. Claude names a Solus tool `mcp__solus__<name>`,
+ * Codex `solus.<name>`. The host decides if the tool has an app.
+ */
+export function mcpAppLiveToolName(transcriptToolName: string | undefined): string | null {
+  const name = transcriptToolName?.startsWith('mcp__solus__')
+    ? transcriptToolName.slice('mcp__solus__'.length)
+    : transcriptToolName?.startsWith('solus.') ? transcriptToolName.slice('solus.'.length) : null
+  return name && name.indexOf('__') > 0 && name.length <= 256 ? name : null
+}
+
 export interface McpAppToolInfo {
   callable: boolean
   readOnly: boolean
@@ -90,7 +140,10 @@ export interface McpAppToolInfo {
 /**
  * The app's document with its policy. Network access is limited to the app's
  * declared origins. Frames must also use an opaque sandbox origin, so the
- * document cannot read client state.
+ * document cannot read client state. It declares both colour schemes, so a
+ * frame takes the scheme of the client around it, live: in dark mode an app
+ * with no colours of its own draws on the dark card, not on an opaque light
+ * backdrop. An app's own `color-scheme` or colours win over the declaration.
  */
 export function mcpAppDocument(html: string, csp: McpAppCsp): string {
   const resources = csp.resourceDomains?.join(' ') ?? ''
@@ -104,8 +157,8 @@ export function mcpAppDocument(html: string, csp: McpAppCsp): string {
     `connect-src ${csp.connectDomains?.join(' ') || "'none'"}`,
     `frame-src ${csp.frameDomains?.join(' ') || "'none'"}`,
     "object-src 'none'",
-    "base-uri 'none'",
+    `base-uri ${csp.baseUriDomains?.join(' ') || "'none'"}`,
     "form-action 'none'",
   ].join('; ')
-  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${html}`
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"><meta name="color-scheme" content="light dark">${html}`
 }

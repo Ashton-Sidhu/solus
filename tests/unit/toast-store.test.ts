@@ -109,6 +109,21 @@ describe("toast service", () => {
     expect(committed).toBe(1)
   })
 
+  test("Undo cancels removal even if Sonner later reports dismissal", () => {
+    let restored = 0
+    let removed = 0
+    toasts.undo("Host removed", () => { restored++ }, { onDismiss: () => { removed++ } })
+    const options = calls[0].options
+    if (!options?.action || typeof options.action === "function") throw new Error("missing Undo")
+
+    options.action.onClick({} as MouseEvent)
+    options.onDismiss?.({} as never)
+    options.onAutoClose?.({} as never)
+
+    expect(restored).toBe(1)
+    expect(removed).toBe(0)
+  })
+
   test("uses Sonner's ID and only dismisses the matching active toast", () => {
     const id = toasts.info("Connected")
 

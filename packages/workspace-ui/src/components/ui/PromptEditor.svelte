@@ -11,6 +11,8 @@
   } from "@solus/contracts/types";
   import UnifiedAutocompleteMenu from "../input/UnifiedAutocompleteMenu.svelte";
   import type { SlashCommand } from "../input/slash-commands";
+  import type { McpPromptChoice } from "../input/lib/mcp-prompt-composer.svelte";
+  import type { IntegrationResource, IntegrationResourceTemplate } from "@solus/contracts/integration-types";
   import PlainTextEditor from "./plain-text-editor/plain-text-editor.svelte";
   import { UnifiedAutocompleteController } from "../editor/autocomplete.svelte";
   import { fleetStore } from "../fleet/fleet.store.svelte";
@@ -49,6 +51,11 @@
      *  whether to execute it or insert text. Only fires when
      *  `includeSolusCommands` is true. */
     onSolusCommand?: (cmd: SlashCommand) => void;
+    /** Lists the host's MCP prompts in the slash menu and receives the chosen
+     *  row. Only a composer that sends sets it (mcp-first-class.md §10). */
+    onMcpPrompt?: (choice: McpPromptChoice) => void;
+    /** Attaches an MCP resource picked under `@`, or opens a template's argument form; without it `@` lists files only. */
+    onResource?: (resource: IntegrationResource | IntegrationResourceTemplate) => void;
     /** Forwarded keydown — only fires when no autocomplete menu consumed it. */
     onKeyDown?: (e: KeyboardEvent) => void;
     /** When true, plain Enter inserts a newline instead of being swallowed for a
@@ -99,6 +106,8 @@
     onEmptyChange,
     includeSolusCommands = false,
     onSolusCommand,
+    onMcpPrompt,
+    onResource,
     onKeyDown,
     enterInsertsNewline = false,
     onPaste,
@@ -169,6 +178,8 @@
     includeSolusCommands: () => includeSolusCommands,
     pluginCommands: () => pluginCommands,
     onSolusCommand: () => onSolusCommand,
+    onMcpPrompt: () => onMcpPrompt,
+    onResource: () => onResource,
     onRefsChange: () => onRefsChange,
     session,
     pullRequests: pullRequests.projects,
@@ -182,13 +193,7 @@
     plainTextEditorEl?.setGhostCompletion(ac.open ? ac.ghost : "");
   });
 
-  const decoratedSlashCommands = $derived([
-    ...ac.commands.solus,
-    ...ac.commands.codex,
-    ...ac.commands.claudeCode,
-    ...ac.commands.global,
-    ...ac.commands.project,
-  ].map((command) => command.command));
+  const decoratedSlashCommands = $derived(ac.commandNames);
 
   // Emit refs parsed from the starting value once the editor mounts. setContent
   // fires no update event, so without this a caller editing an automation never

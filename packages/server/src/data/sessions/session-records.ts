@@ -387,6 +387,15 @@ export function onSessionRecordChanged(listener: SessionRecordListener): () => v
   return () => changedListeners.delete(listener)
 }
 
+type SessionDeletedListener = (sessionId: string) => void
+const deletedListeners = new Set<SessionDeletedListener>()
+
+/** Hear each session whose record this host deleted, after its host rows went: work that waits for it stops. */
+export function onSessionRecordDeleted(listener: SessionDeletedListener): () => void {
+  deletedListeners.add(listener)
+  return () => deletedListeners.delete(listener)
+}
+
 function emitChanged(record: SessionRecord | null): void {
   remember(record)
   if (!record || record.runnerHostId !== null) return
@@ -624,12 +633,15 @@ export function markSessionPublished(sessionId: string): Promise<void> {
 /**
  * The host tables that name a session cannot reference the ported row (on the
  * Postgres engine it is in another database): the session's execution ledger,
- * its open questions, and its mirror cursors go with it here.
+ * its open questions, its mirror cursors, its MCP tasks, and its resource
+ * watches go with it here. The MCP task owner finds a row gone at its next
+ * status request and cancels that MCP task on its server; the resource watch
+ * owner hears `onSessionRecordDeleted` and closes the streams.
  */
 function deleteHostRowsOfSession(sessionId: string): void {
   withTx(() => {
     const db = getDb()
-    for (const table of ['runs', 'run_queue', 'async_questions', 'transcript_mirror_rows', 'activity_mirror_rows']) {
+    for (const table of ['runs', 'run_queue', 'async_questions', 'transcript_mirror_rows', 'activity_mirror_rows', 'mcp_task', 'integration_resource_watch']) {
       db.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId)
     }
     db.prepare('DELETE FROM run_exchanges WHERE sender_session_id = ? OR target_session_id = ?').run(sessionId, sessionId)
@@ -660,6 +672,7 @@ export function deleteSessionRecord(scope: RecordScope, sessionId: string): Prom
     forgetLeadSession(sessionId)
     if (removed) {
       deleteHostRowsOfSession(sessionId)
+      for (const listener of deletedListeners) listener(sessionId)
       await removeAttachmentFolder(sessionId)
     }
   })

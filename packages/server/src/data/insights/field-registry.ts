@@ -396,6 +396,16 @@ export const KIND_REGISTRY = {
       ]),
     ],
   },
+  [SPAN_KINDS.integrationCall]: {
+    description: "one request the MCP gateway sent to an integration's server for a tool call of a turn",
+    fields: [
+      ...withGroup('dimension', [
+        attr('integration', 'integration', 'string', 'Slug of the integration'),
+        attr('tool', '"gen_ai.tool.name"', 'string', "The server's name of the tool"),
+        attr('method', '"mcp.method.name"', 'string', "The MCP method, such as 'tools/call'"),
+      ]),
+    ],
+  },
   [SPAN_KINDS.internalDispatchStep]: {
     description: 'one step of the Solus work that runs before a turn reaches the provider; nests under the turn\'s setup span',
     fields: [

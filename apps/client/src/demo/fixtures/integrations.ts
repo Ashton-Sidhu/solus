@@ -2,8 +2,10 @@ import type {
   CatalogEntry,
   Integration,
   IntegrationConnection,
+  IntegrationFacts,
   IntegrationToolSummary,
 } from '@solus/contracts/integration-types'
+import type { IntegrationPromptList } from '@solus/contracts/integrations/prompts'
 
 // MCP servers for the demo's MCP settings page.
 //
@@ -17,6 +19,33 @@ import type {
 const AT = '2026-10-21T16:42:00.000Z'
 const ACCOUNT = 'dev@acme.dev'
 
+// Cut at the length the gateway keeps for one server (2,000 characters), so the page shows the longest text it can get.
+const CONTEXT7_INSTRUCTIONS = [
+  'Context7 gives current documentation and code examples for libraries and frameworks.',
+  '',
+  'Always call resolve-library-id first to get the Context7 id of a library, unless the user gives an id in the form /org/project or /org/project/version. Do not guess an id.',
+  '',
+  'Then call get-library-docs with that id. Use the topic parameter to focus the reply on one subject, for example, "routing" or "hooks". Use the tokens parameter to limit the size of the reply; the default is 10,000 tokens.',
+  '',
+  'When the user names a version, give the id with that version. When the user names no version, use the latest version and say which version the documentation is for.',
+  '',
+  'Prefer this documentation to what you remember. Libraries change, and examples from memory can use names that no longer exist. When the documentation and your memory disagree, follow the documentation and tell the user.',
+  '',
+  'Rules:',
+  '- Call resolve-library-id once for each library in a task, then keep the id.',
+  '- Do not call get-library-docs for the standard library of a language.',
+  '- If resolve-library-id gives more than one match, choose the one with the most code snippets and the highest trust score, and tell the user which one you chose.',
+  '- If no match is found, tell the user and continue without Context7.',
+  '- Quote code from the documentation as it is. Do not change names or signatures.',
+  '- Keep each reply to the part of the documentation that the task needs. Do not paste a full page into the conversation.',
+  '- When a library has a migration guide for the version in use, read it before you change code that calls the library.',
+  '- Do not send secrets, tokens, or private code to Context7. Send only library names and topics.',
+  '',
+  'Limits: each account can make 60 requests in one minute. When a request is refused for this reason, wait and then try again once.',
+  '',
+  'Libraries that Context7 does not index yet can be added at context7.com. Tell the user when a library is missing, so that they can add it, and then continue with the documentation in the repository.',
+].join('\n').slice(0, 2000)
+
 interface DemoServerSeed {
   slug: string
   name: string
@@ -26,6 +55,8 @@ interface DemoServerSeed {
   /** The account the server reported at sign-in. */
   account?: string
   tools: Array<[name: string, description: string, readOnly: boolean]>
+  /** What the server tells the agent about its tools, as its `initialize` reply gives it. */
+  instructions?: string
 }
 
 const INSTALLED: DemoServerSeed[] = [
@@ -70,6 +101,7 @@ const INSTALLED: DemoServerSeed[] = [
       ['analyze_issue_with_seer', 'Ask Seer for the root cause of an issue.', true],
       ['update_issue', 'Resolve, ignore, or assign an issue.', false],
     ],
+    instructions: 'Use search_issues before get_issue_details. Give the organization slug "acme" in every call.',
   },
   {
     slug: 'slack', name: 'Slack', url: 'https://mcp.slack.com/mcp', auth: 'oauth', account: ACCOUNT,
@@ -85,6 +117,7 @@ const INSTALLED: DemoServerSeed[] = [
       ['resolve-library-id', 'Find the Context7 id of a library.', true],
       ['get-library-docs', 'Fetch current documentation and examples for a library.', true],
     ],
+    instructions: CONTEXT7_INSTRUCTIONS,
   },
 ]
 
@@ -122,6 +155,13 @@ export const DEMO_INTEGRATION_TOOLS = new Map<string, IntegrationToolSummary[]>(
   INSTALLED.map((server) => [
     `demo-mcp-${server.slug}`,
     server.tools.map(([name, description, readOnly]) => ({ name, description, readOnly, destructive: false })),
+  ]),
+)
+
+export const DEMO_INTEGRATION_FACTS = new Map<string, IntegrationFacts>(
+  INSTALLED.map((server) => [
+    `demo-mcp-${server.slug}`,
+    { era: 'modern', instructions: server.instructions ?? null, capabilities: { prompts: false, resources: false, resourceSubscribe: false, tasks: false } },
   ]),
 )
 
@@ -180,3 +220,43 @@ export const DEMO_CATALOG: CatalogEntry[] = [
     source: 'solus',
   },
 ]
+
+/** The MCP prompts the demo's servers list (docs/plans/mcp-first-class.md §10): two servers, and one that waits on a sign-in. */
+export const DEMO_INTEGRATION_PROMPTS: IntegrationPromptList = {
+  prompts: [
+    {
+      integrationId: 'demo-mcp-github', integrationName: 'GitHub', command: '/github:review_pr', name: 'review_pr',
+      title: 'Review a pull request', description: 'Review one pull request against the repository rules.',
+      arguments: [
+        { name: 'number', description: 'The pull request number', required: true },
+        { name: 'focus', description: 'What to look at first, such as tests', required: false },
+      ],
+    },
+    {
+      integrationId: 'demo-mcp-github', integrationName: 'GitHub', command: '/github:triage', name: 'triage',
+      description: 'Sort the open issues of one label.',
+      arguments: [{ name: 'label', description: 'The label to sort', required: true }],
+    },
+    {
+      integrationId: 'demo-mcp-linear', integrationName: 'Linear', command: '/linear:standup', name: 'standup',
+      description: 'Write the standup from your Linear issues of yesterday.',
+      arguments: [],
+    },
+  ],
+  signIn: [{ integrationId: 'demo-mcp-sentry', integrationName: 'Sentry', slug: 'sentry', needs: 'sign-in' }],
+}
+
+/** The text each demo prompt expands to, from its arguments. */
+export function demoPromptText(name: string, values: ReadonlyMap<string, string>): string {
+  if (name === 'review_pr') {
+    const focus = values.get('focus')
+    return [
+      `Review pull request #${values.get('number')} of acme/web.`,
+      'Read the diff, the linked issue, and the checks. List each problem with its file and line, the most severe first.',
+      ...(focus ? [`Look at ${focus} first.`] : []),
+      'Assistant:\nI will read the diff and the checks first.',
+    ].join('\n\n')
+  }
+  if (name === 'triage') return `Sort the open issues with the label "${values.get('label')}" by severity, and propose an owner for each.`
+  return 'Write my standup from the Linear issues I changed yesterday: what I did, what I do today, and what blocks me.'
+}

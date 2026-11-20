@@ -92,6 +92,7 @@ export type RootStackParamList = {
   /** The routes this device has to one host: which is in use, and adding, moving, and removing one. */
   HostRoutes: { hostId: string }
   GitHubConnection: { hostId: string }
+  LinearConnection: { hostId: string }
   /** The remote MCP servers one host knows, their tools, and the way to add one. */
   Integrations: { hostId: string }
   /** The webhooks of one host and its two webhook settings (docs/plans/webhooks.md §4). */

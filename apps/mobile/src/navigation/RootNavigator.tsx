@@ -75,6 +75,7 @@ import { VoiceSettingsScreen } from '../features/settings/VoiceSettingsScreen'
 import { VoiceTermScreen } from '../features/settings/VoiceTermScreen'
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen'
 import { GitHubConnectionScreen } from '../features/settings/GitHubConnectionScreen'
+import { LinearConnectionScreen } from '../features/settings/LinearConnectionScreen'
 import { AboutScreen } from '../features/settings/AboutScreen'
 import { PullRequestScreen } from '../features/prs/PullRequestScreen'
 import { PullRequestReviewSheet } from '../features/prs/PullRequestReviewSheet'
@@ -206,6 +207,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'WebhookDelivery',
   'Apps',
   'GitHubConnection',
+  'LinearConnection',
   'About',
   'PullRequestReview',
   'PullRequestInlineComment',
@@ -410,6 +412,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             <Stack.Screen name="VoiceTerm" component={VoiceTermScreen} options={{ title: 'Term' }} />
             <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
             <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />
+            <Stack.Screen name="LinearConnection" component={LinearConnectionScreen} options={{ title: 'Linear' }} />
             <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About Solus' }} />
           </Stack.Group>
           <Stack.Screen name="PullRequest" component={PullRequestScreen} options={{ title: 'Pull request' }} />

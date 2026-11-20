@@ -5,11 +5,22 @@
    * the integrations.sh catalog to connect more from, filtered by a rail of
    * categories (a row of chips in a narrow page). Connect opens one dialog that
    * adds the server, signs the person in, and asks which tools agents may use.
+   * Add command opens the same dialog on a command's form
+   * (docs/plans/mcp-first-class.md §7.7), as does the palette's "Add an MCP
+   * server command". While the page is open it holds the host's running-servers
+   * lease, so the host looks for MCP servers on its loopback and follows the
+   * loopback servers it has (§9.1); no page, no scan.
    */
   import { onDestroy, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { Check, LayoutGrid, LoaderCircle, Search, TriangleAlert, X } from "@lucide/svelte";
-  import { CATALOG_CATEGORIES, type CatalogCategoryId, type CatalogEntry, type Integration } from "@solus/contracts/integration-types";
+  import { Check, FileSearch, LayoutGrid, LoaderCircle, Plus, RefreshCw, Search, TriangleAlert, X } from "@lucide/svelte";
+  import { CATALOG_CATEGORIES, type CatalogCategoryId, type CatalogEntry, type FoundServer, type Integration } from "@solus/contracts/integration-types";
+  import { NO_FOUND_SERVERS_TEXT, configFileLabel, portScanUnavailableText } from "@solus/contracts/integrations/found-server-labels";
+  import { hostPathBaseName } from "@solus/contracts/host-path";
+  import { projectScopeOf } from "@solus/contracts/types";
+  import { isChat } from "@solus/contracts/chat";
+  import { getWorkspaceContext } from "../../contexts";
+  import { runningServers } from "../../contexts/running-servers/running-servers.store.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import SettingsSection from "./SettingsSection.svelte";
@@ -17,6 +28,10 @@
   import McpConnectDialog from "./McpConnectDialog.svelte";
   import McpServerIcon from "./McpServerIcon.svelte";
   import McpServerRow from "./McpServerRow.svelte";
+  import McpFoundRow from "./McpFoundRow.svelte";
+  import McpFoundDialog from "./McpFoundDialog.svelte";
+  import { McpFound } from "./lib/mcp-found.svelte";
+  import { mcpPageRequest } from "./lib/mcp-page-request.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
   import { McpCatalog } from "./lib/mcp-catalog.svelte";
   import type { ConnectRequest } from "./lib/mcp-connect.svelte";
@@ -28,8 +43,8 @@
   interface Props { serverId: string; hostLabel: string; searchQuery?: string }
   let { serverId, hostLabel, searchQuery = "" }: Props = $props();
 
-  /** What the page lists: everything, the installed servers alone, or one catalog category. */
-  type McpView = "all" | "installed" | CatalogCategoryId;
+  /** What the page lists: everything, the installed servers alone, the servers in the host's config files, or one catalog category. */
+  type McpView = "all" | "installed" | "found" | CatalogCategoryId;
 
   // The page is keyed by host, so one catalog serves one host for its whole life.
   const catalog = new McpCatalog(untrack(() => serverId), untrack(() => searchQuery));
@@ -38,12 +53,23 @@
   let connectRequest = $state<ConnectRequest | null>(null);
   let rootEl = $state<HTMLDivElement | null>(null);
   let searchEl = $state<HTMLInputElement | null>(null);
+  /** The found servers, read when the person first opens their view. */
+  let found = $state<McpFound | null>(null);
+  let reviewing = $state<FoundServer | null>(null);
+  let addError = $state("");
+  const workspace = getWorkspaceContext();
+  /** The project of the open session, when it is on this host: its files are read too (§8.1). */
+  const sessionScope = $derived(workspace.serverIdForContext(workspace.ctx) === serverId ? projectScopeOf(workspace.ctx.session) : null);
+  // A chat has no project (docs/plans/projectless-chat.md): only the host's own files are read then.
+  const projectPath = $derived(sessionScope && !isChat(sessionScope) ? sessionScope : null);
+  const projectName = $derived(projectPath ? hostPathBaseName(projectPath) || projectPath : null);
 
   const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostServers = $derived(runningServers.forHost(serverId));
   const installed = $derived(hostState?.integrations ?? []);
   const installedByUrl = $derived(new Map(installed.map((integration) => [integration.url, integration])));
   const visibleInstalled = $derived(
-    installed.filter((integration) => !catalog.query.trim() || wordsMatch(catalog.query, [integration.name, integration.slug, urlHost(integration.url)])),
+    installed.filter((integration) => !catalog.query.trim() || wordsMatch(catalog.query, [integration.name, integration.slug, urlHost(integration.url), integration.launch?.command ?? ""])),
   );
   const isOffline = $derived(!!hostState?.isDisconnected);
   /** A typed https:// address is offered as a server of its own. */
@@ -55,6 +81,10 @@
     const hostId = serverId;
     return untrack(() => integrationsStore.watch(hostId));
   });
+  // The palette asked for the command form: it opens once the page shows.
+  $effect(() => {
+    if (mcpPageRequest.isAddCommandAsked && hostState?.integrations) untrack(() => { if (mcpPageRequest.takeAddCommand()) addCommand(); });
+  });
   // The settings search follows into the page's own search.
   $effect(() => {
     const query = searchQuery;
@@ -64,11 +94,60 @@
   $effect(() => {
     if (!isOffline) untrack(() => { if (catalog.error) void catalog.load(); });
   });
-  onDestroy(() => catalog.dispose());
+  // Reading the list holds the lease while the page is open. A changed list can start or stop an MCP server on the loopback: the found view reads again.
+  $effect(() => {
+    void hostServers.servers;
+    untrack(() => { if (found && !found.loading) void found.load(); });
+  });
+  // The command palette asks for the found servers ("Find MCP servers on this host").
+  $effect(() => {
+    if (mcpPageRequest.view !== "found") return;
+    untrack(() => { mcpPageRequest.view = null; showView("found"); });
+  });
+  onDestroy(() => { catalog.dispose(); found?.dispose(); });
 
   function showView(next: McpView) {
     view = next;
+    if (next === "found") {
+      // Read once for the page's project; Refresh reads the files again.
+      found ??= new McpFound(serverId, projectPath);
+      return;
+    }
     if (next !== "installed") catalog.setCategory(next === "all" ? null : next);
+  }
+
+  function addCommand() {
+    connectRequest = { name: "", url: "", isCommand: true };
+  }
+
+  async function confirmFound(useFileValues: boolean) {
+    if (!found || !reviewing) return;
+    const server = reviewing;
+    addError = "";
+    const result = await found.add(server, useFileValues);
+    if (result.kind === "failed") { addError = result.message; return; }
+    reviewing = null;
+    if (result.kind === "found-changed") {
+      toasts.error(`${server.name} changed in its file. Read it again before you add it.`);
+      return;
+    }
+    if (result.needsValues) {
+      // A command cannot start without its values: its row opens the values form (§7.6).
+      toasts.success(`${server.name} added. Enter its values to start it.`);
+      showView("installed");
+      expanded.add(result.integration.id);
+      await integrationsStore.connect(serverId, result.integration.id);
+      await revealRow(result.integration, false);
+      return;
+    }
+    toasts.success(server.transport?.kind === "stdio" ? `${server.name} added. Start it from Installed.` : `${server.name} added`);
+  }
+
+  async function foundDialogClosed() {
+    reviewing = null;
+    addError = "";
+    await tick();
+    searchEl?.focus();
   }
 
   function toggle(integrationId: string) {
@@ -93,12 +172,12 @@
     searchEl?.focus();
   }
 
-  /** The connected row shows where the person can see it, and takes focus. */
-  async function revealRow(integration: Integration) {
+  /** The row shows where the person can see it, and takes focus unless a form in it holds the focus already. */
+  async function revealRow(integration: Integration, takesFocus = true) {
     await tick();
     const row = rootEl?.querySelector<HTMLElement>(`[data-integration-id="${CSS.escape(integration.id)}"]`);
     row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    row?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    if (takesFocus) row?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
   }
 
   /** Loads the next entries as the end of the list comes near, before the person reaches it. */
@@ -150,6 +229,7 @@
   >
     {#if layout === "rail" && target === "all"}<LayoutGrid size={16} class="shrink-0" />{/if}
     {#if layout === "rail" && target === "installed"}<Check size={16} class="shrink-0" />{/if}
+    {#if layout === "rail" && target === "found"}<FileSearch size={16} class="shrink-0" />{/if}
     <span class="truncate">{label}</span>
     {#if target === "installed" && installed.length > 0}
       <span class="shrink-0 text-chrome-dense tabular-nums text-muted-foreground {layout === 'rail' ? 'ml-auto pl-1' : 'opacity-60'}">{installed.length}</span>
@@ -201,6 +281,9 @@
 
 {#snippet installedSection()}
   <SettingsSection {...settingsDefinitions["mcp.section-installed"]} description="Their tools reach every agent on {hostLabel}. Servers with sign-in use your own account.">
+    {#snippet action()}
+      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline} onclick={addCommand}><Plus size={14} />Add command</Button>
+    {/snippet}
     {#if hostState?.error}
       <div class="flex flex-wrap items-center justify-between gap-3 p-4">
         <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{hostState.error}</p>
@@ -208,7 +291,7 @@
       </div>
     {:else if visibleInstalled.length === 0}
       <p class="p-6 text-center text-workspace-chrome text-muted-foreground">
-        {installed.length === 0 ? "No MCP servers yet. Connect one from the catalog." : `No installed server matches “${catalog.query.trim()}”.`}
+        {installed.length === 0 ? "No MCP servers yet. Connect one from the catalog, or add a command that runs on this host." : `No installed server matches “${catalog.query.trim()}”.`}
       </p>
     {/if}
     {#each visibleInstalled as integration (integration.id)}
@@ -222,6 +305,43 @@
         onConnect={() => { connectRequest = { name: integration.name, url: integration.url, integrationId: integration.id }; }}
       />
     {/each}
+  </SettingsSection>
+{/snippet}
+
+{#snippet foundSection()}
+  <SettingsSection {...settingsDefinitions["mcp.section-found"]} description="MCP servers in the config files of Claude Code, Codex, Cursor, VS Code, and Claude Desktop on {hostLabel}{projectName ? `, and in ${projectName}` : ''}, and MCP servers that run on it. Nothing is added until you add it.">
+    {#snippet action()}
+      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !found || found.loading || found.refreshing} onclick={() => found?.load(true)}>
+        <RefreshCw size={14} class={found?.refreshing ? "animate-spin motion-reduce:animate-none" : ""} />Refresh
+      </Button>
+    {/snippet}
+    {#if !found || found.loading}
+      <ul class="px-4" aria-busy="true" aria-label="Found servers">{@render placeholderRows(3)}</ul>
+    {:else if found.isUnsupported}
+      <p class="p-6 text-center text-workspace-chrome text-muted-foreground">{hostLabel} is older than this view. Update Solus on it to find its MCP servers.</p>
+    {:else if found.error}
+      <div class="flex flex-wrap items-center justify-between gap-3 p-4">
+        <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{found.error}</p>
+        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => found?.load(true)}>Retry</Button>
+      </div>
+    {:else}
+      {#if found.servers.length === 0}
+        <p class="p-6 text-center text-workspace-chrome text-muted-foreground">{NO_FOUND_SERVERS_TEXT}</p>
+      {/if}
+      {#each found.servers as server (server.foundId)}
+        <McpFoundRow {server} {projectName} {hostLabel} {isOffline} isAdding={found.adding === server.foundId} onReview={(next) => { addError = ""; reviewing = next; }} />
+      {/each}
+      {#if found.portScan?.state === "unavailable"}
+        <p class="flex items-start gap-2 px-4 py-3 text-chrome-dense text-(--solus-text-secondary)">
+          <TriangleAlert size={14} class="mt-0.5 shrink-0" aria-hidden="true" />{portScanUnavailableText(found.portScan.reason)}
+        </p>
+      {/if}
+      {#each found.problems as file (file.path)}
+        <p class="flex items-start gap-2 px-4 py-3 text-chrome-dense text-(--solus-text-secondary)">
+          <TriangleAlert size={14} class="mt-0.5 shrink-0" aria-hidden="true" />{configFileLabel(file.file)} ({file.path}) was not read. {file.problem}
+        </p>
+      {/each}
+    {/if}
   </SettingsSection>
 {/snippet}
 
@@ -307,6 +427,7 @@
     <nav class="flex flex-wrap gap-1.5 @min-[44rem]/mcp:hidden" aria-label="MCP views">
       {@render viewButton("all", "All", "chip")}
       {@render viewButton("installed", "Installed", "chip")}
+      {@render viewButton("found", "Found on this host", "chip")}
       {#each CATALOG_CATEGORIES as category (category.id)}
         {@render viewButton(category.id, category.label, "chip")}
       {/each}
@@ -316,6 +437,7 @@
       <nav class="hidden flex-col gap-0.5 self-start @min-[44rem]/mcp:sticky @min-[44rem]/mcp:top-16 @min-[44rem]/mcp:flex" aria-label="MCP views">
         {@render viewButton("all", "All", "rail")}
         {@render viewButton("installed", "Installed", "rail")}
+        {@render viewButton("found", "Found on this host", "rail")}
         <p class="mt-5 mb-1.5 px-2.5 text-chrome-dense text-muted-foreground">Categories</p>
         {#each CATALOG_CATEGORIES as category (category.id)}
           {@render viewButton(category.id, category.label, "rail")}
@@ -344,12 +466,21 @@
         {#if view === "all" || view === "installed"}
           {@render installedSection()}
         {/if}
-        {#if view !== "installed"}
+        {#if view === "found"}
+          {@render foundSection()}
+        {:else if view !== "installed"}
           {@render catalogSection()}
         {/if}
       </div>
     </div>
   </div>
+{/if}
+
+{#if reviewing && found}
+  {#key reviewing.foundId}
+    <McpFoundDialog server={reviewing} current={installed.find((integration) => integration.id === reviewing?.integrationId) ?? null} {projectName} {hostLabel}
+      isAdding={found.adding === reviewing.foundId} error={addError} onConfirm={confirmFound} onClose={foundDialogClosed} />
+  {/key}
 {/if}
 
 {#if connectRequest}

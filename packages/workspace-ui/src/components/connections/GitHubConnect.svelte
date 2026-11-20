@@ -17,7 +17,6 @@ import Icon from "@iconify/svelte";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
-  import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import ProviderConnectedCheck from "../settings/ProviderConnectedCheck.svelte";
 
@@ -121,10 +120,12 @@ import Icon from "@iconify/svelte";
   useScope("modal-dialog", { exclusive: true, pre: true, active: () => !!connections.providerPrompt });
 </script>
 
-<!-- Named for the group, as on the Source Control page it sits on; the row
-     carries the GitHub mark. -->
-<SettingsSection label="Source control providers">
+<!-- The GitHub rows only: Source Control and Integrations each put them in
+     their own section. -->
   <SettingsRow {...githubSetting} description={accountDescription}>
+    {#snippet icon()}
+      <Icon icon={PROVIDER_LOGOS.github} width={16} height={16} />
+    {/snippet}
     {#snippet labelExtra()}
       <ProviderConnectedCheck connected={isConnected} provider="GitHub" />
     {/snippet}
@@ -164,7 +165,6 @@ import Icon from "@iconify/svelte";
       </Button>
     {/snippet}
   </SettingsRow>
-</SettingsSection>
 
 {#if connections.providerPrompt}
   <div

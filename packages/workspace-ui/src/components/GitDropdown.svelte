@@ -14,6 +14,7 @@
   import { requestInputFocus } from "../lib/inputFocus";
   import { BRANCH_ROWS_SHOWN, branchesMatching, newBranchFromSearch, pickerBranches, worktreeDisplayName } from "../lib/git-context";
   import { threadTime } from "../lib/relative-time";
+  import { matchesSearch } from "../lib/search-match";
   import {
     worktreeProjectRoot,
     type IpcContext,
@@ -126,6 +127,11 @@
     !pendingDispatch && environmentStore.refsFetchingFor(gitServerId, projectRoot),
   );
   const worktreeBranches = $derived(worktrees.map((w) => w.branch));
+  const shownWorktrees = $derived(
+    worktrees.filter((worktree) => matchesSearch(`${worktree.branch} ${worktree.path}`, query)),
+  );
+  const shownDispatchBranches = $derived(dispatchBranches.filter((branch) => matchesSearch(branch, query)));
+  const showsDispatchNewWorktree = $derived(!!pendingDispatch && matchesSearch("New worktree", query));
   const branchRefByName = $derived(new Map(gitRefs.branches.map((ref) => [ref.name, ref])));
   const branches = $derived([
     ...worktreeBranches,
@@ -232,8 +238,11 @@
      or its own worktree cut from the base branch. A dispatch chooses the same
      two in its worktree list, against its target host's checkout. -->
 {#snippet startIn()}
-  {#if onSelectStartIn && !pendingDispatch}
+  {@const showsThisCheckout = matchesSearch("Start in this checkout", query)}
+  {@const showsNewWorktree = matchesSearch("Start in a new worktree", query)}
+  {#if onSelectStartIn && !pendingDispatch && (showsThisCheckout || showsNewWorktree)}
     <Command.Group heading="Start in">
+      {#if showsThisCheckout}
       <Command.Item
         value="Start in this checkout"
         onSelect={() => selectStartIn(false)}
@@ -246,6 +255,8 @@
           <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
         {/if}
       </Command.Item>
+      {/if}
+      {#if showsNewWorktree}
       <Command.Item
         value="Start in a new worktree"
         disabled={!!worktreeBlockedNote}
@@ -259,6 +270,7 @@
           <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
         {/if}
       </Command.Item>
+      {/if}
       {#if worktreeBlockedNote}
         <p class="text-pretty px-2.5 pb-1 text-xs leading-snug text-(--solus-text-tertiary)">
           {worktreeBlockedNote}
@@ -290,14 +302,18 @@
       onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}
       class={`menu-surface z-[10002] ${matchTriggerWidth ? "w-(--bits-popover-anchor-width)" : "w-[min(19.75rem,calc(100vw-2rem))]"} gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome`}
     >
+      <!-- Each list filters its own rows (`matchesSearch`). The command's own
+           filter sorts rows by moving their DOM nodes, which detaches them from
+           the keyed lists: rows from an earlier search stayed on screen. -->
       {#if view === "worktrees"}
-        <Command.Root>
+        <Command.Root shouldFilter={false}>
           <MenuSearch bind:value={query} placeholder="Search worktrees" />
           <Command.List class="max-h-[224px] p-1.5">
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">No worktrees found</Command.Empty>
             {@render startIn()}
+            {#if showsDispatchNewWorktree || shownWorktrees.length > 0 || (refsLoading && worktrees.length === 0)}
             <Command.Group heading="Worktrees">
-              {#if pendingDispatch}
+              {#if showsDispatchNewWorktree}
                 <Command.Item
                   value="New worktree"
                   onSelect={selectNewWorktree}
@@ -311,7 +327,7 @@
                   {/if}
                 </Command.Item>
               {/if}
-              {#each worktrees as worktree (worktree.path)}
+              {#each shownWorktrees as worktree (worktree.path)}
                 <Command.Item
                   value={`${worktree.branch} ${worktree.path}`}
                   onSelect={() => selectWorktree(worktree)}
@@ -336,7 +352,8 @@
                 </Command.Item>
               {/if}
             </Command.Group>
-            {#if pendingDispatch && (dispatchBranchesLoading || dispatchBranches.length > 0)}
+            {/if}
+            {#if pendingDispatch && (dispatchBranchesLoading || shownDispatchBranches.length > 0)}
               <Command.Group heading="Origin branches">
                 {#if dispatchBranchesLoading}
                   <Command.Item
@@ -350,7 +367,7 @@
                     </span>
                   </Command.Item>
                 {/if}
-                {#each dispatchBranches as branch (branch)}
+                {#each shownDispatchBranches as branch (branch)}
                   <Command.Item
                     value={`remote ${branch}`}
                     onSelect={() => selectDispatchBranch(branch)}
@@ -379,14 +396,16 @@
               : `${worktrees.length} worktrees`}
         />
       {:else}
-        <Command.Root>
+        <Command.Root shouldFilter={false}>
           <MenuSearch bind:value={query} placeholder="Search branches" />
           <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">No branches found</Command.Empty>
 
             <Command.Group>
-              {@render branchItem(displayBranch, true)}
-              {#if onSelectStartIn}
+              {#if matchesSearch(displayBranch, query)}
+                {@render branchItem(displayBranch, true)}
+              {/if}
+              {#if onSelectStartIn && matchesSearch("New worktree", query)}
                 <Command.Item
                   value="New worktree"
                   disabled={!!worktreeBlockedNote}
@@ -403,21 +422,23 @@
                 </Command.Item>
               {/if}
             </Command.Group>
-            <Command.Group heading="Branches">
-              {#each shownBranches as ref (ref.name)}
-                {@render branchItem(ref.name)}
-              {/each}
-              {#if refsLoading && branches.length === 0}
-                <Command.Item
-                  value="Loading branches"
-                  disabled
-                  class="pointer-events-none text-(--solus-text-tertiary)"
-                >
-                  <SpinnerGapIcon size={13} class="shrink-0 animate-spin motion-reduce:animate-none" />
-                  <span class="min-w-0 flex-1 truncate">Loading branches…</span>
-                </Command.Item>
-              {/if}
-            </Command.Group>
+            {#if shownBranches.length > 0 || (refsLoading && branches.length === 0)}
+              <Command.Group heading="Branches">
+                {#each shownBranches as ref (ref.name)}
+                  {@render branchItem(ref.name)}
+                {/each}
+                {#if refsLoading && branches.length === 0}
+                  <Command.Item
+                    value="Loading branches"
+                    disabled
+                    class="pointer-events-none text-(--solus-text-tertiary)"
+                  >
+                    <SpinnerGapIcon size={13} class="shrink-0 animate-spin motion-reduce:animate-none" />
+                    <span class="min-w-0 flex-1 truncate">Loading branches…</span>
+                  </Command.Item>
+                {/if}
+              </Command.Group>
+            {/if}
             {#if newBranch}
               <Command.Group>
                 <Command.Item

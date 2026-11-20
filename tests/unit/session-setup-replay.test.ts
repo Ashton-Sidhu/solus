@@ -60,3 +60,16 @@ test('a finished turn settles setup as ready, and the terminal shows the end of 
   expect(setupOutputTail(['1', '2', '3', 'fatal: no'], 2)).toBe('3\nfatal: no')
   expect(setupOutputTail(undefined)).toBe('')
 })
+
+test('the turn log keeps no partial tool input: each one comes again whole with the next', () => {
+  // WHY: a live app card streams an integration tool's input ten times a second,
+  // each update with all of it (docs/plans/mcp-first-class.md §14.1). Kept, a long
+  // input would fill the log, and a joining client would replay every copy.
+  const runtime = new SessionRuntime(new Map())
+  try {
+    runtime.publish('live', { type: 'tool_call', toolName: 'mcp__solus__charts__chart', toolId: 'toolu_1', index: 0 })
+    runtime.publish('live', { type: 'tool_call_update', toolId: 'toolu_1', index: 0, toolInput: '{"region":"we', inputPartial: true })
+    runtime.publish('live', { type: 'tool_call_complete', index: 0, toolInput: '{"region":"west"}' })
+    expect(runtime.turnLog.get('live')?.map((event) => event.type)).toEqual(['tool_call', 'tool_call_complete'])
+  } finally { runtime.shutdown() }
+})

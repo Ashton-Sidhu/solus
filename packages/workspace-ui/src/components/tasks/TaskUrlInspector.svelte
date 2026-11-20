@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { TaskUrlStore } from '@solus/client-core/task-inspection';
+  import { TaskUrlStore } from '@solus/client-core/task-data';
   import { serverConnections } from '@solus/client-core/server-connections';
   import { localApi } from '@solus/client-core/local-api';
   import { taskHostId } from '../../contexts/tasks/task-sources.store.svelte';
-  import type { TaskExternalIssue } from '@solus/contracts/task-inspection';
+  import type { TaskExternalIssue } from '@solus/contracts/task-data';
   import CommentMarkdown from '../github-markdown/CommentMarkdown.svelte';
   let url = $state('');
   let result = $state<TaskExternalIssue | null>(null);

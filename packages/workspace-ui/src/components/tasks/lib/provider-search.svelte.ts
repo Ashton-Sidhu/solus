@@ -1,4 +1,4 @@
-import type { TaskInvolvement } from '@solus/contracts/task-inspection'
+import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { Task } from '../../../contexts/tasks/task.svelte'
 import type { TasksStore } from '../../../contexts/tasks/tasks.store.svelte'
 

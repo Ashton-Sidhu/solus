@@ -1,5 +1,5 @@
 import { serializeTaskWrite } from './task-writes'
-import type { TaskInvolvement } from '@solus/contracts/task-inspection'
+import type { TaskInvolvement } from '@solus/contracts/task-data'
 import { sql } from 'drizzle-orm'
 import { parseTaskKey, taskKey, taskSourceKey, type TaskRef, type TaskSource, type TaskStatusCategory } from '@solus/contracts/task-sources'
 import type {

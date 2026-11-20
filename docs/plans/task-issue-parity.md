@@ -64,3 +64,32 @@ have explicit continuation controls.
 No interactive app, browser or device verification was run. Package-wide checks
 still report unrelated errors in the existing checkout. No migration was applied
 to live data, no build was run, and no changes were deployed.
+
+## Connection interface cleanup
+
+Task source setup uses the shared account vault connection flow on desktop,
+web and mobile. The Linear-specific task connection RPC, key forms and store
+commands were removed. Tasks reads provider credentials through the vault;
+existing host vault credentials are not changed. Task screens do not provide
+host-local credential management.
+
+## Task read interface
+
+`tasksGet` is the one task read RPC. The default details section keeps the
+existing `tasksGet(id)` call and its `TaskDetails` response: task fields,
+comments and Solus attachments. `{ section: 'provider', cursor? }` asks only
+for provider history, reactions and related PR facts. Its response is
+`TaskProviderData`. The overloads preserve the response type for each call.
+The request schema rejects a history cursor on a details read.
+
+`tasksInspect` and `TaskInspectionStore` were removed. A shared per-task
+`TaskDataStore` owns both read sections, with separate loading, error and stale
+response state. The list store no longer keeps a second detail cache. Older
+history pages use the same RPC without sending the description and comments
+in the response again. A provider read that fails leaves the loaded task
+available. Normal reads do not depend on a provider-context request.
+
+Desktop and web adapt this shared store to the task's Svelte model, which also
+merges Solus attachments from other hosts. Native reads both sections from the
+same store. Account changes and host removal reset both sections. Older hosts
+that ignore the provider section produce a clear update message.

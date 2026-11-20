@@ -343,7 +343,7 @@ export class SessionStatuses {
       turn: turnOfStatus(newStatus),
       pendingInput: input === 'awaiting_input' || input === 'awaiting_plan' ? input : null,
       rateLimitParked: !!parked && parked.deferCurrentRun !== true,
-      backgroundHolds: backgroundWorkHolds(session) || !!this.rt.orchestration?.isAwaitingReplies(sessionId),
+      backgroundHolds: backgroundWorkHolds(session) || !!this.rt.orchestration?.isAwaitingReplies(sessionId) || !!this.rt.mcpTaskHolds?.(sessionId),
     }
     const derived = deriveSessionStatus(facts)
     if (derived === newStatus) return

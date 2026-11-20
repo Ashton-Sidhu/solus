@@ -2,8 +2,9 @@
 
 Solus keeps its data in three databases. Each one has a folder of generated
 migrations. Each folder starts at `0000_baseline.sql`, the one-time
-consolidation of plans/029-fresh-database-baseline.md, and each schema change
-after it is a new migration that a database applies in place.
+consolidation of plans/029-fresh-database-baseline.md and the schema changes
+through November 2026. Each later schema change is a new migration that a
+database applies in place.
 A database whose applied migrations this folder does not know cannot be opened:
 Solus stops with a message that names the file to delete, and the file is
 recreated empty.

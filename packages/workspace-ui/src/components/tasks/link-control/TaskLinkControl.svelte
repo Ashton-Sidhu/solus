@@ -7,6 +7,7 @@
   import { toasts } from "../../../lib/toasts";
   import * as Command from "../../ui/command";
   import { MenuFooter, MenuSearch } from "../../ui/menu";
+  import { matchesSearch } from "../../../lib/search-match";
   import * as Popover from "../../ui/popover";
   import {
     linkVerb,
@@ -73,6 +74,7 @@
       .map((task) => ({ taskId: task.id, title: task.title, category: task.category, reference: task.reference })),
   );
   const rows = $derived(taskLinkPickerRows(candidates, linked ?? [], conversationTaskId ?? null));
+  const shownRows = $derived(rows.filter((row) => matchesSearch(`${row.title} ${row.reference ?? ""} ${row.taskId}`, query)));
 
   function openMenu(next: boolean) {
     open = next;
@@ -230,13 +232,15 @@
         onCloseAutoFocus={handleCloseAutoFocus}
         class="menu-surface z-[10002] w-[min(20rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 lg:text-workspace-chrome [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
       >
-        <Command.Root>
+        <!-- The rows filter themselves (`matchesSearch`): the command's own
+             filter moves row DOM nodes behind the keyed list. -->
+        <Command.Root shouldFilter={false}>
           <MenuSearch bind:value={query} placeholder="Link to tasks" />
           <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
               No tasks match
             </Command.Empty>
-            {#each rows as row (row.taskId)}
+            {#each shownRows as row (row.taskId)}
               <Command.Item
                 value="{row.title} {row.reference ?? ''} {row.taskId}"
                 onSelect={() => void toggle(row.taskId, row.linked)}

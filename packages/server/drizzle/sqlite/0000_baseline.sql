@@ -147,6 +147,8 @@ CREATE TABLE `app_workflow_runs` (
 	`started_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	`finished_at` integer,
+	`version` integer,
+	`dismissed_at` integer,
 	FOREIGN KEY (`app_id`) REFERENCES `apps`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -348,6 +350,7 @@ CREATE TABLE `personal_resource_state` (
 	`snoozed_until` integer,
 	`snooze_note` text,
 	`viewed_at` integer,
+	`pinned_at` integer,
 	PRIMARY KEY(`organization_id`, `resource_kind`, `resource_id`, `created_by`)
 );
 --> statement-breakpoint
@@ -481,6 +484,27 @@ CREATE INDEX `session_by_parent` ON `session_records` (`parent_session_id`,"crea
 CREATE INDEX `session_by_parent_activity` ON `session_records` (`parent_session_id`,"last_activity_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX `session_by_project_path` ON `session_records` (`project_path`,`last_activity_at`);--> statement-breakpoint
 CREATE INDEX `session_by_place` ON `session_records` (`place`,`last_activity_at`);--> statement-breakpoint
+CREATE TABLE `session_repositories` (
+	`cloud_scope` text NOT NULL,
+	`session_id` text NOT NULL,
+	`owner_user_id` text NOT NULL,
+	`repository` text NOT NULL,
+	`storage_scope` text NOT NULL,
+	`head` text,
+	`synced_turn` integer DEFAULT 0 NOT NULL,
+	`last_run_host_id` text,
+	`running_host_id` text,
+	`running_since` integer,
+	`title` text,
+	`provider` text,
+	`model` text,
+	`repository_key` text,
+	`branch` text,
+	`last_activity_at` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`cloud_scope`, `session_id`)
+);
+--> statement-breakpoint
+CREATE INDEX `session_repositories_owner` ON `session_repositories` (`owner_user_id`,"last_activity_at" desc);--> statement-breakpoint
 CREATE TABLE `session_transcripts` (
 	`organization_id` text DEFAULT 'local' NOT NULL,
 	`session_id` text NOT NULL,
@@ -519,7 +543,8 @@ CREATE TABLE `task_sources` (
 	`columns` text DEFAULT '[]' NOT NULL,
 	`write_state` text,
 	`fetched_at` integer,
-	`truncated` integer DEFAULT 0 NOT NULL
+	`truncated` integer DEFAULT 0 NOT NULL,
+	`next_cursor` text
 );
 --> statement-breakpoint
 CREATE TABLE `tasks` (
@@ -534,6 +559,7 @@ CREATE TABLE `tasks` (
 	`state_category` text NOT NULL,
 	`state_id` text,
 	`category` text NOT NULL,
+	`assignees` text DEFAULT '[]' NOT NULL,
 	`assignee` text,
 	`assignee_avatar_url` text,
 	`labels` text DEFAULT '[]' NOT NULL,
@@ -785,6 +811,9 @@ CREATE TABLE `integration` (
 	`url` text NOT NULL,
 	`auth` text NOT NULL,
 	`disabled_tools` text DEFAULT '[]' NOT NULL,
+	`launch` text,
+	`project_key` text,
+	`project_name` text,
 	`created_at` text NOT NULL,
 	`updated_at` text NOT NULL
 );
@@ -803,11 +832,41 @@ CREATE TABLE `integration_connection` (
 	PRIMARY KEY(`integration_id`, `user_id`, `account_id`)
 );
 --> statement-breakpoint
+CREATE TABLE `integration_server_facts` (
+	`integration_id` text NOT NULL,
+	`user_id` text NOT NULL,
+	`account_id` text NOT NULL,
+	`verdict` text,
+	`verdict_at` integer,
+	`facts` text,
+	`stored_at` integer NOT NULL,
+	PRIMARY KEY(`integration_id`, `user_id`, `account_id`)
+);
+--> statement-breakpoint
 CREATE TABLE `kv` (
 	`key` text PRIMARY KEY NOT NULL,
 	`value` text
 );
 --> statement-breakpoint
+CREATE TABLE `mcp_task` (
+	`id` text PRIMARY KEY NOT NULL,
+	`organization_id` text NOT NULL,
+	`session_id` text NOT NULL,
+	`integration_id` text NOT NULL,
+	`user_id` text NOT NULL,
+	`account_id` text NOT NULL,
+	`tool` text NOT NULL,
+	`upstream_task_id` text NOT NULL,
+	`status` text NOT NULL,
+	`status_message` text,
+	`traceparent` text,
+	`created_at` integer NOT NULL,
+	`updated_at` integer NOT NULL,
+	`expires_at` integer NOT NULL,
+	`delivered_at` integer
+);
+--> statement-breakpoint
+CREATE INDEX `mcp_task_by_session` ON `mcp_task` (`session_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `member_folder` (
 	`user_id` text PRIMARY KEY NOT NULL,
 	`folder` text NOT NULL
@@ -836,16 +895,6 @@ CREATE TABLE `outbox_ops` (
 );
 --> statement-breakpoint
 CREATE INDEX `outbox_ops_by_resource` ON `outbox_ops` (`domain`,`resource_id`,`id`);--> statement-breakpoint
-CREATE TABLE `pinned_sessions` (
-	`session_id` text NOT NULL,
-	`server_id` text DEFAULT '' NOT NULL,
-	`provider` text,
-	`title` text,
-	`cwd` text,
-	`pinned_at` integer,
-	PRIMARY KEY(`session_id`, `server_id`)
-);
---> statement-breakpoint
 CREATE TABLE `projects` (
 	`key` text PRIMARY KEY NOT NULL,
 	`path` text,
@@ -933,6 +982,29 @@ CREATE TABLE `session_messages` (
 );
 --> statement-breakpoint
 CREATE INDEX `session_messages_by_session` ON `session_messages` (`session_id`);--> statement-breakpoint
+CREATE TABLE `session_storage` (
+	`session_id` text PRIMARY KEY NOT NULL,
+	`repository` text NOT NULL,
+	`head` text,
+	`turn_count` integer DEFAULT 0 NOT NULL,
+	`error` text,
+	`cloud_scope` text,
+	`pushed_head` text,
+	`reported_head` text,
+	`push_due_at` integer,
+	`push_attempts` integer DEFAULT 0 NOT NULL,
+	`push_error` text,
+	`push_refused_head` text
+);
+--> statement-breakpoint
+CREATE TABLE `session_storage_turns` (
+	`operation_id` text PRIMARY KEY NOT NULL,
+	`session_id` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`facts` text NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `session_storage_turns_by_session` ON `session_storage_turns` (`session_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `session_thread_aliases` (
 	`provider` text NOT NULL,
 	`provider_session_id` text NOT NULL,
@@ -983,7 +1055,6 @@ CREATE TABLE `turn_flags` (
 	`updated_at` integer NOT NULL,
 	PRIMARY KEY(`created_by`, `trace_id`)
 );
-
 --> statement-breakpoint
 -- The works search index on SQLite (packages/server/src/db/search-index.ts):
 -- an FTS5 table kept in step by triggers on `works`. `works.id` is text and its

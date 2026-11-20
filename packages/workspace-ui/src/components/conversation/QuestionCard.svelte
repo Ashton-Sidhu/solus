@@ -1,10 +1,7 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
   import { fly } from "svelte/transition";
-  import {
-    ChevronRight as CaretRightIcon,
-    Check as CheckIcon,
-  } from "@lucide/svelte";
+  import { Check as CheckIcon } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeBlock from "../ui/CodeBlock.svelte";
@@ -20,7 +17,7 @@
     inlineCodeParts,
     optionLabelParts,
   } from "./lib/interrupt";
-  import { formatAnswer, questionKey } from "@solus/contracts/question-answer";
+  import { formatAnswer, previewMarkdown, questionKey } from "@solus/contracts/question-answer";
   import { requestExpiryText, type AgentId, type QuestionRequest, type QuestionItem } from "@solus/contracts/types";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { conversationIsVisible } from "./lib/conversation-visibility";
@@ -58,7 +55,7 @@
   const self = $derived(sess ? presenceStore.currentUserId(runHost(sess.run)) : null);
   // A member who may only read the session reads the question but cannot answer it.
   const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"));
-  const agentName = $derived(provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : "the agent");
+  const agentName = $derived(provider === "codex" ? "Codex" : provider === "claude-code" ? "Claude" : "the agent");
   // Who asks, in the eyebrow: an MCP server by name, a teammate's turn (plan 004 F2), else the agent.
   const othersTurn = $derived(othersTurnLabel(request.turnAuthor, self));
   const eyebrow = $derived(
@@ -75,7 +72,6 @@
   let responded = $state(false);
   // The host closed it unanswered (its run ended), or the answer was sent.
   const closed = $derived(responded || !!request.expired);
-  let previewOpen = $state(false);
   // Callback questions pause a turn. Async questions can remain open after it ends.
   let askedAt = $state(Date.now());
   let now = $state(Date.now());
@@ -98,11 +94,6 @@
     return liveActivityClock.subscribe((value) => { now = value; });
   });
 
-  $effect(() => {
-    void currentIndex;
-    previewOpen = false;
-  });
-
   const total = $derived(request.questions.length);
   const currentQuestion = $derived(request.questions[currentIndex]);
   const isFirst = $derived(currentIndex === 0);
@@ -117,26 +108,29 @@
   const waiting = $derived(formatWaiting(now - askedAt));
 
   /**
-   * §11 — questions are a conversation, not a modal: an answered one collapses to
+   * §11 — questions are a conversation, not a modal: an earlier one collapses to
    * a single line carrying the choice made, and the live question takes the
-   * body. Only questions behind the current one can be answered, so the trail
-   * always reads as history.
+   * body. Every earlier question keeps its line, answered or skipped, so the
+   * reader can always go back to it.
    */
   const trail = $derived(
     request.questions
       .slice(0, currentIndex)
-      .map((question, index) => ({ question, index, answer: answerFor(question) }))
-      .filter((entry) => entry.answer),
+      .map((question, index) => ({ question, index, answer: answerFor(question) })),
   );
 
-  const activeOption = $derived.by(() => {
+  // The options are compared by their previews, so one always shows: the
+  // chosen option's, else the first option that has one (as on mobile).
+  const previewOption = $derived.by(() => {
     const q = currentQuestion;
-    if (!q || q.options.length === 0) return null;
+    if (!q) return null;
     const selections = getSelections(q);
-    return q.options.find((o) => selections.includes(o.label)) ?? null;
+    return (
+      q.options.find((o) => selections.includes(o.label) && o.preview?.trim()) ??
+      q.options.find((o) => o.preview?.trim()) ??
+      null
+    );
   });
-
-  const hasPreview = $derived(!!activeOption?.preview);
 
   function getSelections(q: QuestionItem): string[] {
     return states[questionKey(q)]?.selections ?? [];
@@ -270,11 +264,6 @@
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       goPrev();
-    } else if (e.key === "p" || e.key === "P") {
-      if (hasPreview) {
-        e.preventDefault();
-        previewOpen = !previewOpen;
-      }
     } else if (/^[1-9]$/.test(e.key)) {
       const idx = parseInt(e.key, 10) - 1;
       const q = currentQuestion;
@@ -303,8 +292,8 @@
     {#key currentIndex}
       <div in:fly={{ y: 4, duration: 140 }} class="flex min-w-0 flex-col gap-3.5">
         <div class="flex min-w-0 flex-col gap-1">
-          <!-- Answers stack as muted lines above the live question, each
-               showing the choice made and reopenable in place. -->
+          <!-- Earlier questions stack as muted lines above the live one, each
+               showing the choice made (or that it was skipped) and reopenable in place. -->
           {#if trail.length > 0}
             {#each trail as entry (entry.index)}
               <button
@@ -313,9 +302,9 @@
                 disabled={closed}
                 onclick={() => goTo(entry.index)}
               >
-                <CheckIcon size={11} class="trail-check self-center" />
+                <CheckIcon size={11} class="trail-check self-center {entry.answer ? '' : 'invisible'}" />
                 <span class="min-w-0 truncate">{entry.question.question}</span>
-                <span class="shrink-0 text-(--solus-text-secondary)">{entry.answer}</span>
+                <span class="shrink-0 {entry.answer ? 'text-(--solus-text-secondary)' : 'italic'}">{entry.answer || "Skipped"}</span>
               </button>
             {/each}
             <div class="interrupt-divider my-2" aria-hidden="true"></div>
@@ -384,39 +373,27 @@
                     </span>
                   {/if}
                 </span>
-                <span class="mt-0.5 flex shrink-0 items-center gap-2">
-                  {#if selected && opt.preview}
-                    <!-- A nested control inside the row: a span with a role, so the row stays one button. -->
-                    <span
-                      class="interrupt-link inline-flex items-center gap-1"
-                      role="button"
-                      tabindex="0"
-                      aria-expanded={previewOpen}
-                      onclick={(e) => { e.stopPropagation(); previewOpen = !previewOpen; }}
-                      onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); previewOpen = !previewOpen; } }}
-                    >
-                      <span class="interrupt-caret inline-flex" class:is-open={previewOpen}><CaretRightIcon size={11} /></span>
-                      preview <span class="interrupt-key">P</span>
-                    </span>
-                  {/if}
-                  <span class="interrupt-key option-index">{i + 1}</span>
-                </span>
+                <span class="interrupt-key option-index mt-0.5 shrink-0">{i + 1}</span>
               </button>
             {/each}
           </div>
         {/if}
 
-        {#if hasPreview && activeOption && previewOpen}
-          <div
-            in:fly={{ y: -2, duration: 140 }}
-            class="interrupt-payload px-3.5 py-2.5 text-transcript-meta leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-normal [&_strong]:text-(--solus-text-primary)"
-          >
-            <SvelteMarkdown
-              source={activeOption.preview ?? ""}
-              options={{ breaks: true }}
-              renderers={{ link: MarkdownLink }}
-              sanitizeUrl={markdownSanitizeUrl}
-            />
+        {#if previewOption?.preview}
+          <!-- A monospace box, so a mockup keeps its columns; it scrolls rather than wraps. -->
+          <div class="interrupt-payload" data-testid="question-preview">
+            <div class="interrupt-payload-bar">
+              <span class="interrupt-payload-label">{previewOption.label}</span>
+            </div>
+            <div
+              class="max-h-[18rem] overflow-auto px-3.5 pt-1 pb-2.5 font-mono text-transcript-meta leading-relaxed text-(--solus-text-secondary) [&_code]:!bg-transparent [&_code]:!p-0 [&_p:last-child]:mb-0 [&_p]:mb-1.5 [&_pre]:m-0 [&_pre]:!bg-transparent [&_pre]:!p-0 [&_pre]:whitespace-pre [&_strong]:text-(--solus-text-primary)"
+            >
+              <SvelteMarkdown
+                source={previewMarkdown(previewOption.preview)}
+                renderers={{ link: MarkdownLink }}
+                sanitizeUrl={markdownSanitizeUrl}
+              />
+            </div>
           </div>
         {/if}
 
@@ -457,6 +434,12 @@
 
   {#snippet footer()}
     <div class="flex items-center justify-end gap-3">
+      {#if !isFirst && !closed}
+        <button type="button" class="interrupt-link mr-auto" onclick={goPrev}>
+          Back
+          <span class="interrupt-key">←</span>
+        </button>
+      {/if}
       {#if request.expired}
         <span class="text-transcript-meta text-(--muted-foreground)" data-testid="question-expired">{requestExpiryText(request.expired)}</span>
       {:else if !canDrive}
@@ -599,13 +582,6 @@
   .option-index {
     min-width: 0.75rem;
     text-align: right;
-  }
-
-  :global(.interrupt-caret) {
-    transition: transform var(--duration-quick) var(--ease-premium);
-  }
-  :global(.interrupt-caret.is-open) {
-    transform: rotate(90deg);
   }
 
   @media (pointer: coarse) {

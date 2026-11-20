@@ -11,8 +11,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentProps,
-  type ReactNode,
   type RefObject,
 } from "react";
 import {
@@ -29,9 +27,8 @@ import {
 } from "react-native";
 import Animated, { FadeIn, type SharedValue } from "react-native-reanimated";
 
-import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
+import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
-import { PullRequestWatchMarks } from "./PullRequestWatchMarks";
 import { CopyTextButton } from "../../components/CopyTextButton";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import {
@@ -66,7 +63,7 @@ import { ThreadFeedPlaceholder } from "./ThreadFeedPlaceholder";
 import { ThreadMarkdown } from "./ThreadMarkdown";
 import { FinalReplyMarkdown } from "./FinalReplyMarkdown";
 import { MarkdownImageAvailableWidthContext } from "./ThreadMarkdownImage";
-import { UserMessageRow } from "./ThreadUserMessageRow";
+import { isHostNotice, UserTurnRow } from "./ThreadHostNotice";
 import { ThreadAgentGroup } from "./ThreadAgents";
 import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
@@ -77,14 +74,7 @@ import { TurnFooter } from "./CloudTurnChanges";
 import { ThreadImage } from "./ThreadImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
-import { ThreadMcpApp } from "./ThreadMcpApp";
-import {
-  pullRequestWatchWake,
-  pullRequestWatchWakeMarks,
-  pullRequestWatchWakeSummary,
-} from "@solus/client-core/pull-request-watch-wake";
-import { backgroundCommandWake, backgroundCommandWakeSummary } from "@solus/client-core/background-command-wake";
-import { TerminalOutput } from "../../components/TerminalOutput";
+import { canShowLiveApp, ThreadMcpApp } from "./ThreadMcpApp";
 import { useSearchMessageJump } from "./use-search-message-jump";
 
 const TURN_FOLD_HEIGHT = 42; // min-h-11 (38.5) + mb-1 (3.5), with the mobile 14px rem
@@ -204,125 +194,6 @@ const AssistantMessageRow = memo(function AssistantMessageRow(props: {
   );
 });
 
-/**
- * A host-sent caption, as desktop draws it (`HostNoticeRow`): one work-log row
- * with a glyph, a fixed label and the news in a few words, the full text
- * behind a press. The icon alone takes a colour, and only when the news needs
- * the agent. The wake starts a turn, as a prompt does, so the row sits on the
- * prompts' side, at the right.
- */
-function HostNoticeRow(props: {
-  readonly label: string;
-  readonly summary: string;
-  /** Drawn in place of the summary while the row is folded: the news as
-   *  icons. The accessibility label keeps the summary in words. */
-  readonly marks?: ReactNode;
-  readonly attention: boolean;
-  readonly icon: AppSymbolName;
-  readonly text: string;
-  /** The folded body as a sentence and terminal output, in place of the text
-   *  as markdown: a command's output keeps every line and reads in mono. */
-  readonly terminal?: { readonly line: string; readonly output: string | null };
-  readonly store: ConversationStore;
-  readonly iconSubtleColor: ColorValue;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <WorkLogBlock>
-      <WorkLogPressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        accessibilityLabel={`${props.label}, ${props.summary}`}
-        onPress={() => setExpanded((value) => !value)}
-      >
-        <View className="flex-1 items-end py-1">
-          <View className="max-w-full flex-row items-center gap-1.5">
-            <WorkLogIconSlot>
-              <SymbolView
-                name={props.attention ? "exclamationmark.circle" : props.icon}
-                size={14}
-                weight="medium"
-                {...(props.attention
-                  ? { tintColorClassName: "accent-danger-foreground" }
-                  : { tintColor: props.iconSubtleColor })}
-                type="monochrome"
-              />
-            </WorkLogIconSlot>
-            <Text className="shrink-0 text-sm text-foreground-muted">{props.label}</Text>
-            {expanded || !props.summary ? null : props.marks ? (
-              props.marks
-            ) : (
-              <Text className="min-w-0 shrink text-sm text-foreground-muted opacity-70" numberOfLines={1}>
-                {props.summary}
-              </Text>
-            )}
-          </View>
-          {expanded ? (
-            <View className="mt-1 w-[85%]">
-              {props.terminal ? (
-                <>
-                  <Text className="text-sm leading-normal text-foreground">{props.terminal.line}</Text>
-                  {props.terminal.output ? (
-                    <View className="mt-2">
-                      <TerminalOutput output={props.terminal.output} label={`Output, ${props.label}`} />
-                    </View>
-                  ) : null}
-                </>
-              ) : (
-                <ThreadMarkdown markdown={props.text} tone="user" store={props.store} />
-              )}
-            </View>
-          ) : null}
-        </View>
-      </WorkLogPressable>
-    </WorkLogBlock>
-  );
-}
-
-/** A person's prompt as a bubble, or the host's own caption as a notice row. */
-const UserTurnRow = memo(function UserTurnRow(props: ComponentProps<typeof UserMessageRow>) {
-  const item = useTranscriptItem(props.store, props.id);
-  if (item?.kind !== "user") return null;
-  // Known by its text: a history row keeps no origin. A held prompt is the person's.
-  const sent = item.delivery === "sent";
-  const watch = sent ? pullRequestWatchWake(item.text) : null;
-  if (watch) {
-    const words = pullRequestWatchWakeSummary(watch);
-    return (
-      <HostNoticeRow
-        label="Pull request watch"
-        summary={`#${watch.number}${words ? ` · ${words}` : ""}`}
-        marks={<PullRequestWatchMarks wake={watch} marks={pullRequestWatchWakeMarks(watch)} />}
-        attention={watch.attention}
-        icon="eye"
-        text={item.text}
-        store={props.store}
-        iconSubtleColor={props.iconSubtleColor}
-      />
-    );
-  }
-  const command = sent ? backgroundCommandWake(item.text) : null;
-  if (command) {
-    return (
-      <HostNoticeRow
-        label="Background command"
-        summary={`${command.command} · ${backgroundCommandWakeSummary(command)}`}
-        attention={command.attention}
-        icon="terminal"
-        text={item.text}
-        terminal={{
-          line: command.exitCode === null
-            ? `${command.command} finished after the turn ended.`
-            : `${command.command} finished after the turn ended with exit ${command.exitCode}.`,
-          output: command.output,
-        }}
-        store={props.store}
-        iconSubtleColor={props.iconSubtleColor}
-      />
-    );
-  }
-  return <UserMessageRow {...props} />;
-});
 
 /** A host notice in the work log: an error reads in rose, information quietly. */
 const NoticeRow = memo(function NoticeRow(props: {
@@ -382,7 +253,7 @@ const WorktreeOfferRow = memo(function WorktreeOfferRow(props: { readonly store:
 });
 
 function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
-  if (row.type === "mcp-app") return <ThreadMcpApp store={context.store} id={row.id} />;
+  if (row.type === "mcp-app") return <ThreadMcpApp store={context.store} id={row.itemId} />;
   if (row.type === "setup") return <WorktreeSetupCard store={context.store} id={row.id} />;
   if (row.type === "run-fold") {
     return (
@@ -604,16 +475,16 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const order = useListened(store.order, store.orderSnapshot);
   const entries = useMemo<FeedSourceEntry[]>(
     () =>
-      order.flatMap((id) => {
+      order.flatMap<FeedSourceEntry>((id) => {
         const item = store.item(id);
         if (!item) return [];
         const kind = item.kind === "tool" && item.subagent ? "agent" : item.kind;
         if (item.kind === "notice") return [{ id, kind, tone: item.tone }];
         if (item.kind === "artifact") return [{ id, kind, workId: item.workId }];
-        if (item.kind === "user" && item.delivery === "sent" && (pullRequestWatchWake(item.text) || backgroundCommandWake(item.text))) {
+        if (item.kind === "user" && item.delivery === "sent" && isHostNotice(item.text)) {
           return [{ id, kind, hostNotice: true }];
         }
-        return [{ id, kind }];
+        return [{ id, kind, canShowLiveApp: canShowLiveApp(item) }];
       }),
     [order, store],
   );

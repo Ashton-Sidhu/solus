@@ -1262,7 +1262,7 @@ export interface PinnedSessionManifest {
 export interface PinnedSession {
   /** Agent session id — the key used to dedupe and resume. */
   sessionId: string
-  /** Host holding the session. Missing only on pins saved before scoped refs. */
+  /** Host holding the pin and the session. The client sets it from the host that answered. */
   serverId?: string
   provider: AgentId
   /** Resolved model from the session index, when available. */
@@ -1407,6 +1407,13 @@ export interface ContextCompaction {
   isRunning?: boolean
 }
 
+/** A running MCP tool call's own report of how far it is. A bar needs `total`. */
+export interface ToolProgress {
+  progress: number
+  total?: number
+  message?: string
+}
+
 export interface Message {
   /** Provider thread identity retained through a handoff's combined history. */
   sourceSessionId?: string
@@ -1460,6 +1467,9 @@ export interface Message {
   backgroundTaskSettledAt?: number
   /** Latest SDK heartbeat for a background sub-agent. This is activity metadata,
    *  not a todo plan: it has no trustworthy total-step denominator. */
+  /** The latest `tool_progress` of a running MCP tool call. Live only: history
+   *  never carries it, so a reload shows the call without a stale number. */
+  toolProgress?: ToolProgress
   backgroundTaskProgress?: {
     description?: string
     toolUses?: number
@@ -1516,6 +1526,11 @@ export interface Message {
   browserSnapshot?: BrowserSnapshotRef
   /** Images this tool call returned, shown under its step. */
   toolImages?: ToolResultImage[]
+  /** Audio this tool call returned, played under its step. */
+  toolAudio?: ToolResultAudio[]
+  /** What the host left out of this tool call's result, and the limit that
+   *  left it out: the agent got the same lines (docs/plans/mcp-first-class.md §6). */
+  toolLeftOut?: string[]
   /** A recording the agent made of a browser page, rendered as a player. */
   browserRecording?: BrowserRecordingRef
   /** Agent-conversation card for another agent this thread is driving
@@ -2001,6 +2016,16 @@ export interface ToolResultImage {
   height?: number
 }
 
+/**
+ * Audio a tool returned (an MCP audio block). No provider model takes audio in
+ * a tool result, so the agent gets the saved file's host path as text and the
+ * person gets a player that loads this asset through a signed URL.
+ */
+export interface ToolResultAudio {
+  assetId: string
+  mimeType: string
+}
+
 export type NormalizedEvent =
   | { type: 'model_routed'; provider: AgentId; modelConfig: ModelConfig; usedFallback: boolean }
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
@@ -2011,14 +2036,23 @@ export type NormalizedEvent =
    *  `text` is the span's reasoning, on `stop` only, when the provider sent any. */
   | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string; text?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
-  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string; toolImages?: ToolResultImage[] }
+  /** `inputPartial`: `toolInput` is the input so far of a call whose input still
+   *  streams (a live app card's, docs/plans/mcp-first-class.md §14.1). The next
+   *  one carries all of it again, so the turn log does not keep it. */
+  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string; toolImages?: ToolResultImage[]; toolAudio?: ToolResultAudio[]; toolLeftOut?: string[]; inputPartial?: true }
   /** With an outcome or completedAtMs, the tool execution completed. Without
    *  either field, Claude only finished streaming the tool input; tool_result
    *  is the later execution boundary. */
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
-  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean; toolImages?: ToolResultImage[] }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean; toolImages?: ToolResultImage[]; toolAudio?: ToolResultAudio[]; toolLeftOut?: string[] }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
   | { type: 'subagent_running'; toolUseId: string }
+  /** What a running MCP tool call reported of its own progress, for the person
+   *  only: the agent never sees it (docs/plans/mcp-first-class.md §5).
+   *  `toolUseId` is the id of the tool call's card. At most four a second for
+   *  one call; `message` is plain text of at most 200 characters. Live only:
+   *  never saved in a transcript and never replayed to a client that joins. */
+  | { type: 'tool_progress'; toolUseId: string; progress: number; total?: number; message?: string }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
   /** Solus's authoritative top-level turn boundary. Unlike `task_complete`, this
@@ -2116,7 +2150,7 @@ export type WireNormalizedEvent =
   | (AssistantMessageEvent & { textStreamed?: true })
   | Omit<ToolCallEvent, 'content'>
   | Omit<ToolCallUpdateEvent, 'content'>
-  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[]; secretOutcomes?: SecretOutcomeRecord[] }
+  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[]; toolAudio?: ToolResultAudio[]; toolLeftOut?: string[]; secretOutcomes?: SecretOutcomeRecord[] }
 
 // ─── Prompt Options ───
 
@@ -2129,7 +2163,7 @@ export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispat
  *  'background-command' is a command the agent left running that finished
  *  after its turn ended. 'question-answer' delivers an async answer whose
  *  visible receipt is the structured Q&A row. */
-export type PromptVia = 'automation' | 'background-command' | 'session-report' | 'question-answer' | 'pull-request-watch'
+export type PromptVia = 'automation' | 'background-command' | 'session-report' | 'question-answer' | 'pull-request-watch' | 'mcp-task' | 'resource-watch'
 
 export interface PromptDispatchResult {
   /** `duplicate`: this session already accepted the same `clientPromptId` —

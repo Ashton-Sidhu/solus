@@ -9,6 +9,8 @@ import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } fro
 import { resumeCompactionDialog } from './claude-resume-compaction'
 import { TurnInputChannel } from './claude-turn-input'
 import { resolveClaudeToolSearchOverride } from './claude-tool-search'
+import { claudeRunSkip } from './claude-cli-skip'
+import type { RunCliSkip } from '../../../integrations/cli-skips'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
 import { endTreeAfterExit } from '../../../platform/process-tree'
@@ -283,6 +285,8 @@ export interface ClaudeRunOptions {
   seat?: ClaudeSeat
   /** Saves the MCP App of a tool call that one of Claude's own servers answered. */
   onMcpApp?: (app: ClaudeMcpApp) => Promise<void>
+  /** The servers Solus runs in this run: the CLI leaves out its own copies (`claudeDeniedMcpServers`). */
+  cliSkip?: RunCliSkip
 }
 
 export interface ClaudeRunResult {
@@ -402,6 +406,8 @@ export class ClaudeAgent {
     }
 
     if (opts.seat?.autoCompactWindow) flagSettings = { ...flagSettings, autoCompactWindow: opts.seat.autoCompactWindow }
+    const cliSkip = claudeRunSkip(opts)
+    if (cliSkip.denied.length) flagSettings = { ...flagSettings, deniedMcpServers: cliSkip.denied }
 
     if (opts.sessionId) {
       claudeOptions.resume = opts.sessionId
@@ -457,6 +463,7 @@ export class ClaudeAgent {
           options: { ...claudeOptions, settings: flagSettings, pathToClaudeCodeExecutable: executable },
         })
         activeQuery = cquery
+        cliSkip.report()
         const appCapture = opts.onMcpApp ? new ClaudeAppCapture(cquery, opts.onMcpApp) : null
 
         for await (const msg of cquery) {

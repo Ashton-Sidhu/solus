@@ -8,13 +8,15 @@ import { memberPrincipal, withActor } from '../helpers/actors'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { IntegrationGateway } = await import('@solus/server/integrations/gateway')
-const { integrationAgentTools, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
+const { integrationToolbox, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
 const { IntegrationApps } = await import('@solus/server/integrations/mcp-apps')
 const { ownerKeyOf } = await import('@solus/server/admission/actor')
 const { newActivity, appendActivity } = await import('@solus/server/data/activity/activity')
 const { closeDb } = await import('@solus/server/db')
 const { closeDatabase } = await import('@solus/server/db/database')
 const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
+const { AppModelContexts } = await import('@solus/server/execution/sessions/app-model-contexts')
+const { MCP_APP_MAX_MODEL_CONTEXT_CHARS, mcpAppModelContextRequestSchema } = await import('@solus/contracts/mcp-apps')
 
 let nextSession = 0
 const ctx = withActor({ clientId: 'test', principal: memberPrincipal('alice', 'Alice') })
@@ -26,11 +28,12 @@ function setup() {
   const sessionId = `mcp-app-${++nextSession}`
   const integration: Integration = { id: 'charts', organizationId: 'org-1', ownerKey: ownerKeyOf(ctx.actor)!, kind: 'mcp', slug: 'charts', name: 'Charts', url: 'https://example.invalid/mcp', auth: { kind: 'none' }, disabledTools: [], createdBy: null, createdAt: '', updatedAt: '' }
   const gateway = new IntegrationGateway({ get: (id) => id === integration.id ? integration : null, list: () => [integration] })
-  const read = spyOn(gateway, 'readAppResource').mockResolvedValue({ contents: [{ uri: 'ui://chart', mimeType: 'text/html;profile=mcp-app', text: '<button>Filter</button>' }] })
+  const read = spyOn(gateway, 'readResource').mockResolvedValue({ contents: [{ uri: 'ui://chart', mimeType: 'text/html;profile=mcp-app', text: '<button>Filter</button>' }] })
   const tools = spyOn(gateway, 'toolsFor').mockResolvedValue([{ name: 'save', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }])
   const call = spyOn(gateway, 'callAppTool').mockResolvedValue({ content: [{ type: 'text', text: 'saved' }] })
   const recorded: Activity[] = []
-  const runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession' | 'seatForTurn'> = {
+  const runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession' | 'seatForTurn' | 'appModelContexts'> = {
+    appModelContexts: new AppModelContexts(),
     seatForTurn: async () => null,
     actorOfSession: () => ctx.actor,
     recordActivity: async (subject, _actor, kind) => {
@@ -48,7 +51,7 @@ function setup() {
   }
   const apps = new IntegrationApps(gateway, runtime, claude)
   const capture: IntegrationAppCapture = { integration, tool: { name: 'chart', inputSchema: { type: 'object' }, _meta: { ui: { resourceUri: 'ui://chart' } } }, input: { region: 'west' }, result: { content: [{ type: 'text', text: '42' }] }, context: { provider: 'codex', cwd: '/fixture', sessionId: () => sessionId, abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} } }
-  return { apps, gateway, capture, recorded, read, tools, call, integration, claude, sessionId, request: () => ({ sessionId, activityId: recorded[0].id }) }
+  return { apps, gateway, capture, recorded, read, tools, call, integration, claude, sessionId, runtime, request: () => ({ sessionId, activityId: recorded[0].id }) }
 }
 
 test('a compatible completed tool captures an immutable UI and restores its tool data', async () => {
@@ -100,7 +103,8 @@ test('writes require approval on the host, including after a tool changes from r
   await expect(s.apps.callTool({ ...s.request(), name: 'save', argumentsJson: '{}', approved: false }, ctx)).rejects.toThrow('approval')
   expect(s.call).not.toHaveBeenCalled()
   await s.apps.callTool({ ...s.request(), name: 'save', argumentsJson: '{"x":1}', approved: true }, ctx)
-  expect(s.call).toHaveBeenCalledWith('charts', 'save', { x: 1 })
+  // The call names who it acts for: a command's process starts only for a person with host.admin.
+  expect(s.call).toHaveBeenCalledWith('charts', 'save', { x: 1 }, ctx.principal)
 })
 
 test('disabled tools and model-only tools stay unavailable to an app', async () => {
@@ -124,7 +128,7 @@ test('app-only tools stay out of the provider list while model tools remain avai
   ])
   setIntegrationGateway(s.gateway)
   try {
-    const tools = await integrationAgentTools(ctx.actor)
+    const { tools } = await integrationToolbox(ctx.actor)
     expect(tools.map((tool) => tool.name)).toEqual(['charts__visible', 'charts__only_model'])
   } finally { setIntegrationGateway(null) }
 })
@@ -199,4 +203,79 @@ test("only the session's owner reaches a server of Claude's own", async () => {
   await s.apps.captureClaude(s.sessionId, claudeApp)
   await expect(s.apps.toolInfo({ ...s.request(), name: 'refresh' }, ctx)).rejects.toThrow('Only the person who ran this session')
   expect(s.claude.toolInfo).not.toHaveBeenCalled()
+})
+
+test('the saved app keeps the permissions and border the server asked for, and drops a malformed request', async () => {
+  const s = setup()
+  s.read.mockResolvedValue({ contents: [{ uri: 'ui://chart', mimeType: 'text/html;profile=mcp-app', text: '<p>Map</p>', _meta: { ui: {
+    permissions: { geolocation: {}, camera: 'yes' }, prefersBorder: true, csp: { baseUriDomains: ['https://cdn.example.com'] },
+  } } }] })
+  await s.apps.capture(s.capture)
+  const snapshot = await s.apps.read(s.request(), ctx)
+  expect(snapshot.permissions).toEqual({ geolocation: {} })
+  expect(snapshot.prefersBorder).toBe(true)
+  expect(snapshot.csp.baseUriDomains).toEqual(['https://cdn.example.com'])
+})
+
+test("an app's context for the agent is kept for its own session only", async () => {
+  // WHY: the context reaches the agent's next turns, so an app of another session must not write into this one.
+  const s = setup()
+  await s.apps.capture(s.capture)
+  await s.apps.updateModelContext({ ...s.request(), text: 'Region: west' }, ctx)
+  expect(s.runtime.appModelContexts.systemSection(s.sessionId)).toContain('Region: west')
+  await expect(s.apps.updateModelContext({ ...s.request(), sessionId: 'another-session', text: 'x' }, ctx)).rejects.toThrow('no longer available')
+  expect(s.runtime.appModelContexts.systemSection('another-session')).toBeNull()
+})
+
+test('a context over the size limit is refused before it reaches the host', () => {
+  const request = { sessionId: 's', activityId: 'a' }
+  expect(mcpAppModelContextRequestSchema.safeParse({ ...request, text: 'x'.repeat(MCP_APP_MAX_MODEL_CONTEXT_CHARS) }).success).toBe(true)
+  expect(mcpAppModelContextRequestSchema.safeParse({ ...request, text: 'x'.repeat(MCP_APP_MAX_MODEL_CONTEXT_CHARS + 1) }).success).toBe(false)
+})
+
+// WHY: a live app card shows the app while its call runs (docs/plans/mcp-first-class.md §14.1).
+// The host decides which tool has one, and only the person whose integration runs the call gets it.
+const chartTool = { name: 'chart', title: 'Chart', inputSchema: { type: 'object' as const }, _meta: { ui: { resourceUri: 'ui://chart' } } }
+
+test('a capture names the tool call, so a live card can take the saved app', async () => {
+  const s = setup()
+  await s.apps.capture({ ...s.capture, context: { ...s.capture.context, parentToolUseId: () => 'toolu_live' } })
+  expect(s.recorded[0]).toMatchObject({ kind: 'mcp_app', app: { toolUseId: 'toolu_live' } })
+})
+
+test('the owner gets the live document of a tool with an app, read once for several calls', async () => {
+  const s = setup()
+  s.tools.mockResolvedValue([chartTool])
+  const document = await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)
+  expect(document).toEqual({ title: 'Charts · Chart', html: '<button>Filter</button>', csp: {}, permissions: undefined, prefersBorder: undefined })
+  await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)
+  expect(s.read).toHaveBeenCalledTimes(1)
+})
+
+test('a tool with no app, a turned-off tool, and an unknown integration have no live card', async () => {
+  const s = setup()
+  s.tools.mockResolvedValue([chartTool, { name: 'echo', inputSchema: { type: 'object' } }])
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__echo' }, ctx)).toBeNull()
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'maps__chart' }, ctx)).toBeNull()
+  s.integration.disabledTools.push('chart')
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)).toBeNull()
+  expect(s.read).not.toHaveBeenCalled()
+})
+
+test('a person who watches another person’s session gets no live card', async () => {
+  const s = setup()
+  s.tools.mockResolvedValue([chartTool])
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, other)).toBeNull()
+  s.runtime.actorOfSession = () => other.actor
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)).toBeNull()
+  expect(s.read).not.toHaveBeenCalled()
+})
+
+test('a failed live read is not kept, so the next call reads again', async () => {
+  const s = setup()
+  s.tools.mockResolvedValue([chartTool])
+  s.read.mockRejectedValueOnce(new Error('Offline'))
+  await expect(s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)).rejects.toThrow('Offline')
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)).toMatchObject({ html: '<button>Filter</button>' })
+  expect(s.read).toHaveBeenCalledTimes(2)
 })

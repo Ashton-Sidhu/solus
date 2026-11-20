@@ -51,6 +51,7 @@ function host(options: { integrations: Integration[]; rows: Map<string, Integrat
     tokenEndpointOf: async () => new URL('https://auth.example/token'),
     clientForToken: (): OAuthClient => ({ clientId: 'host-client', clientSecret: 's', tokenEndpointAuthMethod: 'client_secret_post' }),
     refreshIfDue: async (id: string) => tokens.get(id) ?? null,
+    acceptsToken: async () => true,
   } as unknown as IntegrationOAuth
   const connections = new IntegrationConnections({
     store: store as IntegrationConnectionStore,

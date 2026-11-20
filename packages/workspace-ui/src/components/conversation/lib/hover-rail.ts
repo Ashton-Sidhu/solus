@@ -11,26 +11,40 @@ function formatterFor(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat 
 }
 
 /**
- * The rail's stamp. Within the last day it is just the clock — the transcript
- * never prints a date inline, and a reader scanning today's thread only needs
- * the time. Past that the clock alone is ambiguous, so the day leads it.
+ * The rail's stamp, as the parts it may break between. The rail hangs in the
+ * reading column's gutter: a wide gutter shows "Mon 11:22 AM" on one line, but
+ * in any pane under ~1130px the gutter is only 48px, and the transcript's edge
+ * clips anything wider. There the parts stack, so no part may be wider than a
+ * bare clock.
+ *
+ * Within the last day it is just the clock — the transcript never prints a
+ * date inline, and a reader scanning today's thread only needs the time. Past
+ * that the clock alone is ambiguous, so the day leads it: the weekday inside
+ * the week, the date beyond it, and the year on its own line once it differs.
  */
-export function formatRailTime(timestamp: number, now = Date.now()): string {
+export function railTimeLines(timestamp: number, now = Date.now()): string[] {
   const date = new Date(timestamp)
-  const clock = formatterFor({ hour: 'numeric', minute: '2-digit' }).format(date)
-  if (now - timestamp < DAY_MS) return clock
-
-  const yesterday = new Date(now)
-  yesterday.setDate(yesterday.getDate() - 1)
-  if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${clock}`
-
-  // Inside the week the weekday reads faster than a date; beyond it, the date is
-  // the only thing that still locates the message.
-  const withinWeek = now - timestamp < 7 * DAY_MS
-  const dateOptions: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
-  if (date.getFullYear() !== new Date(now).getFullYear()) dateOptions.year = 'numeric'
-  const day = formatterFor(withinWeek ? { weekday: 'short' } : dateOptions).format(date)
-  return `${day} ${clock}`
+  const lines: string[] = []
+  if (now - timestamp >= DAY_MS) {
+    if (now - timestamp < 7 * DAY_MS) {
+      lines.push(formatterFor({ weekday: 'short' }).format(date))
+    } else {
+      lines.push(formatterFor({ month: 'short', day: 'numeric' }).format(date))
+      if (date.getFullYear() !== new Date(now).getFullYear()) lines.push(String(date.getFullYear()))
+    }
+  }
+  // A 12-hour locale's "AM"/"PM" takes its own line; a 24-hour clock has none.
+  const parts = formatterFor({ hour: 'numeric', minute: '2-digit' }).formatToParts(date)
+  const dayPeriod = parts.find((part) => part.type === 'dayPeriod')?.value
+  lines.push(
+    parts
+      .filter((part) => part.type !== 'dayPeriod')
+      .map((part) => part.value)
+      .join('')
+      .trim(),
+  )
+  if (dayPeriod) lines.push(dayPeriod)
+  return lines
 }
 
 /** The full date, carried as the stamp's title. */

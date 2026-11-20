@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { View } from 'react-native'
 import type { TasksStore } from '@solus/client-core/tasks-store'
-import type { TaskInspectionState } from '@solus/client-core/task-inspection'
+import type { TaskProviderState } from '@solus/client-core/task-data'
 import type { TaskDetails } from '@solus/contracts/task-types'
 import { AppText as Text } from '../../components/AppText'
 import { PullRequestMarkdown } from '../prs/detail/PullRequestMarkdown'
@@ -11,14 +11,14 @@ import { TaskReactions } from './TaskReactions'
 export function TaskComments({
   details,
   store,
-  inspection,
+  provider,
   busy,
   readOnly,
   act
 }: {
   details: TaskDetails
   store: TasksStore
-  inspection: TaskInspectionState
+  provider: TaskProviderState
   busy: boolean
   readOnly: boolean
   act: TaskCommand
@@ -29,8 +29,8 @@ export function TaskComments({
   const reactions = (targetId: string) => (
     <TaskReactions
       targetId={targetId}
-      inspection={inspection}
-      store={store.inspection(taskId)}
+      provider={provider}
+      store={store.data(taskId)}
       busy={busy || readOnly}
       act={act}
     />
@@ -39,10 +39,10 @@ export function TaskComments({
     <>
       {' '}
       <Text className="text-base font-t3-medium text-foreground">Comments</Text>
-      {inspection.value?.author ? (
-        <Text className="text-sm text-foreground-muted">Opened by {inspection.value.author}</Text>
+      {provider.value?.author ? (
+        <Text className="text-sm text-foreground-muted">Opened by {provider.value.author}</Text>
       ) : null}
-      {inspection.value?.commentsTruncated ? (
+      {provider.value?.commentsTruncated ? (
         <Text className="text-sm text-foreground-muted">
           The provider returned only part of the comments. Open the provider to read all comments.
         </Text>

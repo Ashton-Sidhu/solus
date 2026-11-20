@@ -5,6 +5,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolSummary } from "@solus/contracts/integration-types";
 import { resourceAllows } from "@solus/contracts/permissions";
+import { CLI_SKIP_NOTE, cliSkipLines } from "@solus/client-core/mcp-cli-skips";
+import { NOT_RUNNING_LABEL, notRunningText, projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { T3_CODE_BRAND_MARK_SOURCE } from "../../components/brandAssets";
@@ -20,6 +22,7 @@ import { IntegrationOAuthClientPanel } from "./components/IntegrationOAuthClient
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { ListFilterMenu } from "../workspace/ListFilterMenu";
 import { ServerIcon } from "./components/ServerIcon";
+import { FoundServersSection } from "./components/FoundServersSection";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -36,16 +39,21 @@ import {
   isIntegrationUrl,
   looksLikeUrl,
   UNSUPPORTED_NOTE,
-  urlHost,
   type IntegrationCandidate,
   type IntegrationToolsState,
   InstalledIntegration,
+  installedRowLine,
+  serverAddressLine,
 } from "./integrations";
 import { useIntegrations } from "./use-integrations";
 import { SetupGuideRow, SetupHandoffRow } from "./components/SetupHandoffRow";
 import { IntegrationExtraAccounts } from "./components/IntegrationExtraAccounts";
+import { CommandServerForm, type CommandAdd } from "./components/CommandServerForm";
+import { CommandServerDetails } from "./components/CommandServerDetails";
+import { useCommandProcesses } from "./use-command-processes";
 
 type IntegrationsModel = ReturnType<typeof useIntegrations>;
+type CommandProcesses = ReturnType<typeof useCommandProcesses>;
 
 /**
  * The MCP servers of one host (docs/plans/mcp-integrations.md §7): one search
@@ -53,7 +61,9 @@ type IntegrationsModel = ReturnType<typeof useIntegrations>;
  * creates it in one step, then starts the person's sign-in when the server
  * needs one (§4). Each installed row has one status line and its Connect
  * action; opening it shows the sign-in, the OAuth client form, the tools, and
- * Rename, Remove, and Disconnect. The same capability as Settings → MCP on
+ * Rename, Remove, and Disconnect. Add command adds a command that the host
+ * runs (docs/plans/mcp-first-class.md §7.7); its row shows the process state
+ * and its actions, and Edit command. The same capability as Settings → MCP on
  * desktop and web.
  */
 export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
@@ -61,6 +71,7 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
   const insets = useSafeAreaInsets();
   const integrations = useIntegrations(hostId);
   const { list, connected, searchCatalog, clearCatalog, clearAdding } = integrations;
+  const processes = useCommandProcesses(hostId, list);
   const [query, setQuery] = useState("");
 
   // The most popular entries show before the person types.
@@ -123,7 +134,17 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
               keyboardType={Platform.OS === "ios" ? "web-search" : "default"}
               returnKeyType="search"
             />
-            <InstalledSection integrations={integrations} installed={list.integrations} query={query} />
+            <CommandAddSection integrations={integrations} processes={processes} />
+            <InstalledSection integrations={integrations} processes={processes} installed={list.integrations} query={query} />
+            {query.trim() ? null : (
+              <FoundServersSection
+                hostId={hostId}
+                onNeedsValues={(integration) => {
+                  integrations.expand(integration.id);
+                  void integrations.flows.connect(integration);
+                }}
+              />
+            )}
             {looksLikeUrl(query) ? (
               <CustomAddressSection integrations={integrations} installed={list.integrations} address={query.trim()} onAdd={add} />
             ) : (
@@ -136,7 +157,43 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
   );
 }
 
-function InstalledSection(props: { readonly integrations: IntegrationsModel; readonly installed: readonly Integration[]; readonly query: string }) {
+/**
+ * Add command (§7.7): the form, then the record, the values, and Start and
+ * test. The new row opens on its process state; a start that fails says why there.
+ */
+function CommandAddSection(props: { readonly integrations: IntegrationsModel; readonly processes: CommandProcesses }) {
+  const { integrations, processes } = props;
+  const [isOpen, setOpen] = useState(false);
+  const add = async ({ values, ...request }: CommandAdd) => {
+    const integration = await integrations.addCommand(request);
+    setOpen(false);
+    integrations.expand(integration.id);
+    if (request.envNames.length === 0) return processes.start(integration.id);
+    await integrations.flows.connect(integration);
+    if (!values) return;
+    await integrations.flows.submitValues(integration.id, values);
+    await processes.start(integration.id);
+  };
+  return (
+    <SettingsSection title="Command">
+      {isOpen ? (
+        <View className="p-4">
+          <CommandServerForm
+            hostName="this host"
+            mayRunCommands={processes.mayRunCommands}
+            enabled={integrations.connected && integrations.busy === null}
+            onAdd={add}
+            onCancel={() => setOpen(false)}
+          />
+        </View>
+      ) : (
+        <SettingsActionRow icon="terminal" label="Add command" description="A program on this host, such as npx or uvx, that speaks MCP" disabled={!integrations.connected} onPress={() => setOpen(true)} />
+      )}
+    </SettingsSection>
+  );
+}
+
+function InstalledSection(props: { readonly integrations: IntegrationsModel; readonly processes: CommandProcesses; readonly installed: readonly Integration[]; readonly query: string }) {
   const { integrations, installed } = props;
   const shown = filterInstalled(installed, looksLikeUrl(props.query) ? "" : props.query);
 
@@ -180,7 +237,7 @@ function InstalledSection(props: { readonly integrations: IntegrationsModel; rea
   };
 
   if (installed.length === 0) {
-    return <SettingsNote>No MCP servers yet. Add one from the catalog to give agents on this host its tools.</SettingsNote>;
+    return <SettingsNote>No MCP servers yet. Add one from the catalog, or add a command, to give agents on this host its tools.</SettingsNote>;
   }
   return (
     <View className="gap-3">
@@ -196,6 +253,7 @@ function InstalledSection(props: { readonly integrations: IntegrationsModel; rea
               integration={integration}
               first={index === 0}
               integrations={integrations}
+              processes={props.processes}
               onRename={() => promptRename(integration)}
               onRemove={() => confirmRemove(integration)}
               onDisconnect={() => confirmDisconnect(integration)}
@@ -212,6 +270,7 @@ function InstalledRow(props: {
   readonly integration: Integration;
   readonly first: boolean;
   readonly integrations: IntegrationsModel;
+  readonly processes: CommandProcesses;
   readonly onRename: () => void;
   readonly onRemove: () => void;
   readonly onDisconnect: () => void;
@@ -223,10 +282,13 @@ function InstalledRow(props: {
   const status = installed.status(connections);
   const connection = connections.kind === "loaded" ? connections.byIntegration.get(integration.id) : undefined;
   const flow = flows.flows.get(integration.id);
-  const host = urlHost(integration.url);
+  const host = serverAddressLine(integration);
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
   const canEdit = resourceAllows(integration, "edit");
   const editable = busy === null && canEdit;
+  const process = props.processes.statusOf(integration, connection);
+  const isNotRunning = props.processes.isNotRunning(integration);
+  const line = installedRowLine(status, process, isNotRunning);
   const connect = () => {
     integrations.expand(integration.id);
     void flows.connect(integration);
@@ -236,22 +298,26 @@ function InstalledRow(props: {
       <View className="flex-row items-center gap-3 pr-4">
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${integration.name}, ${host}, ${status.text}`}
+          accessibilityLabel={[integration.name, integration.projectName ? projectOnlyLabel(integration.projectName) : null, host, status.text, isNotRunning ? NOT_RUNNING_LABEL : null].filter(Boolean).join(", ")}
           accessibilityState={{ expanded }}
           onPress={() => integrations.toggle(integration.id)}
           className="min-w-0 flex-1 flex-row items-center gap-4 py-4 pl-4 active:opacity-70"
         >
           <ServerIcon url={integration.url} name={integration.name} />
           <View className="min-w-0 flex-1 gap-0.5">
-            <Text className="text-lg text-foreground" numberOfLines={1}>{integration.name}</Text>
-            <Text className="text-sm text-foreground-muted" numberOfLines={1} ellipsizeMode="middle">{host}</Text>
-            <Text className={cn("text-sm", status.tone === "danger" ? "text-danger-foreground" : "text-foreground-muted")} numberOfLines={1}>{status.text}</Text>
+            <View className="min-w-0 flex-row items-center gap-2">
+              <Text className="shrink text-lg text-foreground" numberOfLines={1}>{integration.name}</Text>
+              {/* A server from a project's file joins only that project's runs (mcp-first-class.md §8.4). */}
+              {integration.projectName ? <Badge label={projectOnlyLabel(integration.projectName)} tone="muted" /> : null}
+            </View>
+            <Text className={cn("text-sm text-foreground-muted", process && "font-mono")} numberOfLines={1} ellipsizeMode="middle">{host}</Text>
+            <Text className={cn("text-sm", line.tone === "danger" ? "text-danger-foreground" : "text-foreground-muted")} numberOfLines={1}>{line.text}</Text>
           </View>
         </Pressable>
         {status.action && !flow ? (
           <PillButton
-            label={status.action === "connect" ? "Connect" : "Reconnect"}
-            accessibilityLabel={`${status.action === "connect" ? "Connect" : "Reconnect"} ${integration.name}`}
+            label={line.actionLabel}
+            accessibilityLabel={`${line.actionLabel} ${integration.name}`}
             disabled={!flows.connected}
             onPress={connect}
           />
@@ -267,6 +333,7 @@ function InstalledRow(props: {
             connected={flows.connected}
             onOpen={() => flows.openSignIn(integration.id)}
             onSubmit={(value) => void flows.submit(integration.id, value)}
+            onSubmitValues={(values) => void flows.submitValues(integration.id, values)}
             onCancel={() => void flows.cancel(integration.id)}
             onDone={() => void flows.cancel(integration.id)}
           />
@@ -274,6 +341,17 @@ function InstalledRow(props: {
       ) : null}
       {expanded ? (
         <View>
+          {process ? (
+            <CommandServerDetails
+              integration={integration}
+              process={process}
+              processes={props.processes}
+              isConnected={integrations.connected}
+              isEditable={editable}
+              isSaving={busy === `command:${integration.id}`}
+              onEdit={(launch, envNames) => integrations.editCommand(integration.id, launch, envNames)}
+            />
+          ) : null}
           {connection?.error ? (
             <View className="px-4 pb-3 pl-[58px]">
               <Text className="text-sm text-foreground-muted" selectable>{connection.error}</Text>
@@ -290,20 +368,16 @@ function InstalledRow(props: {
               />
             </View>
           ) : null}
-          {installed.mayLoadTools(connections) ? (
-            <IntegrationTools
-              integration={integration}
-              tools={integrations.tools.get(integration.id)}
-              enabled={integrations.connected && editable}
-              onToggle={(toolName, isOn) => {
-                integrations.setToolEnabled(integration, toolName, isOn).catch((cause: unknown) => Alert.alert("Not saved", errorMessage(cause)));
-              }}
-            />
-          ) : (
-            <View className="px-4 pb-3 pl-[58px]">
-              <SettingsNote>Connect to see its tools.</SettingsNote>
-            </View>
-          )}
+          <InstalledTools
+            integration={integration}
+            mayLoad={installed.mayLoadTools(connections)}
+            isNotRunning={isNotRunning}
+            tools={integrations.tools.get(integration.id)}
+            enabled={integrations.connected && editable}
+            onToggle={(toolName, isOn) => {
+              integrations.setToolEnabled(integration, toolName, isOn).catch((cause: unknown) => Alert.alert("Not saved", errorMessage(cause)));
+            }}
+          />
           <IntegrationExtraAccounts
             integration={integration}
             first={connection}
@@ -350,6 +424,25 @@ function OwnerOnlyNote(props: { readonly hidden: boolean }) {
   );
 }
 
+/** The tools, or why the row shows none: no sign-in yet, or a loopback server that does not run (mcp-first-class.md §9.3). */
+function InstalledTools(props: {
+  readonly integration: Integration;
+  readonly mayLoad: boolean;
+  readonly isNotRunning: boolean;
+  readonly tools: IntegrationToolsState | undefined;
+  readonly enabled: boolean;
+  readonly onToggle: (toolName: string, isOn: boolean) => void;
+}) {
+  if (!props.mayLoad || props.isNotRunning) {
+    return (
+      <View className="px-4 pb-3 pl-[58px]">
+        <SettingsNote>{props.mayLoad ? notRunningText(props.integration.name) : "Connect to see its tools."}</SettingsNote>
+      </View>
+    );
+  }
+  return <IntegrationTools integration={props.integration} tools={props.tools} enabled={props.enabled} onToggle={props.onToggle} />;
+}
+
 /** The server's tools, each with a switch that keeps it on or turns it off for agents on this host. */
 function IntegrationTools(props: {
   readonly integration: Integration;
@@ -358,6 +451,7 @@ function IntegrationTools(props: {
   readonly onToggle: (toolName: string, isOn: boolean) => void;
 }) {
   const { tools } = props;
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
   if (!tools || tools.kind === "loading") {
     return (
       <View className="items-center py-2">
@@ -366,9 +460,24 @@ function IntegrationTools(props: {
     );
   }
   if (tools.kind === "error") return <View className="px-4 pb-2"><SettingsNote tone="danger">{`Tools could not be read: ${tools.message}`}</SettingsNote></View>;
-  if (tools.tools.length === 0) return <View className="px-4 pb-2"><SettingsNote>This server lists no tools.</SettingsNote></View>;
   return (
     <View className="gap-3 px-4 pb-3 pl-[58px]">
+      {tools.instructions ? (
+        <View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Instructions for the agent"
+            accessibilityState={{ expanded: instructionsOpen }}
+            onPress={() => setInstructionsOpen((open) => !open)}
+            className="min-h-11 flex-row items-center gap-2 self-start active:opacity-60"
+          >
+            <Text className="text-sm text-foreground-secondary">Instructions for the agent</Text>
+            <SymbolView name={instructionsOpen ? "chevron.down" : "chevron.right"} size={13} tintColorClassName="accent-icon-muted" type="monochrome" />
+          </Pressable>
+          {instructionsOpen ? <Text className="text-sm text-foreground-muted" selectable>{tools.instructions}</Text> : null}
+        </View>
+      ) : null}
+      {tools.tools.length === 0 ? <SettingsNote>This server lists no tools.</SettingsNote> : null}
       {tools.tools.map((tool) => (
         <ToolLine
           key={tool.name}
@@ -378,6 +487,18 @@ function IntegrationTools(props: {
           onToggle={(isOn) => props.onToggle(tool.name, isOn)}
         />
       ))}
+      {tools.cliSkips.length ? <CliCopyNote lines={cliSkipLines(tools.cliSkips)} /> : null}
+    </View>
+  );
+}
+
+/** The CLI copies of this server that the person's runs left out (docs/plans/mcp-first-class.md §8.5). */
+function CliCopyNote(props: { readonly lines: string[] }) {
+  return (
+    <View accessibilityLabel="CLI copy" className="gap-1">
+      <Text className="text-sm text-foreground">CLI copy</Text>
+      {props.lines.map((line) => <Text key={line} className="text-sm text-foreground-muted">{line}</Text>)}
+      <SettingsNote>{CLI_SKIP_NOTE}</SettingsNote>
     </View>
   );
 }

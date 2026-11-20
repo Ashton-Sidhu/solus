@@ -1,4 +1,5 @@
 import { worktreeProjectRoot, type BranchRef, type GitCheckout } from '@solus/contracts/types'
+import { searchWords } from './search-match'
 
 /**
  * The three facts a pre-session surface needs about a working directory: the
@@ -81,7 +82,7 @@ export const BRANCH_ROWS_SHOWN = 100
 /** The first `limit` branches whose names hold every word of the search, in
  *  list order. It stops at `limit`, so a short search over a huge list is cheap. */
 export function branchesMatching(branches: readonly BranchRef[], search: string, limit: number): BranchRef[] {
-  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+  const words = searchWords(search)
   const matches: BranchRef[] = []
   for (const branch of branches) {
     if (matches.length === limit) break

@@ -336,6 +336,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
           runtimeInstructions(
             { harness: 'Claude Code', model, reasoningEffort: reasoningEffort ?? 'default', workingDirectory: request.cwd },
             request.tools,
+            request.integrationInstructions,
           ),
         ].filter(Boolean).join('\n\n'),
         maxTurns: request.maxTurns,
@@ -355,6 +356,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         persistSession: request.persistence === 'session',
         abortController,
         onMcpApp: request.persistence === 'session' ? claudeAppSaver(() => handle.sessionId) : undefined,
+        cliSkip: request.cliSkip,
         onTurnComplete: checkpointTarget
           ? (facts) => endTurnCheckpoint(checkpointTarget, { ...facts, traceId: sessionState?.turnTraceId })
           : undefined,

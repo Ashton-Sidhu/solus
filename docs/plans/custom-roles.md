@@ -100,7 +100,7 @@ session.drive.prompt          prompt, retry, compactSession, stopSession, the qu
 session.drive.attach          attachUpload, attachUploadToken
 session.drive.approve         respondPermission, respondQuestion, decideSessionPlan, acceptPlan, rateLimitDecision
 session.drive.devices         deviceOpen, deviceClose
-session.drive.apps            mcpAppToolInfo, mcpAppCallTool, mcpAppReadResource
+session.drive.apps            mcpAppToolInfo, mcpAppCallTool, mcpAppReadResource, mcpAppUpdateModelContext
 session.edit                  title, branch, goal, plan files, task links
 session.share                 shareSet, shareSetLink
 session.own                   export

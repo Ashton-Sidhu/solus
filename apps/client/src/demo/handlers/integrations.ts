@@ -9,9 +9,13 @@ import {
 import {
   DEMO_CATALOG,
   DEMO_INTEGRATION_CONNECTIONS,
+  DEMO_INTEGRATION_FACTS,
   DEMO_INTEGRATION_TOOLS,
+  DEMO_INTEGRATION_PROMPTS,
   DEMO_INTEGRATIONS,
+  demoPromptText,
 } from '../fixtures/integrations'
+import type { IntegrationPromptGetRequest, IntegrationPromptText } from '@solus/contracts/integrations/prompts'
 import type { DemoServer } from '../fixtures/types'
 
 /**
@@ -35,6 +39,7 @@ export function registerIntegrationsHandlers(backend: DemoServer): void {
     return integrations.find((integration) => integration.id === id) ?? null
   })
   backend.register('integrationTools', (args) => DEMO_INTEGRATION_TOOLS.get(arg<IntegrationIdRequest>(args, 0).id) ?? [])
+  backend.register('integrationFacts', (args) => DEMO_INTEGRATION_FACTS.get(arg<IntegrationIdRequest>(args, 0).id) ?? null)
   backend.register('integrationUpdate', (args) => {
     const request = arg<IntegrationUpdateRequest>(args, 0)
     const integration = integrations.find((candidate) => candidate.id === request.id)
@@ -58,6 +63,14 @@ export function registerIntegrationsHandlers(backend: DemoServer): void {
       && (!query || [entry.name, entry.description, entry.domain].some((field) => field.toLowerCase().includes(query))))
     const offset = request.offset ?? 0
     return { entries: matching.slice(offset, offset + (request.limit ?? matching.length)), total: matching.length }
+  })
+  backend.register('integrationPromptList', () => DEMO_INTEGRATION_PROMPTS)
+  backend.register('integrationPromptGet', (args): IntegrationPromptText => {
+    const request = arg<IntegrationPromptGetRequest>(args, 0)
+    const server = DEMO_INTEGRATION_PROMPTS.signIn.find((entry) => entry.integrationId === request.integrationId)
+    if (server) return { kind: 'connection-required', integrationId: server.integrationId, integrationName: server.integrationName, needs: server.needs }
+    const values = new Map(request.arguments.map((entry) => [entry.name, entry.value]))
+    return { kind: 'text', text: demoPromptText(request.name, values), attachments: [] }
   })
   backend.register('integrationProbe', signInNeeded)
   backend.register('integrationCreate', signInNeeded)

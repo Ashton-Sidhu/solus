@@ -9,12 +9,20 @@ import {
   integrationAccountRequestSchema,
   integrationIdRequestSchema,
   integrationProbeRequestSchema,
+  integrationProcessStartRequestSchema,
+  integrationResourceAttachRequestSchema,
+  integrationResourceListRequestSchema,
   integrationUpdateRequestSchema,
   type Integration,
   type IntegrationAuth,
+  integrationFoundAddRequestSchema,
+  integrationFoundListRequestSchema,
+  type IntegrationFacts,
+  type IntegrationResourceLists,
   type IntegrationOAuthClientInput,
 } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { integrationPromptGetRequestSchema, integrationPromptListRequestSchema } from '@solus/contracts/integrations/prompts'
 import { OAuthClientRequiredError } from '@solus/contracts/integrations/oauth-protocol'
 import { roleOf } from '../../admission/access'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
@@ -25,7 +33,17 @@ import type { IntegrationConnections } from '../../integrations/connections'
 import type { IntegrationGateway } from '../../integrations/gateway'
 import type { IntegrationStore } from '../../integrations/integration-store'
 import type { IntegrationOAuth } from '../../integrations/oauth'
-import { createIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
+import { createIntegration, createStdioIntegration, probeAddress, probeForWrite, updateCommand } from '../../integrations/integration-create'
+import { integrationPromptList, integrationPromptText } from '../../integrations/integration-prompts'
+import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
+import type { FoundServers } from '../../integrations/found-servers'
+import type { LocalMcpServers } from '../../integrations/local-servers'
+import { assertPathInScope } from '../../data/sessions/guest-path-scope'
+import { cliSkipLog } from '../../integrations/cli-skips'
+import { attachResource } from '../../integrations/resource-attach'
+import { resourceListsOf } from '../../integrations/resource-lists'
+import { RUN_LIST_TIMEOUT_MS, integrationsForRun } from '../../integrations/integration-tools'
+import { uploadBucketId } from './attachment-handlers'
 import { createLogger } from '../../logger'
 import { currentPersonKey, requirePersonKey } from '../../vault/acting-scope'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -53,6 +71,20 @@ function forReader(actor: Actor, integration: Integration): Integration {
 }
 
 /**
+ * A command runs as code on the host, as the OS user of the Solus server: only
+ * a person with `host.admin` adds one or changes its command or names
+ * (docs/plans/mcp-first-class.md §7.2). The gateway checks the same rule at a
+ * start (`command-admission.ts`).
+ */
+function requireHostAdmin(principal: Principal): void {
+  if (!mayRunCommands(principal)) throw new Error(COMMAND_CHANGE_REFUSAL)
+}
+
+function requireStdio(integration: Integration): void {
+  if (integration.kind !== 'stdio') throw new Error(`${integration.name} is not a command.`)
+}
+
+/**
  * Integrations (docs/plans/mcp-integrations.md §12): the remote MCP servers this
  * host knows. Every one is its creator's own: reads take the caller's record
  * scope and answer the caller's records only; a new integration starts in the
@@ -70,6 +102,10 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   /** Where the owner's OAuth client secret is kept; `oauth` reads it from the same store. */
   clients: Pick<IntegrationClients, 'saveClient' | 'removeClient'>
   getServerInfo(): { host: string; port: number }
+  /** The MCP servers in this host's config files (docs/plans/mcp-first-class.md §8). */
+  found: FoundServers
+  /** Whether a server on this host's loopback runs (§9.3). Absent where the host does not follow its running servers. */
+  local?: Pick<LocalMcpServers, 'reachable'>
   /**
    * The caller's agent profile (plans/020-agent-profile.md): signed in, the
    * caller's own servers are part of it, so a change here goes to their account
@@ -91,7 +127,11 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
 
   server.register('integrationProbe', (args) => probeAddress(integrationProbeRequestSchema.parse(args[0]).url))
 
-  server.register('integrationList', (_args, ctx) => store.list(recordScopeOf(ctx.principal), ownerKeyOf(ctx.actor)).map((integration) => forReader(ctx.actor, integration)))
+  server.register('integrationList', (_args, ctx) => {
+    const integrations = store.list(recordScopeOf(ctx.principal), ownerKeyOf(ctx.actor))
+    void clearClientDocumentMarks(integrations)
+    return integrations.map((integration) => forReader(ctx.actor, integration))
+  })
 
   server.register('integrationGet', (args, ctx) => {
     const integration = store.getOwned(integrationIdRequestSchema.parse(args[0]).id, recordScopeOf(ctx.principal), ownerKeyOf(ctx.actor))
@@ -103,20 +143,27 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     // A server is its creator's own, on every host (D3); the host's own work adds none.
     const owner = ownerKeyOf(ctx.actor)
     if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
-    return forReader(ctx.actor, await createIntegration({ store, events, profile: deps.profile }, ctx.principal, owner, request))
+    if ('url' in request) return forReader(ctx.actor, await createIntegration({ store, events, profile: deps.profile }, ctx.principal, owner, request))
+    requireHostAdmin(ctx.principal)
+    return forReader(ctx.actor, createStdioIntegration({ store, events }, ctx.principal, owner, request))
   })
 
   server.register('integrationUpdate', async (args, ctx) => {
-    const { id, name, url, oauthClient, disabledTools } = integrationUpdateRequestSchema.parse(args[0])
+    const request = integrationUpdateRequestSchema.parse(args[0])
+    const { id, name, url, oauthClient, disabledTools } = request
     const scope = recordScopeOf(ctx.principal)
     const existing = requireIntegration(id, ctx.actor)
-    let auth = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
+    const commandChanged = request.launch !== undefined || request.envNames !== undefined
+    if (existing.kind === 'stdio' ? url !== undefined || oauthClient !== undefined : commandChanged) throw new Error(`${existing.name} cannot take that change: a command has a launch and names, a server an address.`)
+    if (commandChanged) return forReader(ctx.actor, updateCommand({ store, events, gateway, connections }, existing, request, ctx.principal))
+    let auth: IntegrationAuth | undefined = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
     if (oauthClient !== undefined) {
       auth = withOAuthClient(auth ?? existing.auth, oauthClient)
       if (oauthClient === null) clients.removeClient(id)
       else {
         const { clientId, clientSecret } = oauthClient
-        clients.saveClient(id, clientSecret
+        const issuer = await oauth.issuerOf({ ...existing, auth: auth ?? existing.auth, url: url ?? existing.url })
+        clients.saveClient(id, issuer, clientSecret
           ? { clientId, clientSecret, tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] }
           : { clientId, tokenEndpointAuthMethod: 'none', redirectUris: [] })
       }
@@ -125,6 +172,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     if (!integration) throw new Error('That integration is no longer on this host.')
     // Turning tools on or off keeps the upstream session: the filter is on the record.
     if (name !== undefined || url !== undefined || oauthClient !== undefined) gateway.invalidate(id)
+    // Every tool off, or a new address, can give the CLI its copy back at the next run (§8.5).
+    cliSkipLog.forget(id)
     void events.broadcast('integration.changed', { integrationId: id, change: 'updated' })
     void deps.profile?.saved(ctx.principal, integration)
     return forReader(ctx.actor, integration)
@@ -137,7 +186,9 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     if (!integration) return { removed: false }
     // It leaves the caller's profile first, so no host's next pull brings it back.
     await deps.profile?.removing(ctx.principal, integration)
-    gateway.invalidate(id)
+    // A command's process stops, and its saved facts go (§7.7). The next run gives the CLI its copy back (§8.5).
+    gateway.forget(id)
+    cliSkipLog.forget(id)
     const removed = store.remove(id, scope)
     if (removed) connections.removeAllFor(integration)
     if (removed) void events.broadcast('integration.changed', { integrationId: id, change: 'removed' })
@@ -150,6 +201,100 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     return gateway.tools(id)
   })
 
+  server.register('integrationFacts', async (args, ctx) => {
+    const { id } = integrationIdRequestSchema.parse(args[0])
+    const integration = requireIntegration(id, ctx.actor)
+    const reachable = deps.local?.reachable(integration)
+    let facts: IntegrationFacts
+    try {
+      facts = await gateway.facts(id)
+    } catch (error) {
+      // Nothing listens on its port: the row says Not running, not the refused connection (§9.3).
+      if (reachable !== 'not-running') throw error
+      facts = { era: null, instructions: null, capabilities: { prompts: false, resources: false, resourceSubscribe: false, tasks: false } }
+    }
+    const cliSkips = cliSkipLog.for(id, currentPersonKey())
+    if (cliSkips.length) facts = { ...facts, cliSkips }
+    return reachable ? { ...facts, reachable } : facts
+  })
+
+  server.register('integrationProcessStart', async (args, ctx) => {
+    const { id, recheck } = integrationProcessStartRequestSchema.parse(args[0])
+    const integration = requireIntegration(id, ctx.actor)
+    requireStdio(integration)
+    return gateway.startProcess(id, ctx.principal, recheck)
+  })
+
+  server.register('integrationProcessStop', async (args, ctx) => {
+    const { id } = integrationIdRequestSchema.parse(args[0])
+    requireStdio(requireIntegration(id, ctx.actor))
+    return { stopped: await gateway.stopProcess(id) }
+  })
+
+  // Found servers (docs/plans/mcp-first-class.md §8): a project's files only where the caller may read that project.
+  server.register('integrationFoundList', (args, ctx) => {
+    const request = integrationFoundListRequestSchema.parse(args[0] ?? {})
+    if (request.projectPath) assertPathInScope('integrationFoundList', ctx.principal, request.projectPath)
+    return deps.found.list(ctx.principal, ownerKeyOf(ctx.actor), request)
+  })
+
+  server.register('integrationFoundAdd', async (args, ctx) => {
+    const request = integrationFoundAddRequestSchema.parse(args[0])
+    if (request.projectPath) assertPathInScope('integrationFoundAdd', ctx.principal, request.projectPath)
+    const owner = ownerKeyOf(ctx.actor)
+    if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
+    const result = await deps.found.add(ctx.principal, owner, request)
+    return result.kind === 'saved' ? { ...result, integration: forReader(ctx.actor, result.integration) } : result
+  })
+
+  // MCP prompts as slash commands (mcp-first-class.md §10): the caller's own servers, with the caller's connection.
+  server.register('integrationPromptList', (args, ctx) => {
+    const { projectPath } = integrationPromptListRequestSchema.parse(args[0] ?? {})
+    return integrationPromptList(gateway, ctx.actor, projectPath)
+  })
+
+  server.register('integrationPromptGet', (args, ctx) => {
+    const request = integrationPromptGetRequestSchema.parse(args[0])
+    return integrationPromptText(gateway, ctx.actor, requireIntegration(request.integrationId, ctx.actor), request)
+  })
+
+  /**
+   * The caller's MCP resources (§11.4): of one integration, or of each one that
+   * joins a run in `projectPath`. A server that does not answer in 10 seconds,
+   * or fails, is left out. A list starts no command.
+   */
+  server.register('integrationResourceList', async (args, ctx): Promise<IntegrationResourceLists> => {
+    const request = integrationResourceListRequestSchema.parse(args[0] ?? {})
+    const integrations = request.integrationId ? [requireIntegration(request.integrationId, ctx.actor)] : integrationsForRun(deps, ctx.actor, request.projectPath)
+    const personKey = currentPersonKey()
+    const answers = await Promise.all(integrations.map(async (integration) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), RUN_LIST_TIMEOUT_MS) })
+      try {
+        const lists = await Promise.race([gateway.resourcesFor(integration.id, personKey, null), late])
+        return lists && resourceListsOf(integration.id, lists)
+      } catch (error) {
+        log.info('integration_resources_unavailable', { integrationId: integration.id, error: error instanceof Error ? error.message : String(error) })
+        return null
+      } finally {
+        clearTimeout(timer)
+      }
+    }))
+    return {
+      resources: answers.flatMap((answer) => answer?.resources ?? []),
+      templates: answers.flatMap((answer) => answer?.templates ?? []),
+    }
+  })
+
+  server.register('integrationResourceAttach', async (args, ctx) => {
+    const [ipc, raw] = args
+    const bucketId = uploadBucketId(ipc)
+    if (!bucketId) throw new Error('A conversation is required to attach a resource.')
+    const request = integrationResourceAttachRequestSchema.parse(raw)
+    const integration = requireIntegration(request.integrationId, ctx.actor)
+    return attachResource({ gateway, integration, request, starter: ctx.principal, bucketId, sessionId: ipc?.session?.sessionId || undefined })
+  })
+
   server.register('integrationConnectionList', () => {
     const personKey = currentPersonKey()
     return personKey === null ? [] : connectionStore.list(personKey)
@@ -160,11 +305,34 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
    * will not register Solus. The record says so now, so every client shows the
    * client form and "Set up with an agent" instead of a sign-in that cannot work.
    */
-  function needsOwnerClient(integration: Integration): void {
+  async function needsOwnerClient(integration: Integration): Promise<void> {
     if (integration.auth.kind !== 'oauth' || integration.auth.registration === 'client-required') return
-    store.update(integration.id, { auth: { ...integration.auth, registration: 'client-required' } }, integration.organizationId)
-    log.info('integration_registration_refused', { integrationId: integration.id })
+    // A server that reads Client ID Metadata Documents refused because Solus's is not confirmed yet: the mark is taken back with it.
+    const awaitsClientDocument = integration.auth.registration === 'metadata-document' && !(await oauth.clientDocumentConfirmed())
+    const auth: IntegrationAuth = { ...integration.auth, registration: 'client-required' }
+    if (awaitsClientDocument) auth.awaitsClientDocument = true
+    store.update(integration.id, { auth }, integration.organizationId)
+    log.info('integration_registration_refused', { integrationId: integration.id, awaitsClientDocument })
     void events.broadcast('integration.changed', { integrationId: integration.id, change: 'updated' })
+  }
+
+  /**
+   * The marks made while Solus's Client ID Metadata Document was not confirmed
+   * go once the host confirms it: the record reads `metadata-document` again,
+   * and every client shows Connect in place of the client form. Read when a
+   * person lists their servers, so a deploy of the document reaches the record
+   * with no step of theirs; the document's own cache limits the reads.
+   */
+  async function clearClientDocumentMarks(integrations: Integration[]): Promise<void> {
+    const marked = integrations.filter((integration) => integration.auth.kind === 'oauth' && integration.auth.awaitsClientDocument)
+    if (marked.length === 0 || !(await oauth.clientDocumentConfirmed())) return
+    for (const integration of marked) {
+      if (integration.auth.kind !== 'oauth') continue
+      const { awaitsClientDocument: _cleared, ...auth } = integration.auth
+      store.update(integration.id, { auth: { ...auth, registration: 'metadata-document' } }, integration.organizationId)
+      log.info('integration_client_document_confirmed', { integrationId: integration.id })
+      void events.broadcast('integration.changed', { integrationId: integration.id, change: 'updated' })
+    }
   }
 
   server.register('integrationConnectStart', async (args, ctx) => {
@@ -180,6 +348,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
         return { kind: 'connected' as const, connection: connections.connectAnonymous(integration, user) }
       case 'bearer':
         return { kind: 'token' as const, integrationId: integration.id, accountId }
+      case 'env':
+        return { kind: 'env' as const, integrationId: integration.id, accountId, names: integration.auth.names }
       case 'oauth': {
         // The person's Solus GitHub connection is the credential: no sign-in here (§13.1).
         if (new IntegrationSignIn(integration).usesSolusGithub) {
@@ -191,7 +361,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
         try {
           return await oauth.start(integration, { callbackBaseUrl: request.callbackBaseUrl, fallbackHost: host, fallbackPort: port }, accountId)
         } catch (error) {
-          if (error instanceof OAuthClientRequiredError) needsOwnerClient(integration)
+          if (error instanceof OAuthClientRequiredError) await needsOwnerClient(integration)
           throw error
         }
       }
@@ -201,9 +371,12 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   server.register('integrationConnectSubmit', async (args, ctx) => {
     const request = integrationConnectSubmitRequestSchema.parse(args[0])
     if (request.flowId !== undefined) {
+      if (request.value === undefined) throw new Error('Give the address the browser ended on.')
       await oauth.submitRedirect(request.flowId, request.value)
     } else if (request.id !== undefined) {
-      await connections.submitKey(requireIntegration(request.id, ctx.actor), requirePersonKey(), request.value, request.accountId)
+      const integration = requireIntegration(request.id, ctx.actor)
+      if (request.values !== undefined) connections.submitEnvironment(integration, requirePersonKey(), request.values, request.accountId)
+      else if (request.value !== undefined) await connections.submitKey(integration, requirePersonKey(), request.value, request.accountId)
     }
     return { submitted: true as const }
   })

@@ -217,10 +217,12 @@ Steps 4 and 5 are built (2026-10-14). As built in Solus:
   reads no seat ref; the host worker does). The host's refs are the contract's;
   an MCP ref also carries the host's integration id, its host store key.
   `credentialLocationOf` is the one location rule. `settleLinked` (at the link,
-  and again when the owner's personal delegation is made) uploads the TypeSafe
-  key and deletes every host login; `forgetPerson` (at the unlink) deletes
-  everything of the person's. The host keeps the TypeSafe key in the account's
-  shape, `{ key }`.
+  and again when the owner's personal delegation is made) uploads the pasted
+  keys (TypeSafe and Linear) and deletes every host login; `forgetPerson` (at the
+  unlink) deletes everything of the person's. The host keeps both keys in the
+  account's shape, `{ key }`. `isUploadable` allows the Linear provider ref
+  because a pasted key is not a token that belongs to the client that issued
+  it; the cloud checks the key with Linear before it seals it.
 - `host-user-rows.ts`: at the link, the MCP tokens move to the account key and
   `settleLinked` runs; at the unlink, the person's Local MCP connection rows and
   every host credential of theirs go. `boot-server.ts`: an ended registration

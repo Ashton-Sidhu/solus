@@ -531,3 +531,27 @@ describe('a sign-in through Solus Cloud', () => {
     expect(offline.pulls()).toBe(0)
   })
 })
+
+// docs/plans/mcp-first-class.md §7.7 on the phone: a command takes the
+// person's environment values in place of a sign-in, they stay on the host,
+// and the row says Needs values until they are saved.
+describe('a command on the phone', () => {
+  const commandRecord = record('files', 'Files', { kind: 'stdio', url: 'stdio:0123456789abcdef', auth: { kind: 'env', names: ['GITHUB_TOKEN'] }, launch: { command: 'npx', args: ['files-mcp'] } })
+
+  test('Connect asks for the values of each name, and a saved set ends the flow', () => {
+    const asked = connectStarted({ kind: 'env', integrationId: 'files', names: ['GITHUB_TOKEN'] }, 'Files')
+    expect(asked).toEqual({ step: 'values', names: ['GITHUB_TOKEN'], busy: false, error: null })
+    expect(connectSubmitting(asked)).toEqual({ step: 'values', names: ['GITHUB_TOKEN'], busy: true, error: null })
+    expect(connectFailed(connectSubmitting(asked), 'Give a value for GITHUB_TOKEN.')).toEqual({ step: 'values', names: ['GITHUB_TOKEN'], busy: false, error: 'Give a value for GITHUB_TOKEN.' })
+    expect(connectSubmitted(connectSubmitting(asked), 'Files')).toEqual({ step: 'finished', ok: true, message: 'Saved the values of Files.' })
+  })
+
+  test('the values never go to Solus Cloud, even for a signed-in person', () => {
+    expect(connectsThroughCloud(commandRecord, 'user-1')).toBe(false)
+  })
+
+  test('the row asks for values until they are saved', () => {
+    expect(new InstalledIntegration(commandRecord).status(loaded())).toEqual({ text: 'Needs values', tone: 'muted', action: 'connect' })
+    expect(new InstalledIntegration(commandRecord).status(loaded(connectionOf('files')))).toEqual({ text: 'Values saved', tone: 'muted', action: null })
+  })
+})

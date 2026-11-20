@@ -10,7 +10,10 @@ pins above project folders in project view. Drafts stay first in status view.
 Mobile uses the same host pins. Completing or archiving a session removes its
 pin. The row moves to Completed or leaves the sidebar immediately, as an
 unpinned session does. A refused change restores its previous place and pin.
-Reopening it does not restore the pin. Snoozing keeps the pin. Meta mode
+Reopening it does not restore the pin. When the session's home is an
+organization's Solus API, the client removes the pin on the host that holds
+it. A pin is the host owner's own: the host keeps it with their completion and
+archive of the session, which end it. Snoozing keeps the pin. Meta mode
 sessions use the normal sections.
 
 The session sidebar context menu on desktop and web has a **Snooze** submenu.

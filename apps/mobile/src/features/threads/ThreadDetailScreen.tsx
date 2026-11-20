@@ -53,8 +53,14 @@ import { ThreadSuggestionsCard } from "./ThreadSuggestionsCard";
 import { FLOATING_WORKING_CONTROL_COVERAGE, FloatingWorkingControl } from "./floating-working-control";
 import { backgroundFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import { showsBackgroundWork } from "@solus/client-core/background-work";
+import { mcpTaskIsLive } from "@solus/contracts/integrations/mcp-task";
+import { ThreadMcpTasks } from "./ThreadMcpTasks";
+import { useMcpTasks } from "./use-mcp-tasks";
+import { ThreadResourceWatches } from "./ThreadResourceWatches";
+import { useResourceWatches } from "./use-resource-watches";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
+import { ThreadMcpPipDock } from "./ThreadMcpPipDock";
 import { useTurnAnnouncements } from "./use-turn-announcements";
 import {
   COMPOSER_COLLAPSED_CHROME,
@@ -229,8 +235,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const mayDrive = store.controller.mayDrive;
   // Answering the agent's cards is its own action, apart from prompting (docs/plans/custom-roles.md §3).
   const mayApprove = store.controller.mayApprove;
+  // A live MCP task holds the session in `background`; its own row says so, with its own Cancel.
+  const mcpTasks = useMcpTasks(store.controller.hostId, conversationIdOf(store), turnActive);
+  const backgroundIsMcpTasks = mcpTasks.tasks.some(mcpTaskIsLive) && !meta.backgroundWorkRunning;
+  // A resource watch waits for news: its row shows, and it does not hold `background`.
+  const resourceWatches = useResourceWatches(store.controller.hostId, conversationIdOf(store), turnActive);
   // A settled turn can leave background work running; Stop ends it too.
-  const isBackground = showsBackgroundWork(meta.status, meta.backgroundWorkRunning);
+  const isBackground = showsBackgroundWork(meta.status, meta.backgroundWorkRunning) && !backgroundIsMcpTasks;
   const canStop = mayDrive && (turnActive || isBackground);
   const working = isWorkingStatus(meta.status);
   const activeWorkStartedAt = workStartedAt(store, working);
@@ -621,6 +632,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 navigation.navigate("ThreadAgents", { hostId: store.controller.hostId, conversationId: conversationIdOf(store) });
               }}
             />
+            {/* An MCP App in picture-in-picture rides above the composer and every request card. */}
+            <ThreadMcpPipDock store={store} isKeyboardVisible={isKeyboardVisible} />
             <View className="w-full self-center">
               {queuedEdit !== null ? (
                 <Animated.View className="shrink-0" entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)}>
@@ -639,6 +652,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     <AgentPlanCard key={`${plan.targetSessionId}:${plan.messageId}`} store={store} plan={plan} />
                   ))}
                 </Animated.View>
+              ) : null}
+              {activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
+                <ThreadMcpTasks view={mcpTasks} store={store} mayDrive={mayDrive} maxHeight={pendingUserInputMaxHeight} />
+              ) : null}
+              {activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
+                <ThreadResourceWatches view={resourceWatches} mayDrive={mayDrive} />
               ) : null}
               {activePendingApproval || activePendingUserInput ? (
                 <Animated.View

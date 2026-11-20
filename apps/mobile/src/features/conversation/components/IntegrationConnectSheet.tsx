@@ -182,6 +182,7 @@ function IntegrationConnectRow({ request, integrations, isConnected, onDone, onH
             connected={flows.connected}
             onOpen={() => flows.openSignIn(integrationId)}
             onSubmit={(value) => void flows.submit(integrationId, value)}
+            onSubmitValues={(values) => void flows.submitValues(integrationId, values)}
             onCancel={() => void flows.cancel(integrationId)}
             onDone={onDone}
           />

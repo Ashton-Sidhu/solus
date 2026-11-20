@@ -4,12 +4,14 @@ import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData, UsageWindowU
 import { normalizeResetNumber } from '../../rate-limits'
 import { isAuthFailureMessage } from '../auth-failure'
 import { storeToolResultImages, withoutImageBytes } from '../../../data/assets/transcript-images'
+import { toolResultMedia } from '../../../data/assets/tool-result-media'
 import {
   codexImageArtifactPath,
   codexReasoningText,
   codexSpawnedThreadLinks,
   codexSubagentActivityInput,
   codexToolNameForItem,
+  codexToolResultText,
   isInterruptedTurnStatus,
   planFromCompletedItem,
   planTextFromPlanUpdated,
@@ -829,10 +831,13 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
       ? { ...item.result, content: withoutImageBytes(item.result.content) }
       : item.result
     const payload = item.aggregatedOutput || result || item.error || (Array.isArray(item.changes) ? { changes: item.changes } : null)
-    if (payload || toolImages) {
+    // A Solus tool's text names its saved audio and what it left out.
+    const media = toolResultMedia(codexToolResultText(item.result ?? (item.contentItems ? { contentItems: item.contentItems } : undefined)))
+    if (payload || toolImages || media.toolAudio || media.toolLeftOut) {
       const update: Extract<NormalizedEvent, { type: 'tool_call_update' }> = { type: 'tool_call_update', toolId: item.id }
       if (payload) update.content = parsedString(payload) ?? JSON.stringify(payload)
       if (toolImages) update.toolImages = toolImages
+      Object.assign(update, media)
       updates.push(update)
     }
   }

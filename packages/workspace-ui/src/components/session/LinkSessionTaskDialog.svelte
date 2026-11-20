@@ -9,6 +9,7 @@
   import * as Command from "../ui/command";
   import * as Popover from "../ui/popover";
   import { MenuSearch } from "../ui/menu";
+  import { matchesSearch } from "../../lib/search-match";
   import TaskIcon from "../ui/TaskIcon.svelte";
   import { taskPickerSections } from "../tasks/lib/task-picker-sections";
   import { taskRef } from "../tasks/lib/tasks-api";
@@ -33,14 +34,18 @@
   let { tabId, onClose, anchor = null }: Props = $props();
 
   const session = getWorkspaceContext();
-  const tasks = $derived(session.tasksStore.tasks.filter((task) => task.category !== "done"));
-  const sections = $derived(taskPickerSections(tasks));
+  let query = $state("");
+  const matchingTasks = $derived(
+    session.tasksStore.tasks.filter(
+      (task) => task.category !== "done" && matchesSearch(`${task.title} ${task.reference ?? ""} ${task.id}`, query),
+    ),
+  );
+  const sections = $derived(taskPickerSections(matchingTasks));
   // The host lists at most a part of a large task source. A query also asks
   // the provider, and the tasks only it found show below the listed ones.
   const providerSearch = new ProviderTaskSearch((text) => session.tasksStore.search(text));
-  const foundTasks = $derived(tasksOnlyFound(providerSearch.results, tasks));
+  const foundTasks = $derived(tasksOnlyFound(providerSearch.results, matchingTasks));
 
-  let query = $state("");
   /** The task whose link is in flight. */
   let linkingTaskId = $state<string | null>(null);
 
@@ -84,7 +89,9 @@
     <div class="px-3.5 pt-3 pb-1">
       <span class="font-medium">Link to task</span>
     </div>
-    <Command.Root>
+    <!-- The rows filter themselves (`matchesSearch`): the command's own filter
+         moves row DOM nodes behind the keyed lists. -->
+    <Command.Root shouldFilter={false}>
       <MenuSearch bind:value={query} placeholder="Search tasks" />
       <Command.List class="max-h-[18rem] overflow-y-auto p-1.5">
         {#if !providerSearch.searching && foundTasks.length === 0}
@@ -109,14 +116,12 @@
             {/each}
           </Command.Group>
         {/each}
-        <!-- The provider matched these itself, so the menu's own filter must
-             not hide them. -->
+        <!-- The provider matched these itself. -->
         {#if foundTasks.length}
-          <Command.Group heading="More results" forceMount>
+          <Command.Group heading="More results">
             {#each foundTasks as task (task.id)}
               <Command.Item
                 value="found {task.id}"
-                forceMount
                 onSelect={() => void pick(task)}
                 disabled={linkingTaskId !== null}
               >

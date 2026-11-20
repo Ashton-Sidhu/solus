@@ -9,46 +9,79 @@
 import { z } from 'zod'
 import { resourceRoleSchema } from './sharing'
 import { firstPartyClientIdSchema } from './first-party-clients'
+import type { FoundPortPlace, FoundPortScan, IntegrationReachable } from './integrations/local-servers'
+
+const noAuthSchema = z.object({
+  kind: z.literal('none'),
+  oauth: z.object({ discover: z.string().min(1) }).optional(),
+})
+
+const oauthAuthSchema = z.object({
+  kind: z.literal('oauth'),
+  /** The metadata address the server's challenge names. */
+  discover: z.string().min(1),
+  registration: z.enum(['dynamic', 'metadata-document', 'client-required']),
+  /** A saved public client ID for a `client-required` server. The secret stays on the host. */
+  clientId: z.string().min(1).optional(),
+  /** True when the owner also saved a client secret. The secret itself never leaves the host. */
+  hasClientSecret: z.boolean().optional(),
+  /**
+   * `client-required` only because Solus's Client ID Metadata Document was not
+   * confirmed when the server refused (mcp-integrations.md §13.1): the server
+   * reads such documents but has no registration endpoint. The host takes the
+   * mark back once it confirms the document, with no step of the person.
+   */
+  awaitsClientDocument: z.literal(true).optional(),
+  /**
+   * The server's authorization server is one Solus registered an app with
+   * (§13.1): sign-in goes through that app and the person enters no client.
+   * The owner's own client, when saved, still wins.
+   */
+  firstParty: firstPartyClientIdSchema.optional(),
+})
+
+const bearerAuthSchema = z.object({
+  kind: z.literal('bearer'),
+  scheme: z.enum(['bearer', 'basic', 'other', 'unspecified']),
+})
+
+/** The name of one environment variable of a `stdio` integration (docs/plans/mcp-first-class.md §7.1). */
+export const integrationEnvNameSchema = z.string().max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Use letters, digits, and underscores, and do not start with a digit')
+
+/** The names of a `stdio` integration's environment variables: no name twice. */
+export const integrationEnvNamesSchema = z.array(integrationEnvNameSchema).max(64)
+  .refine((names) => new Set(names).size === names.length, 'Give each environment variable name once')
 
 /**
- * How an integration authenticates (§3.2). `none`: tools work for everyone; `oauth`
- * is kept when the server also advertises it. `oauth`: each person signs in once.
- * `bearer`: each person pastes a key.
+ * How a server at a URL authenticates (§3.2). `none`: tools work for everyone;
+ * `oauth` is kept when the server also advertises it. `oauth`: each person signs
+ * in once. `bearer`: each person pastes a key. The agent profile carries these
+ * kinds only: a `stdio` integration is not a profile entry (mcp-first-class.md §7.8).
+ */
+export const remoteIntegrationAuthSchema = z.discriminatedUnion('kind', [noAuthSchema, oauthAuthSchema, bearerAuthSchema])
+export type RemoteIntegrationAuth = z.infer<typeof remoteIntegrationAuthSchema>
+
+/**
+ * How an integration authenticates: a remote kind, or `env` for a `stdio`
+ * integration (mcp-first-class.md §7.1). `env` holds the names of environment
+ * variables only. The values are each person's connection, in the vault.
  */
 export const integrationAuthSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('none'),
-    oauth: z.object({ discover: z.string().min(1) }).optional(),
-  }),
-  z.object({
-    kind: z.literal('oauth'),
-    /** The metadata address the server's challenge names. */
-    discover: z.string().min(1),
-    registration: z.enum(['dynamic', 'metadata-document', 'client-required']),
-    /** A saved public client ID for a `client-required` server. The secret stays on the host. */
-    clientId: z.string().min(1).optional(),
-    /** True when the owner also saved a client secret. The secret itself never leaves the host. */
-    hasClientSecret: z.boolean().optional(),
-    /**
-     * The server's authorization server is one Solus registered an app with
-     * (§13.1): sign-in goes through that app and the person enters no client.
-     * The owner's own client, when saved, still wins.
-     */
-    firstParty: firstPartyClientIdSchema.optional(),
-  }),
-  z.object({
-    kind: z.literal('bearer'),
-    scheme: z.enum(['bearer', 'basic', 'other', 'unspecified']),
-  }),
+  noAuthSchema,
+  oauthAuthSchema,
+  bearerAuthSchema,
+  z.object({ kind: z.literal('env'), names: integrationEnvNamesSchema.refine((names) => names.length > 0, 'Name at least one environment variable') }),
 ])
 export type IntegrationAuth = z.infer<typeof integrationAuthSchema>
 
 /**
  * `mcp`: a remote MCP server at an HTTPS URL. `solus`: an MCP server Solus
  * writes and runs inside the host (§13.6), for a service with no usable one;
- * its `url` is the address `solus:<server id>`.
+ * its `url` is the address `solus:<server id>`. `stdio`: a command the host
+ * starts and talks to on standard input and output (mcp-first-class.md §7);
+ * its `url` is the address `stdio:<launch id>`.
  */
-export const integrationKindSchema = z.enum(['mcp', 'solus'])
+export const integrationKindSchema = z.enum(['mcp', 'solus', 'stdio'])
 export type IntegrationKind = z.infer<typeof integrationKindSchema>
 
 const SOLUS_ADDRESS_PREFIX = 'solus:'
@@ -66,6 +99,27 @@ export function solusServerIdOf(address: string): string | null {
 }
 
 /**
+ * The command, the arguments, and the working directory of a `stdio`
+ * integration (mcp-first-class.md §7.1). `command` is a program on the host's
+ * PATH or an absolute path. No shell reads any of it: nothing expands `~`,
+ * `$VAR`, or a glob in an argument. `cwd` is a host path; `~` is allowed, and
+ * the host resolves it before the process starts.
+ */
+export const integrationLaunchSchema = z.object({
+  command: z.string().min(1).max(1024),
+  args: z.array(z.string().max(4096)).max(64),
+  cwd: z.string().min(1).max(4096).optional(),
+}).strict()
+export type IntegrationLaunch = z.infer<typeof integrationLaunchSchema>
+
+/**
+ * The address of a `stdio` integration: `stdio:` and the first 16 hexadecimal
+ * characters of SHA-256 over `JSON.stringify([command, ...args])`. The host
+ * computes it, so two records with one command have one address.
+ */
+export const stdioServerAddressSchema = z.string().regex(/^stdio:[0-9a-f]{16}$/)
+
+/**
  * A root record (§3.3). Every integration is one person's (docs/plans/access-model.md,
  * D3): its owner alone sees, uses, and changes it. `slug` is the tool prefix,
  * unique among the owner's integrations in an organization.
@@ -79,6 +133,16 @@ export const integrationSchema = z.object({
   name: z.string().min(1),
   url: z.string().min(1),
   auth: integrationAuthSchema,
+  /** The command of a `stdio` integration (§7.1); absent for the other kinds. */
+  launch: integrationLaunchSchema.optional(),
+  /**
+   * `resolveProjectKey` of the project the integration came from
+   * (mcp-first-class.md §8.4): it joins only the runs of that project. Absent:
+   * it joins every run of its owner.
+   */
+  projectKey: z.string().min(1).optional(),
+  /** The folder name of that project when the integration was added: the row says "Only in <projectName>" (§8.4). */
+  projectName: z.string().min(1).optional(),
   /**
    * The upstream tools the owner turned off: agents do not see them and the
    * gateway refuses a call to one. A tool the server adds later is on.
@@ -121,6 +185,124 @@ export const integrationToolSummarySchema = z.object({
 })
 export type IntegrationToolSummary = z.infer<typeof integrationToolSummarySchema>
 
+/**
+ * The caller's process of a `stdio` integration (mcp-first-class.md §7.3).
+ * `stopped`: none runs; the next use starts one. `running`: one runs.
+ * `failed`: it ended three times within 10 seconds of a start in 5 minutes,
+ * or its command is not installed; only Start again (`integrationProcessStart`)
+ * or a change of the record starts it again. `message` says why it stopped or
+ * failed. `stderrTail` is the last 4 KB its standard error wrote; it can hold
+ * a secret the server printed, so only the owner gets it. No PID crosses.
+ * `startFailure` says why a `failed` process never started: `spawn` found no
+ * program (or no working directory), or found one it may not run.
+ */
+export type IntegrationStopReason = 'idle' | 'stop' | 'limit'
+
+export interface IntegrationProcessFacts {
+  state: 'stopped' | 'running' | 'failed'
+  message?: string
+  /**
+   * Why a process that ran is `stopped` (§7.3): 10 minutes without use, the
+   * person's Stop, or room for another command at the host's limit. Absent
+   * when none ran since the host started, and after an end by itself, which
+   * has `message`.
+   */
+  stopReason?: IntegrationStopReason
+  stderrTail?: string
+  startFailure?: 'not-installed' | 'not-runnable'
+}
+
+/**
+ * A provider CLI's own copy of a server that Solus runs, which the caller's last
+ * run on that provider left out (the CLI skip, mcp-first-class.md §8.5). Claude
+ * Code leaves a copy out by its address and does not say which copy it had, so
+ * its entry has no `serverName` or `scope`. Codex names the copy and the config
+ * layer it came from: `user` (`~/.codex/config.toml`) or `project`
+ * (`.codex/config.toml` in the project). No path crosses.
+ */
+export interface IntegrationCliSkip {
+  provider: 'claude-code' | 'codex'
+  serverName?: string
+  scope?: 'user' | 'project'
+}
+
+/** What the gateway read from one MCP server for the caller. No credential enters this reply. */
+export interface IntegrationFacts {
+  era: 'modern' | 'legacy' | null
+  instructions: string | null
+  capabilities: { prompts: boolean; resources: boolean; resourceSubscribe: boolean; tasks: boolean }
+  /** `stdio` integrations only. */
+  process?: IntegrationProcessFacts
+  /** The CLI copies the caller's runs left out (§8.5). Absent when none did, and from a host before C2. */
+  cliSkips?: IntegrationCliSkip[]
+  reachable?: IntegrationReachable
+}
+
+/** One resource an MCP server lists (`resources/list`, mcp-first-class.md §11.1). The server's text is data. */
+export interface IntegrationResource {
+  integrationId: string
+  uri: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  /** Bytes, when the server says. */
+  size?: number
+}
+
+/** One URI template an MCP server lists (`resources/templates/list`). */
+export interface IntegrationResourceTemplate {
+  integrationId: string
+  uriTemplate: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+}
+
+export interface IntegrationResourceLists {
+  resources: IntegrationResource[]
+  templates: IntegrationResourceTemplate[]
+}
+
+/**
+ * The caller's MCP resources and templates (§11.4): of one integration, or of
+ * every integration that joins a run in `projectPath` (§8.4). A server that
+ * does not answer in 10 seconds is left out.
+ */
+export const integrationResourceListRequestSchema = z.object({
+  integrationId: z.string().min(1).optional(),
+  projectPath: z.string().min(1).max(4096).optional(),
+}).strict()
+export type IntegrationResourceListRequest = z.infer<typeof integrationResourceListRequestSchema>
+
+const resourceUriSchema = z.string().min(1).max(2048)
+
+/**
+ * Read one MCP resource as the caller and keep its contents in the
+ * conversation's attachment store (§11.3). A template names its variables'
+ * values; the host expands `{name}` and `{+name}` only.
+ */
+export const integrationResourceAttachRequestSchema = z.union([
+  z.object({ integrationId: z.string().min(1), uri: resourceUriSchema }).strict(),
+  z.object({
+    integrationId: z.string().min(1),
+    uriTemplate: resourceUriSchema,
+    arguments: z.array(z.object({ name: z.string().min(1).max(200), value: z.string().max(2048) }).strict()).max(20),
+  }).strict(),
+])
+export type IntegrationResourceAttachRequest = z.infer<typeof integrationResourceAttachRequestSchema>
+
+/** What an attach reads: a listed resource, or a template with the values the argument form gave (§11.3). */
+export type AttachedIntegrationResource = IntegrationResource | (IntegrationResourceTemplate & { arguments: Array<{ name: string; value: string }> })
+
+/** The host's request for one attach, on every client. */
+export function resourceAttachRequest(resource: AttachedIntegrationResource): IntegrationResourceAttachRequest {
+  return 'uri' in resource
+    ? { integrationId: resource.integrationId, uri: resource.uri }
+    : { integrationId: resource.integrationId, uriTemplate: resource.uriTemplate, arguments: resource.arguments }
+}
+
 /** What a tool does, from the server's own hints: a tool with no read-only hint may write. */
 export type ToolAccess = 'Read' | 'Write' | 'Destructive'
 
@@ -136,7 +318,7 @@ export function toolAccess(tool: Pick<IntegrationToolSummary, 'readOnly' | 'dest
 export const integrationProbeSignalSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('request'),
-    method: z.enum(['initialize', 'tools/list']),
+    method: z.enum(['server/discover', 'initialize', 'tools/list']),
     status: z.number().int(),
     media: z.enum(['json', 'event-stream', 'html', 'text', 'other', 'none']),
     answer: z.enum(['result', 'error', 'none']),
@@ -145,6 +327,10 @@ export const integrationProbeSignalSchema = z.discriminatedUnion('kind', [
       resourceMetadata: z.boolean(),
       scope: z.boolean(),
     }).optional(),
+  }),
+  z.object({
+    kind: z.literal('revision'),
+    revision: z.enum(['2026-07-28', 'legacy']),
   }),
   z.object({
     kind: z.literal('resource-metadata'),
@@ -159,16 +345,16 @@ export type IntegrationProbeSignal = z.infer<typeof integrationProbeSignalSchema
 
 const probeSignalsSchema = z.array(integrationProbeSignalSchema)
 
-/** `undetermined` creates nothing: the person sees the reason and can retry. */
+/** `undetermined` creates nothing: the person sees the reason and can retry. A probe reads a server at an address, so its auth is a remote kind. */
 export const integrationProbeResultSchema = z.discriminatedUnion('outcome', [
   z.object({
     outcome: z.literal('anonymous'),
-    auth: integrationAuthSchema,
+    auth: remoteIntegrationAuthSchema,
     tools: z.array(integrationToolSummarySchema),
     signals: probeSignalsSchema,
   }),
-  z.object({ outcome: z.literal('oauth'), auth: integrationAuthSchema, signals: probeSignalsSchema }),
-  z.object({ outcome: z.literal('credentials-required'), auth: integrationAuthSchema, signals: probeSignalsSchema }),
+  z.object({ outcome: z.literal('oauth'), auth: remoteIntegrationAuthSchema, signals: probeSignalsSchema }),
+  z.object({ outcome: z.literal('credentials-required'), auth: remoteIntegrationAuthSchema, signals: probeSignalsSchema }),
   z.object({
     outcome: z.literal('undetermined'),
     reason: z.enum(['unavailable', 'unreachable', 'timeout', 'redirected', 'refused', 'not_mcp', 'initialize_error', 'tools_error', 'oauth_unusable']),
@@ -179,7 +365,7 @@ export type IntegrationProbeResult = z.infer<typeof integrationProbeResultSchema
 export type IntegrationProbeUndeterminedReason = Extract<IntegrationProbeResult, { outcome: 'undetermined' }>['reason']
 
 /** A loopback host name: `localhost`, a `.localhost` name, `127.x.x.x`, or `[::1]`. */
-function isLoopbackHostname(hostname: string): boolean {
+export function isLoopbackHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '[::1]' || /^127\.\d+\.\d+\.\d+$/.test(hostname)
 }
 
@@ -204,12 +390,38 @@ export const integrationAddressSchema = z.union([integrationUrlSchema, solusServ
 export const integrationProbeRequestSchema = z.object({ url: integrationAddressSchema }).strict()
 export type IntegrationProbeRequest = z.infer<typeof integrationProbeRequestSchema>
 
-/** The server derives `slug` from `name` when it is absent. */
-export const integrationCreateRequestSchema = z.object({
+const integrationSlugInputSchema = z.string().trim().min(1).max(40)
+
+/** A server at an address. The server derives `slug` from `name` when it is absent. */
+export const integrationUrlCreateRequestSchema = z.object({
   name: integrationNameSchema,
   url: integrationAddressSchema,
-  slug: z.string().trim().min(1).max(40).optional(),
+  slug: integrationSlugInputSchema.optional(),
 }).strict()
+export type IntegrationUrlCreateRequest = z.infer<typeof integrationUrlCreateRequestSchema>
+
+/** One line a person types, as `splitCommandLine` reads it (§7.4). */
+export const integrationCommandLineSchema = z.string().trim().min(1).max(8192)
+
+/**
+ * A `stdio` integration (mcp-first-class.md §7.6): exactly one of
+ * `commandLine` (the host splits it, §7.4) or `launch` (already split).
+ * `envNames` are names only; each person gives the values when they connect.
+ * `projectPath` makes it a project integration (§8.4): it joins only that
+ * project's runs, and its working directory is the project root when `launch`
+ * names none. Needs `host.admin` (§7.2).
+ */
+export const integrationCommandCreateRequestSchema = z.object({
+  name: integrationNameSchema,
+  commandLine: integrationCommandLineSchema.optional(),
+  launch: integrationLaunchSchema.optional(),
+  envNames: integrationEnvNamesSchema.default([]),
+  slug: integrationSlugInputSchema.optional(),
+  projectPath: z.string().min(1).max(4096).optional(),
+}).strict().refine((request) => (request.commandLine === undefined) !== (request.launch === undefined), 'Give a command line or a launch, not both')
+export type IntegrationCommandCreateRequest = z.infer<typeof integrationCommandCreateRequestSchema>
+
+export const integrationCreateRequestSchema = z.union([integrationUrlCreateRequestSchema, integrationCommandCreateRequestSchema])
 export type IntegrationCreateRequest = z.infer<typeof integrationCreateRequestSchema>
 
 /**
@@ -230,11 +442,134 @@ export const integrationUpdateRequestSchema = z.object({
   oauthClient: z.union([integrationOAuthClientInputSchema, z.null()]).optional(),
   /** Replaces the whole list of tools turned off. */
   disabledTools: z.array(z.string().min(1).max(200)).max(1000).optional(),
+  /** A `stdio` integration's new command (§7.6). Needs `host.admin`; it drops the saved facts and stops the process. */
+  launch: integrationLaunchSchema.optional(),
+  /** A `stdio` integration's new environment variable names; an empty list needs none. Needs `host.admin`. */
+  envNames: integrationEnvNamesSchema.optional(),
 }).strict()
 export type IntegrationUpdateRequest = z.infer<typeof integrationUpdateRequestSchema>
 
 export const integrationIdRequestSchema = z.object({ id: z.string().min(1) }).strict()
 export type IntegrationIdRequest = z.infer<typeof integrationIdRequestSchema>
+
+/**
+ * Start the caller's process of a `stdio` integration and list its tools
+ * (mcp-first-class.md §7.7: Start and test, Start again). It clears `failed`.
+ * `recheck` is Test again: the saved verdict is dropped and the revision is
+ * checked again, which starts the command twice. Needs `host.admin`.
+ */
+export const integrationProcessStartRequestSchema = z.object({
+  id: z.string().min(1),
+  recheck: z.boolean().optional(),
+}).strict()
+export type IntegrationProcessStartRequest = z.infer<typeof integrationProcessStartRequestSchema>
+
+/**
+ * A config file in which another tool keeps MCP servers (mcp-first-class.md
+ * §8.1): a project `.mcp.json`, Claude Code's `~/.claude.json`, Codex
+ * `config.toml`, Cursor's and VS Code's `mcp.json`, and Claude Desktop's config.
+ */
+export type ConfigFileKind = 'mcp-json' | 'claude-json' | 'codex-config' | 'cursor' | 'vscode' | 'claude-desktop'
+
+/**
+ * Where the host read a found server (§8.2): one entry of one config file.
+ * `path` is the file as the person reads it, with `~` for the home folder of
+ * the host. `name` is the server's name in that file.
+ */
+export interface FoundPlace {
+  kind: 'file'
+  file: ConfigFileKind
+  scope: 'user' | 'project'
+  path: string
+  name: string
+}
+
+/** A found server's transport, as the host read it. Names only: no value of `env` or of a header leaves the host. */
+export type FoundTransport =
+  | { kind: 'stdio'; command: string; args: string[]; envNames: string[]; cwd?: string }
+  | { kind: 'http'; url: string; headerNames: string[] }
+  | { kind: 'sse'; url: string }
+
+/**
+ * `sse`: the deprecated HTTP+SSE transport. `expansion`: `${…}` in the command,
+ * the arguments, the folder, or the URL, which Solus does not expand.
+ * `not-allowed`: a command, for a person without `host.admin`. `invalid`: the
+ * entry does not read as an MCP server Solus can run.
+ */
+export type FoundUnsupportedReason = 'sse' | 'expansion' | 'not-allowed' | 'invalid'
+
+/**
+ * An MCP server the host read from a config file (§8.2). It is not an
+ * integration until the person adds it. One found server for one address: the
+ * same command in two files is one found server with two places. `added`: the
+ * caller has an integration with that address. `changed`: the caller has an
+ * integration of the same name, kind, and scope whose address differs, so the
+ * file now holds another command or URL; `integrationId` names it.
+ */
+export interface FoundServer {
+  foundId: string
+  /** A hash of the transport and the scope as the host read them. An add with another fingerprint is refused (§8.3). */
+  fingerprint: string
+  name: string
+  foundIn: Array<FoundPlace | FoundPortPlace>
+  /** Null only for an `invalid` entry, which names no command or URL Solus can read. */
+  transport: FoundTransport | null
+  state: 'new' | 'added' | 'changed' | 'unsupported'
+  integrationId?: string
+  unsupported?: FoundUnsupportedReason
+  /** Only project files hold it: an add joins only the runs of that project (§8.4). */
+  projectOnly: boolean
+  /** The environment names, or `Authorization`, whose value the file holds as plain text, so an add can copy it on the host. Never a value. */
+  valuesInFile: string[]
+  /** A command whose program the host does not find on its PATH or at its path. */
+  commandMissing?: boolean
+}
+
+/** One config file the host found, with the number of servers it read, or why it could not read it. */
+export interface FoundFile {
+  file: ConfigFileKind
+  scope: 'user' | 'project'
+  path: string
+  servers: number
+  problem?: string
+}
+
+/** The answer of `integrationFoundList`: the found servers, and each config file that is there. */
+export interface FoundServerList {
+  servers: FoundServer[]
+  files: FoundFile[]
+  portScan?: FoundPortScan
+}
+
+/** `projectPath`: also read that project's files. `refresh`: read the files again, not the answer of the last 10 seconds. */
+export const integrationFoundListRequestSchema = z.object({
+  projectPath: z.string().min(1).max(4096).optional(),
+  refresh: z.boolean().optional(),
+}).strict()
+export type IntegrationFoundListRequest = z.infer<typeof integrationFoundListRequestSchema>
+
+/**
+ * Add a found server, or take the change of a `changed` one (§8.3). The host
+ * reads the files again and refuses another fingerprint. `useFileValues`: copy
+ * the values the file holds into the caller's connection, on the host.
+ */
+export const integrationFoundAddRequestSchema = z.object({
+  foundId: z.string().min(1).max(128),
+  fingerprint: z.string().min(1).max(128),
+  projectPath: z.string().min(1).max(4096).optional(),
+  useFileValues: z.boolean().optional(),
+}).strict()
+export type IntegrationFoundAddRequest = z.infer<typeof integrationFoundAddRequestSchema>
+
+/** `found-changed`: the file changed after the person saw it, so nothing was saved; read the list again. */
+export type IntegrationFoundAddResult =
+  /**
+   * `needsValues`: a command whose environment values the person must still
+   * give (the file gave none for some name, or they chose not to copy them).
+   * The client opens the values form of the new row (§7.7, §8.3 step 4).
+   */
+  | { kind: 'saved'; integration: Integration; needsValues?: boolean }
+  | { kind: 'found-changed' }
 
 /**
  * The catalog's categories as Solus shows them. The feed's own category names
@@ -293,7 +628,7 @@ export interface CatalogPage {
 /** An integration or its tool list changed; read it again by id. */
 export interface IntegrationChangedEvent {
   integrationId: string
-  change: 'created' | 'updated' | 'removed' | 'tools'
+  change: 'created' | 'updated' | 'removed' | 'tools' | 'facts'
 }
 
 /**
@@ -380,6 +715,12 @@ export const integrationConnectStartResultSchema = z.discriminatedUnion('kind', 
   }),
   /** `accountId`: the account the key is for, so the submit names it (§13.3). */
   z.object({ kind: z.literal('token'), integrationId: z.string().min(1), accountId: z.string().min(1).optional() }),
+  /**
+   * A `stdio` integration with `auth.kind: 'env'` (mcp-first-class.md §7.6): the card asks
+   * for one value for each name and calls `integrationConnectSubmit` with `id`
+   * and `values`. A saved value is never read back.
+   */
+  z.object({ kind: z.literal('env'), integrationId: z.string().min(1), accountId: z.string().min(1).optional(), names: z.array(z.string().min(1)) }),
   z.object({ kind: z.literal('connected'), connection: integrationConnectionSchema }),
 ])
 export type IntegrationConnectStartResult = z.infer<typeof integrationConnectStartResultSchema>
@@ -395,17 +736,30 @@ export const integrationConnectStartRequestSchema = z.object({
 }).strict()
 export type IntegrationConnectStartRequest = z.infer<typeof integrationConnectStartRequestSchema>
 
+/** One environment value of a `stdio` integration. Every value is a secret (§7.1). */
+export const integrationEnvValueSchema = z.object({
+  name: integrationEnvNameSchema,
+  value: z.string().max(32_768),
+}).strict()
+export type IntegrationEnvValue = z.infer<typeof integrationEnvValueSchema>
+
 /**
- * Exactly one target: `flowId` with the address an OAuth flow's browser ended on,
- * or `id` with an API key for a `bearer` integration.
+ * Exactly one target: `flowId` with the address an OAuth flow's browser ended on
+ * (`value`), or `id` with an API key for a `bearer` integration (`value`), or
+ * `id` with the environment values of a `stdio` integration (`values`, one for
+ * each of its names, mcp-first-class.md §7.6).
  */
 export const integrationConnectSubmitRequestSchema = z.object({
   flowId: z.string().min(1).optional(),
   id: z.string().min(1).optional(),
-  /** With `id`: the account the key is for; left out, the first. */
+  /** With `id`: the account the key or the values are for; left out, the first. */
   accountId: z.string().min(1).max(64).optional(),
-  value: z.string().trim().min(1).max(8192),
-}).strict().refine((request) => (request.flowId === undefined) !== (request.id === undefined), 'Give a flowId or an integration id, not both')
+  value: z.string().trim().min(1).max(8192).optional(),
+  values: z.array(integrationEnvValueSchema).max(64).optional(),
+}).strict()
+  .refine((request) => (request.flowId === undefined) !== (request.id === undefined), 'Give a flowId or an integration id, not both')
+  .refine((request) => (request.value === undefined) !== (request.values === undefined), 'Give a value or values, not both')
+  .refine((request) => request.values === undefined || request.id !== undefined, 'Environment values go with an integration id')
 export type IntegrationConnectSubmitRequest = z.infer<typeof integrationConnectSubmitRequestSchema>
 
 export const integrationConnectCancelRequestSchema = z.object({ flowId: z.string().min(1) }).strict()

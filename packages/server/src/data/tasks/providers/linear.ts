@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { TaskRef, TaskSource, TaskStatusCategory } from '@solus/contracts/task-sources'
 import type { TaskAssigneeCandidate, TaskUpdatePatch } from '@solus/contracts/task-types'
-import type { TaskInvolvement } from '@solus/contracts/task-inspection'
+import type { TaskInvolvement } from '@solus/contracts/task-data'
 import { assetReferencesIn } from '../task-assets'
 import {
   linearCategory,

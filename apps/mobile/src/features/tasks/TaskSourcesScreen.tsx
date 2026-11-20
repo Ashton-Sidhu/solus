@@ -1,8 +1,7 @@
 import { tasksStoreFor } from './tasks-store'
-import { LinearTaskConnection } from './LinearTaskConnection'
 import { parseManualTaskSource } from '@solus/client-core/task-source-input'
 import { useCallback, useState, useSyncExternalStore } from 'react'
-import { ScrollView, View } from 'react-native'
+import { Linking, ScrollView, View } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { MAX_TASK_SOURCES, taskSourceKey, type TaskSource } from '@solus/contracts/task-sources'
 import type { TaskSourceOptions } from '@solus/contracts/task-types'
@@ -53,6 +52,7 @@ function choices(options: TaskSourceOptions | null): Array<{ source: TaskSource;
 export function TaskSourcesScreen({ route, navigation }: ScreenProps<'TaskSources'>) {
   const app = useApp(),
     store = tasksStoreFor(app, route.params.hostId)
+  const accountOrigin = useListened(app.account.changes, () => app.account.syncAccount?.origin ?? null)
   const settings = useListened(app.personal.changes, app.personal.current)
   const state = useSyncExternalStore(
     store.subscribe,
@@ -146,12 +146,24 @@ export function TaskSourcesScreen({ route, navigation }: ScreenProps<'TaskSource
             Connect GitHub
           </TaskAction>
         ) : null}
+        {state.options?.linear && !state.options.linear.connected ? (
+          <TaskAction
+            onPress={() => navigation.navigate('LinearConnection', { hostId: route.params.hostId })}
+          >
+            Connect Linear
+          </TaskAction>
+        ) : null}
         {state.options && !state.options.jira.connected ? (
           <Text className="text-sm text-foreground-muted">
             Connect Atlassian to list Jira projects and boards.
           </Text>
         ) : null}
-        <LinearTaskConnection linear={state.options?.linear} store={store} />
+        <Text className="text-sm text-foreground-muted">Manage provider connections in your Solus account.</Text>
+        <TaskAction onPress={() => {
+          const url = accountOrigin ? new URL('/connections', accountOrigin).toString() : null
+          if (url) void Linking.openURL(url).catch(() => setError('Could not open account connections.'))
+          else navigation.navigate('CloudSignIn')
+        }}>{accountOrigin ? 'Open account connections' : 'Sign in to manage connections'}</TaskAction>
         <TaskAction onPress={() => void store.loadOptions()}>Refresh available sources</TaskAction>
       </ScrollView>
     </SettingsScreen>

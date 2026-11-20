@@ -9,7 +9,6 @@ const { ensureBackgroundSessionTitle } = await import('@solus/server/execution/s
 const records = new Map<string, SessionMeta>()
 const writes: Array<{ sessionId: string; title: string }> = []
 const changed: string[] = []
-const pins: string[] = []
 const generated: string[] = []
 let releaseGeneration: (() => void) | null = null
 
@@ -28,7 +27,6 @@ const ports: BackgroundSessionTitlePorts = {
     return { title: 'Short Worker Title', description: 'The requested change.' }
   },
   refresh: async (sessionId) => { changed.push(sessionId) },
-  renamePin: (sessionId) => { pins.push(sessionId) },
 }
 
 function worker(provider: 'claude-code' | 'codex', sessionId: string): SessionMeta {
@@ -49,7 +47,6 @@ beforeEach(() => {
   records.clear()
   writes.length = 0
   changed.length = 0
-  pins.length = 0
   generated.length = 0
   releaseGeneration = null
   mock.clearAllMocks()
@@ -62,7 +59,6 @@ describe('background worker naming', () => {
     expect(generated).toEqual(['Full worker brief'])
     expect(writes).toEqual([{ sessionId: provider, title: 'Short Worker Title' }])
     expect(changed).toEqual([provider])
-    expect(pins).toEqual([provider])
     expect((events as { broadcast: typeof mock }).broadcast).toHaveBeenCalledTimes(1)
   })
 

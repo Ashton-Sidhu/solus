@@ -32,6 +32,10 @@ and its decisions are in [`plans/mcp-integrations.md`](plans/mcp-integrations.md
   server's record, so it applies to every person on the host; who may change
   it is the same as who may rename the server. A tool the server adds later
   is on.
+- **Instructions for the agent.** A server can give text that helps an agent
+  use its tools. Open the server row to read it in a closed section. A run gets
+  this text only when that server adds a tool to the run. Solus marks it as
+  server text and limits its length.
 - **Catalog.** The catalog shows the most popular servers first in two
   columns, with the number of matches. More load below as you scroll near
   the end, so the servers you read never move; Show more does the same from
@@ -86,6 +90,55 @@ server. Solus asks first unless the server marks the tool as read-only. In a
 Claude session, Claude's permission rules also apply: a deny rule refuses the
 call, and an ask rule makes Solus ask first.
 
+**Display modes.** An app shows in its card, full screen, or in
+picture-in-picture. Picture-in-picture keeps the app in view while you scroll
+and type. Ask for it with **Keep in view** beside the full-screen control, or
+the app asks for it itself (only an app that declares the mode gets it). On
+desktop and web the same frame floats in a lower corner of its conversation,
+above the input bar, so the app keeps its state. Its title bar moves it to the
+other corner, returns it to its card (or press Escape there), opens it full
+screen, or closes it. Its card shows a line with **Return to card**. One app
+floats in a conversation; a second one sends the first back to its card. A
+conversation narrower than 480 pixels does not offer the mode, and a frame in
+it goes back to its card. On mobile a saved app docks above the composer, at
+the full width, in a new frame; while the keyboard is open it shows only its
+title bar. A live app card on mobile offers the mode once its call has ended
+(`plans/mcp-first-class.md` §14.2).
+
+## MCP prompts
+
+A server can publish prompts: prepared instructions with a name and
+arguments. Solus shows them as slash commands, `/<slug>:<prompt>`
+(`docs/plans/mcp-first-class.md` §10).
+
+- Desktop and web: type `/`. The menu lists the MCP prompts under **MCP**,
+  after the Solus and agent commands, with each prompt's description and its
+  arguments (`<required> [optional]`). A server you are not connected to shows
+  one row, "Sign in to <server> to use its prompts"; in a conversation it opens
+  the connect card, and from a draft it opens Settings → MCP.
+- A prompt with no argument sends at once. A prompt with one argument takes
+  the rest of the line: `/github:triage bug`. A prompt with more arguments, or
+  one whose required argument is empty, opens the argument form in the input
+  bar: Tab moves between fields, Enter sends, Escape closes. The focus goes
+  back to the input bar after each.
+- Mobile: the + menu has **MCP Prompt…**. It opens a sheet that lists and
+  searches the prompts, then asks for the arguments.
+- The host gets the prompt from the server with your connection and makes one
+  text from its messages. That text is your message: both Claude and Codex get
+  it, and the conversation shows it whole. A part from the assistant is marked
+  "Assistant:". An image is attached to the message. The text is at most
+  100,000 characters (`MAX_MCP_PROMPT_TEXT_CHARS`); a `[Left out: …]` line
+  names the limit when text is cut. A prompt never runs a tool by itself.
+- A Solus or agent command with the same name wins; the prompt is not listed.
+  Two servers with the same command: the first wins.
+- The list is read when you open `/` for the first time in a project, and
+  again when a server says its list changed, an integration changes, a
+  sign-in changes, or the host reconnects. Typing reads nothing. A command
+  (stdio) server that is not running lists the prompts it saved when it last
+  ran, and starts only when you send one of its prompts.
+- A server that asks for input while it expands a prompt is declined: Solus
+  can ask for input only during a turn.
+
 ## What the agent sees
 
 Every tool of every integration is a Solus tool named `<slug>__<tool>`, with
@@ -101,6 +154,106 @@ credential. A call on an integration you have not connected fails with
 `CONNECTION_REQUIRED` and shows a connect card in the conversation; the agent
 can ask `connection_status` for an integration to check first. A request for
 input from the server during a call shows as a question card.
+
+**Progress and time limits.** A server can report the progress of a long call.
+The tool row shows the server's message, and a bar with a percent when the
+server gives a total, on desktop, web, and mobile. The agent does not see
+progress. A call stops when the server sends nothing for 60 seconds; each
+progress report starts those 60 seconds again. A call stops after 30 minutes
+in all, also when it continues to report progress. Both limits stop while you
+answer a question of the server. After a reconnect the row shows the call as
+running, with no number, until the next report.
+
+**Trace context.** A call that a turn makes is a span `integration_call` in
+Insights, under the tool call of the turn. The request carries the W3C
+`traceparent` of that span in `_meta`, so a server that reports to the same
+collector joins the turn's trace. Solus never sends `tracestate` or `baggage`.
+A request outside a turn, such as a Settings read, carries no trace context.
+
+**Result content.** A tool's whole result reaches the agent, on Claude and Codex alike: its text,
+its structured data as JSON, and up to eight images (PNG, JPEG, WebP, or GIF).
+No provider model takes audio in a tool result, so Solus saves audio on the
+host and gives the agent its path; you get a player in the tool call (play
+and pause, the time, and a seek bar that the arrow keys move). A part
+that a limit or a check leaves out is saved for the agent when it can be, and
+the agent and the tool call both get a note that names the limit. Data that
+does not match the tool's output schema fails the call with that reason
+(`plans/mcp-first-class.md` §6).
+
+**A server that a CLI also has.** You can have the same server in Settings →
+MCP and in a provider CLI file (`.mcp.json`, `~/.claude.json`,
+`~/.codex/config.toml`, or `.codex/config.toml` in the project). Then each run
+that Solus starts tells the CLI to leave out its own copy: Claude Code gets the
+setting `deniedMcpServers` for that run, and Codex gets
+`mcp_servers.<name>.enabled = false` for that thread. The agent sees each tool
+once, through Solus, and the CLI does not start the copy or read its
+credential. Two servers are the same when their addresses are equal: the same
+URL (the case of the host, the default port, and a slash at the end do not
+count; the query does), or the same command with the same arguments in the
+same order (the environment does not count). Only a server that gives the run
+at least one tool is left out, and a project server only in runs of its
+project. The skip is for one run: Solus never changes the CLI's files. Remove
+the server in Settings, or turn off all of its tools, and the next run loads
+the CLI's copy again. The open row of the server shows **CLI copy** after a
+run left a copy out: Claude Code does not say which copy it had, so its line
+names the address; Codex names the copy and its file. A run outside Solus
+(the CLI in your terminal) is not changed.
+
+**Resources.** A server can list resources: documents, files, or records it
+can read. When one of your servers in a session lists resources, the agent
+gets two more tools, `list_integration_resources` and
+`read_integration_resource`. A read is yours, with your connection; it changes
+nothing, so it needs no approval. The contents reach the agent as a tool
+result does. A resource link in a tool result names the read tool and the
+server, so the agent can follow it. A server lists at most 200 resources and
+200 templates to Solus; a list-changed notification of the server makes
+Solus read the list again (`plans/mcp-first-class.md` §11).
+
+You can attach a resource to your message yourself. On desktop and web, type
+`@`: after the files, the menu shows up to five resources whose name, title,
+or address matches, under "MCP resources". `@<server>:` shows only that
+server's resources. On mobile, the + menu has **MCP Resource…**: a sheet with
+your servers, their resources, and a search field. The host reads the
+resource as you and keeps the contents as attachments of the conversation, as
+an upload. The chip shows the server's logo and the resource name while the
+host reads it; if the read fails, the chip says why, with Retry and Remove.
+The agent gets what the resource held when you attached it. A command server
+(stdio) that is not running shows no resources in the menu until it runs.
+
+A server can also list resource templates, such as `docs://pages/{+path}`.
+The `@` menu shows them after the resources, and the mobile sheet under their
+server. Pick one and the argument form of MCP prompts asks for each value; the
+host fills in the template and reads that one resource into a chip. Solus
+fills in only `{name}` and `{+name}`; a template with another form is not
+offered.
+
+**Resource watches.** When a server of the session sends changes of its
+resources (`resources.subscribe`), the agent also gets
+`watch_integration_resource`. With `watching: true` the host keeps a
+subscription to one resource for that session, as you, with your connection.
+When the resource changes, the host reads it and starts the agent again with
+its contents, as data from that server. Changes in the 5 seconds after the
+first become one start, and one watch starts the agent at most once in 30
+seconds. A change while a turn runs waits for the end of that turn; when you
+press Stop, the change that waited does not start the agent. A watch ends after
+24 hours, after it started the agent 20 times, when the agent sends
+`watching: false`, when you press the stop button on its row, and when you archive or
+delete the session. A session has at most 10 live watches, you have at most 20
+on a host, and a host keeps at most 100.
+
+The watch shows where the session's background work shows, beside MCP tasks:
+under the last turn on desktop and web, above the composer on mobile. Its row
+says what it does: starting, watching, changed (the agent starts soon or after
+the running turn), sign in again, server not reachable, or why it ended. The
+change that starts the agent is a "Resource watch" row in the conversation; it
+opens on the contents as plain text.
+
+A watch of a command server (stdio) keeps its process from the idle stop of 10
+minutes while the watch lives, at most 24 hours. When the process stops (Stop
+in Settings, an end by itself, or a restart of the host), the watch ends: a
+watch never starts a command again. After a restart of the host, a watch of a
+server at a URL opens again, and nothing is sent for the time the host was
+down (`plans/mcp-first-class.md` §11.5).
 
 When you ask the agent to use a service that has no tools in the session, it
 can call `connect_integration` with the service's name. The tool uses your
@@ -216,6 +369,217 @@ server whose OAuth client its owner saved on the host (`client-required`). The c
 host's sign-in returns to the address the client reached the host on, so it
 also works through a host's tunnel URL.
 
+## Commands on the host (stdio servers)
+
+Most local MCP servers are a command, such as
+`npx -y @modelcontextprotocol/server-filesystem /data`
+(`docs/plans/mcp-first-class.md` §7). Solus can add one as an MCP server of
+kind `stdio`. The host starts the command and talks to it on standard input
+and output. The command runs on the host that holds the record, as the OS
+user of the Solus server, with no sandbox. Thus:
+
+- Only a person with `host.admin` adds a command, changes it, or starts it.
+  On your own machine that is you. A run of a person who is not an
+  administrator does not get the tools of a command.
+- Solus starts the program with no shell. A line with `|`, `&`, `;`, `<`,
+  `>`, a backquote, or a `$` expansion is refused with the reason. Quotes keep
+  spaces. `~` is expanded only in the working directory.
+- The record holds the names of environment variables, never their values.
+  Each person gives the values as their connection. The host keeps them in
+  its own secret store. They go into that command's process and into no
+  record, log, answer to a client, or agent process.
+- The process gets `HOME`, `LOGNAME`, `PATH` (the login shell's), `SHELL`,
+  `TERM`, `USER`, and your values. No other variable of the Solus server
+  reaches it.
+- The first start checks the server's protocol revision, which starts the
+  command twice. Solus saves the answer and the tool list, so the next start
+  is one process, and the start of a run starts nothing: it reads the saved
+  list. A run of a command that never started gets no tools of it.
+- A process stops after 10 minutes with no use, at **Stop**, and when the host
+  stops. A process that ends by itself fails the call in flight ("`<name>`
+  stopped while it ran `<tool>`.") and starts again on the next use. Three
+  ends soon after a start in 5 minutes, or a command that is not installed,
+  set the state **failed**. Then only **Start again** starts it.
+- At most 16 commands run on one host. A new one stops the idle one used least
+  recently.
+- A command is not part of your agent profile. It stays on the host you added
+  it on.
+
+### Commands in Settings
+
+Settings → MCP shows a command on desktop, web, and mobile.
+
+- **Add command** (beside Installed; on mobile, the Command section) opens
+  the form: a name, the command line, the working directory, and the names
+  of the environment variables, with a field for each value. Under the line
+  the form shows the program and the arguments that the host will start, or
+  the reason it refuses the line. The form says where the command runs and
+  that it does not sync to other hosts. **Start and test** adds the record,
+  saves the values, starts the process, and lists the tools; while it runs,
+  **Cancel** stops the process. On desktop and web, a dialog that closes
+  before the end removes the command it added. The command palette has
+  "Add an MCP server command".
+- The row shows the command line in place of an address, and the state of
+  your process: **Not started**, **Running**, **Stopped** (with the reason:
+  after 10 minutes with no use, at Stop, to make room at the limit of 16, or
+  when the host stopped), **Stopped by itself**,
+  **Failed**, **Not installed**, or **Cannot run**, with what the host said
+  and the last standard error. The actions are **Start and test**, **Stop**,
+  **Start again**, and **Test again** (it checks the protocol revision
+  again). A start or stop on another client shows at once: the row reads the
+  state again on each `integration.changed` event.
+- **Values** in the row says how many values are saved, never a value.
+  **Enter values** or **Change values** opens one masked field for each
+  name; **Disconnect** removes them. The conversation's connect card takes
+  the values the same way. A value goes to the host in the call that saves
+  it, and the client keeps no copy. The values never go to Solus Cloud.
+- **Edit** (and "Edit command" in the row menu) changes the line, the
+  folder, and the names. The host stops the process and forgets the saved
+  facts; new names remove every person's values.
+- A person without `host.admin` sees the command and its state and can stop
+  it, disconnect, and remove it. Add, Edit, and the starts are off, with
+  "Only an administrator of this host can add or change a command."
+
+## Found on this host
+
+Settings → MCP has the view **Found on this host**, after Installed in the
+rail (`docs/plans/mcp-first-class.md` §8). On mobile it is the section under
+Installed. The command palette opens it with "Find MCP servers on this host".
+It lists the MCP servers in the config files of other tools on the host:
+
+| File | Read for |
+|---|---|
+| `<project>/.mcp.json`, `<project>/.cursor/mcp.json`, `<project>/.vscode/mcp.json` | a person who may use the project |
+| `~/.claude.json` (`mcpServers`, and `projects["<path>"].mcpServers`) | a person with `host.admin` |
+| `~/.cursor/mcp.json`, the VS Code user `mcp.json`, Claude Desktop's `claude_desktop_config.json` | a person with `host.admin` |
+| `~/.codex/config.toml` and the project's `.codex/config.toml`, through Codex (`config/read`) | the same; Codex leaves out a project it does not trust |
+
+On desktop and web, the project is the one of the open session when it is on
+that host; a chat has no project, so only the user files are read for it.
+Mobile reads the user files only.
+
+- **Nothing is added by itself.** A command in a cloned repository is code
+  that would run on the host. **Add** shows the full command or URL. The host
+  reads the file again and refuses an entry that changed after you saw it.
+- A command needs `host.admin` and does not start when you add it. Start it
+  from Installed. When it needs environment values that you did not copy from
+  the file, Installed opens with its row and the values form.
+- A row shows **Added** for a server you already run: the same command and
+  arguments, or the same URL (the case of the host, the default port, and a
+  slash at the end do not count), the rule by which each run leaves out the
+  CLI's copy.
+- The same command or URL in two files is one row that names both files.
+- Only names leave the host. A plain value in `env`, or a fixed
+  `Authorization` header, is copied into your connection on the host when you
+  choose to use the file's values.
+- A server that only a project file holds joins only that project's runs.
+  Its row in Installed says **Only in `<project>`**.
+- **Review change** shows a server whose command or URL changed in its file
+  since you added it. **Update** takes the new one.
+- Not supported: the deprecated HTTP+SSE transport, and `${…}` in a command,
+  its arguments, its folder, or a URL. Solus expands nothing.
+- A file that is not JSON, larger than 1 MB (8 MB for `~/.claude.json`), or a
+  link out of its folder is listed with the reason, and the others still read.
+- The host keeps a list for 10 seconds. **Refresh** reads the files again.
+
+Each run that Solus starts leaves out the provider CLI's own copy of a server
+you added (see "A server that a CLI also has"). A server in the local scope of
+Claude Code (`projects["<path>"].mcpServers`, the default of `claude mcp add`)
+never loads in a Solus run: Solus starts Claude Code without the `local`
+setting source.
+
+### MCP servers that run on the host
+
+Found on this host also lists MCP servers that run on the host's own loopback
+(`docs/plans/mcp-first-class.md` §9). The host finds them through its list of
+running servers (`docs/running-servers.md`).
+
+- **Which listeners get a request.** Only a listener on 127.0.0.1 or ::1 (a
+  wildcard listener is reached there) of one of these two kinds:
+  - an endpoint that the running-servers list knows as HTTP: a Server URL of
+    a project that answered its check;
+  - a TCP listener of a process that Solus started: a process of an agent run
+    or of a terminal in a Solus session, as the running-servers list
+    attributes it. It gets its request only when the list has shown it for 2
+    seconds, so a process that is still starting is not disturbed.
+
+  A listener of a process that Solus did not start gets no request and does
+  not show here. To add such a server, paste its `http://localhost` address
+  in the search at the top of Settings → MCP, or add the address to **Server
+  URLs** in the project panel.
+- **What it gets.** A TCP listener gets one `POST` of `server/discover` to
+  `/mcp`. A Server URL at `/` gets one to `/mcp`, and one to `/` only when its
+  `GET /` did not answer with HTML; a Server URL with a path gets one request,
+  to that path. One process and port gets no second check when the list
+  shows it in another form. An MCP server at another path of a TCP listener
+  is not found; type its address. No `initialize` follows: an older server answers
+  `server/discover` with a JSON-RPC error, and that is enough. The request
+  goes to 127.0.0.1 or ::1 only, with no credential, follows no redirect,
+  waits at most 1.5 seconds, and reads at most 16 KB. At most four run at one
+  time. The answer, also "not MCP" (a database or a debugger that does not
+  speak HTTP), is kept until the process lets go of its port, so a refresh
+  sends nothing again. A new process on the port is checked again.
+- **When.** Only while Settings → MCP is open on a client (it holds the
+  host's running-servers lease), or when a person reads this view. No client,
+  no scan.
+- **The row** shows the address, the port, the process name, the checkout,
+  and what the server said about itself. Solus did not verify any of it: any
+  program on the host can answer on a port. **Add** checks the address again,
+  exactly as a typed `http://localhost` address, and nothing is added without
+  it. A server that a config file also names is one row with both places.
+- **Not running.** An installed server on the host's loopback says **Not
+  running** when the host's newest list (at most 10 seconds old) has no
+  listener on its port. It is not an error, and it is never saved. When the
+  server runs again, the host drops its old tool list, and the next run lists
+  its tools. Without a fresh list the row shows no state. A call to it while it
+  is down says "`<name>` is not running on `<host>`. Start it, then try again."
+- **A server that an agent started.** When the host first finds an MCP server
+  whose process an agent started, it shows the custom server card in that
+  session, with the address filled in. The agent is also told that it can ask
+  for a server it started with `connect_integration`.
+- If the host cannot list its listeners, the view says why, and the config
+  files still list.
+
+## Long tool calls (MCP tasks)
+
+A server of revision 2026-07-28 can run a tool call as an MCP task (the
+extension `io.modelcontextprotocol/tasks`). The server decides; Solus declares
+the extension on each request.
+
+- The call waits up to 30 seconds. An MCP task that ends in that time is the
+  tool's result, and the agent sees nothing special.
+- After 30 seconds the call answers that the work runs in the background, and
+  the turn can end. The host asks the server for the status (`tasks/get`) as
+  the person who made the call, at the server's interval within 1 to 60
+  seconds. When the MCP task ends, the host sends its result to the session
+  once, as a queued message: the transcript shows it as an **MCP task**
+  notice, and the agent answers it in a new turn. A failure and an expiry
+  send their reason. Both providers get the same text.
+- The session's background work shows each MCP task: the server and the
+  tool, its state, the time since the start, and the stop button ("Stop
+  <tool>"). A question of
+  the server shows **Answer**, which opens the question card. While an MCP
+  task is live, the session's status is `background`.
+- The stop button asks the server to cancel the MCP task. The row says "Cancelling…" until the
+  server reports the end, at most 2 minutes. A cancelled MCP task sends no
+  message. Stop of the turn in the first 30 seconds cancels the MCP task;
+  later it does not touch it.
+- A server that cannot be reached, or a sign-in that stopped working, shows
+  on the row; the MCP task stays live until it expires. A new sign-in
+  continues it.
+- After a restart of the host, the host asks again for each MCP task of a
+  server at a URL, and delivers an end that came while it was down. The MCP
+  tasks of a command (stdio) fail, because the process is gone.
+- Limits: 5 live MCP tasks for one session and 50 on a host (a call past
+  either is cancelled and refused); 24 hours for one MCP task, or the
+  server's `ttlMs` when shorter; 10 results that start one session in an
+  hour (more stay on the row). A deleted session cancels its MCP tasks.
+- An MCP App cannot wait for an MCP task: its call gets an error, and the
+  host cancels the work.
+
+The server's task id stays on the host. Plan:
+`docs/plans/mcp-first-class.md` §12; handoff: `docs/plans/mcp-g-handoff.md`.
+
 ## Who may change what
 
 Every person adds, renames, and removes their own servers, sets their OAuth
@@ -226,6 +590,5 @@ the host owner and an organization owner included (docs/plans/access-model.md
 ## Not in this release
 
 A per-tool ask rule (only on and off exist), OpenAPI documents, renaming an
-account, several API keys for one server, and stdio servers are later phases
-of the plan. The tools you turned off are part of your agent profile, so they
+account, and several API keys for one server are later phases of the plan. The tools you turned off are part of your agent profile, so they
 follow a personal server to every host.

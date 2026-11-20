@@ -2,16 +2,18 @@
   import { cutText } from "@solus/contracts/text-cut";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
-  import { prettyToolName } from "../../contexts/workspace/session.utils";
   import { toolRowsCopyText } from "./lib/tool-row-copy";
+  import { toolProgressView } from "@solus/contracts/tool-progress";
   import { getMarkdownImageContext } from "./lib/markdown-image";
   import { toolRowImages } from "./lib/turn-images";
+  import { toolRowAudio, toolRowLeftOut } from "./lib/tool-row-media";
   import { toasts } from "../../lib/toasts";
   import { toolCallCode } from "@solus/client-core/tool-call-code";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import ActivityRow from "./ActivityRow.svelte";
   import MarkdownImage from "./MarkdownImage.svelte";
+  import ToolAudioPlayer from "./ToolAudioPlayer.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
@@ -21,6 +23,7 @@
     activityKind,
     activityKinds,
     activitySummary,
+    failedToolLabel,
     formatActivityDuration,
     getToolDescription,
     getToolDescriptionFromParsed,
@@ -121,6 +124,8 @@
   const runningStep = $derived(
     runningTool ? liveToolStep(runningTool.toolName || "Tool", runningTool.toolInput) : null,
   );
+  // An MCP call's own report of how far it is: its message as the row's object, a bar in the rail.
+  const progress = $derived(runningTool ? toolProgressView(runningTool.toolProgress) : null);
   // Running and failed both name the tool they are talking about; a finished
   // group names none, because the summary already counts them.
   const namedTool = $derived(runningTool ?? failedTool);
@@ -177,6 +182,7 @@
 
 {#snippet targetText()}{namedTarget}{/snippet}
 {#snippet thoughtText()}{thought}{/snippet}
+{#snippet progressText()}{progress?.message}{/snippet}
 
 <!-- No chassis at all: no fill, no hairline, no tint. This is the least
      important thing in the turn — it says how the answer was produced — so once
@@ -193,7 +199,13 @@
     expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
-    target={!isLive && namedTarget ? targetText : thought ? thoughtText : undefined}
+    target={!isLive && namedTarget
+      ? targetText
+      : progress?.message
+        ? progressText
+        : thought
+          ? thoughtText
+          : undefined}
     proseTarget={true}
     foregroundTarget={!!thought}
     glyphClass={failedTool && !runningTool ? "is-destructive" : ""}
@@ -225,7 +237,7 @@
             liveActivityLabel(activityLabel, 0, true, turnStart)}{namedTarget ? ` ${namedTarget}` : ""}
         </span>
       {:else if failedTool}
-        <span class="tool-named">{prettyToolName(failedTool.toolName || "Tool")} failed</span>
+        <span class="tool-named">{failedToolLabel(failedTool.toolName || "Tool")}</span>
       {:else}
         {#each summary as segment, i (i)}
           {#if segment.strong}<span class="tool-named">{segment.text}</span
@@ -237,6 +249,24 @@
     {#snippet rail()}
       {#if runningTool && tools.length > 1}
         <span>{doneCount}/{tools.length}</span>
+      {/if}
+      {#if progress?.fraction != null}
+        <span
+          class="relative inline-block h-1 w-10 shrink-0 overflow-hidden rounded-full bg-foreground/15"
+          role="progressbar"
+          aria-label="Tool progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress.percent}
+          data-testid="tool-progress-bar"
+        >
+          <!-- One finite transition per report; none when the reader asks for less motion. -->
+          <span
+            class="absolute inset-0 origin-left rounded-full bg-foreground/80 transition-transform duration-300 ease-out motion-reduce:transition-none"
+            style:transform={`scaleX(${progress.fraction})`}
+          ></span>
+        </span>
+        <span class="tabular-nums">{progress.percent}%</span>
       {/if}
       <span class="activity-rail-time">{duration}</span>
     {/snippet}
@@ -321,6 +351,26 @@
                   <MarkdownImage href={image.href} text={image.label} expandable />
                 {/each}
               </div>
+            {/if}
+            {@const audio = toolRowAudio(step)}
+            {#if audio.length > 0}
+              <div class="flex flex-col gap-2 pb-1 ps-8">
+                {#each audio as clip (clip.audio.assetId)}
+                  <ToolAudioPlayer audio={clip.audio} label={clip.label} />
+                {/each}
+              </div>
+            {/if}
+          {/if}
+          <!-- What the host left out of the result, as the agent read it. Text
+               only, so it needs no host behind the transcript. -->
+          {#if view.selectedToolId === step.id}
+            {@const leftOut = toolRowLeftOut(step)}
+            {#if leftOut.length > 0}
+              <ul class="m-0 list-none space-y-0.5 pb-1 ps-8 text-transcript-meta text-muted-foreground" aria-label="Left out of this result">
+                {#each leftOut as note, index (index)}
+                  <li class="break-words">Left out: {note}</li>
+                {/each}
+              </ul>
             {/if}
           {/if}
         {/if}

@@ -1,5 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { OAUTH_CLIENT_REQUIRED_MESSAGE } from '@solus/contracts/integrations/oauth-protocol'
+import { SOLUS_CLIENT_ID_URL, SOLUS_CLIENT_METADATA } from '@solus/contracts/integrations/client-metadata-document'
+import { DEFAULT_DESKTOP_SERVER_PORT } from '@solus/contracts/types'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from '../helpers/bun-sqlite'
@@ -33,7 +35,7 @@ const START = { callbackBaseUrl: 'https://host.example', fallbackHost: '127.0.0.
 let fake: FakeServers
 let integration: Integration
 
-function setup(now = () => Date.now()) {
+function setup(now = () => Date.now(), fetchImpl?: typeof fetch) {
   const store = new IntegrationConnectionStore()
   const secrets = memorySecretStore()
   const vault = new Vault({ secrets })
@@ -50,7 +52,7 @@ function setup(now = () => Date.now()) {
     authFinished: (user: string, event: IntegrationAuthFinishedEvent) => { finished.push({ user, event }) },
   }
   const integrations = { get: (id: string) => (id === integration.id ? integration : null) }
-  const oauth = new IntegrationOAuth({ connections: store, integrations, vault, clients, events, now })
+  const oauth = new IntegrationOAuth({ connections: store, integrations, vault, clients, events, now, fetch: fetchImpl })
   const connections = new IntegrationConnections({ store, integrations, vault, clients, oauth, events })
   return { hostToken, store, oauth, connections, changed, finished }
 }
@@ -87,6 +89,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   fake.options.registration = true
+  fake.options.metadataDocument = false
   fake.options.refuseRefresh = false
   fake.options.expiresIn = 3600
   await resetTestDatabase()
@@ -99,6 +102,28 @@ afterAll(async () => {
 })
 
 describe('integration OAuth', () => {
+  test('a wrong issuer in the callback cannot redeem the code', async () => {
+    const { oauth } = setup()
+    const flow = await startAs(ALICE, oauth)
+    const params = approve(flow.url)
+    params.set('iss', 'https://other.example')
+    const before = fake.tokenRequests.length
+    const page = await oauth.complete(params)
+    expect(page.status).toBe(400)
+    expect(page.html).toContain('different issuer')
+    expect(fake.tokenRequests.length).toBe(before)
+  })
+
+  test('a token from another issuer is never accepted', async () => {
+    const { oauth } = setup()
+    expect(await oauth.acceptsToken(integration, { accessToken: 'old', tokenType: 'Bearer', issuer: 'https://other.example' })).toBe(false)
+  })
+
+  test('a saved client for one issuer is not found under another issuer', () => {
+    const clients = memoryClients()
+    clients.saveClient(integration.id, 'https://issuer-a.example', { clientId: 'client-a' })
+    expect(clients.client(integration.id, 'https://issuer-b.example')).toBeNull()
+  })
   test('discovers from resource metadata and builds an S256 authorization URL bound to the server', async () => {
     const { oauth } = setup()
     const result = await startAs(ALICE, oauth)
@@ -230,5 +255,97 @@ describe('integration OAuth', () => {
     expect(store.get(integration.id, ALICE.personKey)).toBeNull()
     expect(changed.at(-1)?.event.connection).toBeNull()
     expect(fake.revoked.at(-1)).toMatch(/^refresh-/)
+  })
+})
+
+/** The desktop app on its own host: the renderer reaches the host on loopback, on the default port. */
+const DESKTOP = { callbackBaseUrl: `http://127.0.0.1:${DEFAULT_DESKTOP_SERVER_PORT}`, fallbackHost: '127.0.0.1', fallbackPort: DEFAULT_DESKTOP_SERVER_PORT }
+
+/**
+ * A host whose reads of Solus's metadata document get `answer`; every other
+ * request goes to the fake servers. `reads` counts the document reads.
+ */
+function publishing(answer: () => Response) {
+  const reads: string[] = []
+  const fetchImpl: typeof fetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input) === SOLUS_CLIENT_ID_URL) {
+      reads.push(String(input))
+      return answer()
+    }
+    return fetch(input, init)
+  }, { preconnect: fetch.preconnect })
+  return { fetchImpl, reads }
+}
+
+describe('the Client ID Metadata Document (§13.1)', () => {
+  test('signs in with the document when it is published and the server reads such documents', async () => {
+    fake.options.metadataDocument = true
+    const { fetchImpl } = publishing(() => Response.json(SOLUS_CLIENT_METADATA))
+    const { oauth, connections } = setup(undefined, fetchImpl)
+    const before = fake.registrations.length
+    const flow = await startAs(ALICE, oauth, DESKTOP)
+    const url = new URL(flow.url)
+    // WHY: the server reads Solus's name and callbacks from the URL; no registration is made or kept.
+    expect(url.searchParams.get('client_id')).toBe(SOLUS_CLIENT_ID_URL)
+    expect(url.searchParams.get('redirect_uri')).toBe(`http://127.0.0.1:${DEFAULT_DESKTOP_SERVER_PORT}/oauth/integration/callback`)
+    expect(fake.registrations.length).toBe(before)
+    expect((await oauth.complete(approve(flow.url))).status).toBe(200)
+    // A public client: the exchange names the client and sends no secret.
+    const exchange = fake.tokenRequests.at(-1)
+    expect(exchange?.get('client_id')).toBe(SOLUS_CLIENT_ID_URL)
+    expect(exchange?.has('client_secret')).toBe(false)
+    expect(await connections.authorizationFor(integration.id, ALICE.personKey)).toMatch(/^Bearer access-/)
+  })
+
+  for (const [name, answer] of [
+    ['not yet published', () => new Response('Not found', { status: 404 })],
+    ['published for another URL', () => Response.json({ ...SOLUS_CLIENT_METADATA, client_id: 'https://solus.sh/other.json' })],
+    ['moved with a redirect', () => new Response(null, { status: 302, headers: { location: 'https://solus.sh/elsewhere.json' } })],
+    ['unreachable', () => { throw new TypeError('fetch failed') }],
+  ] as const) {
+    test(`registers dynamically when the document is ${name}`, async () => {
+      fake.options.metadataDocument = true
+      const { fetchImpl, reads } = publishing(answer)
+      const { oauth } = setup(undefined, fetchImpl)
+      const before = fake.registrations.length
+      const flow = await startAs(ALICE, oauth, DESKTOP)
+      // WHY: the server would fetch the URL itself and fail the sign-in in the browser, where Solus cannot fall back.
+      expect(reads.length).toBe(1)
+      expect(new URL(flow.url).searchParams.get('client_id')).toBe(`client-${before + 1}`)
+      expect(fake.registrations.length).toBe(before + 1)
+    })
+  }
+
+  test('a callback the document does not name registers dynamically', async () => {
+    fake.options.metadataDocument = true
+    const { fetchImpl } = publishing(() => Response.json(SOLUS_CLIENT_METADATA))
+    const { oauth } = setup(undefined, fetchImpl)
+    const before = fake.registrations.length
+    // A host on its own origin, and the desktop host on a port that moved.
+    for (const start of [START, { ...DESKTOP, callbackBaseUrl: `http://127.0.0.1:${DEFAULT_DESKTOP_SERVER_PORT + 1}` }]) {
+      const flow = await startAs(ALICE, oauth, start)
+      // WHY: the server compares the callback as a plain string; one the document does not list would be refused.
+      expect(new URL(flow.url).searchParams.get('client_id')).not.toBe(SOLUS_CLIENT_ID_URL)
+    }
+    expect(fake.registrations.length).toBe(before + 2)
+  })
+
+  test('a server that does not read such documents never gets one, and the host does not read it', async () => {
+    const { fetchImpl, reads } = publishing(() => Response.json(SOLUS_CLIENT_METADATA))
+    const { oauth } = setup(undefined, fetchImpl)
+    const flow = await startAs(ALICE, oauth, DESKTOP)
+    expect(new URL(flow.url).searchParams.get('client_id')).not.toBe(SOLUS_CLIENT_ID_URL)
+    expect(reads).toEqual([])
+  })
+
+  test('the owner\'s own client still wins over the document', async () => {
+    fake.options.metadataDocument = true
+    const { fetchImpl } = publishing(() => Response.json(SOLUS_CLIENT_METADATA))
+    const { oauth } = setup(undefined, fetchImpl)
+    const owned: Integration = { ...integration, auth: { ...integration.auth, kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'metadata-document', clientId: 'owner-client' } }
+    const result = await withActingScope(ALICE, () => oauth.start(owned, DESKTOP))
+    if (result.kind !== 'waiting') throw new Error(`expected waiting, got ${result.kind}`)
+    // WHY: an explicit choice wins; the owner registered this client and its callbacks at the server.
+    expect(new URL(result.url).searchParams.get('client_id')).toBe('owner-client')
   })
 })

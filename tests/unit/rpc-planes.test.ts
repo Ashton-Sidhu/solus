@@ -69,3 +69,8 @@ describe('SOLUS_ROLES', () => {
     await expect(server.handle('detectEditors', [], INTERNAL_HANDLER_CTX)).resolves.toEqual({ editors: [] })
   })
 })
+
+
+test('task credentials use the shared vault instead of provider-specific task connection RPCs', () => {
+  expect(RPC_INVOKE_METHODS.some((method) => method.startsWith('tasksConnect'))).toBe(false)
+})

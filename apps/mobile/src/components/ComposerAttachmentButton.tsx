@@ -11,6 +11,8 @@ const ATTACHMENT_MENU_ACTIONS: MenuAction[] = [
   { id: "files", title: "Choose Files", image: "folder" },
 ];
 const REFERENCE_SESSION_ACTION: MenuAction = { id: "session", title: "Reference Session…", image: "text.bubble" };
+const MCP_PROMPT_ACTION: MenuAction = { id: "mcp-prompt", title: "MCP Prompt…", image: "text.badge.plus" };
+const MCP_RESOURCE_ACTION: MenuAction = { id: "resource", title: "MCP Resource…", image: "server.rack" };
 
 export function ComposerAttachmentButton(props: {
   readonly disabled?: boolean;
@@ -22,6 +24,10 @@ export function ComposerAttachmentButton(props: {
   readonly attachmentsFull?: boolean;
   /** Offers "Reference Session…": a session reference is text, not a file. */
   readonly onReferenceSession?: () => void;
+  /** Offers "MCP Prompt…": the phone's way to the prompts desktop lists in the `/` menu. */
+  readonly onMcpPrompt?: () => void;
+  /** Offers "MCP Resource…": the host reads a resource into the attachments. */
+  readonly onAttachResource?: () => void;
 }) {
   const { scale } = useAndroidControlSizing();
   const button = (
@@ -43,9 +49,15 @@ export function ComposerAttachmentButton(props: {
     </Pressable>
   );
 
-  const attachActions = props.attachmentsFull ? [] : props.supportsFiles ? ATTACHMENT_MENU_ACTIONS : ATTACHMENT_MENU_ACTIONS.slice(0, 1);
-  const actions = props.onReferenceSession ? [...attachActions, REFERENCE_SESSION_ACTION] : attachActions;
-  if (props.disabled || actions.length === 0 || (!props.supportsFiles && !props.onReferenceSession)) {
+  const pickActions = props.supportsFiles ? ATTACHMENT_MENU_ACTIONS : ATTACHMENT_MENU_ACTIONS.slice(0, 1);
+  const resourceActions = props.onAttachResource ? [MCP_RESOURCE_ACTION] : [];
+  const attachActions = props.attachmentsFull ? [] : [...pickActions, ...resourceActions];
+  const actions = [
+    ...attachActions,
+    ...(props.onReferenceSession ? [REFERENCE_SESSION_ACTION] : []),
+    ...(props.onMcpPrompt ? [MCP_PROMPT_ACTION] : []),
+  ];
+  if (props.disabled || actions.length === 0 || (!props.supportsFiles && !props.onReferenceSession && !props.onMcpPrompt)) {
     return button;
   }
 
@@ -62,6 +74,10 @@ export function ComposerAttachmentButton(props: {
           void props.onPickFiles();
         } else if (nativeEvent.event === "session") {
           props.onReferenceSession?.();
+        } else if (nativeEvent.event === "mcp-prompt") {
+          props.onMcpPrompt?.();
+        } else if (nativeEvent.event === "resource") {
+          props.onAttachResource?.();
         }
       }}
     >

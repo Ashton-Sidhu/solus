@@ -210,6 +210,9 @@
   let scrollEl: HTMLDivElement | null = $state(null);
   let messagesEl: HTMLDivElement | null = $state(null);
   let readingColumnEl: HTMLDivElement | null = $state(null);
+  // Each message's hover rail hangs in this gutter and wraps only when it is too narrow.
+  let transcriptWidth = $state(0);
+  let readingColumnWidth = $state(0);
   // The one owner of following the end. It lives as long as the scroller, not
   // its visibility, so a hidden view still knows whether the reader was at the
   // end when it is shown again.
@@ -679,10 +682,12 @@
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- The anchor an MCP App frame in picture-in-picture floats against
+       (McpAppFrame): scoped, so each visible conversation holds its own. -->
   <div
     onmouseenter={() => (hovered = true)}
     onmouseleave={() => (hovered = false)}
-    class="flex h-full min-h-0 flex-col"
+    class="flex h-full min-h-0 flex-col [anchor-name:--solus-conversation] [anchor-scope:--solus-conversation]"
     data-slot="conversation"
     aria-busy={waitingForHistory || arrival.pending}
   >
@@ -714,6 +719,7 @@
       {/if}
       <div
         bind:this={scrollEl}
+        bind:clientWidth={transcriptWidth}
         data-slot="transcript"
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
@@ -726,10 +732,11 @@
              --solus-reading-max) so everything lines up. -->
         <div
           bind:this={readingColumnEl}
+          bind:clientWidth={readingColumnWidth}
           class="w-full"
           class:opacity-0={waitingForHistory || arrival.pending}
           inert={waitingForHistory || arrival.pending}
-          style="max-width:var(--solus-reading-max);margin-inline:auto{reservesBandRoom
+          style="max-width:var(--solus-reading-max);margin-inline:auto;--transcript-gutter:{Math.max(0, (transcriptWidth - readingColumnWidth) / 2)}px{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"
         >
@@ -805,7 +812,10 @@
           {/snippet}
 
           <!-- Every card below asks the host for something. While the host is
-               away none of them can work, so the host panel stands alone. -->
+               away none of them can work, so the host panel stands alone.
+               They paint over an MCP App frame in picture-in-picture (z-6):
+               a decision is never under the app. -->
+          <div class="relative z-[7]">
           {#if !isHostAway}
           <!-- A finished setup card belongs to the turn its send started, so the
                last turn draws it; this slot is for setup that runs or failed. -->
@@ -865,6 +875,7 @@
             <AgentAuthCard />
           {/if}
           {/if}
+          </div>
           <QueuedPromptGroup tabId={tab.id} />
           <SuggestionGroup tabId={tab.id} />
           <!-- Someone else's prompt is on its way: it lands here, so the notice does too. -->

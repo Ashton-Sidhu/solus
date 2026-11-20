@@ -86,14 +86,14 @@ test('the screenshot is an image in the result, and the card names the same capt
   screenshot = `data:image/png;base64,${ONE_PIXEL_PNG.toString('base64')}`
   const { result, assetId } = await snapshot()
   expect(result.ok).toBe(true)
-  expect(result.image).toEqual({ mimeType: 'image/png', data: ONE_PIXEL_PNG.toString('base64') })
+  expect(result.images).toEqual([{ mimeType: 'image/png', data: ONE_PIXEL_PNG.toString('base64') }])
   expect(result.text).toContain(`screenshot: attached to this result, scaled down; full resolution saved at ${join(dataDir, 'assets', assetId!)}`)
 })
 
 test('a screenshot too large for a tool result is a file to read instead', async () => {
   screenshot = `data:image/png;base64,${Buffer.concat([ONE_PIXEL_PNG, Buffer.alloc(6 * 1024 * 1024)]).toString('base64')}`
   const { result, assetId } = await snapshot()
-  expect(result.image).toBeUndefined()
+  expect(result.images).toBeUndefined()
   const path = /screenshot: (\S+) {2}\(too large to attach/.exec(result.text)![1]
   expect(path).toBe(join(dataDir, 'assets', assetId!))
   expect(await Bun.file(path).exists()).toBe(true)
@@ -104,7 +104,7 @@ test('a Retina capture reaches the agent scaled down, and the stored capture kee
   retina.data.fill(255)
   screenshot = `data:image/png;base64,${PNG.sync.write(retina).toString('base64')}`
   const { result, assetId } = await snapshot()
-  const seen = PNG.sync.read(Buffer.from(result.image!.data, 'base64'))
+  const seen = PNG.sync.read(Buffer.from(result.images![0].data, 'base64'))
   expect([seen.width, seen.height]).toEqual([1568, 980])
   const stored = PNG.sync.read(Buffer.from(await Bun.file(join(dataDir, 'assets', assetId!)).arrayBuffer()))
   expect([stored.width, stored.height]).toEqual([2880, 1800])

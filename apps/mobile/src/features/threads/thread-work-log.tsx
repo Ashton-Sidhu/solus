@@ -26,14 +26,19 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
+import type { ToolProgress } from "@solus/contracts/types";
+import { toolProgressView } from "@solus/contracts/tool-progress";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { ThreadToolImages } from "./ThreadImages";
+import { ThreadToolAudio } from "./ThreadToolAudio";
 import { ToolCallDetail } from "./ToolCallDetail";
 import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
 import {
   summarizeToolGroup,
   toolActivitySummary,
+  toolDetailAudio,
   toolDetailImages,
+  toolDetailLeftOut,
   toolFullDetail,
   toolGroupAction,
   toolGroupSummaryKind,
@@ -297,6 +302,34 @@ export function toolGroupSummarySymbolName(kind: ToolGroupAction | "mixed"): App
   }
 }
 
+/**
+ * A running MCP call's own progress under its row (docs/plans/mcp-first-class.md §5):
+ * a bar when the server gave a total, then its plain-text message. Nothing before the first report.
+ */
+function ToolProgressLine(props: { readonly progress: ToolProgress | undefined }) {
+  const view = toolProgressView(props.progress);
+  if (!view || (view.fraction === null && !view.message)) return null;
+  const caption = [view.percent === null ? null : `${view.percent}%`, view.message].filter(Boolean).join(" · ");
+  return (
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={view.message ?? "Tool progress"}
+      accessibilityValue={view.percent === null ? undefined : { min: 0, max: 100, now: view.percent }}
+      className="flex-row items-center gap-2 pb-1 pl-8 pr-1"
+    >
+      {view.fraction !== null ? (
+        <View className="h-1 w-12 overflow-hidden rounded-full bg-border">
+          <View className="h-full rounded-full bg-foreground-muted" style={{ width: `${view.percent ?? 0}%` }} />
+        </View>
+      ) : null}
+      <Text numberOfLines={1} className="min-w-0 flex-1 text-xs text-foreground-muted">
+        {caption}
+      </Text>
+    </View>
+  );
+}
+
 const WORK_GROUP_MAX_HEIGHT = 256;
 const WORK_GROUP_EDGE_FADE_HEIGHT = 12;
 
@@ -434,7 +467,9 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
   const failed = row.status === "error";
   const live = row.status === "running";
   const images = toolDetailImages(row);
-  const canExpand = fullDetail !== null || images.length > 0;
+  const audio = toolDetailAudio(row);
+  const leftOut = toolDetailLeftOut(row);
+  const canExpand = fullDetail !== null || images.length > 0 || audio.length > 0 || leftOut.length > 0;
   const { label: displayText, body } = toolRowView(row, expanded);
   const icon = toolGroupSummarySymbolName(toolGroupAction(row.toolName));
   const copyText = fullDetail ?? displayText;
@@ -518,6 +553,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
           </View>
         </View>
       </WorkLogPressable>
+      {live ? <ToolProgressLine progress={row.progress} /> : null}
 
       {expanded && canExpand ? (
         <Animated.View
@@ -538,6 +574,16 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
             </Animated.ScrollView>
           ) : null}
           {images.length > 0 ? <ThreadToolImages images={images} store={props.store} /> : null}
+          {audio.map((clip) => <ThreadToolAudio key={clip.audio.assetId} audio={clip.audio} label={clip.label} store={props.store} />)}
+          {leftOut.length > 0 ? (
+            <View accessibilityLabel="Left out of this result" className="gap-0.5">
+              {leftOut.map((note, index) => (
+                <Text key={index} selectable className="text-2xs leading-normal text-foreground-muted">
+                  Left out: {note}
+                </Text>
+              ))}
+            </View>
+          ) : null}
         </Animated.View>
       ) : null}
     </Animated.View>
@@ -602,6 +648,8 @@ export function ThreadWorkGroupToggle(props: {
           tintColor={props.iconSubtleColor}
         />
       </WorkLogPressable>
+      {/* Open, the call's own row shows it instead. */}
+      {props.live && !props.expanded && latest?.status === "running" ? <ToolProgressLine progress={latest.progress} /> : null}
     </WorkLogBlock>
   );
 }

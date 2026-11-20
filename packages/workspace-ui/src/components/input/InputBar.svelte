@@ -325,7 +325,7 @@
     draftId, composerCwd, pluginCommands, onDispatch, onDispatchInBackground,
     onSent, editor: composerEl, refocusComposer,
   }));
-  const { handleSend, handleSolusCommand, stopRun, handleKeyDown, handleEditorChange, handlePaste } = commands;
+  const { handleSend, handleSolusCommand, attachResource, stopRun, handleKeyDown, handleEditorChange, handlePaste } = commands;
 
   // Initialize voice before the fold below. The fold creates its collapsed
   // derived value immediately and reads `micHoldsBarOpen` through its recording
@@ -666,6 +666,43 @@
     </div>
   {/if}
 
+  {#if commands.mcpPrompts?.form}
+    {@const mcpPrompts = commands.mcpPrompts}
+    {@const promptForm = commands.mcpPrompts.form}
+    <!-- The argument form loads on first use, not with the first screen. -->
+    {#await import("./PromptArgumentForm.svelte") then { default: PromptArgumentForm }}
+      {#key promptForm.prompt.command}
+        <PromptArgumentForm
+          title={promptForm.prompt.command}
+          description={promptForm.prompt.description ?? promptForm.prompt.title}
+          fields={promptForm.prompt.arguments}
+          initialValues={promptForm.values}
+          isSubmitting={promptForm.isSending}
+          error={promptForm.error}
+          onSubmit={mcpPrompts.submitForm}
+          onClose={mcpPrompts.closeForm}
+        />
+      {/key}
+    {/await}
+  {/if}
+
+  {#if commands.resourceTemplateForm}
+    {@const templateForm = commands.resourceTemplateForm}
+    <!-- A resource template (mcp-first-class.md §11.3): the same form as an MCP prompt's arguments. -->
+    {#await import("./PromptArgumentForm.svelte") then { default: PromptArgumentForm }}
+      {#key templateForm.template.uriTemplate}
+        <PromptArgumentForm
+          title={templateForm.template.uriTemplate}
+          description={templateForm.template.description ?? templateForm.template.title ?? templateForm.template.name}
+          fields={templateForm.fields}
+          submitLabel="Attach"
+          onSubmit={commands.submitResourceTemplate}
+          onClose={commands.closeResourceTemplate}
+        />
+      {/key}
+    {/await}
+  {/if}
+
   {#if attachments.length > 0}
     <div class="pt-2">
       <AttachmentChips
@@ -820,6 +857,8 @@
         onRefsChange={handleRefsChange}
         includeSolusCommands
         onSolusCommand={handleSolusCommand}
+        onMcpPrompt={commands.mcpPrompts?.choose}
+        onResource={attachResource}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         {placeholder}

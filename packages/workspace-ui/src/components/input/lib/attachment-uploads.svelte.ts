@@ -45,6 +45,8 @@ const TOKEN_REUSE_MARGIN_MS = 60_000
 class AttachmentUploads {
   private readonly states = new SvelteMap<string, AttachmentUploadState>()
   private readonly uploads = new Map<string, StreamedUpload>()
+  /** Chips whose contents the host reads, by attachment id: each runs its read again on Retry. */
+  private readonly reads = new Map<string, () => void>()
   private readonly waiters = new Map<string, Array<(outcome: AttachmentUploadOutcome) => void>>()
 
   stateFor(attachmentId: string): AttachmentUploadState | undefined {
@@ -147,13 +149,47 @@ class AttachmentUploads {
     }
   }
 
+  /**
+   * A chip whose contents the host reads, such as an MCP resource
+   * (docs/plans/mcp-first-class.md §11.3). It shows as uploading while `read`
+   * runs and as failed, with Retry, when the read throws. `place` puts what the
+   * host answered in the chip's place.
+   */
+  read(chip: Attachment, read: () => Promise<Attachment[]>, place: (attachments: Attachment[]) => void): void {
+    const run = () => void this.runRead(chip, read, place)
+    this.reads.set(chip.id, run)
+    run()
+  }
+
+  private async runRead(chip: Attachment, read: () => Promise<Attachment[]>, place: (attachments: Attachment[]) => void): Promise<void> {
+    this.states.set(chip.id, { status: 'uploading', loadedBytes: 0, totalBytes: 0 })
+    try {
+      const attachments = await read()
+      if (!this.reads.has(chip.id)) return
+      this.reads.delete(chip.id)
+      this.states.delete(chip.id)
+      place(attachments)
+      this.settle(chip.id, attachments[0]
+        ? { status: 'landed', attachment: { ...attachments[0], id: chip.id } }
+        : { status: 'failed', message: `${chip.name} has no contents.` })
+    } catch (error) {
+      if (!this.reads.has(chip.id)) return
+      const message = `Could not read ${chip.name}: ${error instanceof Error ? error.message : 'the host did not answer'}`
+      this.states.set(chip.id, { status: 'failed', message })
+      this.settle(chip.id, { status: 'failed', message })
+    }
+  }
+
   retry(attachmentId: string): void {
     if (this.states.get(attachmentId)?.status !== 'failed') return
-    void this.send(attachmentId)
+    const read = this.reads.get(attachmentId)
+    if (read) read()
+    else void this.send(attachmentId)
   }
 
   /** The chip was removed: stop sending and forget it. */
   cancel(attachmentId: string): void {
+    this.reads.delete(attachmentId)
     this.uploads.get(attachmentId)?.abort?.abort()
     this.uploads.delete(attachmentId)
     this.states.delete(attachmentId)

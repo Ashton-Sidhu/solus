@@ -15,6 +15,7 @@ import { AttentionService } from '../attention/attention-service'
 import { prepareSessionTask } from '../data/tasks/session-task'
 import { recordSessionExecutionPreferences } from '../data/sessions/session-states'
 import { ResponseTextBuffer } from './sessions/response-text-buffer'
+import { AppModelContexts } from './sessions/app-model-contexts'
 import { inheritedOrganizationOf, parentSessionIdOf, recordSessionSettings } from './sessions/session-settings'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import { organizationOfSession } from '../data/sessions/session-records'
@@ -193,6 +194,8 @@ export class SessionRuntime extends EventEmitter {
   readonly handoffs: ProviderHandoffs
   readonly sessionCheckouts: SessionCheckouts
   readonly dispatch = new PromptDispatch(this)
+  /** What the session's open MCP Apps report to the agent; each turn carries it. */
+  readonly appModelContexts = new AppModelContexts()
 
   readonly sessionPermissionModes: SessionPermissionStore
   isShuttingDown = false
@@ -208,6 +211,8 @@ export class SessionRuntime extends EventEmitter {
   readonly usageLimits = new UsageLimitsStore()
   /** Owns every exchange between sessions; wired once the host boots. */
   orchestration: OrchestrationHooks | null = null
+  /** Whether a live MCP task holds the session in 'background' (docs/plans/mcp-first-class.md §12.5); the MCP task owner answers. */
+  mcpTaskHolds: ((sessionId: string) => boolean) | null = null
   /** Writes each ended turn to the session repository (docs/plans/portable-sessions.md); wired once the host boots. */
   sessionArchive: Pick<SessionArchiveWriter, 'turnEnded'> | null = null
   sessionSync: SessionSync | null = null
@@ -379,6 +384,10 @@ export class SessionRuntime extends EventEmitter {
 
   useSessionSync(sessionSync: SessionSync): void {
     this.sessionSync = sessionSync
+  }
+
+  useMcpTaskHolds(holds: (sessionId: string) => boolean): void {
+    this.mcpTaskHolds = holds
   }
 
   /** Hands every exchange between sessions to the orchestrator. */
@@ -854,7 +863,8 @@ export class SessionRuntime extends EventEmitter {
     }
     // A targeted emit is a replay or an echo to one client; logging it would
     // duplicate it for the next joiner. Only the broadcast stream is the turn.
-    if (!to) this._recordTurnEvent(sessionId, event)
+    // Progress is live only (docs/plans/mcp-first-class.md §5): a client that joins sees the call running, with no old number.
+    if (!to && event.type !== 'tool_progress') this._recordTurnEvent(sessionId, event)
     this.emit('event', sessionId, event, to)
   }
 
@@ -862,6 +872,8 @@ export class SessionRuntime extends EventEmitter {
    *  level with the clients that were already here. Cleared when the turn settles,
    *  after which durable history on disk is the source. */
   private _recordTurnEvent(sessionId: string, event: NormalizedEvent): void {
+    // The input so far of a streaming call comes again whole with the next one.
+    if (event.type === 'tool_call_update' && event.inputPartial) return
     const turnEvents = this.turnLog.get(sessionId)
     if (!turnEvents) {
       this.turnLog.set(sessionId, [event])

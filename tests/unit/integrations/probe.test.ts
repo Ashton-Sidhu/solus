@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { probeMcpServer } from '@solus/server/integrations/probe'
 import { probeAddress } from '@solus/server/integrations/integration-create'
 import { integrationUrlSchema } from '@solus/contracts/integration-types'
+import { startFakeServers } from './fake-servers'
+import { readServerIdentity } from '@solus/server/integrations/server-identity'
 
 // docs/plans/mcp-integrations.md §3.2: the probe decides how an integration
 // authenticates from what the server answers without credentials. Each case is
@@ -16,6 +18,7 @@ const TOOLS = [
 
 let server: ReturnType<typeof Bun.serve>
 let base: string
+let metadataSupported = false
 
 function rpcResult(id: number | undefined, result: object): Response {
   return Response.json({ jsonrpc: '2.0', id, result })
@@ -70,6 +73,7 @@ beforeAll(() => {
             authorization_endpoint: `${base}/issuer/authorize`,
             token_endpoint: `${base}/issuer/token`,
             registration_endpoint: `${base}/issuer/register`,
+            client_id_metadata_document_supported: metadataSupported,
             response_types_supported: ['code'],
             code_challenge_methods_supported: ['S256'],
           })
@@ -97,6 +101,24 @@ afterAll(() => {
 const options = { allowLoopback: true }
 
 describe('MCP probe', () => {
+  test('the modern server identity comes from discover', async () => {
+    const fake = await startFakeServers()
+    try { expect(await readServerIdentity(fake.modernMcpUrl, 'Bearer test')).toEqual({ label: 'modern-fake' }) }
+    finally { await fake.close() }
+  })
+
+  test('a modern server is discovered without initialize and its revision is a signal', async () => {
+    const fake = await startFakeServers()
+    try {
+      const result = await probeMcpServer(fake.modernMcpUrl, options)
+      expect(result.outcome).toBe('anonymous')
+      if (result.outcome !== 'anonymous') return
+      expect(result.tools.map((tool) => tool.name)).toEqual(['echo', 'confirm', 'break_stream'])
+      expect(result.signals).toContainEqual({ kind: 'revision', revision: '2026-07-28' })
+      expect(result.signals.some((signal) => signal.kind === 'request' && signal.method === 'initialize')).toBe(false)
+    } finally { await fake.close() }
+  })
+
   test('a server that initializes and lists tools anonymously is anonymous, with its tool hints', async () => {
     // WHY: an anonymous server works for everyone without a connection.
     const result = await probeMcpServer(`${base}/anonymous/mcp`, options)
@@ -108,6 +130,7 @@ describe('MCP probe', () => {
       { name: 'delete_page', description: '', readOnly: false, destructive: true },
     ])
     expect(result.signals.filter((signal) => signal.kind === 'request')).toEqual([
+      { kind: 'request', method: 'server/discover', status: 400, media: 'text', answer: 'none' },
       { kind: 'request', method: 'initialize', status: 200, media: 'json', answer: 'result' },
       { kind: 'request', method: 'tools/list', status: 200, media: 'event-stream', answer: 'result' },
     ])
@@ -130,11 +153,21 @@ describe('MCP probe', () => {
     expect(result.signals).toContainEqual({ kind: 'authorization-server-metadata', result: 'ok' })
   })
 
+  test('metadata documents take priority when dynamic registration is also advertised', async () => {
+    metadataSupported = true
+    try {
+      const result = await probeMcpServer(`${base}/oauth/mcp`, options)
+      expect(result).toMatchObject({ outcome: 'oauth', auth: { registration: 'metadata-document' } })
+    } finally {
+      metadataSupported = false
+    }
+  })
+
   test('a 401 without OAuth metadata asks for credentials with the challenge scheme', async () => {
     // WHY: a person pastes a key; the agent must never ask for one in chat.
     const result = await probeMcpServer(`${base}/key/mcp`, options)
     expect(result).toMatchObject({ outcome: 'credentials-required', auth: { kind: 'bearer', scheme: 'bearer' } })
-    expect(result.signals[0]).toEqual({ kind: 'request', method: 'initialize', status: 401, media: 'text', answer: 'none', challenge: { scheme: 'bearer', resourceMetadata: false, scope: false } })
+    expect(result.signals[0]).toEqual({ kind: 'request', method: 'server/discover', status: 401, media: 'text', answer: 'none', challenge: { scheme: 'bearer', resourceMetadata: false, scope: false } })
   })
 
   test('a web page is not an MCP server', async () => {

@@ -18,6 +18,7 @@ import type { ApprovalsReviewer, AskForApproval, SandboxPolicy } from './generat
 import { resolveHomePath } from '../../../platform/paths'
 import { sessionIdOfThread } from '../../../data/sessions/session-lineage'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
+import { toolResultMedia } from '../../../data/assets/tool-result-media'
 import { isAuthFailureMessage } from '../auth-failure'
 
 const stringValueSchema = z.string()
@@ -599,17 +600,17 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
   }
 
   const isCodexSubagent = item.type === 'collabAgentToolCall' && item.tool === 'spawnAgent'
+  const text = codexToolResultText(item.result ?? (item.contentItems ? { contentItems: item.contentItems } : undefined))
   return {
     role: 'tool',
-    content: codexToolResultText(
-      item.result ?? (item.contentItems ? { contentItems: item.contentItems } : undefined),
-    ),
+    content: text,
     toolName,
     toolId: item.id,
     toolInput: codexToolInputFromArguments(item.arguments),
     isSubagent: isCodexSubagent || undefined,
     subagentType: isCodexSubagent ? 'codex' : undefined,
     toolImages: storeToolResultImages(mcpResultContentSchema.safeParse(item.result).data?.content ?? item.contentItems),
+    ...toolResultMedia(text),
     timestamp,
   }
 }
@@ -723,7 +724,7 @@ export function codexReasoningText(item: CodexHistoryItem): string {
   return joinReasoningStrings(item.summary, '\n\n') || joinReasoningStrings(item.content, '\n')
 }
 
-function codexToolResultText<Result>(result: Result): string {
+export function codexToolResultText<Result>(result: Result): string {
   const text = parsedString(result)
   if (text !== undefined) return text
   const parsed = toolResultSchema.safeParse(result)

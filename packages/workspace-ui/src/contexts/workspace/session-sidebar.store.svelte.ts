@@ -104,6 +104,15 @@ function restoredSessionActivityAt(
   return liveActivityAt || link.lastActivityAt || link.linkedAt
 }
 
+/** A pin that completing or archiving its session ends. */
+interface EndedPin {
+  pin: PinnedSession
+  /** The host that holds the pin. */
+  pinServerId: string
+  /** The home that takes the change: the pin's host, or an organization's Solus API. */
+  homeServerId: string
+}
+
 export type SidebarSessionChild = {
   /** Present once this child session is mounted. Durable session rows remain
    *  visible without it and resume their session only when selected. */
@@ -941,18 +950,47 @@ export class SessionSidebarStore {
     })
     const stopViews = subscribeAllHosts('session.viewChanged', (serverId, { sessionId, view }) => {
       if (view.settledAt === null && view.archivedAt === null) return
-      const resolvedServerId = serverConnections.resolveId(serverId)
-      this.pinRequests.set(resolvedServerId, (this.pinRequests.get(resolvedServerId) ?? 0) + 1)
-      for (let index = this.pinnedSessions.length - 1; index >= 0; index--) {
-        const pin = this.pinnedSessions[index]
-        if (pin.sessionId === sessionId && pin.serverId === resolvedServerId) this.pinnedSessions.splice(index, 1)
-      }
+      this.dropPin(serverConnections.resolveId(serverId), sessionId)
     })
     // A list read (each reconnect makes one) answers what the events missed.
     const stopRecords = sessionListStore.onRecordsRead((serverId, records, readStartedAt) => {
       for (const record of records) this.sessionStatusFeed().adoptRecord(serverId, record, readStartedAt)
     })
     return () => { stopEvents(); stopViews(); stopRecords() }
+  }
+
+  /** Forget a session's pin on this client. An older manifest read must not restore it. */
+  private dropPin(serverId: string, sessionId: string): void {
+    this.pinRequests.set(serverId, (this.pinRequests.get(serverId) ?? 0) + 1)
+    for (let index = this.pinnedSessions.length - 1; index >= 0; index--) {
+      const pin = this.pinnedSessions[index]
+      if (pin.sessionId === sessionId && pin.serverId === serverId) this.pinnedSessions.splice(index, 1)
+    }
+  }
+
+  /** The pins that completing or archiving these sessions ends, each with the
+   *  home that takes the change. Read before the change: its announcement
+   *  drops the pin from this client. */
+  private pinsEndedBy(targets: SessionListTarget[]): EndedPin[] {
+    return targets.flatMap((target) => {
+      const pin = this.pinFor(target.sessionId, target.serverId)
+      if (!pin) return []
+      return [{ pin, pinServerId: serverConnections.resolveId(target.serverId), homeServerId: serverConnections.resolveId(sessionListStore.homeFor(target)) }]
+    })
+  }
+
+  /** Completing or archiving a session ends its pin. A home that holds the pin
+   *  removes it; a home elsewhere (an organization's Solus API) never sees the
+   *  pin, so it is removed on the host that holds it. */
+  private async endPins(ended: EndedPin[]): Promise<void> {
+    for (const { pin, pinServerId } of ended) this.dropPin(pinServerId, pin.sessionId)
+    const elsewhere = ended.filter(({ pinServerId, homeServerId }) => pinServerId !== homeServerId)
+    try {
+      await Promise.all(elsewhere.map(({ pin, pinServerId }) => serverConnections.apiFor(pinServerId).togglePinnedSession(pin)))
+    } catch (error) {
+      const { toasts } = await import('../../lib/toasts')
+      toasts.error("Couldn't unpin it", { description: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   /** A tab is closing: the status the feed held for its session is stale. */
@@ -1254,6 +1292,7 @@ export class SessionSidebarStore {
     }
     // The sessions it delegated are finished with it: they settle and close too.
     const targets = [target, ...this.closeDelegatedRows(row, (child) => this.canShelve(child))]
+    const endedPins = this.pinsEndedBy(targets)
     const settling = Promise.all(targets.map((settled) => sessionListStore.setSettled(settled, true)))
     this.closeTask(row)
     const { toasts } = await import('../../lib/toasts')
@@ -1263,6 +1302,7 @@ export class SessionSidebarStore {
       toasts.error("Couldn't change session status", { description: error instanceof Error ? error.message : String(error) })
       return
     }
+    void this.endPins(endedPins)
     // Undo makes the session active again, as the mobile list's Undo does.
     toasts.undo('Session marked as completed.', () => {
       void Promise.all(targets.map((settled) => sessionListStore.setSettled(settled, false))).catch(() => {
@@ -1482,6 +1522,7 @@ export class SessionSidebarStore {
   /** Archive sessions on their hosts. Only a refused archive says it failed,
    *  with the host's reason; Undo returns the sessions to the list. */
   private async archiveOnHost(targets: SessionListTarget[]): Promise<void> {
+    const endedPins = this.pinsEndedBy(targets)
     const archiving = Promise.all(targets.map((target) => sessionListStore.setArchived(target, true)))
     const { toasts } = await import('../../lib/toasts')
     try {
@@ -1490,6 +1531,7 @@ export class SessionSidebarStore {
       toasts.error("Couldn't archive it", { description: error instanceof Error ? error.message : String(error) })
       return
     }
+    void this.endPins(endedPins)
     toasts.undo('Session archived', () => {
       void Promise.all(targets.map((target) => sessionListStore.setArchived(target, false))).catch(() => {
         toasts.error("Couldn't return it to the list")

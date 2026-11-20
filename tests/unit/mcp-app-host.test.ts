@@ -1,14 +1,18 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { z } from 'zod'
-import { createMcpAppHost, MCP_APP_MAX_HEIGHT, mcpAppContainerDimensions, type McpAppHostContext, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
-import { nativeMcpAppDocument } from '@solus/client-core/mcp-app-document'
+import { MCP_APP_MAX_HEIGHT, MCP_APP_PIP_SIZE, mcpAppAvailableDisplayModes, mcpAppContainerDimensions, mcpAppHostContext, type McpAppHostContext, type McpAppPalette } from '@solus/client-core/mcp-app-context'
+import { createMcpAppHost, mcpAppGrantedDisplayMode, mcpAppOffersDisplayMode, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { mcpAppAllowAttribute, mcpAppPermissionAction, mcpAppPermissionPrompt, mcpAppPermissionRequest } from '@solus/client-core/mcp-app-permissions'
+import { mcpAppFrameHeight, nativeMcpAppDocument } from '@solus/client-core/mcp-app-document'
 import { McpAppStore } from '@solus/client-core/mcp-app-store'
-import { mcpAppDocument, mcpAppCspSchema, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
+import { MCP_APP_MAX_MODEL_CONTEXT_CHARS, mcpAppDocument, mcpAppCspSchema, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
 
 const snapshot: McpAppSnapshot = { html: '<button>Filter</button>', toolInputJson: '{"region":"west"}', toolResultJson: '{"content":[{"type":"text","text":"42"}]}', csp: {} }
-const context: McpAppHostContext = { theme: 'dark', displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], containerDimensions: { width: 640, maxHeight: 2000 }, platform: 'web', styles: { variables: {
-  '--color-background-primary': '#111', '--color-background-secondary': '#222', '--color-text-primary': '#eee', '--color-text-secondary': '#aaa', '--color-border-primary': '#333', '--font-sans': 'system-ui',
-} } }
+const palette: McpAppPalette = {
+  background: '#111', raised: '#222', strong: '#333', text: '#eee', textSecondary: '#aaa', textTertiary: '#888', border: '#444',
+  accent: '#d97757', info: '#7cc0ea', danger: '#e3645e', success: '#5a9e6f', warning: '#fbbf24', fontSans: 'system-ui', fontMono: 'monospace',
+}
+const context: McpAppHostContext = mcpAppHostContext({ theme: 'dark', displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], size: { width: 640, height: 320 }, platform: 'web', touch: false, hover: true, palette })
 const jsonParams = z.json()
 const request = (method: string, params: z.infer<typeof jsonParams> = {}, id?: number) => JSON.stringify({ jsonrpc: '2.0', ...(id === undefined ? {} : { id }), method, params })
 
@@ -17,20 +21,104 @@ function setup(overrides: Partial<McpAppHostOptions> = {}) {
   const calls: Array<{ name: string; input: string; approved: boolean }> = []
   const prompts: string[] = []
   const sizes: number[] = []
-  const host = createMcpAppHost({ snapshot, context: () => context, post: (json) => posted.push(json),
+  const contexts: string[] = []
+  let closes = 0
+  const host = createMcpAppHost({ snapshot, title: 'Charts', context: () => context, permissions: () => [], post: (json) => posted.push(json),
     toolInfo: async (name) => ({ callable: true, readOnly: false, title: name }),
     callTool: async (name, input, approved) => { calls.push({ name, input, approved }); return '{"content":[]}' },
     readResource: async () => '{"contents":[]}', confirm: async () => false,
-    sendMessage: async (text) => { prompts.push(text) }, openLink: async () => {},
-    displayMode: () => {}, resize: (height) => sizes.push(height), close: () => {}, ...overrides,
+    sendMessage: async (text) => { prompts.push(text) }, updateModelContext: async (text) => { contexts.push(text) }, openLink: async () => {},
+    displayMode: (mode) => mode, resize: (height) => sizes.push(height), close: () => { closes++ }, ...overrides,
   })
-  return { host, posted, calls, prompts, sizes }
+  return { host, posted, calls, prompts, sizes, contexts, closes: () => closes }
 }
 
 describe('MCP App container dimensions', () => {
   test('an inline frame follows the app, and a full-screen frame is a box the app must fit', () => {
-    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, false)).toEqual({ width: 640, maxHeight: MCP_APP_MAX_HEIGHT })
-    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, true)).toEqual({ width: 640, height: 320 })
+    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, 'inline')).toEqual({ width: 640, maxHeight: MCP_APP_MAX_HEIGHT })
+    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, 'fullscreen')).toEqual({ width: 640, height: 320 })
+  })
+
+  test('a picture-in-picture frame is a fixed box too', () => {
+    expect(mcpAppContainerDimensions(MCP_APP_PIP_SIZE, 'pip')).toEqual({ width: 384, height: 256 })
+  })
+})
+
+describe('MCP App display modes', () => {
+  const inline = { displayMode: 'inline' as const, availableDisplayModes: mcpAppAvailableDisplayModes({ conversationWidth: 800 }) }
+
+  test('a narrow conversation is not offered picture-in-picture: the frame and its margins would not fit', () => {
+    // WHY: a pane is legally about 356 px wide; a 384 px frame there would cover the conversation.
+    expect(mcpAppAvailableDisplayModes({ conversationWidth: 356 })).toEqual(['inline', 'fullscreen'])
+    expect(mcpAppAvailableDisplayModes({ conversationWidth: 479 })).not.toContain('pip')
+    expect(mcpAppAvailableDisplayModes({ conversationWidth: 480 })).toContain('pip')
+  })
+
+  test('mobile docks a new frame of the saved app, so it offers picture-in-picture only once the app is saved', () => {
+    // WHY: a client advertises only what it can do. A live card on mobile has no saved app to dock yet.
+    expect(mcpAppAvailableDisplayModes({ isSaved: false })).toEqual(['inline', 'fullscreen'])
+    expect(mcpAppAvailableDisplayModes({ isSaved: true })).toEqual(['inline', 'fullscreen', 'pip'])
+  })
+
+  test('the host grants picture-in-picture only to an app that declared it, and only where the client can give it', () => {
+    expect(mcpAppGrantedDisplayMode('pip', inline, ['inline', 'pip'])).toBe('pip')
+    expect(mcpAppGrantedDisplayMode('pip', inline, null)).toBe('inline')
+    expect(mcpAppGrantedDisplayMode('pip', inline, ['inline', 'fullscreen'])).toBe('inline')
+    const narrow = { displayMode: 'inline' as const, availableDisplayModes: mcpAppAvailableDisplayModes({ conversationWidth: 356 }) }
+    expect(mcpAppGrantedDisplayMode('pip', narrow, ['inline', 'pip'])).toBe('inline')
+    // An app that declared no modes keeps full screen, as before; one that declared a list gets only that list.
+    expect(mcpAppGrantedDisplayMode('fullscreen', inline, null)).toBe('fullscreen')
+    expect(mcpAppGrantedDisplayMode('fullscreen', inline, ['inline', 'pip'])).toBe('inline')
+  })
+
+  test("the person's controls never offer a mode the app's list leaves out, and always the way back", () => {
+    expect(mcpAppOffersDisplayMode('pip', inline.availableDisplayModes, null)).toBe(true)
+    expect(mcpAppOffersDisplayMode('pip', inline.availableDisplayModes, ['inline', 'fullscreen'])).toBe(false)
+    expect(mcpAppOffersDisplayMode('pip', ['inline', 'fullscreen'], null)).toBe(false)
+    expect(mcpAppOffersDisplayMode('inline', [], ['pip'])).toBe(true)
+  })
+
+  test('the app gets the mode that results, and the client changes only for a granted mode', async () => {
+    const asked: string[] = []
+    let current: 'inline' | 'pip' = 'inline'
+    const { host, posted } = setup({
+      context: () => ({ ...context, displayMode: current, availableDisplayModes: inline.availableDisplayModes }),
+      displayMode: (mode) => { asked.push(mode); current = mode === 'pip' ? 'pip' : 'inline'; return current },
+    })
+    await host.receive(request('ui/initialize', { appCapabilities: { availableDisplayModes: ['inline', 'pip', 'sidebar'] } }, 1))
+    await host.receive(request('ui/request-display-mode', { mode: 'fullscreen' }, 2))
+    await host.receive(request('ui/request-display-mode', { mode: 'pip' }, 3))
+    await host.receive(request('ui/request-display-mode', { mode: 'pip' }, 4))
+    expect(posted.slice(1).map((json) => JSON.parse(json).result)).toEqual([{ mode: 'inline' }, { mode: 'pip' }, { mode: 'pip' }])
+    expect(asked).toEqual(['pip'])
+  })
+
+  test('an app that did not declare picture-in-picture stays where it is', async () => {
+    const asked: string[] = []
+    const { host, posted } = setup({
+      context: () => ({ ...context, availableDisplayModes: inline.availableDisplayModes }),
+      displayMode: (mode) => { asked.push(mode); return mode },
+    })
+    await host.receive(request('ui/initialize', {}, 1))
+    await host.receive(request('ui/request-display-mode', { mode: 'pip' }, 2))
+    expect(JSON.parse(posted[1]).result).toEqual({ mode: 'inline' })
+    expect(asked).toEqual([])
+  })
+
+  test('the client hears the modes the app declared, known modes only', async () => {
+    const declared: Array<readonly string[] | null> = []
+    const { host } = setup({ declaredDisplayModes: (modes) => { declared.push(modes) } })
+    await host.receive(request('ui/initialize', { appCapabilities: { availableDisplayModes: ['pip', 'sidebar', 'inline'] } }, 1))
+    expect(declared).toEqual([['inline', 'pip']])
+  })
+})
+
+describe('MCP App inline box', () => {
+  test('a bordered box adds both 1 px edges, so the app gets the height it reported', () => {
+    // WHY: desktop, web, and mobile draw the border inside the box; without this a bordered app was 2 px short and scrolled.
+    expect(mcpAppFrameHeight(320, true)).toBe(322)
+    expect(mcpAppFrameHeight(320, false)).toBe(320)
+    expect(mcpAppFrameHeight(320, undefined)).toBe(320)
   })
 })
 
@@ -108,6 +196,22 @@ describe('MCP App bridge', () => {
   })
 })
 
+describe('MCP App approval', () => {
+  test('tool arguments reach the approval as arguments to show as code; a message and a link as text to read', async () => {
+    // WHY: the dialog showed a sentence in the monospace block made for tool arguments.
+    const asked: Array<{ title: string; detail: string; format: string }> = []
+    const { host } = setup({ confirm: async (title, detail, format) => { asked.push({ title, detail, format }); return false } })
+    await host.receive(request('tools/call', { name: 'save', arguments: { region: 'west' } }, 1))
+    await host.receive(request('ui/message', { role: 'user', content: [{ type: 'text', text: 'Ship the west report.' }] }, 2))
+    await host.receive(request('ui/open-link', { url: 'https://example.com/report' }, 3))
+    expect(asked).toEqual([
+      { title: 'Allow save?', detail: '{\n  "region": "west"\n}', format: 'arguments' },
+      { title: 'Send this message?', detail: 'Ship the west report.', format: 'text' },
+      { title: 'Open this link?', detail: 'https://example.com/report', format: 'text' },
+    ])
+  })
+})
+
 describe('MCP App documents and cache', () => {
   test('the native app is inside an opaque-origin frame, with an authenticated bridge', () => {
     const html = nativeMcpAppDocument({ ...snapshot, html: '<script>parent.secret</script><p title="x">Test</p>' }, 'nonce-1')
@@ -153,4 +257,149 @@ describe('MCP App documents and cache', () => {
     expect(requests.filter((input) => store.read(input).phase === 'ready')).toHaveLength(4)
   })
 
+})
+
+const SPEC_STYLE_VARIABLES = [
+  ...['primary', 'secondary', 'tertiary', 'inverse', 'ghost', 'info', 'danger', 'success', 'warning', 'disabled'].map((name) => `--color-background-${name}`),
+  ...['primary', 'secondary', 'tertiary', 'inverse', 'info', 'danger', 'success', 'warning', 'disabled', 'ghost'].map((name) => `--color-text-${name}`),
+  ...['primary', 'secondary', 'tertiary', 'inverse', 'ghost', 'info', 'danger', 'success', 'warning', 'disabled'].map((name) => `--color-border-${name}`),
+  ...['primary', 'secondary', 'inverse', 'info', 'danger', 'success', 'warning'].map((name) => `--color-ring-${name}`),
+  '--font-sans', '--font-mono',
+  ...['normal', 'medium', 'semibold', 'bold'].map((name) => `--font-weight-${name}`),
+  ...['xs', 'sm', 'md', 'lg'].flatMap((size) => [`--font-text-${size}-size`, `--font-text-${size}-line-height`]),
+  ...['xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl'].flatMap((size) => [`--font-heading-${size}-size`, `--font-heading-${size}-line-height`]),
+  ...['xs', 'sm', 'md', 'lg', 'xl', 'full'].map((size) => `--border-radius-${size}`),
+  '--border-width-regular', '--shadow-hairline', '--shadow-sm', '--shadow-md', '--shadow-lg',
+]
+
+describe('MCP App host context', () => {
+  test('an app gets every style variable the specification names, from the Solus palette', () => {
+    // WHY: an app falls back to its own value for a variable a host omits, so a partial set mixes two themes in one card.
+    expect(Object.keys(context.styles.variables).sort()).toEqual([...SPEC_STYLE_VARIABLES].sort())
+    expect(context.styles.variables['--color-background-primary']).toBe(palette.background)
+    expect(context.styles.variables['--color-text-inverse']).toBe(palette.background)
+  })
+
+  test('the context names the client, the locale, the time zone, and the device', () => {
+    expect(context).toMatchObject({ platform: 'web', deviceCapabilities: { touch: false, hover: true } })
+    expect(context.locale).toBe(Intl.DateTimeFormat().resolvedOptions().locale)
+    expect(context.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+    expect(context.safeAreaInsets).toBeUndefined()
+    const phone = mcpAppHostContext({ theme: 'light', displayMode: 'fullscreen', availableDisplayModes: ['inline', 'fullscreen'], size: { width: 390, height: 700 }, platform: 'mobile', touch: true, hover: false, safeAreaInsets: { top: 0, right: 0, bottom: 34, left: 0 }, palette })
+    expect(phone).toMatchObject({ platform: 'mobile', displayMode: 'fullscreen', safeAreaInsets: { bottom: 34 } })
+  })
+})
+
+describe('MCP App permissions', () => {
+  test('a client asks only for what the app requested and the client can deliver', () => {
+    expect(mcpAppPermissionRequest({ camera: {}, clipboardWrite: {} }, ['microphone', 'clipboardWrite'])).toEqual(['clipboardWrite'])
+    expect(mcpAppPermissionRequest(undefined, ['camera'])).toEqual([])
+    expect(mcpAppAllowAttribute(['microphone', 'clipboardWrite'])).toBe('microphone; clipboard-write')
+  })
+
+  test('the approval reads as one English sentence for each permission alone and in a list', () => {
+    // WHY: the title was "Allow X to use writing to the clipboard?"; each feature needs its own verb.
+    expect(mcpAppPermissionPrompt('Pipeline · Chart by region', ['clipboardWrite']).title).toBe('Allow Pipeline · Chart by region to write to the clipboard?')
+    expect(mcpAppPermissionPrompt('Map', ['camera']).title).toBe('Allow Map to use the camera?')
+    expect(mcpAppPermissionPrompt('Map', ['microphone']).title).toBe('Allow Map to use the microphone?')
+    expect(mcpAppPermissionPrompt('Map', ['geolocation']).title).toBe('Allow Map to use your location?')
+    expect(mcpAppPermissionAction(['camera', 'microphone'])).toBe('use the camera and the microphone')
+    expect(mcpAppPermissionAction(['microphone', 'clipboardWrite'])).toBe('use the microphone and write to the clipboard')
+    expect(mcpAppPermissionAction(['camera', 'microphone', 'geolocation', 'clipboardWrite'])).toBe('use the camera, the microphone and your location, and write to the clipboard')
+  })
+
+  test('the app is told only the permissions the person granted', async () => {
+    // WHY: a permission the person has not approved must not reach the frame, and the app must not be told it has one.
+    const ungranted = setup({ snapshot: { ...snapshot, permissions: { camera: {} } } })
+    await ungranted.host.receive(request('ui/initialize', {}, 1))
+    expect(JSON.parse(ungranted.posted[0]).result.hostCapabilities.sandbox.permissions).toEqual({})
+    expect(mcpAppAllowAttribute([])).toBe('')
+    const granted = setup({ snapshot: { ...snapshot, permissions: { camera: {} } }, permissions: () => ['camera'] })
+    await granted.host.receive(request('ui/initialize', {}, 1))
+    expect(JSON.parse(granted.posted[0]).result.hostCapabilities.sandbox.permissions).toEqual({ camera: {} })
+  })
+
+  // WHY: an app that sets no colour scheme showed an opaque light frame in dark
+  // mode. Both schemes let the frame follow the client's theme without a reload,
+  // the policy stays the first thing in the document, and the app's own
+  // `color-scheme` (later in the document) still wins.
+  test('the app document follows the client theme and keeps its policy first', () => {
+    const html = mcpAppDocument('<style>:root{color-scheme:light}</style><p>Hi</p>', {})
+    expect(html.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"')).toBe(true)
+    expect(html).toContain('<meta name="color-scheme" content="light dark">')
+    expect(html.indexOf('name="color-scheme"')).toBeLessThan(html.indexOf(':root{color-scheme:light}'))
+    expect(nativeMcpAppDocument({ html: '<p>Hi</p>', csp: {} }, 'secret')).toContain('<meta name="color-scheme" content="light dark">')
+  })
+
+  test('a base URI is allowed only from the declared origins', () => {
+    expect(mcpAppDocument('', {})).toContain("base-uri 'none'")
+    expect(mcpAppDocument('', { baseUriDomains: ['https://cdn.example.com'] })).toContain('base-uri https://cdn.example.com')
+  })
+})
+
+describe('MCP App model context', () => {
+  test('the host advertises what context it accepts', async () => {
+    const { host, posted } = setup()
+    await host.receive(request('ui/initialize', {}, 1))
+    expect(JSON.parse(posted[0]).result.hostCapabilities).toMatchObject({ updateModelContext: { text: {}, structuredContent: {} }, logging: {} })
+  })
+
+  test('text and structured content reach the host as one text, and the same update is sent once', async () => {
+    const { host, contexts, posted } = setup()
+    const update = { content: [{ type: 'text', text: 'Region: west' }], structuredContent: { selected: 3 } }
+    await host.receive(request('ui/update-model-context', update, 1))
+    await host.receive(request('ui/update-model-context', update, 2))
+    expect(contexts).toEqual(['Region: west\n\n{"selected":3}'])
+    expect(posted.map((json) => JSON.parse(json).result)).toEqual([{}, {}])
+    await host.receive(request('ui/update-model-context', {}, 3))
+    expect(contexts.at(-1)).toBe('')
+  })
+
+  test('a context over the limit or with a non-text block is refused and nothing reaches the host', async () => {
+    const { host, contexts, posted } = setup()
+    await host.receive(request('ui/update-model-context', { content: [{ type: 'text', text: 'x'.repeat(MCP_APP_MAX_MODEL_CONTEXT_CHARS + 1) }] }, 1))
+    await host.receive(request('ui/update-model-context', { content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }] }, 2))
+    expect(contexts).toEqual([])
+    expect(posted.map((json) => JSON.parse(json).error.message)).toEqual(['This context is too large for the agent.', 'Only text context is supported.'])
+  })
+})
+
+describe('MCP App teardown and logs', () => {
+  const debug = spyOn(console, 'debug').mockImplementation(() => {})
+  afterEach(() => debug.mockClear())
+
+  test('closing a ready app sends its teardown and waits for the answer', async () => {
+    const s = setup()
+    await s.host.receive(request('ui/notifications/initialized'))
+    const closing = s.host.close()
+    await Promise.resolve()
+    const teardown = JSON.parse(s.posted.at(-1)!)
+    expect(teardown).toMatchObject({ method: 'ui/resource-teardown', params: {} })
+    expect(s.closes()).toBe(0)
+    await s.host.receive(JSON.stringify({ jsonrpc: '2.0', id: teardown.id, result: {} }))
+    await closing
+    expect(s.closes()).toBe(1)
+  })
+
+  test('an app that asks to close gets its teardown too; an app that is not ready closes at once', async () => {
+    const ready = setup()
+    await ready.host.receive(request('ui/notifications/initialized'))
+    await ready.host.receive(request('ui/notifications/request-teardown'))
+    expect(JSON.parse(ready.posted.at(-1)!).method).toBe('ui/resource-teardown')
+    const early = setup()
+    await early.host.close()
+    expect(early.posted).toEqual([])
+    expect(early.closes()).toBe(1)
+  })
+
+  test('app log messages go to debug output only, bounded in size and count', async () => {
+    const { host, posted } = setup()
+    await host.receive(request('notifications/message', { level: 'info', logger: 'chart', data: 'x'.repeat(5000) }))
+    expect(debug.mock.calls[0]?.[0]).toBe('[MCP App Charts] info')
+    expect(String(debug.mock.calls[0]?.[1])).toHaveLength(2000)
+    for (let i = 0; i < 200; i++) await host.receive(request('notifications/message', { level: 'debug', data: { i } }))
+    expect(debug).toHaveBeenCalledTimes(101)
+    expect(debug.mock.calls.at(-1)?.[1]).toBe('Further log messages of this app are dropped.')
+    expect(posted).toEqual([])
+  })
 })

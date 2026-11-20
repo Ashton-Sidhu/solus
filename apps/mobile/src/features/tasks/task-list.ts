@@ -1,5 +1,5 @@
 import type { TaskSourceState } from '@solus/contracts/task-types'
-import type { TaskInvolvement } from '@solus/contracts/task-inspection'
+import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { TaskViewFilters } from '@solus/contracts/task-views'
 
 export interface TaskListSelection {

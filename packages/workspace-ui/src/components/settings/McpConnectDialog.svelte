@@ -6,6 +6,9 @@
    * step that says what is ready. Escape, the close button, and Cancel before
    * the end take back what the dialog added. It fades and scales in and out,
    * and each step opens and closes in place; with reduced motion it only swaps.
+   * For a command (docs/plans/mcp-first-class.md §7.7) the first step is its
+   * form and Start and test in place of the sign-in; a person without
+   * `host.admin` gets the reason in place of the form.
    */
   import { onMount, untrack } from "svelte";
   import { Dialog } from "bits-ui";
@@ -18,11 +21,14 @@
   import * as Table from "../ui/table";
   import McpServerIcon from "./McpServerIcon.svelte";
   import McpToolSwitches from "./McpToolSwitches.svelte";
+  import McpCommandFields from "./McpCommandFields.svelte";
+  import McpCommandProcess from "./McpCommandProcess.svelte";
+  import { commandHostNote } from "@solus/contracts/integrations/command-server";
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
   import { toolAccess } from "@solus/contracts/integration-types";
   import type { SetupHandoff } from "@solus/contracts/integrations/setup-handoff";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getWorkspaceContext, hosts } from "../../contexts";
   import { openChatDraft } from "../../contexts/workspace/new-chat";
   import { connectionStatusText, readyToolsText, urlHost } from "./lib/integration-labels";
   import { McpConnect, type ConnectRequest } from "./lib/mcp-connect.svelte";
@@ -42,7 +48,9 @@
   const workspace = getWorkspaceContext();
 
   // The page mounts one dialog per request, so one run serves it for its whole life.
-  const connect = new McpConnect(untrack(() => serverId), untrack(() => request), untrack(() => catalog));
+  // A command runs as code on the host: only `host.admin` adds one (§7.2).
+  const mayRunCommands = $derived(hosts.get(serverId)?.me.may("host.admin") ?? true);
+  const connect = new McpConnect(untrack(() => serverId), untrack(() => request), untrack(() => catalog), () => mayRunCommands);
   let open = $state(true);
   let pasted = $state("");
   let isClosing = false;
@@ -62,11 +70,12 @@
   const toolError = $derived(integration ? hostState?.toolErrors.get(integration.id) : undefined);
   const enabledTools = $derived(tools?.filter((tool) => !connect.disabledDraft.has(tool.name)) ?? []);
   const name = $derived(integration?.name ?? request.name);
+  const commandForm = $derived(connect.command);
   const isOffline = $derived(!!hostState?.isDisconnected);
   const needsSignIn = $derived(!!integration && integration.auth.kind !== "none");
   const connectionProblem = $derived(connection && connection.status !== "connected" ? connectionStatusText(connection) : null);
   /** What the sign-in step shows now; a change fades the new content in. */
-  const signInView = $derived(!integration ? "adding" : step === "oauth-client" ? step : flow && flow.kind !== "failed" ? flow.kind : "ready");
+  const signInView = $derived(commandForm ? "command" : !integration ? "adding" : step === "oauth-client" ? step : flow && flow.kind !== "failed" ? flow.kind : "ready");
 
   onMount(() => { void connect.start(); });
 
@@ -210,6 +219,27 @@
   {/if}
 {/snippet}
 
+{#snippet commandStep()}
+  {#if commandForm?.refusal}
+    <p role="alert" class="text-pretty text-workspace-chrome text-(--solus-text-secondary)" data-testid="mcp-command-refusal">{commandForm.refusal}</p>
+    <div><Button variant="outline" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={close}>Close</Button></div>
+  {:else if commandForm}
+    <form class="flex flex-col gap-4" onsubmit={(event) => { event.preventDefault(); void connect.startCommand(); }}>
+      <McpCommandFields form={commandForm} idPrefix="mcp-command-add" showValues disabled={connect.isStartingCommand || isOffline}
+        hasSavedValues={connection?.status === "connected"} />
+      {#if integration}
+        <McpCommandProcess {serverId} {integration} {mayRunCommands} withActions={false} />
+      {/if}
+      <div class="flex items-center gap-2">
+        <Button type="submit" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={connect.isStartingCommand || isOffline || !commandForm.line.trim()}>
+          {#if connect.isStartingCommand}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Starting…{:else}Start and test{/if}
+        </Button>
+        <Button variant="outline" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => (connect.isStartingCommand ? connect.cancelCommandStart() : close())}>Cancel</Button>
+      </div>
+    </form>
+  {/if}
+{/snippet}
+
 {#snippet toolsStep()}
   {#if !integration}
     <!-- Not reached: the tools step needs the record. -->
@@ -243,7 +273,7 @@
     <Dialog.Overlay class="fixed inset-0 z-[10001] modal-backdrop duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 motion-reduce:animate-none" />
     <!-- Centred with margins, not a translate, so the zoom of the animation does not fight the position. -->
     <Dialog.Content
-      class="text-workspace-chrome fixed inset-0 z-[10001] m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"
+      class="text-workspace-chrome fixed inset-0 z-[10001] m-auto flex h-fit max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-2xl bg-(--solus-popover-bg) p-6 shadow-(--solus-popover-shadow) duration-150 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 motion-reduce:animate-none"
       data-testid="mcp-connect-dialog"
     >
       <Dialog.Close>
@@ -291,10 +321,10 @@
         </div>
       {:else}
         <div class="flex flex-col gap-1 pr-8">
-          <span class="mb-3"><McpServerIcon name={name} url={request.url} icon={request.icon} /></span>
-          <Dialog.Title class="font-medium text-foreground">Connect {name}</Dialog.Title>
-          <Dialog.Description class="text-(--solus-text-secondary)">
-            {tools ? `Your agents get ${tools.length === 1 ? "1 new tool" : `${tools.length} new tools`} once this is connected` : `Its tools reach every agent on ${hostLabel}`}
+          <span class="mb-3"><McpServerIcon name={name || "Command"} url={integration?.url ?? request.url} icon={request.icon} /></span>
+          <Dialog.Title class="font-medium text-foreground">{commandForm ? (integration ? `Add ${name}` : "Add an MCP server command") : `Connect ${name}`}</Dialog.Title>
+          <Dialog.Description class="text-pretty text-(--solus-text-secondary)">
+            {tools ? `Your agents get ${tools.length === 1 ? "1 new tool" : `${tools.length} new tools`} once this is connected` : commandForm ? commandHostNote(hostLabel) : `Its tools reach every agent on ${hostLabel}`}
           </Dialog.Description>
         </div>
 
@@ -306,13 +336,13 @@
             </div>
             <div class="flex min-w-0 flex-1 flex-col gap-3 pb-5">
               <p class="leading-7 {step === 'tools' ? 'text-(--solus-text-secondary)' : 'font-medium text-foreground'}">
-                {step === "tools" && !needsSignIn ? "No sign-in needed" : "Sign in"}
+                {commandForm ? (step === "tools" ? "Started" : "Command") : step === "tools" && !needsSignIn ? "No sign-in needed" : "Sign in"}
               </p>
               {#if step !== "tools"}
                 <!-- The sign-in fades out first; the card then shrinks around it. -->
                 <div class="flex flex-col gap-3" out:fade={{ duration: motionMs * 0.8 }}>
                   {#key signInView}
-                    <div class="flex flex-col gap-3" in:fade={{ duration: motionMs }}>{@render signIn()}</div>
+                    <div class="flex flex-col gap-3" in:fade={{ duration: motionMs }}>{#if commandForm}{@render commandStep()}{:else}{@render signIn()}{/if}</div>
                   {/key}
                 </div>
               {/if}

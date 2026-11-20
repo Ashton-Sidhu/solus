@@ -113,6 +113,9 @@ const PERMISSION_OF_METHOD = {
   // The machine's one GitHub, Google, Atlassian, or TypeSafe credential on a host; each
   // person's own row on the workspace service, where every member holds this leaf.
   typeSafeKeySet: 'host.admin.connections',
+  vaultKeyStatus: HOST_USE,
+  vaultKeySave: 'host.admin.connections',
+  vaultKeyDisconnect: 'host.admin.connections',
   googleConnect: 'host.admin.connections',
   googleDisconnect: 'host.admin.connections',
   atlassianStartOAuth: 'host.admin.connections',
@@ -229,7 +232,13 @@ const PERMISSION_OF_METHOD = {
   seatConnectCancel: HOST_USE, seatConnectToken: HOST_USE, seatDisconnect: HOST_USE, agentAuthStart: HOST_USE,
   agentAuthSubmit: HOST_USE, agentAuthCancel: HOST_USE, agentAuthSignOut: HOST_USE, integrationCatalogList: HOST_USE,
   integrationProbe: HOST_USE, integrationList: HOST_USE, integrationGet: HOST_USE, integrationCreate: HOST_USE,
-  integrationUpdate: HOST_USE, integrationRemove: HOST_USE, integrationTools: HOST_USE,
+  integrationUpdate: HOST_USE, integrationRemove: HOST_USE, integrationTools: HOST_USE, integrationFacts: HOST_USE,
+  // A stdio integration runs as code on the host: creating or changing its command, and starting it, needs
+  // `host.admin`, which the handler checks; the other kinds stay at `host.use` (mcp-first-class.md §7.2).
+  integrationProcessStart: HOST_USE, integrationProcessStop: HOST_USE, integrationResourceList: HOST_USE,
+  // The handler shows the host's own files and adds a command only for `host.admin` (mcp-first-class.md §8.6).
+  integrationFoundList: HOST_USE, integrationFoundAdd: HOST_USE,
+  integrationPromptList: HOST_USE, integrationPromptGet: HOST_USE,
   integrationConnectionList: HOST_USE, integrationConnectStart: HOST_USE, integrationConnectSubmit: HOST_USE,
   integrationConnectCancel: HOST_USE, integrationDisconnect: HOST_USE, agentProfileApply: HOST_USE,
   agentProfilePull: HOST_USE, agentProfileStatus: HOST_USE, typeSafeKeyStatus: HOST_USE, configGet: HOST_USE,
@@ -257,8 +266,8 @@ const PERMISSION_OF_METHOD = {
   // A task is GitHub's or Jira's, not a Solus resource: who may read or change
   // one is decided by the caller's own provider connection, so every task
   // method is the ordinary use of the host (docs/plans/provider-owned-tasks.md).
-  tasksLoadMore: HOST_USE, tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksConnectLinear: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
-  tasksInspect: HOST_USE, tasksReact: HOST_USE, tasksTemplates: HOST_USE, tasksResolve: HOST_USE,
+  tasksLoadMore: HOST_USE, tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
+  tasksReact: HOST_USE, tasksTemplates: HOST_USE, tasksResolve: HOST_USE,
   tasksAttachments: HOST_USE, tasksCreate: HOST_USE, tasksUpdate: HOST_USE, tasksMove: HOST_USE,
   tasksDelete: HOST_USE, tasksMarkRead: HOST_USE, tasksSnooze: HOST_USE,
   tasksComment: HOST_USE, tasksRetryComment: HOST_USE, tasksDeleteComment: HOST_USE,
@@ -393,7 +402,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   watchSession: 'read.transcript', unwatchSession: 'read.transcript', bindRuntimeSession: 'read.transcript',
   loadSession: 'read.transcript', loadSessionPage: 'read.transcript', loadSessionSubagent: 'read.transcript',
   loadSessionToolInputs: 'read.transcript', loadSessionPreview: 'read.transcript', loadSessionMessageWindow: 'read.transcript',
-  getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript',
+  getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript', mcpAppLiveRead: 'read.transcript', mcpTaskList: 'read.transcript', integrationResourceWatchList: 'read.transcript',
   sessionRepositoryBundle: 'drive.prompt',
   loadPlanContent: 'read.transcript', loadPlanAnnotations: 'read.transcript', getThreadGoal: 'read.transcript',
   tasksForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
@@ -403,7 +412,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // Sessions — driving: turns, the queue, typing, and sending or dismissing a suggestion
   prompt: 'drive.prompt', compactSession: 'drive.prompt', retry: 'drive.prompt', promptHeadlessSession: 'drive.prompt',
   sessionPrepare: 'drive.prompt',
-  stopSession: 'drive.prompt', stopBackgroundTasks: 'drive.prompt', continueSetupLocally: 'drive.prompt', resetSession: 'drive.prompt', switchSessionAgent: 'drive.prompt',
+  stopSession: 'drive.prompt', stopBackgroundTasks: 'drive.prompt', mcpTaskCancel: 'drive.prompt', mcpTaskAnswer: 'drive.prompt', integrationResourceWatchStop: 'drive.prompt', continueSetupLocally: 'drive.prompt', resetSession: 'drive.prompt', switchSessionAgent: 'drive.prompt',
   cancelQueuedPrompt: 'drive.prompt', editQueuedPrompt: 'drive.prompt', sessionQueue: 'drive.prompt', sessionQueueChange: 'drive.prompt',
   presenceSetComposing: 'drive.prompt', writePlanFile: 'drive.prompt', sessionSuggestionDecide: 'drive.prompt',
   // Sessions — a suggestion a person who may prompt sends or dismisses
@@ -411,9 +420,9 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // Sessions — the agent's cards: what it may run, its questions, its plan, a rate limit
   respondPermission: 'drive.approve', respondQuestion: 'drive.approve', secretRequestAnswer: 'drive.approve', decideSessionPlan: 'drive.approve',
   acceptPlan: 'drive.approve', rateLimitDecision: 'drive.approve',
-  attachUpload: 'drive.attach', attachUploadToken: 'drive.attach',
+  attachUpload: 'drive.attach', attachUploadToken: 'drive.attach', integrationResourceAttach: 'drive.attach',
   deviceOpen: 'drive.devices', deviceClose: 'drive.devices',
-  mcpAppToolInfo: 'drive.apps', mcpAppCallTool: 'drive.apps', mcpAppReadResource: 'drive.apps',
+  mcpAppToolInfo: 'drive.apps', mcpAppCallTool: 'drive.apps', mcpAppReadResource: 'drive.apps', mcpAppUpdateModelContext: 'drive.apps',
   // Sessions — editing the record
   setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit',
   sessionPullRequestWatch: 'edit',

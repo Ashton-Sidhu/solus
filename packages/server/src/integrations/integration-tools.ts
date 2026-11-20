@@ -1,16 +1,22 @@
 import { z } from 'zod'
 import { mcpAppToolMetadataSchema } from '@solus/contracts/mcp-apps'
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { ACCOUNT_INPUT, integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ownerKeyOf, type Actor } from '../admission/actor'
 import { recordScopeOf } from '../admission/principal'
 import { createLogger } from '../logger'
-import { agentToolImage, type AgentTool, type AgentToolResult } from '../execution/agents/tools/agent-tool'
+import { resolveHomePath } from '../platform/paths'
+import { resolveProjectKey } from '../project-config/project-config'
+import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
+import { mayRunCommands, type CommandStarter } from './command-admission'
+import { cliSkipLog, cliSkipOf, type CliSkip, type RunCliSkip } from './cli-skips'
+import { resourceAgentTools } from './resource-tools'
 
 const log = createLogger('integrations', 'integration-tools.ts')
 
 const DESCRIPTION_MAX_LENGTH = 1000
+/** The longest "Returns JSON" line a description gains (docs/plans/mcp-first-class.md §6). */
+const RETURNS_LINE_MAX_LENGTH = 500
 
 let gateway: IntegrationGateway | null = null
 
@@ -27,7 +33,7 @@ export function integrationGateway(): IntegrationGateway | null {
 const reportedCollisions = new Set<string>()
 
 /** How long a run waits for one server's tool list before it starts without that server. */
-const RUN_LIST_TIMEOUT_MS = 10_000
+export const RUN_LIST_TIMEOUT_MS = 10_000
 
 /** A server's tools for a run, or null when it did not list them in time; the list goes on and the next run reads it. */
 async function toolsForRun(source: IntegrationGateway, integration: Integration, personKey: string | null): Promise<UpstreamTool[] | null> {
@@ -51,13 +57,43 @@ async function toolsForRun(source: IntegrationGateway, integration: Integration,
  * with that person's connection, less the tools the owner turned off (§6.1).
  * A server that does not list its tools in time adds none to this run.
  */
-export async function integrationAgentTools(actor: Actor): Promise<AgentTool[]> {
+export interface IntegrationInstruction { name: string; slug: string; text: string }
+
+/**
+ * Whether an integration joins this run. One from a project joins only the runs
+ * of that project, a worktree of it included (docs/plans/mcp-first-class.md
+ * §8.4); a chat has no project. A command joins only the runs of a person who
+ * still holds `host.admin`, because it runs as code on the host (§7.2, §7.8).
+ */
+function joinsRun(integration: Integration, actor: Actor, projectKey: () => string | null): boolean {
+  if (integration.kind === 'stdio' && !mayRunCommands(actor.principal)) return false
+  return integration.projectKey === undefined || integration.projectKey === projectKey()
+}
+
+/**
+ * The actor's integrations that join a run in `projectPath`, the run's working
+ * directory: the toolbox lists their tools, the slash menu their MCP prompts.
+ */
+export function integrationsForRun(source: Pick<IntegrationGateway, 'store'>, actor: Actor, projectPath?: string | null): Integration[] {
+  // The key asks git for the project root, so it is read only when a project integration needs it.
+  let projectKey: string | null | undefined
+  const runProjectKey = () => (projectKey ??= projectPath ? resolveProjectKey(resolveHomePath(projectPath)) : null)
+  return source.store.list(recordScopeOf(actor.principal), ownerKeyOf(actor)).filter((integration) => joinsRun(integration, actor, runProjectKey))
+}
+
+/**
+ * `projectPath`: the run's working directory, whose project key a project integration must match.
+ * `cliSkip`: each integration that adds a tool to this run, whose CLI copy the run leaves out (§8.5).
+ * One that adds none (every tool off, not listed in time, not signed in) leaves the CLI's copy alone.
+ */
+export async function integrationToolbox(actor: Actor, projectPath?: string | null): Promise<{ tools: AgentTool[]; instructions: IntegrationInstruction[]; cliSkip: RunCliSkip }> {
   const current = gateway
-  if (!current) return []
+  if (!current) return { tools: [], instructions: [], cliSkip: runCliSkip(null, [], []) }
   const personKey = ownerKeyOf(actor)
-  const integrations = current.store.list(recordScopeOf(actor.principal), personKey)
+  const integrations = integrationsForRun(current, actor, projectPath)
   const listed = await Promise.all(integrations.map((integration) => toolsForRun(current, integration, personKey)))
   const tools: AgentTool[] = []
+  const included = new Set<string>()
   const names = new Set<string>()
   integrations.forEach((integration, index) => {
     const disabled = new Set(integration.disabledTools)
@@ -66,7 +102,7 @@ export async function integrationAgentTools(actor: Actor): Promise<AgentTool[]> 
       // An MCP App tool whose `visibility` leaves out `model` is for the app alone.
       const appMetadata = mcpAppToolMetadataSchema.safeParse(upstream._meta)
       if (appMetadata.success && appMetadata.data.ui?.visibility && !appMetadata.data.ui.visibility.includes('model')) continue
-      const agentTool = upstreamToolToAgentTool(integration, upstream, current, current.accountChoices(integration.id, personKey))
+      const agentTool = upstreamToolToAgentTool(integration, upstream, current, current.accountChoices(integration.id, personKey), actor.principal)
       if (names.has(agentTool.name)) {
         if (!reportedCollisions.has(agentTool.name)) {
           reportedCollisions.add(agentTool.name)
@@ -76,9 +112,31 @@ export async function integrationAgentTools(actor: Actor): Promise<AgentTool[]> 
       }
       names.add(agentTool.name)
       tools.push(agentTool)
+      included.add(integration.id)
     }
   })
-  return tools
+  // A server that listed in time gives its facts: its instructions when its tools joined, and whether it has resources (§11.2).
+  const listedIntegrations = integrations.filter((_integration, index) => listed[index] !== null)
+  const facts = await Promise.all(listedIntegrations.map((integration) => current.factsFor(integration.id, personKey)))
+  const instructions: IntegrationInstruction[] = []
+  listedIntegrations.forEach((integration, index) => {
+    const text = facts[index].instructions
+    if (text && included.has(integration.id)) instructions.push({ name: integration.name, slug: integration.slug, text })
+  })
+  const resourceServers = listedIntegrations.filter((_integration, index) => facts[index].capabilities.resources)
+  const watchServers = listedIntegrations.filter((_integration, index) => facts[index].capabilities.resources && facts[index].capabilities.resourceSubscribe)
+  for (const resourceTool of resourceAgentTools(resourceServers, watchServers, current, actor.principal)) {
+    if (names.has(resourceTool.name)) continue
+    names.add(resourceTool.name)
+    tools.push(resourceTool)
+  }
+  const skips = integrations.filter((integration) => included.has(integration.id)).map(cliSkipOf).filter((skip): skip is CliSkip => skip !== null)
+  return { tools, instructions, cliSkip: runCliSkip(personKey, integrations.map((integration) => integration.id), skips) }
+}
+
+/** `joined`: every integration of this run, so a report also clears the entry of one that added no tool this time. */
+function runCliSkip(personKey: string | null, joined: string[], servers: CliSkip[]): RunCliSkip {
+  return { servers, report: (provider, applied) => cliSkipLog.record(personKey, provider, joined, applied) }
 }
 
 /** One upstream tool as a Solus agent tool that calls it through the gateway. */
@@ -88,6 +146,8 @@ export function upstreamToolToAgentTool(
   calls: Pick<IntegrationGateway, 'call'>,
   /** The labels of the person's accounts when there are several (§13.3); the tool then takes `solus_account`. */
   accounts: string[] = [],
+  /** Who the run acts for: a command's process starts only for them (`commandStartRefusal`). */
+  starter: CommandStarter = null,
 ): AgentTool {
   const fields = inputFieldsFor(upstream.inputSchema)
   const readOnly = toolSummary(upstream).readOnly
@@ -96,14 +156,23 @@ export function upstreamToolToAgentTool(
     : {}
   const agentTool: AgentTool = {
     name: integrationToolName(integration.slug, upstream.name),
-    description: `${integration.name}: ${upstream.description ?? upstream.title ?? upstream.name}`.slice(0, DESCRIPTION_MAX_LENGTH),
+    description: descriptionOf(integration.name, upstream),
     inputFields: { ...(fields ?? {}), ...accountField },
     alwaysLoad: false,
     requiresApproval: toolSummary(upstream).destructive,
-    execute: (input, context) => calls.call(integration.id, upstream.name, input, context),
+    execute: (input, context) => calls.call(integration.id, upstream.name, input, context, starter),
   }
   if (!fields) agentTool.passthroughInput = true
   return agentTool
+}
+
+/** The server's description under the integration's name, and the shape of the data it returns when that is short. */
+function descriptionOf(integrationName: string, upstream: UpstreamTool): string {
+  const description = `${integrationName}: ${upstream.description ?? upstream.title ?? upstream.name}`
+  const { $schema: _dialect, ...outputSchema } = upstream.outputSchema ?? {}
+  const returns = upstream.outputSchema ? `Returns JSON: \`${JSON.stringify(outputSchema)}\`` : ''
+  if (!returns || returns.length > RETURNS_LINE_MAX_LENGTH) return description.slice(0, DESCRIPTION_MAX_LENGTH)
+  return `${description.slice(0, DESCRIPTION_MAX_LENGTH - returns.length - 1)}\n${returns}`
 }
 
 /** The Zod fields of an object JSON Schema, or null when it does not convert or is not an object. */
@@ -128,27 +197,4 @@ export function toolSummary(tool: UpstreamTool): IntegrationToolSummary {
   }
   if (tool.title) summary.title = tool.title
   return summary
-}
-
-/**
- * An MCP tool result as a Solus one: text parts joined with blank lines, the first
- * PNG image as the result image, `structuredContent` as JSON when there is no text.
- */
-export function mapCallResult(result: CallToolResult | { toolResult: unknown }): AgentToolResult {
-  if (!('content' in result)) return { ok: true, text: JSON.stringify(result.toolResult, null, 2) ?? '' }
-  const texts: string[] = []
-  let image: AgentToolResult['image']
-  for (const part of result.content) {
-    if (part.type === 'text') texts.push(part.text)
-    else if (part.type === 'image') {
-      const converted = !image && part.mimeType === 'image/png' ? agentToolImage(Buffer.from(part.data, 'base64')) : null
-      if (converted) image = converted
-      else texts.push(`[${part.mimeType} image not shown]`)
-    } else if (part.type === 'resource_link') texts.push(`${part.name}: ${part.uri}`)
-    else if (part.type === 'resource' && 'text' in part.resource) texts.push(part.resource.text)
-  }
-  if (!texts.length && result.structuredContent) texts.push(JSON.stringify(result.structuredContent, null, 2))
-  const mapped: AgentToolResult = { ok: result.isError !== true, text: texts.join('\n\n') }
-  if (image) mapped.image = image
-  return mapped
 }

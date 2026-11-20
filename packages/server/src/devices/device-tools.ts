@@ -203,7 +203,7 @@ export const deviceScreenshotAgentTool = deviceTool({
       ok: true,
       text: `Screenshot of ${shot.device.name} (${shot.device.deviceId}), ${shot.width}×${shot.height}. Saved as asset ${shot.assetId}.${image ? '' : ' The image is too large to attach; open the asset instead.'}`,
     }
-    if (image) result.image = image
+    if (image) result.images = [image]
     return result
   },
 })

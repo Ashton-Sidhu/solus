@@ -3,7 +3,7 @@ import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sig
 import { DEFAULT_INTEGRATION_ACCOUNT } from '@solus/contracts/integration-types'
 import { useFocusEffect } from '@react-navigation/native'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { CatalogCategoryId, Integration, IntegrationCatalogListRequest, IntegrationConnection, IntegrationOAuthClientInput } from '@solus/contracts/integration-types'
+import type { CatalogCategoryId, Integration, IntegrationCatalogListRequest, IntegrationCommandCreateRequest, IntegrationConnection, IntegrationEnvValue, IntegrationLaunch, IntegrationOAuthClientInput } from '@solus/contracts/integration-types'
 import { useApp, useListened } from '../../app/app-context'
 import {
   appendCatalogEntries,
@@ -49,7 +49,7 @@ const CATALOG_DELAY_MS = 250
 /**
  * The MCP servers of one host for its MCP screen. Read on connect, on focus,
  * and on reconnect; `integration.changed` reads the list again and, on
- * `tools`, the tools of an open server. A reply that arrives after a newer
+ * `tools` or `facts`, the open server's details. A reply that arrives after a newer
  * request, or from a connection that has gone, is dropped. A change the host
  * refused throws; the screen says why. The person's own connections are read
  * beside the list and follow `integration.connectionChanged`; the connect
@@ -154,8 +154,13 @@ export function useIntegrations(hostId: string) {
       setTools((previous) => new Map(previous).set(integrationId, next))
     }
     setTools((previous) => (previous.get(integrationId)?.kind === 'loaded' ? previous : new Map(previous).set(integrationId, { kind: 'loading' })))
-    current.api.integrationTools({ id: integrationId }).then(
-      (summaries) => put({ kind: 'loaded', tools: summaries }),
+    // The facts only add the instructions and the CLI copies left out: a facts read that fails, or an older host without it, keeps the tools.
+    const facts = current.api.integrationFacts({ id: integrationId }).then(
+      (read) => ({ instructions: read.instructions, cliSkips: read.cliSkips ?? [] }),
+      () => ({ instructions: null, cliSkips: [] }),
+    )
+    Promise.all([current.api.integrationTools({ id: integrationId }), facts]).then(
+      ([summaries, read]) => put({ kind: 'loaded', tools: summaries, ...read }),
       (cause: unknown) => put({ kind: 'error', message: errorMessage(cause) }),
     )
   }, [connection])
@@ -203,7 +208,7 @@ export function useIntegrations(hostId: string) {
     if (!current) return
     return current.events.subscribe('integration.changed', ({ integrationId, change }) => {
       if (change === 'removed') collapse(integrationId)
-      if (change === 'tools') {
+      if (change === 'tools' || change === 'facts') {
         loadTools(integrationId)
         return
       }
@@ -362,6 +367,22 @@ export function useIntegrations(hostId: string) {
 
   const clearAdding = useCallback(() => setAdding(null), [])
 
+  /**
+   * Adds a command (mcp-first-class.md §7.7). The host refuses a person
+   * without `host.admin`; the screen offers no form to them. Starts nothing.
+   */
+  const addCommand = async (request: IntegrationCommandCreateRequest): Promise<Integration> => {
+    const integration = await change('create', (api) => api.integrationCreate(request))
+    applyToList((integrations) => upsertIntegration(integrations, integration))
+    return integration
+  }
+
+  /** A new line, folder, or names for a command: the host stops it and drops its facts; new names remove the values. */
+  const editCommand = async (integrationId: string, launch: IntegrationLaunch, envNames?: string[]): Promise<void> => {
+    const integration = await change(`command:${integrationId}`, (api) => api.integrationUpdate(envNames ? { id: integrationId, launch, envNames } : { id: integrationId, launch }))
+    applyToList((integrations) => upsertIntegration(integrations, integration))
+  }
+
   const rename = async (integrationId: string, name: string): Promise<void> => {
     const integration = await change(`rename:${integrationId}`, (api) => api.integrationUpdate({ id: integrationId, name }))
     applyToList((integrations) => upsertIntegration(integrations, integration))
@@ -476,6 +497,8 @@ export function useIntegrations(hostId: string) {
     clearCatalog,
     add,
     clearAdding,
+    addCommand,
+    editCommand,
     rename,
     remove,
     disconnect,
@@ -619,6 +642,22 @@ export function useIntegrationConnect(hostId: string) {
     }
   }, [cloud, connection, put, update])
 
+  /** Hands the host a command's environment values, one for each name. They are never kept here (§7.7). */
+  const submitValues = useCallback(async (integrationId: string, values: IntegrationEnvValue[]): Promise<void> => {
+    const current = connection()
+    const state = flowsRef.current.get(integrationId)
+    if (!current || state?.step !== 'values' || state.busy) return
+    const attempt = attempts.current.get(integrationId)
+    const name = names.current.get(integrationId) ?? 'the server'
+    put(integrationId, connectSubmitting(state))
+    try {
+      await current.api.integrationConnectSubmit({ id: integrationId, values })
+      if (attempt === attempts.current.get(integrationId)) update(integrationId, (latest) => connectSubmitted(latest, name))
+    } catch (cause) {
+      if (attempt === attempts.current.get(integrationId)) update(integrationId, (latest) => connectFailed(latest, errorMessage(cause)))
+    }
+  }, [connection, put, update])
+
   /** Stops a waiting flow on the host and closes it; any other flow just closes. */
   const cancel = useCallback(async (integrationId: string): Promise<void> => {
     const state = flowsRef.current.get(integrationId)
@@ -645,5 +684,5 @@ export function useIntegrationConnect(hostId: string) {
   /** Removes a connection the account holds; every host reads the change on its pull. */
   const disconnectCloud = useCallback((serverUrl: string): Promise<void> => cloud.disconnect(serverUrl), [cloud])
 
-  return { connected, flows, connect, openSignIn, submit, cancel, disconnectCloud }
+  return { connected, flows, connect, openSignIn, submit, submitValues, cancel, disconnectCloud }
 }

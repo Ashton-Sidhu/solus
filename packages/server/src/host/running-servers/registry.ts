@@ -1,11 +1,14 @@
 import type { RunningServer, StopRunningServerResult } from '@solus/contracts/running-servers'
-import { RunningServerScanner } from './scanner'
+import { ServerDiscovery } from './discovery'
 
 const REFRESH_MS = 3000
 const LEASE_MS = 20_000
 
+/** One finished scan, for a reader on the host that follows the registry's refresh (mcp-first-class.md §9). */
+export type RunningServerScan = { at: number; servers: RunningServer[]; listeningPorts: ReadonlySet<number> } | { at: number; error: string }
+
 export interface RunningServerRegistryDeps {
-  scanner: Pick<RunningServerScanner, 'scan' | 'identityMatches' | 'stopJob'>
+  discovery: Pick<ServerDiscovery, 'discover' | 'identityMatches' | 'stopJob' | 'checkoutRoots'> & Partial<Pick<ServerDiscovery, 'listeningPorts'>>
   publish: (clientIds: string[], servers: RunningServer[], error: string | null) => void
   now: () => number
   schedule: (tick: () => Promise<void>, delayMs: number) => () => void
@@ -20,6 +23,7 @@ export class RunningServerRegistry {
   private timer: (() => void) | null = null
   private scannedAt = -Infinity
   private generation = 0
+  private readonly scanObservers = new Set<(scan: RunningServerScan) => void>()
 
   constructor(private readonly deps: RunningServerRegistryDeps) {}
 
@@ -27,10 +31,11 @@ export class RunningServerRegistry {
     if (this.inFlight) return this.inFlight
     if (!force && this.deps.now() - this.scannedAt < REFRESH_MS) return this.servers
     const generation = this.generation
-    this.inFlight = this.deps.scanner.scan([...new Set([...this.subscribers.values()].flatMap((lease) => lease.paths))]).then((servers) => {
+    this.inFlight = this.deps.discovery.discover([...new Set([...this.subscribers.values()].flatMap((lease) => lease.paths))]).then((servers) => {
       if (generation !== this.generation) return servers
       this.scannedAt = this.deps.now()
       this.servers = servers
+      this.observed({ at: this.scannedAt, servers, listeningPorts: this.deps.discovery.listeningPorts?.() ?? new Set(servers.flatMap((server) => server.endpoints.map((endpoint) => endpoint.port))) })
       const signature = JSON.stringify(servers)
       if (signature !== this.signature) {
         this.signature = signature
@@ -73,14 +78,26 @@ export class RunningServerRegistry {
     if (!server) return current.some((candidate) => candidate.process.pid === selected.process.pid)
       ? { status: 'refused', reason: 'identity-changed' }
       : { status: 'already-exited' }
-    if (!server.actions.canStop || !await this.deps.scanner.identityMatches(server)) return { status: 'refused', reason: 'identity-changed' }
-    const result = await this.deps.scanner.stopJob(server)
+    if (!server.actions.canStop || !await this.deps.discovery.identityMatches(server)) return { status: 'refused', reason: 'identity-changed' }
+    const result = await this.deps.discovery.stopJob(server)
     this.scannedAt = -Infinity
     await this.list(true)
     return result
   }
 
-  identityMatches(server: RunningServer): Promise<boolean> { return this.deps.scanner.identityMatches(server) }
+  /** Each scan, and each failed scan, as it ends. It starts none: a reader follows the clients' leases. */
+  observeScans(observer: (scan: RunningServerScan) => void): () => void {
+    this.scanObservers.add(observer)
+    return () => { this.scanObservers.delete(observer) }
+  }
+
+  private observed(scan: RunningServerScan): void {
+    for (const observer of this.scanObservers) observer(scan)
+  }
+
+  checkoutRoots(paths: string[]) { return this.deps.discovery.checkoutRoots(paths) }
+
+  identityMatches(server: RunningServer): Promise<boolean> { return this.deps.discovery.identityMatches(server) }
 
   private schedule(): void {
     if (this.timer || !this.subscribers.size) return
@@ -95,6 +112,7 @@ export class RunningServerRegistry {
     if (!this.subscribers.size) return
     try { await this.list(true) } catch (error) {
       this.signature = ''
+      this.observed({ at: this.deps.now(), error: error instanceof Error ? error.message : 'Cannot scan running servers.' })
       this.deps.publish([...this.subscribers.keys()], [], error instanceof Error ? error.message : 'Cannot scan running servers.')
     } finally { this.schedule() }
   }
@@ -103,13 +121,15 @@ export class RunningServerRegistry {
 let registry: RunningServerRegistry | null = null
 export function initRunningServers(publish: RunningServerRegistryDeps['publish'], runAsHost: <Result>(operation: () => Promise<Result>) => Promise<Result>): RunningServerRegistry {
   registry?.stop()
-  const scanner = new RunningServerScanner()
+  const discovery = new ServerDiscovery()
   registry = new RunningServerRegistry({
     // Scans and tunnel upgrades are host work, including calls outside an RPC's actor scope.
-    scanner: {
-      scan: (paths) => runAsHost(() => scanner.scan(paths)),
-      identityMatches: (server) => runAsHost(() => scanner.identityMatches(server)),
-      stopJob: (server) => runAsHost(() => scanner.stopJob(server)),
+    discovery: {
+      discover: (paths) => runAsHost(() => discovery.discover(paths)),
+      checkoutRoots: (paths) => runAsHost(() => discovery.checkoutRoots(paths)),
+      listeningPorts: () => discovery.listeningPorts(),
+      identityMatches: (server) => runAsHost(() => discovery.identityMatches(server)),
+      stopJob: (server) => runAsHost(() => discovery.stopJob(server)),
     }, publish,
     now: Date.now,
     schedule: (tick, delayMs) => {

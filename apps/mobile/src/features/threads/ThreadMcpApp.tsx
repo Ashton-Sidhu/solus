@@ -1,51 +1,45 @@
 // Adapted from T3 Code McpAppWebView.tsx (MIT, see UPSTREAM.md).
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { WebView, type WebViewMessageEvent } from "react-native-webview";
-import { z } from "zod";
 import type { HostApi } from "@solus/client-core/host-api";
-import { nativeMcpAppDocument, nativeMcpAppPost } from "@solus/client-core/mcp-app-document";
-import { createMcpAppHost, mcpAppContainerDimensions, type McpAppHost, type McpAppHostContext } from "@solus/client-core/mcp-app-host";
+import { mcpAppOffersDisplayMode, type McpAppHost, type McpAppLiveCall } from "@solus/client-core/mcp-app-host";
+import { MCP_APP_DOCKED_HEIGHT, mcpAppAvailableDisplayModes, type McpAppDisplayMode } from "@solus/client-core/mcp-app-context";
+import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
+import { mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
 import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
-import type { McpAppReference, McpAppRequest, McpAppSnapshot } from "@solus/contracts/mcp-apps";
+import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument, type McpAppReference, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
-import { useApp } from "../../app/app-context";
+import { useApp, useListened } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
-import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { ConversationStore } from "../conversation/conversation-store";
+import type { TranscriptItem } from "../conversation/lib/transcript-model";
+import { McpAppWebView } from "./McpAppWebView";
+import { ThreadMcpLiveApp } from "./ThreadMcpLiveApp";
 import { useTranscriptItem } from "./use-transcript-items";
 
 const INITIAL_HEIGHT = 320;
 const CLOSED_APP: McpAppRead = { phase: "idle" };
-const relayMessageSchema = z.object({ secret: z.string(), json: z.string().optional(), navigated: z.boolean().optional() });
+const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
-function confirmWithAlert(title: string, detail: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    Alert.alert(
-      title,
-      detail,
-      [
-        { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
-        { text: "Allow", onPress: () => resolve(true) },
-      ],
-      { cancelable: true, onDismiss: () => resolve(false) },
-    );
-  });
+/** A Solus integration tool: its call can show its MCP App while it runs. */
+export function canShowLiveApp(item: TranscriptItem): boolean {
+  return item.kind === "tool" && mcpAppLiveToolName(item.toolName) !== null;
 }
 
-/** An MCP App saved by a tool call, as a row of the feed. */
+/** An MCP App row of the feed: the app a tool call saved, or the live app of a Solus integration tool's call. */
 export function ThreadMcpApp({ store, id }: { store: ConversationStore; id: string }) {
   const app = useApp();
   const item = useTranscriptItem(store, id);
   const api = app.connections.connection(store.controller.hostId)?.api;
-  if (!api || item?.kind !== "mcp_app") return null;
-  return <McpAppCard store={store} api={api} activityId={item.activityId} sessionId={item.sessionId} reference={item.app} />;
+  if (!api) return null;
+  if (item?.kind === "tool") return <ThreadMcpLiveApp store={store} api={api} tool={item} />;
+  if (item?.kind !== "mcp_app") return null;
+  return <SavedMcpApp store={store} api={api} activityId={item.activityId} sessionId={item.sessionId} reference={item.app} />;
 }
 
-function McpAppCard(props: {
+function SavedMcpApp(props: {
   readonly store: ConversationStore;
   readonly api: HostApi;
   readonly activityId: string;
@@ -54,47 +48,28 @@ function McpAppCard(props: {
 }) {
   const { store, api, activityId, sessionId, reference } = props;
   const apps = useMemo(() => mcpAppsFor(api), [api]);
+  const live = useMemo(() => mcpAppLiveFor(api), [api]);
   const request = useMemo(() => ({ sessionId, activityId }), [sessionId, activityId]);
-  const [isClosed, setIsClosed] = useState(() => store.closedMcpApps.has(activityId));
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [height, setHeight] = useState(() => store.mcpAppHeights.get(activityId) ?? INITIAL_HEIGHT);
-  const insets = useSafeAreaInsets();
+  const closedKeys = useMemo(() => (reference.toolUseId ? [activityId, reference.toolUseId] : [activityId]), [activityId, reference.toolUseId]);
+  const [isClosed, setIsClosed] = useState(() => closedKeys.some((key) => store.closedMcpApps.has(key)));
+  // While the live card of this call is mounted, it shows this app in its own frame.
+  const readHeld = useCallback(() => live.isHeld(sessionId, reference.toolUseId), [live, sessionId, reference.toolUseId]);
+  const isHeldLive = useSyncExternalStore(useCallback((listener) => live.subscribe(listener), [live]), readHeld, readHeld);
+  useEffect(() => {
+    if (isHeldLive && reference.toolUseId) live.handOver(sessionId, reference.toolUseId, activityId);
+  }, [isHeldLive, live, sessionId, reference.toolUseId, activityId]);
 
-  const subscribe = useCallback((listener: () => void) => (isClosed ? () => {} : apps.subscribe(request, listener)), [apps, request, isClosed]);
-  const read = useCallback(() => (isClosed ? CLOSED_APP : apps.read(request)), [apps, request, isClosed]);
+  const isShown = !isClosed && !isHeldLive;
+  const subscribe = useCallback((listener: () => void) => (isShown ? apps.subscribe(request, listener) : () => {}), [apps, request, isShown]);
+  const read = useCallback(() => (isShown ? apps.read(request) : CLOSED_APP), [apps, request, isShown]);
   const state = useSyncExternalStore(subscribe, read, read);
 
   useEffect(() => {
-    if (!isClosed) void apps.load(request);
-  }, [apps, request, isClosed]);
+    if (isShown) void apps.load(request);
+  }, [apps, request, isShown]);
 
-  // The conversation store keeps these across a remount of the row.
-  const setClosed = (next: boolean) => {
-    if (next) store.closedMcpApps.add(activityId);
-    else store.closedMcpApps.delete(activityId);
-    setIsClosed(next);
-  };
-  const rememberHeight = (next: number) => {
-    store.mcpAppHeights.set(activityId, next);
-    setHeight(next);
-  };
-  const close = () => {
-    setClosed(true);
-    setIsFullscreen(false);
-  };
-
-  if (isClosed) {
-    return (
-      <View style={{ height, marginBottom: 8 }} className="items-center justify-center gap-2 rounded-lg border border-border">
-        <Text className="text-sm text-foreground-muted">The {reference.title} app was closed</Text>
-        <Pressable accessibilityRole="button" onPress={() => setClosed(false)} className="min-h-11 justify-center px-3">
-          <Text className="text-sm text-foreground">Show app</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (state.phase !== "ready") {
+  if (isHeldLive) return null;
+  if (!isClosed && state.phase !== "ready") {
     return (
       <View className="min-h-28 items-center justify-center gap-2">
         {state.phase === "error" ? (
@@ -110,188 +85,267 @@ function McpAppCard(props: {
       </View>
     );
   }
+  return (
+    <McpAppCard
+      store={store}
+      api={api}
+      request={request}
+      title={reference.title}
+      document={state.phase === "ready" ? state.snapshot : null}
+      closedKeys={closedKeys}
+      isClosed={isClosed}
+      onClosedChange={setIsClosed}
+    />
+  );
+}
 
-  // Inline and full screen are separate frames: each presentation starts its own app.
-  const frame = (fullscreen: boolean) => (
+/**
+ * The card of one app, saved or live: the frame, its full-screen
+ * presentation, and what the app gave the agent. `closedKeys` name the card in
+ * the conversation store; the first one keeps its height. A saved app can be
+ * docked above the composer (`docked`, `ThreadMcpPipDock`); its card in the
+ * feed then shows a line in its place.
+ */
+export function McpAppCard(props: {
+  readonly store: ConversationStore;
+  readonly api: HostApi;
+  readonly request: McpAppRequest;
+  readonly title: string;
+  /** Null only while the card is closed and shows no frame. */
+  readonly document: McpAppSnapshot | McpAppLiveDocument | null;
+  readonly closedKeys: readonly string[];
+  readonly isClosed: boolean;
+  readonly onClosedChange: (isClosed: boolean) => void;
+  readonly call?: McpAppLiveCall | null;
+  readonly savedCall?: Pick<McpAppSnapshot, "toolInputJson" | "toolResultJson">;
+  /** A live card's call gave no result. */
+  readonly onCancelled?: (reason: McpAppCancelReason) => void;
+  /** The card is the docked frame above the composer, not the card in the feed. */
+  readonly docked?: boolean;
+  /** The keyboard is open: a docked card shows its title bar only. */
+  readonly isFolded?: boolean;
+}) {
+  const { store, api, request, title, document, closedKeys, isClosed, onClosedChange, docked = false } = props;
+  const heightKey = closedKeys[0]!;
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [height, setHeight] = useState(() => store.mcpAppHeights.get(heightKey) ?? INITIAL_HEIGHT);
+  const [modelContext, setModelContext] = useState(() => (request.activityId ? store.mcpAppContexts.get(request.activityId) : undefined));
+  const [declaredModes, setDeclaredModes] = useState<readonly McpAppDisplayMode[] | null>(null);
+  const insets = useSafeAreaInsets();
+  // The frame shown now: closing through it gives the app its teardown first.
+  const host = useRef<McpAppHost | null>(null);
+  const readPip = useCallback(() => store.mcpAppPip?.activityId, [store]);
+  const pipActivityId = useListened(store.mcpAppPipChanges, readPip);
+  const isPip = !!request.activityId && pipActivityId === request.activityId;
+  // The docked frame is a new frame of the saved app, so only a saved app can be docked.
+  const availableModes = mcpAppAvailableDisplayModes({ isSaved: !!request.activityId });
+  const offersPip = !docked && mcpAppOffersDisplayMode("pip", availableModes, declaredModes);
+  const offersFullscreen = mcpAppOffersDisplayMode("fullscreen", availableModes, declaredModes);
+
+  // The docked frame may close the app; its card in the feed reads that when the dock goes.
+  useEffect(() => {
+    if (docked) return;
+    return store.mcpAppPipChanges.subscribe(() => onClosedChange(closedKeys.some((key) => store.closedMcpApps.has(key))));
+  }, [docked, store, closedKeys, onClosedChange]);
+
+  // The conversation store keeps these across a remount of the row.
+  const setClosed = (next: boolean) => {
+    if (next) store.closedMcpApps.add(closedKeys[0]!);
+    else for (const key of closedKeys) store.closedMcpApps.delete(key);
+    onClosedChange(next);
+  };
+  const rememberHeight = (next: number) => {
+    // A docked frame has a fixed height; the card keeps the height the app asked for inline.
+    if (docked) return;
+    store.mcpAppHeights.set(heightKey, next);
+    setHeight(next);
+  };
+  const rememberModelContext = (text: string) => {
+    if (!request.activityId) return;
+    if (text) store.mcpAppContexts.set(request.activityId, text);
+    else store.mcpAppContexts.delete(request.activityId);
+    setModelContext(text || undefined);
+  };
+  // Closing an app takes back what it gave the agent, so the agent never acts on an app the person no longer sees.
+  const close = (cancelled?: McpAppCancelReason) => {
+    setIsFullscreen(false);
+    if (cancelled) {
+      props.onCancelled?.(cancelled);
+      return;
+    }
+    setClosed(true);
+    if (request.activityId && store.mcpAppContexts.delete(request.activityId)) void api.mcpAppUpdateModelContext({ ...request, text: "" }).catch(() => {});
+    setModelContext(undefined);
+  };
+  /** A mode the bridge granted, or the person chose. Answers the mode that results. */
+  const setMode = (mode: McpAppDisplayMode): McpAppDisplayMode => {
+    // Only a saved app is docked; the bridge does not grant `pip` before (`availableModes`).
+    if (mode === "pip" && !request.activityId) return isFullscreen ? "fullscreen" : "inline";
+    setIsFullscreen(mode === "fullscreen");
+    if (mode === "pip") store.setMcpAppPip({ activityId: request.activityId, title });
+    else if (mode === "inline" && docked) store.setMcpAppPip(null);
+    return mode;
+  };
+
+  if (isClosed || !document || (isPip && !docked)) {
+    return <McpAppCardLine title={title} height={height} isPip={isPip && !isClosed} onReturn={() => store.setMcpAppPip(null)} onShow={() => setClosed(false)} />;
+  }
+
+  // Each presentation is its own frame: the inline or docked one, and the full-screen one.
+  const frame = (displayMode: McpAppDisplayMode) => (
     <McpAppWebView
-      snapshot={state.snapshot}
+      snapshot={document}
+      call={props.call}
+      savedCall={props.savedCall}
       api={api}
       request={request}
       store={store}
-      isFullscreen={fullscreen}
-      onDisplayMode={setIsFullscreen}
+      title={title}
+      hostRef={host}
+      displayMode={displayMode}
+      availableDisplayModes={availableModes}
+      safeAreaInsets={displayMode === "fullscreen" ? { top: 0, right: insets.right, bottom: insets.bottom, left: insets.left } : NO_INSETS}
+      onDisplayMode={setMode}
+      onDeclaredDisplayModes={setDeclaredModes}
       onHeight={rememberHeight}
+      onModelContext={rememberModelContext}
       onClose={close}
     />
   );
+  const fullscreen = (
+    <Modal visible={isFullscreen} animationType="slide" onRequestClose={() => setIsFullscreen(false)}>
+      {/* The app runs under the home indicator and reads the covered part from its safe area insets. */}
+      <View className="flex-1 bg-screen" style={{ paddingTop: insets.top }}>
+        <View className="min-h-12 flex-row items-center gap-2 px-4">
+          <Text numberOfLines={1} className="flex-1 font-t3-medium text-base text-foreground">{title}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close full screen app"
+            onPress={() => setIsFullscreen(false)}
+            className="size-11 items-center justify-center"
+          >
+            <SymbolView name="xmark" size={16} tintColorClassName="accent-icon-muted" />
+          </Pressable>
+        </View>
+        {isFullscreen ? frame("fullscreen") : null}
+      </View>
+    </Modal>
+  );
+  const closeApp = () => (host.current ? void host.current.close() : close());
+
+  if (docked) {
+    return (
+      <DockedMcpApp
+        title={title}
+        isFolded={props.isFolded === true}
+        offersFullscreen={offersFullscreen}
+        onReturn={() => setMode("inline")}
+        onFullscreen={() => setIsFullscreen(true)}
+        onClose={closeApp}
+        frame={isFullscreen ? null : frame("pip")}
+      >
+        {fullscreen}
+      </DockedMcpApp>
+    );
+  }
 
   return (
-    <View style={{ height, marginBottom: 8 }}>
-      {isFullscreen ? null : frame(false)}
+    <>
+    <View
+      style={{ height: mcpAppFrameHeight(height, document.prefersBorder), marginBottom: 8 }}
+      className={document.prefersBorder ? "overflow-hidden rounded-lg border border-border bg-card" : undefined}
+    >
+      {isFullscreen ? null : frame("inline")}
       <View className="absolute right-1.5 top-1.5 flex-row gap-1">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open app full screen"
-          onPress={() => setIsFullscreen(true)}
-          className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
-        >
-          <SymbolView name="arrow.up.left.and.arrow.down.right" size={13} tintColorClassName="accent-icon-muted" />
-        </Pressable>
+        {offersPip ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Keep in view"
+            onPress={() => setMode("pip")}
+            className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+          >
+            <SymbolView name={{ ios: "pip.enter", android: "visibility" }} size={13} tintColorClassName="accent-icon-muted" />
+          </Pressable>
+        ) : null}
+        {offersFullscreen ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open app full screen"
+            onPress={() => setIsFullscreen(true)}
+            className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+          >
+            <SymbolView name="arrow.up.left.and.arrow.down.right" size={13} tintColorClassName="accent-icon-muted" />
+          </Pressable>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close app"
-          onPress={() => setClosed(true)}
+          onPress={closeApp}
           className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
         >
           <SymbolView name="xmark" size={13} tintColorClassName="accent-icon-muted" />
         </Pressable>
       </View>
-      <Modal visible={isFullscreen} animationType="slide" onRequestClose={() => setIsFullscreen(false)}>
-        <View className="flex-1 bg-screen" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
-          <View className="min-h-12 flex-row items-center gap-2 px-4">
-            <Text numberOfLines={1} className="flex-1 font-t3-medium text-base text-foreground">{reference.title}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close full screen app"
-              onPress={() => setIsFullscreen(false)}
-              className="size-11 items-center justify-center"
-            >
-              <SymbolView name="xmark" size={16} tintColorClassName="accent-icon-muted" />
-            </Pressable>
-          </View>
-          {isFullscreen ? frame(true) : null}
-        </View>
-      </Modal>
+      {fullscreen}
+    </View>
+    {modelContext ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityHint="Shows the context"
+        onPress={() => Alert.alert("Context shared with the agent", `The agent gets this with each new turn of this session.\n\n${modelContext}`)}
+        className="mb-2 min-h-11 flex-row items-center gap-2"
+      >
+        <SymbolView name="sparkles" size={16} tintColorClassName="accent-icon-muted" />
+        <Text className="text-sm text-foreground-muted">Context shared with the agent</Text>
+      </Pressable>
+    ) : null}
+    </>
+  );
+}
+
+/** The card's place in the feed while it shows no frame: the app was closed, or it is docked in picture-in-picture. */
+function McpAppCardLine(props: { readonly title: string; readonly height: number; readonly isPip: boolean; readonly onReturn: () => void; readonly onShow: () => void }) {
+  const { title, height, isPip } = props;
+  return (
+    <View style={{ height, marginBottom: 8 }} className="items-center justify-center gap-2 rounded-lg border border-border">
+      <Text className="text-sm text-foreground-muted">{isPip ? `The ${title} app is in picture-in-picture` : `The ${title} app was closed`}</Text>
+      <Pressable accessibilityRole="button" onPress={isPip ? props.onReturn : props.onShow} className="min-h-11 justify-center px-3">
+        <Text className="text-sm text-foreground">{isPip ? "Return to card" : "Show app"}</Text>
+      </Pressable>
     </View>
   );
 }
 
-/**
- * One app frame. The bridge belongs to one web view load: a retry, a new
- * snapshot, or an unmount disposes it, and a navigation of the app stops it.
- */
-function McpAppWebView(props: {
-  readonly snapshot: McpAppSnapshot;
-  readonly api: HostApi;
-  readonly request: McpAppRequest;
-  readonly store: ConversationStore;
-  readonly isFullscreen: boolean;
-  readonly onDisplayMode: (fullscreen: boolean) => void;
-  readonly onHeight: (height: number) => void;
+/** The docked frame above the composer: a title bar with its controls, and the app below it, folded while the keyboard is open. */
+function DockedMcpApp(props: {
+  readonly title: string;
+  readonly isFolded: boolean;
+  readonly offersFullscreen: boolean;
+  readonly onReturn: () => void;
+  readonly onFullscreen: () => void;
   readonly onClose: () => void;
+  readonly frame: ReactNode;
+  readonly children: ReactNode;
 }) {
-  const { snapshot, api, request, store, isFullscreen } = props;
-  const app = useApp();
-  const theme = useUniwindTheme();
-  const { themeAppearance } = useAppearancePreferences();
-  const webView = useRef<WebView<object>>(null);
-  const host = useRef<McpAppHost | null>(null);
-  const [secret] = useState(() => app.platform.uuid());
-  const [failed, setFailed] = useState(false);
-  const [generation, setGeneration] = useState(0);
-  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
-  const source = useMemo(() => ({ html: nativeMcpAppDocument(snapshot, secret) }), [snapshot, secret]);
-
-  const context: McpAppHostContext = {
-    theme: themeAppearance,
-    displayMode: isFullscreen ? "fullscreen" : "inline",
-    availableDisplayModes: ["inline", "fullscreen"],
-    containerDimensions: mcpAppContainerDimensions(frameSize, isFullscreen),
-    platform: "mobile",
-    styles: {
-      variables: {
-        "--color-background-primary": theme["--color-screen"],
-        "--color-background-secondary": theme["--color-card"],
-        "--color-text-primary": theme["--color-foreground"],
-        "--color-text-secondary": theme["--color-foreground-muted"],
-        "--color-border-primary": theme["--color-border"],
-        "--font-sans": "-apple-system,system-ui,sans-serif",
-      },
-    },
-  };
-  // The bridge outlives renders; it reads the newest context and callbacks.
-  const latest = useRef({ props, context });
-  latest.current = { props, context };
-
-  useEffect(() => {
-    const bridge = createMcpAppHost({
-      snapshot,
-      context: () => latest.current.context,
-      post: (json) => webView.current?.injectJavaScript(nativeMcpAppPost(json)),
-      toolInfo: (name) => api.mcpAppToolInfo({ ...request, name }),
-      callTool: (name, argumentsJson, approved) => api.mcpAppCallTool({ ...request, name, argumentsJson, approved }),
-      readResource: (uri) => api.mcpAppReadResource({ ...request, uri }),
-      confirm: confirmWithAlert,
-      sendMessage: (text) => store.controller.send(text, { delivery: "queue" }),
-      openLink: (url) => app.platform.openBrowser(url),
-      displayMode: (mode) => latest.current.props.onDisplayMode(mode === "fullscreen"),
-      resize: (height) => latest.current.props.onHeight(height),
-      close: () => latest.current.props.onClose(),
-    });
-    host.current = bridge;
-    return () => {
-      bridge.dispose();
-      host.current = null;
-    };
-  }, [app, snapshot, api, request, store, generation]);
-
-  // Inline, the app's own height report is not a change of the app's box.
-  const frameHeight = isFullscreen ? frameSize.height : undefined;
-  useEffect(() => {
-    host.current?.updateContext();
-  }, [themeAppearance, isFullscreen, frameSize.width, frameHeight]);
-
-  const onMessage = (event: WebViewMessageEvent) => {
-    let message: z.infer<typeof relayMessageSchema>;
-    try {
-      message = relayMessageSchema.parse(JSON.parse(event.nativeEvent.data));
-    } catch {
-      return;
-    }
-    if (message.secret !== secret) return;
-    if (message.navigated) {
-      host.current?.dispose();
-      setFailed(true);
-    } else if (message.json) {
-      void host.current?.receive(message.json);
-    }
-  };
-
-  if (failed) {
-    return (
-      <View className="flex-1 items-center justify-center gap-2">
-        <Text className="text-sm text-foreground-muted">This app could not be displayed.</Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            setGeneration((value) => value + 1);
-            setFailed(false);
-          }}
-          className="min-h-11 justify-center px-4"
-        >
-          <Text className="text-sm text-foreground">Try again</Text>
+  return (
+    <View className="mx-4 mb-3 overflow-hidden rounded-[20px] border border-border bg-card-alt">
+      <View className="min-h-11 flex-row items-center pl-4">
+        <Text numberOfLines={1} className="flex-1 font-t3-medium text-sm text-foreground">{props.title}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Return to card" onPress={props.onReturn} className="size-11 items-center justify-center">
+          <SymbolView name={{ ios: "pip.exit", android: "visibility" }} size={16} tintColorClassName="accent-icon-muted" />
+        </Pressable>
+        {props.offersFullscreen ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Open app full screen" onPress={props.onFullscreen} className="size-11 items-center justify-center">
+            <SymbolView name="arrow.up.left.and.arrow.down.right" size={16} tintColorClassName="accent-icon-muted" />
+          </Pressable>
+        ) : null}
+        <Pressable accessibilityRole="button" accessibilityLabel="Close app" onPress={props.onClose} className="size-11 items-center justify-center">
+          <SymbolView name="xmark" size={16} tintColorClassName="accent-icon-muted" />
         </Pressable>
       </View>
-    );
-  }
-
-  // The page itself never navigates; the app's frame inside it may, and its relay then stops.
-  return (
-    <WebView<object>
-      key={generation}
-      ref={webView}
-      source={source}
-      originWhitelist={["about:*", "data:*"]}
-      style={{ flex: 1, backgroundColor: "transparent" }}
-      scrollEnabled={false}
-      bounces={false}
-      allowFileAccess={false}
-      onShouldStartLoadWithRequest={(load) => load.isTopFrame === false || load.url.startsWith("about:") || load.url.startsWith("data:")}
-      onLayout={({ nativeEvent: { layout } }) => setFrameSize({ width: Math.round(layout.width), height: Math.round(layout.height) })}
-      onMessage={onMessage}
-      onError={() => setFailed(true)}
-      onContentProcessDidTerminate={() => setFailed(true)}
-      onRenderProcessGone={() => setFailed(true)}
-    />
+      {/* The frame keeps running while it is folded to its title. */}
+      <View style={{ height: props.isFolded ? 0 : MCP_APP_DOCKED_HEIGHT }}>{props.frame}</View>
+      {props.children}
+    </View>
   );
 }

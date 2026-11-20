@@ -188,6 +188,12 @@ export function sourceChoiceGroups(
   ]
 }
 
+/** One connection problem, with the provider whose logo marks its line. */
+export interface SourceConnectionNote {
+  provider: 'github' | 'jira' | 'linear'
+  text: string
+}
+
 /**
  * What a person must repair before a provider offers its sources. Only a
  * connection problem is said: a list that is empty because each source is added
@@ -195,16 +201,26 @@ export function sourceChoiceGroups(
  * a missing choice reads as "Solus cannot do this", when the truth is one
  * connection away.
  */
-export function sourceConnectionNotes(options: TaskSourceOptions): string[] {
-  const { github, jira } = options
-  const notes: string[] = []
-  if (!github.connected) notes.push('Connect GitHub in Settings to add repositories and Projects.')
-  else if (github.hasProjectScope === false) notes.push('Connect GitHub again to let Solus read Projects.')
-  if (!jira.connected) notes.push('Connect Atlassian in Settings to add Jira projects and boards.')
-  else if (!jira.cloudId) notes.push('This Atlassian connection does not reach Jira.')
-  else if (jira.boardsError) notes.push(jira.boardsError)
-  if (options.linear?.error) notes.push(options.linear.error)
+export function sourceConnectionNotes(options: TaskSourceOptions): SourceConnectionNote[] {
+  const { github, jira, linear } = options
+  const notes: SourceConnectionNote[] = []
+  if (!github.connected) notes.push({ provider: 'github', text: 'Connect GitHub to add repositories and Projects.' })
+  else if (github.hasProjectScope === false) notes.push({ provider: 'github', text: 'Connect GitHub again to add Projects.' })
+  if (!jira.connected) notes.push({ provider: 'jira', text: 'Connect Atlassian to add Jira projects and boards.' })
+  else if (!jira.cloudId) notes.push({ provider: 'jira', text: 'This Atlassian connection does not reach Jira.' })
+  else if (jira.boardsError) notes.push({ provider: 'jira', text: jira.boardsError })
+  if (linear?.error) notes.push({ provider: 'linear', text: linear.error })
+  else if (linear && !linear.connected) notes.push({ provider: 'linear', text: 'Connect Linear to add teams.' })
   return notes
+}
+
+const PROVIDER_NAME = { github: 'GitHub', jira: 'Jira', linear: 'Linear' } satisfies Record<SourceConnectionNote['provider'], string>
+
+/** The providers of the notes as one short phrase: "GitHub, Jira, and Linear". */
+export function connectionProviderNames(notes: readonly SourceConnectionNote[]): string {
+  const names = [...new Set(notes.map((note) => PROVIDER_NAME[note.provider]))]
+  if (names.length <= 2) return names.join(' and ')
+  return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
 }
 
 /** The choices of a group that a search text keeps. */

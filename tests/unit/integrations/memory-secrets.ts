@@ -22,8 +22,8 @@ export function memoryClients(): IntegrationClients & { clients: Map<string, OAu
   const clients = new Map<string, OAuthClient>()
   return {
     clients,
-    client: (id) => clients.get(id) ?? null,
-    saveClient: (id, client) => { clients.set(id, client) },
-    removeClient: (id) => { clients.delete(id) },
+    client: (id, issuer) => clients.get(`${id}\u0000${issuer}`) ?? null,
+    saveClient: (id, issuer, client) => { clients.set(`${id}\u0000${issuer}`, client) },
+    removeClient: (id) => { for (const key of clients.keys()) if (key.startsWith(`${id}\u0000`)) clients.delete(key) },
   }
 }

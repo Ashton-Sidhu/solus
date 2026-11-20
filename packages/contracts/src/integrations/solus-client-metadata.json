@@ -1,0 +1,17 @@
+{
+  "client_id": "https://solus.sh/oauth/client-metadata.json",
+  "client_name": "Solus",
+  "client_uri": "https://solus.sh",
+  "policy_uri": "https://solus.sh/privacy",
+  "tos_uri": "https://solus.sh/terms",
+  "application_type": "native",
+  "redirect_uris": [
+    "http://127.0.0.1:3001/oauth/integration/callback",
+    "http://localhost:3001/oauth/integration/callback",
+    "http://127.0.0.1:3000/oauth/integration/callback",
+    "http://localhost:3000/oauth/integration/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}
