@@ -6,6 +6,7 @@ import { isSecretTool, secretReceiptRows, secretReceiptText } from '@solus/contr
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import { toolCallCode, type ToolCallCode } from '@solus/client-core/tool-call-code'
 import { integrationAgentToolLabel, mcpToolLabel } from '@solus/client-core/mcp-tool-label'
+import type { ToolCallOutputs } from '@solus/client-core/tool-outputs'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 /**
@@ -279,6 +280,11 @@ export function summarizeToolGroup(tools: ReadonlyArray<Pick<ToolTranscriptItem,
 export function toolGroupSummaryKind(tools: ReadonlyArray<Pick<ToolTranscriptItem, 'toolName'>>): ToolGroupAction | 'mixed' {
   const actions = new Set(tools.map((tool) => toolGroupAction(tool.toolName)))
   return actions.size === 1 ? actions.values().next().value! : 'mixed'
+}
+
+/** A call in the wire's field names, for the rule of where its outputs show (`@solus/client-core/tool-outputs`). */
+export function toolCallOutputs(tool: ToolTranscriptItem): ToolCallOutputs {
+  return { id: tool.id, toolName: tool.toolName, toolInput: tool.input, toolStatus: tool.status, toolImages: tool.images, toolAudio: tool.audio, toolLeftOut: tool.leftOut }
 }
 
 /** The images an open call shows. A call still running has none to decode. */

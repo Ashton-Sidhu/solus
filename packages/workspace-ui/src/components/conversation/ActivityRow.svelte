@@ -28,6 +28,8 @@
     rail?: Snippet;
     /** Supporting content revealed with the folded activity. */
     detail?: Snippet;
+    /** A line under the row, on the label's left edge: the outputs strip of a folded row. */
+    strip?: Snippet;
     /** Tint for the glyph slot only; the row itself never takes a colour. */
     glyphClass?: string;
     /** The label runs to two lines, so the row tops-aligns instead of centring. */
@@ -53,6 +55,7 @@
     actions,
     rail,
     detail,
+    strip,
     glyphClass = "",
     stacked = false,
     nested = false,
@@ -95,6 +98,14 @@
     {/if}
   </div>
 
+  {#if strip}
+    <!-- An unseen copy of the glyph holds the label's left edge, whatever the
+         glyph cluster's width. -->
+    <div class="activity-strip">
+      <span class="activity-glyph activity-strip-inset" aria-hidden="true">{@render glyph()}</span>
+      {@render strip()}
+    </div>
+  {/if}
   {#if expanded && detail}
     <div class="activity-detail">{@render detail()}</div>
   {/if}
@@ -274,6 +285,20 @@
     text-align: right;
   }
 
+  .activity-strip {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding-bottom: 0.25rem;
+  }
+  .activity-strip-inset {
+    visibility: hidden;
+    height: 0;
+  }
+  .activity-strip-inset :global(*) {
+    animation: none;
+  }
   /* The rule drops from the centre of the first glyph. */
   .activity-detail {
     margin: 0.125rem 0 0 0.375rem;

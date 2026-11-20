@@ -15,6 +15,9 @@
   import ActivityRow from "./ActivityRow.svelte";
   import MarkdownImage from "./MarkdownImage.svelte";
   import ToolAudioPlayer from "./ToolAudioPlayer.svelte";
+  import ToolOutputStrip from "./ToolOutputStrip.svelte";
+  import { toolStripChips } from "@solus/client-core/tool-outputs";
+  import { focusToolLine } from "./lib/tool-output-strip";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
@@ -177,6 +180,16 @@
     });
   }
 
+  // Only a folded row shows its strip, so an open one reads no outputs.
+  const stripChips = $derived(view.expanded ? [] : toolStripChips(tools));
+
+  function openToolOutput(toolId: string, chip: HTMLElement): void {
+    view.expanded = true;
+    openLines.add(toolId);
+    void history?.load(tools);
+    void focusToolLine(chip, toolId);
+  }
+
   function toggleToolExpanded(toolId: string): void {
     if (!openLines.delete(toolId)) openLines.add(toolId);
   }
@@ -185,6 +198,7 @@
 {#snippet targetText()}{namedTarget}{/snippet}
 {#snippet thoughtText()}{thought}{/snippet}
 {#snippet progressText()}{progress?.message}{/snippet}
+{#snippet outputStrip()}<ToolOutputStrip chips={stripChips} onOpen={openToolOutput} />{/snippet}
 
 <!-- No chassis at all: no fill, no hairline, no tint. This is the least
      important thing in the turn — it says how the answer was produced — so once
@@ -201,6 +215,7 @@
     expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
+    strip={stripChips.length > 0 ? outputStrip : undefined}
     target={!isLive && namedTarget
       ? targetText
       : progress?.message
@@ -311,6 +326,7 @@
               class:is-expanded={wraps}
               class="tool-step-text text-tool-step font-mono"
               aria-expanded={open}
+              data-tool-call-id={step.id}
               onclick={(e) => {
                 // An expanded row wraps its full command or path, which is the
                 // text worth copying. Releasing that drag must not collapse it.

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import {
     RotateCcw as ArrowCounterClockwiseIcon,
     CircleAlert as WarningCircleIcon,
@@ -49,6 +50,8 @@
     attempt?: number;
     onToggle: () => void;
     onRetry?: () => void;
+    /** The outputs strip of the folded turn. */
+    strip?: Snippet;
   }
 
   let {
@@ -62,6 +65,7 @@
     attempt = 1,
     onToggle,
     onRetry,
+    strip,
   }: Props = $props();
 
   // Three states, because a stop and a no-reply say nothing about the work the
@@ -163,6 +167,7 @@
   glyphClass={state === "failed" ? "is-destructive" : ""}
   target={state === "live" && liveTarget ? liveTargetText : undefined}
   actions={state === "failed" && onRetry ? rowRetry : undefined}
+  {strip}
   testid="turn-row-{state}"
 >
   {#snippet glyph()}

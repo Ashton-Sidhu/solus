@@ -24,6 +24,11 @@
   import TurnArtifacts from "./TurnArtifacts.svelte";
   import TurnImageGallery from "./TurnImageGallery.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
+  import ToolOutputStrip from "./ToolOutputStrip.svelte";
+  import { toolStripChips } from "@solus/client-core/tool-outputs";
+  import { focusToolLine, toolGroupOf, turnStripTools } from "./lib/tool-output-strip";
+  import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
+  import { openToolLine, toolGroupKey } from "./lib/open-tool-lines";
   import McpAppLiveCard from "./McpAppLiveCard.svelte";
   import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
   import { measureMount } from "../../lib/mount-timing";
@@ -70,7 +75,21 @@
   // A live MCP task holds the session in `background`. The row of the agent's own
   // background work then says nothing the MCP task rows do not, unless the turn waits on more.
   const backgroundWorkIsMcpTasks = $derived(mcpTasks.some(mcpTaskIsLive) && describeBackgroundWait(turn.body) === null);
+  // The folded turn's outputs strip. It reads the turn's own calls, and only while folded.
+  const disclosure = getTranscriptDisclosure();
+  const stripChips = $derived(turn.live || expanded ? [] : toolStripChips(turnStripTools(turn)));
+
+  function openToolOutput(toolId: string, chip: HTMLElement): void {
+    const group = toolGroupOf(turn, toolId);
+    if (!group) return;
+    onToggle(false);
+    openToolLine(disclosure, toolGroupKey(group[0]?.id), toolId);
+    void history.load(group);
+    void focusToolLine(chip, toolId);
+  }
 </script>
+
+{#snippet outputStrip()}<ToolOutputStrip chips={stripChips} onOpen={openToolOutput} />{/snippet}
 
 {#if turn}
 {@const skipMotion = !shouldAnimateTurnEntry(
@@ -109,6 +128,7 @@
     {expanded}
     attempt={isLastTurn ? (attempt) : 1}
     onToggle={() => onToggle(expanded)}
+    strip={stripChips.length > 0 ? outputStrip : undefined}
     onRetry={turn.end?.kind === "failed" && isLastTurn
       ? onRetry
       : undefined}
@@ -178,7 +198,7 @@
     {/each}
   </div>
 {/if}
-<TurnImageGallery messages={turn.images} {serverId} />
+<TurnImageGallery messages={turn.images} tools={turn.tools} {serverId} />
 {#if !live}
   <TurnArtifacts {turn} {nextStartedAt} {tabId} placedPullRequests={replyCards?.placed ?? NO_PLACED_PULL_REQUESTS} />
 {/if}

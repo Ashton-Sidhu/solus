@@ -50,7 +50,16 @@ export type ThreadFeedRow =
       readonly continuesWorkLog: boolean
     }
   | { readonly type: 'work-details'; readonly id: string; readonly groupId: string; readonly toolIds: readonly string[]; readonly continuesWorkLog: boolean }
-  | { readonly type: 'run-fold'; readonly id: string; readonly turnId: string; readonly label: string; readonly expanded: boolean }
+  | {
+      readonly type: 'run-fold'
+      readonly id: string
+      readonly turnId: string
+      readonly label: string
+      readonly expanded: boolean
+      /** The calls the fold hides, for its outputs strip, and the work group of each, in the same order. */
+      readonly toolIds: readonly string[]
+      readonly toolGroupIds: readonly string[]
+    }
   | { readonly type: 'thinking'; readonly id: string; readonly continuesWorkLog: boolean }
   | { readonly type: 'notice'; readonly id: string }
   | { readonly type: 'compaction'; readonly id: string }
@@ -64,8 +73,8 @@ export type ThreadFeedRow =
   | { readonly type: 'lead-promotion'; readonly id: string }
   /** The composer picked another provider; the next prompt hands off (plans/021). */
   | { readonly type: 'handoff-pending'; readonly id: string }
-  /** Linked artifacts below the turn reply. */
-  | ({ readonly type: 'turn-artifacts'; readonly id: string; readonly imageIds: readonly string[]; readonly replyId: string | null } & TurnPromptIds)
+  /** The images the turn's calls returned, and the linked artifacts, below the turn reply. */
+  | ({ readonly type: 'turn-artifacts'; readonly id: string; readonly imageIds: readonly string[]; readonly toolIds: readonly string[]; readonly replyId: string | null } & TurnPromptIds)
   | { readonly type: 'image'; readonly id: string }
   /** An HTML render. `superseded`: a later render in the feed revises the same work. */
   | { readonly type: 'artifact'; readonly id: string; readonly superseded: boolean }
@@ -131,6 +140,7 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
       ...prompts,
       replyId,
       imageIds: turn.entries.filter((entry) => entry.kind === 'assistant' || entry.kind === 'image').map((entry) => entry.id),
+      toolIds: turn.entries.filter((entry) => entry.kind === 'tool').map((entry) => entry.id),
     })
   }
   const trailing = rows.findLast((row) => row.type !== 'turn-artifacts')
@@ -197,6 +207,8 @@ function appendTurnRows(
         .filter((entry) => entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'lead_promotion' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
+  const groupIds = workGroupIds(turn.entries)
+  const foldedToolIds = turn.entries.filter((entry) => entry.kind === 'tool' && hidden.has(entry.id)).map((entry) => entry.id)
   let foldPlaced = false
   let group: FeedSourceEntry[] = []
   let agents: FeedSourceEntry[] = []
@@ -208,7 +220,7 @@ function appendTurnRows(
   }
   const flushGroup = (trailing: boolean) => {
     if (group.length === 0) return
-    const groupId = `work-group:${group[0]!.id}`
+    const groupId = workGroupId(group[0]!.id)
     const expanded = input.expandedWorkGroupIds.has(groupId)
     const live = active && trailing
     const toolIds = group.map((entry) => entry.id)
@@ -235,7 +247,15 @@ function appendTurnRows(
     if (hidden.has(entry.id)) {
       if (!foldPlaced) {
         flushGroup(false)
-        rows.push({ type: 'run-fold', id: `run-fold:${turn.id}`, turnId: turn.id, label: 'Worked', expanded: expandedFold })
+        rows.push({
+          type: 'run-fold',
+          id: `run-fold:${turn.id}`,
+          turnId: turn.id,
+          label: 'Worked',
+          expanded: expandedFold,
+          toolIds: foldedToolIds,
+          toolGroupIds: foldedToolIds.map((id) => groupIds.get(id) ?? workGroupId(id)),
+        })
         foldPlaced = true
       }
       if (!expandedFold) return
@@ -279,6 +299,25 @@ function appendTurnRows(
   })
   flushAgents()
   flushGroup(false)
+}
+
+function workGroupId(firstToolId: string): string {
+  return `work-group:${firstToolId}`
+}
+
+/** The work group of each call: a run of consecutive calls is one group, as `appendTurnRows` groups them. */
+function workGroupIds(entries: readonly FeedSourceEntry[]): ReadonlyMap<string, string> {
+  const groups = new Map<string, string>()
+  let groupId: string | null = null
+  for (const entry of entries) {
+    if (entry.kind !== 'tool') {
+      groupId = null
+      continue
+    }
+    groupId ??= workGroupId(entry.id)
+    groups.set(entry.id, groupId)
+  }
+  return groups
 }
 
 function isWorkLogRow(row: ThreadFeedRow | undefined): boolean {

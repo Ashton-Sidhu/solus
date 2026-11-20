@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Message } from '@solus/contracts/types'
 import { toolResultImages } from '@solus/client-core/reply-images'
-import { galleryHrefs, hasGallerySlides, toolRowImages } from '@solus/workspace-ui/components/conversation/lib/turn-images'
+import { galleryHrefs, hasGallerySlides, toolRowImages, turnGallery } from '@solus/workspace-ui/components/conversation/lib/turn-images'
 import { markdownAssetId } from '@solus/workspace-ui/components/conversation/lib/markdown-image'
 
 test('the viewer can browse images across replies in one turn, in carousel order', () => {
@@ -41,6 +41,7 @@ test('a tool row shows its images as asset references the host signs, and only w
   expect(markdownAssetId(images[0].href)).toBe(assetId)
   expect(toolRowImages({ ...tool, toolStatus: 'running' })).toEqual([])
   expect(toolResultImages(undefined)).toEqual([])
-  // Tool images stay in the tool row, out of the turn's gallery.
+  // The images also join the turn's gallery, which shows them while the turn is folded.
   expect(hasGallerySlides([tool])).toBe(false)
+  expect(turnGallery([], [tool]).entries.map((entry) => entry.key)).toEqual(images.map((image) => image.href))
 })

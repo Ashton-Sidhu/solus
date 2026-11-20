@@ -277,9 +277,9 @@ the thoughts around them. An empty assistant message does not close the row.
 Only prose, a card (a question, a sub-agent, an agent conversation, a document,
 and the other result cards), browser snapshots, or a notice closes it.
 
-Agent reply images, generated images, and browser captures appear in a compact
-image gallery below the final reply. Raw tool-result images, including device
-inspection screenshots, are excluded. Each preview shows a thumbnail, a file
+Agent reply images, generated images, browser captures, and the images that
+tool calls returned appear in a compact image gallery below the final reply
+(see [Tool outputs](#tool-outputs)). Each preview shows a thumbnail, a file
 name or label, and the format. Image embeds in assistant replies render as file
 chips at their authored positions. A chip opens the file; the gallery below the reply provides image
 previews. Videos keep their existing presentation. Prompt attachments stay with the prompt.
@@ -334,6 +334,59 @@ finished divider.
 `workspace.css` declares `--solus-tx-quiet-*`, `--solus-tx-attention-shadow`,
 `--solus-tx-divider`, and the `--tx-card-*` geometry. In dark mode the quiet shell drops its lift
 because the fill does the lifting.
+
+## Tool outputs
+
+A tool call can give the person visible outputs. One rule says where each one
+shows, for every tool: Solus tools, the built-in tools of Claude and Codex, MCP
+tools, and resource reads.
+
+1. **An image goes to its turn's image gallery**, beside the reply images and
+   browser captures, at the time of its call. The open tool line also shows it,
+   as the line of a browser capture shows its picture. A browser capture is in
+   the gallery once, as its capture card; the scaled copy in its result is not
+   added again. Two calls that return the same picture show it once.
+2. **Every other output that a tool line shows only while open goes to the
+   outputs strip** under the row that folds it: the folded turn row, or the
+   folded tool group row of an open turn. The strip shows only while its row is
+   folded. It is one line of chips that wraps, on the left edge of the row
+   label, with no fill and no card. An audio chip shows the play glyph, the
+   server name, and the format (`elevenlabs MP3`). A notes chip shows
+   `N left out`. A chip opens the folds down to its tool line and moves focus
+   there.
+3. **An output that already shows outside the folds stays where it is.**
+
+The rule is in code at one place, `packages/client-core/src/tool-outputs.ts`
+(`TOOL_OUTPUT_PLACES`), shared by desktop, web, and mobile. A new output field
+on a tool call's message must get a place there: the type check and
+`tests/unit/tool-outputs.test.ts` fail until it has one.
+
+| Output | Place | Why |
+| --- | --- | --- |
+| Images (`toolImages`): MCP image blocks, a `Read` of a picture, device screenshots, resource reads | Gallery | Rule 1 |
+| Browser capture (`browser_snapshot`) | Gallery, as its capture card | It was there before this rule |
+| Audio (`toolAudio`) | Strip | Rule 2 |
+| "Left out" notes (`toolLeftOut`) | Strip | Rule 2 |
+| Progress (`toolProgress`) | Neither | The running row's label and bar show it, and a live turn does not fold |
+| Error head (`errorHead`) | Neither | A failed row and a failed turn say so on their own line; the head is diagnosis |
+| The call's input (code in the open line) | Neither | It is the call, not an output |
+| Text result of the call | Neither | It does not reach the client |
+| Saved MCP App card, HTML artifact, work card, automation card, plan, review guide, browser recording, agent conversation card | Neither | Own cards that stay visible in a folded turn |
+| Live MCP App card | Neither | A live turn does not fold; the saved card takes its place |
+| MCP task rows, resource watch rows | Neither | Shown after the last turn |
+| Linked pull requests and files, changed files | Neither | Chips and the changes summary at the turn's end |
+| Sub-agent card, answered question, secret receipt | Neither | Steps of the work: the turn row counts them |
+
+The gallery shows at most 8 tool images in a turn (the most one call can
+return). A last card, `+N`, opens all of them in the image viewer. A gallery
+card signs its image URL only when it comes near the viewport. A running call
+adds nothing to the gallery or the strip. Mobile shows the tool images as
+thumbnails in the turn's footer once the turn ends, with the same limit, and
+the strip under its "Worked" row and under each folded tool group.
+
+On desktop and web, more than one tool line of a group can be open at a time,
+as on mobile. The open lines are part of the conversation's view state, so they
+stay open after a tab switch.
 
 ## Not in scope
 
