@@ -34,7 +34,9 @@ export const VAULT_SEATS_PATH = '/v1/vault/seats'
 
 // ── Credential refs ─────────────────────────────────────────────────────────
 
-export const vaultProviderSchema = z.enum(['github', 'google', 'atlassian'])
+export const vaultOAuthProviderSchema = z.enum(['github', 'google', 'atlassian'])
+export type VaultOAuthProvider = z.infer<typeof vaultOAuthProviderSchema>
+export const vaultProviderSchema = z.enum(['github', 'google', 'atlassian', 'linear'])
 export type VaultProvider = z.infer<typeof vaultProviderSchema>
 export const seatProviderSchema = z.enum(['claude-code', 'codex'])
 export type SeatProvider = z.infer<typeof seatProviderSchema>
@@ -45,6 +47,8 @@ export const mcpRefSchema = z.object({
   /** The server's address as the person's profile names it. */
   serverUrl: z.string().min(1).max(2048).refine((value) => URL.canParse(value), 'not_a_url'),
 }).strict()
+export const linearRefSchema = z.object({ kind: z.literal('provider'), provider: z.literal('linear') }).strict()
+export type LinearRef = z.infer<typeof linearRefSchema>
 export const typesafeRefSchema = z.object({ kind: z.literal('typesafe') }).strict()
 export const seatRefSchema = z.object({ kind: z.literal('seat'), provider: seatProviderSchema }).strict()
 
@@ -152,7 +156,7 @@ export type UploadMaterial = z.infer<typeof uploadMaterialSchema>
 export function materialKindsOf(ref: CredentialRef): readonly VaultMaterialKind[] {
   switch (ref.kind) {
     case 'provider':
-      return ref.provider === 'atlassian' ? ['oauth', 'key'] : ['oauth']
+      return ref.provider === 'linear' ? ['key'] : ref.provider === 'atlassian' ? ['oauth', 'key'] : ['oauth']
     case 'mcp':
       return ['oauth', 'key']
     case 'typesafe':
@@ -184,6 +188,8 @@ export const atlassianTokenDeliverySchema = atlassianApiTokenCredentialSchema
 export const atlassianProviderDeliverySchema = z.union([atlassianTokenDeliverySchema, atlassianDeliverySchema])
 /** The header value to send to the server, and when it stops working. */
 export const mcpDeliverySchema = z.object({ authorization: z.string().min(1), expiresAt: z.number().nullable(), label: z.string().nullable() })
+export const linearDeliverySchema = z.object({ key: z.string().min(1) })
+export type LinearDelivery = z.infer<typeof linearDeliverySchema>
 export const typesafeDeliverySchema = z.object({ key: z.string().min(1) })
 export const seatDeliverySchema = z.object({ file: cliLoginFileSchema, version: z.number().int().positive() })
 
@@ -194,7 +200,7 @@ export type AtlassianTokenDelivery = z.infer<typeof atlassianTokenDeliverySchema
 export type McpDelivery = z.infer<typeof mcpDeliverySchema>
 export type TypesafeDelivery = z.infer<typeof typesafeDeliverySchema>
 export type SeatDelivery = z.infer<typeof seatDeliverySchema>
-export type ProviderDelivery = GithubDelivery | GoogleDelivery | AtlassianDelivery | AtlassianTokenDelivery
+export type ProviderDelivery = GithubDelivery | GoogleDelivery | AtlassianDelivery | AtlassianTokenDelivery | LinearDelivery
 
 /** `POST /v1/vault`'s answer: its shape is the ref's (`deliverySchemaOf`). */
 export const vaultDeliverySchema = z.union([
@@ -212,7 +218,7 @@ export type VaultDelivery = z.infer<typeof vaultDeliverySchema>
 export function deliverySchemaOf(ref: CredentialRef): z.ZodType<VaultDelivery> {
   switch (ref.kind) {
     case 'provider':
-      return { github: githubDeliverySchema, google: googleDeliverySchema, atlassian: atlassianProviderDeliverySchema }[ref.provider]
+      return { github: githubDeliverySchema, google: googleDeliverySchema, atlassian: atlassianProviderDeliverySchema, linear: linearDeliverySchema }[ref.provider]
     case 'mcp':
       return mcpDeliverySchema
     case 'typesafe':
@@ -290,9 +296,9 @@ export const vaultConnectResultSchema = z.discriminatedUnion('kind', [
 ])
 export type VaultConnectResult = z.infer<typeof vaultConnectResultSchema>
 
-/** `PUT /v1/vault` with `key`: a pasted key for `typesafe` or an MCP server. `scheme` is for a server the profile does not name. */
+/** `PUT /v1/vault` with `key`: a pasted key for Linear, TypeSafe or an MCP server. `scheme` is for a server the profile does not name. */
 export const vaultSaveKeyRequestSchema = z.object({
-  ref: z.discriminatedUnion('kind', [mcpRefSchema, typesafeRefSchema]),
+  ref: z.discriminatedUnion('kind', [mcpRefSchema, typesafeRefSchema, linearRefSchema]),
   key: z.string().min(1).max(4096),
   scheme: keySchemeSchema.optional(),
 }).strict()

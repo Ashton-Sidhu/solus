@@ -36,6 +36,7 @@ export const plan_index_providers = plansSchema.planIndexProviders.pg
 export const comment_threads = commentsSchema.commentThreads.pg
 export const acl_entry = sharingSchema.aclEntry.pg
 export const session = sessionsSchema.session.pg
+export const session_repositories = sessionsSchema.sessionRepositories.pg
 export const resource_links = linksSchema.resourceLinks.pg
 export const pull_request_observations = linksSchema.pullRequestObservations.pg
 export const personal_resource_state = personalStateSchema.personalResourceState.pg

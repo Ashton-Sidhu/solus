@@ -1,4 +1,5 @@
 import { DesktopActivityBadges } from './activity-badges'
+import { ServerForwards, serverForwardRequestSchema } from './server-forwards'
 import { attachContextMenu } from './context-menu'
 import { initialWindowBounds } from './window-platform'
 import { HtmlFullscreen } from './html-fullscreen'
@@ -604,6 +605,11 @@ ipcMain.handle('solus:set-local-host-enabled', (_event, rawEnabled) => {
 })
 
 const externalUrlSchema = z.string().regex(/^https?:\/\//i)
+const serverForwards = new ServerForwards()
+ipcMain.handle('solus:server-forward-start', (_event, request) => serverForwards.start(serverForwardRequestSchema.parse(request)))
+ipcMain.handle('solus:server-forward-stop', (_event, forwardId) => serverForwards.stop(z.string().uuid().parse(forwardId)))
+ipcMain.handle('solus:server-forward-list', () => serverForwards.list())
+app.on('will-quit', () => serverForwards.close())
 const attachmentReadSchema = z.tuple([z.string(), z.string()])
 
 ipcMain.handle('solus:open-external', async (_event, input, options?: { hideAppAfterOpen?: boolean }) => {

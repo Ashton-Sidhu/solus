@@ -52,7 +52,9 @@
   } from "../ui/list-page";
   import { isStackedPane } from "../../lib/pane-width";
   import PageEmpty from "../ui/PageEmpty.svelte";
+  import TaskUrlInspector from "./TaskUrlInspector.svelte";
   import TaskComposer from "./TaskComposer.svelte";
+  import TaskSavedViews from "./TaskSavedViews.svelte";
   import TasksList from "./TasksList.svelte";
   import TaskLayoutToggle from "./TaskLayoutToggle.svelte";
   import TaskBoard from "./TaskBoard.svelte";
@@ -139,6 +141,14 @@
   // ── View state ──
   // Which source is on screen, the search, the filters and the sort, and the
   // rows and columns that follow from them.
+  let loadingSource = $state<string | null>(null);
+  async function loadMoreSource(source: typeof sources[number]) {
+    if (loadingSource) return;
+    loadingSource = source.sourceKey;
+    try { await taskSourcesStore.loadMore(source.source); await store.load(); }
+    catch (error) { toastTaskError('load more tasks', error); }
+    finally { loadingSource = null; }
+  }
   const providerSearch = new ProviderTaskSearch(store);
   const view = new TasksPageView({
     tasks: () => tasks,
@@ -152,10 +162,12 @@
   // answers "of the tasks the host read" while looking like it answered "in
   // the source". The search text then goes to the provider too.
   $effect(() => {
-    const searches = open && view.truncated;
+    const searches = open && (view.truncated || view.involvement !== "all");
     const text = view.query;
+    const involvement = view.involvement;
+    const scope = `${taskSourcesStore.host}:` + sources.map((source) => `${source.sourceKey}:${source.fetchedAt}`).join("|");
     untrack(() => {
-      if (searches) providerSearch.request(text);
+      if (searches) providerSearch.request(text, involvement, scope);
       else providerSearch.clear();
     });
   });
@@ -214,7 +226,7 @@
     },
     {
       key: "assigned",
-      label: "Assigned",
+      label: "Has an assignee",
       icon: TaskIcon,
       count: view.filterCounts.assigned,
       active: view.assignedOnly,
@@ -551,6 +563,7 @@
 <!-- Where the person's tasks come from, and the one place to change it. With
      no source, the empty state adds the first one instead. -->
 {#snippet sourceStrip()}
+  <TaskUrlInspector />
   <TaskSourceStrip
     sourceKey={view.source?.sourceKey ?? null}
     counts={view.sourceCounts}
@@ -578,6 +591,16 @@
       {/if}
     {/snippet}
     {#snippet trailing()}
+      {#each view.sources.filter((source) => source.nextCursor) as source (source.sourceKey)}
+        <button type="button" class="rounded-md px-2 py-1 text-workspace-chrome text-muted-foreground hover:bg-muted pointer-coarse:min-h-12" disabled={loadingSource !== null} onclick={() => void loadMoreSource(source)}>{loadingSource === source.sourceKey ? 'Loading…' : `Load more · ${source.label}`}</button>
+      {/each}
+      <label class="text-workspace-chrome text-muted-foreground">Involvement
+        <select name="task-involvement" class="rounded-md bg-transparent p-1" bind:value={view.involvement}>
+          <option value="all">Everyone</option><option value="authored">Authored by me</option><option value="assigned">Assigned to me</option><option value="mentioned">Mentioning me</option>
+        </select>
+        {#if view.involvement === 'mentioned'}<p class="text-sm text-muted-foreground">Mentions search covers GitHub issues. Jira and Linear do not offer a reliable mention filter.</p>{/if}
+      </label>
+      <TaskSavedViews filters={view.snapshot()} onApply={(filters) => view.apply(filters)} />
       {#if view.truncationNote}
         <!-- Why the list is short, said where the narrowing is done. -->
         <span

@@ -408,7 +408,7 @@
     </nav>
 
     <div class="grid grid-cols-1 gap-8 @min-[44rem]/mcp:grid-cols-[11rem_minmax(0,1fr)]">
-      <nav class="hidden flex-col gap-0.5 self-start @min-[44rem]/mcp:sticky @min-[44rem]/mcp:top-0 @min-[44rem]/mcp:flex" aria-label="MCP views">
+      <nav class="hidden flex-col gap-0.5 self-start @min-[44rem]/mcp:sticky @min-[44rem]/mcp:top-16 @min-[44rem]/mcp:flex" aria-label="MCP views">
         {@render viewButton("all", "All", "rail")}
         {@render viewButton("installed", "Installed", "rail")}
         {@render viewButton("found", "Found on this host", "rail")}

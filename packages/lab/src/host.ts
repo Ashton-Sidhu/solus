@@ -60,6 +60,8 @@ export interface LabHostOptions {
   longLived?: boolean
   /** The proxied listener's port; a restarted host with no link record keeps the one it had. */
   tunnelPort?: number
+  /** Keep a registered host's directory route valid across a Lab restart. */
+  port?: number
   /** More environment for the server, e.g. the `SOLUS_HOST_LINK` a provisioner gives a managed machine. */
   environment?: NodeJS.ProcessEnv
 }
@@ -171,7 +173,7 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SOLUS_DATA_DIR: dataDir,
-    SOLUS_PORT: '0',
+    SOLUS_PORT: String(options.port ?? 0),
     SOLUS_NO_LAN_DISCOVERY: '1',
     // Never the default port, which the developer's own Solus holds.
     SOLUS_TUNNEL_PORT: String(proxiedPort),

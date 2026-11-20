@@ -1,5 +1,5 @@
 import { agentForProject } from '@solus/contracts/provider-instance-models'
-import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { isSessionBusyStatus, type AgentId, type AgentMetadata, type IpcContext, type Message, type QueuedPromptSnapshot, type RunConfig, type Session, type StartInfo, type TurnSnapshot } from '@solus/contracts/types'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
@@ -59,7 +59,11 @@ export interface WorkspaceLifecycleStoreDeps {
     turnLimit?: number
     before?: string
     pendingMessages?: WireSessionLoadMessage[]
+    history?: Promise<SessionHistoryPage>
+    serverId?: string
   }): Promise<{ messages: Session['messages']; progress: Session['progress']; planIds: string[]; truncated?: boolean; before?: string | null; pendingMessages?: WireSessionLoadMessage[] }>
+  /** While a tab shows a session's cloud copy, its older pages come from there too. */
+  cloudHistory?(session: Session): { serverId: string; read(before: string): Promise<SessionHistoryPage> } | null
   rebuildAgentConversations(session: Session): void
 }
 
@@ -369,6 +373,7 @@ export class WorkspaceLifecycleStore {
   }
 
   private async prependHistoryPage(tabId: string, session: Session, agentSessionId: string, before: string): Promise<void> {
+    const cloud = this.deps.cloudHistory?.(session) ?? null
     const transcript = await this.deps.loadTranscript({
       sessionId: session.id,
       loadPath: checkoutGit(session.run)?.worktreePath || checkoutPlace(session.run).path,
@@ -376,6 +381,7 @@ export class WorkspaceLifecycleStore {
       provider: session.run.provider ?? this.deps.settings.activeAgent,
       ctx: this.deps.ctxFor(tabId), turnLimit: OLDER_HISTORY_TURNS, before,
       pendingMessages: session.historyPendingMessages,
+      history: cloud?.read(before), serverId: cloud?.serverId,
     })
     if (this.deps.registry.sessionFor(tabId) !== session
       || session.agentSessionId !== agentSessionId || session.historyCursor !== before) return

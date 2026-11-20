@@ -32,6 +32,12 @@ function parseCursor(before: string): Cursor {
   }
 }
 
+/** The turn a page token starts before, so the turns around it can be read
+ *  without the rest of the thread. */
+export function historyPageTurnId(before: string | undefined): string | undefined {
+  return before === undefined ? undefined : parseCursor(before).turn
+}
+
 /** One item page of a turn, newest first. */
 async function readItemPage(threadId: string, turn: CodexTurnHistory, readItems: ReadItems, cursor: string | undefined): Promise<CodexItemsListResponse> {
   if (turn.itemsView === 'summary' || turn.itemsView === 'notLoaded') {

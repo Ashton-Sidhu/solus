@@ -395,9 +395,12 @@ export interface PrListView {
    *  scope, since the server pages open and closed separately. */
   statusKeys: string[]
   sortMode: PrSortMode
-  involvement: 'all' | 'created' | 'assigned' | 'review-requested'
+  involvement: 'all' | 'created' | 'assigned' | 'review-requested' | 'others'
   author: string | null
   label: string | null
+  labels?: string[]
+  labelGroups?: string[][]
+  excludedLabels?: string[]
   draft: 'all' | 'ready' | 'draft'
   review: 'all' | 'approved' | 'changes-requested' | 'review-required' | 'no-reviews'
   checks: 'all' | 'passing' | 'pending' | 'failing'

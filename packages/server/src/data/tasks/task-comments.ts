@@ -37,6 +37,7 @@ export function taskThreads(taskId: string): ThreadSubject {
  *  wrote it; a comment only read from the provider has the provider's name. */
 function taskCommentOf(taskId: string, thread: ThreadRecord): TaskComment {
   const comment: TaskComment = { id: thread.threadId, taskId, body: thread.body, createdAt: thread.createdAt }
+  if (thread.external) comment.providerCommentId = thread.external.id
   if (thread.author.kind === 'external') comment.externalAuthor = thread.author.name
   else comment.author = thread.author
   if (thread.originSessionId !== null) comment.originSessionId = thread.originSessionId

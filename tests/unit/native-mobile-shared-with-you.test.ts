@@ -136,6 +136,7 @@ describe('new share notice', () => {
       state: { sessionGeneration: 0 },
       api: {
         sessionRecordList: async (filter: SessionRecordListFilter) => ({ records: filter.scope === 'all' ? [] : structuredClone(answer.records), indexing: false }),
+        pinnedSessionsList: async () => [],
         listProjects: async () => [],
       },
     }
@@ -162,4 +163,23 @@ describe('share notifications on the phone', () => {
     expect(nativeDestination(notification({ kind: 'session.shared', role: 'viewer' }))).toEqual({ kind: 'thread', sessionId: 's1' })
     expect(nativeDestination(notification({ kind: 'session.unshared' }))).toEqual({ kind: 'none' })
   })
+})
+
+test('a pinned mobile session remains available after it leaves recent history', async () => {
+  const pinned = record('old', { listed: false, view: { ...EMPTY_SESSION_VIEW, archivedAt: NOW } })
+  const connection = {
+    state: { sessionGeneration: 0 },
+    api: {
+      sessionRecordList: async () => ({ records: [], indexing: false }),
+      listProjects: async () => [],
+      pinnedSessionsList: async () => [{ sessionId: 'old', provider: 'claude-code', title: 'Old', cwd: '/repo', pinnedAt: NOW }],
+      sessionRecordGet: async () => pinned,
+    },
+  }
+  const host = { id: 'h', label: 'Mac' }
+  // SAFETY: the directory reads only these registry and connection members.
+  const directory = new ThreadDirectory({ host: () => host, hosts: () => [host] } as never, () => connection as never)
+  await directory.load('h')
+  expect(directory.thread('h', 'old')?.record).toEqual(pinned)
+  expect(directory.unlistedThreads().map((thread) => thread.record.sessionId)).toEqual(['old'])
 })

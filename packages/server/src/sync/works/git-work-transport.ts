@@ -1,9 +1,8 @@
-import { hostCliEnv } from '../../cli-env'
-import { withUserScope } from '../../vault/acting-scope'
-import { spawn } from 'node:child_process'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { withUserScope } from '../../vault/acting-scope'
+import { GitRemote } from '../git-remote'
 import { documentContentHash } from '../../docs/content-hash'
 import { workArchiveManifestSchema, type WorkArchiveOperation, type WorkArchiveBody, type WorkArchiveTransport } from '../../data/works/git-work-storage'
 
@@ -35,55 +34,16 @@ export class GitWorkTransport implements WorkArchiveTransport {
 
   private async pushArchive(repository: string, operation: WorkArchiveOperation, bodies: readonly WorkArchiveBody[]): Promise<string> {
     const remote = await this.access.remote(repository)
-    const url = archiveRemoteUrl(remote.url)
     const root = await mkdtemp(join(tmpdir(), 'solus-work-archive-'))
-    const deadline = this.signal ? AbortSignal.any([this.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000)
+    const client = await GitRemote.open({ gitDir: root, remote: remote.url, token: remote.token,
+      signal: this.signal, timeoutMs: 120_000, outputLimitBytes: 16 * 1024 * 1024, authorDate: operation.capturedAt })
     try {
-      const askpass = join(root, 'askpass')
-      await writeFile(askpass, `#!/bin/sh
-case "$1" in
-  *"https://$SOLUS_ARCHIVE_HOST'"*|*"https://$SOLUS_ARCHIVE_HOST/"*|*"https://x@$SOLUS_ARCHIVE_HOST'"*|*"https://x@$SOLUS_ARCHIVE_HOST/"*) ;;
-  *) exit 1 ;;
-esac
-case "$1" in
-  Username*) printf 'x\n' ;;
-  Password*) printf '%s\n' "$SOLUS_ARCHIVE_TOKEN" ;;
-  *) exit 1 ;;
-esac
-`, { mode: 0o700 })
-      const env = hostCliEnv({ GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: askpass,
-        GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
-        SOLUS_ARCHIVE_HOST: url.host, SOLUS_ARCHIVE_TOKEN: remote.token?.split('?expires=')[0],
-        GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '',
-        GIT_CONFIG_KEY_1: 'core.hooksPath', GIT_CONFIG_VALUE_1: '/dev/null',
-        GIT_CONFIG_KEY_2: 'protocol.file.allow', GIT_CONFIG_VALUE_2: 'always',
-        GIT_AUTHOR_NAME: 'Solus', GIT_AUTHOR_EMAIL: 'storage@solus.invalid',
-        GIT_COMMITTER_NAME: 'Solus', GIT_COMMITTER_EMAIL: 'storage@solus.invalid',
-        GIT_AUTHOR_DATE: operation.capturedAt, GIT_COMMITTER_DATE: operation.capturedAt,
-      })
-      for (const key of Object.keys(env)) if (key.startsWith('GIT_TRACE') || key === 'GIT_CURL_VERBOSE') delete env[key]
-      const git = async (args: string[], input?: string): Promise<string> => {
-        const child = spawn('git', args, { cwd: root, env, stdio: 'pipe', signal: deadline })
-        const parts: Buffer[] = []
-        let bytes = 0
-        child.stdout.on('data', (part: Buffer) => { bytes += part.length; if (bytes > 16 * 1024 * 1024) child.kill(); else parts.push(part) })
-        child.stderr.resume() // Never put credential-bearing Git diagnostics in logs or exceptions.
-        child.stdin.on('error', () => {})
-        child.stdin.end(input)
-        const code = await new Promise<number>((resolve, reject) => {
-          child.once('error', () => reject(new Error('The archive Git process could not run.')))
-          child.once('close', status => resolve(status ?? 1))
-        })
-        if (code !== 0) throw new Error(`The archive Git ${args[0]} operation failed (${code}).`)
-        return Buffer.concat(parts).toString('utf8')
-      }
+      const git = (args: string[], input?: string) => client.git(args, input)
       await git(['init', '--bare', '--initial-branch=main'])
-      await git(['remote', 'add', 'origin', remote.url])
       await git(['config', 'remote.origin.promisor', 'true'])
       await git(['config', 'remote.origin.partialclonefilter', 'blob:none'])
-      const refs = (await git(['ls-remote', 'origin', 'refs/heads/main'])).trim()
-      const head = refs ? refs.split(/\s+/)[0]! : null
-      if (head) await git(['fetch', '--filter=blob:none', 'origin', 'refs/heads/main'])
+      const head = await client.remoteHead()
+      if (head) await git(['fetch', '--filter=blob:none', remote.url, 'refs/heads/main'])
       if (head) {
         const current = workArchiveManifestSchema.parse(JSON.parse(await git(['show', `${head}:manifest.json`])))
         if (current.operationId === operation.manifest.operationId) {
@@ -95,11 +55,11 @@ esac
       if (head !== operation.expectedCommit) throw new Error('The remote work changed before this push.')
       const commit = await buildArchiveCommit(git, head, operation, bodies)
       await git(['update-ref', 'refs/heads/main', commit])
-      await git(['push', `--force-with-lease=refs/heads/main:${head ?? ''}`, 'origin', 'refs/heads/main:refs/heads/main'])
-      const accepted = (await git(['ls-remote', 'origin', 'refs/heads/main'])).trim().split(/\s+/)[0]
-      if (accepted !== commit) throw new Error('The archive push was not confirmed.')
+      const pushed = await client.checkedPush(commit, head)
+      if (pushed.status === 'refused') throw new Error('The remote work changed before this push.')
+      if (pushed.status === 'failed') throw new Error('The archive push was not confirmed.')
       return commit
-    } finally { await rm(root, { recursive: true, force: true }) }
+    } finally { await client.close(); await rm(root, { recursive: true, force: true }) }
   }
 }
 
@@ -128,10 +88,4 @@ async function buildArchiveCommit(git: (args: string[], input?: string) => Promi
   const body = entries.get(operation.manifest.work.contentHash)!
   const rootTree = (await git(['mktree', '--missing'], `040000 tree ${tree}\tbodies\n100644 blob ${body}\tcontent.${extension}\n100644 blob ${manifest}\tmanifest.json\n`)).trim()
   return (await git(['commit-tree', rootTree, ...(head ? ['-p', head] : []), '-m', `Solus work ${operation.manifest.operationId}`])).trim()
-}
-
-function archiveRemoteUrl(remote: string): URL {
-  const url = new URL(remote)
-  if (url.username || url.password || url.search || url.hash || !['https:', 'file:'].includes(url.protocol)) throw new Error('The archive remote must not contain credentials.')
-  return url
 }

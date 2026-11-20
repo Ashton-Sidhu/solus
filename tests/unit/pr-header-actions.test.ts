@@ -80,15 +80,33 @@ describe('the view tabs stay reachable at every width', () => {
   test('the band row stays one line: the merge pill drops its label where its neighbours do', () => {
     // WHY: the tabs and every verb share the band row down to the phone rung.
     // That holds only if the merge pill gives what Review and Check out give
-    // at 52rem — its label — and keeps its glyph, so the row never needs a
+    // at their rung — its label — and keeps its glyph, so the row never needs a
     // second line above the phone.
     const primary = readFileSync(`${root}/PrPrimaryAction.svelte`, 'utf8')
     const checkout = readFileSync(`${root}/PrCheckoutButton.svelte`, 'utf8')
+    const review = readFileSync(`${root}/PrReviewButton.svelte`, 'utf8')
     const labelRung = (source: string) => source.match(/@max-\[(\d+)rem\]\/band:hidden/)?.[1]
     expect(labelRung(primary)).toBe(labelRung(checkout))
+    expect(labelRung(review)).toBe(labelRung(checkout))
     expect(primary).toContain('action.short')
     // The band never stacks: no rung turns the row into a column.
     expect(header).not.toMatch(/@max-\[[^\]]+\]\/band:flex-col/)
+  })
+
+  test('a long merge label truncates instead of pushing the close control off the band', () => {
+    // WHY: every other band slot is rigid, and the merge label is a readiness
+    // headline of any length ("Conflicts with <base>"). If the merge pill is
+    // rigid too, a long headline makes the row wider than the band, and the
+    // last slots — the ⋯ menu and the ✕ — go past the edge where nobody can
+    // reach them. The pill must shrink, and its label must truncate.
+    const primary = readFileSync(`${root}/PrPrimaryAction.svelte`, 'utf8')
+    const pillBase = primary.match(/data-testid="pr-primary-action"\s*class="([^{"]*)/)?.[1]
+    const bandPill = primary.match(/layout === 'band'\s*\?\s*'(h-6\.5 [^']*)'/)?.[1]
+    expect(pillBase).toBeDefined()
+    expect(bandPill).toBeDefined()
+    expect(pillBase!.split(/\s+/)).toEqual(expect.arrayContaining(['min-w-0', 'overflow-hidden']))
+    expect(`${pillBase} ${bandPill}`.split(/\s+/)).not.toContain('shrink-0')
+    expect(primary).toMatch(/<span class="min-w-0 truncate @max-\[\d+rem\]\/band:hidden">\{running \? runningLabel : action\.short\}/)
   })
 })
 

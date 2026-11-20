@@ -115,8 +115,8 @@
     </Tabs.List>
 
     <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7">
-      <HostDetailOverview {host} {setup} onOpenTab={(next) => (connectionsNav.tab = next)} />
       <HostRoutesSection serverId={host.id} />
+      <HostDetailOverview {host} {setup} onOpenTab={(next) => (connectionsNav.tab = next)} />
     </Tabs.Content>
     <!-- Mounted only while selected: the tab holds the watch that makes the host sample. -->
     {#if connectionsNav.tab === "resources"}

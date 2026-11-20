@@ -16,6 +16,7 @@ import { ScreenScrollView } from '../../components/ScreenScrollView'
 import { cn } from '../../lib/cn'
 import type { RootStackParamList } from '../../navigation/routes'
 import { useProjectHosts } from '../projects/use-project-hosts'
+import { isDraftThreadRoute } from "./thread-route-state"
 import { NewTaskHeader } from './NewTaskProjectHeader'
 import { filterProjectScopes, getProjectScopeSelectionTarget, groupProjectScopes, preferredProjectHostId, type ProjectScope } from './new-task-project-selection'
 
@@ -38,7 +39,7 @@ function ProjectPickerRow(props: { readonly title: string; readonly subtitle: st
   )
 }
 
-export function NewTaskProjectScreen(props: { readonly preferredHostId: string | null }) {
+export function NewTaskProjectScreen(props: { readonly preferredHostId: string | null; readonly taskId?: string; readonly taskHostId?: string }) {
   const app = useApp()
   const navigation = useNavigation<Navigation>()
   const insets = useSafeAreaInsets()
@@ -55,12 +56,22 @@ export function NewTaskProjectScreen(props: { readonly preferredHostId: string |
 
   useEffect(() => { void app.threads.loadAll() }, [app])
 
+  const openDraft = (hostId: string, projectPath: string) => {
+    const existing = navigation.getState().routes.findLast(isDraftThreadRoute)
+    const params: RootStackParamList['Thread'] = {
+      hostId, sessionId: existing?.params.hostId === hostId && existing.params.draft.projectPath === projectPath
+        ? existing.params.sessionId : app.newSessionId(),
+      draft: { projectPath, taskId: props.taskId, taskHostId: props.taskHostId },
+    }
+    if (existing) navigation.popTo('Thread', params)
+    else navigation.dispatch(StackActions.replace('Thread', params))
+  }
   const selectProject = (scope: ProjectScope) => {
     const target = getProjectScopeSelectionTarget(scope, props.preferredHostId, readyHostIds)
-    navigation.dispatch(StackActions.push('NewTask', { hostId: target.hostId, projectPath: target.project.path }))
+    openDraft(target.hostId, target.project.path)
   }
   const startScratch = () => {
-    if (scratchHostId) navigation.dispatch(StackActions.push('NewTask', { hostId: scratchHostId, projectPath: NEW_CHAT_DIRECTORY }))
+    if (scratchHostId) openDraft(scratchHostId, NEW_CHAT_DIRECTORY)
   }
   const addProject = () => {
     if (scratchHostId) navigation.navigate('OpenProject', { hostId: scratchHostId })

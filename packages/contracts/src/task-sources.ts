@@ -11,6 +11,7 @@ const nameSchema = z.string().trim().min(1).max(256)
 export const taskSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('github-repo'), owner: nameSchema, repo: nameSchema }),
   z.object({ kind: z.literal('github-project'), owner: nameSchema, number: z.number().int().positive() }),
+  z.object({ kind: z.literal('linear-team'), workspaceId: nameSchema, teamId: nameSchema, teamKey: nameSchema }),
   z.object({ kind: z.literal('jira-project'), cloudId: nameSchema, projectKey: nameSchema }),
   z.object({ kind: z.literal('jira-board'), cloudId: nameSchema, boardId: z.number().int().positive() }),
 ])
@@ -33,6 +34,8 @@ export function taskSourceKey(source: TaskSource): string {
       return `github-repo:${source.owner.toLowerCase()}/${source.repo.toLowerCase()}`
     case 'github-project':
       return `github-project:${source.owner.toLowerCase()}/${source.number}`
+    case 'linear-team':
+      return `linear-team:${source.workspaceId}/${source.teamId}`
     case 'jira-project':
       return `jira-project:${source.cloudId}/${source.projectKey.toUpperCase()}`
     case 'jira-board':
@@ -41,6 +44,7 @@ export function taskSourceKey(source: TaskSource): string {
 }
 
 export function taskSourceProvider(source: TaskSource): TaskRef['provider'] {
+  if (source.kind === 'linear-team') return 'linear'
   return source.kind === 'github-repo' || source.kind === 'github-project' ? 'github' : 'jira'
 }
 
@@ -81,9 +85,11 @@ export function inferTaskSourceKey(sourceKeys: readonly string[], hints: TaskSou
 export type TaskRef =
   | { provider: 'github'; id: string }
   | { provider: 'jira'; cloudId: string; id: string }
+  | { provider: 'linear'; workspaceId: string; id: string }
 
 /** The string form of a task ref, and the only task id in Solus. */
 export function taskKey(ref: TaskRef): string {
+  if (ref.provider === 'linear') return `linear:${ref.workspaceId}:${ref.id}`
   return ref.provider === 'github' ? `github:${ref.id}` : `jira:${ref.cloudId}:${ref.id}`
 }
 
@@ -92,6 +98,7 @@ export function taskKey(ref: TaskRef): string {
 export function parseTaskKey(key: string): TaskRef | null {
   const [provider, ...rest] = key.split(':')
   if (provider === 'github' && rest.length === 1 && rest[0]) return { provider, id: rest[0] }
+  if (provider === 'linear' && rest.length === 2 && rest[0] && rest[1]) return { provider, workspaceId: rest[0], id: rest[1] }
   if (provider === 'jira' && rest.length === 2 && rest[0] && rest[1]) {
     return { provider, cloudId: rest[0], id: rest[1] }
   }

@@ -1,3 +1,4 @@
+import type { TaskInvolvement } from '@solus/contracts/task-inspection'
 import type { Task } from '../../../contexts/tasks/task.svelte'
 import type { TasksStore } from '../../../contexts/tasks/tasks.store.svelte'
 
@@ -17,26 +18,29 @@ export class ProviderTaskSearch {
   results = $state<Task[]>([])
   /** The search text that `results` answer. Empty = no search answered. */
   query = $state('')
+  involvement = $state<TaskInvolvement>('all')
   searching = $state(false)
   error = $state<string | null>(null)
 
   #timer: ReturnType<typeof setTimeout> | null = null
   /** Bumped by each request, so an older answer never replaces a newer one. */
   #generation = 0
+  #scope = ''
 
   constructor(private readonly store: TasksStore) {}
 
   /** Ask the provider for the tasks of the person's sources that match, after a pause in typing. */
-  request(query: string): void {
+  request(query: string, involvement: TaskInvolvement = 'all', scope = ''): void {
+    if (scope !== this.#scope) { this.clear(); this.#scope = scope }
     const trimmed = query.trim()
     if (this.#timer) clearTimeout(this.#timer)
-    if (!trimmed) {
+    if (!trimmed && involvement === 'all') {
       this.clear()
       return
     }
     // A text that the provider answered, or failed to answer, is not asked
     // again until it changes.
-    if (trimmed === this.query) {
+    if (trimmed === this.query && involvement === this.involvement) {
       // The text is back at the one already answered: drop a request in flight.
       this.#generation++
       this.searching = false
@@ -46,15 +50,15 @@ export class ProviderTaskSearch {
     this.searching = true
     this.#timer = setTimeout(() => {
       this.#timer = null
-      void this.#search(trimmed, generation)
+      void this.#search(trimmed, generation, involvement)
     }, PROVIDER_SEARCH_DEBOUNCE_MS)
   }
 
-  async #search(query: string, generation: number): Promise<void> {
+  async #search(query: string, generation: number, involvement: TaskInvolvement): Promise<void> {
     let results: Task[] = []
     let failure: string | null = null
     try {
-      results = await this.store.search(query)
+      results = await this.store.search(query, involvement)
     } catch (error) {
       // The listed matches stay on screen; the page says the provider did not answer.
       failure = error instanceof Error ? error.message : String(error)
@@ -62,6 +66,7 @@ export class ProviderTaskSearch {
     if (generation !== this.#generation) return
     this.results = results
     this.query = query
+    this.involvement = involvement
     this.error = failure
     this.searching = false
   }
@@ -73,6 +78,7 @@ export class ProviderTaskSearch {
     this.#generation++
     this.results = []
     this.query = ''
+    this.involvement = 'all'
     this.error = null
     this.searching = false
   }

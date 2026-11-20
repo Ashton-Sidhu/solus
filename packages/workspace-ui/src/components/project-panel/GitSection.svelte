@@ -4,8 +4,6 @@
   import {
     ArrowDownToLine as GitPullIcon,
     ChevronDown as CaretDownIcon,
-    Check as CheckIcon,
-    LoaderCircle as CircleNotchIcon,
     CloudUpload as CloudArrowUpIcon,
     GitCommitHorizontal as GitCommitIcon,
     GitPullRequest as GitPullRequestIcon,
@@ -40,6 +38,7 @@
     type ActionRowItem,
   } from "./MenuRow.svelte";
   import { checksPresentation, type ChecksPresentation } from "../prs/lib/checks";
+  import { CHECKS_ICON } from "../prs/lib/checks-icons";
   import { prStatusGlyph, prStatusOf } from "../prs/lib/prs-list-view";
   import { mergeReadiness, readinessTone } from "../pr-review/lib/merge-readiness";
   import {
@@ -59,7 +58,7 @@
   import {
     cardPullRequests,
     checksReads,
-    prReference,
+    prReferenceParts,
     type CardPullRequest,
   } from "./lib/card-pull-requests";
   import { isGitActionRowShown, isPanelItemShown } from "./lib/panel-items";
@@ -435,6 +434,15 @@
     cardPrs.find((card) => card.key === chosenPrKey) ?? cardPrs[0] ?? null,
   );
   const otherPrs = $derived(cardPrs.filter((card) => card !== shownPr));
+  // The session's watch on the shown pull request, when it has one: the group
+  // offers the way to stop it.
+  const shownPrWatch = $derived(
+    shownPr
+      ? (sessionLinks.find(
+          (link) => link.watch && `${link.repository}#${link.number}` === shownPr.key,
+        ) ?? null)
+      : null,
+  );
   /** Show the pull request after the shown one, around to the first. */
   function cycleShownPr() {
     if (!shownPr || cardPrs.length < 2) return;
@@ -459,10 +467,10 @@
   // and the checks as a tinted glyph before the number. The row brings that
   // pull request into the group above.
   const CHECKS_GLYPH = {
-    passing: { icon: CheckIcon, tone: "success" },
-    failing: { icon: XIcon, tone: "danger" },
-    pending: { icon: CircleNotchIcon, tone: "running" },
-    unavailable: { icon: WarningCircleIcon, tone: undefined },
+    passing: { icon: CHECKS_ICON.passing, tone: "success" },
+    failing: { icon: CHECKS_ICON.failing, tone: "danger" },
+    pending: { icon: CHECKS_ICON.pending, tone: "running" },
+    unavailable: { icon: CHECKS_ICON.unavailable, tone: undefined },
     none: { icon: undefined, tone: undefined },
   } satisfies Record<
     ChecksPresentation["state"],
@@ -484,6 +492,7 @@
     });
     const checks = checksFor(card);
     const status = prStatusGlyph(prStatusOf(pr));
+    const reference = prReferenceParts(pr.number, otherRepository);
     return {
       key: `pr-linked-${card.key}`,
       label: pr.title,
@@ -492,7 +501,10 @@
       phase: "idle",
       badgeIcon: CHECKS_GLYPH[checks.state].icon,
       badgeIconTone: CHECKS_GLYPH[checks.state].tone,
-      badge: prReference(pr.number, otherRepository),
+      // The repository gives way before the title, and the number never
+      // does, as in the pull request heading above.
+      badgePrefix: reference.repository ?? undefined,
+      badge: reference.number,
       tooltip: `${otherRepository ? `${otherRepository} · ` : ""}${status.label} · ${readiness.headline} · ${checks.label}`,
     };
   }
@@ -789,6 +801,7 @@
       pr={shownPr.pr}
       ctx={shownPr.ctx}
       otherRepository={shownPr.otherRepository}
+      watchedLink={shownPrWatch}
       serverId={prServerId}
       api={prApi}
       checks={checksFor(shownPr)}

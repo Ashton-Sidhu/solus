@@ -75,16 +75,21 @@
      overflow and the ✕ — under the pane beside this one, where they cannot be
      reached. Beside a companion the band is legally ~40rem, and in full screen
      the traffic-light inset spends another ~6rem of it, so the widest slot
-     that can give does. The row with both labels needs about 44rem, so under
-     52rem — before the row is tight — the Review and Check out actions keep
+     that can give does. Under 56rem the Review and Check out actions keep
      their glyphs and drop their labels (see `reviewButton` and
      `checkoutButton` in PrReviewPane). The number never gives
      — in this shape the band is the only place the pull request is named.
 
      The merge move, once Activity's rail has folded, is the last of those
      verbs and takes the same ladder: the band's quiet pill, a glyph, and a
-     short label that drops at the same 52rem (see PrPrimaryAction's band
-     layout).
+     short label that drops at the same 56rem (see PrPrimaryAction's band
+     layout). The rail folds at every band width under 69rem, so the merge
+     pill is on this row through the whole label range, and the rung is sized
+     for it: the tabs, the stack chip, the number, Review and Check out with
+     their labels, and the merge glyph and caret need about 56rem. Its label
+     has no fixed length, so it is the one slot that is not rigid: above the
+     rung it truncates into whatever room is left, and the ✕ stays on the
+     band.
 
      ── The tabs rung (`@max-[48rem]/band`, in PrViewTabs) ──
      With every label gone the row still needs about 22rem before a single

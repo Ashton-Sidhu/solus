@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { ArrowUpRight as OpenIcon } from "@lucide/svelte";
+  import { ArrowUpRight as OpenIcon, Pin as PinIcon } from "@lucide/svelte";
   import type { AppRuntimeView, AppSummary } from "@solus/contracts/apps";
+  import { PAGE_SOFT_ICON_BTN } from "../../../../lib/page-chrome";
+  import * as TooltipUI from "../../../ui/tooltip";
   import { Button } from "../../../ui/button";
   import { appRunState, appRunStateLabel, appStateText, appVersionHostLine } from "../lib/overview";
 
@@ -37,9 +39,24 @@
     <p class="m-0 text-[13px] text-(--solus-text-tertiary)">{appStateText(app, building, runtime)}</p>
   </div>
   <div class="flex shrink-0 items-center gap-1.5">
-    <Button size="sm" variant="ghost" class="text-workspace-chrome" onclick={onTogglePinned} data-testid="app-overview-pin">
-      {pinned ? "Unpin" : "Pin to sidebar"}
-    </Button>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            type="button"
+            class={PAGE_SOFT_ICON_BTN}
+            aria-label={pinned ? "Unpin from sidebar" : "Pin to sidebar"}
+            aria-pressed={pinned}
+            onclick={onTogglePinned}
+            data-testid="app-overview-pin"
+          >
+            <PinIcon size={15} strokeWidth={1.5} fill={pinned ? "currentColor" : "none"} aria-hidden="true" />
+          </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={pinned ? "Unpin from sidebar" : "Pin to sidebar"} />
+    </TooltipUI.Root>
     {#if app.activeVersion !== null}
       <Button size="sm" variant="ghost" class="text-workspace-chrome" disabled={busy} onclick={onToggleStopped} data-testid="app-overview-toggle-stopped">
         {app.stopped ? "Start" : "Stop"}

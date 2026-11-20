@@ -1,12 +1,5 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  import {
-    Check as CheckIcon,
-    LoaderCircle as CircleNotchIcon,
-    CircleMinus as MinusCircleIcon,
-    CircleAlert as WarningCircleIcon,
-    X as XIcon,
-  } from "@lucide/svelte";
   import type { CheckItem, PrChecksSummary } from "@solus/contracts/checks-types";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
@@ -19,6 +12,7 @@
     checksPresentation,
     isFailing,
   } from "./lib/checks";
+  import { CHECKS_ICON, checkItemIcon } from "./lib/checks-icons";
 
   let {
     summary,
@@ -69,29 +63,22 @@
 </script>
 
 {#snippet stateIcon(state: NonNullable<typeof display>["state"])}
-  {#if state === "pending"}
-    <CircleNotchIcon size={14} weight="bold" class="size-3.5 animate-spin [animation-duration:0.9s]" />
-  {:else if state === "passing"}
-    <CheckIcon size={14} weight="bold" class="size-3.5" />
-  {:else if state === "failing"}
-    <XIcon size={14} weight="bold" class="size-3.5" />
-  {:else if state === "unavailable"}
-    <WarningCircleIcon size={14} weight="fill" class="size-3.5" />
-  {:else}
-    <MinusCircleIcon size={14} weight="bold" class="size-3.5" />
-  {/if}
+  {@const StateIcon = CHECKS_ICON[state]}
+  <StateIcon size={14} class="size-3.5" />
 {/snippet}
 
 {#snippet checkIcon(item: CheckItem)}
-  {#if item.inFlight}
-    <CircleNotchIcon size={14} class="animate-spin text-chart-2 [animation-duration:0.9s]" />
-  {:else if item.conclusion === "success" || item.conclusion === "neutral" || item.conclusion === "skipped"}
-    <CheckIcon size={14} weight="bold" class="text-(--solus-art-positive)" />
-  {:else if isFailing(item)}
-    <XIcon size={14} weight="bold" class="text-(--solus-art-negative)" />
-  {:else}
-    <MinusCircleIcon size={14} class="text-muted-foreground" />
-  {/if}
+  {@const ItemIcon = checkItemIcon(item)}
+  <ItemIcon
+    size={14}
+    class="shrink-0 {item.inFlight
+      ? 'text-chart-2'
+      : isFailing(item)
+        ? 'text-(--solus-art-negative)'
+        : item.conclusion === 'success' || item.conclusion === 'neutral'
+          ? 'text-(--solus-art-positive)'
+          : 'text-muted-foreground'}"
+  />
 {/snippet}
 
 {#snippet checkRow(item: CheckItem)}

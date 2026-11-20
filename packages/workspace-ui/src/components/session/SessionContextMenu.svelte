@@ -340,7 +340,7 @@
     await sessionPullRequestsStore.link(pullRequestServerId, sess.id, url);
   }
 
-  /** A pinned session sits in the sidebar's Pinned section. Unpinning needs
+  /** A pinned session stays at the top of the sidebar. Unpinning needs
    *  only the pin; pinning needs an open tab, which names what the pin keeps. */
   const pin = $derived(sidebarStore.pinFor(sess?.id ?? sessionId, unreadServerId));
   const canPin = $derived(!pin && !!tabId && !!sess?.agentSessionId);

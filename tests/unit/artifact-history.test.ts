@@ -25,11 +25,27 @@ test('an html_path update replays the revision that call wrote, never today\'s b
     return `<p>Version ${contentVersion}</p>`
   }
 
-  const bodies = await loadArtifactFileBodies(bodyAtVersion, [tool, result])
+  // The work has moved on since: its current body is not the one this call wrote.
+  const bodies = await loadArtifactFileBodies({ currentWork: async () => ({ content: '<p>Version 4</p>', contentVersion: 4 }), bodyAtVersion }, [tool, result])
   expect(read).toEqual([['work', 3]])
   expect(workUpdateFromHistory(tool, result, () => undefined, bodies.get('update-1'))?.artifact?.html).toBe('<p>Version 3</p>')
   // A revision the host cannot answer leaves no card rather than an empty one.
   expect(workUpdateFromHistory(tool, result, () => undefined, undefined)).toBeUndefined()
+})
+
+test('an html_path render whose work is still at that version reads the work once, not its revisions', async () => {
+  // WHY: the rows wait for these bodies before they show, so a frame does not
+  // grow under the reader. The common case, the newest render, must cost one
+  // read of the work rather than a revision list and then a revision.
+  const tool: WireSessionLoadMessage = { role: 'tool', content: '', timestamp: 1, toolId: 'render-1', toolName: 'mcp__solus__render_artifact', toolInput: JSON.stringify({ title: 'Chart', html_path: 'chart/bundle.html' }) }
+  const result: WireSessionLoadMessage = { role: 'tool_result', content: '', timestamp: 2, toolResultForId: 'render-1', artifactWorkRef: { workId: 'work', title: 'Chart', contentVersion: 1 } }
+  const revisionReads: number[] = []
+  const bodies = await loadArtifactFileBodies({
+    currentWork: async (workId, likelyServerId) => workId === 'work' && likelyServerId === 'host' ? { content: '<p>Chart</p>', contentVersion: 1 } : null,
+    bodyAtVersion: async (_workId, version) => { revisionReads.push(version); return null },
+  }, [tool, result], 'host')
+  expect(bodies.get('render-1')).toBe('<p>Chart</p>')
+  expect(revisionReads).toEqual([])
 })
 
 for (const workType of ['doc', 'slides'] as const) {

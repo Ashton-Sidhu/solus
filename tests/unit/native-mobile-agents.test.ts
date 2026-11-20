@@ -224,6 +224,7 @@ describe('native directory: child sessions', () => {
           records: filter.parentSessionId === 'parent' ? [record('child', 'parent')] : [record('parent', null)],
           indexing: false,
         }),
+        pinnedSessionsList: async () => [],
         listProjects: async () => [],
       },
     }

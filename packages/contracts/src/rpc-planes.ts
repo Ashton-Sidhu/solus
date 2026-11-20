@@ -31,6 +31,9 @@ export const RPC_PLANES = {
   watchSession: 'execution',
   unwatchSession: 'execution',
   prompt: 'execution',
+  sessionPrepare: 'execution',
+  sessionRepositoryBundle: 'execution',
+  sessionRepositoryBundleChunk: 'execution',
   retry: 'execution',
   stopSession: 'execution',
   stopBackgroundTasks: 'execution',
@@ -437,6 +440,8 @@ export const RPC_PLANES = {
   prPrepareCheckout: 'execution',
   prGetDetail: 'collaboration',
   prUpdate: 'collaboration',
+  prReact: 'collaboration',
+  prInspectUrl: 'collaboration',
   prGetOverview: 'collaboration',
   prChangedFiles: 'collaboration',
   prListThreads: 'collaboration',
@@ -499,11 +504,14 @@ export const RPC_PLANES = {
   // Reading and writing a task needs this machine's provider connection and
   // project config; a task's attachments are records.
   tasksSources: 'execution',
+  tasksLoadMore: 'execution',
   tasksSourceOptions: 'execution',
+  tasksConnectLinear: 'execution',
   tasksSearch: 'execution',
   tasksSidebarSnapshot: 'collaboration',
   tasksSearchComments: 'collaboration',
   tasksGet: 'execution',
+  tasksInspect: 'execution', tasksReact: 'execution', tasksTemplates: 'execution', tasksResolve: 'execution',
   tasksAttachments: 'collaboration',
   tasksCreate: 'execution',
   tasksUpdate: 'execution',
@@ -628,6 +636,12 @@ export const RPC_PLANES = {
 
   // Machine load and process telemetry
   hostResources: 'execution',
+  runningServersList: 'execution',
+  runningServersWatch: 'execution',
+  runningServersCheckoutRoots: 'execution',
+  runningServersUnwatch: 'execution',
+  runningServerTunnel: 'execution',
+  runningServerStop: 'execution',
   hostTelemetrySubscribe: 'execution',
   hostTelemetryUnsubscribe: 'execution',
 

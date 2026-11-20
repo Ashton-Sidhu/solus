@@ -7,6 +7,7 @@ import { launchedProcess } from '../cli-env'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
 import type { AppMigration } from './app-project'
+import { appNode } from './app-node'
 import { APP_RUNNER_SCRIPT } from './app-runner-script'
 import type { StoredValue } from './app-storage'
 
@@ -112,7 +113,7 @@ export interface AppRunnerResult {
 }
 
 export interface AppRunnersOptions {
-  /** The Node that runs a runner. The host's own by default; a test under another runtime names one. */
+  /** The Node that runs a runner. Electron and Bun hosts use Node from the host's PATH. */
   node?: string
   idleMs?: number
   callTimeoutMs?: number
@@ -181,7 +182,7 @@ export function runnerArguments(permissions: AppPermissions, appFolder: string, 
 
 /** What a runner's process gets of the environment: enough to run, and no token of the host's. */
 function runnerEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1', HOME: homedir(), TMPDIR: tmpdir() }
+  const env: NodeJS.ProcessEnv = { NODE_NO_WARNINGS: '1', HOME: homedir(), TMPDIR: tmpdir() }
   for (const name of ['PATH', 'LANG', 'TZ', 'SystemRoot', 'USERPROFILE']) {
     const value = process.env[name]
     if (value !== undefined) env[name] = value
@@ -408,7 +409,7 @@ export class AppRunners {
   }
 
   private node(): string {
-    return this.options.node ?? process.execPath
+    return this.options.node ?? appNode()
   }
 
   /** Whether the runner's Node has the network permission, asked of that Node once. */

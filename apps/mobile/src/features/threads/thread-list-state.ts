@@ -2,11 +2,11 @@ import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
 import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from "@solus/contracts/session-state";
-import type { SessionStatus } from "@solus/contracts/types";
+import type { PinnedSession, SessionStatus } from "@solus/contracts/types";
 
 import { Listeners } from "../../lib/listeners";
 import type { KeyValueStore } from "../../platform/ports";
-import { threadKey } from "./thread-directory";
+import { threadKey, type SolusThreadShell } from "./thread-directory";
 import { resolveThreadListV2Status, type ThreadListV2Facts } from "./threadListV2";
 
 /**
@@ -28,6 +28,8 @@ import { resolveThreadListV2Status, type ThreadListV2Facts } from "./threadListV
 export interface ThreadListConnection {
   readonly api: Pick<
     HostApi,
+    | "pinnedSessionsList"
+    | "togglePinnedSession"
     | "sessionPullRequests"
     | "sessionPullRequestDelete"
     | "sessionPullRequestWatch"
@@ -68,6 +70,8 @@ const EMPTY_FACTS: ThreadListV2Facts = {
 
 export class ThreadListState {
   readonly changes = new Listeners();
+  private readonly pins = new Map<string, PinnedSession>();
+  private readonly pinRequests = new Map<string, number>();
   private readonly states = new Map<string, SessionState>();
   private readonly views = new Map<string, SessionView>();
   private readonly liveStatus = new Map<string, SessionStatus>();
@@ -101,7 +105,37 @@ export class ThreadListState {
    *  current. */
   follow(hostId: string): void {
     const connection = this.connectionFor(hostId);
-    if (connection) this.watch(hostId, connection);
+    if (connection) {
+      this.watch(hostId, connection);
+      void this.loadPins(hostId).catch(() => {});
+    }
+  }
+
+  /** Read the host's pins after connect or refresh. A failed read keeps prior pins. */
+  async loadPins(hostId: string): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    const request = (this.pinRequests.get(hostId) ?? 0) + 1;
+    this.pinRequests.set(hostId, request);
+    const pins = await connection.api.pinnedSessionsList();
+    if (this.connectionFor(hostId) !== connection || this.pinRequests.get(hostId) !== request) return;
+    this.dropHostEntries(this.pins, hostId);
+    for (const pin of pins) this.pins.set(threadKey(hostId, pin.sessionId), { ...pin, serverId: hostId });
+    this.publish();
+  }
+
+  async togglePin(thread: SolusThreadShell): Promise<void> {
+    const connection = this.requireConnection(thread.hostId);
+    const existing = this.pins.get(thread.key);
+    const pin: PinnedSession = existing ?? {
+      sessionId: thread.record.sessionId,
+      serverId: thread.hostId,
+      provider: thread.record.provider,
+      title: thread.record.customTitle ?? thread.record.title ?? "Session",
+      cwd: thread.record.cwd ?? thread.record.projectPath,
+      pinnedAt: Date.now(),
+    };
+    await connection.api.togglePinnedSession(pin);
+    await this.loadPins(thread.hostId);
   }
 
   /** Settle a session in this person's list, or make a settled one active
@@ -122,6 +156,7 @@ export class ThreadListState {
     };
     try {
       const { state, view } = await connection.api.sessionUpdate(sessionId, { settled });
+      if (settled) this.removePin(hostId, sessionId);
       // Only an editor's unsettle ends the shared settle; the answer says when it did.
       if (state) this.write(this.states, hostId, connection, sessionId, state);
       else if (!settled) restoreState();
@@ -148,7 +183,20 @@ export class ThreadListState {
   async setArchived(hostId: string, sessionId: string, archived: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    this.write(this.views, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { archived })).view ?? null);
+    const key = threadKey(hostId, sessionId);
+    const previousView = this.views.get(key);
+    this.views.set(key, { ...(previousView ?? EMPTY_SESSION_VIEW), archivedAt: archived ? Date.now() : null });
+    this.publish();
+    try {
+      const { view } = await connection.api.sessionUpdate(sessionId, { archived });
+      if (archived) this.removePin(hostId, sessionId);
+      this.write(this.views, hostId, connection, sessionId, view ?? null);
+    } catch (error) {
+      if (previousView) this.views.set(key, previousView);
+      else this.views.delete(key);
+      this.publish();
+      throw error;
+    }
   }
 
   /** A read boundary belongs to one session on one host. Watch before writing
@@ -196,6 +244,8 @@ export class ThreadListState {
   }
 
   forgetHost(hostId: string): void {
+    this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
+    this.dropHostEntries(this.pins, hostId);
     this.dropHostEntries(this.states, hostId);
     this.dropHostEntries(this.views, hostId);
     this.dropHostEntries(this.pullRequests, hostId);
@@ -204,6 +254,12 @@ export class ThreadListState {
     this.dropHostEntries(this.statusSince, hostId);
     this.dropHostEntries(this.unread, hostId);
     this.publish();
+  }
+
+  private removePin(hostId: string, sessionId: string): void {
+    // An older manifest read must not restore a pin removed by a later action.
+    this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
+    this.pins.delete(threadKey(hostId, sessionId));
   }
 
   private watch(hostId: string, connection: ThreadListConnection): void {
@@ -218,6 +274,7 @@ export class ThreadListState {
     });
     // Only this person's connections hear their own view change.
     connection.events.subscribe("session.viewChanged", ({ sessionId, view }) => {
+      if (view.settledAt !== null || view.archivedAt !== null) this.removePin(hostId, sessionId);
       this.write(this.views, hostId, connection, sessionId, view);
     });
     connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
@@ -233,6 +290,8 @@ export class ThreadListState {
     // A fresh server session forgets what was live, and a change may have
     // been missed; the records read again answer it.
     connection.onReset(() => {
+      this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
+      void this.loadPins(hostId).catch(() => {});
       this.dropHostEntries(this.liveStatus, hostId);
       this.dropHostEntries(this.pendingQuestions, hostId);
       this.dropHostEntries(this.statusSince, hostId);
@@ -295,6 +354,7 @@ export class ThreadListState {
 
   private publish(): void {
     this.snapshot = {
+      pins: new Map(this.pins),
       states: new Map(this.states),
       views: new Map(this.views),
       liveStatus: new Map(this.liveStatus),

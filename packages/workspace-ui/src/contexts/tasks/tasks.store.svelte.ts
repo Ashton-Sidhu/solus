@@ -1,3 +1,4 @@
+import type { TaskInvolvement } from '@solus/contracts/task-inspection'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hostKey, splitHostKey } from '@solus/client-core/host-key'
@@ -727,10 +728,12 @@ export class TasksStore {
    * answers are tasks to act on, but they do not join the list; the next
    * snapshot decides what the list holds.
    */
-  async search(query: string): Promise<Task[]> {
+  async search(query: string, involvement?: TaskInvolvement): Promise<Task[]> {
     const serverId = taskHostId()
     if (!serverId) throw new Error('No connected machine runs agents, so no machine can search GitHub or Jira.')
-    const found = await serverConnections.apiFor(serverId).tasksSearch(taskSourcesStore.configured, query)
+    const configured = taskSourcesStore.configured
+    const sources = involvement === 'mentioned' ? configured.filter((source) => source.kind === 'github-repo' || source.kind === 'github-project') : configured
+    const found = await serverConnections.apiFor(serverId).tasksSearch(sources, query, involvement)
     return found.map((record) => {
       const task = this.get(record.id)
       return task.hydrate(record, task.serverId ? undefined : serverId)

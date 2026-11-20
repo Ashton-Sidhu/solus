@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
   expandScale,
+  holdFrameHeight,
   needsSandbox,
+  waitForFrameHeightsIn,
 } from '../../packages/workspace-ui/src/components/artifact/lib/artifact-view'
 
 describe('what has to run in the sandbox frame', () => {
@@ -47,5 +49,35 @@ describe('the expand zoom', () => {
     expect(expandScale(0, 250, { w: 1000, h: 1000 })).toBe(1)
     expect(expandScale(500, 0, { w: 1000, h: 1000 })).toBe(1)
     expect(expandScale(500, 250, { w: 0, h: 0 })).toBe(1)
+  })
+})
+
+describe('a reveal waits for the frames in view to have a height', () => {
+  // WHY: a frame with no remembered height reports one after it renders and
+  // grows. When that happens after the rows show, it moves them under the reader.
+  const box = (top: number, bottom: number) => ({ getBoundingClientRect: () => ({ top, bottom }) })
+  const scroll = { ...box(0, 400), contains: () => true } as unknown as Element
+  const frame = box(100, 220) as unknown as Element
+  const below = box(900, 1020) as unknown as Element
+  const frames: (() => void)[] = []
+  globalThis.requestAnimationFrame ??= (callback: FrameRequestCallback) => { frames.push(() => callback(0)); return frames.length }
+
+  test('a frame in view holds the reveal until it reports', async () => {
+    const release = holdFrameHeight(frame)
+    let done = false
+    const waited = waitForFrameHeightsIn(scroll, () => false).then((value) => { done = true; return value })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(done).toBe(false)
+    release()
+    frames.splice(0).forEach((run) => run())
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    frames.splice(0).forEach((run) => run())
+    expect(await waited).toBe(true)
+  })
+
+  test('a frame out of view does not hold it', async () => {
+    const release = holdFrameHeight(below)
+    expect(await waitForFrameHeightsIn(scroll, () => false)).toBe(false)
+    release()
   })
 })

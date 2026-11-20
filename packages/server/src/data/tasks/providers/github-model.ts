@@ -45,7 +45,7 @@ const ISSUE_BASE_FIELDS = `
   updatedAt
   repository { owner { login } name }
   labels(first: 20) { nodes { name } }
-  assignees(first: 5) { nodes { login avatarUrl(size: 40) } }
+  assignees(first: 100) { nodes { login avatarUrl(size: 40) } }
   parent { number title url }
 `
 
@@ -69,7 +69,7 @@ const DRAFT_FIELDS = `
   body
   createdAt
   updatedAt
-  assignees(first: 5) { nodes { login avatarUrl(size: 40) } }
+  assignees(first: 100) { nodes { login avatarUrl(size: 40) } }
 `
 
 /**
@@ -428,6 +428,7 @@ export interface RestIssue {
   state: string
   html_url: string
   labels: Array<string | { name?: string | null }>
+  assignees?: Array<{ login: string; avatar_url: string }> | null
   assignee?: { login: string; avatar_url: string } | null
   created_at: string
   updated_at: string
@@ -557,6 +558,7 @@ export function issueToTask(node: IssueNode): ProviderTask {
     title: node.title,
     body: node.body ?? '',
     state: issueState(node.state),
+    assignees: node.assignees.nodes,
     assignee: assignee?.login,
     assigneeAvatarUrl: assignee?.avatarUrl,
     labels,
@@ -587,6 +589,7 @@ export function draftToTask(
       name: item.statusName ?? 'No status',
       category: item.statusName ? githubProjectOptionCategory(item.statusName) : 'open',
     },
+    assignees: draft.assignees.nodes,
     assignee: assignee?.login,
     assigneeAvatarUrl: assignee?.avatarUrl,
     labels: [],
@@ -621,6 +624,7 @@ export function restIssueToTask(issue: RestIssue, repository: { owner: string; r
     title: issue.title,
     body: issue.body ?? '',
     state: issueState(issue.state === 'closed' ? 'CLOSED' : 'OPEN'),
+    assignees: (issue.assignees ?? (issue.assignee ? [issue.assignee] : [])).map((person) => ({ login: person.login, avatarUrl: person.avatar_url })),
     assignee: issue.assignee?.login,
     assigneeAvatarUrl: issue.assignee?.avatar_url,
     labels,

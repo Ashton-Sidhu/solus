@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionHistoryPage, AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { uuid } from '@solus/contracts/uuid'
-import { workUpdateFromHistory, loadArtifactFileBodies } from './artifact-history'
+import { workUpdateFromHistory, loadArtifactFileBodies, worksArtifactHtmlSources } from './artifact-history'
 import { imageRefAttachments, isAgentNotice, splitSentAttachments, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest, recoverQuestionRemarks } from './session.utils'
 import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
 import type { WorkspaceContext } from './workspace.context.svelte'
@@ -147,16 +147,21 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   measureOpenStep('historyWait', requestStartedAt, detail)
   const dependenciesStartedAt = performance.now()
   const history = (Array.isArray(loaded) ? loaded : loaded.messages).concat(args.pendingMessages ?? [])
-  if (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.loaded) {
-    await ctx.automationsStore.loadAll()
-  }
-  // An artifact is saved on the host its session ran on: ask there first.
+  // Both reads decide which cards the rows hold, so the rows wait for them.
+  // They do not wait for each other. An automation and an artifact are saved
+  // on the host the session ran on, so the rows wait for that host only: a
+  // slow host elsewhere does not hold the open.
   const sessionServerId = args.serverId ?? serverConnections.serverIdForApi(api)
-  measureOpenStep('automationHydration', dependenciesStartedAt, detail)
-  const artifactsStartedAt = performance.now()
-  const artifactFileBodies = await loadArtifactFileBodies((workId, version) => ctx.worksStore.history.bodyAtVersion(workId, version, sessionServerId), history)
-  measureOpenStep('artifactHydration', artifactsStartedAt, detail)
-  return materializeSessionTranscript(ctx, args, loaded, artifactFileBodies)
+  const automationsLoaded = (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.hasLoadedHost(sessionServerId)
+    ? ctx.automationsStore.loadAll(sessionServerId)
+    : Promise.resolve()
+  ).then(() => measureOpenStep('automationHydration', dependenciesStartedAt, detail))
+  const artifactFileBodies = loadArtifactFileBodies(worksArtifactHtmlSources(ctx.worksStore), history, sessionServerId).then((bodies) => {
+    measureOpenStep('artifactHydration', dependenciesStartedAt, detail)
+    return bodies
+  })
+  const [, bodies] = await Promise.all([automationsLoaded, artifactFileBodies])
+  return materializeSessionTranscript(ctx, args, loaded, bodies)
 }
 
 /** Purely synchronous conversion of an already-read page. The first mounted

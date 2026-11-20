@@ -8,6 +8,7 @@ The project panel is the rail at the right of a conversation on desktop and web.
 | --- | --- |
 | `environment` | `environment.project` (project row and its Open in menu), `environment.terminal`, `environment.view` (Browser, Builds, or Artifacts), `environment.usage` (usage meters) |
 | `git` | `git.branch`, `git.commit` (commit and push), `git.changes`, `git.pullRequestAction` (create a pull request, publish, or sync), `git.discard`, `git.conflicts` (merge conflict alert), `git.pullRequest` (the linked pull request and its actions), `git.otherPullRequests` (Also linked), `git.setup` (repository setup) |
+| `servers` | None. Its own card lists running web and API servers. |
 | `goal` | `goal.objective`, `goal.details` (cost and time), `goal.budget` (token budget bar) |
 | `webhooks` | None. The section lists one row per webhook, so it has no row kinds to choose. |
 
@@ -22,6 +23,8 @@ Chats hide the project row and the Open in row, both before and after the first 
 The Terminal option keeps the shared terminal session behavior and its keyboard shortcut. The shortcut always opens Terminal, even when an editor is selected. The row keeps the storage id `environment.terminal`, so existing visibility choices still apply. External apps remain restricted to local desktop sessions; web and remote sessions show the row disabled.
 
 The Git Changes row uses one comparison for the current checkout. On a feature branch, it shows "Changes vs <target>" and counts all changes since the branch left its target, including committed and uncommitted work. A commit does not reset this count. On the target branch (or with detached HEAD), it shows "Changes" and counts uncommitted work against HEAD; a commit clears that count. The tooltip names the comparison. Selecting another linked pull request does not change the counts. Branch counts stay absent until the host loads them; the target branch can show a file count while its line counts load. The Changes row includes untracked files before the first commit. Its count and diff use an empty tree as the base until the repository has a commit. Reading changes does not change the staged files.
+
+The linked pull request group starts with an Open row. Its menu has "In Solus", which opens the pull request pane, and "In browser", which opens the pull request on the code host. While the session watches the pull request, the group shows "Stop watching". The row stops the watch on the host that runs the session; a viewer who may not change the session's watches sees it disabled. When a row is narrow, the repository name of a pull request in another repository is cut first, then the title. The number always shows. The group heading and the Also linked rows use the same order.
 
 ## How to change them
 
@@ -49,3 +52,5 @@ Desktop and web share this panel. The mobile app has no project panel, so it has
 Environment menus use the full row as their position anchor. Their arrows point down, and the menus open directly below the row, aligned with its left edge, with a small gap. The Open in menu matches the full row width. The Git action menus and branch picker use the same downward chevrons, position, and full row width. Window collision handling still keeps the menu on screen.
 
 The split button and remembered app choice follow [T3 Code's OpenInPicker](https://github.com/pingdotgg/t3code/blob/main/apps/web/src/components/chat/OpenInPicker.tsx). Solus uses its existing editor detection, app icons, and desktop RPC handlers.
+
+Running servers are grouped by checkout and include API endpoints. See [Running servers](running-servers.md) for discovery, remote opening, and Stop behavior.

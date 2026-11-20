@@ -96,6 +96,16 @@ presence that the smaller type gives up. Body text, titles, and the transcript
 stay at the face's own weight. The branch name at the top of the project panel
 uses 600, so it stays one step heavier than the rows below it.
 
+## Conversation spacing
+
+Desktop and web leave 36px for the session action row above the input dock.
+The dock has 6px of top padding. The sidebar sky adds 12px below the title
+row; its wordmark uses 16px type and an 18px mark.
+
+Mobile uses 4px above the composer and a 6px gap around its floating status
+control. Its custom sidebar has a 44px title row and 5px above search. Native
+navigation bars keep their platform dimensions.
+
 ## Icon defaults
 
 The composer's Stop control uses a 24px red face within its existing action
@@ -108,6 +118,9 @@ context for desktop and web. The mobile `AppSymbol` components use the same
 defaults; iOS uses regular weight for native SF Symbols. Set an explicit size
 only when the control needs one. Adjacent action icons should use the same size
 so their visible stroke widths match.
+
+The progress circle in the session action row uses the same 28px frame as
+its adjacent buttons. Its animated stroke stays inside that frame.
 
 ## Task icon
 

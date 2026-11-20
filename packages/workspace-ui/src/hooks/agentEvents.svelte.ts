@@ -6,6 +6,8 @@ import { resyncRuntime } from '../contexts/workspace/session-bootstrap'
 import { serverConnections, type ManagedConnection } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { checkoutGit, checkoutPlace, runHost } from '../contexts/workspace/run-location'
+import { sessionListStore } from '../contexts/workspace/session-list.store.svelte'
+import { presentedStatusCard } from '../components/conversation/lib/session-sync-view'
 
 /** Bind the session stream on every host that already exists and every host
  * added later. Kept outside the Svelte lifecycle wrapper so host routing can be
@@ -17,7 +19,16 @@ export function bindAgentEventSubscriptions(session: WorkspaceContext): () => vo
   }
 
   const unsubEvent = subscribeAllHosts('session.eventReceived', (serverId, { sessionId, event }) => {
-    if (isOwnHost(serverId, sessionId)) session.eventReducer.apply(sessionId, event)
+    if (!isOwnHost(serverId, sessionId)) return
+    const opened = session.sessions.byId[sessionId]
+    // A sync card speaks in the hosts' and agent's names, as every reader shows it.
+    session.eventReducer.apply(sessionId, event.type === 'status_card' && opened
+      ? { ...event, card: presentedStatusCard(opened, event.card) }
+      : event)
+    // The run host has this session's newest turn now (portable-sessions §9),
+    // and a sync that ends there makes it current.
+    if (event.type === 'turn_settled') sessionListStore.noteTurnSettled(serverId, sessionId)
+    else if (event.type === 'status_card') session.runHosts.syncCardChanged(serverId, sessionId, event.card)
   })
   const unsubError = subscribeAllHosts('session.errorReceived', (serverId, { sessionId, error }) => {
     if (isOwnHost(serverId, sessionId)) session.eventReducer.handleError(sessionId, error)

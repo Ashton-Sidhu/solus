@@ -153,6 +153,34 @@ export function otherWorktreeHoldingBranch(projectPath: string, branch: string):
   })
 }
 
+/** Make an isolated checkout for an imported session at its recorded tip. */
+export async function createRestoredSessionWorktree(
+  projectPath: string, sessionId: string, branch: string, headSha: string, occupiedPath?: string, signal?: AbortSignal,
+): Promise<GitCheckout> {
+  const mainBranch = await getWorkingBranch(projectPath)
+  if (mainBranch === branch) branch = `solus/session-${sessionId}`
+  const holder = otherWorktreeHoldingBranch(projectPath, branch)
+  if (holder && (!occupiedPath || realpathSync(holder.path) !== realpathSync(occupiedPath))) throw new Error(`Branch ${branch} is in another worktree: ${holder.path}`)
+  if (holder) {
+    const parkedBranch = `solus/saved-${randomBytes(8).toString('hex')}`
+    await runAsync('git', ['branch', '-m', branch, parkedBranch], holder.path, { signal })
+  }
+  const worktreePath = worktreePathFor(projectPath, `session-${sessionId}-${randomBytes(4).toString('hex')}`)
+  try {
+    const hasBranch = await gitCommitExists(projectPath, `refs/heads/${branch}`)
+    if (hasBranch) {
+      await runAsync('git', ['update-ref', `refs/heads/${branch}`, headSha], projectPath, { signal })
+      await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath, { signal, timeout: 0 })
+    } else {
+      await runAsync('git', ['worktree', 'add', '-b', branch, worktreePath, headSha], projectPath, { signal, timeout: 0 })
+    }
+    return { repoRoot: projectPath, branch, targetBranch: branch, worktreePath }
+  } catch (error) {
+    if (existsSync(worktreePath)) await runAsync('git', ['worktree', 'remove', '--force', worktreePath], projectPath).catch(() => {})
+    throw error
+  }
+}
+
 /** The local branch a PR checks out onto. Same-repository PRs live on their real
  *  head branch so agent commits update the PR; fork PRs get a local
  *  `solus/pr-<n>` review branch the base repo can own. */
@@ -751,23 +779,30 @@ export function listBranches(projectPath: string, options: { remoteOnly?: boolea
 /**
  * Every branch, most recently active first. A branch is active when it gets a
  * commit or when this checkout moves onto it, so a branch you only looked at
- * still rises. A remote branch with a local twin is one entry.
+ * still rises. A remote branch with a local twin is one entry. A local branch
+ * says whether this checkout is on it, or which other worktree has it.
  */
 export async function listBranchRefs(projectPath: string, options: { remoteOnly?: boolean } = {}): Promise<BranchRef[]> {
   const [refsOutput, reflogOutput] = await Promise.all([
-    runAsync('git', ['for-each-ref', '--format=%(refname)%09%(committerdate:unix)%09%(symref)', 'refs/heads', 'refs/remotes'], projectPath).catch(() => ''),
+    runAsync('git', ['for-each-ref', '--format=%(refname)%09%(committerdate:unix)%09%(symref)%09%(HEAD)%09%(worktreepath)', 'refs/heads', 'refs/remotes'], projectPath).catch(() => ''),
     runAsync('git', ['reflog', '--date=unix', '--format=%gd%x09%gs', '-n', '500'], projectPath).catch(() => ''),
   ])
   const byName = new Map<string, BranchRef>()
   let defaultBranch: string | null = null
   for (const line of refsOutput.split('\n').filter(Boolean)) {
-    const [ref, seconds, symref] = line.split('\t')
+    // The worktree path is last: a path may hold a tab.
+    const [ref, seconds, symref, head, ...worktreePathParts] = line.split('\t')
     const activeAt = Number(seconds) * 1000 || 0
     if (ref.startsWith('refs/heads/')) {
       if (options.remoteOnly) continue
       const name = ref.slice('refs/heads/'.length)
       const known = byName.get(name)
-      byName.set(name, { name, activeAt: Math.max(activeAt, known?.activeAt ?? 0), remoteOnly: false, isDefault: false })
+      // `%(HEAD)` marks the branch of the worktree git runs in.
+      const current = head === '*'
+      const entry: BranchRef = { name, activeAt: Math.max(activeAt, known?.activeAt ?? 0), remoteOnly: false, isDefault: false, current }
+      const worktreePath = worktreePathParts.join('\t')
+      if (worktreePath && !current) entry.worktreePath = worktreePath
+      byName.set(name, entry)
       continue
     }
     const remoteBranch = ref.slice('refs/remotes/'.length)
@@ -779,7 +814,7 @@ export async function listBranchRefs(projectPath: string, options: { remoteOnly?
     const name = remoteBranch.slice(remote.length + 1)
     const known = byName.get(name)
     if (known) known.activeAt = Math.max(known.activeAt, activeAt)
-    else byName.set(name, { name, activeAt, remoteOnly: true, isDefault: false })
+    else byName.set(name, { name, activeAt, remoteOnly: true, isDefault: false, current: false })
   }
   // `HEAD@{<seconds>}\tcheckout: moving from <a> to <b>`
   for (const line of reflogOutput.split('\n')) {

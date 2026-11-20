@@ -7,7 +7,7 @@ const tokenSchema = z.object({ success: z.literal(true), result: z.object({ plai
 /** Account credentials remain in this server-side control-plane client only. */
 export class CloudflareWorkRepositories implements WorkRepositoryAccess {
   private readonly base: string
-  constructor(private readonly accountId: string, namespace: string, private readonly apiToken: string, private readonly signal?: AbortSignal) {
+  constructor(private readonly accountId: string, namespace: string, private readonly apiToken: string, private readonly signal?: AbortSignal, private readonly requestFetch: typeof fetch = fetch) {
     if (!/^[a-f0-9]{32}$/.test(accountId) || !/^[a-z0-9][a-z0-9-]*$/.test(namespace) || !apiToken) throw new Error('Invalid Artifacts account, namespace or server credential.')
     this.base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/artifacts/namespaces/${namespace}`
   }
@@ -18,14 +18,14 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
       signal: this.signal ? AbortSignal.any([this.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     }
     if (method !== 'GET' && body !== undefined) init.body = body
-    return fetch(`${this.base}${path}`, init)
+    return this.requestFetch(`${this.base}${path}`, init)
   }
 
   private checkName(repository: string): void {
-    if (!/^work-[a-f0-9]{48}$/.test(repository)) throw new Error('Invalid Solus work repository name.')
+    if (!/^(?:work|session)-[a-f0-9]{48}$/.test(repository)) throw new Error('Invalid Solus repository name.')
   }
 
-  async remote(repository: string): Promise<{ url: string; token: string }> {
+  async remote(repository: string, scope: 'read' | 'write' = 'write'): Promise<{ url: string; token: string }> {
     this.checkName(repository)
     let response = await this.request(`/repos/${repository}`)
     if (response.status === 404) {
@@ -36,16 +36,30 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
     const url = repositorySchema.parse(await response.json()).result.remote
     const remote = new URL(url)
     if (remote.protocol !== 'https:' || remote.hostname !== `${this.accountId}.artifacts.cloudflare.net` || remote.username || remote.password || remote.search || remote.hash) throw new Error('Unexpected Artifacts Git remote.')
-    const issued = await this.request('/tokens', 'POST', JSON.stringify({ repo: repository, scope: 'write', ttl: 900 }))
+    const issued = await this.request('/tokens', 'POST', JSON.stringify({ repo: repository, scope, ttl: 900 }))
     if (!issued.ok) throw new Error('The Artifacts repository token could not be issued.')
     return { url, token: tokenSchema.parse(await issued.json()).result.plaintext }
   }
 
-  async readFile(repository: string, commit: string, path: string): Promise<string> {
+  async readFile(repository: string, commit: string, path: string, maxBytes?: number): Promise<string> {
     this.checkName(repository)
     const response = await this.request(`/repos/${repository}/file?${new URLSearchParams({ ref: commit, path })}`)
     if (!response.ok) throw new Error('The Artifacts work body could not be read.')
-    return response.text()
+    if (maxBytes === undefined) return response.text()
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('The Artifacts file has no body.')
+    const parts: Uint8Array[] = []
+    let bytes = 0
+    try {
+      for (;;) {
+        const part = await reader.read()
+        if (part.done) break
+        bytes += part.value.byteLength
+        if (bytes > maxBytes) throw new Error('SESSION_FILE_TOO_LARGE')
+        parts.push(part.value)
+      }
+    } finally { await reader.cancel().catch(() => {}) }
+    return Buffer.concat(parts).toString('utf8')
   }
 
   async remove(repository: string): Promise<void> {

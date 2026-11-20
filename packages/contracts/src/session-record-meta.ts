@@ -12,6 +12,10 @@ export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
   const meta: SessionMeta = {
     provider: record.provider,
     sessionId: record.sessionId,
+    head: record.head,
+    syncedTurn: record.syncedTurn,
+    lastRunHostId: record.lastRunHostId,
+    runningHostId: record.runningHostId,
     slug: record.slug,
     firstMessage: record.title,
     customTitle: record.customTitle ?? undefined,

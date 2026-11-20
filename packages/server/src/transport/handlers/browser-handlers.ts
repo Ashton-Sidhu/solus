@@ -6,7 +6,7 @@ import type { HostEventPublisher } from '../events/host-event-publisher'
 import { browserUploadBucket, initBrowserRegistry, type BrowserRegistry } from '../../browser/browser-registry'
 import { createUploadToken } from './attachment-handlers'
 import type { BrowserFrameChannel } from '../../browser/browser-frame-channel'
-import { discoverBrowserTargets, forgetDiscoveredTargets } from '../../browser/target-scanner'
+import { discoverBrowserTargets } from '../../browser/target-scanner'
 import { captureEvidence, evidenceOptions, stopAndFileRecording } from '../../browser/browser-evidence'
 import { initBrowserRecorder } from '../../browser/browser-recorder'
 import { startRecordingSweep } from '../../browser/recording-retention'
@@ -97,7 +97,6 @@ export function registerBrowserHandlers(
   }
 
   server.register('browserListTargets', async () => {
-    forgetDiscoveredTargets()
     return discoverBrowserTargets()
   })
 

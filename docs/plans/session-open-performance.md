@@ -518,3 +518,242 @@ benchmark result. After each step, run both benchmarks and record a new
   part of the measured time, but a running app pays it only once.
 - The probe that notices paint runs in an animation frame, so each time can be
   late by up to one frame.
+
+## Remote round trips (2026-11-17)
+
+The earlier numbers have near-zero network time. This round measures the web
+client of the built app through a TCP proxy that adds 80 ms round-trip time,
+and directly. Each fixture is a Claude transcript of 1,500 turns (52–93 MB):
+one with inline `render_artifact` HTML, one with `html_path` artifacts and a
+`create_automation` call, and one with no artifacts. The before and after
+builds ran in turns on one data folder, 5 opens each, in headless Chrome.
+
+### Changes
+
+- `loadSessionTranscript` reads the automation list and the artifact bodies
+  at the same time. Both still finish before the rows show, because their
+  cards must be in the rows when they first show.
+- An `html_path` body is the work's current body while the work is still at
+  the version the call wrote: one read. Only an older version reads the
+  revision list and the revision: two reads. The inline deferred HTML uses
+  the same rule (`savedBody` in `artifact-history.ts`).
+- `WorksStore.ensureContent` takes the session's host as a likely owner, as
+  `bodyAtVersion` does. A work this client has not listed is no longer found
+  by listing the works of every host first.
+- Mobile requests the first page while `describeSession` runs. It reads the
+  page again only when the lineage moves the thread to another provider.
+
+### Results (median time to visible rows)
+
+| Fixture | Open | 80 ms RTT before → after | Direct before → after |
+|---|---|---|---|
+| `html_path` + automation | Reload | 1042 → 865 ms | 435 → 491 ms |
+| `html_path` + automation | First click | 874 → 874 ms | 242 → 222 ms |
+| Inline HTML | Reload | 656 → 655 ms | 279 → 293 ms |
+| No artifacts | Reload | 624 → 635 ms | 264 → 261 ms |
+
+- The artifact read in a first click went from 187 to 92 ms at 80 ms RTT.
+  The rows do not show sooner, because the conversation code loads after the
+  click (30 script files) and that takes longer than the reads.
+- Direct reloads of the `html_path` session overlap (before 400–475 ms, after
+  382–499 ms). During page start, the automation read takes longer when the
+  artifact reads run beside it.
+- Mobile was not measured; focused tests cover the request order.
+
+### Found, then changed (2026-11-17)
+
+Measured with the same fixtures and method as above, before and after in
+turns, 5 opens each (median time to visible rows):
+
+| Fixture | Open | 80 ms RTT before → after | Direct before → after |
+|---|---|---|---|
+| `html_path` + automation | First click | 863 → 364 ms | 206 → 166 ms |
+| `html_path` + automation | Reload | 873 → 798 ms | 369 → 375 ms |
+| Inline HTML | First click | 863 → 313 ms | 204 → 156 ms |
+| Inline HTML | Reload | 638 → 645 ms | 276 → 270 ms |
+| No artifacts | First click | 857 → 303 ms | 190 → 160 ms |
+| No artifacts | Reload | 631 → 635 ms | 243 → 230 ms |
+
+- The first click gains from the idle load of the conversation. The
+  benchmark clicks after the page is idle; a click before the load ends
+  still waits for the rest of it.
+- On a reload of the `html_path` session at 80 ms RTT, the automation read
+  went from 233 to 151 ms.
+- The time until layout stops changing after a direct first click is 10–47
+  ms later (for example 371 → 418 ms with no artifacts), though rows show
+  30–48 ms sooner. Not explained yet.
+- **The frame height wait had no effect that we can measure.** Height
+  changes after a first-click reveal are the same (median 13–16 in the HTML
+  fixtures, before and after). Two after-build reloads at 80 ms RTT shifted
+  the rows (0.22 and 0.14), against none in 10 before-build reloads; with
+  heights remembered on a reload the wait does not run, so this is the same
+  rare shift as before (3 of 96 earlier), not caused by the wait. Its cause
+  is still open.
+
+- **Conversation code after the first click.** The first open in a page
+  loaded `ConversationView` as 43 files, 2 import levels deep. Over plain
+  HTTP a browser fetches six files at a time from one host, so 42 files cost
+  about 7 round trips: at 80 ms RTT a first click showed rows at about
+  870 ms, against about 200 ms direct. Now the workspace loads the
+  conversation once it has painted and the browser is idle
+  (`preloadConversationView`), so a click usually finds it loaded.
+  Tried and removed: a manual chunk for our own conversation modules. It
+  made the first open 1 file, but Rollup keeps one value the workspace
+  chunk imports in a chunk named `TaskPage`, and that chunk imports the
+  conversation chunk. The page start then loaded and ran 624 KB of
+  conversation code before its first paint.
+- **Late layout shift with inline HTML.** In 3 of 96 inline HTML opens, the
+  assistant rows moved after they showed (layout shift score 0.21–0.41). A
+  frame with no height remembered in this browser grew when it reported one.
+  Now such a frame counts as having no height until it reports
+  (`holdFrameHeight`), and `ConversationArrival` waits up to 300 ms for the
+  frames in view, then settles the scroll again. A remembered height costs
+  no wait. Each benchmark run used a new browser profile, so it is the worst
+  case.
+- **Automation reads.** A load of every host and a load of one host each
+  sent their own read, so one host could be asked twice at once. Each host
+  now has one read at a time, shared by every caller. The list request no
+  longer waits for the host capabilities, which cost a round trip first
+  (about 230 ms into page start). The Solus API holds no automations and is
+  not asked. A transcript waits for the session's host only, as the artifact
+  reads do: a slow host elsewhere does not hold the open.
+- **Codex turn list.** A page listed every turn summary, oldest first, 200
+  at a time, before it read the newest turn's items. In `dev.log` (153 page
+  reads) the turn list was the larger stage: p50 96 ms, p90 271 ms, max
+  908 ms, against items p50 61 ms. Now a page lists turns newest first
+  (`loadCodexTurnWindow`): a first page reads `turnLimit + 1` summaries in
+  one request, and an older page stops at its turn. The page token is
+  unchanged. `codex_history_page_profile` now says whether the thread was
+  `resumed`. Every thread in that log had 15 turns or fewer, so the gain
+  there is the smaller list; long threads gain the most.
+
+### Open order (2026-11-17)
+
+- A sidebar click on a listed session opens from the list: it no longer
+  reads `readSessionMeta` first. `resumeSession` makes the tab and starts the
+  history read at once, and `describeSession` answers beside the page. The
+  rows wait for the description, because it names the thread to show. When it
+  names another active thread (a provider handoff), the open closes that tab
+  and opens the described thread with the description it has. A session that
+  is gone closes its tab and is unavailable, as before.
+- When the pointer or the keyboard rests on a row for 100 ms, its first page
+  is read. That read serves an open for 10 s. A running session is read at the
+  click.
+
+Measured as above, 5 opens each; "rest" clicks after the pointer rests on the
+row for 300 ms (median time to visible rows):
+
+| Fixture | Click | 80 ms RTT before → after | Direct before → after |
+|---|---|---|---|
+| No artifacts | Plain | 303 → 182 ms | 150 → 144 ms |
+| No artifacts | After rest | 305 → 167 ms | 137 → 149 ms |
+| Inline HTML | Plain | 305 → 180 ms | 158 → 172 ms |
+| Inline HTML | After rest | 309 → 177 ms | 159 → 156 ms |
+| `html_path` + automation | Plain | 362 → 244 ms | 171 → 165 ms |
+| `html_path` + automation | After rest | 360 → 216 ms | 157 → 157 ms |
+
+- Direct opens are about the same (within 15 ms either way).
+- A rest gains less than expected (182 → 167 ms): the rows still wait for
+  the description, which starts at the click.
+- The `html_path` session is still above 200 ms. Its automation read
+  (83 ms) and artifact reads (90 ms) start only when the page arrives, one
+  more round trip. To remove it, the host can send the bodies and the
+  automations the page names with the page, or the client can start those
+  reads when a prefetched page arrives.
+
+### Native mobile conversation rendering (2026-11-18)
+
+- History rows publish before `watchSession` answers. The live subscription
+  still sets the final session state, but its network wait no longer hides
+  history that the host has sent.
+- A conversation store combines item notifications within one display frame.
+  It applies every event to the model at once. Mounted rows read the latest
+  item once per frame. Order and metadata changes publish at once and cancel
+  a pending frame; closing the store cancels it too. Rows with no subscribers
+  schedule no frame.
+- Assistant text uses the same component while streaming and after the turn
+  ends. A reply without inline pull request cards keeps its native Markdown
+  view when it becomes final.
+- An empty feed does not mount a list before history arrives. This removes
+  the empty-list mount followed by the first populated-list mount.
+
+These changes apply to the native iOS and Android clients, for both providers
+and for local-network or remote host connections. They change no RPC contract
+or product capability. Desktop and web have separate renderers.
+
+Deterministic tests cover burst notification counts, complete text, immediate
+order and metadata updates, cancellation on close, and history publication
+while the live watch is pending. Native frame timing and transition quality
+still need a device check; no device speedup has been measured for these changes.
+
+### Submitting a native mobile draft (2026-11-18)
+
+T3 Code main at `9a26f217ac85cdb49b55283135625ada48187abf` uses one
+Thread route for a draft and its submitted conversation. `ThreadScreenHost`
+keeps the detail screen, keyboard host, and composer mounted while the route
+changes controllers. Its bindings publish before paint. Solus now uses that
+source pattern with its own stores and route fields.
+
+- A project selection opens a Thread route with draft params. Existing NewTask
+  commands still work; a chosen project redirects to the draft Thread.
+- Send clears the draft params on that route. It does not reset the stack or
+  replace the native screen. The same conversation store owns the first prompt.
+- Draft hero and controls are slots in the conversation screen. The hero reserves
+  the measured full composer overlay, including draft controls and task offers.
+- Project and host pickers return to the draft. Changing a project uses a new
+  session identity when its store must change; changing hosts keeps task links.
+- The composer reads the correct saved draft when its host or draft key changes.
+  Missing-host and access-error states publish through the same screen outlet.
+
+This applies to iOS and Android, for both providers and remote hosts. Desktop
+and web use separate screen navigation; there is no RPC or capability change.
+
+Tests use the installed navigation router to verify that submission keeps every
+screen key. A React mounting test swaps draft and live controllers and checks
+that the editor remains the same DOM instance, then checks that an access
+fallback removes the old content. The screen host, route controllers, and detail
+screen compile for iOS and Android. The composer keeps its existing manual
+memoization because its earlier compiler skips remain.
+
+Native verification used a fresh iPad Pro 13-inch (M5) simulator on iOS 26.5,
+an existing native development binary, and the current JavaScript sources. The
+fixture held host data in memory, delayed its prompt receipt by 1.2 seconds,
+and sent eight simulated text events. First-prompt submission and later typing
+passed. The header and composer stayed visible; the transcript had a short
+initial-layout interval during keyboard dismissal. This was a focused native
+stack fixture, not a test of the full workspace sidebar. No speed comparison
+with T3 was measured. A 5.5-second recording is at
+`/tmp/solus-draft-transition-short.mp4` on the verification host.
+
+### Native bottom layout follow-up (2026-11-19)
+
+The first native recording still showed movement at the bottom. The earlier
+screen-host port did not include T3's full keyboard and transcript positioning
+path. The native check established that submission worked; it did not establish
+that the transition was smooth.
+
+The follow-up ports these rules from T3 main at `9a26f217ac`:
+
+- Keep composer safe-area padding fixed during keyboard motion. Give that inset
+  to KeyboardStickyView as its opened offset, so keyboard dismissal needs no
+  second padding layout.
+- Use measured native overlay height directly for the transcript's bottom inset.
+  Settle React's composer height estimate after T3's 220 ms transition instead
+  of rendering the complete screen for each intermediate height.
+- Keep the first prompt anchored with LegendList's trailing space. The initial
+  prompt stays in place as text arrives. Existing, queued, and offline turns do
+  not acquire a new initial anchor. The anchor rules and spacing resolver are
+  copied from T3's `thread-feed-scroll-position.ts` and `shared/chatList.ts`.
+- Use an explicit header inset and disable UIKit's automatic content adjustment,
+  as T3 does. Keep the same list data identity when the first rows arrive.
+- Remove the delayed 230/260 ms scroll corrections and the outer composer layout
+  animation. Native layout and list position maintenance own those movements.
+
+The history control moved to its own component to keep ThreadFeed below 1,000
+lines. Both native platforms use the same changes. Desktop and web use separate
+keyboard and transcript layout code.
+
+Focused anchor, navigation, mounting, feed, and size-estimate tests pass (35).
+The mobile typecheck passes. A new recording is pending: the device-control
+service stopped responding during verification. The earlier video does not
+show these follow-up changes.

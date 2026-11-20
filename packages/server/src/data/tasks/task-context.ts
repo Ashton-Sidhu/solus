@@ -35,21 +35,21 @@ function workContract(lifecyclePolicy: AgentTaskLifecyclePolicy): string[] {
     lines.push(
       '- Do not change this task\'s status. The user controls its lifecycle.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
-      '- comment_task posts on GitHub or Jira. Use it for durable write-back.',
+      '- comment_task posts on the task provider. Use it for durable write-back.',
     )
   } else if (lifecyclePolicy === 'moderate') {
     lines.push(
       '- Keep this task active while you work.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
       '- When a pull request is ready for a human, move the task to the review column of its board, if read_task shows one. Do not move it to done; the user closes completed work.',
-      '- comment_task and update_task_status write to GitHub or Jira. Use them for permitted durable write-back.',
+      '- comment_task and update_task_status write to the task provider. Use them for permitted durable write-back.',
     )
   } else {
     lines.push(
       '- Keep this task active while you work.',
       '- Leave a task comment when blocked or when durable handoff context matters.',
       '- When a pull request is ready for a human, move the task to the review column of its board, if read_task shows one. Move it to done when the work is complete without review.',
-      '- comment_task and update_task_status write to GitHub or Jira. Use them for durable write-back.',
+      '- comment_task and update_task_status write to the task provider. Use them for durable write-back.',
     )
   }
   return lines

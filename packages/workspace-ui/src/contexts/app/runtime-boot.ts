@@ -14,6 +14,7 @@ import { reconcileMachineReferences, savedHostsAreAuthoritative } from '../works
 import { projectsStore } from '../projects/projects.store.svelte'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { RunLocation } from '@solus/contracts/types'
+import { openFolder } from '../workspace/run-location'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 import { startHostStallToasts } from '../connections/host-stall-toasts'
@@ -64,7 +65,14 @@ function reconcileGoneMachines(session: WorkspaceContext): void {
       }),
       startedTabs: () => session.tabOrder.flatMap((tabId) => {
         const tabSession = session.sessionFor(tabId)
-        return tabSession && hasSessionStarted(tabSession) ? [{ run: tabSession.run, close: () => session.closeTab(tabId) }] : []
+        if (!tabSession || !hasSessionStarted(tabSession)) return []
+        return [{
+          run: tabSession.run,
+          close: () => session.closeTab(tabId),
+          copyHostIds: sessionListStore.hostTurnsFor(tabSession.id).filter((turn) => turn.syncedTurn > 0).map((turn) => turn.serverId),
+          // The host's checkout is not known here; the run host names it once it is current.
+          runOn: (serverId: string) => session.runHosts.change(tabId, openFolder(tabSession.run.location, { serverId, path: '~' })),
+        }]
       }),
       get defaultRunConfig() { return session.defaultRunConfig },
       projects: projectsStore,
@@ -120,6 +128,8 @@ export function initializeRuntime(
     // A shown conversation whose transcript read failed while its host was away
     // reads again now (docs/plans/host-readiness.md); a loaded one is left as it is.
     session.loadShownConversations()
+    // A session opened from the cloud on this host shows its conversation once this host has it.
+    session.runHosts.hostReady(serverId)
   })
 
   // A new notice can be a session shared with the reader: the list reads again,

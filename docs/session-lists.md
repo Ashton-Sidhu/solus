@@ -3,6 +3,16 @@
 A client reads session lists and session search through the workspace HTTP API.
 The client does not scan provider files over RPC.
 
+Each session row has a **Pin session** control. Pinned sessions stay at the top
+of the session list without a separate header. The pin mark shows their state;
+**Unpin session** returns them to their normal place. Desktop and web keep
+pins above project folders in project view. Drafts stay first in status view.
+Mobile uses the same host pins. Completing or archiving a session removes its
+pin. The row moves to Completed or leaves the sidebar immediately, as an
+unpinned session does. A refused change restores its previous place and pin.
+Reopening it does not restore the pin. Snoozing keeps the pin. Meta mode
+sessions use the normal sections.
+
 The session sidebar context menu on desktop and web has a **Snooze** submenu.
 Choose a preset to snooze the session immediately, or **Pick date and time…**
 to open a centered dialog with the session title, calendar, time, and an optional
@@ -176,6 +186,33 @@ sweep ends, `GET /v1/sessions` and `GET /v1/sessions/search` answer
 Every machine's server starts the sweep in `bootCore`. The desktop defers it
 until its window first paints (`deferSessionIndex`, then `startSessionIndex()`).
 The Solus API has no sweep and always answers `indexing: false`.
+
+## A session on two hosts
+
+A session can run its turns on more than one host
+([Portable sessions](plans/portable-sessions.md)). Each host that ran it, or
+synced it, lists it under the same session id. The list, the picker, and search
+show it once, from the host with the higher `syncedTurn` (the head facts that
+`getSessionInfos` gives). When the list sees one session on two homes, it reads
+each home's session info once to learn them; the rule is `listedSessionHost` in
+`client-core/session-heads.ts`.
+
+### The cloud entries
+
+When the person is signed in, the list also reads `listMySessions`
+(`GET /v1/me/sessions`) from each connected Solus API, and keeps the four cloud
+facts of each session (`head`, `syncedTurn`, `lastRunHostId`, `runningHostId`)
+from those entries, from the Solus API's records, and from
+`session.headChanged` (`contexts/workspace/cloud-sessions.svelte.ts`). The
+event writes the facts in place; no row is built again.
+
+The list is the records of the connected homes, plus one row for each cloud
+entry that no connected home lists (`cloudOnly`). A cloud entry whose last run
+host is connected but does not list the session (it was archived there) gets no
+row. A cloud-only row opens on the saved host that ran its last turn, else on
+the Run on host, with no conversation until a host that has it is selected.
+Search and the picker do not show cloud-only sessions yet. When a Solus API
+connection goes (sign-out), its cloud entries and facts go with it.
 
 ## Known difference
 

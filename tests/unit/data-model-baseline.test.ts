@@ -23,8 +23,8 @@ const SOLUS_TABLES = [
   'notification_pr_observations', 'notifications', 'operation_receipts', 'outbox_ops', 'personal_resource_state',
   'pinned_sessions', 'plan_annotations', 'plan_index_providers', 'projects', 'pull_request_observations',
   'resource_links', 'run_exchanges', 'run_queue', 'runner_delivery_cursors', 'runs', 'saved_metrics_queries',
-  'session_files', 'session_fts', 'session_keys', 'session_lineage_members', 'session_messages', 'session_records',
-  'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts', 'task_source_access', 'task_source_items',
+  'session_files', 'session_fts', 'session_keys', 'session_lineage_members', 'session_messages', 'session_records', 'session_repositories',
+  'session_storage', 'session_storage_turns', 'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts', 'task_source_access', 'task_source_items',
   'task_sources', 'tasks', 'transcript_index', 'transcript_mirror_rows', 'turn_flags', 'webhook_deliveries',
   'webhooks', 'work_live_docs', 'work_reviewers', 'work_revisions', 'work_storage', 'work_storage_bodies', 'works',
   'works_fts', 'works_fts_rows', 'workspace_projects',
@@ -47,7 +47,7 @@ const SOLUS_INDEXES = [
   'saved_metrics_queries_by_creator', 'session_api_activity_page', 'session_api_page', 'session_api_provider_page',
   'session_by_activity', 'session_by_parent', 'session_by_parent_activity', 'session_by_place',
   'session_by_project_path', 'session_keys_session_id_unique', 'session_lineage_member_provider_session',
-  'session_messages_by_session', 'session_transcripts_search_pending', 'task_source_items_task',
+  'session_messages_by_session', 'session_repositories_owner', 'session_storage_turns_by_session', 'session_transcripts_search_pending', 'task_source_items_task',
   'transcript_index_by_project_root', 'transcript_index_recent_branches', 'webhook_deliveries_by_webhook',
   'webhooks_by_creator', 'webhooks_by_project', 'work_reviewers_reviewer', 'work_storage_due', 'works_api_page',
   'works_api_type_page', 'works_by_session', 'workspace_projects_by_repository',
@@ -66,7 +66,7 @@ const POSTGRES_TABLES = [
   'comment_threads', 'indexed_plans', 'insight_log_events',
   'insight_span_texts', 'insight_spans', 'notifications', 'operation_receipts', 'personal_resource_state',
   'plan_annotations', 'plan_index_providers', 'pull_request_observations', 'resource_links',
-  'runner_delivery_cursors', 'session_records', 'session_transcripts', 'task_source_access', 'task_source_items',
+  'runner_delivery_cursors', 'session_records', 'session_repositories', 'session_transcripts', 'task_source_access', 'task_source_items',
   'task_sources', 'tasks', 'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers',
   'work_revisions', 'work_storage', 'work_storage_bodies', 'works', 'workspace_projects',
 ]
@@ -77,7 +77,7 @@ const METRICS_INDEXES = [
   'spans_trace', 'spans_turn_open', 'spans_turn_pulled',
 ]
 
-function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; triggers: string[]; files: number } {
+function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; triggers: string[]; files: number; sessionStorageColumns: string[] } {
   const migrations = readMigrationFiles({ migrationsFolder: join(drizzle, folder) })
   const db = new Database(':memory:')
   try {
@@ -87,7 +87,10 @@ function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; t
       .all(type)
       .map((row) => row.name)
       .filter((name) => !FTS_SHADOW.test(name))
-    return { tables: names('table'), indexes: names('index'), triggers: names('trigger'), files: migrations.length }
+    const sessionStorageColumns = folder === 'sqlite'
+      ? db.query<{ name: string }, []>('PRAGMA table_info(session_storage)').all().map((row) => row.name)
+      : []
+    return { tables: names('table'), indexes: names('index'), triggers: names('trigger'), files: migrations.length, sessionStorageColumns }
   } finally {
     db.close()
   }
@@ -95,10 +98,14 @@ function sqliteObjects(folder: string): { tables: string[]; indexes: string[]; t
 
 describe('the data model of each database', () => {
   test('solus.db holds exactly the declared tables, indexes, and triggers', () => {
-    const { tables, indexes, triggers } = sqliteObjects('sqlite')
+    const { tables, indexes, triggers, sessionStorageColumns } = sqliteObjects('sqlite')
     expect(tables).toEqual(SOLUS_TABLES)
     expect(indexes).toEqual(SOLUS_INDEXES)
     expect(triggers).toEqual(SOLUS_TRIGGERS)
+    // WHY: list reads use this stored count and must never start Git for each row.
+    expect(sessionStorageColumns).toContain('turn_count')
+    // WHY: a restart must keep the confirmed head, retry, and refused state.
+    for (const column of ['cloud_scope', 'pushed_head', 'reported_head', 'push_due_at', 'push_attempts', 'push_error', 'push_refused_head']) expect(sessionStorageColumns).toContain(column)
   })
 
   test('metrics.db holds exactly the declared tables and indexes', () => {

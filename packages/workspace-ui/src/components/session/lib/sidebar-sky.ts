@@ -37,7 +37,7 @@ export const SKY_ORBITS: readonly SkyOrbit[] = ORBIT_RADII.map((radius, index) =
  * sky's fall needs this room to blend into the surface without a band and
  * still be gone at the top of the search field.
  */
-export const SKY_HEADER_DROP_REM = 2.25
+export const SKY_HEADER_DROP_REM = 0.75
 
 export interface SkyStar {
   /** Percent of the band, so the field spreads with the sidebar's width. */

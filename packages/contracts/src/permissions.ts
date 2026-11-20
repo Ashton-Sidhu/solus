@@ -173,7 +173,7 @@ const PERMISSION_OF_METHOD = {
   prSetLabels: 'host.git.write',
   prUpdateLifecycle: 'host.git.write',
   prSubmitReview: 'host.git.write',
-  prAddIssueComment: 'host.git.write',
+  prReact: 'host.git.write', prAddIssueComment: 'host.git.write',
   prDeleteIssueComment: 'host.git.write',
   prReplyThread: 'host.git.write',
   prResolveThread: 'host.git.write',
@@ -188,6 +188,12 @@ const PERMISSION_OF_METHOD = {
   openWorktreeTerminal: 'host.terminal',
   usageLimits: 'host.usage.read',
   hostResources: HOST_USE,
+  runningServersList: HOST_USE,
+  runningServersWatch: HOST_USE,
+  runningServersUnwatch: HOST_USE,
+  runningServerTunnel: HOST_USE,
+  runningServersCheckoutRoots: HOST_USE,
+  runningServerStop: 'host.admin',
   hostTelemetrySubscribe: 'host.admin',
   hostTelemetryUnsubscribe: 'host.admin',
   // Project files: reading a checkout's files, and changing them.
@@ -243,6 +249,7 @@ const PERMISSION_OF_METHOD = {
   providerStatus: HOST_USE, providerViewer: HOST_USE, providerRepositories: HOST_USE, prList: HOST_USE,
   prListProjects: HOST_USE, prSetInterest: HOST_USE, prGuideMetadata: HOST_USE, prOpenReview: HOST_USE,
   prGetDiff: HOST_USE, prGetDiffFileContents: HOST_USE, prPrepareCheckout: HOST_USE, prGetDetail: HOST_USE,
+  prInspectUrl: HOST_USE,
   prGetOverview: HOST_USE, prChangedFiles: HOST_USE, prListThreads: HOST_USE, prListComments: HOST_USE,
   prListCommits: HOST_USE, prGetStack: HOST_USE, prListReviewers: HOST_USE, prListReviewerCandidates: HOST_USE,
   prListLabelCandidates: HOST_USE, prFilterOptions: HOST_USE, prInterdiff: HOST_USE, prGenerateGuides: HOST_USE, prMediaUrl: HOST_USE,
@@ -256,7 +263,8 @@ const PERMISSION_OF_METHOD = {
   // A task is GitHub's or Jira's, not a Solus resource: who may read or change
   // one is decided by the caller's own provider connection, so every task
   // method is the ordinary use of the host (docs/plans/provider-owned-tasks.md).
-  tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
+  tasksLoadMore: HOST_USE, tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksConnectLinear: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
+  tasksInspect: HOST_USE, tasksReact: HOST_USE, tasksTemplates: HOST_USE, tasksResolve: HOST_USE,
   tasksAttachments: HOST_USE, tasksCreate: HOST_USE, tasksUpdate: HOST_USE, tasksMove: HOST_USE,
   tasksDelete: HOST_USE, tasksMarkRead: HOST_USE, tasksSnooze: HOST_USE,
   tasksComment: HOST_USE, tasksRetryComment: HOST_USE, tasksDeleteComment: HOST_USE,
@@ -290,6 +298,7 @@ const PERMISSION_OF_METHOD = {
   metricsListSavedQueries: HOST_USE, metricsSaveQuery: HOST_USE, metricsDeleteQuery: HOST_USE,
   metricsTurnTrace: HOST_USE, metricsListTurnFlags: HOST_USE, metricsSetTurnFlag: HOST_USE,
   metricsClearTurnFlag: HOST_USE, logFilePath: HOST_USE,
+  sessionRepositoryBundleChunk: 'host.sessions.read',
 } as const satisfies Partial<Record<RpcMethod, string>>
 
 type PermissionLeaf = (typeof PERMISSION_OF_METHOD)[keyof typeof PERMISSION_OF_METHOD]
@@ -391,6 +400,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   loadSession: 'read.transcript', loadSessionPage: 'read.transcript', loadSessionSubagent: 'read.transcript',
   loadSessionToolInputs: 'read.transcript', loadSessionPreview: 'read.transcript', loadSessionMessageWindow: 'read.transcript',
   getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript', mcpAppLiveRead: 'read.transcript', mcpTaskList: 'read.transcript',
+  sessionRepositoryBundle: 'drive.prompt',
   loadPlanContent: 'read.transcript', loadPlanAnnotations: 'read.transcript', getThreadGoal: 'read.transcript',
   tasksForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
   togglePinnedSession: 'read.transcript', sessionSuggestions: 'read.transcript',
@@ -398,6 +408,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   listTurnSnapshots: 'read.diffs', diff: 'read.diffs', diffFileContents: 'read.diffs', diffStats: 'read.diffs',
   // Sessions — driving: turns, the queue, typing, and sending or dismissing a suggestion
   prompt: 'drive.prompt', compactSession: 'drive.prompt', retry: 'drive.prompt', promptHeadlessSession: 'drive.prompt',
+  sessionPrepare: 'drive.prompt',
   stopSession: 'drive.prompt', stopBackgroundTasks: 'drive.prompt', mcpTaskCancel: 'drive.prompt', mcpTaskAnswer: 'drive.prompt', continueSetupLocally: 'drive.prompt', resetSession: 'drive.prompt', switchSessionAgent: 'drive.prompt',
   cancelQueuedPrompt: 'drive.prompt', editQueuedPrompt: 'drive.prompt', sessionQueue: 'drive.prompt', sessionQueueChange: 'drive.prompt',
   presenceSetComposing: 'drive.prompt', writePlanFile: 'drive.prompt', sessionSuggestionDecide: 'drive.prompt',

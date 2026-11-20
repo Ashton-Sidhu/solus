@@ -28,9 +28,12 @@ chat moves to the host you select as a new chat there. See
 
 The Run on picker lists every host, and ends with **Add a host…**. It shows only
 when another host is connected, or when a desktop session names a remote
-host and can return to the local machine. A web client has no local execution
+host and can return to the local machine. It shows for a new session and,
+between turns, for a started one (see [A started session](#a-started-session)). A web client has no local execution
 host, so its sole connected host does not show the picker. Mobile also hides
-the host control when there is no other host choice. To add the first remote host, use Settings → Hosts. Each row is one
+the host control when there is no other host choice. On mobile, a started
+session shows its host control as a row above the composer, "on <host>",
+which opens a **Run on** sheet. To add the first remote host, use Settings → Hosts. Each row is one
 line: the host name, then a mark for each organization the host belongs to.
 Organizations have no logo, so the mark is the first letter of the
 organization name; hover over it to see the full name. A personal host has no
@@ -59,7 +62,7 @@ a clone: to copy a repository to another host, choose that host yourself.
 
 The check runs once, when you start a new session. Then the choice stays. Choosing a
 host, a branch, or a worktree overrides it, and choosing another project checks again.
-Existing sessions stay where they started.
+Auto balance never changes the host of a started session; only you do, in Run on.
 
 A check never moves a session that you have started to write. If you type or attach a
 file before it ends, the session keeps its host, and Run on does not say that Auto
@@ -103,7 +106,76 @@ the project on the host you choose.
 A cloud host that is not ready is disabled and takes no work. **Add a
 host…** pairs a new host and selects it.
 
-After a session starts, its host is fixed.
+### A started session
+
+A started session can run its next turn on another host. No host owns a
+session ([Portable sessions](plans/portable-sessions.md)). Under the composer
+of a started session, Run on shows the host of the next turn; it shows only
+when there is another host to choose. While a turn runs, or while a sent
+prompt still waits for its host, Run on is locked.
+
+When you choose another host:
+
+- The session points at that host at once, and the cursor stays in the
+  composer. You can type and send while the host gets ready.
+- In the background, that host gets the session from the host that has its
+  newest turn: the conversation, the code, and the records. The conversation
+  shows one card for this: **Getting the session from** the host, **Checking**
+  the agent, **Preparing the code**, **Restoring the conversation**, and
+  **Finishing**. A host that ran the session before only gets the new turns.
+- A prompt that you send meanwhile waits on that host until the sync ends, and
+  then runs there.
+- If the sync fails, the card says why. When you have no seat for the agent on
+  that host, it shows **Connect Claude** or **Connect Codex**. When the host
+  that has the newest turn is offline, it says so and offers **Choose a host**.
+  When the host has no copy of the project and the project has no remote, it
+  says that the host has no copy of the project.
+
+When the host that has the newest turn is offline, the composer says
+"<host> is offline" next to Run on. You can still type. Choose another host
+that has the session, or turn that host on.
+
+A session that ran on two hosts shows once in the session list, the picker,
+and search, from the host with the newest turn. Its row names that host, with
+"Last ran on <host>" when you point at it. When you choose the host back,
+nothing syncs if that host is current.
+
+If you reload before the new host is ready, the tab comes back on the host
+that has the conversation. After the new host is ready, or after you send
+there, the tab comes back on the new host.
+
+A fork runs where its source runs, as before. Before its first prompt, Run on
+is open on the fork: choose another host, and that host gets the source session
+first, then makes the fork there. The mobile app has no session fork.
+
+On mobile, the conversation opens on the host you choose at once and keeps
+the transcript and your draft on screen while that host gets the session. The
+thread header says "Last ran on <host>" while another host has the newest
+turn. The mobile app sends no repository and no copied files, so a host that
+has no checkout of the project cannot get the session from the phone: the card
+says that the host has no copy of the project.
+
+When you are not signed in, these rules need both hosts online.
+
+When you are signed in, each turn is also saved to Solus Cloud
+([cloud design](plans/portable-sessions-cloud.md)). Then:
+
+- The host that you choose gets the newest turn from the cloud, so the host
+  that ran the last turn can be offline.
+- "Not synced yet" next to Run on means that the newest turn is not in the
+  cloud yet. It goes away when the push ends.
+- "Running on <host>" next to Run on means that another host runs a turn of
+  this session now. Run on is locked, and a prompt that you send goes to that
+  host, as a queued prompt.
+- If another host saved a turn first, the push of this host is refused. The
+  conversation says "This session continued on <host>. The turns on this
+  machine are not in it." **Fork** keeps the turns of this machine as a new
+  session. **Use the newer copy** gets the cloud copy on this host, and the
+  conversation shows that copy.
+- A session that only the cloud lists (no connected host has it) opens with an
+  empty conversation that says it shows when you select a machine in Run on.
+  You can type at once. When the host you choose has synced, the conversation
+  shows.
 
 On a host where each member uses their own seat, a new session shows **Connect
 Claude** or **Connect Codex** before the first send when you have no seat for
@@ -159,7 +231,8 @@ for that file only. When the project has no `.worktreeinclude`, its env files
 
 A file larger than 1 MB is not copied, and one send copies at most 4 MB. When
 the project's host cannot be reached, the send goes without the files. The
-mobile app has no Run on list, so it has no copied files either.
+mobile app reads no copied files: it has no Run on list for a new session, and
+its Run on sheet for a started session sends none.
 
 ## Branch and checkout
 

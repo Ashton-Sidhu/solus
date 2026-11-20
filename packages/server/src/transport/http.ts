@@ -26,6 +26,7 @@ import type { ResolvedLinkShare } from '../sharing/share-manager'
 import type { ShareLinkResolver } from '../sharing/share-link-resolver'
 import { SHARE_LINK_UNKNOWN, shareLinkRequestSchema } from '@solus/contracts/sharing'
 import { registerRunnerRoutes, type RunnerDeliveryIntake } from './runner-routes'
+import { registerSessionRepositoryRoutes, type SessionRepositoryRoutes } from './session-repository-routes'
 import { delegateFromPresentedToken, type DelegationScope } from '../sync/delegations'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
@@ -55,7 +56,7 @@ import { couldBeForgedByWebPage, isServeRequest, requestOrigin } from './web-pag
 const log = createLogger('main', 'http')
 
 export interface HttpServerOptions {
-  solusApi?: { operations: WorkspaceOperations; serviceId: string; signingKey?: Buffer }
+  solusApi?: { operations: WorkspaceOperations; serviceId: string; signingKey?: Buffer; sessionReader?: import('../sync/sessions/session-cloud-reader').SessionCloudReader }
   isVerifyingUpdate?: () => boolean
   /** Bind address: defaults to 127.0.0.1 (loopback only). Set 0.0.0.0 for remote access. */
   host?: string
@@ -101,6 +102,7 @@ export interface HttpServerOptions {
   shareLinks?: ShareLinkResolver
   /** The workspace service's runner routes (cloud-service-model.md §16); mounted in API mode only, so the routes exist nowhere else. */
   runner?: RunnerDeliveryIntake
+  sessionRepositories?: SessionRepositoryRoutes
   /** The device hub proxy's video routes (docs/plans/native-devices.md, D2). The token is the credential. */
   deviceHub?: { serve(token: string, route: string, signal: AbortSignal, request?: Request): Promise<Response> }
   /** Long-form voice transcription implementation supplied by the host. */
@@ -240,7 +242,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   if (opts.solusApi) {
     const spec = JSON.stringify(solusApiOpenApi())
     solusApiRouter = createSolusApiRouter({
-      admission: workspaceAdmissionFor(opts, doors), operations: opts.solusApi.operations,
+      admission: workspaceAdmissionFor(opts, doors), operations: opts.solusApi.operations, sessionReader: opts.solusApi.sessionReader,
       capabilities: { serviceId: opts.solusApi.serviceId, mode: opts.isApiMode ? 'solus-api' : 'combined-host',
         apiVersion: '1', capabilities: ['works', 'session-records', 'notifications', ...(opts.isApiMode ? ['insights' as const] : [])],
         events: { transport: 'websocket', relativePath: '/ws', protocolVersion: HOST_SOCKET_PROTOCOL_VERSION } },
@@ -538,6 +540,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   }
 
   registerRunnerRoutes(app, opts)
+  registerSessionRepositoryRoutes(app, opts)
 
   app.post('/auth/revoke', async (c) => {
     if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)

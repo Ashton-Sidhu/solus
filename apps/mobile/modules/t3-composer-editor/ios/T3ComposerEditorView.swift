@@ -99,9 +99,6 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
         "selection": ["start": selection.start, "end": selection.end],
       ])
     }
-    textView.onAttributedMutation = { [weak self] in
-      self?.emitTextChange()
-    }
     textView.onSubmit = { [weak self] alternate in
       self?.onComposerSubmit(["alternate": alternate])
     }
@@ -272,8 +269,10 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     if tokensJson != document.tokensJson {
       tokensJson = document.tokensJson
       let nextTokens = decode([ComposerTokenPayload].self, from: document.tokensJson) ?? []
-      // Typing before a chip only moves its offsets; rebuilding then makes iOS autocorrect behind the caret.
-      tokensNeedRebuild = tokensNeedRebuild || !nextTokens.elementsEqual(tokens, by: { $0.rendersLike($1) })
+      // Rebuild only when a chip on screen would look different: typing before a chip moves its
+      // offsets, and Undo restores the chip it removed. A rebuild there makes iOS autocorrect
+      // behind the caret, and replacing the text drops UIKit's Redo.
+      tokensNeedRebuild = tokensNeedRebuild || !nextTokens.elementsEqual(renderedChipTokens(), by: { $0.rendersLike($1) })
       tokens = nextTokens
     }
     let previousSelection = sourceSelection()
@@ -587,8 +586,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
       font: chipFont
     )
     let attachment = ComposerTextAttachment(
-      source: token.source,
-      label: token.label,
+      token: token,
       image: image,
       size: image.size,
       baselineOffset: chipFont.ascender - image.size.height
@@ -886,6 +884,19 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
         $0.end <= source.length &&
         source.substring(with: NSRange(location: $0.start, length: $0.end - $0.start)) == $0.source
     }
+  }
+
+  private func renderedChipTokens() -> [ComposerTokenPayload] {
+    var rendered: [ComposerTokenPayload] = []
+    textView.textStorage.enumerateAttribute(
+      .attachment,
+      in: NSRange(location: 0, length: textView.textStorage.length)
+    ) { value, _, _ in
+      if let attachment = value as? ComposerTextAttachment {
+        rendered.append(attachment.token)
+      }
+    }
+    return rendered
   }
 
   private func documentMatchesExpectedTokens() -> Bool {

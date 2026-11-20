@@ -6,6 +6,7 @@ import { onServerRemoving } from '@solus/client-core/server-registry'
 import type { HostUpdateStatus } from '@solus/contracts/host-update-types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { SetupAgent } from '@solus/contracts/types'
+import { isProviderUpdateActive } from '@solus/contracts/host-update-types'
 
 /** One release the client can install on one host: Solus itself, or a provider's CLI. */
 export interface HostUpdateItem { serverId: string; target: 'solus' | SetupAgent; version: string }
@@ -169,7 +170,7 @@ export class HostUpdatesStore {
     const items: HostUpdateItem[] = []
     if (status.check.kind === 'available' && status.serverUpdate?.supported) items.push({ serverId, target: 'solus', version: status.check.latestVersion })
     for (const provider of status.providers) {
-      if (provider.check.kind === 'available') items.push({ serverId, target: provider.agent, version: provider.check.latestVersion })
+      if (provider.check.kind === 'available' && provider.installation?.canUpdate !== false && !isProviderUpdateActive(provider.update)) items.push({ serverId, target: provider.agent, version: provider.check.latestVersion })
     }
     return items
   }

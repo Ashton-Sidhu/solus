@@ -1,3 +1,4 @@
+import { TasksScreen } from '../tasks/TasksScreen';
 import { ThreadListFilters } from "./ThreadListFilters";
 // Adapted from T3 Code apps/mobile/src/features/home/HomeRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useFocusEffect, useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
@@ -194,7 +195,7 @@ export function HomeRouteScreen() {
         <WorkspaceTabPanes
           selected={tabs.selectedTab}
           renderTab={(tab) =>
-            tab === "pullRequests" ? (
+            tab === "tasks" ? <TasksScreen query={queryOf("tasks")} onQueryChange={setSearchQuery} /> : tab === "pullRequests" ? (
               <>
                 {workspaceToolbar}
                 {pullRequests}
@@ -267,7 +268,7 @@ export function HomeRouteScreen() {
       <WorkspaceTabPanes
         selected={tabs.selectedTab}
         renderTab={(tab) =>
-          tab === "pullRequests" ? (
+          tab === "tasks" ? <TasksScreen query={queryOf("tasks")} onQueryChange={setSearchQuery} /> : tab === "pullRequests" ? (
             <>
               {pullRequests}
             </>

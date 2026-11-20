@@ -1,3 +1,4 @@
+import { PrReactionBar, PrReactionsProvider } from './PrReactions'
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useFocusEffect } from '@react-navigation/native'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -217,7 +218,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
     const unread = (['comments', 'threads'] as const).filter((part) => view.detail.missing.includes(part))
     const reading = (['overview', 'comments', 'threads'] as const).some((part) => view.detail.reading?.includes(part))
     return {
-      overview: [{ key: 'overview', date: '', content: <PullRequestOverview view={view} onOpenFile={openFile} /> }],
+      overview: [{ key: 'overview', date: '', content: <><PullRequestOverview view={view} onOpenFile={openFile} /><View className="pb-5"><PrReactionBar targetId={null} reactions={view.detail.overview.pullRequest.reactions} /></View></> }],
       activity: [
         { key: 'filters', date: '', content: <PullRequestActivityFilters value={activityFilter} onChange={setActivityFilter} hiddenCount={activity.hiddenCount} /> },
         ...(unread.length ? [{ key: 'unread', date: '', content: <Text className="pb-4 text-xs text-foreground-muted">Some of the conversation could not be read.</Text> }] : []),
@@ -293,44 +294,46 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
 
   return (
     <PullRequestMediaContext.Provider value={mediaLocation}>
-      <View className="flex-1 bg-screen">
-        {header}
-        {(['overview', 'guide', 'activity'] as const).filter((entry) => entry !== 'guide' || guidesShown).map((entry) => (
-          <TabPane key={entry} shown={shownTab === entry}>
-            <FlatList
-              ref={(list) => { lists.current[entry] = list }}
-              data={rowsByTab[entry]}
-              keyExtractor={(row) => row.key}
-              renderItem={({ item }) => <View>{item.content}</View>}
-              renderScrollComponent={Platform.OS === 'ios' ? renderPullRequestTabScrollView : undefined}
-              contentInsetAdjustmentBehavior="never"
-              contentInset={Platform.OS === 'ios' ? { top: insets.top, bottom: insets.bottom } : undefined}
-              scrollIndicatorInsets={Platform.OS === 'ios' ? { top: insets.top, bottom: insets.bottom } : undefined}
-              keyboardShouldPersistTaps="handled"
-              alwaysBounceVertical
-              scrollsToTop={shownTab === entry}
-              onScroll={(event) => {
-                const offset = event.nativeEvent.contentOffset.y
-                offsets.current[entry] = offset
-                if (shownTabRef.current === entry) currentOffset.current = offset
-              }}
-              scrollEventThrottle={32}
-              refreshControl={<RefreshControl refreshing={shownTab === entry && state.kind === 'loading'} onRefresh={reload} />}
-              contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: bottomPadding }}
-              ListHeaderComponent={
-                <View className="gap-5 pb-5" onLayout={(event) => { headerHeight.current = event.nativeEvent.layout.height }}>
-                  <HostStatusBanner hostId={hostId} />
-                  {state.kind === 'error' ? <ErrorBanner message={`Not refreshed: ${state.message}`} /> : null}
-                  {!connected ? <Text className="text-xs text-foreground-muted">This is the copy on this device. Reviews, merges, and agent work need the host to be connected.</Text> : null}
-                  <PullRequestIdentity view={view} />
-                  <SegmentedControl options={tabs} selected={shownTab} onSelect={selectTab} role="tab" size="compact" />
-                </View>
-              }
-            />
-          </TabPane>
-        ))}
-        <PullRequestActionToolbar view={view} />
-      </View>
+      <PrReactionsProvider hostId={ref.hostId} repo={view?.detail.overview.pullRequest.baseRepo ?? null} number={ref.number}>
+        <View className="flex-1 bg-screen">
+          {header}
+          {(['overview', 'guide', 'activity'] as const).filter((entry) => entry !== 'guide' || guidesShown).map((entry) => (
+            <TabPane key={entry} shown={shownTab === entry}>
+              <FlatList
+                ref={(list) => { lists.current[entry] = list }}
+                data={rowsByTab[entry]}
+                keyExtractor={(row) => row.key}
+                renderItem={({ item }) => <View>{item.content}</View>}
+                renderScrollComponent={Platform.OS === 'ios' ? renderPullRequestTabScrollView : undefined}
+                contentInsetAdjustmentBehavior="never"
+                contentInset={Platform.OS === 'ios' ? { top: insets.top, bottom: insets.bottom } : undefined}
+                scrollIndicatorInsets={Platform.OS === 'ios' ? { top: insets.top, bottom: insets.bottom } : undefined}
+                keyboardShouldPersistTaps="handled"
+                alwaysBounceVertical
+                scrollsToTop={shownTab === entry}
+                onScroll={(event) => {
+                  const offset = event.nativeEvent.contentOffset.y
+                  offsets.current[entry] = offset
+                  if (shownTabRef.current === entry) currentOffset.current = offset
+                }}
+                scrollEventThrottle={32}
+                refreshControl={<RefreshControl refreshing={shownTab === entry && state.kind === 'loading'} onRefresh={reload} />}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: bottomPadding }}
+                ListHeaderComponent={
+                  <View className="gap-5 pb-5" onLayout={(event) => { headerHeight.current = event.nativeEvent.layout.height }}>
+                    <HostStatusBanner hostId={hostId} />
+                    {state.kind === 'error' ? <ErrorBanner message={`Not refreshed: ${state.message}`} /> : null}
+                    {!connected ? <Text className="text-xs text-foreground-muted">This is the copy on this device. Reviews, merges, and agent work need the host to be connected.</Text> : null}
+                    <PullRequestIdentity view={view} />
+                    <SegmentedControl options={tabs} selected={shownTab} onSelect={selectTab} role="tab" size="compact" />
+                  </View>
+                }
+              />
+            </TabPane>
+          ))}
+          <PullRequestActionToolbar view={view} />
+        </View>
+      </PrReactionsProvider>
     </PullRequestMediaContext.Provider>
   )
 }

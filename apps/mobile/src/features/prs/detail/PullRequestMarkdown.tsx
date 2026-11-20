@@ -64,7 +64,7 @@ export const PullRequestMarkdown = memo(function PullRequestMarkdown(props: { re
     const preview = resolveMarkdownMediaPreview(imageEmbed ? githubMediaUrl(href) : href, media, imageEmbed)
     if (preview?.kind === 'video') return setVideoPreview((current) => current ?? preview.source)
     if (preview) return setFilePreview((current) => current ?? preview.source)
-    const place = location ? { hostId: location.hostId, workingDirectory: location.projectPath } : null
+    const place = location?.projectPath ? { hostId: location.hostId, workingDirectory: location.projectPath } : null
     if (openPullRequestLink(href, place, pullRequestLinkActions) !== null) return
     const presentation = resolveMarkdownLinkPresentation(href)
     if (presentation.kind === 'external') void app.platform.openBrowser(presentation.href)

@@ -10,6 +10,8 @@ import type { HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-
  * two hosts is not the same project. No personal value is cached here.
  */
 export interface HostSettingsState {
+  sessionCloudSync: boolean
+  agentAutoUpdates: boolean
   reviewWarmingByProject: Record<string, boolean>
   /** The host emitter's own consent. */
   analyticsEnabled: boolean
@@ -73,6 +75,15 @@ class HostSettingsStore {
     await this.write(serverId, { analyticsEnabled: enabled }, { analyticsEnabled: enabled })
   }
 
+  async setSessionCloudSync(serverId: string, enabled: boolean): Promise<void> {
+    if (!this.states.get(serverId)) return
+    await this.write(serverId, { sessionCloudSync: enabled }, { sessionCloudSync: enabled })
+  }
+
+  async setAgentAutoUpdates(serverId: string, enabled: boolean): Promise<void> {
+    await this.write(serverId, { agentAutoUpdates: enabled }, { agentAutoUpdates: enabled })
+  }
+
   private async write(
     serverId: string,
     patch: HostConfigPatch,
@@ -100,6 +111,8 @@ class HostSettingsStore {
 
   private adopt(serverId: string, snapshot: HostConfigSnapshot): void {
     this.states.set(serverId, {
+      sessionCloudSync: snapshot.config.sessionCloudSync,
+      agentAutoUpdates: snapshot.config.agentAutoUpdates ?? false,
       reviewWarmingByProject: { ...snapshot.config.reviewWarmingByProject },
       analyticsEnabled: snapshot.config.analyticsEnabled,
       saving: false,

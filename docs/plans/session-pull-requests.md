@@ -209,7 +209,10 @@ than one pull request, a right-click always. The session menu shows it as its
 one. Each pull request is two lines, the title and then `#N · state` (with the
 repository, `site#52`, once the session spans two); open ones come first and
 merged or closed ones after a divider. ↗ opens it on the web and × unlinks
-it; Delete or Backspace unlinks the highlighted row. A pull request read only
+it. These buttons appear when the row is hovered or highlighted with the
+keyboard; touch users always see them. Hidden buttons take no space. When
+the buttons appear, the title truncates to fit beside them. Delete or Backspace unlinks the
+highlighted row. A pull request read only
 from the checkout's branch says "on this branch" and has no ×. The last row,
 "Link pull request…", turns into a URL field in place. On
 the phone, the thread row's menu has "Unlink #N", or an "Unlink Pull Request"

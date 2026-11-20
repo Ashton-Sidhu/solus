@@ -21,6 +21,7 @@ const headerSchema = z.object({ browserPageId: z.string().min(1), seq: z.number(
 type BrowserFrameBytes = ArrayBuffer | ArrayBufferView
 
 export class BrowserFrameSubscriber {
+  private readonly latestFrames = new Map<string, { header: BrowserFrameHeader; data: ArrayBuffer }>()
   private readonly listeners = new Map<string, Set<BrowserFrameListener>>()
 
   subscribe(browserPageId: string, listener: BrowserFrameListener): () => void {
@@ -30,9 +31,22 @@ export class BrowserFrameSubscriber {
       this.listeners.set(browserPageId, listeners)
     }
     listeners.add(listener)
+    // A floating preview and a full viewer share one host subscription. The
+    // second viewer must not wait for the guest to repaint before it can show.
+    const latest = this.latestFrames.get(browserPageId)
+    if (latest) {
+      try {
+        listener(latest.header, latest.data)
+      } catch (error) {
+        console.error('[solus:browser] frame subscriber threw', error)
+      }
+    }
     return () => {
       listeners.delete(listener)
-      if (listeners.size === 0) this.listeners.delete(browserPageId)
+      if (listeners.size === 0) {
+        this.listeners.delete(browserPageId)
+        this.latestFrames.delete(browserPageId)
+      }
     }
   }
 
@@ -46,6 +60,7 @@ export class BrowserFrameSubscriber {
     if (!buffer) return
     const listeners = this.listeners.get(parsed.data.browserPageId)
     if (!listeners) return
+    this.latestFrames.set(parsed.data.browserPageId, { header: parsed.data, data: buffer })
     for (const listener of Array.from(listeners)) {
       try {
         listener(parsed.data, buffer)
@@ -57,6 +72,7 @@ export class BrowserFrameSubscriber {
 
   clear(): void {
     this.listeners.clear()
+    this.latestFrames.clear()
   }
 }
 

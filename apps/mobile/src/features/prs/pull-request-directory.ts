@@ -37,7 +37,7 @@ export interface HostPullRequests {
 /** What the host narrows: the state, and the code host's search text
  *  (qualifiers included, as in `label:bug fix`). */
 export interface PullRequestListFilter {
-  state: NonNullable<PrFilter['state']>
+  state: NonNullable<PrFilter['state']> | 'merged'
   query: string
 }
 
@@ -108,7 +108,8 @@ function listKey(hostId: string, filter: PullRequestListFilter): string {
 }
 
 function hostFilter(filter: PullRequestListFilter): PrFilter {
-  return filter.query.trim() ? { state: filter.state, query: filter.query.trim() } : { state: filter.state }
+  const state = filter.state === 'merged' ? 'closed' : filter.state
+  return filter.query.trim() ? { state, query: filter.query.trim() } : { state }
 }
 
 function projectKey(hostId: string, projectPath: string): string {
@@ -621,7 +622,8 @@ export class PullRequestDirectory {
         const isNewer = pr !== undefined && isNotOlder(pr, shown)
         if (!isNewer && !summary) return detail
         const next = { ...detail }
-        if (isNewer) next.overview = { ...detail.overview, pullRequest: pr }
+        // A pushed row carries no reactions; only a detail read does, so the shown ones stay.
+        if (isNewer) next.overview = { ...detail.overview, pullRequest: pr.reactions === undefined && shown.reactions ? { ...pr, reactions: shown.reactions } : pr }
         if (summary) {
           next.checks = summary
           next.missing = detail.missing.filter((part) => part !== 'checks')

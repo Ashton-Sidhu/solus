@@ -1,3 +1,5 @@
+import type { SessionHeadChanged } from './session-repositories'
+import type { RunningServer } from './running-servers'
 import type { PolicySet } from './policy'
 import type { WebhookChangedEvent, WebhookDeliverySummary } from './webhooks'
 import type { AppActivityEvent, AppSignalOccurredEvent, AppsChangedEvent } from './apps'
@@ -56,6 +58,7 @@ export interface HostEventMap {
   'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.indexChanged': SessionIndexUpdatedEvent
   'session.titleChanged': SessionTitleChangedEvent
+  'session.headChanged': SessionHeadChanged
   /** This session became a lead (docs/plans/lead-session.md). A session never
    *  stops being one, so there is no reverse event. */
   'session.becameLead': { sessionId: string }
@@ -144,6 +147,7 @@ export interface HostEventMap {
   'usage.limitsChanged': { snapshots: AgentUsageLimits[] }
   /** One read of the process tree. */
   'host.telemetry': HostTelemetryEvent
+  'runningServers.changed': { servers: RunningServer[]; error: string | null }
   /** A turn's row in the Insights record was written: open when the turn
    *  starts, finished when it ends. Sent after the write, so a client that reads
    *  on it sees the new row. `status` is 'unknown' while the turn runs. */
@@ -259,6 +263,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.errorReceived': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'An enriched provider error arrived for a watched session.' },
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
+  'session.headChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud session repository facts changed.' },
   'session.becameLead': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session became a lead: it shows the Meta mode mark.' },
   'session.pullRequestsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's pull request links changed." },
   'session.artifactsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's artifacts changed: a pull request, work, file, or automation was linked or unlinked." },
@@ -300,6 +305,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },
   'pr.guideStatusChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull-request guide changed status.' },
   'usage.limitsChanged': { owner: 'usage', category: 'snapshot', recovery: 'reload', description: 'Provider subscription quota changed.' },
+  'runningServers.changed': { owner: 'host', category: 'targeted', recovery: 'reset', description: 'The host running server list changed.' },
   'host.telemetry': { owner: 'host', category: 'targeted', recovery: 'reset', description: 'One read of the process tree.' },
   'metrics.turnsChanged': { owner: 'metrics', category: 'delta', recovery: 'reload', description: "A turn's Insights row was written: started or finished." },
   'metrics.insightPullChanged': { owner: 'metrics', category: 'snapshot', recovery: 'reload', description: 'A pull of turns other hosts ran started or ended.' },

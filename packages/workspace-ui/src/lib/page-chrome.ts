@@ -21,6 +21,17 @@ export const PAGE_RAISED_ICON_BTN =
 export const PAGE_SOFT_ICON_BTN =
   'no-drag pointer-events-auto inline-flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-background text-[color-mix(in_oklch,var(--foreground)_75%,transparent)] shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:tap-area'
 
+/** A pane header's icon actions joined in one soft pill (files pane, review
+ *  panel). `no-drag` because the pill sits on the window's drag region. */
+export const PAGE_PILL_GROUP =
+  'no-drag pointer-events-auto flex shrink-0 items-center gap-0.5 rounded-full bg-background p-0.5 shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
+
+/** One ghost `Button size="icon-sm"` inside PAGE_PILL_GROUP; give its icon
+ *  `size-4`. The pressed and
+ *  open states share the hover wash, so a toggle reads as on at rest. */
+export const PAGE_PILL_ICON_BTN =
+  'rounded-full text-[color:color-mix(in_oklch,var(--foreground)_75%,transparent)] aria-pressed:bg-[var(--wash-3)] aria-pressed:text-foreground pointer-coarse:tap-area'
+
 /** Outlined secondary action rendered beside PAGE_PRIMARY_BTN (Retry, Refresh…). */
 export const PAGE_SECONDARY_BTN =
   'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-(--solus-container-border) bg-transparent px-3 py-[0.375rem] text-xs font-medium text-(--solus-text-secondary) transition-[background-color,color] duration-100 ease-in-out hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-3.5 [@media(pointer:coarse)]:text-sm'

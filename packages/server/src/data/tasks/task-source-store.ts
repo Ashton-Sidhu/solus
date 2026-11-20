@@ -30,6 +30,7 @@ const sourceRowSchema = z.object({
   write_state: z.string().nullable(),
   fetched_at: z.coerce.number().nullable(),
   truncated: z.number(),
+  next_cursor: z.string().nullable(),
 })
 
 /** One source as the host holds it. */
@@ -42,6 +43,7 @@ export interface StoredTaskSource {
   /** Null = no provider answered a read yet. */
   fetchedAt: number | null
   truncated: boolean
+  nextCursor: string | null
 }
 
 function sourceFromRow(row: z.infer<typeof sourceRowSchema>): StoredTaskSource | null {
@@ -55,6 +57,7 @@ function sourceFromRow(row: z.infer<typeof sourceRowSchema>): StoredTaskSource |
     writeState: jsonValue(row.write_state, writeStateSchema) ?? null,
     fetchedAt: row.fetched_at,
     truncated: row.truncated === 1,
+    nextCursor: row.next_cursor,
   }
 }
 
@@ -81,6 +84,7 @@ export function taskSourceLabel(source: TaskSource): string {
   switch (source.kind) {
     case 'github-repo': return `${source.owner}/${source.repo}`
     case 'github-project': return `${source.owner} #${source.number}`
+    case 'linear-team': return source.teamKey
     case 'jira-project': return source.projectKey
     case 'jira-board': return `Board ${source.boardId}`
   }

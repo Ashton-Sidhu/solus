@@ -1,12 +1,16 @@
+import type { TaskSnapshot } from '@solus/contracts/task-types'
+import type { SolusAPI } from '@solus/contracts/host-api'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionStarterFromHost, SessionRecord, SessionStatus, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionMeta, SessionStarterFromHost, SessionRecord, SessionStatus, StatusCardState, WatchSessionResult, GitCheckoutBranchResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
-import type { ExecutionPreferences } from '@solus/contracts/settings'
+import type { ExecutionPreferences, LeadModelSelection } from '@solus/contracts/settings'
+import type { BranchRef } from '@solus/contracts/git-types'
+import { isChat } from '@solus/contracts/chat'
 import type { ModelOptions } from '@solus/contracts/settings'
-import { isSessionBusyStatus, replaceModelProfiles, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
+import { isSessionBusyStatus, replaceModelProfiles, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText, worktreeProjectRoot } from '@solus/contracts/types'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { isPermissionModeAbove, isPolicyRefusalCode, type PolicyRefusalCode } from '@solus/contracts/policy'
@@ -22,6 +26,7 @@ import {
   type RunSettings,
 } from './lib/ipc-context'
 import { hostAgents } from './lib/host-agents'
+import { LeadSessionChoice } from './lib/lead-session'
 import { queuedMessageAttachments, uploadedMessageAttachments } from './lib/message-attachments'
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
 import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
@@ -42,6 +47,11 @@ import { resourceAttachments } from './lib/resource-attachments'
 import { Listeners } from '../../lib/listeners'
 import { SessionSuggestionsFeed } from './session-suggestions'
 import { loweredPermissionMode, workPolicy } from '../policy/lib/policy-view'
+import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
+import { SESSION_DIVERGED } from '@solus/contracts/session-repositories'
+import type { SessionRunHosts } from '../threads/session-run-hosts'
+import type { CloudHistory } from '../threads/cloud-history'
+import type { SessionCloudReadStatus } from '@solus/client-core/session-cloud-read'
 
 /**
  * One open conversation on one host (plan 017 stage 3). It owns the watch,
@@ -70,10 +80,22 @@ export interface ConversationTarget {
    *  A record's `role` is the reader's, from the list (docs/plans/access-model.md §2.7). */
   record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role'> & Partial<Pick<SessionRecord, 'organizationId'>>
   newSession?: { sessionId: string; provider: AgentId; workingDirectory: string }
+  /** The host this saved session was open on before the person chose this
+   *  one to run its next turn (docs/plans/portable-sessions.md §10). */
+  movedFrom?: string
+  /** The transcript it showed there. It shows here until this host is current
+   *  and reads its own history, so the conversation stays on screen while the
+   *  host syncs. */
+  carriedTranscript?: TranscriptModel
+  /** Only the cloud listed the session (docs/plans/portable-sessions-cloud.md
+   *  §5.5): this host may have no copy yet, and then shows no conversation
+   *  until it has one. */
+  fromCloud?: true
 }
 
 export interface ConversationDeps {
   connection: HostConnection
+  taskApi?(hostId: string): SolusAPI
   outbox: SendOutbox
   /** The person's run settings when the conversation opens. */
   runSettings(): Promise<RunSettings>
@@ -87,6 +109,11 @@ export interface ConversationDeps {
   uuid(): string
   /** Reads and sends picked files; absent where attaching is not offered. */
   attachmentIo?: AttachmentIo
+  /** What each host holds of the session's repository: the prompt carries the
+   *  newest head, and an open asks a host that is behind to sync. */
+  runHosts?: Pick<SessionRunHosts, 'noteMeta' | 'noteTurnSettled' | 'promptFields' | 'opened' | 'prepareNewerCopy'>
+  /** The session's read-only copy from Solus Cloud, while no host that holds it shows it. */
+  cloudHistory?: Pick<CloudHistory, 'read' | 'isCopy' | 'readOlder'>
   onChange(changes: { items: string[]; order: boolean; meta: boolean }): void
 }
 
@@ -106,6 +133,12 @@ interface InFlightUpload {
 }
 
 export class ConversationController {
+  private taskBinding: { taskId: string; hostId: string } | null = null
+  bindTask(taskId: string, hostId: string): void {
+    if (this.started) throw new Error('A started session keeps its task.')
+    this.taskBinding = { taskId, hostId }
+  }
+
   model: TranscriptModel
   phase: ConversationPhase = { kind: 'loading' }
   run: ConversationRun
@@ -148,7 +181,13 @@ export class ConversationController {
   /** True once the host knows the session; before that uploads name a draft. */
   private started: boolean
   private projectPath: string
+  /** The branch picked for a new session's checkout; null until one is
+   *  picked, and again when the session goes back to the project's own. */
+  checkoutBranch: string | null = null
+  /** The branch a pick moved the project's checkout to; null when none did. */
+  private projectBranch: string | null = null
   private settings: RunSettings | null = null
+  private readonly leadChoice = new LeadSessionChoice()
   /** Bumps on each (re)load; an answer for an older load is dropped. */
   private loadGeneration = 0
   private held: WireNormalizedEvent[] | null = null
@@ -161,6 +200,22 @@ export class ConversationController {
   private liveEvents = 0
   private closed = false
   private readonly cleanups: Array<() => void> = []
+  /** The transcript another host showed, until this host is current (`ConversationTarget.carriedTranscript`). */
+  private carried: TranscriptModel | null
+  /** The first load asked the run host to sync when it is behind. */
+  private openedOnHost = false
+  /** A cloud session this host has no copy of: no history is read until it has one. */
+  private awaitsHostCopy = false
+  /** "Use the newer copy" asked the host to sync: its history is read again when it is current. */
+  private reloadsWhenCurrent = false
+  /** The host refused a prompt because another host continued the session (`SESSION_DIVERGED`). */
+  isSessionDiverged = false
+  /** The read of the session's copy from Solus Cloud (docs/plans/portable-sessions-cloud.md, Phase 5B). */
+  cloudRead: SessionCloudReadStatus = { kind: 'idle' }
+  /** The run host's own history shows: a copy from the cloud gives way to it. */
+  private hasHostHistory = false
+  /** Turns this conversation saw end, so a replayed event counts a turn once. */
+  private readonly settledTurnIds = new Set<string>()
   /** Saved artifact reads in flight, per transcript: a rebuilt transcript reads again. */
   private readonly artifactReads = new WeakMap<TranscriptModel, Map<string, Promise<void>>>()
 
@@ -213,7 +268,10 @@ export class ConversationController {
     this.run = initialRun(target, deps.organizationId(), deps.uuid)
     this.started = !!target.record
     this.threadProvider = target.record?.provider ?? null
-    this.model = new TranscriptModel(this.run.sessionId)
+    this.carried = target.record ? target.carriedTranscript ?? null : null
+    this.model = this.carried ?? new TranscriptModel(this.run.sessionId)
+    // A copy from the cloud that the person carried to this host by a pick.
+    if (this.carried && deps.cloudHistory?.isCopy(this.carried)) this.cloudRead = { kind: 'ready' }
     const { connection } = deps
     this.auth = new AgentAuthFlow({ connection, notice: (text, tone) => {
       this.model.addNotice(text, tone)
@@ -274,7 +332,11 @@ export class ConversationController {
       void this.loadKeyStatus()
     }))
     this.cleanups.push(connection.onReset(() => { void this.load() }))
-    this.cleanups.push(connection.onAccepted(() => { void this.drainOutbox() }))
+    this.cleanups.push(connection.onAccepted(() => {
+      // The host is back after its read failed while the cloud read showed: its history replaces the copy.
+      if (this.phase.kind === 'error' && this.cloudRead.kind !== 'idle') void this.load()
+      void this.drainOutbox()
+    }))
   }
 
   dismissConnectNeeded(): void {
@@ -295,6 +357,16 @@ export class ConversationController {
 
   get hostId(): string {
     return this.target.hostId
+  }
+
+  /** A host gave the rows that show: this host's history, or a transcript carried from another host. */
+  get showsHostConversation(): boolean {
+    return this.hasHostHistory || (this.carried !== null && !this.deps.cloudHistory?.isCopy(this.carried))
+  }
+
+  /** The run host answered that it has no copy of the session. */
+  get hostHasNoCopy(): boolean {
+    return this.awaitsHostCopy
   }
 
   /**
@@ -323,6 +395,90 @@ export class ConversationController {
   /** Auto can pick this session's model: nothing has started it yet. */
   get canRoute(): boolean {
     return canRouteAuto({ started: this.started, agentSessionId: this.run.agentSessionId })
+  }
+
+  /** Meta mode and a new worktree: open until the first prompt starts the
+   *  session, and never for a chat, which has no project. */
+  get canChooseStart(): boolean {
+    return this.canRoute && !isChat(this.run.workingDirectory)
+  }
+
+  /** Makes the new session a lead or not (docs/plans/lead-session.md). False
+   *  when nothing changed or the session has started. */
+  chooseLead(lead: boolean, leadModel: LeadModelSelection | null): boolean {
+    if (!this.canChooseStart || !this.leadChoice.choose(this.run, lead, leadModel, this.settings)) return false
+    // An empty change keeps the new run inside what the agent offers and shows it.
+    return this.updateRun({})
+  }
+
+  /** The new session starts in a new worktree from `baseBranch`, or in the
+   *  project's checkout when null. As in T3, both start from the project
+   *  folder: a worktree another branch pick named is left. */
+  chooseWorktreeBase(baseBranch: string | null): void {
+    if (!this.canChooseStart || (this.run.worktreeBaseBranch ?? null) === baseBranch) return
+    this.run.worktreeBaseBranch = baseBranch
+    this.run.workingDirectory = this.projectDirectory
+    this.checkoutBranch = this.projectBranch
+    this.flush(true)
+  }
+
+  /** The new session starts in the project's checkout on `branch` (T3's
+   *  current-checkout branch picker). The host reads the refs again, then
+   *  checks the branch out in the project or names the worktree that already
+   *  has it; the draft works in the folder the host names. Returns the
+   *  host's refusal, or null. */
+  async chooseCheckoutBranch(branch: BranchRef): Promise<string | null> {
+    if (!this.canChooseStart) return 'The session has started.'
+    const project = this.projectDirectory
+    let result: GitCheckoutBranchResult
+    try {
+      result = await this.deps.connection.api.gitCheckoutBranch(this.projectCheckoutContext(), branch.name, { remoteOnly: branch.remoteOnly })
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+    if (!result.success) return result.error || "Couldn't switch the branch."
+    // An older host names no folder: its switch is always in the project.
+    const workingDirectory = result.workingDirectory ?? project
+    const picked = result.gitContext?.branch ?? branch.name
+    if (workingDirectory === project) this.projectBranch = picked
+    if (this.canChooseStart) {
+      this.checkoutBranch = picked
+      this.run.worktreeBaseBranch = null
+      this.run.workingDirectory = workingDirectory
+    }
+    this.flush(true)
+    return null
+  }
+
+  /** The other worktree a new session works in after a branch pick; null in
+   *  the project's own checkout (T3's "Current worktree"). */
+  get checkoutWorktree(): string | null {
+    return this.run.workingDirectory === this.projectDirectory ? null : this.run.workingDirectory
+  }
+
+  /** The folder a new session was opened for. */
+  private get projectDirectory(): string {
+    return this.target.newSession?.workingDirectory ?? this.run.workingDirectory
+  }
+
+  /** The context of a call about the project's own checkout, not the folder
+   *  the draft works in now. */
+  private projectCheckoutContext() {
+    const ctx = this.context()
+    const project = this.projectDirectory
+    return { ...ctx, session: { ...ctx.session, workingDirectory: project, projectPath: worktreeProjectRoot(project) } }
+  }
+
+  /** The project's branches, the bases a new worktree can start from. No
+   *  fetch first: the list is what the checkout has now, and it is fast. As
+   *  in T3, they are read in the project's own checkout, wherever the draft
+   *  works now, so its badges and current branch describe that checkout. */
+  async branches(): Promise<{ branches: BranchRef[]; currentBranch: string | null }> {
+    const [branches, identity] = await Promise.all([
+      this.deps.connection.api.worktreeBranches(this.projectCheckoutContext(), { skipFetch: true }),
+      this.deps.connection.api.gitIdentity(this.projectDirectory).catch(() => null),
+    ])
+    return { branches, currentBranch: identity?.branch ?? null }
   }
 
   /** What governs this work on its host (plans/030 §7). A saved session keeps its record's organization; new work takes the device's. Nothing is locked until the host answers. */
@@ -359,16 +515,20 @@ export class ConversationController {
       this.runOptionsLoaded = this.loadRunOptions(generation)
       const model = await this.readHistory(generation)
       if (!model) return
-      // Prompts not yet confirmed stay visible across the rebuild.
-      for (const record of this.deps.outbox.entriesFor(this.outboxKey)) {
-        model.addOptimisticUser(record.clientPromptId, record.text, record.lastError ? 'failed' : 'queued', queuedMessageAttachments(record.payload))
-        if (record.lastError) model.markDelivery(record.clientPromptId, 'failed', record.lastError)
-      }
+      this.keepUnsentPrompts(model)
       this.model = model
+      // The host's own history replaces a copy from the cloud.
+      if (!this.awaitsHostCopy && model !== this.carried) {
+        this.hasHostHistory = true
+        this.cloudRead = { kind: 'idle' }
+      }
       const held = this.held ?? []
       this.held = null
       for (const event of held) this.receive(event)
 
+      // Show the history now. Joining the live session can take another
+      // network round trip and must not hold back rows already read.
+      this.flush()
       const watched = await this.watch()
       if (generation !== this.loadGeneration) return
       this.applyWatch(watched)
@@ -377,6 +537,10 @@ export class ConversationController {
       // Every load, reconnects included: a change missed while away is read again.
       if (this.started) void this.suggestions.refresh()
       this.flush(true)
+      if (this.started && !this.openedOnHost) {
+        this.openedOnHost = true
+        void this.prepareRunHost()
+      }
       void this.drainOutbox()
     } catch (error) {
       if (generation !== this.loadGeneration) return
@@ -475,18 +639,45 @@ export class ConversationController {
   private async readHistory(generation: number): Promise<TranscriptModel | null> {
     if (!this.started) return new TranscriptModel(this.run.sessionId)
     const api = this.deps.connection.api
+    // The page travels while the session is described. A lineage that moves
+    // the thread to another provider reads the page again from that provider.
+    const firstSource = this.historySource
+    const firstPage = this.target.movedFrom || this.target.fromCloud
+      ? null : api.loadSessionPage({ ...firstSource, turnLimit: INITIAL_HISTORY_TURNS })
+    void firstPage?.catch(() => {})
     const description = await api.describeSession(this.run.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
     this.startedBy = hostStarterOf(description?.meta?.startedBy)
+    this.deps.runHosts?.noteMeta(this.hostId, description?.meta)
+    this.followHostCopy(description?.meta ?? null)
     const lineage = description?.lineage
     if (lineage) {
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
       this.followThread(lineage.active.provider)
     }
-    const page = await api.loadSessionPage({ ...this.historySource, turnLimit: INITIAL_HISTORY_TURNS })
+    if (this.carried) return this.carried
+    // A copy from the cloud stays until the host has its own.
+    if (this.awaitsHostCopy) return this.deps.cloudHistory?.isCopy(this.model) ? this.model : new TranscriptModel(this.run.sessionId)
+    const source = this.historySource
+    const page = await (firstPage && source.provider === firstSource.provider && source.projectPath === firstSource.projectPath
+      ? firstPage
+      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS }))
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
     return TranscriptModel.fromHistory(this.run.sessionId, page)
+  }
+
+  /**
+   * What this host answered of its copy. A host that has the session keeps it
+   * in its own folder, not the one the host it came from used. A cloud
+   * session it has no copy of reads no history until it has one.
+   */
+  private followHostCopy(meta: Pick<SessionMeta, 'cwd' | 'projectPath'> | null): void {
+    const { movedFrom, fromCloud } = this.target
+    this.awaitsHostCopy = !!fromCloud && !meta
+    if (!(movedFrom || fromCloud) || !meta?.cwd) return
+    this.run.workingDirectory = meta.cwd
+    this.projectPath = meta.projectPath
   }
 
   /** The provider refused the last turn's login, live or in loaded history: the sheet offers sign-in again. */
@@ -507,23 +698,61 @@ export class ConversationController {
 
   async loadOlder(): Promise<void> {
     const cursor = this.model.olderCursor
-    if (!cursor || this.loadingOlder || this.phase.kind !== 'ready') return
+    // A copy from the cloud reads its older turns there, with no host.
+    const isCloudRead = this.deps.cloudHistory?.isCopy(this.model) === true
+    if (!cursor || this.loadingOlder || (this.phase.kind !== 'ready' && !isCloudRead)) return
     const generation = this.loadGeneration
     const model = this.model
     this.loadingOlder = true
     this.flush(true)
     try {
-      const page = await this.deps.connection.api.loadSessionPage({
-        ...this.historySource,
-        turnLimit: OLDER_HISTORY_TURNS,
-        before: cursor,
-      })
-      if (generation === this.loadGeneration && model === this.model) model.prependHistory(page)
+      if (isCloudRead) {
+        await this.deps.cloudHistory?.readOlder(model)
+      } else {
+        const page = await this.deps.connection.api.loadSessionPage({
+          ...this.historySource,
+          turnLimit: OLDER_HISTORY_TURNS,
+          before: cursor,
+        })
+        if (generation === this.loadGeneration && model === this.model) model.prependHistory(page)
+      }
     } catch {
       // The reader can scroll up again; a failed older page changes nothing shown.
     } finally {
       this.loadingOlder = false
       this.flush(true)
+    }
+  }
+
+  /**
+   * No host that holds the session shows it: the conversation shows the
+   * session's read-only copy from Solus Cloud, read again on each call
+   * (docs/plans/portable-sessions-cloud.md, Phase 5B). The run host's history
+   * replaces it when it loads; a prompt still goes to the run host.
+   */
+  async readCloudHistory(): Promise<void> {
+    const history = this.deps.cloudHistory
+    if (!history || !this.started || this.showsHostConversation || this.cloudRead.kind === 'loading' || this.closed) return
+    this.cloudRead = { kind: 'loading' }
+    this.flush(true)
+    try {
+      const model = await history.read(this.run.sessionId, this.threadProvider ?? this.run.provider)
+      if (this.closed || this.showsHostConversation) return
+      this.keepUnsentPrompts(model)
+      this.model = model
+      this.cloudRead = { kind: 'ready' }
+    } catch (error) {
+      if (this.closed || this.showsHostConversation) return
+      this.cloudRead = { kind: 'error', message: error instanceof Error ? error.message : String(error) }
+    }
+    this.flush(true)
+  }
+
+  /** Prompts not yet confirmed stay visible in a new model: a rebuild, or a copy from the cloud. */
+  private keepUnsentPrompts(model: TranscriptModel): void {
+    for (const record of this.deps.outbox.entriesFor(this.outboxKey)) {
+      model.addOptimisticUser(record.clientPromptId, record.text, record.lastError ? 'failed' : 'queued', queuedMessageAttachments(record.payload))
+      if (record.lastError) model.markDelivery(record.clientPromptId, 'failed', record.lastError)
     }
   }
 
@@ -614,7 +843,7 @@ export class ConversationController {
       sessionId: this.run.sessionId,
       text: prompt,
       enqueuedAt: Date.now(),
-      payload: { ...composed, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? delivery ?? 'steer' : undefined,
+      payload: { ...composed, taskId: this.taskBinding?.taskId, taskHostId: this.taskBinding?.hostId, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? delivery ?? 'steer' : undefined,
         queueAttachments: attachments.map((attachment) => ({ id: attachment.id, type: attachment.kind, name: attachment.name,
           hostPath: attachment.hostPath, mimeType: attachment.mimeType, size: attachment.size })),
         queueAttachmentContext: attachments.filter((attachment) => attachment.kind === 'file').map((attachment) => `[Attached file: ${attachment.hostPath}]`).join('\n'),
@@ -1049,9 +1278,37 @@ export class ConversationController {
       this.run.contextWindow = event.modelConfig.contextWindow
       if (event.result) this.run.agentSessionId = event.result.restoredSessionId ?? null
     }
+    if (event.type === 'turn_settled' && !this.settledTurnIds.has(event.turnId)) {
+      this.settledTurnIds.add(event.turnId)
+      this.deps.runHosts?.noteTurnSettled(this.hostId, this.run.sessionId)
+    }
     this.model.apply(event)
     this.run.status = this.model.status
     this.flush(event.type === 'session_queue' || event.type === 'provider_switch_applied' || event.type === 'activity')
+    if (event.type === 'status_card') this.followStatusCard(event.card)
+  }
+
+  /** A sync card that ends makes this host current; a refused prompt's card says the session diverged. */
+  private followStatusCard(card: StatusCardState): void {
+    if (card.status === 'done' && isSessionSyncCard(card, this.run.sessionId)) this.adoptHostHistory()
+    if (card.promptRefusalCode === SESSION_DIVERGED) this.noteSessionDiverged()
+  }
+
+  private noteSessionDiverged(): void {
+    if (this.isSessionDiverged) return
+    this.isSessionDiverged = true
+    this.flush(true)
+  }
+
+  /**
+   * "Use the newer copy" after a refused push (design answer 3.4): this host
+   * syncs to the cloud head, then reads its history again. Its own turns stay
+   * in its Git history and provider files.
+   */
+  async takeNewerCopy(): Promise<void> {
+    this.reloadsWhenCurrent = true
+    const result = await this.deps.runHosts?.prepareNewerCopy(this.run.sessionId, this.hostId)
+    if (result?.state === 'current') this.adoptHostHistory()
   }
 
   private async watch(): Promise<WatchSessionResult> {
@@ -1133,7 +1390,22 @@ export class ConversationController {
         if (!this.watching) this.watchBeside()
         const ctx = this.context()
         this.policyRefusals.delete(record.clientPromptId)
+        const taskId = record.payload?.taskId
+        const taskHostId = record.payload?.taskHostId
+        const isRemoteTask = !!taskHostId && taskHostId !== this.target.hostId
+        const taskApi = taskId && taskHostId ? isRemoteTask ? this.deps.taskApi?.(taskHostId) : this.deps.connection.api : null
+        if (taskId && !taskApi) throw new Error('The task host is unavailable.')
+        let taskSnapshot: TaskSnapshot | undefined
+        if (taskId && taskApi && !this.started) {
+          const prepared = await taskApi.tasksPrepareForSession({ taskId, includeSnapshot: isRemoteTask })
+          if (!prepared.task) throw new Error('The task is unavailable. Open it again before starting this session.')
+          taskSnapshot = prepared.snapshot ?? undefined
+        } else if (taskId && taskApi && isRemoteTask) taskSnapshot = await taskApi.tasksSnapshot(taskId)
         const result = await this.deps.connection.api.prompt(ctx, {
+          // The newest head this device knows, from reads that already
+          // happened: a host that is behind syncs before the turn (plan §7.1).
+          ...this.deps.runHosts?.promptFields(this.run.sessionId, this.hostId),
+          taskId, taskSnapshot,
           prompt: record.payload?.prompt ?? record.text,
           displayPrompt: record.payload?.displayPrompt ?? record.text,
           clientPromptId: record.clientPromptId,
@@ -1146,9 +1418,13 @@ export class ConversationController {
           // The bubble shows the host's words; a policy refusal also keeps its code for the one fix it offers.
           const code = error instanceof Error ? rpcErrorCode(error) : null
           if (code && isPolicyRefusalCode(code)) this.policyRefusals.set(record.clientPromptId, code)
+          if (code === SESSION_DIVERGED) this.noteSessionDiverged()
           throw error
         })
+        if (taskId && taskApi && isRemoteTask) await taskApi.tasksLinkSession(taskId, this.run.sessionId, 'working', taskHostId === this.target.hostId ? null : { serverId: this.target.hostId, provider: this.run.provider, projectRoot: this.run.workingDirectory })
         this.started = true
+        // The worktree is made once, by the prompt that started the session.
+        this.run.worktreeBaseBranch = null
         // The first prompt starts the thread on the provider it carried.
         this.threadProvider ??= ctx.session.provider
         this.model.markDelivery(record.clientPromptId, result.disposition === 'queued' ? 'queued' : 'sent')
@@ -1156,7 +1432,37 @@ export class ConversationController {
       this.syncDeliveryFromOutbox()
       // A prompt enqueued while a drain ran was not in that drain's snapshot.
     } while (rounds < 5 && this.deps.outbox.entriesFor(this.outboxKey).some((entry) => entry.attempts === 0 && entry.lastError === null))
-    this.flush()
+    // The host control reads whether a prompt still waits (`hasUnsentPrompts`).
+    this.flush(true)
+  }
+
+  /** Prompts this device holds that the host has not taken yet. */
+  get hasUnsentPrompts(): boolean {
+    return this.deps.outbox.entriesFor(this.outboxKey).length > 0
+  }
+
+  /**
+   * The conversation opened on this host: when another host has a newer turn,
+   * or the person just chose this host, this host starts a sync now, so the
+   * next prompt does not wait for it (plan §10). A host that is current already
+   * shows its own history.
+   */
+  private async prepareRunHost(): Promise<void> {
+    const result = await this.deps.runHosts?.opened(this.run.sessionId, this.hostId, this.target.movedFrom ?? null)
+    if (result?.state === 'current') this.adoptHostHistory()
+  }
+
+  /** This host is current: the carried transcript, the empty cloud
+   *  conversation, or the refused copy gives way to the host's own history,
+   *  read in the folder where the host keeps the session. */
+  private adoptHostHistory(): void {
+    if ((!this.carried && !this.awaitsHostCopy && !this.reloadsWhenCurrent) || this.closed) return
+    this.carried = null
+    if (this.reloadsWhenCurrent) {
+      this.reloadsWhenCurrent = false
+      this.isSessionDiverged = false
+    }
+    void this.load()
   }
 
   private syncDeliveryFromOutbox(): void {

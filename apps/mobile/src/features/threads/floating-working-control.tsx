@@ -32,11 +32,11 @@ import { ShimmeringWorkContent } from "./thread-work-log";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
 
 const CONTROL_HEIGHT = 38.5; // h-11 with the mobile 14px rem
-// The collapsed composer capsule starts 6 below its overlay's top edge, so
-// the pill sits at (gap - 6) above the overlay to leave the same gap to the
+// The collapsed composer capsule starts 4 below its overlay's top edge, so
+// the pill sits at (gap - 4) above the overlay to leave the same gap to the
 // capsule as the feed's end inset leaves between it and the last row.
-const CONTROL_GAP = 8;
-const COMPOSER_CAPSULE_INSET = 6;
+const CONTROL_GAP = 6;
+const COMPOSER_CAPSULE_INSET = 4;
 const GLASS_MERGE_SPACING = 12;
 const CONTROL_ENTERING = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
 const CONTROL_EXITING = FadeOut.duration(120).reduceMotion(ReduceMotion.System);

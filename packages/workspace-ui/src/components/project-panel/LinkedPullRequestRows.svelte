@@ -1,22 +1,27 @@
 <script lang="ts">
   import {
     ArrowDownToLine as GitPullIcon,
+    ChevronDown as CaretDownIcon,
     ChevronRight as CaretRightIcon,
-    CircleCheck as ChecksIcon,
     CircleAlert as WarningCircleIcon,
-    CircleDashed as ChecksPendingIcon,
-    CircleMinus as ChecksNoneIcon,
-    CircleX as ChecksFailingIcon,
+    EyeOff as EyeOffIcon,
+    Globe as GlobeIcon,
     GitMerge as GitMergeIcon,
     GitPullRequest as GitPullRequestIcon,
     Glasses as EyeglassesIcon,
     Hammer as HammerIcon,
+    PanelRight as PanelRightIcon,
+    SquareArrowOutUpRight as OpenIcon,
   } from "@lucide/svelte";
   import { onDestroy, untrack } from "svelte";
   import type { HostApi } from "@solus/client-core/host-api";
+  import { localApi } from "@solus/client-core/local-api";
   import type { PullRequest } from "@solus/contracts/providers";
+  import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
   import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
+  import { sessionPullRequestsStore } from "../../contexts/prs/session-pull-requests.store.svelte";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { notificationsStore } from "../../contexts/notifications/notifications.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -30,8 +35,11 @@
     mergeReadiness,
     type MergeAction,
   } from "../pr-review/lib/merge-readiness";
+  import { CHECKS_ICON } from "../prs/lib/checks-icons";
   import { buildPrChecksFixPrompt } from "../pr-review/lib/pr-input-drafts";
-  import { prReference } from "./lib/card-pull-requests";
+  import { prReferenceParts } from "./lib/card-pull-requests";
+  import { watchRefusal } from "../conversation/lib/pull-request-card";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import MenuRow, {
     type ActionRowIcon,
     type ActionRowItem,
@@ -63,6 +71,9 @@
     /** `owner/repo` when the pull request is not in this checkout's
      *  repository; null when it is. */
     otherRepository?: string | null;
+    /** The session's link to this pull request while the session watches it;
+     *  null when nothing watches it. */
+    watchedLink?: SessionPullRequestLink | null;
     /** Where this pull request stands among the session's, when it has
      *  several; null when it is the only one. */
     position?: { index: number; count: number } | null;
@@ -82,6 +93,7 @@
     checks,
     active,
     otherRepository = null,
+    watchedLink = null,
     position = null,
     onCycle,
     onMerged,
@@ -177,7 +189,7 @@
       ? `Open a checkout of ${otherRepository} to hand this to an agent.`
       : readiness?.note || undefined,
   );
-  const reference = $derived(prReference(pr.number, otherRepository));
+  const reference = $derived(prReferenceParts(pr.number, otherRepository));
   // Said in place of the blocker's headline: the host is already waiting on it.
   const armedLabel = $derived(detail ? armedAutoMergeLabel(detail) : null);
 
@@ -186,6 +198,52 @@
   function openPr(tab: "activity" | "guide") {
     void session.prReview.openPullRequest(pr, { ctx, serverId, tab });
     requestInputFocus();
+  }
+
+  // Open is a split row like the Git actions above: the row opens the pull
+  // request pane here, and its caret drops the choice of where to open it.
+  let openMenuOpen = $state(false);
+  let openRowEl = $state<HTMLElement | null>(null);
+  let openCaretEl = $state<HTMLButtonElement | null>(null);
+
+  function openInSolus() {
+    openMenuOpen = false;
+    void session.prReview.openPullRequest(pr, { ctx, serverId, via: "click" });
+    requestInputFocus();
+  }
+
+  function openInBrowser() {
+    openMenuOpen = false;
+    void localApi.openExternal(pr.url);
+    requestInputFocus();
+  }
+
+  // A watch the agent runs on this pull request (docs/plans/pr-watch.md). The
+  // row shows while it runs; a viewer who may not change it sees it disabled.
+  const canStopWatch = $derived(
+    !!watchedLink && canDriveSession(serverId, watchedLink.sessionId, "edit"),
+  );
+  let stoppingWatch = $state(false);
+
+  async function stopWatch() {
+    if (!watchedLink || stoppingWatch) return;
+    stoppingWatch = true;
+    try {
+      const refusal = watchRefusal(
+        await sessionPullRequestsStore.setWatch(serverId, watchedLink, false),
+      );
+      if (refusal)
+        toasts.error("Couldn't stop watching the pull request", {
+          description: refusal,
+        });
+    } catch (error) {
+      toasts.error("Couldn't stop watching the pull request", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      stoppingWatch = false;
+      requestInputFocus();
+    }
   }
 
   // The row is a producer as well as a door: with no guide yet, the click starts
@@ -395,8 +453,30 @@
     };
   });
 
+  const stopWatchRow = $derived<ActionRowItem | null>(
+    watchedLink
+      ? {
+          key: "pr-stop-watch",
+          label: stoppingWatch ? "Stopping watch…" : "Stop watching",
+          icon: EyeOffIcon,
+          phase: stoppingWatch ? "loading" : "idle",
+          disabled: !canStopWatch || stoppingWatch,
+          tooltip: canStopWatch
+            ? "Stop waking the agent when checks fail or a reviewer comments."
+            : "Watching. You can't change this session's watches.",
+        }
+      : null,
+  );
+
   const rows = $derived.by<ActionRowItem[]>(() => {
     const defs: ActionRowItem[] = [
+      {
+        key: "pr-open",
+        label: "Open",
+        icon: OpenIcon,
+        phase: "idle",
+        tooltip: "Open in Solus",
+      },
       {
         key: "pr-guide",
         label:
@@ -423,40 +503,33 @@
       defs.push({
         key: "pr-checks",
         label: "Checks",
-        icon: ChecksIcon,
+        // The row's own glyph is the state, drawn once; the tooltip names it.
+        icon: CHECKS_ICON[checks.state],
         phase: "idle",
-        // The state reads as a glyph; the tooltip still names it.
-        badgeIcon:
-          checks.state === "failing"
-            ? ChecksFailingIcon
-            : checks.state === "pending"
-              ? ChecksPendingIcon
-              : checks.state === "passing"
-                ? ChecksIcon
-                : checks.state === "none"
-                  ? ChecksNoneIcon
-                  : WarningCircleIcon,
-        // Running stays grey: the dashed glyph already says "not done", and
-        // only a result earns a colour.
-        badgeIconTone:
-          checks.state === "failing"
-            ? "danger"
-            : checks.state === "passing"
-              ? "success"
-              : undefined,
         tooltip: `${checks.label}. ${checks.tooltip}`,
         iconTone:
           checks.state === "failing"
             ? "danger"
             : checks.state === "passing"
               ? "success"
-              : undefined,
+              : checks.state === "pending"
+                ? "running"
+                : undefined,
       });
+    if (stopWatchRow) defs.push(stopWatchRow);
     if (primaryRow) defs.push(primaryRow);
     return defs;
   });
 
   function activate(key: string) {
+    if (key === "pr-open") {
+      openInSolus();
+      return;
+    }
+    if (key === "pr-stop-watch") {
+      void stopWatch();
+      return;
+    }
     // Nothing to read yet: the click produces the guide instead of opening an
     // empty pane, and the pane follows when it is ready.
     if (key === "pr-guide") {
@@ -502,17 +575,70 @@
       title="Show the next linked pull request"
       onclick={onCycle}
     >
-      <span class="min-w-0 truncate">{reference}</span>
+      <span class="flex min-w-0"
+        >{#if reference.repository}<span class="min-w-0 truncate">{reference.repository}</span
+          >{/if}<span class="shrink-0">{reference.number}</span></span
+      >
       <span class="shrink-0 text-(--solus-text-tertiary)">{position.index + 1}/{position.count}</span>
       <CaretRightIcon size={11} class="shrink-0" />
     </button>
   {:else}
     <span
-      class="min-w-0 truncate font-normal tabular-nums text-(--solus-text-tertiary)"
-      title={otherRepository ?? undefined}>{reference}</span
+      class="flex min-w-0 font-normal tabular-nums text-(--solus-text-tertiary)"
+      title={otherRepository ?? undefined}
+      >{#if reference.repository}<span class="min-w-0 truncate">{reference.repository}</span
+        >{/if}<span class="shrink-0">{reference.number}</span></span
     >
   {/if}
 </div>
 {#each rows as row (row.key)}
-  <MenuRow item={row} onActivate={() => activate(row.key)} />
+  {#if row.key === "pr-open"}
+    <!-- The Git actions' split row and caret, the same geometry and states. -->
+    <div bind:this={openRowEl} class="flex items-stretch gap-px">
+      <MenuRow item={row} split onActivate={() => activate(row.key)} />
+      <button
+        bind:this={openCaretEl}
+        type="button"
+        class="inline-flex w-[1.625rem] shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] border-none bg-transparent text-(--solus-text-tertiary) transition-colors duration-150 ease-[ease] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none aria-expanded:bg-(--solus-surface-hover) aria-expanded:text-(--solus-text-primary)"
+        aria-label="More ways to open the pull request"
+        title="More ways to open the pull request"
+        aria-haspopup="menu"
+        aria-expanded={openMenuOpen}
+        onclick={() => (openMenuOpen = !openMenuOpen)}
+      >
+        <CaretDownIcon size={11} />
+      </button>
+    </div>
+  {:else}
+    <MenuRow item={row} onActivate={() => activate(row.key)} />
+  {/if}
 {/each}
+<DropdownMenu.Root bind:open={openMenuOpen}>
+  <DropdownMenu.Content
+    customAnchor={openRowEl}
+    side="bottom"
+    align="start"
+    sideOffset={4}
+    alignOffset={0}
+    collisionPadding={8}
+    onInteractOutside={(event) => {
+      // The caret is the menu's trigger — let its click toggle the menu rather
+      // than closing here and immediately reopening.
+      if (openCaretEl?.contains(event.target as Node | null)) event.preventDefault();
+    }}
+    onCloseAutoFocus={(event) => {
+      // No bits-ui trigger to return to; the prompt is the next natural stop.
+      event.preventDefault();
+      requestInputFocus();
+    }}
+  >
+    <DropdownMenu.Item onSelect={openInSolus}>
+      <PanelRightIcon />
+      <span class="min-w-0 flex-1 truncate">In Solus</span>
+    </DropdownMenu.Item>
+    <DropdownMenu.Item disabled={!pr.url} onSelect={openInBrowser}>
+      <GlobeIcon />
+      <span class="min-w-0 flex-1 truncate">In browser</span>
+    </DropdownMenu.Item>
+  </DropdownMenu.Content>
+</DropdownMenu.Root>

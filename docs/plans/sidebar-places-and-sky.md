@@ -63,7 +63,7 @@ Rules:
 - The mark is the sun of each scene. The glow and the orbit lines centre on it.
   `SidePanel` puts the lockup one gap after the macOS window buttons, or at the
   header's padding where there are none; `SidebarSky` computes the same point.
-- The sky is a band, not a tinted title bar. It keeps 2.25rem under the title
+- The sky is a band, not a tinted title bar. It keeps 0.75rem under the title
   bar row for itself (`SKY_HEADER_DROP_REM`): the sidebar's content starts that
   much lower.
 - The sky ends at the top of the search field. It is opaque only behind the controls
@@ -74,7 +74,7 @@ Rules:
   lightness changes fast, and a short fall of alpha did that. It is gone
   0.5rem below the start of the content: only its faintest trace touches the
   top edge of the search field, and the field's text is on the plain surface.
-  The 2.25rem room above the content is what gives the fall its length. The colours of dusk and night get warmer or bluer as they thin,
+  The 0.75rem room above the content is what gives the fall its length. The colours of dusk and night get warmer or bluer as they thin,
   so the fall reads as afterglow and not as grey. The tail of dusk mixes
   toward the sidebar's surface, so in the dark theme it does not make a
   light band.

@@ -27,6 +27,7 @@ export const turnRefusalSchema = z.enum([
   'ORGANIZATION_AUTHORITY_MISSING',
   /** The host is still making this member's Linux user and folders (docs/plans/member-isolation.md §8.1). */
   'WORKSPACE_PREPARING',
+  'SESSION_DIVERGED',
   /** A host or organization policy refused the work (plans/030 §6.1); the message names the policy. */
   ...POLICY_REFUSAL_CODES,
 ])

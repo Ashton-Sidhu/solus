@@ -4,8 +4,11 @@ import { EMPTY_SESSION_VIEW, settleFor, type SessionState, type SessionView } fr
 import type { SessionMeta, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
 import type { ResourceRole } from '@solus/contracts/sharing'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { connectedRunnerFor } from '@solus/client-core/session-runner'
+import { connectedRunnerFor, savedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionHomeId } from '@solus/client-core/session-home'
+import { onSessionMetaRead, readSessionMeta } from '@solus/client-core/session-meta'
+import { afterTurnSettled, listedSessionHost, newestSessionServer, sessionHostTurnOf, withSessionHostTurn, type SessionHostTurn } from '@solus/client-core/session-heads'
+import { sessionCloudState, type SessionCloudState } from '@solus/client-core/session-cloud-state'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { keepEqual } from '@solus/client-core/keep-equal'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
@@ -13,6 +16,7 @@ import { rememberRoles } from '../sharing/resource-roles'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { managedHostIds } from '@solus/client-core/server-registry'
 import { newGrants, sessionShareOf, type SessionShare } from './shared-sessions'
+import { CloudSessions } from './cloud-sessions.svelte'
 
 /** A session in a person's list, as a row without a conversation draws it. */
 export interface ListedSession {
@@ -48,6 +52,12 @@ export interface ListedSession {
   /** Set when another person owns the session: it is in Shared with you
    *  (docs/plans/shared-with-you.md). */
   share?: SessionShare
+  /** Only the cloud lists it: no connected host has the session
+   *  (docs/plans/portable-sessions-cloud.md §5.5). It opens with no
+   *  conversation until a machine that has it is selected. */
+  cloudOnly?: true
+  /** The project's repository key, as the cloud card names it; set on a cloud-only row. */
+  repositoryKey?: string | null
 }
 
 /** What this client last knew of a shared session that left the list, for
@@ -97,6 +107,8 @@ export interface SessionListTarget {
 export interface SessionListHosts {
   /** The connected saved server a cloud record's runner host id names, or null. */
   connectedRunnerFor(runnerHostId: string): string | null
+  /** The saved server an account host id names, connected or not. Absent: `connectedRunnerFor`. */
+  savedRunnerFor?(hostId: string): string | null
   connectedServerIds(): string[]
   /** A machine provisioned for an organization; any other is personal (plans/031). Absent: every machine is personal. */
   isManagedHost?(serverId: string): boolean
@@ -104,9 +116,12 @@ export interface SessionListHosts {
 
 const registryHosts: SessionListHosts = {
   connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
+  savedRunnerFor: (hostId) => savedRunnerFor(hostId),
   connectedServerIds: () => serverConnections.connectedServerIds(),
   isManagedHost: (serverId) => managedHostIds().has(serverId),
 }
+
+const NO_HOST_TURNS: readonly SessionHostTurn[] = []
 
 const NO_STATE: SessionListState = { settledAt: null, settledBy: null, archivedAt: null, snoozedUntil: null, snoozeNote: null }
 
@@ -145,12 +160,28 @@ export class SessionListStore {
    *  you (docs/plans/shared-with-you.md §2, rule 1). */
   private formerShares = new SvelteMap<string, FormerShare>()
   private openedShares = new SvelteMap<string, number>(loadOpenedShares())
+  /** Each home's record of a session it lists, by session id, then home. A
+   *  session that ran on two hosts is in both lists; one of them is the row. */
+  private listedRecords = new Map<string, Map<string, SessionRecord>>()
+  /** What each host holds of a session's session repository, by session id
+   *  (docs/plans/portable-sessions.md §9). Plain facts from session info reads
+   *  that already happen, and from turns this client saw end. */
+  private hostTurnsBySession = new SvelteMap<string, readonly SessionHostTurn[]>()
+  /** `<serverId> <sessionId>` pairs this store asked for their facts once. */
+  private askedHostTurns = new Set<string>()
+  /** What the cloud knows of this person's sessions, and the ones only it lists. */
+  readonly cloud: CloudSessions
 
   constructor(
     private readonly hosts: SessionListHosts = registryHosts,
     /** Shares granted before this time do not toast (`newGrants`). */
     private readonly startedAt = Date.now(),
-  ) {}
+    /** Reads one session's info from one host; its answer comes back through `onSessionMetaRead`. */
+    private readonly readMeta: (serverId: string, sessionId: string) => Promise<SessionMeta | null> = readSessionMeta,
+  ) {
+    this.cloud = new CloudSessions(hosts)
+    onSessionMetaRead((serverId, meta) => this.noteSessionMeta(serverId, meta))
+  }
 
   /** Read every connected home's list. */
   async load(): Promise<void> {
@@ -164,15 +195,19 @@ export class SessionListStore {
     const readStartedAt = performance.now()
     const answer = await api.sessionRecordList().catch(() => null)
     if (!answer || serverConnections.apiFor(serverId) !== api) return
+    if (isSolusApiId(serverId)) {
+      for (const record of answer.records) this.cloud.writeRecord(serverId, record)
+      void this.cloud.load(serverId)
+    }
     // A published organization session a managed machine lists is its Solus API's to list;
     // one a connected personal machine runs is that machine's (plans/031 rule 1).
     const records = isSolusApiId(serverId)
       ? answer.records.filter((record) => !this.runsOnConnectedPersonalHost(record))
       : answer.records.filter((record) => this.homeOf(serverId, record) === serverId)
     const answered = new Set(records.map((record) => record.sessionId))
-    for (const [sessionId, listed] of this.listedBySession) {
-      if (listed.homeServerId !== serverId || answered.has(sessionId)) continue
-      this.removeListed(listed)
+    for (const [sessionId, homes] of this.listedRecords) {
+      if (!homes.has(serverId) || answered.has(sessionId)) continue
+      this.dropListedRecord(serverId, sessionId)
     }
     for (const record of records) this.writeListed(serverId, record)
     this.announceRecords(serverId, records, readStartedAt)
@@ -197,6 +232,7 @@ export class SessionListStore {
     const readStartedAt = performance.now()
     const record = await api.sessionRecordGet(sessionId).catch(() => undefined)
     if (record === undefined || serverConnections.apiFor(serverId) !== api) return
+    if (record && isSolusApiId(serverId)) this.cloud.writeRecord(serverId, record)
     // The rows the list answers: root sessions in the reader's list that this home keeps.
     const isListed = !!record && record.listed !== false && !record.parentSessionId
       && (isSolusApiId(serverId) || this.homeOf(serverId, record) === serverId)
@@ -205,8 +241,7 @@ export class SessionListStore {
       this.writeListed(serverId, record)
       this.announceNewGrants(serverId, [record])
     } else {
-      const listed = this.listedBySession.get(sessionId)
-      if (listed?.homeServerId === serverId) this.removeListed(listed)
+      this.dropListedRecord(serverId, sessionId)
       const share = record ? sessionShareOf(record) : undefined
       if (record && share) this.formerShares.set(sessionId, { title: record.customTitle ?? record.title ?? record.slug, share })
     }
@@ -220,7 +255,54 @@ export class SessionListStore {
     this.viewsBySession.delete(listed.sessionId)
   }
 
+  /** A home lists a session. When another home lists it too, the row shows the
+   *  one with the newer turn (plan §9), and their facts are read once. */
   private writeListed(serverId: string, record: SessionRecord): void {
+    let homes = this.listedRecords.get(record.sessionId)
+    if (!homes) {
+      homes = new Map()
+      this.listedRecords.set(record.sessionId, homes)
+    }
+    homes.set(serverId, record)
+    this.showListed(record.sessionId)
+  }
+
+  /** A home no longer lists a session. Another home that lists it takes the row. */
+  private dropListedRecord(serverId: string, sessionId: string): void {
+    const homes = this.listedRecords.get(sessionId)
+    homes?.delete(serverId)
+    if (homes && homes.size === 0) this.listedRecords.delete(sessionId)
+    const listed = this.listedBySession.get(sessionId)
+    if (listed?.homeServerId !== serverId) return
+    if (homes?.size) this.showListed(sessionId)
+    else this.removeListed(listed)
+  }
+
+  /** Draw a session's row from the home that has its newest turn. */
+  private showListed(sessionId: string): void {
+    const homes = this.listedRecords.get(sessionId)
+    if (!homes?.size) return
+    const homeIds = [...homes.keys()]
+    if (homeIds.length > 1) this.readHostTurns(sessionId, homeIds)
+    const chosen = listedSessionHost(homeIds, this.hostTurnsFor(sessionId), this.listedBySession.get(sessionId)?.homeServerId ?? null)
+    const record = chosen ? homes.get(chosen) : undefined
+    if (chosen && record) this.writeRow(chosen, record)
+  }
+
+  /** Ask each home that has no facts for this session once. The answer
+   *  arrives through the meta read hook and draws the row again. */
+  private readHostTurns(sessionId: string, serverIds: readonly string[]): void {
+    const known = this.hostTurnsFor(sessionId)
+    for (const serverId of serverIds) {
+      if (isSolusApiId(serverId) || known.some((entry) => entry.serverId === serverId)) continue
+      const key = `${serverId} ${sessionId}`
+      if (this.askedHostTurns.has(key)) continue
+      this.askedHostTurns.add(key)
+      void this.readMeta(serverId, sessionId).catch(() => null)
+    }
+  }
+
+  private writeRow(serverId: string, record: SessionRecord): void {
     const isCloud = isSolusApiId(serverId)
     const runner = isCloud && record.runnerHostId ? this.hosts.connectedRunnerFor(record.runnerHostId) : null
     // The composer and the cards ask "may I drive it" of the host it opens on (access-model.md §2.7).
@@ -289,15 +371,31 @@ export class SessionListStore {
   /** A forgotten host's sessions leave the list. One its Solus API keeps stays,
    *  and is read again so it opens from the Solus API. */
   forgetHost(serverId: string): void {
+    // A Solus API that goes (sign-out) takes the cloud facts and cloud-only rows it gave.
+    this.cloud.forget(serverId)
     const homes = new Set<string>()
     for (const [sessionId, listed] of this.listedBySession) {
       if (listed.homeServerId === serverId) {
+        const others = this.listedRecords.get(sessionId)
+        others?.delete(serverId)
+        if (others?.size) {
+          this.showListed(sessionId)
+          continue
+        }
+        this.listedRecords.delete(sessionId)
         this.listedBySession.delete(sessionId)
         this.statesBySession.delete(sessionId)
         this.viewsBySession.delete(sessionId)
       } else if (listed.serverId === serverId) {
         homes.add(listed.homeServerId)
       }
+    }
+    for (const [sessionId, others] of this.listedRecords) {
+      if (others.delete(serverId) && others.size === 0) this.listedRecords.delete(sessionId)
+    }
+    for (const [sessionId, turns] of this.hostTurnsBySession) {
+      const kept = turns.filter((entry) => entry.serverId !== serverId)
+      if (kept.length !== turns.length) this.hostTurnsBySession.set(sessionId, kept)
     }
     for (const home of homes) void this.loadHost(home)
   }
@@ -354,6 +452,7 @@ export class SessionListStore {
     const listed = this.listedBySession.get(sessionId)
     if (view?.archivedAt != null) {
       if (listed) this.rememberFormerShare(listed)
+      this.listedRecords.delete(sessionId)
       this.listedBySession.delete(sessionId)
     } else if (!this.listedBySession.has(sessionId)) void this.loadSession(serverId, sessionId)
   }
@@ -370,8 +469,9 @@ export class SessionListStore {
 
   /** Every session in this person's list. */
   listed(sessionId: string): ListedSession | undefined {
-    return this.listedBySession.get(sessionId)
+    return this.listedBySession.get(sessionId) ?? this.cloud.listed(sessionId, (id) => this.listedBySession.has(id))
   }
+
 
   /** What this client knew of a shared session, listed or not any more. */
   shareFacts(sessionId: string): FormerShare | undefined {
@@ -397,8 +497,59 @@ export class SessionListStore {
     saveOpenedShares(this.openedShares)
   }
 
+  /** What each host that answered holds of this session's repository. */
+  hostTurnsFor(sessionId: string): readonly SessionHostTurn[] {
+    return this.hostTurnsBySession.get(sessionId) ?? NO_HOST_TURNS
+  }
+
+  /** The host that has the newest turn of a session, the cloud included; a tie goes to `preferServerId`. */
+  newestHostFor(sessionId: string, preferServerId?: string | null): string | null {
+    return newestSessionServer(this.hostTurnsFor(sessionId), preferServerId, this.cloud.headFor(sessionId))
+  }
+
+
+  /** The cloud state of a session whose tab runs on `runServerId` (plan §10). */
+  cloudStateFor(sessionId: string, runServerId: string, wasPromptRefused = false): SessionCloudState | null {
+    return sessionCloudState({
+      wasPromptRefused,
+      runServerId,
+      turns: this.hostTurnsFor(sessionId),
+      cloud: this.cloud.headFor(sessionId),
+      runningServerId: this.cloud.runningServerFor(sessionId),
+    })
+  }
+
+  /** A host refused a prompt because the cloud refused its push, or it uses the newer copy now. */
+  notePushRefused(serverId: string, sessionId: string, isRefused: boolean): void {
+    const turns = this.hostTurnsFor(sessionId)
+    const known = turns.find((entry) => entry.serverId === serverId)
+    if (!!known?.pushRefused === isRefused) return
+    const turn: SessionHostTurn = { serverId, head: known?.head ?? null, syncedTurn: known?.syncedTurn ?? 0 }
+    if (isRefused) turn.pushRefused = true
+    this.writeHostTurns(sessionId, withSessionHostTurn(turns, turn))
+  }
+
+  /** A host answered a session's info: keep its head and turn count. */
+  noteSessionMeta(serverId: string, meta: Pick<SessionMeta, 'sessionId' | 'head' | 'syncedTurn'>): void {
+    const turn = sessionHostTurnOf(serverId, meta)
+    if (!turn) return
+    this.writeHostTurns(meta.sessionId, withSessionHostTurn(this.hostTurnsFor(meta.sessionId), turn))
+  }
+
+  /** A turn of this session ended on `serverId`: that host has its newest turn now. */
+  noteTurnSettled(serverId: string, sessionId: string): void {
+    this.writeHostTurns(sessionId, afterTurnSettled(this.hostTurnsFor(sessionId), serverId, this.cloud.factsFor(sessionId)?.syncedTurn))
+  }
+
+  private writeHostTurns(sessionId: string, turns: readonly SessionHostTurn[]): void {
+    if (turns === this.hostTurnsBySession.get(sessionId)) return
+    this.hostTurnsBySession.set(sessionId, turns)
+    if ((this.listedRecords.get(sessionId)?.size ?? 0) > 1) this.showListed(sessionId)
+  }
+
+  /** Every row: the records of the connected homes, then the sessions only the cloud lists. */
   get sessions(): ListedSession[] {
-    return [...this.listedBySession.values()]
+    return [...this.listedBySession.values(), ...this.cloud.listedRows((sessionId) => this.listedBySession.has(sessionId))]
   }
 
   /** Local sessions, the selected organization's, and every session of a personal
@@ -466,9 +617,13 @@ export class SessionListStore {
   async setArchived(target: SessionListTarget, isArchived: boolean): Promise<void> {
     const serverId = this.homeFor(target)
     this.watchHost(serverId)
+    const previousView = this.viewsBySession.get(target.sessionId)
+    this.writeView(target.sessionId, { ...(previousView ?? EMPTY_SESSION_VIEW), archivedAt: isArchived ? Date.now() : null })
     const listed = isArchived ? this.listedBySession.get(target.sessionId) : undefined
+    const homes = this.listedRecords.get(target.sessionId)
     if (listed) {
       this.rememberFormerShare(listed)
+      this.listedRecords.delete(target.sessionId)
       this.listedBySession.delete(target.sessionId)
     }
     try {
@@ -476,7 +631,11 @@ export class SessionListStore {
       this.writeView(target.sessionId, view)
       if (!isArchived && !this.listedBySession.has(target.sessionId)) void this.loadSession(serverId, target.sessionId)
     } catch (error) {
-      if (listed && !this.listedBySession.has(target.sessionId)) this.listedBySession.set(target.sessionId, listed)
+      this.writeView(target.sessionId, previousView)
+      if (listed && !this.listedBySession.has(target.sessionId)) {
+        this.listedBySession.set(target.sessionId, listed)
+        if (homes) this.listedRecords.set(target.sessionId, homes)
+      }
       throw error
     }
   }

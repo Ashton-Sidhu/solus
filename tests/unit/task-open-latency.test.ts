@@ -14,6 +14,7 @@ const metaReads = new Map<string, (meta: SessionMeta | null) => void>()
 mock.module('@solus/client-core/session-meta', () => ({
   readSessionMeta: (_serverId: string, sessionId: string) =>
     new Promise<SessionMeta | null>((resolve) => metaReads.set(sessionId, resolve)),
+  onSessionMetaRead: () => () => {},
 }))
 mock.module(`${workspaceUi}/lib/inputFocus`, () => ({
   requestInputFocus: (request?: unknown) => focusRequests.push(request ?? null),

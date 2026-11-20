@@ -53,6 +53,11 @@ export function renamePinnedSession(sessionId: string, title: string): void {
   getDb().prepare('UPDATE pinned_sessions SET title = ? WHERE session_id = ?').run(title, sessionId)
 }
 
+/** Completion and archive end the host owner's pin of this session. */
+export function removePinnedSession(sessionId: string): void {
+  getDb().prepare('DELETE FROM pinned_sessions WHERE session_id = ?').run(sessionId)
+}
+
 export async function togglePinnedSession(session: PinnedSession): Promise<PinnedSession[]> {
   withTx(() => {
     const db = getDb()

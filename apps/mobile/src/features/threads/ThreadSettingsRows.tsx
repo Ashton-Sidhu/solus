@@ -123,20 +123,22 @@ export function DisclosureRow(props: {
   );
 }
 
-/** Codex fast mode: a switch, as in the desktop picker. */
-export function FastModeRow(props: {
-  readonly modelLabel: string;
+/** An on-or-off option, as T3's SwitchRow: Codex fast mode, Meta mode. */
+export function SwitchRow(props: {
+  readonly label: string;
+  readonly description: string;
+  readonly accessibilityLabel: string;
   readonly value: boolean;
   readonly onValueChange: (value: boolean) => void;
 }) {
   return (
     <View className="min-h-11 flex-row items-center gap-3 bg-grouped-card px-4 py-2 android:min-h-14 android:border-t android:border-border-subtle">
       <View className="min-w-0 flex-1">
-        <Text className="text-sm font-t3-medium text-foreground">Fast mode</Text>
-        <Text className="text-xs text-foreground-muted">Uses your Codex allowance more quickly</Text>
+        <Text className="text-sm font-t3-medium text-foreground">{props.label}</Text>
+        <Text className="text-xs text-foreground-muted">{props.description}</Text>
       </View>
       <ThemedSwitch
-        accessibilityLabel={`Fast mode for ${props.modelLabel}`}
+        accessibilityLabel={props.accessibilityLabel}
         onValueChange={props.onValueChange}
         value={props.value}
       />

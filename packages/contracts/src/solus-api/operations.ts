@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import * as schemas from './schemas'
+import { LIST_MY_SESSIONS_OPERATION_PATH, SESSION_TURN_DIFF_OPERATION_PATH, listMySessionsResponseSchema, sessionTurnDiffSchema } from '../session-repositories'
 import * as queries from './queries'
 
 const empty = z.strictObject({})
@@ -18,6 +19,8 @@ export const solusApiOperations = {
   createWork: { method: 'post', path: '/works', scope: 'works:write', query: empty, body: schemas.workspaceCreateWorkSchema, response: schemas.workspaceWorkSchema, status: 201, idempotent: true },
   updateWork: { method: 'patch', path: '/works/:workId', scope: 'works:write', query: empty, body: schemas.workspaceUpdateWorkSchema, response: schemas.workspaceWorkSchema, status: 200, conditional: true },
   deleteWork: { method: 'delete', path: '/works/:workId', scope: 'works:write', query: empty, status: 204, conditional: true },
+  listMySessions: { method: 'get', path: LIST_MY_SESSIONS_OPERATION_PATH, scope: 'sessions:read', query: empty, response: listMySessionsResponseSchema, status: 200 },
+  sessionTurnDiff: { method: 'get', path: SESSION_TURN_DIFF_OPERATION_PATH, scope: 'sessions:read', query: empty, response: sessionTurnDiffSchema, status: 200 },
   listSessions: { method: 'get', path: '/sessions', scope: 'sessions:read', query: queries.workspaceSessionQuerySchema, response: schemas.workspaceSessionPageSchema, status: 200 },
   searchSessions: { method: 'get', path: '/sessions/search', scope: 'sessions:read', query: queries.workspaceSessionSearchQuerySchema, response: schemas.workspaceSessionSearchResultSchema, status: 200 },
   getSession: { method: 'get', path: '/sessions/:sessionId', scope: 'sessions:read', query: empty, response: schemas.workspaceSessionSchema, status: 200 },

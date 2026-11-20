@@ -2,6 +2,7 @@ import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEf
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { setupActivityLabel } from '@solus/contracts/setup-card'
+import type { SessionCloudReadStatus } from '@solus/client-core/session-cloud-read'
 import { Listeners } from '../../lib/listeners'
 import { ConversationController, type ConversationDeps, type ConversationPhase, type ConversationTarget } from './conversation-controller'
 import type { UploadedAttachment } from './lib/attachments'
@@ -13,7 +14,8 @@ import type { PendingPermission, PendingQuestion, QueuedPrompt, TranscriptItem }
 /**
  * React's view of one conversation, in three slices: the row order, each row,
  * and the chrome around them (`ConversationMeta`). A streamed token notifies
- * one row's listeners only; the list and the composer do not re-render.
+ * one row's listeners only, at most once per display frame; the list and
+ * the composer do not re-render for text alone.
  */
 
 export interface ConversationMeta {
@@ -26,6 +28,8 @@ export interface ConversationMeta {
   rateLimit: RateLimitInfo | null
   queued: readonly QueuedPrompt[]
   queue: SessionQueueSnapshot
+  /** Prompts this device holds that the host has not taken yet: the run host stays as it is. */
+  hasUnsentPrompts: boolean
   hasOlder: boolean
   loadingOlder: boolean
   /** The agent session on another host that started this one. */
@@ -44,12 +48,22 @@ export interface ConversationMeta {
   handoffPending: boolean
   /** The new session is a lead (`ConversationRun.lead`). */
   lead: boolean
+  /** The host refused a prompt: another host continued the session (`SESSION_DIVERGED`). */
+  isSessionDiverged: boolean
+  /** The read of the session's copy from Solus Cloud (`ConversationController.readCloudHistory`). */
+  cloudRead: SessionCloudReadStatus
+  /** A host gave the rows that show, so no copy from the cloud is read. */
+  showsHostConversation: boolean
+  /** The run host answered that it has no copy of the session. */
+  hostHasNoCopy: boolean
   /** What the next prompt runs with. */
-  run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode }
+  run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode; worktreeBaseBranch: string | null; checkoutBranch: string | null; checkoutWorktree: string | null }
   /** What the next prompt may choose: Auto before the host starts the
    *  session, and the permission modes the agent's host reports. */
   runOptions: {
     canRoute: boolean
+    /** Meta mode and a new worktree may still change (`ConversationController.canChooseStart`). */
+    canChooseStart: boolean
     autoNeedsKey: boolean
     capabilities: AgentCapabilities
     agents: readonly AgentMetadata[] | null
@@ -65,7 +79,10 @@ export class ConversationStore {
   private readonly itemListeners = new Map<string, Set<() => void>>()
   private readonly quoteListeners = new Set<(text: string) => void>()
   private readonly remarkListeners = new Set<(remarks: readonly string[]) => void>()
+  private readonly hostChoiceListeners = new Set<() => void>()
   private metaSnapshot: ConversationMeta
+  private readonly pendingItemIds = new Set<string>()
+  private itemFrame: number | null = null
   /** Where the reader was, kept across a remount (rotation, a split resize). */
   scrollOffset = 0
   readerAtEnd = true
@@ -81,22 +98,34 @@ export class ConversationStore {
   mcpAppPip: { readonly activityId: string; readonly title: string } | null = null
   readonly mcpAppPipChanges = new Listeners()
 
-  constructor(target: ConversationTarget, deps: Omit<ConversationDeps, 'onChange'>) {
+  constructor(target: ConversationTarget, deps: Omit<ConversationDeps, 'onChange'>, private readonly frames = {
+    request: (callback: () => void): number => requestAnimationFrame(callback),
+    cancel: (frame: number): void => cancelAnimationFrame(frame),
+  }) {
     this.controller = new ConversationController(target, {
       ...deps,
       onChange: (changes) => {
         if (changes.order) {
+          this.cancelItemFrame()
+          this.pendingItemIds.clear()
           // A rebuilt model may reuse ids for different content; every row re-reads.
           for (const listeners of this.itemListeners.values()) for (const listener of Array.from(listeners)) listener()
           this.order.notify()
         } else {
-          for (const id of changes.items) for (const listener of Array.from(this.itemListeners.get(id) ?? [])) listener()
           for (const id of changes.items) {
+            if (this.itemListeners.has(id)) this.pendingItemIds.add(id)
             const item = this.item(id)
             if (item?.kind !== 'tool' || !item.children) continue
             for (const childId of item.children.takeChanges().items) {
-              for (const listener of Array.from(this.itemListeners.get(`${id}\0${childId}`) ?? [])) listener()
+              const childKey = `${id}\0${childId}`
+              if (this.itemListeners.has(childKey)) this.pendingItemIds.add(childKey)
             }
+          }
+          // Status and request changes show at once. Text bursts notify each
+          // row once per frame, using the latest item, without dropping events.
+          if (changes.meta) this.notifyItems()
+          else if (this.pendingItemIds.size > 0 && this.itemFrame === null) {
+            this.itemFrame = this.frames.request(() => this.notifyItems())
           }
         }
         if (changes.meta || changes.order) {
@@ -113,6 +142,19 @@ export class ConversationStore {
     if (next?.activityId === this.mcpAppPip?.activityId) return
     this.mcpAppPip = next
     this.mcpAppPipChanges.notify()
+  }
+
+  private cancelItemFrame(): void {
+    if (this.itemFrame === null) return
+    this.frames.cancel(this.itemFrame)
+    this.itemFrame = null
+  }
+
+  private notifyItems(): void {
+    this.cancelItemFrame()
+    const ids = [...this.pendingItemIds]
+    this.pendingItemIds.clear()
+    for (const id of ids) for (const listener of Array.from(this.itemListeners.get(id) ?? [])) listener()
   }
 
   subscribeItem(id: string, listener: () => void): () => void {
@@ -148,6 +190,16 @@ export class ConversationStore {
     return () => { this.remarkListeners.delete(listener) }
   }
 
+  /** "Choose a host" on a failed sync card: the thread opens its host choice. */
+  requestHostChoice = (): void => {
+    for (const listener of Array.from(this.hostChoiceListeners)) listener()
+  }
+
+  onHostChoiceRequested(listener: () => void): () => void {
+    this.hostChoiceListeners.add(listener)
+    return () => { this.hostChoiceListeners.delete(listener) }
+  }
+
   orderSnapshot = (): readonly string[] => this.controller.model.order
 
   item(id: string): TranscriptItem | undefined {
@@ -167,6 +219,7 @@ export class ConversationStore {
       rateLimit: model.rateLimit,
       queued: model.queued,
       queue: this.controller.queue,
+      hasUnsentPrompts: this.controller.hasUnsentPrompts,
       hasOlder: model.olderCursor !== null,
       loadingOlder: this.controller.loadingOlder,
       startedBy: this.controller.startedBy,
@@ -178,15 +231,23 @@ export class ConversationStore {
       unsentText: this.controller.unsentText,
       handoffPending: isHandoffPending(this.controller.threadProvider, this.controller.run.provider),
       lead: this.controller.run.lead === true,
+      isSessionDiverged: this.controller.isSessionDiverged,
+      cloudRead: this.controller.cloudRead,
+      showsHostConversation: this.controller.showsHostConversation,
+      hostHasNoCopy: this.controller.hostHasNoCopy,
       run: {
         provider: this.controller.run.provider,
         model: this.controller.run.preferredModel,
         reasoningEffort: this.controller.run.reasoningEffort,
         fastMode: this.controller.run.fastMode,
         permissionMode: this.controller.run.permissionMode,
+        worktreeBaseBranch: this.controller.run.worktreeBaseBranch ?? null,
+        checkoutBranch: this.controller.checkoutBranch,
+        checkoutWorktree: this.controller.checkoutWorktree,
       },
       runOptions: {
         canRoute: this.controller.canRoute,
+        canChooseStart: this.controller.canChooseStart,
         autoNeedsKey: this.controller.autoNeedsKey,
         capabilities: this.controller.capabilitiesOf(this.controller.run.provider),
         agents: this.controller.agents,
@@ -196,6 +257,8 @@ export class ConversationStore {
   }
 
   close(): void {
+    this.cancelItemFrame()
+    this.pendingItemIds.clear()
     this.controller.close()
     this.itemListeners.clear()
   }

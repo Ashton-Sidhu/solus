@@ -76,10 +76,10 @@ describe('branch picker order', () => {
     gitOn(6, repo, ['checkout', 'visited'])
 
     expect(await listBranchRefs(repo)).toEqual([
-      { name: 'visited', activeAt: dayMs(6), remoteOnly: false, isDefault: false },
-      { name: 'main', activeAt: dayMs(5), remoteOnly: false, isDefault: true },
-      { name: 'remote-only', activeAt: dayMs(3), remoteOnly: true, isDefault: false },
-      { name: 'old-feature', activeAt: dayMs(2), remoteOnly: false, isDefault: false },
+      { name: 'visited', activeAt: dayMs(6), remoteOnly: false, isDefault: false, current: true },
+      { name: 'main', activeAt: dayMs(5), remoteOnly: false, isDefault: true, current: false },
+      { name: 'remote-only', activeAt: dayMs(3), remoteOnly: true, isDefault: false, current: false },
+      { name: 'old-feature', activeAt: dayMs(2), remoteOnly: false, isDefault: false, current: false },
     ])
     expect((await listBranchRefs(repo, { remoteOnly: true })).map((ref) => ref.name))
       .toEqual(['main', 'remote-only', 'old-feature'])

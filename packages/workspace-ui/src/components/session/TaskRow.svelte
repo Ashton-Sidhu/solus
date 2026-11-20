@@ -16,10 +16,12 @@
   import { shouldActivateRenameableRow } from "../../lib/rename-input";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "../servers/lib/managed-host";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import PrChip from "./PrChip.svelte";
+  import SessionPinButton from "./SessionPinButton.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import TaskSessionRow from "./TaskSessionRow.svelte";
@@ -45,6 +47,8 @@
 
   interface Props {
     task: SidebarTask;
+    isPinned?: boolean;
+    onTogglePin?: () => void;
     /** The owner of a shared row's session, when the directory names them. */
     shareOwner?: User | null;
     prChip: PrChipModel | null;
@@ -78,6 +82,8 @@
     isTooltipQuiet?: boolean;
     /** The pointer went down on the row: its reads can start before the click lands. */
     onPressStart?: () => void;
+    /** The pointer or the keyboard came to the row (true) or left it (false). */
+    onRest?: (isResting: boolean) => void;
     /** Rename a row in place. `null` names the row's own session, matching
      *  `onRename`; a session listed under the row is named by its tab. */
     onStartRename: (session: SidebarSessionChild | null) => void;
@@ -109,6 +115,8 @@
   }
   let {
     task,
+    isPinned = false,
+    onTogglePin,
     shareOwner = null,
     prChip,
     prChoices,
@@ -125,6 +133,7 @@
     onSelect,
     isTooltipQuiet = false,
     onPressStart,
+    onRest,
     onStartRename,
     onRename,
     onRenameCancel,
@@ -205,7 +214,11 @@
   // sessions can sit on different hosts, and no single mark is true of all of
   // them — so the question moves to the task page, where each can answer it.
   const showsHost = $derived(!isGuest && sessions.length <= 1);
-  const host = $derived(serversStore.hostFor(task.serverId));
+  // A session that ran on several hosts names the one with its newest turn
+  // (docs/plans/portable-sessions.md §10): that is where it continues from.
+  const lastRunServerId = $derived(task.sessionId ? sessionListStore.newestHostFor(task.sessionId, task.serverId) : null);
+  const host = $derived(serversStore.hostFor(lastRunServerId ?? task.serverId));
+  const hostTitle = $derived(lastRunServerId ? `Last ran on ${host?.label ?? "Local"}` : host?.label);
   // A task with no server on it has nothing open, and nothing open runs here.
   const isRemote = $derived(!!host && !host.local);
   // A host Solus no longer has a saved entry for names no operating system;
@@ -445,6 +458,9 @@
              you are leaving alone, and it stays on the context menu with the
              rest of the session's lifecycle. Wake is not — it is a snoozed
              row's only way back, so it holds at every width. -->
+        {#if onTogglePin && !isPinned}
+          <SessionPinButton isPinned={false} onToggle={onTogglePin} />
+        {/if}
         {#if canSnooze && task.status !== "done"}
           {#if task.lifecycle === "snoozed"}
             <button
@@ -606,7 +622,11 @@
     : 'before:opacity-0'}"
   data-slot="session-row"
   data-active={isCurrentSession || undefined}
-  onpointerdown={(event) => { if (event.button === 0) onPressStart?.(); }}>
+  onpointerdown={(event) => { if (event.button === 0) onPressStart?.(); }}
+  onpointerenter={() => onRest?.(true)}
+  onpointerleave={() => onRest?.(false)}
+  onfocusin={() => onRest?.(true)}
+  onfocusout={() => onRest?.(false)}>
   <TooltipUI.Root disabled={isTooltipQuiet}>
     <TooltipUI.Trigger>
       {#snippet child({ props: tooltipProps })}
@@ -656,6 +676,9 @@
       }
     }}
   >
+    {#if isPinned && isSlim && onTogglePin}
+      <SessionPinButton isPinned onToggle={onTogglePin} />
+    {/if}
     {#if isSlim}
       <!-- One line, and the project mark stands in for the project name it no
            longer has room to spell. Shelved history recedes further than a live
@@ -706,6 +729,9 @@
           <span
             class="flex min-w-0 flex-1 items-center gap-[0.375rem] opacity-70 @max-[15rem]:gap-1"
           >
+            {#if isPinned && onTogglePin}
+              <SessionPinButton isPinned onToggle={onTogglePin} />
+            {/if}
             <!-- The project's own mark identifies it faster than its name does.
                  The band above already names the project while the list is
                  scoped. -->
@@ -747,7 +773,7 @@
               {#if isRemote}
                 <span
                   class="flex min-w-0 max-w-[45%] items-center gap-1"
-                  title={host?.label}
+                  title={hostTitle}
                 >
                   <HostOperatingSystemIcon
                     os={remoteOs}
@@ -761,7 +787,7 @@
                 <LaptopIcon
                   size={12}
                   class="size-3 shrink-0 @max-[15rem]:hidden"
-                  aria-label="Local"
+                  aria-label={hostTitle ?? "Local"}
                 />
               {/if}
             {/if}

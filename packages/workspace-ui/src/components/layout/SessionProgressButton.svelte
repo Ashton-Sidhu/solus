@@ -159,7 +159,7 @@
            mouse; under touch the circle's `tap-area` owns `::after`. -->
       <button
         {...props}
-        class="{PAGE_SOFT_ICON_BTN} progress-toggle relative p-0 pointer-fine:after:absolute pointer-fine:after:-inset-x-0.5 pointer-fine:after:-inset-y-2 pointer-fine:after:content-['']"
+        class="{PAGE_SOFT_ICON_BTN} progress-toggle relative size-7! p-0 pointer-fine:after:absolute pointer-fine:after:-inset-x-0.5 pointer-fine:after:-inset-y-2 pointer-fine:after:content-['']"
         class:progress-toggle-done={progressAllDone}
         aria-label={`Progress: step ${progress.currentStep} of ${progress.totalSteps}${progressHeader ? ` — ${progressHeader}` : ""}`}
       >
@@ -175,7 +175,7 @@
                   : ''}"
                 cx="18"
                 cy="18"
-                r="16.5"
+                r="16"
                 pathLength="100"
                 stroke-dasharray={`${segment.length} ${100 - segment.length}`}
                 stroke-dashoffset={-segment.start}
@@ -221,7 +221,7 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    overflow: visible;
+    overflow: hidden;
     transform: rotate(-90deg);
   }
   .pt-segment {

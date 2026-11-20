@@ -78,11 +78,6 @@ export function canChoosePermissionMode(capabilities: AgentCapabilities): boolea
   return capabilities?.permissions !== false
 }
 
-/** The composer's Plan shortcut: only where the agent offers Plan and modes at all. */
-export function offersPlanToggle(capabilities: AgentCapabilities): boolean {
-  return canChoosePermissionMode(capabilities) && permissionModesFor(capabilities).includes('plan')
-}
-
 /** A mode the agent does not offer becomes the mode an approved plan runs with. */
 export function supportedPermissionMode(mode: PermissionMode, capabilities: AgentCapabilities, defaultMode: PermissionMode): PermissionMode {
   return permissionModesFor(capabilities).includes(mode) ? mode : defaultMode === 'plan' ? 'full-access' : defaultMode

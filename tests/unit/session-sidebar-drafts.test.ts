@@ -23,7 +23,7 @@ mock.module('@solus/workspace-ui/contexts/projects/projects.store.svelte', () =>
 }))
 mock.module('@solus/workspace-ui/components/review/review-guide.store.svelte', () => ({ reviewGuideStore: {}, sessionGuideIdentity: () => null }))
 mock.module('@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte', () => ({ sessionPullRequestsStore: {}, sessionPrLink: () => null }))
-mock.module('@solus/workspace-ui/contexts/workspace/session-list.store.svelte', () => ({ sessionListStore: {} }))
+mock.module('@solus/workspace-ui/contexts/workspace/session-list.store.svelte', () => ({ sessionListStore: { onRecordsRead: () => () => {} } }))
 let SessionSidebarStore: typeof SidebarStore
 beforeAll(async () => {
   ;({ SessionSidebarStore } = await import('@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'))
@@ -129,6 +129,7 @@ test('pins from a healthy host appear while another host is still loading', asyn
   connections.registerPrimary('local', { pinnedSessionsList: async () => [pin, pin] })
   connections.registerHost('slow', { pinnedSessionsList: () => slow.promise })
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
+  Object.defineProperty(store, 'pinRequests', { value: new Map<string, number>() })
   store.pinnedSessions = [{ ...pin, sessionId: 'old', serverId: 'slow' }]
   const load = store.loadPinnedSessions()
   await Promise.resolve()
@@ -136,4 +137,34 @@ test('pins from a healthy host appear while another host is still loading', asyn
   slow.resolve([])
   await load
   expect(store.pinnedSessions.map((row) => row.sessionId)).toEqual(['healthy-session'])
+})
+
+test('completion and archive announcements remove host-scoped pins and invalidate stale reads', async () => {
+  const pending = Promise.withResolvers<PinnedSession[]>()
+  const pin: PinnedSession = { sessionId: 'session', serverId: 'local', provider: 'codex', title: 'Pinned', cwd: '/repo', pinnedAt: 1 }
+  connections.registerPrimary('local', { pinnedSessionsList: () => pending.promise })
+  connections.registerHost('other', { pinnedSessionsList: async () => [{ ...pin, serverId: 'other' }] })
+  const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
+  Object.defineProperty(store, 'pinRequests', { value: new Map<string, number>() })
+  store.pinnedSessions = [pin, { ...pin, serverId: 'other' }]
+  const stop = store.subscribeSessionStatuses()
+  try {
+    const read = store.loadPinnedSessions()
+    connections.eventsFor('local').receive({
+      type: 'session.viewChanged',
+      payload: { sessionId: 'session', view: { settledAt: 10, archivedAt: null, snoozedUntil: null, snoozeNote: null } },
+      occurredAt: 10,
+    })
+    pending.resolve([pin])
+    await read
+    expect(store.pinnedSessions.map((held) => held.serverId)).toEqual(['other'])
+    connections.eventsFor('other').receive({
+      type: 'session.viewChanged',
+      payload: { sessionId: 'session', view: { settledAt: null, archivedAt: 20, snoozedUntil: null, snoozeNote: null } },
+      occurredAt: 20,
+    })
+    expect(store.pinnedSessions).toEqual([])
+  } finally {
+    stop()
+  }
 })

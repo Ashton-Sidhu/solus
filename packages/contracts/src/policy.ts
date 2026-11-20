@@ -119,6 +119,8 @@ export const providerLaunchPinSchema = z.object({
 export type ProviderLaunchPin = z.infer<typeof providerLaunchPinSchema>
 
 export const sessionLimitsSchema = z.object({
+  /** false forbids cloud upload and fetch of the full session repository. */
+  sessionCloudSync: z.boolean().optional(),
   maxPermissionMode: z.enum(PERMISSION_MODES).optional(),
   providers: z.object({
     allowed: z.array(providerIdSchema).nonempty().optional(),

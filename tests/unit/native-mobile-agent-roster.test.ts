@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentConversationUpdate, WireNormalizedEvent } from '@solus/contracts/types'
+import type { SessionHistoryPage } from '@solus/contracts/session-history'
 import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
 import { agentPresentation, agentsPillLabel } from '../../apps/mobile/src/features/threads/agent-card-presentation'
 import { agentCandidates, agentRoster } from '../../apps/mobile/src/features/threads/agent-roster'
@@ -45,6 +46,43 @@ function twoTurns() {
 }
 
 describe('agents pill roster', () => {
+  test('reopening restores running and waiting agents from separate tool results', () => {
+    const messages: SessionHistoryPage['messages'] = [
+      { role: 'user', content: 'split the work', timestamp: 1 },
+      { role: 'tool', toolId: 'start', toolName: 'mcp__solus__start_sessions', toolInput: JSON.stringify({ sessions: [{ prompt: 'Build', title: 'Builder' }, { prompt: 'Check', title: 'Checker' }] }), content: '', timestamp: 2 },
+      { role: 'tool_result', toolResultForId: 'start', content: '', status: 'ok', timestamp: 3, agentConversationResults: [
+        { sessionId: 'builder', messageId: 'build', item: 0, progress: { state: 'running' } },
+        { sessionId: 'checker', messageId: 'check', item: 1, progress: { state: 'waiting_for_children' } },
+      ] },
+      { role: 'tool', toolId: 'send', toolName: 'mcp__solus__send_session', toolInput: '{"session_id":"builder","message":"Check the tests too"}', content: '', timestamp: 4 },
+      { role: 'tool_result', toolResultForId: 'send', content: '', status: 'ok', timestamp: 5, agentConversationResults: [
+        { sessionId: 'builder', messageId: 'followup', progress: { state: 'queued' } },
+      ] },
+    ]
+    const model = TranscriptModel.fromHistory('parent', { messages, before: null })
+    expect(roster(model).map((row) => [row.title, row.live])).toEqual([['Builder', true], ['Checker', true]])
+    expect(agentsPillLabel(roster(model), false)?.label).toBe('2/2')
+    const builder = [...model.items.values()].find((item) => item.kind === 'agent' && item.sessionId === 'builder')
+    expect(builder).toMatchObject({ exchanges: [{ messageId: 'build', status: 'running' }, { messageId: 'followup', status: 'queued' }] })
+    // The live report after reconnect must settle the same restored exchanges.
+    model.apply(settled('build', 'builder'))
+    model.apply(settled('followup', 'builder'))
+    expect(agentsPillLabel(roster(model), false)?.label).toBe('1/2')
+  })
+
+  test('a result on the newest page restores its agent when the older call is loaded', () => {
+    const model = TranscriptModel.fromHistory('parent', { before: 'older', messages: [
+      { role: 'tool_result', toolResultForId: 'start', content: '', status: 'ok', timestamp: 3, agentConversationResults: [
+        { sessionId: 'child', messageId: 'work', item: 0, progress: { state: 'waiting_for_children' } },
+      ] },
+    ] })
+    model.prependHistory({ before: null, messages: [
+      { role: 'user', content: 'start the work', timestamp: 1 },
+      { role: 'tool', toolId: 'start', toolName: 'start_sessions', toolInput: '{"sessions":[{"prompt":"Check"}]}', content: '', timestamp: 2 },
+    ] })
+    expect(agentsPillLabel(roster(model), false)?.label).toBe('1/1')
+  })
+
   test('a new prompt keeps the earlier agents that still run, beside the newest turn', () => {
     const model = twoTurns()
     expect(titles(model)).toEqual(['Work for child-1.', 'Subagent sa-1', 'Subagent sa-2'])

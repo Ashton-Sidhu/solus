@@ -68,7 +68,7 @@ type SidebarListItem =
   | ThreadListV2ListItem
   | { readonly type: "v2-show-more"; readonly key: string; readonly hiddenCount: number };
 
-const SIDEBAR_STICKY_HEADER_HEIGHT = 106;
+const SIDEBAR_STICKY_HEADER_HEIGHT = 96;
 
 interface ThreadNavigationSidebarProps {
   readonly width: number;
@@ -419,7 +419,7 @@ function ThreadNavigationSidebarPane(
     (Platform.OS === "android"
       ? paddingTop + height + paddingBottom
       : insets.top + SIDEBAR_STICKY_HEADER_HEIGHT);
-  const topListInset = stickyHeaderHeight + 6;
+  const topListInset = stickyHeaderHeight + 4;
   const handleStickyHeaderLayout = useCallback((event: LayoutChangeEvent) => {
     const nextHeight = event.nativeEvent.layout.height;
     setMeasuredHeaderHeight((current) => (current === nextHeight ? current : nextHeight));
@@ -491,6 +491,7 @@ function ThreadNavigationSidebarPane(
             <ThreadListV2Row
               thread={thread}
               variant={item.item.variant}
+              pinned={item.item.pinned}
               snoozed={item.item.snoozed}
               archived={item.item.archived}
               status={item.status}
@@ -818,7 +819,7 @@ function ThreadNavigationSidebarPane(
           pointerEvents="auto"
           style={{ paddingTop: insets.top }}
         >
-          <View className="h-[50px] flex-row items-end gap-0.5 pr-2 pl-5">
+          <View className="h-[44px] flex-row items-end gap-0.5 pr-2 pl-5">
             {/* Title slot doubles as the connection status surface: while a
               host reconnects, the brand fades to a status label in place (no
               layout shift in the list below). */}
@@ -840,7 +841,7 @@ function ThreadNavigationSidebarPane(
             </View>
           </View>
 
-          <View className="mx-4 mt-[9px] h-[38px] flex-row items-center gap-1.5 rounded-xl bg-sidebar-search pr-2.5 pl-[11px]">
+          <View className="mx-4 mt-[5px] h-[38px] flex-row items-center gap-1.5 rounded-xl bg-sidebar-search pr-2.5 pl-[11px]">
             <SymbolView
               name="magnifyingglass"
               size={15}

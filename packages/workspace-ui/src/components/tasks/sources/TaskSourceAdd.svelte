@@ -40,6 +40,16 @@
 
   let open = $state(false);
   let query = $state("");
+  let linearKey = $state("");
+  let connectingLinear = $state(false);
+  let linearError = $state<string | null>(null);
+  async function connectLinear(key: string | null) {
+    connectingLinear = true;
+    linearError = null;
+    try { await taskSourcesStore.connectLinear(key); linearKey = ""; }
+    catch (error) { linearError = error instanceof Error ? error.message : String(error); }
+    finally { connectingLinear = false; }
+  }
 
   const config = $derived({ taskSources: settings.taskSources });
   const configured = $derived(config.taskSources);
@@ -164,5 +174,22 @@
         {/if}
       </Command.List>
     </Command.Root>
+    {#if options?.linear?.location === 'account'}
+      <div class="grid gap-2 border-t border-border p-4">
+        <p class="text-workspace-chrome">Manage Linear in your Solus account.</p>
+        {#if options.linear.accountConnectionsUrl}<a href={options.linear.accountConnectionsUrl} target="_blank" rel="noreferrer" class="text-workspace-chrome underline">Open account connections</a>{/if}
+        <button type="button" class="rounded-md px-3 py-2 hover:bg-muted" onclick={() => void taskSourcesStore.loadOptions()}>Refresh connections</button>
+      </div>
+    {:else if options?.linear?.location === 'host'}
+    <form class="grid gap-2 border-t border-border p-4" onsubmit={(event) => { event.preventDefault(); void connectLinear(linearKey); }}>
+      <label for="linear-task-key" class="text-sm">Linear {options?.linear?.account ? `· ${options.linear.account}` : ''}</label>
+      <input id="linear-task-key" name="linear-api-key" type="password" autocomplete="off" maxlength={4096} disabled={connectingLinear} bind:value={linearKey} placeholder="Personal API key" class="min-w-0 rounded-md border border-input bg-transparent p-2" />
+      {#if linearError}<p class="text-sm text-destructive" role="alert">{linearError}</p>{/if}
+      <div class="flex gap-2">
+        <button type="submit" class="rounded-md px-3 py-2 hover:bg-muted" disabled={connectingLinear || !linearKey.trim()}>{connectingLinear ? 'Checking…' : 'Connect Linear'}</button>
+        {#if options?.linear?.connected}<button type="button" class="rounded-md px-3 py-2 hover:bg-muted" disabled={connectingLinear} onclick={() => void connectLinear(null)}>Disconnect</button>{/if}
+      </div>
+    </form>
+    {/if}
   </Popover.Content>
 </Popover.Root>

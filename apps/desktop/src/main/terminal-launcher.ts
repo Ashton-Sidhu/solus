@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from 'child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'fs'
 import { resolveHomePath } from '@solus/server/platform/paths'
 import { createLogger } from '@solus/server/logger'
@@ -157,7 +158,9 @@ export function tmuxTerminal(apps: TerminalApps) {
     const { command, fallbackTerminalId, cwd } = request
     log.info('terminal_launch', { fallbackTerminalId, command })
 
-    if (!createTmuxWindow(command, cwd)) return false
+    const sessionTag = request.sessionId && /^[\w-]+$/.test(request.sessionId) ? `export SOLUS_SESSION_ID='${request.sessionId}'; ` : ''
+    const taggedCommand = `export SOLUS_TERMINAL_ID='${randomUUID()}'; ${sessionTag}${command}`
+    if (!createTmuxWindow(taggedCommand, cwd)) return false
     if (await useAttachedTerminal()) return true
 
     const app = await apps.available(fallbackTerminalId)

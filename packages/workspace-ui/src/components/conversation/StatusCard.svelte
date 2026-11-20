@@ -10,6 +10,7 @@
   import { TerminalOutput } from "../ui/terminal-output";
   import { SetupStepTiming } from "./lib/setup-timing.svelte";
   import { statusCardLine } from "./lib/status-card";
+  import { sessionSyncFailureAction } from "@solus/client-core/session-sync-card";
   import {
     formatStepDuration,
     isWorktreeSetupCard,
@@ -26,9 +27,16 @@
     onRetry?: () => void;
     onWorkLocally?: () => void;
     onCancel?: () => void;
+    /** A session sync failed for want of a seat: open the connect flow. */
+    onConnectSeat?: () => void;
+    /** "Connect Claude" or "Connect Codex". */
+    connectSeatLabel?: string;
+    /** A session sync failed on this host: open the Run on list. */
+    onChooseHost?: () => void;
   }
 
-  let { card, skipMotion = false, keepsStepsOpen = false, onRetry, onWorkLocally, onCancel }: Props = $props();
+  let { card, skipMotion = false, keepsStepsOpen = false, onRetry, onWorkLocally, onCancel, onConnectSeat, connectSeatLabel = "Connect", onChooseHost }: Props = $props();
+  const syncAction = $derived(card.status === "error" && card.syncFailureReason ? sessionSyncFailureAction(card.syncFailureReason) : null);
 
   // A card the client makes has no host times: its step times are what this
   // client sees as the steps change. A host card's steps carry their own.
@@ -78,6 +86,12 @@
       {#if isError && card.recovery === "connect-github" && card.recoveryUrl}
         {@const connectUrl = card.recoveryUrl}
         <TranscriptCardAction kind="filled" onclick={() => void localApi.openExternal(connectUrl)}>Connect GitHub</TranscriptCardAction>
+      {/if}
+      {#if syncAction === "connect-seat" && onConnectSeat}
+        <TranscriptCardAction kind="filled" onclick={onConnectSeat}>{connectSeatLabel}</TranscriptCardAction>
+      {/if}
+      {#if syncAction === "choose-host" && onChooseHost}
+        <TranscriptCardAction kind="primary" onclick={onChooseHost}>Choose a host</TranscriptCardAction>
       {/if}
       {#if isError && card.recovery === "worktree"}
         {#if onWorkLocally}<TranscriptCardAction kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>{/if}

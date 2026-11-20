@@ -102,7 +102,7 @@ describe('the shared tmux session', () => {
       expect(launched).toBe(true)
       expect(execCalls.slice(0, 2)).toEqual([
         { file: 'tmux', args: ['has-session', '-t', 'solus'] },
-        { file: 'tmux', args: ['new-window', '-t', 'solus', '-c', '/tmp/project', 'bun run dev'] },
+        { file: 'tmux', args: ['new-window', '-t', 'solus', '-c', '/tmp/project', expect.stringMatching(/^export SOLUS_TERMINAL_ID='[\w-]+'; bun run dev$/)] },
       ])
       expect(execCalls.at(-1)).toEqual(fallbackCall)
     },
@@ -116,7 +116,7 @@ describe('the shared tmux session', () => {
     expect(launched).toBe(true)
     expect(execCalls.slice(0, 2)).toEqual([
       { file: 'tmux', args: ['has-session', '-t', 'solus'] },
-      { file: 'tmux', args: ['new-session', '-d', '-s', 'solus', '-c', '/tmp/project', 'exec /bin/zsh -l'] },
+      { file: 'tmux', args: ['new-session', '-d', '-s', 'solus', '-c', '/tmp/project', expect.stringMatching(/^export SOLUS_TERMINAL_ID='[\w-]+'; exec \/bin\/zsh -l$/)] },
     ])
     expect(execCalls.at(-1)).toEqual(MAC_GHOSTTY)
   })

@@ -8,7 +8,7 @@ import {
   type SessionState,
   type SessionView,
 } from "@solus/contracts/session-state";
-import { worktreeProjectRoot, type SessionPlace, type SessionRecord, type SessionStatus } from "@solus/contracts/types";
+import { worktreeProjectRoot, type PinnedSession, type SessionPlace, type SessionRecord, type SessionStatus } from "@solus/contracts/types";
 
 import { relativeTime } from "../../lib/time";
 import { isSharedWithReader } from "./shared-with-you";
@@ -188,17 +188,18 @@ export interface ThreadPrPresentation {
   /** A link of the session is watched: its agent wakes on news
       (docs/plans/pr-watch.md). */
   readonly isWatched: boolean;
-  /** What the row menu's Watch or Stop Watching acts on: the watched link,
+  /** What the row menu's Watch or Stop Watch acts on: the watched link,
       else the badge's link while it may still be open. */
   readonly watchTarget: ThreadPrWatchTarget | null;
-  /** The links the row menu can unlink, newest first. */
-  readonly unlinkTargets: ReadonlyArray<ThreadPrUnlinkTarget>;
+  /** The links the row menu can open and unlink, newest first. */
+  readonly links: ReadonlyArray<ThreadPrLinkTarget>;
 }
 
-export interface ThreadPrUnlinkTarget {
+export interface ThreadPrLinkTarget {
   readonly repository: string;
   readonly number: number;
   readonly title: string;
+  readonly url: string;
 }
 
 export interface ThreadPrWatchTarget {
@@ -245,23 +246,66 @@ export function presentThreadPullRequests(
     watchTarget: watchable
       ? { repository: watchable.repository, number: watchable.number, isWatched: watchable === watched }
       : null,
-    unlinkTargets: newestFirst.map((candidate) => ({
+    links: newestFirst.map((candidate) => ({
       repository: candidate.repository,
       number: candidate.number,
       title: candidate.title,
+      url: candidate.url,
     })),
   };
 }
 
+/** Where Open takes a pull request: its screen in Solus, or its page in the browser. */
+export type ThreadPrOpenPlace = "solus" | "browser";
+
+/** The row menu's action id that opens one pull request in one place. */
+export function openPullRequestActionId(target: ThreadPrLinkTarget, place: ThreadPrOpenPlace): string {
+  return `open-pr:${place}:${target.repository}#${target.number}`;
+}
+
+/** Open in the row menu, as the Git section's Open offers it on desktop and
+    web: In Solus and In Browser. Several links share one submenu, as an
+    Android submenu cannot hold another; each pair names its link. */
+export function openPullRequestMenuItems(targets: ReadonlyArray<ThreadPrLinkTarget>): MenuAction[] {
+  if (targets.length === 0) return [];
+  const several = targets.length > 1;
+  const places = (target: ThreadPrLinkTarget): MenuAction[] => {
+    const prefix = several ? `#${target.number} ` : "";
+    const subtitle = several ? target.title || undefined : undefined;
+    return [
+      { id: openPullRequestActionId(target, "solus"), title: `${prefix}In Solus`, subtitle, image: "arrow.triangle.pull" },
+      { id: openPullRequestActionId(target, "browser"), title: `${prefix}In Browser`, subtitle, image: "safari" },
+    ];
+  };
+  return [{
+    id: "open-pr",
+    title: several ? "Open Pull Request" : `Open #${targets[0]!.number}`,
+    image: "arrow.up.right.square",
+    subactions: targets.flatMap(places),
+  }];
+}
+
+/** The link and the place a row menu action opens, or null for another action. */
+export function openPullRequestSelection(
+  actionId: string,
+  targets: ReadonlyArray<ThreadPrLinkTarget>,
+): { readonly target: ThreadPrLinkTarget; readonly place: ThreadPrOpenPlace } | null {
+  for (const target of targets) {
+    if (actionId === openPullRequestActionId(target, "solus")) return { target, place: "solus" };
+    if (actionId === openPullRequestActionId(target, "browser")) return { target, place: "browser" };
+  }
+  return null;
+}
+
 /** The row menu's action id that unlinks one pull request. */
-export function unlinkPullRequestActionId(target: ThreadPrUnlinkTarget): string {
+export function unlinkPullRequestActionId(target: ThreadPrLinkTarget): string {
   return `unlink-pr:${target.repository}#${target.number}`;
 }
 
 /** Unlink in the row menu: one item for one link, a submenu with an item per
     link for several. PR sync does not link an unlinked pull request again. */
-export function unlinkPullRequestMenuItems(targets: ReadonlyArray<ThreadPrUnlinkTarget>): MenuAction[] {
-  const item = (target: ThreadPrUnlinkTarget, title: string): MenuAction => ({
+export function unlinkPullRequestMenuItems(targets: ReadonlyArray<ThreadPrLinkTarget>): MenuAction[] {
+  const item = (target: ThreadPrLinkTarget, title: string): MenuAction => ({
     id: unlinkPullRequestActionId(target),
     title,
     image: "xmark",
@@ -299,6 +343,7 @@ export function watchRefusalMessage(outcome: SessionPullRequestWatchOutcome): st
 /* ─── List model ─────────────────────────────────────────────────────── */
 
 export interface ThreadListV2Item {
+  readonly pinned?: boolean;
   readonly thread: SolusThreadShell;
   readonly variant: "card" | "slim";
   /** Snoozed-shelf row: shows the wake countdown and offers Wake. */
@@ -456,10 +501,15 @@ function samePr(previous: ThreadPrPresentation | null, next: ThreadPrPresentatio
     previous.state === next.state &&
     previous.isDraft === next.isDraft &&
     previous.number === next.number &&
-    previous.unlinkTargets.length === next.unlinkTargets.length &&
-    previous.unlinkTargets.every(
+    // The menu offers Watch or Stop Watch from these.
+    previous.isWatched === next.isWatched &&
+    previous.watchTarget?.repository === next.watchTarget?.repository &&
+    previous.watchTarget?.number === next.watchTarget?.number &&
+    previous.watchTarget?.isWatched === next.watchTarget?.isWatched &&
+    previous.links.length === next.links.length &&
+    previous.links.every(
       (target, index) =>
-        target.repository === next.unlinkTargets[index]?.repository && target.number === next.unlinkTargets[index]?.number,
+        target.repository === next.links[index]?.repository && target.number === next.links[index]?.number,
     )
   );
 }
@@ -478,6 +528,7 @@ export function threadListV2ListItemsAreEqual(
         previous.item.variant === item.item.variant &&
         previous.item.snoozed === item.item.snoozed &&
         previous.item.archived === item.item.archived &&
+        previous.item.pinned === item.item.pinned &&
         (previous.item.wokeAt ?? null) === (item.item.wokeAt ?? null) &&
         previous.status === item.status &&
         previous.statusStartedAt === item.statusStartedAt &&
@@ -512,6 +563,7 @@ export function threadListV2ListItemsAreEqual(
 
 /** What the list knows about every session beyond its record. */
 export interface ThreadListV2Facts {
+  readonly pins?: ReadonlyMap<string, PinnedSession>;
   /** Shared `SessionState` by thread key, as the host announced or answered
       it after the record was read. It overrides the record's state. */
   readonly states: ReadonlyMap<string, SessionState>;
@@ -746,6 +798,7 @@ export function buildThreadListV2Items(input: {
   const query = input.searchQuery.trim().toLocaleLowerCase();
   const knownProjectKeys = input.knownProjectKeys ?? new Set<string>();
 
+  const pinned: SolusThreadShell[] = [];
   const active: SolusThreadShell[] = [];
   const shared: SolusThreadShell[] = [];
   const settled: SolusThreadShell[] = [];
@@ -768,6 +821,10 @@ export function buildThreadListV2Items(input: {
     if (input.chatsOnly && !isChatSession(thread.record)) continue;
     if (!matchesSearch(thread, query, threadPullRequests(thread, input.facts))) continue;
     const view = threadView(thread, input.facts);
+    if (input.facts.pins?.has(thread.key) && view.archivedAt === null && threadState(thread, input.facts).settledAt === null) {
+      pinned.push(thread);
+      continue;
+    }
     // Completion is personal: the owner's settle does not clear this reader's list.
     if (isSharedWithReader(thread.record) && view.settledAt != null) continue;
     // The open thread keeps its row, as a desktop tab keeps an archived session.
@@ -824,6 +881,10 @@ export function buildThreadListV2Items(input: {
       : pagedSettled.filter((thread) => thread.key === selectedThreadKey);
 
   const items: ThreadListV2Item[] = [];
+  pinned.sort((left, right) => (input.facts.pins?.get(right.key)?.pinnedAt ?? 0) - (input.facts.pins?.get(left.key)?.pinnedAt ?? 0));
+  for (const thread of pinned) {
+    items.push({ thread, variant: "card", pinned: true, snoozed: false, isLast: false });
+  }
   for (const thread of orderedActive) {
     const wokeAt = threadWokeAt(threadView(thread, input.facts), now);
     items.push({ thread, variant: "card", snoozed: false, wokeAt, isLast: false });

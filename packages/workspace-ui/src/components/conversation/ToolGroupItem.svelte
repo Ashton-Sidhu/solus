@@ -9,6 +9,8 @@
   import { toolRowImages } from "./lib/turn-images";
   import { toolRowAudio, toolRowLeftOut } from "./lib/tool-row-media";
   import { toasts } from "../../lib/toasts";
+  import { toolCallCode } from "@solus/client-core/tool-call-code";
+  import CodeBlock from "../ui/CodeBlock.svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import ActivityRow from "./ActivityRow.svelte";
   import MarkdownImage from "./MarkdownImage.svelte";
@@ -244,19 +246,6 @@
       {/if}
     {/snippet}
 
-    {#snippet actions()}
-      <!-- The 18px slot keeps the 28px button from setting the row's height. -->
-      <span class="inline-flex h-4.5 shrink-0 items-center self-center">
-        <CopyButton
-          getText={() => toolRowsCopyText(tools.slice(), history)}
-          title="Copy tool row"
-          iconOnly
-          refocusInput={false}
-          onError={copyFailed}
-        />
-      </span>
-    {/snippet}
-
     {#snippet rail()}
       {#if runningTool && tools.length > 1}
         <span>{doneCount}/{tools.length}</span>
@@ -300,7 +289,14 @@
           {@const endMs = toolEndMs(step)}
           {@const Glyph = KIND_ICONS[activityKind(step.toolName)]}
           {@const failed = step.toolStatus === "error"}
-          <div class:tool-step--expanded={view.selectedToolId === step.id} class="tool-step" data-slot="tool-call">
+          {@const open = view.selectedToolId === step.id}
+          <!-- An open call shows its input as code, parsed only while open. A
+               history row waits for its full input; a running one has none yet. -->
+          {@const code = open && step.toolStatus !== "running" && !step.historyToolInput
+            ? toolCallCode(step.toolName || "Tool", step.toolInput)
+            : null}
+          {@const wraps = open && !code}
+          <div class:tool-step--expanded={wraps} class="tool-step group/tool" data-slot="tool-call">
             <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
               {#if failed}
                 <WarningCircleIcon size={13} />
@@ -310,9 +306,9 @@
             </span>
             <button
               type="button"
-              class:is-expanded={view.selectedToolId === step.id}
+              class:is-expanded={wraps}
               class="tool-step-text text-tool-step font-mono"
-              aria-expanded={view.selectedToolId === step.id}
+              aria-expanded={open}
               onclick={(e) => {
                 // An expanded row wraps its full command or path, which is the
                 // text worth copying. Releasing that drag must not collapse it.
@@ -323,7 +319,7 @@
               {describe(step, parsed)}
             </button>
             <span class="flex-1"></span>
-            <span class="inline-flex h-4.5 shrink-0 items-center">
+            <span class="pointer-events-none inline-flex h-4.5 shrink-0 items-center opacity-0 group-hover/tool:pointer-events-auto group-hover/tool:opacity-100 group-focus-within/tool:pointer-events-auto group-focus-within/tool:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100">
               <CopyButton
                 getText={() => toolRowsCopyText([step], history)}
                 title="Copy tool call"
@@ -338,9 +334,16 @@
               </span>
             {/if}
           </div>
+          <!-- Long lines wrap: a narrow pane must not hide the end of a command
+               behind a sideways scroll. -->
+          {#if code}
+            <div class="ps-8 [&_pre]:max-h-80 [&_pre]:overflow-y-auto [&_pre]:whitespace-pre-wrap [&_pre]:wrap-anywhere" data-slot="tool-call-code">
+              <CodeBlock text={code.code} lang={code.language} />
+            </div>
+          {/if}
           <!-- Mounted only while the step is open, so a folded call decodes nothing.
                A transcript with no host behind it cannot sign an asset URL. -->
-          {#if view.selectedToolId === step.id && imageContext?.serverId()}
+          {#if open && imageContext?.serverId()}
             {@const images = toolRowImages(step)}
             {#if images.length > 0}
               <div class="flex flex-wrap gap-2 pb-1 ps-8 [&>button>img]:max-h-40">

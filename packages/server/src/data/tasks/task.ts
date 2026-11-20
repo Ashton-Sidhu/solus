@@ -1,3 +1,5 @@
+import { serializeTaskWrite } from './task-writes'
+import type { TaskInvolvement } from '@solus/contracts/task-inspection'
 import { sql } from 'drizzle-orm'
 import { parseTaskKey, taskKey, taskSourceKey, type TaskRef, type TaskSource, type TaskStatusCategory } from '@solus/contracts/task-sources'
 import type {
@@ -141,7 +143,7 @@ const FIELD_NAMES = {
 function assertPublishable(home: TaskHome, body: string): void {
   const blocked = taskAdapters().provider(home.provider).unpublishableAssets(home, body)
   if (!blocked.length) return
-  const where = home.provider === 'jira' ? 'Jira' : home.kind === 'draft' ? 'A GitHub draft item' : 'GitHub'
+  const where = home.provider === 'jira' ? 'Jira' : home.provider === 'linear' ? 'Linear' : home.kind === 'draft' ? 'A GitHub draft item' : 'GitHub'
   throw new Error(`${where} cannot hold .${blocked[0].extension} attachments. Remove the file, or add it on the provider.`)
 }
 
@@ -154,9 +156,15 @@ async function publishedBody(home: TaskHome, body: string): Promise<string> {
 }
 
 /** Change a task's fields on the provider. A field the provider does not take for this task is refused. */
-export async function updateTask(taskId: string, patch: TaskUpdatePatch): Promise<Task> {
+export function updateTask(taskId: string, patch: TaskUpdatePatch): Promise<Task> {
+  return serializeTaskWrite(taskId, () => updateTaskNow(taskId, patch))
+}
+
+async function updateTaskNow(taskId: string, patch: TaskUpdatePatch): Promise<Task> {
   const { task, home } = await writableTask(taskId)
-  const fields = PATCH_FIELDS.filter((field) => patch[field] !== undefined)
+  if (patch.assignees && (patch.assignees.length > 100 || patch.assignees.some((login) => !login.trim()))) throw new Error('Invalid assignees.')
+  if (patch.assignees !== undefined && !task.writableFields.includes('assignee')) throw new Error('This provider does not accept assignee changes.')
+  const fields = PATCH_FIELDS.filter((field) => patch[field] !== undefined || field === 'assignee' && patch.assignees !== undefined)
   if (!fields.length) return task
   const refused = fields.find((field) => !task.writableFields.includes(field))
   if (refused) throw new Error(`${task.reference ?? 'This task'} does not take a change of ${FIELD_NAMES[refused]} from Solus.`)
@@ -185,7 +193,11 @@ function firstColumnOf(source: StoredTaskSource, category: TaskStatusCategory): 
  * of that category; a Jira issue makes a legal transition to a status of that
  * category, and fails loudly when there is none.
  */
-export async function moveTask(taskId: string, target: TaskMoveTarget): Promise<Task> {
+export function moveTask(taskId: string, target: TaskMoveTarget): Promise<Task> {
+  return serializeTaskWrite(taskId, () => moveTaskNow(taskId, target))
+}
+
+async function moveTaskNow(taskId: string, target: TaskMoveTarget): Promise<Task> {
   const { task, home } = await writableTask(taskId)
   const items = await sourceItemsOfTask(taskId)
   const sources = await loadTaskSources(items.map((item) => item.sourceKey))
@@ -201,8 +213,8 @@ export async function moveTask(taskId: string, target: TaskMoveTarget): Promise<
       })
       if (moved) await storeProviderTask(moved)
       await storeTaskColumn(taskId, target.sourceKey, target.columnId)
-    } else if (home.provider === 'jira') {
-      if (task.state.category !== target.category) await storeProviderTask(await adapters.provider('jira').setState(home, target.category))
+    } else if (home.provider !== 'github') {
+      if (task.state.category !== target.category) await storeProviderTask(await adapters.provider(home.provider).setState(home, target.category))
     } else {
       const wantsDone = target.category === 'done'
       if (home.kind === 'issue' && (task.state.category === 'done') !== wantsDone) {
@@ -288,7 +300,7 @@ export async function createTask(input: TaskCreateInput, personKey: string): Pro
       source,
       writeState: stored?.writeState ?? null,
       draft: {
-        title, body: input.body, columnId: input.columnId, assignee: input.assignee,
+        title, body: input.body, columnId: input.columnId, assignees: input.assignees, assignee: input.assignee,
         dueDate: input.dueDate, priority: input.priority, labels: input.labels,
       },
     })
@@ -348,7 +360,11 @@ async function sendComment(home: TaskHome, body: string) {
  * this host as `unsent` with the reason, and shows in the answer; a body with
  * an asset the provider cannot hold is refused, because it could never be sent.
  */
-export async function commentOnTask(scope: RecordScope, taskId: string, input: NewTaskComment): Promise<TaskDetails> {
+export function commentOnTask(scope: RecordScope, taskId: string, input: NewTaskComment): Promise<TaskDetails> {
+  return serializeTaskWrite(taskId, () => commentOnTaskNow(scope, taskId, input))
+}
+
+async function commentOnTaskNow(scope: RecordScope, taskId: string, input: NewTaskComment): Promise<TaskDetails> {
   const body = input.body.trim()
   if (!body) throw new Error('Task comment cannot be empty.')
   const { home } = await writableTask(taskId)
@@ -366,7 +382,11 @@ export async function commentOnTask(scope: RecordScope, taskId: string, input: N
 }
 
 /** Send an unsent comment again. It stays unsent, with the new reason, when the provider refuses it again. */
-export async function retryTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+export function retryTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+  return serializeTaskWrite(taskId, () => retryTaskCommentNow(scope, taskId, commentId))
+}
+
+async function retryTaskCommentNow(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
   const { home } = await writableTask(taskId)
   const thread = await requireUnsentComment(taskId, commentId)
   try {
@@ -381,7 +401,11 @@ export async function retryTaskComment(scope: RecordScope, taskId: string, comme
 }
 
 /** Discard an unsent comment. A sent comment is deleted on the provider, not here. */
-export async function deleteTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+export function deleteTaskComment(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
+  return serializeTaskWrite(taskId, () => deleteTaskCommentNow(scope, taskId, commentId))
+}
+
+async function deleteTaskCommentNow(scope: RecordScope, taskId: string, commentId: string): Promise<TaskDetails> {
   await requireUnsentComment(taskId, commentId)
   if (await discardUnsentComment(taskId, commentId)) emitChanged(taskId)
   return taskDetails(scope, taskId)
@@ -407,9 +431,9 @@ export async function listTaskAssignees(target: { taskId: string } | { source: T
  * source that fails is left out; when each source fails the first error is
  * thrown.
  */
-export async function searchTasks(sources: readonly TaskSource[], query: string): Promise<TaskSummary[]> {
+export async function searchTasks(sources: readonly TaskSource[], query: string, involvement: TaskInvolvement = 'all'): Promise<TaskSummary[]> {
   const text = query.trim()
-  if (!text) return []
+  if (!text && involvement === 'all') return []
   const stored = await loadTaskSources(sources.map(taskSourceKey))
   const found = new Map<string, { sourceKey: string; columnId: string | null }>()
   let firstError: Error | null = null
@@ -417,7 +441,7 @@ export async function searchTasks(sources: readonly TaskSource[], query: string)
   for (const source of sources) {
     const sourceKey = taskSourceKey(source)
     try {
-      for (const task of await taskAdapters().source(source.kind).search(source, text)) {
+      for (const task of await taskAdapters().source(source.kind).search(source, text, involvement)) {
         const taskId = taskKey(task.ref)
         await storeProviderTask(task)
         const held = stored.get(sourceKey)

@@ -75,3 +75,10 @@ describe('pull request media URLs', () => {
     expect(await pullRequestMediaUrl(null, UPLOAD, ctx)).toBe(UPLOAD)
   })
 })
+
+
+test('URL inspection signs private GitHub images without a project context', async () => {
+  const { connection, prMediaUrl } = fakeConnection('media-inspection')
+  expect(await pullRequestMediaUrl(connection, UPLOAD, undefined, 'acme/private')).toBe('https://host.example:4000/api/assets/github-1')
+  expect(prMediaUrl.mock.calls[0]).toEqual([undefined, UPLOAD, 'acme/private'] as never)
+})

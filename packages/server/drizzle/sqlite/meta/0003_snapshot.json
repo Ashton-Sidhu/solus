@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6391ae94-e371-4923-b63c-da845ace5099",
-  "prevId": "b43f0cb7-5741-4ef6-95ac-36a0ca93baec",
+  "id": "8121206e-421a-49b9-b36f-9e40e5aa2a86",
+  "prevId": "5b12c125-78b7-4484-b8ff-3de4c6938ad6",
   "tables": {
     "acl_entry": {
       "name": "acl_entry",
@@ -3644,6 +3644,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "next_cursor": {
+          "name": "next_cursor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -3732,6 +3739,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "assignees": {
+          "name": "assignees",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "assignee": {
           "name": "assignee",
@@ -5412,20 +5427,6 @@
           "autoincrement": false,
           "default": "'[]'"
         },
-        "launch": {
-          "name": "launch",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "project_key": {
-          "name": "project_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -5541,74 +5542,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "integration_server_facts": {
-      "name": "integration_server_facts",
-      "columns": {
-        "integration_id": {
-          "name": "integration_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "verdict": {
-          "name": "verdict",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "verdict_at": {
-          "name": "verdict_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "facts": {
-          "name": "facts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "stored_at": {
-          "name": "stored_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "integration_server_facts_integration_id_user_id_account_id_pk": {
-          "columns": [
-            "integration_id",
-            "user_id",
-            "account_id"
-          ],
-          "name": "integration_server_facts_integration_id_user_id_account_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "kv": {
       "name": "kv",
       "columns": {
@@ -5628,130 +5561,6 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "mcp_task": {
-      "name": "mcp_task",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "integration_id": {
-          "name": "integration_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "tool": {
-          "name": "tool",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "upstream_task_id": {
-          "name": "upstream_task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status_message": {
-          "name": "status_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "traceparent": {
-          "name": "traceparent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "delivered_at": {
-          "name": "delivered_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "mcp_task_by_session": {
-          "name": "mcp_task_by_session",
-          "columns": [
-            "session_id",
-            "created_at"
-          ],
-          "isUnique": false
-        }
-      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

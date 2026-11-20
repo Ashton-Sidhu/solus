@@ -51,10 +51,12 @@ function session(overrides: Partial<Session> = {}): Session {
 }
 
 describe('run-on host selection', () => {
-  test('locks the host as soon as a session has started', () => {
+  test('a started session keeps Run on open between turns and locks it while a turn runs', () => {
+    // WHY: a session is portable (docs/plans/portable-sessions.md §10): its run
+    // host changes between turns, never during one.
     expect(isRunOnHostLocked(session())).toBe(false)
-    expect(isRunOnHostLocked(session({ agentSessionId: 'session-1' }))).toBe(true)
-    expect(isRunOnHostLocked(session({ messages: [{} as Session['messages'][number]] }))).toBe(true)
+    expect(isRunOnHostLocked(session({ agentSessionId: 'session-1' }))).toBe(false)
+    expect(isRunOnHostLocked(session({ messages: [{} as Session['messages'][number]] }))).toBe(false)
     expect(isRunOnHostLocked(session({ status: 'running' }))).toBe(true)
   })
 

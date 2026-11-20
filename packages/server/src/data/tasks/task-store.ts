@@ -29,7 +29,7 @@ const categorySchema = z.enum(['open', 'active', 'done'])
 const prioritySchema = z.enum(['urgent', 'high', 'medium', 'low'])
 const fieldSchema = z.enum(['title', 'body', 'labels', 'assignee', 'priority', 'dueDate'])
 export const taskEpicSchema = z.object({
-  provider: z.enum(['github', 'jira']),
+  provider: z.enum(['github', 'jira', 'linear']),
   externalId: z.string(),
   url: z.string(),
   title: z.string(),
@@ -39,12 +39,13 @@ export const taskHomeSchema: z.ZodType<TaskHome> = z.union([
   z.object({ provider: z.literal('github'), kind: z.literal('issue'), owner: z.string(), repo: z.string(), number: z.number() }),
   z.object({ provider: z.literal('github'), kind: z.literal('draft'), projectId: z.string(), itemId: z.string() }),
   z.object({ provider: z.literal('jira'), cloudId: z.string(), key: z.string() }),
+  z.object({ provider: z.literal('linear'), workspaceId: z.string(), issueId: z.string(), teamId: z.string() }),
 ])
 export const taskColumnsSchema: z.ZodType<TaskColumn[]> = z.array(z.object({ id: z.string(), name: z.string(), category: categorySchema }))
 
 const taskRowSchema = z.object({
   id: z.string(),
-  provider: z.enum(['github', 'jira']),
+  provider: z.enum(['github', 'jira', 'linear']),
   kind: z.enum(['issue', 'draft']),
   reference: z.string().nullable(),
   url: z.string().nullable(),
@@ -54,6 +55,7 @@ const taskRowSchema = z.object({
   state_category: categorySchema,
   state_id: z.string().nullable(),
   category: categorySchema,
+  assignees: z.string(),
   assignee: z.string().nullable(),
   assignee_avatar_url: z.string().nullable(),
   labels: z.string(),
@@ -135,12 +137,16 @@ function taskSummaryFromRow(row: TaskSummaryRow, placements: TaskPlacement[]): T
     state: { name: row.state_name, category: row.state_category },
     category: row.category,
     placements,
+    assignees: jsonValue(row.assignees, z.array(z.object({ login: z.string(), avatarUrl: z.string().optional() }))) ?? [],
     labels: jsonValue(row.labels, z.array(z.string())) ?? [],
     writableFields: jsonValue(row.writable_fields, z.array(fieldSchema)) ?? [],
     updatedAt: row.updated_at,
   }
   if (row.reference !== null) task.reference = row.reference
-  if (row.assignee !== null) task.assignee = row.assignee
+  if (row.assignee !== null) {
+    task.assignee = row.assignee
+    if (!task.assignees?.length) task.assignees = [{ login: row.assignee, avatarUrl: row.assignee_avatar_url ?? undefined }]
+  }
   if (row.assignee_avatar_url !== null) task.assigneeAvatarUrl = row.assignee_avatar_url
   if (row.due_date !== null) task.dueDate = row.due_date
   if (row.priority !== null) task.priority = row.priority
@@ -278,6 +284,7 @@ const storedFactsRowSchema = z.object({
   body: z.string(),
   state_name: z.string(),
   state_category: z.string(),
+  assignees: z.string(),
   assignee: z.string().nullable(),
   labels: z.string(),
   priority: z.string().nullable(),
@@ -294,39 +301,45 @@ const storedFactsRowSchema = z.object({
  * `category` is not written here: `refreshTaskCategories` owns it, because it
  * needs the task's columns.
  */
+function assigneesJsonOf(task: ProviderTask): string {
+  const people = task.assignees ?? (task.assignee ? [{ login: task.assignee, avatarUrl: task.assigneeAvatarUrl }] : [])
+  return JSON.stringify(people)
+}
+
 export async function upsertProviderTask(db: Db, task: ProviderTask, now: number): Promise<TaskUpsert> {
   const id = taskKey(task.ref)
   const existing = storedFactsRowSchema.nullish().parse(await db.get(sql`
-    SELECT epic, title, body, state_name, state_category, assignee, labels, priority, due_date, reference, updated_at
+    SELECT epic, title, body, state_name, state_category, assignees, assignee, labels, priority, due_date, reference, updated_at
     FROM ${tasks} WHERE id = ${id}
   `))
   let epic = task.epic ?? null
   const heldEpic = existing ? jsonValue(existing.epic, taskEpicSchema) : undefined
   if (epic && !epic.body && heldEpic?.externalId === epic.externalId) epic = { ...epic, body: heldEpic.body }
   const labels = JSON.stringify(task.labels)
+  const assignees = assigneesJsonOf(task)
   await db.run(sql`
     INSERT INTO ${tasks}(
       id, provider, kind, reference, url, title, body, state_name, state_category, state_id, category,
-      assignee, assignee_avatar_url, labels, priority, due_date, epic, writable_fields, home,
+      assignees, assignee, assignee_avatar_url, labels, priority, due_date, epic, writable_fields, home,
       created_at, updated_at, fetched_at
     ) VALUES (
       ${id}, ${task.ref.provider}, ${task.kind}, ${task.reference ?? null}, ${task.url}, ${task.title}, ${task.body},
       ${task.state.name}, ${task.state.category}, ${task.stateId ?? null}, ${taskCategory(task.state.category, [])},
-      ${task.assignee ?? null}, ${task.assigneeAvatarUrl ?? null}, ${labels}, ${task.priority ?? null}, ${task.dueDate ?? null},
+      ${assignees}, ${task.assignee ?? null}, ${task.assigneeAvatarUrl ?? null}, ${labels}, ${task.priority ?? null}, ${task.dueDate ?? null},
       ${epic ? JSON.stringify(epic) : null}, ${JSON.stringify(task.writableFields)}, ${JSON.stringify(task.home)},
       ${task.createdAt ?? null}, ${task.updatedAt}, ${now}
     )
     ON CONFLICT(id) DO UPDATE SET
       kind = excluded.kind, reference = excluded.reference, url = excluded.url, title = excluded.title, body = excluded.body,
       state_name = excluded.state_name, state_category = excluded.state_category, state_id = excluded.state_id,
-      assignee = excluded.assignee, assignee_avatar_url = excluded.assignee_avatar_url, labels = excluded.labels,
+      assignees = excluded.assignees, assignee = excluded.assignee, assignee_avatar_url = excluded.assignee_avatar_url, labels = excluded.labels,
       priority = excluded.priority, due_date = excluded.due_date, epic = excluded.epic,
       writable_fields = excluded.writable_fields, home = excluded.home,
       created_at = COALESCE(excluded.created_at, tasks.created_at), updated_at = excluded.updated_at, fetched_at = excluded.fetched_at
   `)
   if (!existing) return { changed: true, previousAssignee: undefined }
   const changed = listFactsOf(existing) !== JSON.stringify([
-    task.title, task.body, task.state.name, task.state.category, task.assignee ?? null, labels,
+    task.title, task.body, task.state.name, task.state.category, assignees, task.assignee ?? null, labels,
     task.priority ?? null, task.dueDate ?? null, task.reference ?? null, task.updatedAt,
   ])
   return { changed, previousAssignee: existing.assignee }
@@ -335,7 +348,7 @@ export async function upsertProviderTask(db: Db, task: ProviderTask, now: number
 /** The facts of a stored task that a list or a page shows, as one comparable text. */
 function listFactsOf(stored: z.infer<typeof storedFactsRowSchema>): string {
   return JSON.stringify([
-    stored.title, stored.body, stored.state_name, stored.state_category, stored.assignee, stored.labels,
+    stored.title, stored.body, stored.state_name, stored.state_category, stored.assignees, stored.assignee, stored.labels,
     stored.priority, stored.due_date, stored.reference, stored.updated_at,
   ])
 }

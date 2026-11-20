@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { Pin as PushPinIcon } from "@lucide/svelte";
+  import SessionPinButton from "./SessionPinButton.svelte";
   import type { PinnedSession } from "@solus/contracts/types";
   import { groupKeyFor } from "../../contexts";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
 
-  /** A row of the sidebar's Pinned section. It has the slim shape of a
+  /** A pinned session with no open conversation. It has the slim shape of a
    *  shelved row: the project mark, the title, and Unpin on hover. */
   interface Props {
     pin: PinnedSession;
@@ -43,6 +43,7 @@
           }
         }}
       >
+        <SessionPinButton isPinned onToggle={onUnpin} />
         <span class="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
           <ProjectFavicon projectKey={groupKey} class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]" />
         </span>
@@ -50,18 +51,6 @@
           class="min-w-0 flex-1 truncate text-workspace-chrome {isCurrentSession ? 'font-medium' : ''}"
           >{pin.title}</span
         >
-        <button
-          type="button"
-          class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] group-hover/row:flex group-focus-within/row:flex hover:bg-accent hover:text-foreground pointer-coarse:flex"
-          aria-label="Unpin session"
-          title="Unpin"
-          onclick={(event) => {
-            event.stopPropagation();
-            onUnpin();
-          }}
-        >
-          <PushPinIcon size={14} class="fill-current" />
-        </button>
       </div>
     {/snippet}
   </TooltipUI.Trigger>

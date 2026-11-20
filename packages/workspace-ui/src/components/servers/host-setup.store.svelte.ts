@@ -212,6 +212,18 @@ export class HostSetupSession {
     }
   }
 
+  async selectProviderInstallation(provider: SetupAgent, installation: 'native' | 'existing'): Promise<void> {
+    if (this.providerStages[provider]) return
+    this.providerStages[provider] = 'install'
+    this.retain()
+    try {
+      await this.run('providers', (api) => api.setupInstallAgentCli({ agent: provider, installation }), provider)
+    } finally {
+      this.providerStages[provider] = null
+      this.release()
+    }
+  }
+
   async submitAgentSignInCode(provider: SetupAgent, code: string): Promise<void> {
     this.stepError = null
     try {

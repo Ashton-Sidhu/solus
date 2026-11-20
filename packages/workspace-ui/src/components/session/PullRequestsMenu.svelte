@@ -113,13 +113,13 @@
         >
       </span>
     </span>
-    <span class="flex shrink-0 items-center gap-0.5 self-center">
+    <span class="hidden shrink-0 items-center gap-0.5 self-center group-hover/pr:flex group-data-highlighted/pr:flex group-focus-within/pr:flex pointer-coarse:flex">
       {#if pageUrl}
         <Button
           variant="ghost"
           size="icon-xs"
           tabindex={-1}
-          class="size-6 text-muted-foreground opacity-60 transition-opacity duration-100 group-hover/pr:opacity-100 group-data-highlighted/pr:opacity-100 hover:text-foreground pointer-coarse:opacity-100"
+          class="size-6 text-muted-foreground hover:text-foreground"
           aria-label={`Open ${row.reference} on the web`}
           title="Open on the web"
           onpointerdown={(event) => event.stopPropagation()}
@@ -137,7 +137,7 @@
           variant="ghost"
           size="icon-xs"
           tabindex={-1}
-          class="size-6 text-muted-foreground opacity-60 transition-opacity duration-100 group-hover/pr:opacity-100 group-data-highlighted/pr:opacity-100 hover:text-(--solus-status-error) pointer-coarse:opacity-100"
+          class="size-6 text-muted-foreground hover:text-(--solus-status-error)"
           aria-label={`Unlink ${row.reference}`}
           title="Unlink (Delete)"
           onpointerdown={(event) => event.stopPropagation()}
@@ -149,9 +149,6 @@
         >
           <XIcon size={12} aria-hidden="true" />
         </Button>
-      {:else}
-        <!-- Keeps the ↗ column aligned with the rows that can unlink. -->
-        <span class="size-6" aria-hidden="true"></span>
       {/if}
     </span>
   </DropdownMenu.Item>

@@ -24,7 +24,7 @@
       size="sm"
       class="shrink-0"
       aria-label="{row.update.label} for {row.label}"
-      disabled={row.disabled}
+      disabled={row.disabled || row.update.disabled}
       onclick={row.update.run}
     >
       {row.update.label}
@@ -59,7 +59,7 @@
         <ProviderLogo provider={row.id} />
         <span class="flex min-w-0 flex-1 items-baseline gap-2">
           <span class="shrink-0 font-medium text-foreground">{row.label}</span>
-          <span class="min-w-0 truncate text-[0.8125rem] text-muted-foreground">{row.detail}</span>
+          <span class="min-w-0 truncate text-[0.8125rem] text-muted-foreground" title={row.detail}>{row.detail}</span>
         </span>
         {@render actions(row)}
         {#if row.state === "busy"}
@@ -85,7 +85,7 @@
                 {row.label}
                 <ProviderConnectedCheck connected={row.state === "done"} provider={row.label} />
               </h3>
-              <p class="text-pretty text-[13px] leading-[1.45] text-(--solus-text-secondary)">
+              <p class="whitespace-pre-line break-words text-pretty text-[13px] leading-[1.45] text-(--solus-text-secondary)">
                 {row.detail}
               </p>
             </div>

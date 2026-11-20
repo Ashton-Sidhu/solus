@@ -62,11 +62,13 @@
     --trees-bg-override: transparent;
     --trees-fg-override: var(--solus-text-secondary);
     --trees-fg-muted-override: var(--solus-text-tertiary);
-    --trees-bg-muted-override: var(--solus-surface-hover);
+    --trees-bg-muted-override: var(--wash-2);
     --trees-accent-override: var(--solus-accent);
     --trees-border-color-override: var(--solus-container-border);
     --trees-selected-fg-override: var(--solus-text-primary);
-    --trees-selected-bg-override: var(--solus-accent-light);
+    /* Neutral, like the sidebar's active row: the accent no longer marks a
+       selection. Hover is a lighter wash so the open file still stands out. */
+    --trees-selected-bg-override: var(--solus-surface-hover);
     --trees-selected-focused-border-color-override: transparent;
     --trees-focus-ring-color-override: var(--solus-accent);
     --trees-scrollbar-thumb-override: var(--solus-scroll-thumb);

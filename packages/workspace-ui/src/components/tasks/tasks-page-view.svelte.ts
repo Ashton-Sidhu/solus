@@ -1,3 +1,4 @@
+import type { TaskViewFilters } from '@solus/contracts/task-views'
 import type { TaskSourceState } from '@solus/contracts/task-types'
 import type { Task } from '../../contexts/tasks/task.svelte'
 import type { ListGroupSpec, ListRowPlace, ListStatusOption } from '../ui/list-page/list-page'
@@ -55,6 +56,7 @@ export class TasksPageView {
   layout = $state<'list' | 'board'>('list')
   query = $state('')
   sort = $state<TaskSort>(DEFAULT_TASK_SORT)
+  involvement = $state<'all' | 'authored' | 'assigned' | 'mentioned'>('all')
   runningOnly = $state(false)
   overdueOnly = $state(false)
   assignedOnly = $state(false)
@@ -74,6 +76,25 @@ export class TasksPageView {
 
   constructor(input: TasksPageViewInput) {
     this.#input = input
+  }
+
+  snapshot(): TaskViewFilters {
+    return { sourceKey: this.#sourceKey, query: this.query, layout: this.layout, sort: this.sort,
+      involvement: this.involvement, runningOnly: this.runningOnly, overdueOnly: this.overdueOnly,
+      assignedOnly: this.assignedOnly, snoozedOnly: this.snoozedOnly, columnIds: this.selectedColumnIds }
+  }
+
+  apply(filters: TaskViewFilters): void {
+    this.showSource(filters.sourceKey)
+    this.query = filters.query
+    this.layout = filters.layout
+    this.sort = filters.sort
+    this.involvement = filters.involvement
+    this.runningOnly = filters.runningOnly
+    this.overdueOnly = filters.overdueOnly
+    this.assignedOnly = filters.assignedOnly
+    this.snoozedOnly = filters.snoozedOnly
+    this.selectedColumnIds = filters.columnIds === null ? null : [...filters.columnIds]
   }
 
   // --- The source on screen -----------------------------------------------
@@ -116,6 +137,8 @@ export class TasksPageView {
   readonly #matched: Task[] = $derived.by(() => {
     const { providerSearch } = this.#input
     const sourceKeys = new Set(this.#input.sources().map((source) => source.sourceKey))
+    const providerMatches = providerSearch.query === this.query.trim() && providerSearch.involvement === this.involvement ? providerSearch.results : []
+    if (this.involvement !== 'all') return tasksOfSources(providerMatches, sourceKeys)
     return tasksOfSources(
       withProviderMatches(
         this.#input.tasks().filter((task) => matchesTaskQuery(task, this.query)),
@@ -164,7 +187,7 @@ export class TasksPageView {
    * exempt — the board already ignores it.)
    */
   readonly boardUnfiltered: boolean = $derived(
-    !this.query.trim() && !this.runningOnly && !this.overdueOnly && !this.assignedOnly && !this.snoozedOnly,
+    !this.query.trim() && this.involvement === 'all' && !this.runningOnly && !this.overdueOnly && !this.assignedOnly && !this.snoozedOnly,
   )
 
   /**
@@ -210,6 +233,7 @@ export class TasksPageView {
 
   clearFilters(): void {
     this.query = ''
+    this.involvement = 'all'
     this.clearMenuFilters()
   }
 

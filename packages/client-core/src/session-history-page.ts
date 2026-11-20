@@ -30,12 +30,14 @@ function historyKey(request: SessionHistoryPageRequest): string {
     request.turnLimit, request.before, !!request.deferArtifactHtml])
 }
 
-export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest): Promise<SessionHistoryPage> {
+/** `maxAgeMs`: how long the page may serve an open. A read the reader may
+ *  never open lives shorter, so an open does not show an old page. */
+export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest, maxAgeMs = 30_000): Promise<SessionHistoryPage> {
   const key = historyKey(request)
   const existing = prefetchedHistory.get(api)
   if (existing?.key === key && existing.expiresAt > Date.now()) return existing.result
   const result = api.loadSessionPage(request)
-  const entry: PrefetchedHistory = { key, expiresAt: Date.now() + 30_000, result }
+  const entry: PrefetchedHistory = { key, expiresAt: Date.now() + maxAgeMs, result }
   prefetchedHistory.set(api, entry)
   void result.then((page) => { entry.page = page }).catch(() => {
     if (prefetchedHistory.get(api) === entry) prefetchedHistory.delete(api)

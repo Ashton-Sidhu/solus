@@ -34,15 +34,12 @@ import { resolveProjectKey } from '../../project-config/project-config'
 import { expandHome } from '../../files/host-path'
 import { sshConnectionOptions } from '../../platform/ssh'
 import {
-  agentInstallCompatibilityError,
   applyCloneProtocol,
-  buildAgentInstallCommand,
   buildPackageInstallCommand,
   commandExists,
   type InstallablePackage,
   isValidCloneHost,
   parseCloneUrlParts,
-  resolveAgentOwnership,
   resolveCloneDestination,
   validateCloneUrl,
 } from './setup-commands'
@@ -54,6 +51,7 @@ import { DELEGATION_OWNER_CONFIG_KEY, DISPATCH_CLONE_CONFIG_KEY, dispatchCheckou
 import type { CheckoutService } from '../../git/checkout-service'
 import { PARTIAL_CLONE_ARGS, ensureFullHistory } from '../../git/partial-clone'
 import { hostFileManager } from '../../platform/file-manager'
+import type { AgentSoftware } from '../../updates/agent-software'
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 const MAX_SETUP_LOG_LINES = 1_000
@@ -123,6 +121,7 @@ export type SpawnProcess = (
 ) => ChildProcess
 
 export interface SetupHandlerDeps extends AgentAuthProbeDeps {
+  agents?: Readonly<Record<SetupAgent, Pick<AgentSoftware, 'install'>>>
   checkouts?: CheckoutService
   events?: HostEventPublisher
   spawnProcess?: SpawnProcess
@@ -132,7 +131,6 @@ export interface SetupHandlerDeps extends AgentAuthProbeDeps {
   projectsRoot?: () => string
   assertNewWorkAllowed?: () => void
   onActiveStepsChanged?: (count: number) => void
-  onProviderInstalled?: (agent: SetupAgent) => Promise<void>
   /**
    * The caller's own provider seat answers "signed in" (provider-seats.md): a member
    * of a managed host signs in to their seat, never to the host login.
@@ -361,23 +359,20 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   server.register('setupInstallAgentCli', async (args, ctx) => {
     const { emitStatus, emitLog } = eventSink(ctx.clientId)
     const [request] = args
-    const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
+    const { agent: setupAgent, installation: selectedInstallation } = setupAgentRequestSchema.extend({ installation: z.enum(['native', 'existing']).optional() }).parse(request)
     const step = installStepForAgent(setupAgent)
 
     return runExclusive(step, async () => {
       try {
-        const compatibilityError = agentInstallCompatibilityError(setupAgent)
-        if (compatibilityError) throw new Error(compatibilityError)
-        const ownership = resolveAgentOwnership(setupAgent)
-        if (ownership.kind === 'unmanaged') {
-          const label = setupAgent === 'claude' ? 'Claude' : 'Codex'
-          throw new Error(`${label} is already installed at ${ownership.resolvedPath}, outside Solus's installer. Update it there, then check again.`)
-        }
-        const spec = buildAgentInstallCommand(setupAgent, { hasCommand })
-        emitLog({ step, line: `Running ${spec.display}` })
-        const result = await runSetupProcess({ step, spec, spawnProcess, emitStatus, emitLog })
-        await deps.onProviderInstalled?.(setupAgent)
-        return result
+        const software = deps.agents?.[setupAgent]
+        if (!software) throw new Error('Native agent installation is not available on this host.')
+        emitStatus({ step, status: 'running' })
+        emitLog({ step, line: selectedInstallation === 'existing'
+          ? `Selecting the existing ${setupAgent} installation on this host.`
+          : `Downloading and verifying the native ${setupAgent} release on this host.` })
+        await software.install(selectedInstallation)
+        emitStatus({ step, status: 'done' })
+        return { step, status: 'done' as const }
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err)
         emitStatus({ step, status: 'failed', error })
@@ -544,11 +539,13 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
    * checkout they have, or a new partial clone. Answers the folder the run
    * starts in. The prompt that carries the repository was admitted already.
    */
-  const prepareDispatchCheckout: PrepareDispatchCheckout = async (repository, caller, progress) => {
+  // Repository-only preparation avoids a second worktree before session code restore.
+  // eslint-disable-next-line complexity
+  const prepareDispatchCheckout: PrepareDispatchCheckout = async (repository, caller, progress, mode) => {
     const checkoutPath = dispatchCheckoutPathOf(repository, caller)
     const ownerKey = dispatchCheckoutOwnerKey(caller.principal, requireDispatchDevice(caller.deviceId))
     const { cloneUrl, credential: rawCredential, worktreePath, baseBranch, newWorktree, files = [] } = dispatchRepositorySchema.parse(repository)
-    if (!worktreePath && !newWorktree && !checkouts) throw new Error('The checkout service is not available')
+    if (mode !== 'repository' && !worktreePath && !newWorktree && !checkouts) throw new Error('The checkout service is not available')
     const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(cloneUrl)
 
@@ -561,6 +558,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const choose = async (path: string): Promise<string> => {
       // A checkout cloned with `--depth=1` before partial clones gets its full history once, here.
       await ensureFullHistory(path)
+      if (mode === 'repository') return path
       if (worktreePath) return resolveDispatchWorktree(path, worktreePath)
       // A new worktree is made from the repository, whatever branch the checkout holds.
       if (newWorktree) return path

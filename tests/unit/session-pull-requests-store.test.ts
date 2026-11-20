@@ -57,3 +57,41 @@ test('a session a surface asked for before any list named it is read again', asy
     expect(store.linksFor('new-tab')).toEqual([link('new-tab')])
   } finally { restore() }
 })
+
+test('stopping a watch asks the host that runs the session, then reads the links from their home', async () => {
+  // WHY: a watch is a record of the host that runs the session, while an
+  // organization session keeps its links at another home. Asking the home
+  // would refuse the stop; not reading again would leave "Stop watching" on.
+  const watches: { serverId: string; sessionId: string; watching: boolean }[] = []
+  const reads: string[] = []
+  let watched = true
+  // One api per host, as the connections keep them: the store drops a read
+  // whose host connection was replaced.
+  const apis = new Map<string, ReturnType<typeof asHostApi>>()
+  const apiOf = (serverId: string) => asHostApi({
+    sessionPullRequestWatch: async (sessionId: string, _repository: string, _number: number, watching: boolean) => {
+      watches.push({ serverId, sessionId, watching })
+      watched = watching
+      return 'stopped' as const
+    },
+    sessionPullRequests: async (sessionId: string) => {
+      reads.push(serverId)
+      return [{ ...link(sessionId), ...(watched ? { watch: { startedAt: 1 } } : {}) }]
+    },
+  })
+  const apiFor = spyOn(serverConnections, 'apiFor').mockImplementation((serverId: string) => {
+    if (!apis.has(serverId)) apis.set(serverId, apiOf(serverId))
+    return apis.get(serverId)!
+  })
+  const eventsFor = spyOn(serverConnections, 'eventsFor').mockImplementation(() => new HostEventSubscriber())
+  try {
+    const store = new SessionPullRequestsStore()
+    store.adopt('organization', [{ sessionId: 's', pullRequests: [{ ...link('s'), watch: { startedAt: 1 } }] }])
+    expect(store.linksFor('s')[0]!.watch).toBeDefined()
+
+    expect(await store.setWatch('machine', link('s'), false)).toBe('stopped')
+    expect(watches).toEqual([{ serverId: 'machine', sessionId: 's', watching: false }])
+    expect(reads).toEqual(['organization'])
+    expect(store.linksFor('s')[0]!.watch).toBeUndefined()
+  } finally { apiFor.mockRestore(); eventsFor.mockRestore() }
+})

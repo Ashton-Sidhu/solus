@@ -66,8 +66,9 @@ const htmlPathInput = z.object({ html_path: z.string() })
  * A call whose revision cannot be read is left out, and its card is not rebuilt.
  */
 export async function loadArtifactFileBodies(
-  bodyAtVersion: (workId: string, contentVersion: number) => Promise<string | null>,
+  sources: ArtifactHtmlSources,
   history: WireSessionLoadMessage[],
+  likelyServerId?: string,
 ): Promise<Map<string, string>> {
   const results = new Map(history.flatMap((message) =>
     message.role === 'tool_result' && message.toolResultForId ? [[message.toolResultForId, message] as const] : [],
@@ -83,7 +84,7 @@ export async function loadArtifactFileBodies(
   }
   const bodies = new Map<string, string>()
   await Promise.all(wanted.map(async ({ toolId, workId, contentVersion }) => {
-    const body = await bodyAtVersion(workId, contentVersion).catch(() => null)
+    const body = await savedBody(sources, workId, contentVersion, likelyServerId).catch(() => null)
     if (body !== null) bodies.set(toolId, body)
   }))
   return bodies
@@ -99,7 +100,7 @@ const htmlReads = new WeakMap<Message, Promise<void>>()
 interface ArtifactHtmlSources {
   /** The work as it is now, one cached read: its body is the one a call wrote
    *  when the version still matches. */
-  currentWork?(workId: string): Promise<Pick<Work, 'content' | 'contentVersion'> | null>
+  currentWork?(workId: string, likelyServerId?: string): Promise<Pick<Work, 'content' | 'contentVersion'> | null>
   bodyAtVersion(workId: string, contentVersion: number, likelyServerId?: string): Promise<string | null>
   apiFor?(serverId: string): Pick<HostApi, 'loadSessionToolInputs'>
 }
@@ -107,9 +108,19 @@ interface ArtifactHtmlSources {
 /** The works store as the HTML sources of a transcript's artifacts. */
 export function worksArtifactHtmlSources(works: Pick<WorksStore, 'ensureContent' | 'history'>): ArtifactHtmlSources {
   return {
-    currentWork: (workId) => works.ensureContent(workId, 'transcript-artifact'),
+    currentWork: (workId, likelyServerId) => works.ensureContent(workId, 'transcript-artifact', likelyServerId),
     bodyAtVersion: (workId, contentVersion, serverId) => works.history.bodyAtVersion(workId, contentVersion, serverId),
   }
+}
+
+/** The body a call saved at `contentVersion`: the work's current body while it
+ *  is still that version (one read the works store caches), else the revision
+ *  at that version (two reads). */
+async function savedBody(sources: ArtifactHtmlSources, workId: string, contentVersion: number, likelyServerId?: string): Promise<string | null> {
+  const current = await sources.currentWork?.(workId, likelyServerId).catch(() => null)
+  return current?.contentVersion === contentVersion
+    ? current.content
+    : sources.bodyAtVersion(workId, contentVersion, likelyServerId)
 }
 
 /**
@@ -129,14 +140,9 @@ export function loadArtifactHtml(message: Message, sources: ArtifactHtmlSources)
     delete ref.error
     try {
       const version = message.workRef?.contentVersion
-      let fromWork: string | null = null
-      if (message.workRef && version) {
-        const workId = message.workRef.workId
-        const current = await sources.currentWork?.(workId).catch(() => null)
-        fromWork = current?.contentVersion === version
-          ? current.content
-          : await sources.bodyAtVersion(workId, version, ref.serverId).catch(() => null)
-      }
+      const fromWork = message.workRef && version
+        ? await savedBody(sources, message.workRef.workId, version, ref.serverId).catch(() => null)
+        : null
       const html = fromWork ?? await inputHtmlOf(ref, sources)
       if (message.artifact?.historyHtml !== ref) return
       if (html === null) {

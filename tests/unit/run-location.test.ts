@@ -3,6 +3,7 @@ import type { GitCheckout, RunLocation } from '@solus/contracts/types'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import {
   adoptGit,
+  checkoutGit,
   checkoutPlace,
   chooseStart,
   cloneBaseBranch,
@@ -166,6 +167,21 @@ describe('choosing where to start in a folder', () => {
     const next = run(chooseStart(inWorktree, { kind: 'new-worktree' }))
     expect(workingPlace(next).path).toBe('/Users/me/solus')
     expect(startsWorktree(next)).toBe(true)
+  })
+
+  test('a branch the host found in another worktree moves the run there, not onto the folder', () => {
+    // WHY: from a stale list, the host answers a branch switch with the
+    // worktree that already has the branch and leaves the folder as it was.
+    // The desktop picker applies that answer as a branch choice, so the run
+    // must work where the answer points, or the agent starts on the old branch.
+    const inOther = run(chooseStart(local(), { kind: 'branch', git: { repoRoot: '/Users/me/solus', worktreePath: '/tmp/wt-fix', branch: 'fix', targetBranch: 'main' } }))
+    expect(workingPlace(inOther).path).toBe('/tmp/wt-fix')
+    expect(checkoutGit(inOther)?.branch).toBe('fix')
+    // The main checkout has the branch: the answer names the repository root.
+    const fromWorktree = chooseStart(local(), { kind: 'worktree', path: '/tmp/wt-fix', branch: 'fix' })
+    const inMain = run(chooseStart(fromWorktree, { kind: 'branch', git: main }))
+    expect(workingPlace(inMain).path).toBe('/Users/me/solus')
+    expect(checkoutGit(inMain)?.branch).toBe('main')
   })
 })
 

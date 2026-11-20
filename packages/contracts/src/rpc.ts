@@ -9,6 +9,7 @@
 //
 // To add a new method, add the name here and register a handler against
 // `SolusServer`.
+import type { DispatchRepository } from './types'
 
 /** Maximum decoded size of one attachment uploaded across a host boundary. */
 export const MAX_ATTACHMENT_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -71,6 +72,30 @@ export interface AssetUploadResult {
   size: number
 }
 
+/** A session repository is binary; the RPC carries one bounded part at a time. */
+export interface SessionRepositoryBundleRequest { sessionId: string; have: string | null }
+export type SessionRepositoryBundleResult =
+  | { state: 'ready'; transferId: string; size: number; head: string }
+  | { state: 'current'; head: string | null }
+  | { state: 'diverged'; head: string | null }
+  | { state: 'no-repository' }
+  | { state: 'commit-failed' }
+export interface SessionRepositoryBundleChunkRequest { transferId: string; offset: number }
+export interface SessionRepositoryBundleChunkResult { data: string; done: boolean }
+export interface SessionPrepareRequest {
+  sessionId: string
+  knownHead: string | null
+  sourceHostId?: string
+  repository?: DispatchRepository
+}
+export type SessionSyncFailure =
+  | 'provider-unavailable' | 'seat-required' | 'model-unavailable' | 'provider-too-old'
+  | 'source-offline' | 'no-repository' | 'not-signed-in' | 'commit-failed' | 'no-project-checkout' | 'diverged'
+  | 'code-restore' | 'thread-conflict' | 'interrupted' | 'failed'
+export type SessionPrepareResult =
+  | { state: 'current'; head: string | null }
+  | { state: 'started' }
+
 export const RPC_INVOKE_METHODS = [
   // Lifecycle / window
   'start',
@@ -84,6 +109,9 @@ export const RPC_INVOKE_METHODS = [
   'watchSession',
   'unwatchSession',
   'prompt',
+  'sessionPrepare',
+  'sessionRepositoryBundle',
+  'sessionRepositoryBundleChunk',
   'retry',
   'stopSession',
   'stopBackgroundTasks',
@@ -492,6 +520,8 @@ export const RPC_INVOKE_METHODS = [
   'prPrepareCheckout',
   'prGetDetail',
   'prUpdate',
+  'prReact',
+  'prInspectUrl',
   'prGetOverview',
   'prChangedFiles',
   'prListThreads',
@@ -552,11 +582,17 @@ export const RPC_INVOKE_METHODS = [
 
   // Tasks (provider-owned: docs/plans/provider-owned-tasks.md)
   'tasksSources',
+  'tasksLoadMore',
   'tasksSourceOptions',
+  'tasksConnectLinear',
   'tasksSearch',
   'tasksSidebarSnapshot',
   'tasksSearchComments',
   'tasksGet',
+  'tasksInspect',
+  'tasksReact',
+  'tasksTemplates',
+  'tasksResolve',
   'tasksAttachments',
   'tasksCreate',
   'tasksUpdate',
@@ -687,6 +723,12 @@ export const RPC_INVOKE_METHODS = [
   // Subscription quota per agent provider
   'usageLimits',
   'hostResources',
+  'runningServersList',
+  'runningServersWatch',
+  'runningServersCheckoutRoots',
+  'runningServersUnwatch',
+  'runningServerTunnel',
+  'runningServerStop',
   'hostTelemetrySubscribe',
   'hostTelemetryUnsubscribe',
 

@@ -229,6 +229,16 @@ export function resolveScaledTextRole(role: keyof typeof MOBILE_TYPOGRAPHY, base
   };
 }
 
+/** T3's iOS editor needs scaled metrics; Android already uses sp. */
+export function resolveComposerTextRole(
+  role: { readonly fontSize: number; readonly lineHeight: number },
+  fontScale: number,
+  os: string,
+) {
+  if (os !== "ios") return role;
+  return { fontSize: role.fontSize * fontScale, lineHeight: role.lineHeight * fontScale };
+}
+
 export function resolveNativeMarkdownTypography(baseFontSize: number): NativeMarkdownTypography {
   const fontSizes = resolveMarkdownFontSizes(baseFontSize);
   return {

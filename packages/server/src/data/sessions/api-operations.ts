@@ -1,5 +1,7 @@
 import { readOwnSessionArtifacts } from './session-artifacts'
 import { session as sessionTable } from './schema'
+import { sessionRepositories } from './schema'
+import { sessionRepositoryFacts, type SessionRepositoryRow } from './session-repositories'
 import { workspaceSessionQuerySchema, workspaceSessionSearchQuerySchema, workspacePageQuerySchema } from '@solus/contracts/solus-api'
 import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import { cutText } from '@solus/contracts/text-cut'
@@ -28,6 +30,7 @@ import { admitSession, SessionAdmissionConflict, type SessionAdmission } from '.
 import { onSessionPullRequestsChanged, readSessionPullRequests } from './session-pull-requests'
 import { sessionsWithPendingAsyncQuestion } from './async-questions'
 import { SessionShelf, SessionViewer } from './session-states'
+import { removePinnedSession } from './pinned-sessions'
 import { personalResourceState } from '../personal-state/schema'
 import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
@@ -91,7 +94,11 @@ export class SessionApiOperations {
     const isOwnerReading = isHostOwner(context.principal)
     // Questions wait on the host that runs the session; the workspace service keeps none.
     const asking = isApiMode() ? new Set<string>() : sessionsWithPendingAsyncQuestion(records.map(session => session.sessionId))
+    const cloudScopes = [...new Set(records.map(record => `organization:${record.organizationId}`))]
+    const repositoryRows = records.length ? await getDatabase().all<SessionRepositoryRow>(sql`SELECT * FROM ${sessionRepositories} WHERE cloud_scope IN (${sql.join(cloudScopes.map(scope => sql`${scope}`), sql`, `)}) AND session_id IN (${sql.join(records.map(record => sql`${record.sessionId}`), sql`, `)})`) : []
+    const repositoryByKey = new Map(repositoryRows.map(row => [`${row.cloud_scope}\0${row.session_id}`, row]))
     return records.map(session => {
+      const repository = repositoryByKey.get(`organization:${session.organizationId}\0${session.sessionId}`)
       const item: WorkspaceSession = {
         id: session.sessionId, home: context.home, organizationId: session.organizationId === 'local' ? null : session.organizationId,
         // Anyone but the host's owner sees the owner by their linked account (plans/031 D4).
@@ -110,6 +117,7 @@ export class SessionApiOperations {
         listed: session.listed ?? true,
         pullRequests: links[session.sessionId] ?? [],
       }
+      if (repository) Object.assign(item, sessionRepositoryFacts(repository))
       if (session.sharedBy !== undefined && session.grantedAt !== undefined) {
         item.sharedBy = keyForReader(session.sharedBy, isOwnerReading)
         item.grantedAt = session.grantedAt
@@ -176,6 +184,9 @@ export class SessionApiOperations {
       if (input.archived === false) await viewer.unarchive()
       if (input.snoozedUntil !== undefined) await viewer.snooze(input.snoozedUntil, input.snoozeNote)
       changed.view = await viewer.view()
+      if (isHostOwner(context.principal) && (input.settled === true || input.archived === true)) {
+        removePinnedSession(sessionId)
+      }
     }
     return changed
   }

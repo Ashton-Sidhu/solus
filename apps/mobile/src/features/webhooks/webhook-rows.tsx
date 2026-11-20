@@ -1,4 +1,4 @@
-import { Platform, Pressable, View } from "react-native";
+import { Platform, Pressable, View, type PressableProps } from "react-native";
 import { useResolveClassNames } from "uniwind";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -22,6 +22,8 @@ export function WebhookListRow(props: {
   readonly lines: readonly RowLine[];
   readonly first: boolean;
   readonly onPress: () => void;
+  readonly onLongPress?: PressableProps["onLongPress"];
+  readonly onTouchStart?: PressableProps["onTouchStart"];
 }) {
   const rippleStyle = useResolveClassNames("bg-subtle-strong");
   return (
@@ -29,6 +31,8 @@ export function WebhookListRow(props: {
       accessibilityRole="button"
       accessibilityLabel={[props.title, props.trailing, ...props.lines.map((line) => line.text)].filter(Boolean).join(", ")}
       onPress={props.onPress}
+      onLongPress={props.onLongPress}
+      onTouchStart={props.onTouchStart}
       android_ripple={{ color: rippleStyle.backgroundColor }}
       unstable_pressDelay={Platform.OS === "android" ? 50 : undefined}
       className={cn("bg-grouped-card", !props.first && "border-t border-border-subtle")}

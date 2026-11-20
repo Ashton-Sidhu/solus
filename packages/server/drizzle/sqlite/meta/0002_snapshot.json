@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b43f0cb7-5741-4ef6-95ac-36a0ca93baec",
+  "id": "5b12c125-78b7-4484-b8ff-3de4c6938ad6",
   "prevId": "400af3a0-fed9-45a7-aed2-bec9d483d7f0",
   "tables": {
     "acl_entry": {
@@ -3733,6 +3733,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "assignees": {
+          "name": "assignees",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
         "assignee": {
           "name": "assignee",
           "type": "text",
@@ -5412,20 +5420,6 @@
           "autoincrement": false,
           "default": "'[]'"
         },
-        "launch": {
-          "name": "launch",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "project_key": {
-          "name": "project_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -5536,74 +5530,6 @@
             "account_id"
           ],
           "name": "integration_connection_integration_id_user_id_account_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "integration_server_facts": {
-      "name": "integration_server_facts",
-      "columns": {
-        "integration_id": {
-          "name": "integration_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "account_id": {
-          "name": "account_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "verdict": {
-          "name": "verdict",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "verdict_at": {
-          "name": "verdict_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "facts": {
-          "name": "facts",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "stored_at": {
-          "name": "stored_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "integration_server_facts_integration_id_user_id_account_id_pk": {
-          "columns": [
-            "integration_id",
-            "user_id",
-            "account_id"
-          ],
-          "name": "integration_server_facts_integration_id_user_id_account_id_pk"
         }
       },
       "uniqueConstraints": {},

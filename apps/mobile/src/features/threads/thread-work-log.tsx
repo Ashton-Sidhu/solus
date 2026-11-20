@@ -31,6 +31,7 @@ import { toolProgressView } from "@solus/contracts/tool-progress";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { ThreadToolImages } from "./ThreadImages";
 import { ThreadToolAudio } from "./ThreadToolAudio";
+import { ToolCallDetail } from "./ToolCallDetail";
 import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
 import {
   summarizeToolGroup,
@@ -41,7 +42,7 @@ import {
   toolFullDetail,
   toolGroupAction,
   toolGroupSummaryKind,
-  toolRowLabel,
+  toolRowView,
   type ToolGroupAction,
   type ToolTranscriptItem,
 } from "./thread-work-log-presentation";
@@ -469,7 +470,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
   const audio = toolDetailAudio(row);
   const leftOut = toolDetailLeftOut(row);
   const canExpand = fullDetail !== null || images.length > 0 || audio.length > 0 || leftOut.length > 0;
-  const displayText = toolRowLabel(row, expanded);
+  const { label: displayText, body } = toolRowView(row, expanded);
   const icon = toolGroupSummarySymbolName(toolGroupAction(row.toolName));
   const copyText = fullDetail ?? displayText;
   const accessiblePreview = row.childCount
@@ -569,9 +570,7 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
               className="max-h-60"
               contentContainerStyle={{ paddingRight: 8 }}
             >
-              <Text selectable className="font-mono text-2xs leading-normal text-foreground-muted">
-                {fullDetail}
-              </Text>
+              <ToolCallDetail body={body} />
             </Animated.ScrollView>
           ) : null}
           {images.length > 0 ? <ThreadToolImages images={images} store={props.store} /> : null}

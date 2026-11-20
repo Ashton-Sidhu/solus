@@ -131,7 +131,7 @@ export const workspaceAttributionSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('user'), user: workspaceUserSchema }),
   z.strictObject({ kind: z.literal('agent'), sessionId: z.string().max(256), provider: agentProvider.optional(), title: z.string().max(500).optional(), for: workspaceUserSchema.optional() }),
   z.strictObject({ kind: z.literal('automation'), automationId: z.string().max(256), name: z.string().max(500).optional(), for: workspaceUserSchema.optional() }),
-  z.strictObject({ kind: z.literal('upstream'), provider: z.enum(['gdrive', 'confluence', 'github', 'jira']) }),
+  z.strictObject({ kind: z.literal('upstream'), provider: z.enum(['gdrive', 'confluence', 'github', 'jira', 'linear']) }),
   z.strictObject({ kind: z.literal('system') }),
 ]).meta({ description: 'Who did something: a person, an agent\'s session and the person it worked for, an automation, an upstream system, or Solus itself.' })
 
@@ -337,6 +337,14 @@ export const workspaceSessionSchema = z.strictObject({
   projectPath: z.string().max(4096),
   projectRemote: nullableText(4096),
   runnerHostId: workspaceIdSchema.nullable(),
+  /** Latest pushed session repository commit. */
+  head: z.string().nullable().optional(),
+  /** Turn count at the latest pushed commit. */
+  syncedTurn: z.number().int().min(0).optional(),
+  /** Host that ran the latest pushed turn. */
+  lastRunHostId: workspaceIdSchema.nullable().optional(),
+  /** Host with an active turn, when known. */
+  runningHostId: workspaceIdSchema.nullable().optional(),
   status: z.enum(['idle', 'running', 'interrupted']),
   model: nullableText(256),
   reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).nullable(),

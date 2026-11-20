@@ -32,6 +32,11 @@ const PROJECT_CONFIG_FILE = 'config.json'
 const rootByCwd = new Map<string, string>()
 
 const projectConfigInputSchema = z.object({
+  serverUrls: z.array(z.string().max(2048).url().refine((raw) => {
+    const url = new URL(raw)
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+      && ['localhost', '127.0.0.1', '[::1]', '0.0.0.0', '[::]'].includes(url.hostname)
+  }, 'Use a local HTTP or HTTPS URL without credentials.')).max(16).optional(),
   taskDoneOnMerge: z.boolean().optional(),
   // A malformed override is dropped, not fatal: the rest of the file still applies.
   worktreeBranchNaming: worktreeBranchNamingSchema.optional().catch(undefined),
@@ -79,6 +84,7 @@ function normalizeConfig(raw: ProjectConfigInput): ProjectConfig {
   if (raw.worktreeBranchNaming !== undefined) {
     config.worktreeBranchNaming = raw.worktreeBranchNaming
   }
+  if (raw.serverUrls) config.serverUrls = [...new Set(raw.serverUrls)]
   if (raw.deviceRuns?.length) config.deviceRuns = raw.deviceRuns
   return config
 }

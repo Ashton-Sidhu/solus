@@ -1,3 +1,4 @@
+import { prSavedViewsSchema } from './pr-views'
 // ─── Settings: personal, device, host, and organization ───
 //
 // plans/018-settings-sync-and-organization-policy.md. Every setting has one
@@ -17,6 +18,7 @@
 // not make. Device storage heals one bad key to its default.
 
 import { z } from 'zod'
+import { taskSavedViewsSchema } from './task-views'
 import { DEFAULT_VOICE_DICTIONARY, voiceDictionarySchema } from './voice-dictionary'
 import type { SavedLens } from './review'
 import { DEFAULT_MODEL_ROUTING, defaultLeadInstructions, modelRoutingSchema } from './model-routing'
@@ -227,7 +229,9 @@ export const PERSONAL_SETTING_SCHEMAS = {
   }).strict()).max(MAX_SIDEBAR_APPS).describe('The apps pinned in the places column of the sidebar on desktop and web, below the Solus places, in order. host: the installation id of the host that runs the app.'),
   /** The agent and model a lead starts on. Null means the default for new sessions. No session is a lead now (docs/plans/task-conversation.md). */
   leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new lead session starts on. Null uses the default for new sessions.'),
-  taskSources: z.array(taskSourceSchema).max(MAX_TASK_SOURCES).describe('Where the person reads tasks from: GitHub repositories, GitHub Projects, Jira projects and Jira boards. Tasks belong to no Solus project (docs/tasks.md).'),
+  taskSources: z.array(taskSourceSchema).max(MAX_TASK_SOURCES).describe('Where the person reads tasks from: GitHub repositories, GitHub Projects, Jira projects, Jira boards and Linear teams. Tasks belong to no Solus project (docs/tasks.md).'),
+  prSavedViews: prSavedViewsSchema.describe('Named personal PR filters, synced across clients.'),
+  taskSavedViews: taskSavedViewsSchema.describe('Named personal task filters, synced across clients.'),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
   /** Rules added after the built-in lead contract (docs/plans/task-conversation.md, Orchestrator). */
   leadInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Rules from the person that are added after the built-in contract of a lead session.'),
@@ -327,6 +331,8 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   sidebarApps: [],
   leadModel: null,
   taskSources: [],
+  taskSavedViews: [],
+  prSavedViews: [],
   agentTaskLifecyclePolicy: 'moderate',
   leadInstructions: defaultLeadInstructions(DEFAULT_MODEL_ROUTING),
   workerModel: null,

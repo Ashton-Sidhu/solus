@@ -1,4 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestsScreen.tsx (MIT, see UPSTREAM.md).
+import { PrListTools } from './PrListTools'
+import { usePrReviewFilters } from './use-pr-review-filters'
 import { useNavigation } from '@react-navigation/native'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
@@ -148,18 +150,20 @@ export function PullRequestsScreen(props: {
     const viewers = new Map(list.hosts.map((host) => [host.hostId, shownValue(host.state)?.viewerLogin ?? null]))
     return (hostId: string) => viewers.get(hostId) ?? null
   }, [list.hosts])
-  const rows = useMemo(() => filterPullRequestRows(list.rows, scope.controls, viewerOf, list.connectedHostIds), [list.rows, scope.controls, viewerOf, list.connectedHostIds])
+  const loadedRows = useMemo(() => filterPullRequestRows(list.rows, scope.controls, viewerOf, list.connectedHostIds), [list.rows, scope.controls, viewerOf, list.connectedHostIds])
+  const reviewFilters = usePrReviewFilters(loadedRows, preferences.filters, list.reading)
+  const rows = reviewFilters.rows
   const facets = useMemo(() => pullRequestListFacets(list.rows), [list.rows])
 
   // Review, checks, involvement, host and project narrow only the rows the
   // device holds, so a filtered page can come back short. Read a few more
   // pages while it is.
   const [pageFill] = useState(() => new BoundedPageFill())
-  const fillKey = JSON.stringify([query, preferences.state, scope.hostIds, scope.project, scope.controls.involvement, scope.controls.filters.review, scope.controls.filters.checks])
+  const fillKey = JSON.stringify([query, preferences.state, scope.hostIds, scope.project, scope.controls.involvement, scope.controls.filters.review, scope.controls.filters.checks, reviewFilters.filterKey])
   const { reading, hasMore, loadingMore, loadMore } = list
   useEffect(() => {
-    if (pageFill.next(fillKey, { rows: rows.length, hasMore, reading: reading || loadingMore })) void loadMore()
-  }, [pageFill, fillKey, rows.length, hasMore, reading, loadingMore, loadMore])
+    if (pageFill.next(fillKey, { rows: rows.length, hasMore, reading: reading || loadingMore || reviewFilters.pending })) void loadMore()
+  }, [pageFill, fillKey, rows.length, hasMore, reading, loadingMore, loadMore, reviewFilters.pending])
   const showsHost = scope.hostIds.length > 1
   const projects = useMemo((): PullRequestFilterProject[] => {
     const result: PullRequestFilterProject[] = []
@@ -214,7 +218,7 @@ export function PullRequestsScreen(props: {
     authors: facets.authors, labels: facets.labels, projects,
     onSearch: (field) => navigation.navigate('PullRequestFilterSearch', { field }),
   })
-  const waiting = rows.length === 0 && list.reading
+  const waiting = rows.length === 0 && reviewFilters.waiting
 
   return (
     <>
@@ -257,6 +261,7 @@ export function PullRequestsScreen(props: {
                 refreshing={list.reading && rows.length > 0 && !list.loadingMore}
                 filters={filters}
               />
+              <PrListTools preferences={preferences} query={props.query} hostId={scope.hostId} scopeHostIds={scope.hostIds} pairedHostIds={pairedHostIds} onPreferencesChange={onPreferencesChange} onQueryChange={props.onSearchQueryChange} metadataError={reviewFilters.error} retryMetadata={reviewFilters.retry} />
               <HostNotices
                 // A new scope starts folded again.
                 key={`${scope.hostIds.join(',')}\u0000${scope.project?.hostId ?? ''}\u0000${scope.project?.projectPath ?? ''}`}
@@ -284,7 +289,7 @@ export function PullRequestsScreen(props: {
                 actionLabel="Connect GitHub"
                 onAction={() => navigation.navigate('GitHubConnection', { hostId: reads[0]!.hostId })}
               />
-            ) : reads.every((host) => host.state.kind === 'error') ? undefined : (
+            ) : reads.every((host) => host.state.kind === 'error') || reviewFilters.error ? undefined : (
               <EmptyState
                 variant="plain"
                 title={typed ? 'No results' : 'No matching pull requests'}

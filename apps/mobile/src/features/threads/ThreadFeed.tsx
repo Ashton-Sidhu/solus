@@ -47,6 +47,7 @@ import {
   type ThreadFeedRow,
   type TurnPromptIds,
 } from "./thread-feed-presentation";
+import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "./thread-feed-scroll-position";
 import { resolveThreadFeedLiveFollow, type ThreadFeedLiveFollowEvent } from "./thread-feed-live-follow";
 import { streamingMessageRowId, threadFeedItemType } from "./thread-feed-item-type";
 import {
@@ -57,6 +58,7 @@ import {
   ThreadWorkLog,
 } from "./thread-work-log";
 import { WorkLogBlock, WorkLogIconSlot, WorkLogPressable } from "./work-log-layout";
+import { ThreadFeedLoadEarlierControl } from "./ThreadFeedLoadEarlierControl";
 import { ThreadFeedPlaceholder } from "./ThreadFeedPlaceholder";
 import { ThreadMarkdown } from "./ThreadMarkdown";
 import { FinalReplyMarkdown } from "./FinalReplyMarkdown";
@@ -68,7 +70,7 @@ import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
 import { LeadPromotionDivider, CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionStarterFromHost } from "@solus/contracts/types";
-import { TurnArtifactChips } from "./AgentArtifactChips";
+import { TurnFooter } from "./CloudTurnChanges";
 import { ThreadImage } from "./ThreadImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
@@ -105,7 +107,10 @@ export interface ThreadFeedProps {
   readonly listRef: RefObject<LegendListRef | null>;
   readonly freeze: SharedValue<boolean>;
   readonly submittedMessageId: string | null;
+  readonly anchorMessageId?: string | null;
+  readonly contentTopInset?: number;
   readonly contentInsetEndAdjustment: SharedValue<number>;
+  readonly sendingWithKeyboard?: boolean;
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
   /** The agent session on another host that started this one; shown above the first message. */
@@ -165,17 +170,15 @@ const AssistantMessageRow = memo(function AssistantMessageRow(props: {
   if (item?.kind !== "assistant" || item.text.trim().length === 0) return null;
   return (
     <Animated.View className={props.showMeta ? "mb-5 px-1" : "mb-1 px-1"}>
-      {props.isFinalReply ? (
-        <FinalReplyMarkdown
-          store={props.store}
-          replyId={props.id}
-          text={item.text}
-          promptId={props.promptId}
-          nextPromptId={props.nextPromptId}
-        />
-      ) : (
-        <ThreadMarkdown markdown={item.text} tone="assistant" store={props.store} />
-      )}
+      {/* Keep the native text view mounted when a streaming reply settles. */}
+      <FinalReplyMarkdown
+        isFinalReply={props.isFinalReply}
+        store={props.store}
+        replyId={props.id}
+        text={item.text}
+        promptId={props.promptId}
+        nextPromptId={props.nextPromptId}
+      />
       {props.showMeta ? (
         <View className="mt-1 flex-row items-center gap-1">
           <CopyTextButton
@@ -343,7 +346,7 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   }
 
   if (row.type === "turn-artifacts") {
-    return <TurnArtifactChips store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} replyId={row.replyId} imageIds={row.imageIds} />;
+    return <TurnFooter store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} replyId={row.replyId} imageIds={row.imageIds} />;
   }
 
   if (row.type === "image") {
@@ -594,8 +597,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     setViewportHeight((current) => (Math.abs(current - nextHeight) > 1 ? nextHeight : current));
   }, []);
 
-  // The empty↔filled key remounts the list when rows first arrive, so it opens at the end.
-  const listMountKey = `${props.threadKey}:${presentedFeed.some((row) => row.type !== "thinking") ? "filled" : "empty"}`;
+  const listMountKey = props.threadKey;
+  const topContentInset = props.contentTopInset ?? 0;
+  const anchoredEndSpace = resolveChatListAnchoredEndSpace(
+    presentedFeed,
+    props.anchorMessageId ?? null,
+    (row) => row.type === "message" ? row.id : null,
+    { anchorOffset: topContentInset + CHAT_LIST_ANCHOR_OFFSET },
+  );
   const [loadedListKey, setLoadedListKey] = useState<string | null>(null);
   const listReady = loadedListKey === listMountKey;
   useLayoutEffect(() => {
@@ -749,9 +758,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     <View className="flex-1" onLayout={handleViewportLayout}>
       <View className="flex-1">
         <MarkdownImageAvailableWidthContext value={markdownContentWidth}>
-          <KeyboardAwareLegendList
+          {presentedFeed.length > 0 ? <KeyboardAwareLegendList
             ref={listRef}
-            key={listMountKey}
+            dataKey={listMountKey}
+            anchoredEndSpace={anchoredEndSpace}
             style={{ flex: 1, opacity: listReady ? 1 : 0 }}
             accessibilityElementsHidden={!listReady}
             importantForAccessibility={listReady ? "auto" : "no-hide-descendants"}
@@ -760,11 +770,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             // RN 0.81+ drops touches inside the contentInset area; the end space
             // after a send is pure inset, so without this it cannot be scrolled.
             applyWorkaroundForContentInsetHitTestBug
-            contentInsetAdjustmentBehavior={usesNativeAutomaticInsets ? "automatic" : "never"}
+            contentInsetAdjustmentBehavior="never"
             automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
-            scrollIndicatorInsets={{ top: 0, left: 0, right: 0, bottom: 0 }}
+            scrollIndicatorInsets={{ top: topContentInset, left: 0, right: 0, bottom: 0 }}
             contentInsetEndAdjustment={props.contentInsetEndAdjustment}
-            {...(initialContentInset ? { contentInset: initialContentInset } : {})}
+            contentInset={{ ...initialContentInset, top: topContentInset }}
             freeze={props.freeze}
             maintainScrollAtEnd={
               disclosureToggleSettling || !endFollowEnabled
@@ -782,7 +792,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             drawDistance={500}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="none"
-            keyboardLiftBehavior="whenAtEnd"
+            keyboardLiftBehavior={props.sendingWithKeyboard ? "persistent" : "whenAtEnd"}
             {...(viewportHeight > 0 && viewportWidth > 0
               ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }
               : {})}
@@ -810,7 +820,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               paddingTop: 12,
               paddingHorizontal: contentHorizontalPadding,
             }}
-          />
+          /> : null}
         </MarkdownImageAvailableWidthContext>
       </View>
       {/* While the host is away an empty thread shows only the veil. */}
@@ -833,39 +843,3 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     </View>
   );
 });
-
-function ThreadFeedLoadEarlierControl(props: ThreadFeedHistoryControls) {
-  const theme = useUniwindTheme();
-  const mutedColor = theme["--color-icon-subtle"];
-  const accentColor = theme["--color-primary"];
-  if (!props.hasMoreHistory && props.error === null) {
-    return null;
-  }
-  return (
-    <View className="mb-3 items-center gap-1.5 px-2">
-      {props.hasMoreHistory ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Load earlier activity"
-          disabled={props.loading}
-          onPress={props.onLoadEarlier}
-          className="min-h-9 flex-row items-center justify-center gap-2 rounded-full border border-border/60 bg-card/80 px-4 py-2 disabled:opacity-50"
-        >
-          {props.loading ? (
-            <ActivityIndicator size="small" color={accentColor} />
-          ) : (
-            <SymbolView name="chevron.up" size={12} tintColor={accentColor} type="monochrome" />
-          )}
-          <Text className="text-sm font-medium text-foreground">
-            {props.loading ? "Loading earlier activity…" : "Load earlier activity"}
-          </Text>
-        </Pressable>
-      ) : null}
-      {props.error !== null ? (
-        <Text className="text-center text-xs" style={{ color: mutedColor }}>
-          {props.error}
-        </Text>
-      ) : null}
-    </View>
-  );
-}

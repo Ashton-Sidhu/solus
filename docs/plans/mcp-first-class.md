@@ -545,7 +545,7 @@ z.object({ kind: z.literal('env'), names: z.array(z.string().regex(/^[A-Za-z_][A
 ```
 
 As built (B1): `integration` is a host table, so the two columns are a
-migration of `solus.db` only (`drizzle/sqlite/0002_stdio_integrations.sql`).
+migration of `solus.db` only (`drizzle/sqlite/0008_stdio_integrations.sql`).
 Postgres holds no host table, so it has no migration. `Integration` gains
 `launch?` and `projectKey?`. The auth kinds of a server at a URL are
 `remoteIntegrationAuthSchema`; the agent profile entry and the probe result
@@ -1480,7 +1480,7 @@ Where the code differs from §12.1 to §12.5, the code is right.
   request as the task's person, does not start a stdio process, and moves a
   refused sign-in to "needs sign-in". `boot-server.ts` wires the owner, the
   event, and the handlers (`transport/handlers/mcp-task-handlers.ts`).
-- **The table** is `mcp_task` (migration `0003_mcp_tasks`). The person
+- **The table** is `mcp_task` (migration `0009_mcp_tasks`). The person
   column is `user_id`, not `person_key` (the data-model rule).
   `expires_at` is never null: the server's `ttlMs`, at most 24 hours.
   `deleteHostRowsOfSession` deletes a session's rows; the owner finds the row

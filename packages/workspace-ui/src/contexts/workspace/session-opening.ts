@@ -1,5 +1,5 @@
 import { hosts } from '../hosts/hosts.svelte'
-import type { Session, RunConfig, Message, SessionMeta } from '@solus/contracts/types'
+import type { Session, RunConfig, Message, SessionDescription, SessionMeta } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
@@ -10,6 +10,7 @@ import { serversStore } from '../connections/servers.store.svelte'
 import { chooseRunOnHost, type RunOnChoice, type RunOnHost } from '../projects/run-on-rule'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
+import { isSolusApiId } from '@solus/contracts/uplink'
 import { type Task } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { makeSession, makeTab } from './session.factories'
@@ -44,6 +45,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'activeTab'
   | 'activeTabId'
   | 'addTabToOrder'
+  | 'closeTab'
   | 'adoptSessionId'
   | 'apiFor'
   | 'applyRuntimeAttach'
@@ -63,6 +65,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'projectPageScope'
   | 'moveChatSurfaceToMain'
   | 'revealConversation'
+  | 'runHosts'
   | 'router'
   | 'runFor'
   | 'selectTab'
@@ -87,6 +90,61 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
 /** What a session's first history page is read with: its metadata, or the
  *  same facts a sidebar row already holds. */
 type FirstPageFacts = Pick<SessionMeta, 'sessionId' | 'serverId' | 'provider' | 'projectPath' | 'cwd'>
+
+/** Which thread a resume reads and the facts it opens with. */
+interface Opening {
+  meta: SessionMeta
+  handoff: SessionDescription['lineage']
+  activeProviderSessionId: string | null
+}
+
+/** The caller's facts, before the description answers: the session's own
+ *  thread, as the listed record names it. */
+function guessedOpening(meta: SessionMeta): Opening {
+  return { meta, handoff: null, activeProviderSessionId: meta.sessionId }
+}
+
+/** The thread the description names: after a provider handoff it is another
+ *  provider's thread, or none yet while the handoff is pending. */
+function describedOpening(meta: SessionMeta, { lineage: handoff, meta: describedMeta }: SessionDescription): Opening {
+  const activeMember = handoff?.active
+  if (activeMember?.providerSessionId) {
+    if (!describedMeta) throw new SessionUnavailableError(activeMember.providerSessionId)
+    return {
+      handoff,
+      activeProviderSessionId: activeMember.providerSessionId,
+      meta: { ...meta, ...describedMeta, provider: activeMember.provider, sessionId: meta.sessionId, cwd: activeMember.cwd, serverId: meta.serverId },
+    }
+  }
+  if (activeMember) return { handoff, activeProviderSessionId: null, meta: { ...meta, provider: activeMember.provider, cwd: activeMember.cwd } }
+  if (!describedMeta) throw new SessionUnavailableError(meta.sessionId)
+  return { handoff, activeProviderSessionId: meta.sessionId, meta: { ...meta, ...describedMeta, serverId: meta.serverId } }
+}
+
+/** Whether a tab opened on the guess reads the thread the description names. */
+function sameOpening(guessed: Opening, described: Opening): boolean {
+  return guessed.activeProviderSessionId === described.activeProviderSessionId
+    && guessed.meta.provider === described.meta.provider
+    && (guessed.meta.cwd || '') === (described.meta.cwd || '')
+    && guessed.meta.projectPath === described.meta.projectPath
+}
+
+function sessionTitleOf(meta: SessionMeta): string {
+  if (meta.customTitle) return meta.customTitle
+  if (meta.firstMessage) return meta.firstMessage.length > 80 ? meta.firstMessage.substring(0, 80) : meta.firstMessage
+  return meta.slug || 'Resumed'
+}
+
+/** What the description adds to a tab opened on the guess. */
+function applyDescribedFacts(session: Session, meta: SessionMeta, run: Partial<RunConfig>): void {
+  session.title = sessionTitleOf(meta)
+  session.titleCustom = !!meta.customTitle
+  session.startedBy = meta.startedBy
+  session.parentSessionId = parentSessionIdOf(meta)
+  if (meta.isLead) session.isLead = true
+  session.organizationId = meta.organizationId ?? null
+  Object.assign(session.run, run)
+}
 
 export class SessionOpening {
   /** Counts task opens. A slow open checks it after each wait, so a task the
@@ -153,7 +211,8 @@ export class SessionOpening {
       forkedFromSessionId: null,
       messages: copiedMessages,
       additionalDirs: [...sourceSession.additionalDirs],
-      // A fork runs exactly where its source does.
+      // A fork runs where its source does until the person picks another
+      // host in Run on; that host syncs the source first (plan §10).
       run: {
         ...sourceSession.run,
         modelConfig: { ...sourceSession.run.modelConfig },
@@ -165,6 +224,7 @@ export class SessionOpening {
     })
 
     forkedSession.title = `Fork: ${originalTitle}`
+    forkedSession.forkSourceSessionId = sourceSession.id
     const forkTab = makeTab(forkedSession.id, { id: tabId })
 
     this.workspace.sessions.byId[forkedSession.id] = forkedSession
@@ -303,12 +363,12 @@ export class SessionOpening {
   /** Ask the host for a session's first history page before its tab exists.
    *  The read `resumeSession` makes for the same metadata takes this one, so
    *  the page travels while the tab is created and mounted. */
-  prefetchFirstPage(meta: FirstPageFacts): void {
+  prefetchFirstPage(meta: FirstPageFacts, maxAgeMs?: number): void {
     if (!meta.serverId || !hosts.hasExecution(meta.serverId)) return
     const request = this.firstPageRequest(meta)
     if (findOpenTabForSession(meta.sessionId, this.workspace.tabs, this.workspace.sessions.byId,
       this.workspace.tabOrder, request.provider, meta.serverId)) return
-    void prefetchSessionHistoryPage(serverConnections.apiFor(meta.serverId), request).catch(() => null)
+    void prefetchSessionHistoryPage(serverConnections.apiFor(meta.serverId), request, maxAgeMs).catch(() => null)
   }
 
   async resumeSession(
@@ -318,6 +378,8 @@ export class SessionOpening {
       intoTabId?: string
       /** False once the reader has moved on; the resume then stops before it opens a tab. */
       stillWanted?: () => boolean
+      /** The session's description, already read: the tab opens on it. */
+      description?: SessionDescription
     },
   ): Promise<string> {
     const openedAt = performance.now()
@@ -331,34 +393,29 @@ export class SessionOpening {
       this.workspace.openSessionRecord(meta.sessionId, meta.serverId)
       return ''
     }
-    const selectedApi = serverConnections.apiFor(meta.serverId)
+    const selectedServerId = meta.serverId
+    const selectedApi = serverConnections.apiFor(selectedServerId)
     if (!opts?.intoTabId) this.prefetchFirstPage(meta)
     // `meta.sessionId` is the session id; its lineage names the thread to read
     // (docs/plans/session-identity.md).
     const resumedSessionId = meta.sessionId
     const descriptionStartedAt = performance.now()
-    const { lineage: handoff, meta: describedMeta } = await selectedApi.describeSession(resumedSessionId)
-    measureOpenStep('describeSession', descriptionStartedAt, { sessionId: resumedSessionId })
-    const activeMember = handoff?.active
-    let activeProviderSessionId: string | null = meta.sessionId
-    if (activeMember?.providerSessionId) {
-      if (!describedMeta) throw new SessionUnavailableError(activeMember.providerSessionId)
-      meta = {
-        ...meta,
-        ...describedMeta,
-        provider: activeMember.provider,
-        sessionId: resumedSessionId,
-        cwd: activeMember.cwd,
-        serverId: meta.serverId,
-      }
-      activeProviderSessionId = activeMember.providerSessionId
-    } else if (activeMember) {
-      meta = { ...meta, provider: activeMember.provider, cwd: activeMember.cwd }
-      activeProviderSessionId = null
-    } else {
-      if (!describedMeta) throw new SessionUnavailableError(meta.sessionId)
-      meta = { ...meta, ...describedMeta, serverId: meta.serverId }
-    }
+    const describing = opts?.description
+      ? Promise.resolve(opts.description)
+      : selectedApi.describeSession(resumedSessionId).then((description) => {
+        measureOpenStep('describeSession', descriptionStartedAt, { sessionId: resumedSessionId })
+        return description
+      })
+    // A resume that stops early never reads the description.
+    describing.catch(() => {})
+    // A new tab opens on the facts the caller holds, and the description
+    // answers beside the history page: waiting for it first cost a round trip
+    // before the tab existed. A tab taken over changes in place, so it waits.
+    const isGuessed = !opts?.intoTabId && !opts?.description
+    const guessedFrom = meta
+    const opening = isGuessed ? guessedOpening(meta) : describedOpening(meta, await describing)
+    meta = opening.meta
+    const { handoff, activeProviderSessionId } = opening
     if (opts?.stillWanted?.() === false) return ''
     const background = opts?.background ?? false
     const intoTabId = opts?.intoTabId
@@ -388,17 +445,16 @@ export class SessionOpening {
     // The same request the click's prefetch made, so the read below takes it.
     const firstPage = this.firstPageRequest({ ...meta, provider })
     const workingDirectory = worktreeProjectRoot(defaultDir)
-    const title = meta.customTitle
-      ? meta.customTitle
-      : meta.firstMessage
-        ? meta.firstMessage.length > 80 ? meta.firstMessage.substring(0, 80) : meta.firstMessage
-        : meta.slug || 'Resumed'
+    const title = sessionTitleOf(meta)
 
     const hadActiveTab = !!this.workspace.activeTab
     let tabId = intoTabId ?? this.workspace.activeTabId
     const targetTab = intoTabId ? this.workspace.tabs[intoTabId] : this.workspace.activeTab
     const targetSession = intoTabId ? this.workspace.sessionFor(intoTabId) : this.workspace.activeSession
-    const canTakeOver = targetTab && targetSession && !targetSession.agentSessionId
+    // A tab that already names this session and shows none of it (it opened
+    // from the cloud before a host had it) takes the resume too.
+    const canTakeOver = targetTab && targetSession
+      && (!targetSession.agentSessionId || (!!intoTabId && targetSession.id === resumedSessionId))
       && targetSession.status !== 'connecting' && targetSession.status !== 'running'
       && targetSession.messages.length === 0
     if (intoTabId && !canTakeOver) {
@@ -472,6 +528,9 @@ export class SessionOpening {
     }
     this.workspace.adoptSessionId(tabId, resumedSessionId)
     if (!background && !intoTabId) this.workspace.revealConversation()
+    // A host that is behind gets ready before the person sends (portable-sessions §10).
+    sessionListStore.noteSessionMeta(selectedServerId, meta)
+    this.workspace.runHosts.opened(tabId)
 
     // The watch also attaches to the live runtime, which is what a separate
     // bind used to do after it.
@@ -517,7 +576,7 @@ export class SessionOpening {
         ? api.gitIdentity(defaultDir).catch(() => null)
         : Promise.resolve(null)
       void this.workspace.tasksStore.ensureSessionBinding(resumedSessionId, projectHome(this.workspace.runFor(tabId))?.serverId).catch(() => null)
-      const transcript = await loadSessionTranscript(this.workspace, {
+      const transcriptLoad = loadSessionTranscript(this.workspace, {
         sessionId: resumedSessionId,
         loadPath: firstPage.projectPath,
         displayCwd: workingDirectory,
@@ -525,6 +584,25 @@ export class SessionOpening {
         ctx: this.workspace.ctxFor(tabId),
         turnLimit: INITIAL_HISTORY_TURNS,
       })
+      if (isGuessed) {
+        // The rows wait for the description: they show only the thread it names.
+        transcriptLoad.catch(() => {})
+        let described: Opening
+        try {
+          described = describedOpening(guessedFrom, await describing)
+        } catch (error) {
+          if (currentResumeTarget()) this.workspace.closeTab(tabId)
+          throw error
+        }
+        if (!sameOpening(opening, described)) {
+          // Another thread is active now (a provider handoff): open it instead.
+          if (currentResumeTarget()) this.workspace.closeTab(tabId)
+          return this.resumeSession(guessedFrom, { ...opts, description: await describing })
+        }
+        const describedSession = currentResumeTarget()
+        if (describedSession) applyDescribedFacts(describedSession, described.meta, this.workspace.config.threadRunFor({ provider, model: described.meta.model, reasoningEffort: described.meta.reasoningEffort }, describedSession.run))
+      }
+      const transcript = await transcriptLoad
 
       const session = currentResumeTarget()
       if (session) {
@@ -597,6 +675,49 @@ export class SessionOpening {
     if (intoTabId) requestInputFocus({ tabId })
     track('session_resumed', {})
     return tabId
+  }
+
+  /**
+   * Open a session only the cloud lists (portable-sessions-cloud §5.5). No
+   * host that this client reaches has its conversation, so the tab opens with
+   * none: on the host that ran its last turn when this client keeps it (the
+   * composer then says that host is offline), else on the Run on host. The
+   * person can type at once and pick a host in Run on; the host syncs from the
+   * cloud, and the conversation shows when it is current.
+   */
+  async openCloudSession(sessionId: string): Promise<void> {
+    const listed = sessionListStore.listed(sessionId)
+    if (!listed?.cloudOnly) return
+    const openTabId = findOpenTabForSession(sessionId, this.workspace.tabs, this.workspace.sessions.byId, this.workspace.tabOrder)
+    if (openTabId) {
+      this.workspace.selectTab(openTabId, 'click')
+      return
+    }
+    const serverId = isSolusApiId(listed.serverId) ? (hosts.runOn?.id ?? null) : listed.serverId
+    if (!serverId) {
+      toasts.error('Connect a machine to continue this session')
+      return
+    }
+    const provider = listed.opensWith.provider ?? this.workspace.settings.activeAgent
+    const tabId = await this.workspace.createTab(NEW_CHAT_DIRECTORY, {
+      activate: true,
+      gitContext: null,
+      gitInitialization: 'skip',
+      skipPluginCommands: true,
+      worktreeRequested: false,
+      serverId,
+      thread: { provider, model: sessionListStore.cloud.modelOf(sessionId) },
+    })
+    const session = this.workspace.sessionFor(tabId)
+    if (!session) return
+    session.threadProvider = provider
+    session.agentSessionId = sessionId
+    session.title = listed.title ?? 'Session'
+    session.organizationId = null
+    this.workspace.adoptSessionId(tabId, sessionId)
+    this.workspace.revealConversation()
+    this.workspace.runHosts.opened(tabId)
+    requestInputFocus({ tabId })
   }
 
   /**

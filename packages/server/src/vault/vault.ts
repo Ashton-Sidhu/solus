@@ -170,6 +170,7 @@ const PROVIDER_HOST_KEYS = {
   github: 'github-oauth',
   google: 'google-oauth',
   atlassian: 'atlassian-oauth',
+  linear: 'linear-api-key',
 } satisfies Record<VaultProvider, string>
 const TYPESAFE_HOST_KEY = 'typesafe'
 

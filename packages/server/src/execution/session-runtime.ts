@@ -48,6 +48,8 @@ import { SessionCheckouts } from './sessions/session-checkouts'
 import { PromptDispatch } from './sessions/prompt-dispatch'
 import { hasOpenBackgroundQuery } from './sessions/background-work'
 import { TurnStops } from './sessions/turn-stops'
+import type { SessionArchiveWriter } from '../sync/sessions/session-archive-writer'
+import type { SessionSync } from './sessions/session-sync'
 
 const log = createLogger('SessionRuntime', 'session-runtime.ts')
 
@@ -211,6 +213,9 @@ export class SessionRuntime extends EventEmitter {
   orchestration: OrchestrationHooks | null = null
   /** Whether a live MCP task holds the session in 'background' (docs/plans/mcp-first-class.md §12.5); the MCP task owner answers. */
   mcpTaskHolds: ((sessionId: string) => boolean) | null = null
+  /** Writes each ended turn to the session repository (docs/plans/portable-sessions.md); wired once the host boots. */
+  sessionArchive: Pick<SessionArchiveWriter, 'turnEnded'> | null = null
+  sessionSync: SessionSync | null = null
   /** Server-side per-session needs-attention state; outlives connected clients
    *  and persists across restarts. Fed by `setStatus` transitions; read by the
    *  `listAttention` RPC and broadcast on the `attention-changed` topic. */
@@ -373,11 +378,19 @@ export class SessionRuntime extends EventEmitter {
     return result
   }
 
-  /** Hands every exchange between sessions to the orchestrator. */
+  useSessionArchive(sessionArchive: Pick<SessionArchiveWriter, 'turnEnded'>): void {
+    this.sessionArchive = sessionArchive
+  }
+
+  useSessionSync(sessionSync: SessionSync): void {
+    this.sessionSync = sessionSync
+  }
+
   useMcpTaskHolds(holds: (sessionId: string) => boolean): void {
     this.mcpTaskHolds = holds
   }
 
+  /** Hands every exchange between sessions to the orchestrator. */
   useOrchestration(orchestration: OrchestrationHooks): void {
     this.orchestration = orchestration
   }
@@ -506,6 +519,7 @@ export class SessionRuntime extends EventEmitter {
 
   async runTurn(request: SessionRunRequest, deviceId?: string): Promise<SessionRunLifecycle> {
     if (this.isShuttingDown) throw new Error('The host is shutting down')
+    this.dispatch.assertSessionCurrent(request.sessionId)
     // Existing automation runs, watch wakes, and agent follow-ups drain with
     // their parent work. User submissions, new automation triggers, and new
     // watch probes are gated separately.
@@ -670,6 +684,7 @@ export class SessionRuntime extends EventEmitter {
    * stop only this session.
    */
   stopSession(sessionId: string, actor: Actor, agent?: AgentVia): boolean {
+    if (this.sessionSync?.stop(sessionId)) return true
     // Read first: stopping the parent settles the messages that name its children.
     const children = actor.user && !agent ? this.orchestration?.childrenAtWork(sessionId) ?? [] : []
     const stopped = this.interruptSession(sessionId, actor, agent)

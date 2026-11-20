@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from '@solus/contracts/session-state'
-import type { ProjectEntry, SessionRecord, SessionStatus } from '@solus/contracts/types'
+import type { PinnedSession, ProjectEntry, SessionRecord, SessionStatus } from '@solus/contracts/types'
 import { buildHomeProjectScopes, sortHomeProjectScopes } from '../../apps/mobile/src/features/home/homeThreadList'
 import { deriveWorkspaceState, workspaceConnectionStatusPresentation } from '../../apps/mobile/src/features/home/workspace-connection-status'
 import { threadKey, type SolusProjectShell, type SolusThreadShell } from '../../apps/mobile/src/features/threads/thread-directory'
@@ -18,6 +18,8 @@ import {
   threadListV2ListItemsAreEqual,
   threadPullRequests,
   type ThreadListV2Facts,
+  openPullRequestMenuItems,
+  openPullRequestSelection,
   unlinkPullRequestActionId,
   unlinkPullRequestMenuItems,
 } from '../../apps/mobile/src/features/threads/threadListV2'
@@ -296,11 +298,45 @@ describe('thread list rows', () => {
     // WHY: the phone has no sidebar chip menu, so the row menu is the way out
     // of a link PR sync made by mistake. Each link needs its own item.
     const one = presentThreadPullRequests([link(3)])!
-    expect(unlinkPullRequestMenuItems(one.unlinkTargets)).toEqual([expect.objectContaining({ id: unlinkPullRequestActionId(one.unlinkTargets[0]!), title: 'Unlink #3' })])
+    expect(unlinkPullRequestMenuItems(one.links)).toEqual([expect.objectContaining({ id: unlinkPullRequestActionId(one.links[0]!), title: 'Unlink #3' })])
     const several = presentThreadPullRequests([link(1), link(2)])!
-    const [submenu] = unlinkPullRequestMenuItems(several.unlinkTargets)
+    const [submenu] = unlinkPullRequestMenuItems(several.links)
     expect(submenu?.subactions?.map((action) => action.title)).toEqual(['#2 PR 2', '#1 PR 1'])
     expect(new Set(submenu?.subactions?.map((action) => action.id)).size).toBe(2)
+  })
+
+  test('the row menu opens each linked pull request in Solus or in the browser', () => {
+    // WHY: desktop and web offer Open, In Solus and In browser, in the Git
+    // section. The phone has no Git section, so the row menu offers the same
+    // two places for each link, one submenu deep for Android.
+    const one = presentThreadPullRequests([link(3)])!
+    const [open] = openPullRequestMenuItems(one.links)
+    expect(open?.title).toBe('Open #3')
+    expect(open?.subactions?.map((action) => action.title)).toEqual(['In Solus', 'In Browser'])
+    expect(openPullRequestSelection(open!.subactions![0]!.id, one.links)).toEqual({ target: one.links[0]!, place: 'solus' })
+    expect(openPullRequestSelection(open!.subactions![1]!.id, one.links)).toEqual({ target: one.links[0]!, place: 'browser' })
+    expect(openPullRequestSelection('open-pull-requests', one.links)).toBeNull()
+
+    const several = presentThreadPullRequests([link(1), link(2)])!
+    const [submenu] = openPullRequestMenuItems(several.links)
+    expect(submenu?.title).toBe('Open Pull Request')
+    expect(submenu?.subactions?.map((action) => action.title)).toEqual(['#2 In Solus', '#2 In Browser', '#1 In Solus', '#1 In Browser'])
+    expect(submenu?.subactions?.every((action) => action.subactions === undefined)).toBe(true)
+    expect(openPullRequestSelection(submenu!.subactions![3]!.id, several.links)).toEqual({ target: expect.objectContaining({ number: 1, url: 'https://x/1' }), place: 'browser' })
+    expect(openPullRequestMenuItems([])).toEqual([])
+  })
+
+  test('a started or stopped watch draws the row again, so its menu offers Stop Watch or Watch', () => {
+    // WHY: the row's menu is built from its item. A row that kept its old
+    // item after a watch started would still offer Watch, not Stop Watch.
+    const thread = shell('h', 'w')
+    const build = (pullRequest: SessionPullRequestLink) => {
+      const state = facts({ prs: { [thread.key]: [pullRequest] } })
+      const layout = buildThreadListV2Items({ threads: [thread], facts: state, hostId: null, searchQuery: '', now: NOW })
+      return buildThreadListV2ListItems({ items: layout.items, facts: state })[0]!
+    }
+    expect(threadListV2ListItemsAreEqual(build(link(5)), build(link(5)))).toBe(true)
+    expect(threadListV2ListItemsAreEqual(build(link(5)), build(link(5, { watch: { startedAt: 1 } })))).toBe(false)
   })
 
   test('snooze presets wake in the future and the wake label rounds up', () => {
@@ -386,6 +422,8 @@ describe('thread list state', () => {
         return () => {}
       },
       api: {
+        pinnedSessionsList: async () => [],
+        togglePinnedSession: async () => [],
         sessionPullRequests: async (sessionId: string) => {
           calls.push(`links:${sessionId}`)
           return [link(9)]
@@ -583,6 +621,102 @@ describe('thread list state', () => {
     expect(threadListV2ListItemsAreEqual(read[0]!, build()[0]!)).toBe(true)
   })
 
+  test('pins use the owning host, survive a failed refresh, and unpin after reload', async () => {
+    const host = fakeConnection()
+    let pins: PinnedSession[] = []
+    host.connection.api.pinnedSessionsList = async () => pins
+    host.connection.api.togglePinnedSession = async (pin) => {
+      pins = pins.some((held) => held.sessionId === pin.sessionId) ? [] : [pin]
+      return pins
+    }
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    const thread = shell('h', 'pin')
+    await list.togglePin(thread)
+    expect(list.facts().pins?.get(thread.key)).toMatchObject({ sessionId: 'pin', serverId: 'h' })
+    host.connection.api.pinnedSessionsList = async () => { throw new Error('offline') }
+    await expect(list.loadPins('h')).rejects.toThrow('offline')
+    expect(list.facts().pins?.has(thread.key)).toBe(true)
+    host.connection.api.pinnedSessionsList = async () => pins
+    await list.togglePin(thread)
+    expect(list.facts().pins?.has(thread.key)).toBe(false)
+  })
+
+  test('completion and archive clear only the target host pin; a refused change keeps it', async () => {
+    const host = fakeConnection()
+    const pin: PinnedSession = { sessionId: 's', provider: 'codex', cwd: '/repo', title: 'Session', pinnedAt: 1 }
+    host.connection.api.pinnedSessionsList = async () => [pin]
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    await list.loadPins('h')
+    await list.loadPins('other')
+    await list.setSettled('h', 's', true)
+    expect(list.facts().pins?.has(threadKey('h', 's'))).toBe(false)
+    expect(list.facts().pins?.has(threadKey('other', 's'))).toBe(true)
+    await list.setSettled('h', 's', false)
+    expect(list.facts().pins?.has(threadKey('h', 's'))).toBe(false)
+    await list.setArchived('other', 's', true)
+    expect(list.facts().pins?.size).toBe(0)
+    await list.loadPins('h')
+    host.connection.api.sessionUpdate = async () => { throw new Error('refused') }
+    await expect(list.setSettled('h', 's', true)).rejects.toThrow('refused')
+    expect(list.facts().pins?.has(threadKey('h', 's'))).toBe(true)
+    await expect(list.setArchived('h', 's', true)).rejects.toThrow('refused')
+    expect(list.facts().pins?.has(threadKey('h', 's'))).toBe(true)
+  })
+
+  test('a pin moves to the normal shelf or leaves the list before the server answers', async () => {
+    const host = fakeConnection()
+    const thread = shell('h', 'moving-pin')
+    host.connection.api.pinnedSessionsList = async () => [{ sessionId: thread.record.sessionId, provider: 'codex', cwd: '/repo', title: 'Pin', pinnedAt: 1 }]
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    await list.loadPins('h')
+    const layout = () => buildThreadListV2Items({ threads: [thread], facts: list.facts(), hostId: null, searchQuery: '', now: NOW, settledShelfExpanded: true })
+    const pending = Promise.withResolvers<{ view: SessionView }>()
+    host.connection.api.sessionUpdate = () => pending.promise
+    const completing = list.setSettled('h', thread.record.sessionId, true)
+    expect(layout().settledCount).toBe(1)
+    expect(layout().items[0]).toMatchObject({ variant: 'slim' })
+    expect(layout().items[0]?.pinned).not.toBe(true)
+    pending.reject(new Error('refused'))
+    await expect(completing).rejects.toThrow('refused')
+    expect(layout().items[0]?.pinned).toBe(true)
+
+    const archived = Promise.withResolvers<{ view: SessionView }>()
+    host.connection.api.sessionUpdate = () => archived.promise
+    const archiving = list.setArchived('h', thread.record.sessionId, true)
+    expect(layout().items).toEqual([])
+    archived.reject(new Error('refused'))
+    await expect(archiving).rejects.toThrow('refused')
+    expect(layout().items[0]?.pinned).toBe(true)
+  })
+
+  test('a completion event invalidates an older pin read', async () => {
+    const host = fakeConnection()
+    const pin: PinnedSession = { sessionId: 's', provider: 'codex', cwd: '/repo', title: 'Session', pinnedAt: 1 }
+    host.connection.api.pinnedSessionsList = async () => [pin]
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    list.follow('h')
+    await list.loadPins('h')
+    const pending = Promise.withResolvers<PinnedSession[]>()
+    host.connection.api.pinnedSessionsList = () => pending.promise
+    const reading = list.loadPins('h')
+    host.events.receive({ type: 'session.viewChanged', payload: { sessionId: 's', view: { ...EMPTY_SESSION_VIEW, settledAt: NOW } }, occurredAt: NOW })
+    pending.resolve([pin])
+    await reading
+    expect(list.facts().pins?.has(threadKey('h', 's'))).toBe(false)
+  })
+
+  test('an old pin read cannot restore pins after the host is removed', async () => {
+    const host = fakeConnection()
+    let answer: (pins: PinnedSession[]) => void = () => {}
+    host.connection.api.pinnedSessionsList = () => new Promise((resolve) => { answer = resolve })
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    const read = list.loadPins('h')
+    list.forgetHost('h')
+    answer([{ sessionId: 's', provider: 'codex', cwd: '/repo', title: 'Session', pinnedAt: 1 }])
+    await read
+    expect(list.facts().pins?.size).toBe(0)
+  })
+
   test('shelf expansion survives a new app on the same device', () => {
     const storage = memoryKeyValueStore()
     const first = new ThreadListState(() => null, storage)
@@ -590,4 +724,27 @@ describe('thread list state', () => {
     first.toggleShelf('settled')
     expect(new ThreadListState(() => null, storage).shelfExpansion()).toEqual({ snoozed: false, settled: true })
   })
+})
+
+test('pinned mobile sessions stay first without a header, in pin order', () => {
+  const active = shell('h', 'active', { createdAt: NOW })
+  const older = shell('h', 'older')
+  const newer = shell('h', 'newer')
+  const pinnedFacts: ThreadListV2Facts = {
+    ...facts({ views: { [newer.key]: { snoozedUntil: NOW + HOUR } } }),
+    pins: new Map([
+      [older.key, { sessionId: 'older', provider: 'codex', title: 'Older', cwd: '/repo', pinnedAt: 1 }],
+      [newer.key, { sessionId: 'newer', provider: 'claude-code', title: 'Newer', cwd: '/repo', pinnedAt: 2 }],
+    ]),
+  }
+  const layout = buildThreadListV2Items({ threads: [active, older, newer], facts: pinnedFacts, hostId: null, searchQuery: '', now: NOW })
+  expect(layout.items.map((item) => item.thread.key)).toEqual([newer.key, older.key, active.key])
+  expect(layout.snoozedCount).toBe(0)
+  expect(layout.settledCount).toBe(0)
+  expect(buildThreadListV2ListItems({ ...layout, facts: pinnedFacts }).map((item) => item.type))
+    .toEqual(['v2-thread', 'v2-thread', 'v2-thread'])
+  const unpinned = buildThreadListV2Items({ threads: [active, older, newer], facts: { ...pinnedFacts, pins: new Map() }, hostId: null, searchQuery: '', now: NOW })
+  expect(unpinned.items[0]?.thread.key).toBe(active.key)
+  expect(unpinned.snoozedCount).toBe(1)
+  expect(unpinned.settledCount).toBe(0)
 })

@@ -1,12 +1,21 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
+/** A draft uses the conversation's native screen before its first prompt. */
+export interface ThreadDraft {
+  readonly projectPath: string
+  readonly taskId?: string
+  readonly taskHostId?: string
+  readonly hostChoice?: import("../features/threads/new-task-balance").NewTaskHostChoice
+  readonly balanceRequest?: number
+}
+
 export type RootStackParamList = {
   /** The workspace root with the Chats and Pull Requests tabs. `tab` selects
    *  a tab, and `hostId` narrows the Pull Requests tab to one host; Home
    *  reads them once and clears them. */
-  Home: { tab?: 'chats' | 'pullRequests'; hostId?: string } | undefined
-  /** One session, as T3 Code's thread screen. */
-  Thread: { hostId: string; sessionId: string }
+  Home: { tab?: 'chats' | 'tasks' | 'pullRequests'; hostId?: string } | undefined
+  /** One native screen for a draft and its submitted conversation, as in T3 Code. */
+  Thread: { hostId: string; sessionId: string; draft?: ThreadDraft }
   /** The newest turn's agents, as a sheet over its thread. `conversationId` names the open conversation. */
   ThreadAgents: { hostId: string; conversationId: string }
   ThreadSubagent: { hostId: string; conversationId: string; itemId: string }
@@ -19,9 +28,11 @@ export type RootStackParamList = {
    * `hostChoice` absent: Auto balance may still choose the host. `balanceRequest`
    * is the picker's Auto balance row: check now (docs/plans/resource-telemetry.md D8).
    */
-  NewTask: { hostId?: string; projectPath?: string; hostChoice?: import("../features/threads/new-task-balance").NewTaskHostChoice; balanceRequest?: number } | undefined
-  /** The host a new-task draft runs on, pushed in the new-task sheet. `hostId` and `projectPath` name the draft. */
+  NewTask: { taskId?: string; taskHostId?: string; hostId?: string; projectPath?: string; hostChoice?: import("../features/threads/new-task-balance").NewTaskHostChoice; balanceRequest?: number } | undefined
+  /** The host a new-task draft runs on, pushed over its Thread route. `hostId` and `projectPath` name the draft. */
   NewTaskEnvironment: { hostId: string; projectPath: string; hostChoice?: import("../features/threads/new-task-balance").NewTaskHostChoice }
+  /** The base branch of a new-task draft's worktree, pushed over its Thread route. `conversationId` names the draft. */
+  NewTaskBranch: { hostId: string; conversationId: string }
   Welcome: undefined
   /** `link` is a pairing link, or a nearby host's address, to check before pairing. */
   PairHost: { link?: string } | undefined
@@ -42,6 +53,9 @@ export type RootStackParamList = {
   ProjectFromGithub: { hostId: string }
   CloneProject: { hostId: string }
   CloneDestination: { hostId: string; remoteUrl: string; repositoryTitle?: string; path?: string }
+  Task: { hostId: string; taskId: string; readOnly?: boolean }
+  TaskSources: { hostId: string }
+  TaskCreate: { hostId: string }
   Notifications: undefined
   /** Android's third workspace destination beside Chats and Pull Requests; iOS opens it from the header. */
   Settings: undefined
@@ -71,6 +85,7 @@ export type RootStackParamList = {
   /** T3 Code's immersive viewer of the devices a session shows. `deviceKey` (threadDevicePreviews) selects one. */
   ThreadDevicePreview: { hostId: string; sessionId: string; deviceKey?: string }
   /** T3 Code's viewer of the browser pages on a session's host. `browserPageId` selects one. */
+  RunningServers: { hostId: string; sessionId: string; checkoutPath: string | null }
   ThreadBrowserPreview: { hostId: string; sessionId: string; browserPageId?: string }
   /** How one host is reached: Solus Cloud link, organizations, network, pairing, and devices. */
   HostAccess: { hostId: string }
@@ -121,13 +136,16 @@ export type RootStackParamList = {
   /** A change to the title or the description of a pull request, as a sheet. */
   PullRequestEdit: { hostId: string; projectPath: string; number: number; field: 'title' | 'body' }
   /** Searches the hosts for a label or author to filter the Pull Requests tab by. */
-  PullRequestFilterSearch: { field: 'label' | 'author' }
+  PrInspect: { hostId: string; url: string }
+  PullRequestFilterSearch: { field: 'label' | 'author' | 'exclude-label' }
   /** A project folder; `folderPath` is root-relative, `''` for the root. */
   Files: { hostId: string; projectPath: string; folderPath: string }
   /** One file; `path` is root-relative. */
   File: { hostId: string; projectPath: string; path: string }
   /** What a session produced or linked: pull requests, works, apps, files, images, and automations. */
   ThreadArtifacts: { hostId: string; sessionId: string }
+  /** The changes of one turn of a session's copy from Solus Cloud, on the native diff surface. `turnIndex` counts from 0. */
+  ThreadTurnDiff: { sessionId: string; turnIndex: number }
 }
 
 export type ScreenProps<Name extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, Name>

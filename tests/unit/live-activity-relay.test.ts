@@ -68,16 +68,22 @@ describe('Live Activity relay on the host', () => {
     expect(report.card.activities).toHaveLength(2)
   })
 
-  test('a burst of statuses for one turn is one report, and a status that changes nothing is none', async () => {
-    const { relay, reports } = harness()
+  test('registrations reach the relay even with matching rows; unchanged statuses send nothing more', async () => {
+    const clock = deadlines()
+    const { relay, reports } = harness({ schedule: clock.schedule })
     relay.register(registration(1, [row('mac', 'a')]))
+    await clock.next().run()
+    expect(reports.map((r) => r.report.generation)).toEqual([1])
     relay.sessionStatusChanged({ sessionId: 'a', agentSessionId: null, status: 'running' })
-    await settle()
-    expect(reports).toHaveLength(0)
+    expect(clock.pending()).toEqual([])
+    // A new phone generation must cancel the cloud's old idle deadline.
+    relay.register(registration(2, [row('mac', 'a')]))
+    await clock.next().run()
+    expect(reports.map((r) => r.report.generation)).toEqual([1, 2])
     relay.sessionStatusChanged({ sessionId: 'x', agentSessionId: 'a', status: 'background' })
     relay.sessionStatusChanged({ sessionId: 'x', agentSessionId: 'a', status: 'completed' })
-    await settle()
-    expect(reports.map((r) => r.report.rows[0]!.phase)).toEqual(['completed'])
+    await clock.next().run()
+    expect(reports.map((r) => r.report.rows[0]!.phase)).toEqual(['running', 'running', 'completed'])
   })
 
   test('a card the phone showed with a stale status is corrected at once', async () => {

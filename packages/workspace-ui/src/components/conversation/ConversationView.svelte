@@ -43,11 +43,11 @@
   import ComposingLine from "../presence/ComposingLine.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import SuggestionGroup from "./suggestions/SuggestionGroup.svelte";
-  import StatusCard from "./StatusCard.svelte";
+  import SessionStatusCard from "./SessionStatusCard.svelte";
+  import SessionCloudRead from "./SessionCloudRead.svelte";
 
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
-  import DiffSummaryCard from "./DiffSummaryCard.svelte";
-  import { turnSnapshotFor } from "./lib/turn-snapshot";
+  import TurnChangesSummary from "./TurnChangesSummary.svelte";
   import ConversationMinimap from "./ConversationMinimap.svelte";
   import { FindBar } from "../ui/find-bar";
   import { createNavItemBuilder } from "./lib/minimap";
@@ -184,6 +184,11 @@
   /** Past its grace and not back yet: what needs the host (composer, actions) is
    *  hidden, and the host's state and diagnostics take its place. */
   const isHostAway = $derived(!!hostState?.away);
+  // No host shows the session: its copy in Solus Cloud, read only, or why there is none.
+  const cloudRead = $derived(sess ? session.cloudTranscripts.stateFor(sess, serverConnections.resolveId(runHost(sess.run)), isHostAway) : null);
+  $effect(() => {
+    if (cloudRead?.shouldRead && isVisible) untrack(() => void session.cloudTranscripts.open(tabId));
+  });
   // ─── Breadcrumb room ───
   // The band that says where you are belongs to the pane, not to this
   // transcript: `WorkspaceBody` draws it over the leading pane and
@@ -669,8 +674,8 @@
 
 <!-- A host that is away has nothing to load: the pane stays empty rather than
      a skeleton that never ends. Its state is in the composer's place. -->
-{#if tab && sess && sess.messages.length === 0 && isHostAway}
-  <div class="h-full"></div>
+{#if tab && sess && sess.messages.length === 0 && (isHostAway || cloudRead?.view)}
+  {#if cloudRead?.view}<SessionCloudRead {tabId} view={cloudRead.view} placement="pane" />{:else}<div class="h-full"></div>{/if}
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -786,26 +791,14 @@
                 serverId={runHost(sess.run)} {transcriptItem}
                 settledSetupCard={turnIdx === turns.length - 1 && sess.statusCard?.status === "done" ? sess.statusCard : undefined} />
               {#if settings.showDiffSummaryAfterTurn}
-                {@const snapshot = turnSnapshotFor(turns, turnIdx, turnSnapshots, !settings.keepDiffSummaryOnEarlierTurns)}
-                {#if snapshot && snapshot.filesChanged > 0}
-                  {@const scope = { kind: "turn", index: snapshot.index } as const}
-                  <!-- Stands off the turn it reports on: the summary is a footnote to
-                       the turn's last message, not the next line of it. -->
-                  <div class="flex justify-center pt-3">
-                    <DiffSummaryCard
-                      {tabId}
-                      {scope}
-                      onOpenDiff={(filePath) => session.showDiff(tabId, scope, filePath)}
-                      onOpenFile={(filePath) =>
-                        session.openFileInFiles({ path: filePath }, tabId)}
-                    />
-                  </div>
-                {/if}
+                <TurnChangesSummary {tabId} sessionId={sess.id} {turns} {turnIdx} {turnSnapshots} />
               {/if}
             {/snippet}
           </VirtualTranscript>
 
           <PendingHandoffDivider session={sess} />
+          <!-- At the end, where the reader is: what the copy is, and what is newer. -->
+          {#if cloudRead?.view}<SessionCloudRead {tabId} view={cloudRead.view} placement="notice" />{/if}
 
           {#snippet transcriptItem(item: GroupedItem, skipMotion: boolean, burst?: UserBurst, replySegments?: ReplySegment[])}
             <TranscriptItem {item} {skipMotion} {burst} {replySegments} {tabId} {linkContext}
@@ -821,14 +814,7 @@
           {#if !isHostAway}
           <!-- A finished setup card belongs to the turn its send started, so the
                last turn draws it; this slot is for setup that runs or failed. -->
-          {#if sess.statusCard && sess.statusCard.status !== "done"}
-            <StatusCard
-              card={sess.statusCard}
-              onRetry={() => session.controls.recoverWorktreeSetup(tabId, false)}
-              onWorkLocally={() => session.controls.recoverWorktreeSetup(tabId, true)}
-              onCancel={stopRun}
-            />
-          {/if}
+          <SessionStatusCard {sess} {tabId} onCancel={stopRun} />
 
           {#if sess.permissionQueue.length > 0}
             <PermissionCard
@@ -891,7 +877,7 @@
           <ComposingLine serverId={runHost(sess.run)} sessionId={sess.id} />
 
           {#if showSessionActions}
-            <div class="min-h-12"></div>
+            <div class="min-h-9"></div>
           {/if}
         </div>
       </div>

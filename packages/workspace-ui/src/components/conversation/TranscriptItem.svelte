@@ -55,6 +55,7 @@
   import { measureMount } from "../../lib/mount-timing";
   import SettledMarkdown from "./SettledMarkdown.svelte";
   import ReplyPullRequestCard from "./ReplyPullRequestCard.svelte";
+  import ReplyPullRequestGroup from "./ReplyPullRequestGroup.svelte";
   import type { ReplySegment } from "@solus/client-core/reply-pull-requests";
   import { untrack } from "svelte";
   measureMount("TranscriptItem");
@@ -131,8 +132,10 @@
             extensions={assistantMarkdownExtensions(segment.text)}
             sanitizeUrl={markdownSanitizeUrl}
           />
+        {:else if segment.links.length === 1}
+          <ReplyPullRequestCard link={segment.links[0]} {tabId} />
         {:else}
-          <ReplyPullRequestCard link={segment.link} {tabId} />
+          <ReplyPullRequestGroup links={segment.links} {tabId} />
         {/if}
       {/each}
     {:else if !rendersSettled}

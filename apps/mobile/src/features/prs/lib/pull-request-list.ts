@@ -1,3 +1,5 @@
+import type { PrSort } from '@solus/contracts/pr-views'
+import { comparePrs } from '@solus/client-core/pr-sort'
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/pullRequestList.ts (MIT, see UPSTREAM.md).
 import { hostSearchQuery, withMenuQualifiers } from '@solus/client-core/pr-host-query'
 import type { PrChecksState } from '@solus/contracts/checks-types'
@@ -22,11 +24,13 @@ export interface PullRequestRow {
   checks: PrChecksState | null
 }
 
-export type PullRequestInvolvement = 'all' | 'authored' | 'reviewing' | 'others'
-export type PullRequestListSort = 'updated' | 'created' | 'oldest'
+export type PullRequestInvolvement = 'all' | 'authored' | 'assigned' | 'reviewing' | 'others'
+export type PullRequestListSort = PrSort
 export type PullRequestReviewFilter = 'approved' | 'changes-requested' | 'review-required' | 'none'
 
 export interface PullRequestListFilters {
+  guide?: boolean
+  lens?: boolean
   /** Each group needs one of its labels; every group must match. */
   labels?: string[][]
   excludedLabels?: string[]
@@ -40,6 +44,7 @@ export interface PullRequestListFilters {
 /** What the device narrows. The host-side `state` and `query` are
  *  `PullRequestListFilter` in the directory. */
 export interface PullRequestListControls {
+  state?: 'open' | 'closed' | 'merged' | 'all'
   involvement: PullRequestInvolvement
   filters: PullRequestListFilters
   /** Only this host; absent for every host. */
@@ -117,6 +122,7 @@ export function filterPullRequestRows(
   const kept = rows.filter((row) => {
     if (controls.hostId && row.hostId !== controls.hostId) return false
     if (controls.projectPath && row.projectPath !== controls.projectPath) return false
+    if (controls.state && controls.state !== 'all' && row.pr.state !== controls.state) return false
     const viewer = viewerOf(row.hostId)
     return matchesInvolvement(row.pr, controls.involvement, viewer) && matchesFilters(row, controls.filters, viewer)
   })
@@ -127,18 +133,17 @@ export function filterPullRequestRows(
     const held = unique.get(key)
     if (!held || (!reachable(held) && reachable(row))) unique.set(key, row)
   }
-  const byTime = (field: 'createdAt' | 'updatedAt', a: PullRequestRow, b: PullRequestRow) => Date.parse(a.pr[field]) - Date.parse(b.pr[field])
-  return Array.from(unique.values()).sort((a, b) =>
-    controls.sort === 'created' ? byTime('createdAt', b, a)
-      : controls.sort === 'oldest' ? byTime('updatedAt', a, b)
-        : byTime('updatedAt', b, a))
+  const facts = new Map(kept.map((row) => [row.pr, { viewerLogin: viewerOf(row.hostId), checks: row.checks }]))
+  return Array.from(unique.values()).sort((a, b) => comparePrs(a.pr, b.pr, controls.sort, (pr) => facts.get(pr) ?? { viewerLogin: null, checks: null }))
 }
 
 function matchesInvolvement(pr: PullRequest, involvement: PullRequestInvolvement, viewer: string | null): boolean {
   const authored = viewer !== null && normalize(pr.author) === normalize(viewer)
+  if (involvement === 'assigned') return viewer !== null && !!pr.assignees?.some((assignee) => normalize(assignee) === normalize(viewer))
   if (involvement === 'authored') return authored
-  if (involvement === 'reviewing') return !!pr.needsMyReview
-  if (involvement === 'others') return !authored && !pr.needsMyReview
+  const reviewing = !!pr.needsMyReview || (viewer !== null && !!pr.requestedReviewers?.some((person) => normalize(person.login) === normalize(viewer)))
+  if (involvement === 'reviewing') return reviewing
+  if (involvement === 'others') return !authored && !reviewing
   return true
 }
 

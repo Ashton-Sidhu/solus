@@ -13,7 +13,7 @@
     isLoading: boolean;
     /** Draws a row; the flag says it sits in a project folder. */
     taskRow: Snippet<[SidebarTask, boolean]>;
-    /** Draws a row of the Pinned section. */
+    /** Draws a pinned session with no open conversation. */
     pinnedRow: Snippet<[PinnedSession]>;
     onOpenDraft: (draft: DraftRowModel) => void;
     onDiscardDraft: (draft: DraftRowModel) => void;

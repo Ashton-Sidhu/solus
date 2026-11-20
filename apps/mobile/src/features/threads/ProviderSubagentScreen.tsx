@@ -9,7 +9,8 @@ import type { ScreenProps } from "../../navigation/routes";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { TranscriptModel, type TranscriptItem } from "../conversation/lib/transcript-model";
 import { ThreadMarkdown } from "./ThreadMarkdown";
-import { parseToolInput, toolFullDetail, toolRowLabel } from "./thread-work-log-presentation";
+import { parseToolInput, toolExpandedBody, toolRowLabel } from "./thread-work-log-presentation";
+import { ToolCallDetail } from "./ToolCallDetail";
 import { useTranscriptItem } from "./use-transcript-items";
 
 type ToolItem = Extract<TranscriptItem, { kind: "tool" }>;
@@ -146,13 +147,12 @@ const ProviderTranscriptRow = memo(function ProviderTranscriptRow(props: {
     );
   }
   if (child?.kind !== "tool") return null;
-  const detail = toolFullDetail(child);
   return (
     <View className="gap-1 py-2">
       <Text className={child.status === "error" ? "text-sm text-danger-foreground" : "text-sm text-foreground-secondary"}>
         {toolRowLabel(child)}
       </Text>
-      {detail ? <Text selectable className="font-mono text-2xs text-foreground-muted">{detail}</Text> : null}
+      <ToolCallDetail body={toolExpandedBody(child)} />
     </View>
   );
 });

@@ -20,6 +20,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -161,6 +162,7 @@ function HomeTopContentSpacer() {
 
 export function HomeScreen(props: HomeScreenProps) {
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
+  const homeScrollGesture = useNativeGesture();
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
   // In the iPad primary column Home is the sidebar: rows take its padding and mark the open thread.
@@ -469,6 +471,7 @@ export function HomeScreen(props: HomeScreenProps) {
         <ThreadListV2Row
           thread={thread}
           variant={item.item.variant}
+          pinned={item.item.pinned}
           snoozed={item.item.snoozed}
           archived={item.item.archived}
           status={item.status}
@@ -503,6 +506,7 @@ export function HomeScreen(props: HomeScreenProps) {
           onSetPullRequestWatch={props.onSetPullRequestWatch}
           onSwipeableClose={handleSwipeableClose}
           onSwipeableWillOpen={handleSwipeableWillOpen}
+          simultaneousSwipeGesture={homeScrollGesture}
           activationKey={item.key}
         />
       );
@@ -517,6 +521,7 @@ export function HomeScreen(props: HomeScreenProps) {
       handleSwipeableWillOpen,
       handleUnsettleThread,
       handleUnsnoozeThread,
+      homeScrollGesture,
       knownProjectKeys,
       primaryColumn,
       projectByKey,
@@ -740,50 +745,52 @@ export function HomeScreen(props: HomeScreenProps) {
           enabled={swipeEnabled}
           activation={swipeRowActivation}
         >
-          <LegendList
-            ref={listRef}
-            onLoad={() => activateVisibleRows(threadListV2Items)}
-            onTouchStart={(event) => trackListTouches(event, true)}
-            onTouchEnd={(event) => trackListTouches(event, false)}
-            onTouchCancel={(event) => trackListTouches(event, false)}
-            data={threadListV2Items}
-            renderItem={renderV2Item}
-            keyExtractor={v2KeyExtractor}
-            getItemType={(item) => item.type}
-            itemsAreEqual={threadListV2ListItemsAreEqual}
-            estimatedItemSize={ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT}
-            drawDistance={THREAD_LIST_V2_DRAW_DISTANCE}
-            recycleItems
-            extraData={v2ExtraData}
-            ListHeaderComponent={v2ListHeader}
-            ListFooterComponent={
-              settledShelfExpanded &&
-              threadListV2Layout.hiddenSettledCount > 0 ? (
-                <ThreadListV2ShowMoreRow
-                  hiddenCount={threadListV2Layout.hiddenSettledCount}
-                  onPress={showMoreSettled}
-                />
-              ) : null
-            }
-            ListEmptyComponent={v2ListEmpty}
-            style={{ flex: 1 }}
-            automaticallyAdjustsScrollIndicatorInsets={Platform.OS === "ios"}
-            contentInsetAdjustmentBehavior={
-              Platform.OS === "ios" ? "automatic" : "never"
-            }
-            showsVerticalScrollIndicator={false}
-            keyboardDismissMode="on-drag"
-            keyboardShouldPersistTaps="handled"
-            {...scrollGateHandlers}
-            scrollEventThrottle={16}
-            contentContainerStyle={{
-              paddingBottom:
-                Platform.OS === "ios"
-                  ? Math.max(insets.bottom, 24) + 16
-                  : Math.max(insets.bottom, 16) +
-                    (Platform.OS === "android" ? fabClearance : 88),
-            }}
-          />
+          <GestureDetector gesture={homeScrollGesture}>
+            <LegendList
+              ref={listRef}
+              onLoad={() => activateVisibleRows(threadListV2Items)}
+              onTouchStart={(event) => trackListTouches(event, true)}
+              onTouchEnd={(event) => trackListTouches(event, false)}
+              onTouchCancel={(event) => trackListTouches(event, false)}
+              data={threadListV2Items}
+              renderItem={renderV2Item}
+              keyExtractor={v2KeyExtractor}
+              getItemType={(item) => item.type}
+              itemsAreEqual={threadListV2ListItemsAreEqual}
+              estimatedItemSize={ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT}
+              drawDistance={THREAD_LIST_V2_DRAW_DISTANCE}
+              recycleItems
+              extraData={v2ExtraData}
+              ListHeaderComponent={v2ListHeader}
+              ListFooterComponent={
+                settledShelfExpanded &&
+                threadListV2Layout.hiddenSettledCount > 0 ? (
+                  <ThreadListV2ShowMoreRow
+                    hiddenCount={threadListV2Layout.hiddenSettledCount}
+                    onPress={showMoreSettled}
+                  />
+                ) : null
+              }
+              ListEmptyComponent={v2ListEmpty}
+              style={{ flex: 1 }}
+              automaticallyAdjustsScrollIndicatorInsets={Platform.OS === "ios"}
+              contentInsetAdjustmentBehavior={
+                Platform.OS === "ios" ? "automatic" : "never"
+              }
+              showsVerticalScrollIndicator={false}
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
+              {...scrollGateHandlers}
+              scrollEventThrottle={16}
+              contentContainerStyle={{
+                paddingBottom:
+                  Platform.OS === "ios"
+                    ? Math.max(insets.bottom, 24) + 16
+                    : Math.max(insets.bottom, 16) +
+                      (Platform.OS === "android" ? fabClearance : 88),
+              }}
+            />
+          </GestureDetector>
         </SwipeableScrollGateProvider>
       </View>
     </View>

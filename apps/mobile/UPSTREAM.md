@@ -245,7 +245,7 @@ now present as T3 presents them.
 | --- | --- | --- |
 | `src/features/threads/ThreadQueueSheet.tsx`, `src/navigation/routes.ts` and `RootNavigator.tsx` (`ThreadQueue`, and `ThreadQueue` and `ThreadAgents` in `WORKSPACE_OVERLAY_ROUTES`, as T3) | `src/features/threads/ThreadQueueControl.tsx` (`ThreadQueueSheet`), `src/Stack.tsx` (`ThreadQueue`, `WORKSPACE_OVERLAY_ROUTES`) | T3's form-sheet route: detents 0.65/0.95, grabber, native header "Queued" on iOS, `AndroidSheetHeader` on Android. Opened with the conversation id, as `ThreadAgents`. Edit closes the sheet and opens the message in the composer, as T3. The sheet closes when a queue it showed becomes empty, as T3. Move up and Move down replace T3's dragging. |
 | `src/features/threads/queued-message-edit.ts`, `use-composer-queued-edit.ts`, `ComposerQueuedEdit.tsx`, `ThreadComposer.tsx`, `ThreadDetailScreen.tsx`, `composerSendPresentation.ts` (`editingQueuedMessage`) | `src/state/queued-run-edit.ts`, `src/state/use-thread-composer-state.ts` (`cancelQueuedRunEdit`, `saveQueuedRunEdit`, the started-run check), `src/features/threads/ComposerQueuedEdit.tsx`, `ThreadComposer.tsx`, `ThreadDetailScreen.tsx`, `composerSendPresentation.ts` | The composer edits a queued message in its own `QueueDraft`; the conversation's draft waits unchanged. The banner ("Editing queued message", Cancel), the send button ("Update queued message", checkmark), the focus on entering edit mode, the empty-message and save-failure alerts, and the started-message check are T3's. The edit record is in memory, keyed by the conversation store, not a T3 atom. The message's files are chips with a type symbol (no image thumbnail); new files upload with `uploadQueueFiles`. A message that starts while edited shows an alert (T3 shows a composer error line, which Solus does not have) and moves only the text back to the conversation's draft. |
-| `src/features/threads/NewTaskContextPickerScreens.tsx` (`NewTaskEnvironmentPickerRouteScreen`, `useNewTaskEnvironments`), `NewTaskRouteScreen.tsx`, `routes.ts` and `RootNavigator.tsx` (`NewTaskEnvironment`) | `src/features/threads/NewTaskContextPickerScreens.tsx` (`NewTaskEnvironmentPickerRouteScreen`), `src/Stack.tsx` (`NewTaskEnvironment`) | A screen pushed in the new-task sheet, as T3; the title is "Host". The route names the draft's host and project instead of reading T3's new-task flow provider. Another host moves the saved draft text to that host's draft and returns to the draft there (`popTo`). No branch picker: Solus drafts have no branch choice. |
+| `src/features/threads/NewTaskContextPickerScreens.tsx` (`NewTaskEnvironmentPickerRouteScreen`, `useNewTaskEnvironments`), `NewTaskRouteScreen.tsx`, `routes.ts` and `RootNavigator.tsx` (`NewTaskEnvironment`) | `src/features/threads/NewTaskContextPickerScreens.tsx` (`NewTaskEnvironmentPickerRouteScreen`), `src/Stack.tsx` (`NewTaskEnvironment`) | A screen pushed in the new-task sheet, as T3; the title is "Host". The route names the draft's host and project instead of reading T3's new-task flow provider. Another host moves the saved draft text to that host's draft and returns to the draft there (`popTo`). The Branch screen (`NewTaskBranchPickerRouteScreen`) is described in "Current-checkout branch picker". |
 | `src/components/AppSheet.tsx`, `src/features/conversation/components/AgentAuthSheet.tsx`, `IntegrationConnectSheet.tsx` | `src/components/AppSheet.tsx` | `AppSheet` is unchanged: a native `FormSheet` (detents 0.5/0.9, grabber, title, Done). T3 has no sign-in or MCP connect sheet in a thread, so these use `AppSheet`, which T3 uses for the closest case: thread context that appears from local state and that its owner dismisses. Done or a swipe runs the old close action (the sign-in sheet cancels a sign-in still waiting). |
 
 ## Adapted pieces
@@ -811,3 +811,225 @@ remain in use; T3's newer native viewer and zoom transition are not ported.
 text line height, and a tap-to-scan card. Solus keeps its camera permission flow,
 nearby hosts, SSH entry, host preview, and trust step. A scan or pasted link
 fills separate fields before Continue. No T3 connection or auth runtime is used.
+
+## iPad hardware input (2026-11-18)
+
+The prompt composer sets `enterBehavior="send"`: hardware Return sends and
+Shift+Return inserts a new line. Other iOS editor uses keep their newline default.
+T3 documents the same prompt behavior in [Keyboard shortcuts](https://github.com/pingdotgg/t3code/blob/main/docs/user/keybindings.md).
+
+`HomeScreen` now supplies one `useNativeGesture()` to its list's `GestureDetector`
+and to each row's `simultaneousSwipeGesture`, as on T3 main and in
+[T3 #13665](https://github.com/pingdotgg/t3code/pull/13665). This lets vertical
+trackpad scrolling coexist with row swipe actions. In Solus, Home also renders
+the native iPad primary column, so this applies to both the sidebar and the
+compact list. The separate `ThreadNavigationSidebar` already has this setup.
+These are native client input fixes; desktop and web use separate input paths.
+
+## Reconnect, draft layout, and composer growth (2026-11-18)
+
+Current T3 `ComposerSurface.tsx` uses native editor content size and the saved
+compact editor width to decide when to expand. Solus now checks those values
+as well as its hidden text measurement. A draft that fits the wider card must
+still fit the compact slot before the card can collapse. The editor has a stable
+key during the layout change. This applies to existing sessions, new-session
+drafts, and edits of queued messages on iOS and Android.
+
+Related upstream fixes are merged: [#25396](https://github.com/pingdotgg/t3code/pull/25396)
+(2026-10-26, editor bounds during expansion) and
+[#37562](https://github.com/pingdotgg/t3code/pull/37562) (2026-11-16, expansion animation).
+This change adapts the size check; it does not port their animation changes.
+[#37479](https://github.com/pingdotgg/t3code/pull/37479), which moves reconnect
+status to the header, is not merged at the time of this check. Solus keeps its
+host readiness behavior. No exact upstream fix was found for the reported main
+area overflow.
+
+The reported overflow is below the screen in the native app. Local layout fixes
+limit the host recovery card to the measured thread pane. The new-session hero
+scroll view reserves the measured composer dock height instead of a fixed 236
+points. Desktop and web use separate layout and editor components;
+no shared state, transport, or provider behavior changes.
+
+Verification: 76 focused tests pass. The first mobile TypeScript check passed;
+the final check reports three errors in the separately changed
+`PullRequestStatusRows.tsx` (`minus.circle` is not an `AppSymbolName`). Targeted
+lint reports the same seven errors as the original composer and detail screens.
+No device or simulator verification was run. Both existing screens remain over
+600 lines; this fix does not split them.
+
+## Input bar style port (2026-11-18)
+
+Compared with T3 Code `main` at
+[`455a60aa3cebe9263dd485cae0cfa33817334647`](https://github.com/pingdotgg/t3code/commit/455a60aa3cebe9263dd485cae0cfa33817334647).
+The input bar now uses the compact editor layout from `ComposerSurface.tsx`
+and `ThreadComposer.tsx`: the editor stays mounted over its measured row slot,
+uses the six-point baseline inset, and moves above the controls when its text
+wraps. The old hidden text measurement and separate card toolbar are removed.
+The expanded field has 14-point side insets and room for four lines. iPad uses
+T3's 31-point radius, nine-point vertical surface padding, 26-point attachment
+icon, and large send and model controls. The default placeholder is "Ask
+anything". The native iOS text style uses T3's Dynamic Type scaling rule.
+
+The project picker (`NewTaskRouteScreen.tsx`) and folder picker
+(`AddProjectScreen.tsx`) were also compared. The local picker row spacing,
+label sizes, path truncation, and path input styles already match the upstream
+values. No picker data or navigation changes were needed. Solus keeps its
+system font, theme colors, session controls, and attachment actions.
+
+This is native mobile UI for iOS and Android. Desktop and web have separate
+input components and are outside the requested mobile style port. No contract,
+provider, transport, or persistence changes are required. The input bar remains
+shared by new drafts and existing conversations, including queued-message edits.
+Focused layout tests and the mobile TypeScript check pass. No device or
+simulator visual check was run. `ThreadComposer.tsx` remains over 600 lines;
+it is shorter after the port. Targeted lint still reports existing complexity
+and type-narrowing findings in the composer and appearance preferences.
+
+## Draft-to-conversation continuity (2026-11-18)
+
+Read T3 Code main at `9a26f217ac85cdb49b55283135625ada48187abf`:
+[`ThreadScreenHost.tsx`](https://github.com/pingdotgg/t3code/blob/9a26f217ac85cdb49b55283135625ada48187abf/apps/mobile/src/features/threads/ThreadScreenHost.tsx),
+[`ThreadRouteScreen.tsx`](https://github.com/pingdotgg/t3code/blob/9a26f217ac85cdb49b55283135625ada48187abf/apps/mobile/src/features/threads/ThreadRouteScreen.tsx),
+[`NewTaskDraftScreen.tsx`](https://github.com/pingdotgg/t3code/blob/9a26f217ac85cdb49b55283135625ada48187abf/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx),
+and `thread-route-state.ts`.
+
+`ThreadScreenHost` uses T3's external store, outlet, layout-effect bindings, and
+fallback. Its canvas uses Solus's existing classes in place of T3's ScreenContent.
+A draft now runs on the Thread route and uses the same ThreadDetailScreen and
+ThreadComposer as its submitted conversation. Send clears draft params in place,
+as T3 does. Solus keeps its conversation store, outbox, task binding, host balance,
+project and host pickers, theme, and native header adapter. No T3 runtime or auth
+code is imported. Tests cover retained screen keys and editor mount identity.
+
+## First-prompt anchor and keyboard layout (2026-11-19)
+
+The screen-host port above left older Solus keyboard and transcript positioning
+in place. The follow-up copies T3's first-prompt anchor selector and shared
+anchored-end-space resolver from `9a26f217ac` into
+`features/threads/thread-feed-scroll-position.ts`. ThreadFeed supplies that
+spacing to the installed LegendList. The composer keeps constant bottom padding
+with a matching opened keyboard offset; native layout reports its measured
+height directly. T3's 220 ms settled React height estimate replaces per-frame
+screen estimates. Delayed re-pin timers and the extra outer layout transition
+are removed. Header spacing is explicit, as in T3's current ThreadFeed.
+
+Solus keeps its row model, provider adapters, request cards, and host state.
+This is a port of the relevant positioning code, not a copy of the whole T3 app.
+
+## Mobile prompt controls and composer integration (2026-11-19)
+
+Compared read-only with T3 Code `main` at
+[`db51b6719f116de156401ed264b5d732f35b2c93`](https://github.com/pingdotgg/t3code/commit/db51b6719f116de156401ed264b5d732f35b2c93).
+The earlier worker reference was `3a51807da05203bc2dbfbc489f976e3ba0dc609a`;
+send, sticky dock, and feed inset behavior did not change between these commits.
+
+The new-task draft places Current checkout / New worktree and the worktree base
+branch above the prompt. Permission mode (including Plan) and Meta mode are in
+the model picker with the other Solus run options. The default worktree base now
+comes from the current branch on the selected host, then the remote default or a
+recent local branch if the host cannot name the current branch. No fetch is needed.
+The first prompt alone carries the selected worktree base. Chat and started
+sessions cannot change their start options.
+
+The model control uses T3's settings-sheet presentation hook: dismiss and blur,
+present next frame, restore focus after dismissal only if the editor or keyboard
+was active before opening. The card stays expanded during restoration. Hardware
+keyboard commands use the actual send and alternate action labels. iOS editor
+fixes preserve pasted GIF bytes, make Cut undoable, and read all pasteboard text
+items. The upstream Swift tests are included. A new native build is needed for
+these Swift changes.
+
+ThreadDetailScreen now enables the Android sticky dock before the keyboard's
+first frame. iOS follow-up sends keep first responder until keyboard dismissal
+and use persistent keyboard lift in the feed. Scrolling waits for dismissal and
+runs only for the submission anchor or an iOS follow-up with a visible keyboard;
+a queued follow-up without a keyboard keeps the reading position. Reduced motion
+is respected. The feed already takes its bottom inset from native composer layout
+on the UI thread; its floating Solus work control adds its own measured coverage.
+The existing adaptive iPad radius (31, phone 27) is retained; the obsolete test
+that searched for a literal phone radius is removed. Existing layout behavior
+tests continue to cover compact layout and expansion.
+
+The current-checkout branch picker is in the next section.
+
+Other limits: Solus keeps its own approval-feedback and queued-send lifecycle;
+it does not expose T3's pre-enqueue callback or context/model chip stores. Existing
+Solus compact chrome values (58/72 and top padding 4) are retained. Desktop and web
+already offer run settings, worktree bases, and checkout actions through the same
+host APIs; their Svelte UI is unchanged by this mobile-only layout task. Claude
+and Codex use this same mobile composer, with capability-gated run options. Host
+calls use the selected connection over local or remote transport. No new RPC or
+provider protocol was added. Native keyboard behavior was checked from source and
+focused tests, without a device, UI run, dev server, or full build.
+
+Integration verification: 100 focused composer/start-option tests pass. With the
+run-settings suite included, 117 pass and four model-default tests fail; those
+same four fail on the unchanged parent source. Mobile TypeScript has no errors.
+All four native Swift test groups pass. Compiler coverage is 850 compiled and
+44 skipped across 743 modules, unchanged from the parent-source snapshot. The
+prompt-control baseline entries are merged and the settings hook entry is kept.
+The task controls, ThreadDetailScreen, and ThreadFeed compile; ThreadComposer is
+an existing Todo skip. The full coverage command still fails on unrelated stale
+entries and existing skips. Focused lint retains existing complexity and error
+parameter findings; the detail screen and feed each add one complexity branch.
+
+## Current-checkout branch picker (2026-11-19)
+
+Ported from T3 Code `main` at
+[`db51b6719f116de156401ed264b5d732f35b2c93`](https://github.com/pingdotgg/t3code/commit/db51b6719f116de156401ed264b5d732f35b2c93):
+`checkoutNewTaskBranch` (`checkout-new-task-branch.ts`) and `selectBranch` in
+`new-task-flow-provider.tsx`.
+
+The new-task draft shows a branch control in both start modes, as T3. With
+Current checkout, it names the checkout's branch and opens the Branch screen.
+The start-mode control reads "Current worktree", with T3's folder and branch
+mark, when a pick moved the draft to another worktree.
+With New worktree, it names the base branch and opens the same screen as Base
+branch. A base branch changes only the draft. A checkout branch waits for the
+host: the row shows "Switching…", other rows are disabled, and a refusal shows
+the host's words above the list. The draft text, host, and project stay the same.
+
+Each row has T3's one badge (`branchBadgeLabel`), the first that applies:
+CURRENT (the project's checkout is on it), WORKTREE (another worktree has it),
+REMOTE (on a remote only), DEFAULT (the remote's HEAD). The selected row is the
+picked branch, else the current one, else the default. The list is read in the
+project's own checkout, also while the draft works in another worktree, as T3
+reads it for the project. `BranchRef` carries the two facts as optional
+`current` and `worktreePath` from `listBranchRefs` (`%(HEAD)`, `%(worktreepath)`).
+An older host omits them: the current badge then comes from `gitIdentity`, and
+no row shows WORKTREE; the host still checks worktrees when a branch is picked.
+
+The host owns the choice: `gitCheckoutBranch` (desktop, web, and mobile use the
+same RPC; `packages/server/src/git/checkout-branch.ts`). It reads the refs again,
+because the picked list can be stale:
+
+- The checkout is already on the branch: nothing changes.
+- Another worktree has the branch: work continues in that worktree, and the
+  project's checkout does not change. The host refuses when the project is a
+  folder inside its repository (T3's repository-root rule), and when that
+  worktree folder no longer exists.
+- A branch on a remote only becomes a local branch that tracks the exact remote
+  ref (origin when several remotes have it; otherwise the host refuses). When the
+  person picked a remote-only branch, a local branch of that name must already
+  track it, or the host refuses.
+- Otherwise the project's checkout switches. Git refuses a switch that would
+  overwrite uncommitted changes; nothing forces it.
+
+The result names `workingDirectory`, and the draft starts there. As in T3, a
+change of start mode returns to the project folder: New worktree makes the
+worktree from the project, and Current checkout goes back to the project's own
+checkout and its branch. The next pick asks about the project again. An older
+host that names no folder switched the project itself. Started sessions and
+chats cannot change their checkout.
+
+Differences from T3: Solus lists one row for a branch on the remote and on disk
+(`BranchRef`), so a local branch with a remote twin has no REMOTE badge, and the
+host, not the list, checks upstream tracking. Desktop and web call the same host
+command from their existing branch picker, which already moves to a worktree it
+knows has the branch. With a stale list, they apply the host's worktree answer
+as their run's checkout (`chooseStart`, kind `branch`). The host binds the
+session it was sent only when the work stays in the folder it was asked about,
+so the conversation on screen never moves to that worktree. Their Svelte UI is
+unchanged. The checks do not depend on the provider: Claude and
+Codex drafts behave the same. Calls use the selected host's connection, so
+local and remote hosts behave the same.

@@ -1,3 +1,4 @@
+import { RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
 import { readFile } from 'fs/promises'
 import { spawn } from 'child_process'
 import { homedir } from 'os'
@@ -13,7 +14,7 @@ import type { RunCliSkip } from '../../../integrations/cli-skips'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
 import { endTreeAfterExit } from '../../../platform/process-tree'
-import { findOnPath, launchedProcess, startableCommand, warmCliPath, type ProcessUser } from '../../../cli-env'
+import { agentExecutables, findOnPath, launchedProcess, startableCommand, warmCliPath, type ProcessUser } from '../../../cli-env'
 import { solusPluginsDir } from '../plugins'
 import { claudeUsageFromApi, parseClaudeUsageReport } from './claude-usage'
 import { gatewayDiscoveryWaitMs } from './claude-models'
@@ -177,6 +178,11 @@ export interface ClaudeSeat {
  */
 export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...(seat?.env ?? process.env), CLAUDE_CODE_ENABLE_TASKS: '0', CLAUDE_CODE_ENTRYPOINT: 'solus' }
+  const configuredBinary = seat?.binaryPath
+  const binary = configuredBinary && configuredBinary !== 'claude' ? configuredBinary
+    : seat?.user ? null : findOnPath('claude', env.PATH ?? '')
+  // This package is selected by Solus. Claude must not install a second copy.
+  if (binary && agentExecutables.claude.owns(binary)) env.DISABLE_AUTOUPDATER = '1'
   if (!seat) return env
   if (!seat.isHostLogin) {
     delete env.ANTHROPIC_API_KEY
@@ -249,6 +255,7 @@ export interface ClaudeRunOptions {
   prompt: string | TurnInputChannel
   cwd: string
   sessionId?: string | null
+  solusSessionId?: string
   model?: string | null
   reasoningEffort?: ReasoningEffort
   disableReasoning?: boolean
@@ -381,6 +388,7 @@ export class ClaudeAgent {
         }],
       },
       ...claudeLaunch(opts.seat, abortController.signal),
+      env: { ...claudeEnv(opts.seat), [RUNNING_SERVER_SESSION_ENV]: opts.solusSessionId ?? '' },
     }
     if (opts.seat?.idleCompaction) {
       claudeOptions.supportedDialogKinds = ['resume_return']
@@ -444,7 +452,9 @@ export class ClaudeAgent {
 
     const events = (async function* (): AsyncGenerator<NormalizedEvent> {
       try {
-        const executable = opts.seat?.binaryPath || await resolveClaudeExecutable()
+        const configuredBinary = opts.seat?.binaryPath
+        const executable = configuredBinary && (configuredBinary !== 'claude' || opts.seat?.user)
+          ? configuredBinary : await resolveClaudeExecutable()
         const toolSearch = opts.bare ? undefined : await resolveClaudeToolSearchOverride(cwd, claudeConfigDir(opts.seat), claudeOptions.env)
         abortController.signal.throwIfAborted()
         if (toolSearch) flagSettings = { ...flagSettings, env: { ENABLE_TOOL_SEARCH: toolSearch } }

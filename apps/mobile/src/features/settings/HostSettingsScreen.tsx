@@ -1,4 +1,6 @@
 import { routeRows } from "@solus/client-core/host-route-control";
+import { sessionCloudSyncSwitchState, HostPolicies } from "@solus/contracts/host-policies";
+import type { HostConfigPatch } from "@solus/contracts/host-config";
 import { settingsDefinitions } from "@solus/client-core/settings-definitions";
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsEnvironmentDetailRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useState } from "react";
@@ -28,6 +30,7 @@ import { useGithubConnection } from "./use-github-connection";
 import { hostSettingsErrorText } from "./host-settings";
 import { useHostSettings } from "./use-host-settings";
 import { useHostUpdateStatus } from "./use-host-update-status";
+import { ProviderUpdatesSection } from './ProviderUpdatesSection';
 import { hostLockMessage, updatesLockMessage } from "../policy/lib/policy-view";
 import { PolicyLockNote } from "../policy/PolicyLockNote";
 import { useHostPolicy } from "../policy/use-host-policy";
@@ -249,10 +252,13 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               {hostUpdate.error ? <SettingsNote tone="danger">{hostUpdate.error}</SettingsNote> : null}
             </View>
 
+            {connected ? <ProviderUpdatesSection hostId={hostId} updates={hostUpdate} mayEdit={isAdmin && !updatesLock} /> : null}
+
             {state.kind === "loaded" ? (
               <>
                 <View className="gap-3">
                   <SettingsSection title="Sessions">
+                    <SessionCloudSyncRow policy={policy} enabled={state.settings.sessionCloudSync} update={update} />
                     <SettingsSwitchRow
                       icon="arrow.clockwise"
                       label="Continue sessions after restart"
@@ -327,4 +333,23 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
       </ScreenScrollView>
     </SettingsScreen>
   );
+}
+
+function SessionCloudSyncRow({ policy, enabled, update }: {
+  policy: HostPolicies | null;
+  enabled: boolean;
+  update: (patch: HostConfigPatch) => void;
+}) {
+  const view = sessionCloudSyncSwitchState(policy ?? HostPolicies.none, enabled);
+  return <>
+    <SettingsSwitchRow
+      icon="cloud"
+      label="Save sessions to Solus Cloud"
+      subtitle="Upload the full conversation and code that is not committed."
+      value={view.checked}
+      disabled={view.lockedBy !== null}
+      onValueChange={(next) => update({ sessionCloudSync: next })}
+    />
+    {view.lockedBy ? <PolicyLockNote lines={[view.lockedBy]} /> : null}
+  </>;
 }

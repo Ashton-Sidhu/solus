@@ -19,6 +19,8 @@ export interface PullRequestCard {
   author: string | null
   /** When the pull request was opened, in ms; null until a full read answered. */
   openedAt: number | null
+  /** The changed files; null until the code host counted them. */
+  fileCount: number | null
   /** `31 files`; null until the code host counted them. */
   filesLabel: string | null
   /** `+2,682` and `−1,509`; null until a full read answered. */
@@ -44,6 +46,10 @@ export const WATCHING_NOTE = 'Watching. The agent wakes when checks fail or a re
 
 const counts = new Intl.NumberFormat('en-US')
 
+function filesLabel(files: number): string {
+  return `${counts.format(files)} ${files === 1 ? 'file' : 'files'}`
+}
+
 /** `host/owner/repo` as a person reads it: `owner/repo`. */
 function repositoryName(repository: string): string {
   return repository.split('/').slice(1).join('/') || repository
@@ -58,13 +64,14 @@ function freshRead(link: SessionPullRequestLink, pullRequest: PullRequest | null
 }
 
 /** The size and author only a full read carries; none of it without one. */
-function readFacts(pullRequest: PullRequest | null): Pick<PullRequestCard, 'author' | 'openedAt' | 'filesLabel' | 'additionsLabel' | 'deletionsLabel'> {
-  if (!pullRequest) return { author: null, openedAt: null, filesLabel: null, additionsLabel: null, deletionsLabel: null }
+function readFacts(pullRequest: PullRequest | null): Pick<PullRequestCard, 'author' | 'openedAt' | 'fileCount' | 'filesLabel' | 'additionsLabel' | 'deletionsLabel'> {
+  if (!pullRequest) return { author: null, openedAt: null, fileCount: null, filesLabel: null, additionsLabel: null, deletionsLabel: null }
   const files = pullRequest.changedFiles
   return {
     author: pullRequest.author || null,
     openedAt: Date.parse(pullRequest.createdAt) || null,
-    filesLabel: files === null ? null : `${counts.format(files)} ${files === 1 ? 'file' : 'files'}`,
+    fileCount: files,
+    filesLabel: files === null ? null : filesLabel(files),
     additionsLabel: `+${counts.format(pullRequest.additions)}`,
     deletionsLabel: `−${counts.format(pullRequest.deletions)}`,
   }
@@ -85,5 +92,33 @@ export function pullRequestCard(link: SessionPullRequestLink, pullRequest: PullR
     title: read?.title || link.title || `#${link.number}`,
     ...readFacts(pullRequest),
     watch: link.watch ? 'watching' : isWatchable ? 'available' : 'unavailable',
+  }
+}
+
+/** The line of a group card: two or more pull requests that a reply links in a row. */
+export interface PullRequestGroupSummary {
+  /** `3 pull requests`. */
+  title: string
+  /** `1 open · 1 draft · 1 merged`, in the order of a pull request's life;
+   *  empty until PR sync answers for one of them. */
+  status: string
+  /** `15 files` for all of them; null until the code host counted each one. */
+  filesLabel: string | null
+}
+
+const GROUP_STATE_ORDER = ['open', 'draft', 'merged', 'closed', 'missing'] as const satisfies readonly PullRequestChipState[]
+
+export function pullRequestGroupSummary(cards: readonly PullRequestCard[]): PullRequestGroupSummary {
+  const status = GROUP_STATE_ORDER
+    .map((state) => ({ state, count: cards.filter((card) => card.state === state).length }))
+    .filter(({ count }) => count > 0)
+    .map(({ state, count }) => `${count} ${STATE_LABEL[state].toLowerCase()}`)
+    .join(' · ')
+  // A total that leaves one out would be a smaller number that looks right.
+  const isCounted = cards.every((card) => card.fileCount !== null)
+  return {
+    title: `${cards.length} pull requests`,
+    status,
+    filesLabel: isCounted ? filesLabel(cards.reduce((sum, card) => sum + (card.fileCount ?? 0), 0)) : null,
   }
 }

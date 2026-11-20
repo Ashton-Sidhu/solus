@@ -1,6 +1,7 @@
 import { withWorkspaceToolAuthority } from '../../admission/workspace-tool-authority'
 import { withActorScope } from '../seats/acting-identity'
 import { HOST_ACTOR, insightsAccountOf, type Actor } from '../../admission/actor'
+import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { userKey } from '@solus/contracts/user'
 import { captureServerEvent } from '../../analytics'
 import { sessionIsOrganizationWork } from '../../data/sessions/session-records'
@@ -211,6 +212,7 @@ function observeRun(
       const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'completed' as const
       const status = rt.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
       captureSettledRun(status)
+      archiveTurn(rt, request, run, handle, status)
       if (!isParkedRateLimit()) {
         rt.settleRunExchanges(request, status, handle, {
           durationMs: Date.now() - runStartedAt,
@@ -223,6 +225,7 @@ function observeRun(
       const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'failed' as const
       const status = rt.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
       captureSettledRun(status)
+      archiveTurn(rt, request, run, handle, status)
       if (!isParkedRateLimit()) {
         rt.settleRunExchanges(request, status, handle, {
           durationMs: Date.now() - runStartedAt,
@@ -245,6 +248,33 @@ function observeRun(
   }
 }
 
+/**
+ * Hands an ended turn to the session repository writer
+ * (docs/plans/portable-sessions.md §7.2). Not awaited: the turn is settled, and
+ * the writer records its own failures.
+ */
+function archiveTurn(rt: SessionRuntime, request: SessionRunRequest, run: SessionRunRequest, handle: RunHandle, status: 'completed' | 'interrupted' | 'failed'): void {
+  const threadId = handle.agentSessionId
+  const sessionArchive = rt.sessionArchive
+  if (!sessionArchive || handle.persistence !== 'session' || !threadId) return
+  const sessionId = request.sessionId
+  const endedAt = Date.now()
+  const workTree = rt.sessionCheckouts.getGitContext(sessionId)?.worktreePath ?? run.input.gitContext?.worktreePath ?? run.input.workingDirectory
+  // The provider files of a member's thread are in that member's home, so the read acts as them.
+  void withActorScope(request.actor ?? HOST_ACTOR, async () => sessionArchive.turnEnded({
+    sessionId,
+    organizationId: await rt.turnOrganization(sessionId).catch(() => undefined) ?? LOCAL_ORGANIZATION_ID,
+    provider: run.input.provider,
+    threadId,
+    projectPath: workTree,
+    workTree,
+    partial: status !== 'completed',
+    endedAt,
+    model: run.input.model,
+    reasoningEffort: run.input.reasoningEffort,
+    permissionMode: run.input.permissionMode,
+  }))
+}
 
 function failLaunch(rt: SessionRuntime, request: SessionRunRequest, turn: TurnStop, turnTraceId: string, error: Error): never {
   if (!rt.isShuttingDown) rt.restarts.restartRuns?.remove(request.sessionId, request.runId)

@@ -3,7 +3,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type { Message, SessionMeta } from '@solus/contracts/types'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { materializeSessionTranscript } from '../workspace/session-transcript'
-import { loadArtifactFileBodies } from '../workspace/artifact-history'
+import { loadArtifactFileBodies, worksArtifactHtmlSources } from '../workspace/artifact-history'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 
 export interface SessionRecordPageRequest {
@@ -47,6 +47,6 @@ export async function readSessionRecordPage(workspace: SurfaceContext, serverId:
     before: request.before,
     pendingMessages: request.pendingMessages,
     serverId,
-  }, page, await loadArtifactFileBodies((workId, version) => workspace.worksStore.history.bodyAtVersion(workId, version, serverId), history))
+  }, page, await loadArtifactFileBodies(worksArtifactHtmlSources(workspace.worksStore), history, serverId))
   return { messages: result.messages, before: result.before ?? null, pendingMessages: result.pendingMessages }
 }

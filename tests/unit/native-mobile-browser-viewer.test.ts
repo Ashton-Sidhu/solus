@@ -134,6 +134,21 @@ describe('the native browser store', () => {
     browser.forgetHost('inst-a')
   })
 
+  test('opening the full viewer beside a floating preview shows the current frame', async () => {
+    const { browser, api, transports } = await setup([page('a')])
+    const preview = browser.watchFrames('inst-a', 'a', () => {}, () => {})
+    preview.setCaps({ maxWidth: 200, maxHeight: 200 })
+    transports[0]!.frames.receive({ browserPageId: 'a', seq: 7 }, new Uint8Array([42]))
+    const frames: number[] = []
+    const viewer = browser.watchFrames('inst-a', 'a', (header) => frames.push(header.seq), () => {})
+    viewer.setCaps({ maxWidth: 800, maxHeight: 1600 })
+    expect(frames).toEqual([7])
+    expect(api.callsOf('browserSubscribeFrames')).toHaveLength(1)
+    viewer.stop()
+    preview.stop()
+    browser.forgetHost('inst-a')
+  })
+
   // A phone asleep past the host's client expiry comes back to a host that forgot its watch.
   test('subscribes again when the host accepts the connection again', async () => {
     const { browser, api, transports } = await setup([page('a')])

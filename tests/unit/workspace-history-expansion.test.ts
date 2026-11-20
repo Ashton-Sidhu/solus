@@ -78,6 +78,35 @@ describe('paged history expansion', () => {
     expect(session.messages).toEqual([current])
     expect(session.historyCursor).toBe('older')
   })
+  test('a tab that shows the cloud copy reads its older pages from the Solus API', async () => {
+    // WHY: the run host does not have the session; its cursor is the Solus API's,
+    // so an older page must come from there and name it for tool details and artifacts.
+    const current = message('assistant', 'newest', 3)
+    const session = {
+      agentSessionId: 'current-session',
+      run: { provider: 'codex', location: folderLocation({ serverId: 'laptop', path: '/repo' }) },
+      historyTruncated: true, historyCursor: 'turn-0', messages: [current], progress: null, sessionChangedFiles: [],
+    } as unknown as Session
+    const cloudReads: string[] = []
+    const loads: Array<{ serverId?: string; hasHistory: boolean }> = []
+    const store = new WorkspaceLifecycleStore({
+      registry: { sessionFor: () => session },
+      settings: { activeAgent: 'codex' }, config: {},
+      planStore: { hydrateAnnotations() {} },
+      ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
+      cloudHistory: () => ({ serverId: 'workspace:org-1', read: async (before: string) => { cloudReads.push(before); return { messages: [], before: null } } }),
+      loadTranscript: async ({ history, serverId }) => {
+        loads.push({ serverId, hasHistory: !!history })
+        await history
+        return { messages: [message('user', 'older', 1)], before: null, truncated: false, progress: null, planIds: [] }
+      },
+      rebuildAgentConversations() {},
+    } as never)
+    await store.expandHistory('tab-1')
+    expect(cloudReads).toEqual(['turn-0'])
+    expect(loads).toEqual([{ serverId: 'workspace:org-1', hasHistory: true }])
+    expect(session.messages.map((entry) => entry.content)).toEqual(['older', 'newest'])
+  })
 })
 
 describe('releasing older history', () => {

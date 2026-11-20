@@ -1,3 +1,4 @@
+import { togglePrLabel } from '@solus/client-core/pr-label-filters'
 import {
   ClipboardCheck as GuideIcon,
   CircleCheck as ChecksIcon,
@@ -32,12 +33,14 @@ export interface PrFilterOption {
 
 /** One visible row and its radio submenu in the PR Filters menu. */
 export interface PrFilterGroup {
-  key: 'state' | 'involvement' | 'author' | 'labels' | 'draft' | 'review' | 'checks' | 'guide' | 'lens'
+  key: 'state' | 'involvement' | 'author' | 'labels' | 'excluded-labels' | 'draft' | 'review' | 'checks' | 'guide' | 'lens'
   label: string
   icon: ListIcon
   value: string
   valueLabel: string
   active: boolean
+  multiple?: boolean
+  selected?: string[]
   searchable?: boolean
   /** Asks the host for choices that match what is typed in the search field. */
   search?: (query: string) => void
@@ -61,9 +64,10 @@ export function prStatusKeysFor(state: string): string[] {
 
 /** The menu choices the host can narrow by, as search qualifiers. The other
  *  facets (review, checks, guide, lens, involvement) narrow loaded rows. */
-export function prMenuQualifiers(listView: Pick<PrListView, 'author' | 'label' | 'draft'>): PrMenuQualifiers {
+export function prMenuQualifiers(listView: Pick<PrListView, 'author' | 'label' | 'labelGroups' | 'labels' | 'excludedLabels' | 'draft'>): PrMenuQualifiers {
   return {
-    labels: listView.label ? [[listView.label]] : undefined,
+    labels: listView.labelGroups ?? (listView.labels ?? (listView.label ? [listView.label] : [])).map((label) => [label]),
+    excludedLabels: listView.excludedLabels,
     author: listView.author,
     draft: listView.draft === 'draft' ? 'only' : listView.draft === 'ready' ? 'hide' : null,
   }
@@ -137,8 +141,9 @@ export function withHostChoices(
 
 const INVOLVEMENT_LABELS = {
   all: 'All',
-  created: 'Created',
-  assigned: 'Assigned',
+  created: 'Authored by me',
+  others: 'Others',
+  assigned: 'Assigned to me',
   'review-requested': 'Review requested',
 } satisfies Record<PrListView['involvement'], string>
 
@@ -173,11 +178,11 @@ export function prFilterGroups(
       valueLabel: INVOLVEMENT_LABELS[listView.involvement],
       active: listView.involvement !== 'all',
       options: [
-        { value: 'all', label: 'All' }, { value: 'created', label: 'Created by you' },
-        { value: 'assigned', label: 'Assigned to you' }, { value: 'review-requested', label: 'Review requested from you' },
+        { value: 'all', label: 'All' }, { value: 'created', label: 'Authored by me' },
+        { value: 'assigned', label: 'Assigned to me' }, { value: 'review-requested', label: 'Review requested' }, { value: 'others', label: 'Others' },
       ],
       select: (value) => {
-        if (value === 'all' || value === 'created' || value === 'assigned' || value === 'review-requested') {
+        if (value === 'all' || value === 'created' || value === 'assigned' || value === 'review-requested' || value === 'others') {
           listView.involvement = value
         }
       },
@@ -189,13 +194,21 @@ export function prFilterGroups(
       search: (query) => options.search('author', query),
       select: (value) => (listView.author = value || null),
     },
-    {
-      key: 'labels', label: 'Labels', icon: TagIcon,
-      value: listView.label ?? '', valueLabel: listView.label ?? 'Any',
-      active: listView.label !== null, searchable: true, options: options.labels,
-      search: (query) => options.search('label', query),
-      select: (value) => (listView.label = value || null),
-    },
+    ...(['labels', 'excluded-labels'] as const).map((key): PrFilterGroup => {
+      const selected = key === 'labels' ? listView.labelGroups?.flat() ?? listView.labels ?? (listView.label ? [listView.label] : []) : listView.excludedLabels ?? []
+      return { key, label: key === 'labels' ? 'Include labels' : 'Exclude labels', icon: TagIcon,
+        value: '', valueLabel: selected.length ? `${selected.length} selected` : 'Any', active: selected.length > 0,
+        multiple: true, selected, searchable: true, options: [...options.labels, ...selected.filter((label) => !options.labels.some((option) => option.value.toLowerCase() === label.toLowerCase())).map((label) => ({ value: label, label }))], search: (query) => options.search('label', query),
+        select: (value) => {
+          const next = !value ? [] : selected.includes(value) ? selected.filter((label) => label !== value) : [...selected, value]
+          if (key === 'labels') {
+            const groups = listView.labelGroups ?? (listView.labels ?? (listView.label ? [listView.label] : [])).map((label) => [label])
+            listView.label = null; listView.labelGroups = value ? togglePrLabel(groups, value) : []; listView.labels = listView.labelGroups.flat()
+          }
+          else listView.excludedLabels = next
+        },
+      }
+    }),
     {
       key: 'draft', label: 'Draft', icon: DraftIcon,
       value: listView.draft, valueLabel: ({ all: 'All', ready: 'Ready', draft: 'Draft' })[listView.draft],
@@ -262,6 +275,9 @@ export function clearPrFilters(listView: PrListView): void {
   listView.involvement = 'all'
   listView.author = null
   listView.label = null
+  listView.labelGroups = undefined
+  listView.labels = []
+  listView.excludedLabels = []
   listView.draft = 'all'
   listView.review = 'all'
   listView.checks = 'all'

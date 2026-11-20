@@ -3,7 +3,7 @@ import { Activity, useState, type ReactNode } from 'react'
 import { Platform, View } from 'react-native'
 import type { WorkspaceTab } from './workspace-tabs-state'
 
-const TABS: readonly WorkspaceTab[] = ['chats', 'pullRequests']
+const TABS: readonly WorkspaceTab[] = ['chats', 'pullRequests', 'tasks']
 
 /**
  * The two list tabs of the Android workspace. A tab mounts on its first visit

@@ -17,7 +17,7 @@ describe('pull request menu placement', () => {
   test('the Android header includes all filters, with reset last', () => {
     const { filters } = menus()
     expect(filters.headerMenu.actions.map((action) => action.title)).toEqual([
-      'Host', 'State', 'Involvement', 'Labels', 'Author', 'Drafts', 'Reviews', 'Checks', 'Project', 'Recently updated', 'Reset filters',
+      'Host', 'State', 'Involvement', 'Labels', 'Author', 'Exclude labels', 'Drafts', 'Reviews', 'Checks', 'Project', 'Has review guide', 'Has review lens', 'Recently updated', 'Clear filters',
     ])
     expect(filters.headerMenu.customized).toBe(false)
   })

@@ -90,7 +90,7 @@ export async function runCloudScenario(definition: CloudScenarioDefinition, file
   const deferred: Array<{ name: string; work: () => Promise<unknown> }> = []
   let checks = 0
   let hosts = 0
-  const restarts = new Map<string, { running: { current: LabHost }; flavor: 'personal' | 'managed'; environment?: NodeJS.ProcessEnv }>()
+  const restarts = new Map<string, { running: { current: LabHost }; flavor: 'personal' | 'managed'; environment?: NodeJS.ProcessEnv; port: number }>()
   const ctx: CloudScenarioContext = {
     stack,
     async signIn(personaId, client) {
@@ -114,16 +114,17 @@ export async function runCloudScenario(definition: CloudScenarioDefinition, file
         rmSync(`${host.dataDir}-seats`, { recursive: true, force: true })
       })
       const cloudHost: CloudHost = { ...host, log: () => readHostLog(join(host.dataDir, 'dev.log')) }
-      restarts.set(cloudHost.dataDir, { running, flavor: options.flavor ?? 'personal', environment: options.environment })
+      restarts.set(cloudHost.dataDir, { running, flavor: options.flavor ?? 'personal', environment: options.environment, port: Number(new URL(host.localUrl).port) })
       return cloudHost
     },
     async restartHost(host) {
       const known = restarts.get(host.dataDir)
       if (!known) throw new Error('Only a host this scenario booted restarts')
+      const port = known.port
       await known.running.current.stop()
-      const port = Number(new URL(host.tunnelUrl).port)
+      const tunnelPort = Number(new URL(host.tunnelUrl).port)
       const bootedAt = new Date().toISOString()
-      const restarted = await bootLabHost({ flavor: known.flavor, unregistered: true, dataDir: host.dataDir, tunnelPort: port, environment: known.environment })
+      const restarted = await bootLabHost({ flavor: known.flavor, unregistered: true, dataDir: host.dataDir, tunnelPort, port, environment: known.environment })
       known.running.current = restarted
       const log = () => readHostLog(join(restarted.dataDir, 'dev.log'))
       // The server starts its log again at boot, a moment after it answers: wait for that, so no old entry reads as new.

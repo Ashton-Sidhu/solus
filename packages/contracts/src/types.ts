@@ -1216,6 +1216,9 @@ export interface Session {
   forkedFromSessionId: string | null
   /** True until the fork initializes, so the provider branches from agentSessionId. */
   forked: boolean
+  /** The Solus session a pending fork branches from. A fork that runs on another
+   *  host syncs this session there first (docs/plans/portable-sessions.md §10). */
+  forkSourceSessionId?: string | null
   /** True when the fork was requested during an active source turn. The provider
    *  must omit that latest turn when it creates the fork, if it supports a cutoff. */
   forkExcludeLatestTurn?: boolean
@@ -1881,6 +1884,10 @@ export interface StatusCardState {
   /** Icon hint for the header; the renderer maps it to a component. */
   icon?: 'git-branch' | 'server'
   status: 'active' | 'done' | 'error'
+  /** Present on a failed portable session sync, for a typed recovery message. */
+  syncFailureReason?: import('./rpc').SessionSyncFailure
+  /** This host cannot accept another prompt after its cloud push was refused. */
+  promptRefusalCode?: import('./session-repositories').SessionPromptRefusalCode
   steps: StatusCardStep[]
   /** Explicit recovery choices: `worktree` after an isolated checkout fails to
    *  prepare; `connect-github` when a host could not clone without the account's
@@ -2169,6 +2176,12 @@ export interface PromptOptions {
   queueAttachments?: QueueAttachment[]
   queueAttachmentContext?: string
   prompt: string
+  /** Head known to the client when it sent this turn. */
+  knownHead?: string | null
+  /** Last run host when the host must sync before this turn. */
+  sourceHostId?: string
+  /** Source session to sync before the first prompt of a fork. The head and host above refer to this source. */
+  forkSourceSessionId?: string
   /** Explicit source of this turn for observability. Queue drain replaces it
    *  with `queued`; a remote execution host receives `dispatch`. */
   promptSource?: PromptSource
@@ -2608,6 +2621,14 @@ export interface EnrichedError {
 export interface SessionMeta {
   provider: AgentId
   sessionId: string
+  /** Local session repository facts from one row, with no Git read. */
+  head?: string | null
+  syncedTurn?: number
+  pushRefused?: boolean
+  /** Host that ran the latest pushed turn. */
+  lastRunHostId?: string | null
+  /** Host with an active turn, when known. */
+  runningHostId?: string | null
   slug: string | null
   firstMessage: string | null
   /** User-set or auto-generated session name; wins over slug/firstMessage everywhere a session is listed. */
@@ -2706,6 +2727,14 @@ export interface SessionRecord {
   projectRemote: string | null
   /** The runner holding the transcript; null for the host answering the read. */
   runnerHostId: string | null
+  /** Latest pushed session repository commit. */
+  head?: string | null
+  /** Turn count at the latest pushed commit. */
+  syncedTurn?: number
+  /** Host that ran the latest pushed turn. */
+  lastRunHostId?: string | null
+  /** Host with an active turn, when known. */
+  runningHostId?: string | null
   /** The derived name: the first prompt, or the provider's slug. */
   title: string | null
   customTitle: string | null
@@ -3022,6 +3051,8 @@ export const DEFAULT_SOURCE_CONTROL_WRITING: SourceControlWritingPreferences = {
 /** Per-project settings read on the project's owner host. */
 export interface ProjectConfig {
   version: 1
+  /** Explicit local preview addresses; scheme, path, query and fragment are preserved. */
+  serverUrls?: string[]
   /** Move a task to done when its linked pull request merges. */
   taskDoneOnMerge?: boolean
   /** Overrides the host's worktree branch naming for this project. Absent =
@@ -3094,6 +3125,8 @@ export interface ResolvedTerminal {
 
 export interface TerminalLaunchRequest {
   command: string
+  /** Durable Solus session, when this terminal was opened from a conversation. */
+  sessionId?: string
   /** Terminal to open only when no terminal is attached to the shared tmux session. */
   fallbackTerminalId: TerminalAppId
   cwd?: string
@@ -3505,6 +3538,9 @@ export function sameGitCheckout(
 export interface GitCheckoutBranchResult {
   success: boolean
   gitContext?: GitCheckout
+  /** Where work continues on success: the folder the request named, or the
+   *  existing worktree that already has the branch. An older host omits it. */
+  workingDirectory?: string
   error?: string
 }
 

@@ -37,6 +37,7 @@ import { getIndexedSession } from '../../db/session-indexer'
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { ORCHESTRATION_LIMITS } from '@solus/contracts/session-exchange'
 import { promptImageRefSchema } from '../../data/assets/attachment-store'
+import { queuePromptAfterSessionSync } from './session-sync-prompt'
 
 const log = createLogger('main', 'session-handlers')
 const execFileAsync = promisify(execFile)
@@ -127,6 +128,16 @@ async function probeAgentBinary(agentId: AgentId): Promise<string | null> {
 }
 
 async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
+  // A native update changes the selected package, never a live executable.
+  // Do not keep the old absolute package path in the metadata cache.
+  const bin = AGENT_BIN[agentId]
+  if (bin === 'claude' || bin === 'codex') {
+    const selected = findOnPath(bin, await warmCliPath())
+    if (selected) {
+      _agentBinaryCache.set(agentId, selected)
+      return selected
+    }
+  }
   const cached = _agentBinaryCache.get(agentId)
   if (cached !== undefined) {
     log.info('agent_binary_memory_cache_hit', { agentId, path: cached ?? null })
@@ -193,6 +204,7 @@ export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<Agen
 
 export function registerSessionHandlers(server: SolusServer, deps: SessionDeps): void {
   const { sessionRuntime, agentIdFromContext } = deps
+
 
   /** A new approval or answer needs the person's organization authority again (organization-vms §4). */
   const mayAnswer = async (askingSessionId: string, principal: Principal): Promise<boolean> => {
@@ -431,6 +443,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const sessionId = ctx.session.sessionId
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
+    if (queuePromptAfterSessionSync(server, sessionRuntime, ctx, options, handlerCtx)) {
+      return { disposition: 'queued' as const }
+    }
     // The sender watches the session before its run can publish. The client
     // sends the prompt without waiting for its watch reply, and the two
     // requests run at the same time here, so the watch can be later.

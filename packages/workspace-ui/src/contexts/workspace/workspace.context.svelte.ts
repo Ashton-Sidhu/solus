@@ -3,6 +3,7 @@ import { hosts } from '../hosts/hosts.svelte'
 import { SessionQueueController } from './session-queue.store.svelte'
 import { createAppContext } from '../app/create-app-context'
 import { ToolHistoryStore } from './tool-history.store'
+import { CloudTranscriptStore, workspaceCloudTranscriptDeps } from './cloud-transcript.store.svelte'
 import { recordHomeOf } from './machine-references'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
@@ -79,6 +80,8 @@ import { isWaitingForHost } from '@solus/client-core/host-readiness'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
+import { sessionListStore } from './session-list.store.svelte'
+import { RunHostChanges } from './run-host-changes'
 import { hostKey } from '@solus/client-core/host-key'
 import { workPolicy } from '../policy/work-policy.svelte'
 import { isPristineSplitTab } from '../../lib/split-chat'
@@ -187,6 +190,8 @@ export class WorkspaceContext implements SurfaceContext {
   /** The narrow context a record surface reads is this workspace itself. */
   get workspace(): WorkspaceContext { return this }
   readonly toolHistory = new ToolHistoryStore()
+  /** The cloud copy of each session that no host shows (portable-sessions-cloud, Phase 5B). */
+  readonly cloudTranscripts = new CloudTranscriptStore(workspaceCloudTranscriptDeps(this))
   readonly presence = presenceStore
   registry: TabRegistry
   readonly controls: SessionControls
@@ -195,6 +200,8 @@ export class WorkspaceContext implements SurfaceContext {
   readonly opening: SessionOpening
   readonly drafts: SessionDrafts
   readonly dispatch: PromptDispatch
+  /** A started session's run host changes between turns (docs/plans/portable-sessions.md §10). */
+  readonly runHosts: RunHostChanges
   lifecycle: WorkspaceLifecycleStore
   pendingInput = $state<string | null>(null)
   eventReducer: SessionEventReducer
@@ -246,6 +253,9 @@ export class WorkspaceContext implements SurfaceContext {
     this.opening = new SessionOpening(this)
     this.drafts = new SessionDrafts(this)
     this.dispatch = new PromptDispatch(this)
+    this.runHosts = new RunHostChanges(this, (tabId) => {
+      void this.environment.refreshEnvironment(this, { sourceId: tabId, level: 'full', force: true }).catch(() => null)
+    })
     this.settings = settings
     // Background work captures the person's preferences when it is made (plans/018 §6).
     this.automationsStore.executionPreferences = () => settings.executionPreferences
@@ -350,6 +360,7 @@ export class WorkspaceContext implements SurfaceContext {
       apiFor: (tabId) => this.apiFor(tabId),
       serverIdFor: (tabId) => this.serverIdFor(tabId),
       loadTranscript: (args) => loadSessionTranscript(this, args),
+      cloudHistory: (session) => this.cloudTranscripts.reader(session),
       rebuildAgentConversations: (session) => this.eventReducer.rebuildAgentConversations(session),
     })
     this.ui = new WorkspaceUiStore()
@@ -1916,6 +1927,10 @@ export class WorkspaceContext implements SurfaceContext {
     if (openTab) {
       if (!opts.background) this.selectTab(openTab)
       return openTab
+    }
+    if (sessionListStore.listed(sessionId)?.cloudOnly && !opts.background) {
+      await this.opening.openCloudSession(sessionId)
+      return this.tabIdForSession(sessionId) ?? null
     }
     const meta = await readSessionMeta(serverId, sessionId)
     return meta ? await this.opening.resumeSession(meta, { background: opts.background }) : null

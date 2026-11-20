@@ -66,11 +66,13 @@ describe('host config', () => {
   test('holds only what the host owns', () => {
     // A person's choices are personal settings (plans/018), never host config.
     expect(Object.keys(DEFAULT_HOST_CONFIG).sort()).toEqual([
+      'agentAutoUpdates',
       'analyticsEnabled',
       'archivedAutomationRetentionDays',
       'continueSessionsAfterHostRestart',
       'otel',
       'reviewWarmingByProject',
+      'sessionCloudSync',
       'solusTools',
       'unfiledRecordingRetentionDays',
     ])
@@ -365,10 +367,12 @@ describe('the agent write policy', () => {
     const payload = JSON.parse(result.text) as { host: object; deviceManager: object; personal: PersonalSettingsDocument; device: AgentDeviceSettings }
 
     expect(Object.keys(payload.host).sort()).toEqual([
+      'agentAutoUpdates',
       'analyticsEnabled',
       'archivedAutomationRetentionDays',
       'continueSessionsAfterHostRestart',
       'reviewWarmingByProject',
+      'sessionCloudSync',
       'solusTools',
       'unfiledRecordingRetentionDays',
     ])

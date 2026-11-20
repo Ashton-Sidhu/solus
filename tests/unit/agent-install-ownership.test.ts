@@ -1,74 +1,92 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { afterEach, beforeEach, expect, test } from 'bun:test'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveAgentOwnership } from '../../packages/server/src/transport/handlers/setup-commands'
+import { AgentSoftware } from '@solus/server/updates/agent-software'
+import { ClaudeSoftwareAdapter } from '@solus/server/updates/claude-software-adapter'
+import { CodexSoftwareAdapter } from '@solus/server/updates/codex-software-adapter'
+import { agentExecutables, findOnPath, startableCommand } from '@solus/server/cli-env'
 
-// Provider Update must reuse the installer that already owns the CLI on this
-// host, and refuse to run it — rather than create a competing install —
-// when something else put that CLI there
-// (docs/plans/host-and-provider-updates.md).
-
-describe('resolveAgentOwnership', () => {
-  let home: string
-  beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'solus-agent-ownership-')) })
-  afterEach(() => { rmSync(home, { recursive: true, force: true }) })
-
-  test('reports absent when the CLI is not on PATH', () => {
-    const ownership = resolveAgentOwnership('claude', { resolveCommandPath: () => null, home })
-    expect(ownership).toEqual({ kind: 'absent' })
-  })
-
-  test('a Claude binary under the native installer\'s managed directory is solus-managed', () => {
-    const managedDir = join(home, '.local', 'share', 'claude', 'versions', '1.0.0')
-    mkdirSync(managedDir, { recursive: true })
-    const target = join(managedDir, 'claude')
-    writeFileSync(target, '')
-    const link = join(home, '.local', 'bin', 'claude')
-    mkdirSync(join(home, '.local', 'bin'), { recursive: true })
-    symlinkSync(target, link)
-
-    const ownership = resolveAgentOwnership('claude', { resolveCommandPath: () => link, home })
-    expect(ownership).toEqual({ kind: 'solus-managed', resolvedPath: link })
-  })
-
-  test('a Claude binary anywhere else is unmanaged', () => {
-    const other = join(home, 'usr-local-bin', 'claude')
-    mkdirSync(join(home, 'usr-local-bin'), { recursive: true })
-    writeFileSync(other, '')
-
-    const ownership = resolveAgentOwnership('claude', { resolveCommandPath: () => other, home })
-    expect(ownership).toEqual({ kind: 'unmanaged', resolvedPath: other })
-  })
-
-  test('a Codex binary inside npm\'s global bin directory is solus-managed', () => {
-    const npmBin = join(home, 'npm-global', 'bin')
-    mkdirSync(npmBin, { recursive: true })
-    const codex = join(npmBin, 'codex')
-    writeFileSync(codex, '')
-
-    const ownership = resolveAgentOwnership('codex', { resolveCommandPath: () => codex, npmGlobalBinDir: () => npmBin, home })
-    expect(ownership).toEqual({ kind: 'solus-managed', resolvedPath: codex })
-  })
-
-  test('a Codex binary outside npm\'s global bin directory is unmanaged', () => {
-    const brewBin = join(home, 'homebrew', 'bin')
-    mkdirSync(brewBin, { recursive: true })
-    const codex = join(brewBin, 'codex')
-    writeFileSync(codex, '')
-    const npmBin = join(home, 'npm-global', 'bin')
-    mkdirSync(npmBin, { recursive: true })
-
-    const ownership = resolveAgentOwnership('codex', { resolveCommandPath: () => codex, npmGlobalBinDir: () => npmBin, home })
-    expect(ownership).toEqual({ kind: 'unmanaged', resolvedPath: codex })
-  })
-
-  test('a Codex binary is unmanaged when npm has no usable global prefix', () => {
-    const other = join(home, 'somewhere', 'codex')
-    mkdirSync(join(home, 'somewhere'), { recursive: true })
-    writeFileSync(other, '')
-
-    const ownership = resolveAgentOwnership('codex', { resolveCommandPath: () => other, npmGlobalBinDir: () => null, home })
-    expect(ownership).toEqual({ kind: 'unmanaged', resolvedPath: other })
-  })
+let sandbox: string
+const previous = process.env.SOLUS_DATA_DIR
+beforeEach(() => {
+  sandbox = mkdtempSync(join(tmpdir(), 'solus-agent-ownership-'))
+  process.env.SOLUS_DATA_DIR = sandbox
 })
+afterEach(() => {
+  rmSync(sandbox, { recursive: true, force: true })
+  if (previous === undefined) delete process.env.SOLUS_DATA_DIR
+  else process.env.SOLUS_DATA_DIR = previous
+})
+
+function selected(enabled = true) {
+  const root = join(sandbox, 'agents', 'codex')
+  const binary = join(root, 'releases', 'verified', 'bin', 'codex')
+  mkdirSync(join(root, 'releases', 'verified', 'bin'), { recursive: true })
+  writeFileSync(binary, 'verified binary')
+  chmodSync(binary, 0o755)
+  writeFileSync(join(root, 'current.json'), JSON.stringify({ release: 'verified', binary: 'bin/codex', version: '0.170.0', enabled }))
+  return { root, binary }
+}
+
+test('an absent agent can be installed natively without npm', () => {
+  expect(installation('codex', null)).toMatchObject({ method: 'absent', canUpdate: true, automatic: false })
+})
+
+test('an npm install keeps its manager and receives a useful manual command', () => {
+  const target = join(sandbox, 'lib', 'node_modules', '@openai', 'codex', 'bin', 'codex.js')
+  mkdirSync(join(target, '..'), { recursive: true })
+  writeFileSync(target, '')
+  const binary = join(sandbox, 'codex')
+  symlinkSync(target, binary)
+  expect(installation('codex', binary)).toMatchObject({ method: 'npm', managed: false, canUpdate: false, automatic: false, remediation: 'Run npm install -g @openai/codex on this host.' })
+})
+
+test('Homebrew and unknown binaries are not overwritten by the native updater', () => {
+  expect(installation('claude', join(sandbox, 'Caskroom', 'claude-code', 'claude'))).toMatchObject({ method: 'homebrew', canUpdate: false })
+  expect(installation('codex', join(sandbox, 'custom', 'codex'))).toMatchObject({ method: 'external', canUpdate: false })
+})
+
+test.each([
+  ['claude', '@anthropic-ai/claude-code', 'claude-code'],
+  ['codex', '@openai/codex', 'codex'],
+] as const)('%s detects its own package and gives its own update command', (agent, npmPackage, brewPackage) => {
+  const path = join(sandbox, 'node_modules', npmPackage, 'bin', agent)
+  expect(installation(agent, path)).toMatchObject({ method: 'npm', remediation: `Run npm install -g ${npmPackage} on this host.` })
+  expect(installation(agent, join(sandbox, 'Caskroom', brewPackage, agent))).toMatchObject({ method: 'homebrew', remediation: `Run brew upgrade ${brewPackage} on this host.` })
+  const otherAgent = agent === 'claude' ? 'codex' : 'claude'
+  expect(installation(otherAgent, path)).toMatchObject({ method: 'external' })
+})
+
+test('command discovery and process launch use the selected package', () => {
+  const { binary } = selected()
+  expect(agentExecutables.codex.binary).toBe(binary)
+  expect(findOnPath('codex', sandbox)).toBe(binary)
+  expect(startableCommand('codex', { PATH: sandbox })).toEqual({ file: binary, args: [] })
+  expect(installation('codex', binary)).toMatchObject({ method: 'native', managed: true, canUpdate: true, automatic: true })
+})
+
+test('returning to the existing installation disables the managed selection', () => {
+  selected(false)
+  const external = join(sandbox, 'codex')
+  writeFileSync(external, '')
+  chmodSync(external, 0o755)
+  expect(agentExecutables.codex.binary).toBeNull()
+  expect(findOnPath('codex', sandbox)).toBe(external)
+})
+
+test('a selection cannot name a package outside the managed releases directory', () => {
+  const { root } = selected()
+  writeFileSync(join(root, 'current.json'), JSON.stringify({ release: '../../outside', binary: 'codex', version: '0.170.0' }))
+  expect(agentExecutables.codex.selection).toBeNull()
+  expect(agentExecutables.codex.binary).toBeNull()
+})
+
+function installation(agent: 'claude' | 'codex', path: string | null) {
+  const software = new AgentSoftware(agent === 'claude' ? new ClaudeSoftwareAdapter() : new CodexSoftwareAdapter(), {
+    automatic: () => true,
+    existingBinary: () => path,
+  })
+  software.refreshInstallation()
+  return software.status.installation
+}

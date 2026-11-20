@@ -1,8 +1,18 @@
 import { expect, test } from 'bun:test'
 import type { Message } from '@solus/contracts/types'
 import { toolResultImages } from '@solus/client-core/reply-images'
-import { hasGallerySlides, toolRowImages } from '@solus/workspace-ui/components/conversation/lib/turn-images'
+import { galleryHrefs, hasGallerySlides, toolRowImages } from '@solus/workspace-ui/components/conversation/lib/turn-images'
 import { markdownAssetId } from '@solus/workspace-ui/components/conversation/lib/markdown-image'
+
+test('the viewer can browse images across replies in one turn, in carousel order', () => {
+  const messages: Message[] = [
+    { id: 'before', role: 'assistant', content: '![Before](/tmp/before.png)', timestamp: 1 },
+    { id: 'tool', role: 'tool', content: '![Hidden](/tmp/tool.png)', timestamp: 2 },
+    { id: 'after', role: 'assistant', content: '![After](/tmp/after.png)', timestamp: 3 },
+    { id: 'image', role: 'assistant', content: '', artifact: { kind: 'image', path: '/tmp/detail.png' }, timestamp: 4 },
+  ]
+  expect(galleryHrefs(messages)).toEqual(['/tmp/before.png', '/tmp/after.png', '/tmp/detail.png'])
+})
 
 test('a turn mounts its image carousel only when it has an image to show', () => {
   // WHY: an empty carousel still measured itself as the transcript mounted,

@@ -59,7 +59,7 @@ export const attributionSchema: z.ZodType<Attribution> = z.discriminatedUnion('k
     for: userSchema.optional(),
   }),
   z.object({ kind: z.literal('automation'), automationId: z.string(), name: z.string().optional(), for: userSchema.optional() }),
-  z.object({ kind: z.literal('upstream'), provider: z.enum(['gdrive', 'confluence', 'github', 'jira']) }),
+  z.object({ kind: z.literal('upstream'), provider: z.enum(['gdrive', 'confluence', 'github', 'jira', 'linear']) }),
   z.object({ kind: z.literal('system') }),
 ])
 
@@ -121,6 +121,7 @@ const UPSTREAM_NAMES = {
   confluence: 'Confluence',
   github: 'GitHub',
   jira: 'Jira',
+  linear: 'Linear',
 } satisfies Record<Extract<Attribution, { kind: 'upstream' }>['provider'], string>
 
 /**

@@ -1,8 +1,19 @@
+import { initRunningServers } from './host/running-servers/registry'
+import { registerRunningServerHandlers } from './transport/handlers/running-server-handlers'
 import { onHostRecordRemoved } from './host/host-list'
 import type { VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
+import { SessionArchiveWriter } from './sync/sessions/session-archive-writer'
+import { loadSettledTurnRows } from './sync/sessions/settled-turn-rows'
+import { SessionPusher } from './sync/sessions/session-push'
+import { DelegatedSessionRemoteAccess } from './sync/sessions/session-remote-access'
+import { sessionCloudScope } from './sync/sessions/session-cloud-scope'
+import { SessionRepositories } from './sync/sessions/session-repository'
+import { SessionBundleTransfers } from './sync/sessions/session-bundle-transfers'
+import { AGENT_BIN } from '@solus/contracts/types'
+import { findOnPath, warmCliPath } from './cli-env'
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
@@ -21,7 +32,6 @@ import { UpdateStatusService } from './updates/update-status-service'
 import { ModelProfilesService, downloadModelProfiles } from './updates/model-profiles-service'
 import { detectInstallKind } from './updates/install-kind'
 import { fetchLatestRelease } from './updates/release-sources'
-import { readProviderVersion } from './updates/provider-versions'
 import { rmSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
@@ -131,7 +141,7 @@ import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
 import { CodexBackend } from './execution/agents/codex/codex-backend'
 import { getCodexAppServerClient } from './execution/agents/codex/codex-agent'
-import { ActingIdentities, hostSecretFilesFolder, identityFor, useActingIdentities } from './execution/seats/acting-identity'
+import { ActingIdentities, hostSecretFilesFolder, identityFor, useActingIdentities, withHostScope } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { currentHostUser, hostUserKey, useHostUser } from './host/host-user'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
@@ -183,6 +193,13 @@ import type { AgentId, IpcContext, PromptOptions } from '@solus/contracts/types'
 import { DEFAULT_SERVER_PORT, isSessionBusyStatus } from '@solus/contracts/types'
 import { registerWindowHandlers, type WindowDeps } from './transport/handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './transport/handlers/session-handlers'
+import { registerSessionRepositoryHandlers } from './transport/handlers/session-repository-handlers'
+import { SessionSync, SessionSyncError } from './execution/sessions/session-sync'
+import { fetchSessionBundle } from './execution/sessions/session-bundle-source'
+import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionReadAccess } from './execution/sessions/session-artifacts-source'
+import { sessionCloudSyncDecision } from './host/policy/host-policy-store'
+import { insightsAccountOf } from './admission/actor'
+import { getSessionRecord } from './data/sessions/session-records'
 import { registerWorktreeHandlers } from './transport/handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './transport/handlers/git-publish-handlers'
 import { registerFilesystemHandlers } from './transport/handlers/filesystem-handlers'
@@ -296,6 +313,8 @@ const log = createLogger('main', 'server-boot')
 
 export interface BootOptions {
   sessionRuntime: SessionRuntime
+  /** Part C supplies the read-token client here when its host access module is merged. */
+  sessionReadAccess?: SessionReadAccess
   /**
    * What kind of machine this process is (organization-scope §3.1): the desktop
    * app's own execution host is `personal`; the standalone server declares
@@ -615,6 +634,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // its updates go to that room only, never to everyone with access.
   const workLive = new WorkLiveManager({ publish: (clientIds, type, payload) => { void events.publishToRoom({ kind: 'work', id: payload.workId }, clientIds, type, payload) } })
   const workStorageRuntime = await startWorkStorage({ database: getDatabase, cloud: apiMode, flushLive: workId => workLive.flushPersisted(workId) })
+  // Each ended turn goes to the session's local repository (docs/plans/portable-sessions.md §7.2).
+  const sessionRepositories = new SessionRepositories(join(dataDir(), 'sessions', 'repositories'))
+  const sessionBundleTransfers = new SessionBundleTransfers(sessionRepositories)
+  let sessionPusher: SessionPusher | null = null
+  let sessionRemoteAccess: DelegatedSessionRemoteAccess | null = null
+  const sessionArchive = new SessionArchiveWriter({
+    repositories: sessionRepositories,
+    onCommit: sessionId => sessionPusher?.committed(sessionId),
+    threadFiles: async (provider, threadId, projectPath) => await opts.sessionRuntime.backendFor(provider).threadFiles?.(threadId, projectPath) ?? [],
+    turnRows: (provider, sessionId, projectPath, endedAt) => loadSettledTurnRows(endedAt,
+      before => opts.sessionRuntime.history.loadSessionPage({ provider, sessionId, projectPath, turnLimit: 1, before })),
+  })
+  opts.sessionRuntime.useSessionArchive(sessionArchive)
+  sessionArchive.resume()
   // Who is here (docs/plans/multiplayer-presence.md): one entry per connected
   // client, named from its principal at admission. The host room is one
   // organization's — the whole host, or each organization of the workspace
@@ -771,9 +804,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     shares,
   }
   registerSessionHandlers(server, sessionDeps)
+  registerSessionRepositoryHandlers(server, sessionBundleTransfers, shares, opts.sessionRuntime, sessionArchive)
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
-    onHostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
+    onHostConfigChanged: (snapshot) => {
+      events.broadcast('config.changed', snapshot)
+      hostUpdates.refreshInstallations()
+    },
     onProviderInstancesChanged: () => events.broadcast('provider-instances.changed', {}),
   })
 
@@ -1259,6 +1296,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     seats,
     clientsForSeat,
   })
+  const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) }, withHostScope)
+  const serverTunnels = registerRunningServerHandlers(server, serverRegistry)
   const resourceTelemetry = new ResourceTelemetry({
     resolvePath: resolveResourceMonitorPath,
     createMonitor: (options) => new ResourceMonitor(options),
@@ -1272,11 +1311,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   domainEventUnsubscribes.push(registerHostListHandlers(server, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   registerSessionReadStateHandlers(server)
   phaseDone('domain_handlers_registered')
+  const updatesAllowed = () => hostPolicies().hostSetting('updates')?.value.mode !== 'off'
   const hostUpdates = new UpdateStatusService({
     currentVersion: packageJson.version,
     install: hostCategory() === 'managed' ? 'cloud' : detectInstallKind(),
-    latest: (target) => fetchLatestRelease(target, packageJson.version),
-    providerVersion: readProviderVersion,
+    latest: () => fetchLatestRelease(packageJson.version),
+    automaticUpdates: () => getServerSettings().hostConfig.agentAutoUpdates,
+    canCheck: updatesAllowed,
+    assertInstallAllowed: assertUpdatesAllowed,
     publish: (status) => { events.broadcast('host.updateStatusChanged', status) },
   })
   let activeSetupSteps = 0
@@ -1286,7 +1328,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     status: () => hostUpdates.status,
     publish: (support) => hostUpdates.setServerUpdate(support),
     blockNewTurns: (blocked) => { opts.sessionRuntime.setUpdatePending(blocked); setAutomationUpdatesPaused(blocked) },
-    hasWork: () => activeSetupSteps > 0 || hasAutomationWork() || opts.sessionRuntime.hasWorkForUpdate(),
+    hasWork: () => hostUpdates.isUpdatingAgents || activeSetupSteps > 0 || hasAutomationWork() || opts.sessionRuntime.hasWorkForUpdate(),
     send: (message) => { if (!supervisor) throw new Error('No update supervisor.'); supervisor.send(message) },
   }, supervisor?.support ?? { supported: false, reason: 'Start a supported installation through solus start or solus-server to enable remote updates.', operation: null })
   const stopSupervisor = supervisor?.subscribe((message) => {
@@ -1311,7 +1353,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       appWorkflows.start()
     })
   // A policy with `updates.mode: off` manages this host's updates (plans/030 §6.8).
-  const assertUpdatesAllowed = () => {
+  function assertUpdatesAllowed(): void {
     const rule = hostPolicies().hostSetting('updates')
     if (rule?.value.mode === 'off') throw new PolicyRefusedError('UPDATES_MANAGED', `${rule.source.document.organization.name} manages Solus updates.`)
   }
@@ -1319,6 +1361,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))
   server.register('hostCheckForUpdates', () => { assertUpdatesAllowed(); return hostUpdates.check() })
+  hostUpdates.refreshInstallations()
   hostUpdates.start()
   const modelProfiles = new ModelProfilesService({
     cachePath: join(solusDir(), 'model-profiles.json'),
@@ -1334,9 +1377,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   server.register('modelProfilesCheck', () => modelProfiles.checkIfStale())
   modelProfiles.start()
   const setup = registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
+    agents: hostUpdates.agents,
     assertNewWorkAllowed: () => opts.sessionRuntime.assertNewWorkAllowed(),
     onActiveStepsChanged: (count) => { activeSetupSteps = count },
-    onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent),
     seats,
   })
   setProjectToolHost({
@@ -1345,6 +1388,48 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).
   opts.sessionRuntime.launcher.prepareDispatchCheckout = setup.prepareDispatchCheckout
+  opts.sessionRuntime.useSessionSync(new SessionSync(opts.sessionRuntime, {
+    repositoryRoot: join(dataDir(), 'sessions', 'repositories'),
+    providerInstalled: async (provider) => {
+      const binary = AGENT_BIN[provider]
+      return binary ? !!findOnPath(binary, await warmCliPath()) : false
+    },
+    // eslint-disable-next-line complexity
+    fetchBundle: async (sessionId, have, wantedHead, sourceHostId, outFile, signal, actor) => {
+      const principal = actor.principal
+      const reach: ReachRequest = principal.kind === 'org-member'
+        ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
+        : principal.kind === 'owner' ? ownerReach() : { account: null, isOwner: false }
+      const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
+      const account = insightsAccountOf(actor)
+      const decision = sessionCloudSyncDecision(record?.organizationId ?? (principal.kind === 'org-member' ? principal.organizationId : 'local'), account?.id.kind === 'account' ? { accountId: account.id.accountId } : null)
+      // SAFETY: the query selects only the repository column.
+      const storage = getDb().prepare('SELECT repository FROM session_storage WHERE session_id = ?').get(sessionId) as { repository: string } | undefined
+      const localPath = storage ? join(dataDir(), 'sessions', 'repositories', `${storage.repository}.git`) : null
+      const readAccess: SessionReadAccess | undefined = opts.sessionReadAccess ?? (sessionRemoteAccess ? async (readSessionId, readActor) => {
+        const person = insightsAccountOf(readActor)
+        if (person?.id.kind !== 'account') return null
+        const localRecord = await getSessionRecord(ANY_ORGANIZATION, readSessionId)
+        const answer = await sessionRemoteAccess!.remote(readSessionId, sessionCloudScope(localRecord, person.id.accountId), person.id.accountId, 'read')
+        return answer.status === 'ready' ? answer.remote : null
+      } : undefined)
+      return chooseSessionRepositorySource(decision.allowed && readAccess
+        ? () => fetchSessionArtifacts(readAccess, localPath, sessionId, actor, sessionPusher?.refusedHead(sessionId) ? null : have, wantedHead, outFile, signal) : null,
+      async () => {
+        if (!sourceHostId && !decision.allowed && decision.reason === 'person-not-signed-in') throw new SessionSyncError('not-signed-in', 'Sign in or connect to the last run host.')
+        if (!sourceHostId) throw new SessionSyncError('no-repository', 'No session repository is available.')
+        try { return await fetchSessionBundle(remoteHosts, reach, sessionId, have, sourceHostId, outFile, signal) }
+        catch (error) {
+          if (error instanceof SessionSyncError && error.reason === 'source-offline' && decision.allowed) {
+            throw new SessionSyncError('source-offline', `${sourceHostId} is offline and the cloud copy is behind the requested head.`)
+          }
+          throw error
+        }
+      }, wantedHead, signal)
+    },
+    prepareCheckout: setup.prepareDispatchCheckout,
+    claimSession: (sessionId, principal, isProject) => shares.claimSession(sessionId, principal, { shareWithOrganization: isProject }),
+  }))
   opts.sessionRuntime.launcher.dispatchCheckoutPathOf = setup.dispatchCheckoutPathOf
   registerDeviceHandlers(server, {
     domain: devices,
@@ -1421,6 +1506,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // client is watching.
   opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => {
     events.broadcast('session.statusChanged', event)
+    if (event.status === 'running') sessionPusher?.running(event.sessionId)
     // A turn started or settled: the room's "whose turn" line follows the status,
     // and so does the roster row of everyone who has the session focused.
     publishSessionPresence(event.sessionId)
@@ -1552,6 +1638,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         credentialVault.forgetAll()
         void integrationGateway.close()
         if (scope === 'personal') {
+          sessionPusher?.signedOut()
           log.info('delegation_revoked', { userId, scope, refusal })
           return
         }
@@ -1565,6 +1652,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         })
       },
       onEstablished: (userId, scope) => {
+        sessionPusher?.established()
         // A person's client presented on this machine (a cloud machine has no local client):
         // rows that waited for someone to deliver them as go now, not at the next five-minute poll.
         if (scope !== 'personal') {
@@ -1582,6 +1670,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       renew: (userId) => userId === hostOrganizations.owner()?.userId ? localClient.renew() : Promise.resolve(),
     })
     delegations = hostDelegations
+    sessionRemoteAccess = new DelegatedSessionRemoteAccess(() => registrar.current(), hostDelegations)
+    sessionPusher = new SessionPusher({ repositories: sessionRepositories,
+      access: sessionRemoteAccess,
+      hostId: () => registrar.current()?.hostId ?? null })
+    opts.sessionRuntime.dispatch.refusedHead = sessionId => sessionPusher?.refusedHead(sessionId) ?? null
+    sessionPusher.resume()
     // A member the host object removed may act here no more: their credentials leave
     // the disk and their sessions stop, as when their delegation ends.
     memberUsers?.watch(({ added, removed, layoutChanged }) => {
@@ -1884,7 +1978,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
       return
     }
-    if (!isHostSocketPath(request.url) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
+    if (!isHostSocketPath(request.url) && !serverTunnels.handleUpgrade(request, socket, head) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   let ws = attachWebSocketTransport(http, server, {
     clientEvents,
@@ -1906,6 +2000,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       handlePresenceDisconnected(clientId)
       workLive.disconnected(clientId)
       resourceTelemetry.unsubscribe(clientId)
+      serverRegistry.unwatch(clientId)
+      serverTunnels.disconnect(clientId)
     },
     onClientExpired: ({ clientId }) => {
       opts.sessionRuntime.watchers.handleClientExpired(clientId)
@@ -2006,7 +2102,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const tunnelHttp = createNodeHttpServer(requestListener)
   tunnelHttp.on('upgrade', (request, socket, head) => {
     if (isHostSocketPath(request.url)) ws.handleUpgrade(request, socket, head)
-    else if (!devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
+    else if (!serverTunnels.handleUpgrade(request, socket, head) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   // The workspace service has no tunnel and no link to resume (cloud-service-model.md §15).
   if (!apiMode) {
@@ -2090,6 +2186,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         handlePresenceDisconnected(clientId)
         workLive.disconnected(clientId)
         resourceTelemetry.unsubscribe(clientId)
+        serverRegistry.unwatch(clientId)
+        serverTunnels.disconnect(clientId)
       },
       onClientExpired: ({ clientId }) => {
         opts.sessionRuntime.watchers.handleClientExpired(clientId)
@@ -2103,6 +2201,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   // A policy change applies at once (plans/030 §5.2): the bind moves, the tunnel closes, telemetry export follows.
   policyStore.onChanged(() => {
+    hostUpdates.refreshInstallations()
     void rebind(effectiveRemoteAccess()).catch((error) => log.warn('policy_rebind_failed', { error: error instanceof Error ? error.message : String(error) }))
     if (hostPolicies().hostSetting('cloudTunnel')?.value === false && uplinkManager.status().linked) {
       void uplinkManager.unlink().catch((error) => log.warn('policy_tunnel_close_failed', { error: error instanceof Error ? error.message : String(error) }))
@@ -2205,6 +2304,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         prSync.stop()
         prWatcher.stop()
         resourceTelemetry.stop()
+        serverRegistry.stop()
+        serverTunnels.close()
         hostUpdates.stop()
         modelProfiles.stop()
         remoteUpdates.stop()
@@ -2236,6 +2337,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await new Promise<void>((resolve) => http.close(() => resolve()))
         await new Promise<void>((resolve) => tunnelHttp.close(() => resolve()))
         await workStorageRuntime.stop()
+        await sessionArchive.stop()
+        await sessionPusher?.stop()
+        await sessionBundleTransfers.stop()
         await closeDatabaseForShutdown()
         lock?.release()
       })()

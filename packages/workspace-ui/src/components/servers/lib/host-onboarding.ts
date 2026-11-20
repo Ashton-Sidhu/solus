@@ -83,7 +83,7 @@ export interface ProviderRow {
   /** A quieter action a settled row still offers, drawn beside its check mark. */
   secondary?: { label: string; run: () => void }
   /** A newer release of an installed provider, offered beside its sign-in action. */
-  update?: { label: string; run: () => void }
+  update?: { label: string; run: () => void; disabled?: boolean }
 }
 
 export interface GitHostRowsInput {

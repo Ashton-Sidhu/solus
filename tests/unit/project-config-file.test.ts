@@ -123,3 +123,15 @@ describe('project config in the repository', () => {
     }
   })
 })
+
+test('server URLs preserve HTTPS paths, queries, and fragments in project config', async () => {
+  const serverUrls = ['https://localhost:3000/admin?api=v1#health', 'http://[::1]:8080/api']
+  await projectConfig.saveProjectConfig(repo, { version: 1, serverUrls })
+  expect((await projectConfig.loadProjectConfig(repo))?.serverUrls).toEqual(serverUrls)
+})
+
+test('server URL probes cannot be configured for a remote host or URL credentials', async () => {
+  for (const url of ['https://example.com/api', 'file:///etc/hosts', 'http://user:password@localhost:3000/']) {
+    await expect(projectConfig.saveProjectConfig(repo, { version: 1, serverUrls: [url] })).rejects.toThrow()
+  }
+})

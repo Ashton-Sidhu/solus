@@ -65,6 +65,13 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
  * automation — built into run requests for `SessionRuntime.runTurn`.
  */
 export class PromptDispatch {
+  refusedHead: ((sessionId: string) => string | null) | null = null
+
+  assertSessionCurrent(sessionId: string): void {
+    if (this.refusedHead?.(sessionId)) {
+      throw new TurnRefusedError('SESSION_DIVERGED', 'This host has a different session history. Fork the local session to keep its turns.')
+    }
+  }
   /** Client-generated prompt ids this plane already accepted, insertion-ordered
    *  so the oldest fall off first (outbox replay dedupe, dispatch-client step 6). */
   acceptedClientPromptIds = new Set<string>()
@@ -86,6 +93,7 @@ export class PromptDispatch {
    * attached machine the Solus API accepts the session for the actor's person.
    */
   async admitTurn(ctx: TurnAdmissionContext, actor: Actor): Promise<void> {
+    this.assertSessionCurrent(ctx.session.sessionId)
     if (!this.admission) return
     const organizationId = await admitTurnOrganization(ctx, actor, this.admission)
     const account = insightsAccountOf(actor)
@@ -108,6 +116,7 @@ export class PromptDispatch {
     if (!proposedSessionId) {
       throw new Error('No sessionId provided — rejecting to prevent misrouting')
     }
+    this.assertSessionCurrent(proposedSessionId)
     // No seat, no turn: refused here, before the prompt is echoed or queued, so the
     // client can show the connect card instead of a bubble that never answers.
     const provider = ctx.session.provider ?? resolveSessionLineageById(proposedSessionId)?.active.provider
@@ -254,6 +263,7 @@ export class PromptDispatch {
       reportExchangeIds?: string[]
     },
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
+    this.assertSessionCurrent(sessionId)
     const { permissionMode, actor: originActor, exchangeIds, reportExchangeIds, ...promptOrigin } = origin ?? {}
     // An agent's prompt acts for the person the target session works for.
     const actor = originActor ?? this.rt.actorOfSession(sessionId)

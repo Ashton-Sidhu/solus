@@ -21,6 +21,8 @@ export type DeliveryAction = 'wait' | 'remove' | 'send'
 /** The prompt call a drain replays verbatim. Display text lives on the
  *  record's own `text`; everything here goes back into the RPC. */
 export interface OutboxPromptPayload {
+  taskId?: string
+  taskHostId?: string
   prompt: string
   displayPrompt: string
   delivery?: string
@@ -62,6 +64,8 @@ const outboxRecordSchema = z.looseObject({
   attempts: z.number().catch(0),
   lastError: z.string().nullable().catch(null),
   payload: z.looseObject({
+    taskId: z.string().optional(),
+    taskHostId: z.string().optional(),
     prompt: z.string(),
     displayPrompt: z.string().catch(''),
     delivery: z.string().optional().catch(undefined),

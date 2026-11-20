@@ -11,7 +11,7 @@ import { relativeTime } from "../../lib/time";
 import { PR_STATE_TINT_CLASS } from "../prs/components/PrStateBadge";
 import { watchRefusalMessage } from "./threadListV2";
 
-const STATE_TEXT_CLASS = {
+export const STATE_TEXT_CLASS = {
   open: "text-adaptive-emerald-600-400",
   draft: "text-foreground-muted",
   merged: "text-adaptive-violet-600-400",
@@ -19,12 +19,49 @@ const STATE_TEXT_CLASS = {
   missing: "text-foreground-muted",
 } as const satisfies { readonly [state in NonNullable<PullRequestCard["state"]>]: string };
 
-const STATE_SYMBOL = {
+export const STATE_SYMBOL = {
   open: "arrow.triangle.pull",
   draft: "arrow.triangle.branch",
   merged: "arrow.triangle.merge",
   closed: "arrow.triangle.pull",
 } as const satisfies { readonly [tone in keyof typeof PR_STATE_TINT_CLASS]: AppSymbolName };
+
+/** The tone of the state's symbol; a state not known yet reads as a draft. */
+export function pullRequestStateTone(card: PullRequestCard): keyof typeof STATE_SYMBOL {
+  return card.state === "open" || card.state === "merged" || card.state === "closed" ? card.state : "draft";
+}
+
+/**
+ * One pull request a turn linked: its card, kept fresh by PR sync, and the
+ * command that turns the session's watch on it on or off. The card and each
+ * row of a group card read it the same way.
+ */
+export function usePullRequestTurn(hostId: string, link: SessionPullRequestLink, onWatchChanged: () => Promise<void>) {
+  const app = useApp();
+  const pullRequest = useListened(app.pullRequests.changes, () => app.pullRequests.linkedOf(hostId, link.repository, link.number));
+  useEffect(() => app.pullRequests.wantLinked(hostId, link.repository, link.number), [app, hostId, link.repository, link.number]);
+  const card = pullRequestCard(link, pullRequest);
+  const [isWatchBusy, setWatchBusy] = useState(false);
+
+  const setWatch = (watching: boolean) => {
+    if (isWatchBusy) return;
+    void Haptics.selectionAsync();
+    setWatchBusy(true);
+    void app.threadList
+      .setWatching(hostId, link.sessionId, link, watching)
+      .then(async (outcome) => {
+        await onWatchChanged();
+        const refusal = watchRefusalMessage(outcome);
+        if (refusal) Alert.alert("Could not watch pull request", refusal);
+      })
+      .catch((error: Error) => {
+        Alert.alert(watching ? "Could not watch pull request" : "Could not stop watching", error.message.trim() || "The host did not answer.");
+      })
+      .finally(() => setWatchBusy(false));
+  };
+
+  return { card, isWatchBusy, setWatch };
+}
 
 /** `owner/repo #12 · author · 4m ago`, as desktop's card line reads. */
 function metaLine(card: PullRequestCard): string {
@@ -46,33 +83,11 @@ export function PullRequestTurnCard(props: {
   /** Read the session's links again, so the card shows the watch the host now holds. */
   readonly onWatchChanged: () => Promise<void>;
 }) {
-  const { hostId, link } = props;
-  const app = useApp();
-  const pullRequest = useListened(app.pullRequests.changes, () => app.pullRequests.linkedOf(hostId, link.repository, link.number));
-  useEffect(() => app.pullRequests.wantLinked(hostId, link.repository, link.number), [app, hostId, link.repository, link.number]);
-  const card = pullRequestCard(link, pullRequest);
-  const [isWatchBusy, setWatchBusy] = useState(false);
+  const { card, isWatchBusy, setWatch } = usePullRequestTurn(props.hostId, props.link, props.onWatchChanged);
   const isWatching = card.watch === "watching";
   // A reader who may not change the watch still sees one that runs.
   const showsWatch = isWatching || (card.watch === "available" && props.canWatch);
-  const stateTone = card.state === "open" || card.state === "merged" || card.state === "closed" ? card.state : "draft";
-
-  const setWatch = (watching: boolean) => {
-    if (isWatchBusy) return;
-    void Haptics.selectionAsync();
-    setWatchBusy(true);
-    void app.threadList
-      .setWatching(hostId, link.sessionId, link, watching)
-      .then(async (outcome) => {
-        await props.onWatchChanged();
-        const refusal = watchRefusalMessage(outcome);
-        if (refusal) Alert.alert("Could not watch pull request", refusal);
-      })
-      .catch((error: Error) => {
-        Alert.alert(watching ? "Could not watch pull request" : "Could not stop watching", error.message.trim() || "The host did not answer.");
-      })
-      .finally(() => setWatchBusy(false));
-  };
+  const stateTone = pullRequestStateTone(card);
 
   return (
     <View className="overflow-hidden rounded-[20px] border border-border bg-card-alt">

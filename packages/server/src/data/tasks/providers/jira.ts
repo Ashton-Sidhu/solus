@@ -130,7 +130,7 @@ export async function createJiraTask(
   input: { cloudId: string; projectKey: string; draft: TaskDraft; statusIds: string[] | null; columnName: string },
 ): Promise<ProviderTask> {
   const { cloudId, projectKey, draft, statusIds } = input
-  if (draft.assignee || draft.dueDate) {
+  if (draft.assignees?.length || draft.assignee || draft.dueDate) {
     throw new Error('Solus cannot set the assignee or the due date of a Jira issue. Set them in Jira.')
   }
   const { issueTypes } = await jira.request(
@@ -201,7 +201,7 @@ export class JiraTaskProvider implements TaskProviderAdapter {
 
   async update(home: TaskHome, patch: TaskUpdatePatch): Promise<ProviderTask> {
     const { cloudId, key } = jiraHome(home)
-    if (patch.assignee !== undefined || patch.dueDate !== undefined) {
+    if (patch.assignees !== undefined || patch.assignee !== undefined || patch.dueDate !== undefined) {
       throw new Error('Solus cannot change the assignee or the due date of a Jira issue. Change them in Jira.')
     }
     const fields: JiraFieldUpdate = {}

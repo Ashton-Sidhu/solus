@@ -165,3 +165,21 @@ describe('Codex background command wake', () => {
     expect(text.endsWith('END')).toBe(true)
   })
 })
+
+test('stopping an exact server command prevents its exit from waking Codex', async () => {
+  const { notifyCommandStop } = await import('@solus/server/host/running-servers/command-stops')
+  const { processFact } = await import('./running-server-fixtures')
+  const backend = new CodexBackend()
+  const internals = backend as unknown as BackendInternals
+  const wakes: string[] = []
+  backend.on('background-task-completed', (_sessionId: string, prompt: string) => wakes.push(prompt))
+  const commandId = 'server-stop-exact-command'
+  internals.runningCommands.set(commandId, backgroundCommand())
+  const leader = processFact(123, { commandId })
+  const parent = processFact(10)
+  notifyCommandStop([leader], new Map([[leader.pid, leader], [parent.pid, parent]]))
+  internals.onNotification(completed(commandId), {})
+  expect(wakes).toEqual([])
+  expect(internals.runningCommands.has(commandId)).toBe(false)
+  backend.shutdown()
+})

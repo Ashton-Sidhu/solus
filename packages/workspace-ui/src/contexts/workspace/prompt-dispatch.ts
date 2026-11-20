@@ -22,6 +22,8 @@ import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { localApi } from '@solus/client-core/local-api'
 import { sendOutbox, classifySendFailure, type OutboxRecord } from '@solus/client-core/send-outbox'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
+import { SESSION_DIVERGED } from '@solus/contracts/session-repositories'
+import { sessionListStore } from './session-list.store.svelte'
 import { SEAT_REQUIRED_CODE } from '@solus/contracts/seats'
 import { turnRefusalSchema } from '@solus/contracts/organization-scope'
 import { seatProviderOf, seatsStore } from '../seats/seats.store.svelte'
@@ -50,6 +52,7 @@ type PromptDispatchWorkspace = Pick<WorkspaceContext,
   | 'eventReducer'
   | 'focusedSourceId'
   | 'promptComposer'
+  | 'runHosts'
   | 'serverIdFor'
   | 'sessionFor'
   | 'settings'
@@ -159,6 +162,8 @@ export class PromptDispatch {
   }
 
   promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; goalObjective?: string; isLead?: boolean }): void {
+    // While another host runs a turn of this session, the prompt goes there (plan §4 decision 5).
+    this.workspace.runHosts.followRunningHost(tabId)
     const api = this.workspace.apiFor(tabId)
     const promptSession = this.workspace.sessionFor(tabId)
     const watchedSessionId = promptSession?.id
@@ -190,6 +195,9 @@ export class PromptDispatch {
     void api.watchSession({ sessionId: watchedSessionId }).catch((error) => {
       console.warn('[Solus] Session watch failed; the prompt still sends.', error)
     })
+    // A turn's first prompt is withdrawn by Stop, as a held send is
+    // (`sendWhenUploaded`). A queued prompt keeps its own way out.
+    const isQueued = promptSession.outboundPrompts.some((entry) => entry.clientPromptId === options.clientPromptId)
     // A run that will branch a new worktree already has its base branch, which
     // only a Git answer for its folder sets. The host reads the rest of the
     // checkout itself, so the send does not wait for a refresh in flight.
@@ -202,7 +210,17 @@ export class PromptDispatch {
         // submission to avoid a phantom run that can never be cancelled.
         const session = this.workspace.sessionFor(tabId)
         if (!session) return
-        return api.prompt(ctx, resolved)
+        // Stop came while the steps above ran. The host had no turn to stop
+        // then, so a prompt sent now would start the stopped turn again.
+        if (options.clientPromptId && !isQueued && session.status !== 'connecting') {
+          sendOutbox.remove(outboxServerId, options.clientPromptId)
+          if (!session.prompt.text) session.prompt.text = options.displayPrompt
+          return
+        }
+        // The newest head this client knows lets the run host sync before the turn.
+        const syncFields = this.workspace.runHosts.promptFields(session)
+        this.workspace.runHosts.confirm(session.id)
+        return api.prompt(ctx, { ...resolved, ...syncFields })
           .then(() => {
             // The host accepted the prompt: its durable copy has done its job.
             if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
@@ -244,6 +262,11 @@ export class PromptDispatch {
           }
           // The card says which organization the turn needs and what to do; only this client sees it.
           if (refusal.success) turnRefusalStore.note({ serverId: runHost(session.run), sessionId: session.id, code: refusal.data, message: err.message })
+          // This host's push was refused: the conversation offers Fork and the newer copy, and the text waits.
+          if (rpcErrorCode(err) === SESSION_DIVERGED) {
+            sessionListStore.notePushRefused(serverConnections.resolveId(runHost(session.run)), session.id, true)
+            if (!session.prompt.text) session.prompt.text = options.displayPrompt || options.prompt
+          }
         }
       })
   }
@@ -257,7 +280,10 @@ export class PromptDispatch {
       sendOutbox.remove(serverId, record.clientPromptId)
       return
     }
+    const session = this.workspace.sessionFor(tabId)
+    const syncFields = session ? this.workspace.runHosts.promptFields(session) : undefined
     const result = await this.workspace.apiFor(tabId).prompt(await this.sendContext(tabId), {
+      ...syncFields,
       prompt: record.payload.prompt,
       displayPrompt: record.payload.displayPrompt || record.text,
       clientPromptId: record.clientPromptId,

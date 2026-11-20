@@ -359,6 +359,7 @@ function _materializeTabs(
         // by session, so a restored split pane has to find the same one back.
         agentSessionId: snapTab.agentSessionId,
         forked: !!snapTab.pendingFork,
+        forkSourceSessionId: snapTab.pendingFork?.sourceSessionId ?? null,
         forkExcludeLatestTurn: snapTab.pendingFork?.excludeLatestTurn ?? false,
         forkedFromSessionId: snapTab.forkedFromSessionId ?? null,
         messages: snapTab.pendingFork?.messages ?? [],
@@ -562,6 +563,8 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         s.historyPendingMessages = transcript.pendingMessages
       }
       if (s && transcript.messages.length > 0) {
+        // The host's rows take the place of a cloud copy shown while it was away.
+        ctx.cloudTranscripts.release(s.id)
         replaceHydratedMessages(s, transcript.messages)
         markStartupTranscriptApplied(tabId)
         ctx.eventReducer.rebuildAgentConversations(s)

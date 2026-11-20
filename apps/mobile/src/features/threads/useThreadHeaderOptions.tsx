@@ -13,18 +13,26 @@ export function useThreadHeaderOptions(props: {
   readonly subtitle: string;
   readonly usesNativeHeaderGlass: boolean;
   readonly hostId: string;
+  readonly sessionId: string;
+  readonly checkoutPath: string | null;
+  readonly mayUseHost: boolean;
   readonly projectPath: string | null;
 }) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { hostId, projectPath } = props;
+  const { hostId, projectPath, sessionId, mayUseHost, checkoutPath } = props;
   const actions = useMemo<ReadonlyArray<ScreenHeaderAction>>(
-    () =>
-      projectPath
+    () => [
+      ...(mayUseHost ? [{
+        accessibilityLabel: "Running servers",
+        icon: "server.rack" as const,
+        onPress: () => navigation.navigate("RunningServers", { hostId, sessionId, checkoutPath }),
+      }] : []),
+      ...(projectPath
         ? [
             {
               accessibilityLabel: "Open files",
-              icon: "folder",
+              icon: "folder" as const,
               onPress: () =>
                 navigation.navigate("Files", {
                   hostId,
@@ -33,8 +41,9 @@ export function useThreadHeaderOptions(props: {
                 }),
             },
           ]
-        : [],
-    [hostId, navigation, projectPath],
+        : []),
+    ],
+    [hostId, navigation, projectPath, sessionId, mayUseHost, checkoutPath],
   );
   const options: AppNativeStackNavigationOptions = {
     headerShown: true,

@@ -11,7 +11,8 @@
   } from "@lucide/svelte";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import { PAGE_PILL_ICON_BTN } from "../../lib/page-chrome";
+  import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import type { GuideHeaderActions } from "./lib/review-header";
 
@@ -84,24 +85,27 @@
 </script>
 
 {#if hasItems}
-  <button
-    bind:this={triggerEl}
-    type="button"
-    class="{PAGE_SOFT_ICON_BTN} relative {open ? 'bg-[var(--wash-1)]! text-foreground!' : ''}"
+  <!-- Sits in the review header's pill, so it takes the pill's button. The
+       ghost variant already shades itself while the menu is open. -->
+  <Button
+    bind:ref={triggerEl}
+    variant="ghost"
+    size="icon-sm"
+    class="{PAGE_PILL_ICON_BTN} relative"
     aria-label={flagsStale ? "More review options — new commits since guide" : "More review options"}
     aria-haspopup="menu"
     aria-expanded={open}
     title={flagsStale ? "New commits since guide" : "More options"}
     onclick={() => (open = !open)}
   >
-    <DotsThreeIcon size={15} strokeWidth={1.5} />
+    <DotsThreeIcon strokeWidth={1.5} class="size-4" />
     {#if flagsStale}
       <span
         class="absolute top-[0.1875rem] right-[0.1875rem] size-[0.3125rem] rounded-full bg-primary"
         aria-hidden="true"
       ></span>
     {/if}
-  </button>
+  </Button>
 
   <DropdownMenu.Root bind:open>
   <DropdownMenu.Content

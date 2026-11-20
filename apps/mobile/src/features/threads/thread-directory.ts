@@ -1,10 +1,13 @@
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { keepEqual, sameItems } from '@solus/client-core/keep-equal'
+import { listedSessionHost } from '@solus/client-core/session-heads'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 import type { HostRegistry } from '../hosts/host-registry'
+import type { CloudSessions, CloudSessionRecord } from './cloud-sessions'
+import type { SessionRunHosts } from './session-run-hosts'
 import { ShareArrivals } from './shared-with-you'
 
 /**
@@ -22,6 +25,10 @@ export interface SolusThreadShell {
   readonly hostId: string
   readonly hostLabel: string
   readonly record: SessionRecord
+  /** Only the cloud lists the session: no host this phone reads has it yet
+   *  (docs/plans/portable-sessions-cloud.md §5.5). Its thread opens with no
+   *  conversation until a host has it. */
+  readonly cloudOnly?: true
 }
 
 /** One project, for T3's project filter and the new-task project picker. */
@@ -71,6 +78,9 @@ const RATE_LIMIT_RETRIES = 3
 
 const IDLE = { kind: 'idle' } as const
 
+/** How a cloud-only row names where it comes from when this phone keeps no host that ran it. */
+const CLOUD_LABEL = 'Solus Cloud'
+
 export class ThreadDirectory {
   readonly changes = new Listeners()
   private readonly hosts = new Map<string, HostThreadsState>()
@@ -86,11 +96,22 @@ export class ThreadDirectory {
   private openedSearchResults = new Map<string, SolusThreadShell>()
   private readonly shareArrivals = new ShareArrivals()
   private readonly shareListeners = new Set<(threads: readonly SolusThreadShell[]) => void>()
+  /** The cloud-only rows shown now, by thread key. */
+  private cloudShells = new Map<string, SolusThreadShell>()
+  /** The row of each cloud record, kept while its host and label do not change. */
+  private readonly cloudShellOf = new WeakMap<CloudSessionRecord, SolusThreadShell>()
 
   constructor(
     private readonly registry: HostRegistry,
     private readonly connectionFor: (hostId: string) => HostConnection | null,
-  ) {}
+    /** What each host holds of a session: with it, a session two hosts list shows once. */
+    private readonly runHosts?: Pick<SessionRunHosts, 'turnsFor' | 'readOnce' | 'changes'>,
+    /** The sessions only the cloud lists: each gets one row. */
+    private readonly cloud?: Pick<CloudSessions, 'onlyInCloud' | 'changes'>,
+  ) {
+    runHosts?.changes.subscribe(() => this.remerge())
+    cloud?.changes.subscribe(() => this.remerge())
+  }
 
   /** Change the list filter without changing a record or closing an open thread. */
   /** The hosts provisioned for an organization, whose threads the organization filter applies to. */
@@ -139,6 +160,7 @@ export class ThreadDirectory {
       ?? value?.unlisted?.find((thread) => thread.key === key)
       ?? this.children.get(key)
       ?? this.openedSearchResults.get(key)
+      ?? this.cloudShells.get(key)
       ?? null
   }
 
@@ -171,13 +193,19 @@ export class ThreadDirectory {
     let next: HostThreadsState
     let retryAfterMs: number | null = null
     try {
-      const [list, unlisted, projects] = await Promise.all([
+      const [list, unlisted, projects, pins] = await Promise.all([
         connection.api.sessionRecordList({ includeWorktrees: true }),
         connection.api.sessionRecordList({ includeWorktrees: true, scope: 'all', limit: UNLISTED_LIMIT }),
         connection.api.listProjects(),
+        connection.api.pinnedSessionsList().catch(() => []),
       ])
       const shell = (record: SessionRecord): SolusThreadShell => ({ key: threadKey(hostId, record.sessionId), hostId, hostLabel: host.label, record })
       const shells = list.records.map(shell)
+      const knownSessions = new Set([...list.records, ...unlisted.records].map((record) => record.sessionId))
+      // A pin must remain available even after its record leaves recent history.
+      const missingPins = await Promise.all(pins.filter((pin) => !knownSessions.has(pin.sessionId))
+        .map((pin) => connection.api.sessionRecordGet(pin.sessionId).catch(() => null)))
+      const pinnedRecords = missingPins.filter((record): record is SessionRecord => record !== null)
       // An unchanged project keeps its object, so a reader of projects alone sees no change.
       const held = new Map(previous?.projects.map((project) => [project.key, project]))
       const projectShells = projects.map((project): SolusProjectShell => {
@@ -190,7 +218,7 @@ export class ThreadDirectory {
         kind: 'loaded',
         value: {
           threads: shells,
-          unlisted: unlisted.records.filter((record) => record.listed === false).map(shell),
+          unlisted: [...unlisted.records.filter((record) => record.listed === false), ...pinnedRecords].map(shell),
           projects: previous && sameItems(projectShells, previous.projects) ? previous.projects : projectShells,
           indexing: list.indexing,
         },
@@ -258,26 +286,81 @@ export class ThreadDirectory {
     const unlisted: SolusThreadShell[] = []
     const projects: SolusProjectShell[] = []
     const managed = this.managedHostIds()
+    const listedByHost = new Set<string>()
     for (const [hostId, state] of this.hosts) {
       const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
       if (!value) continue
+      for (const thread of value.threads) listedByHost.add(thread.record.sessionId)
+      for (const thread of value.unlisted ?? []) listedByHost.add(thread.record.sessionId)
       // A personal host's threads show whole; a managed host's go through the organization (plans/031 rule 3).
       const usesFilter = usesWindowFilter(hostId, managed)
       threads.push(...value.threads.filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
       unlisted.push(...(value.unlisted ?? []).filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
       projects.push(...value.projects)
     }
+    this.cloudShells = this.cloudOnlyShells(listedByHost)
+    threads.push(...this.cloudShells.values())
     threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
     unlisted.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
     projects.sort((a, b) => a.project.folderName.localeCompare(b.project.folderName))
     // A list whose items did not change keeps its array: a host that starts
     // reading again, or a change to sessions only, leaves the project list as it was.
     const held = this.merged
+    const shownThreads = this.oneRowPerSession(threads, held.threads)
+    const shownUnlisted = this.oneRowPerSession(unlisted, held.unlisted)
     this.merged = {
-      threads: sameItems(threads, held.threads) ? held.threads : threads,
-      unlisted: sameItems(unlisted, held.unlisted) ? held.unlisted : unlisted,
+      threads: sameItems(shownThreads, held.threads) ? held.threads : shownThreads,
+      unlisted: sameItems(shownUnlisted, held.unlisted) ? held.unlisted : shownUnlisted,
       projects: sameItems(projects, held.projects) ? held.projects : projects,
     }
     this.changes.notify()
+  }
+
+  /** One row for each session only the cloud lists; a host's record of a session always wins. */
+  private cloudOnlyShells(listedByHost: ReadonlySet<string>): Map<string, SolusThreadShell> {
+    const shells = new Map<string, SolusThreadShell>()
+    for (const { hostId, isLastRunHost, record } of this.cloud?.onlyInCloud((sessionId) => listedByHost.has(sessionId)) ?? []) {
+      const hostLabel = isLastRunHost ? this.registry.host(hostId)?.label ?? CLOUD_LABEL : CLOUD_LABEL
+      const kept = this.cloudShellOf.get(record)
+      const shell: SolusThreadShell = kept?.hostId === hostId && kept.hostLabel === hostLabel
+        ? kept
+        : { key: threadKey(hostId, record.sessionId), hostId, hostLabel, record, cloudOnly: true }
+      this.cloudShellOf.set(record, shell)
+      shells.set(shell.key, shell)
+    }
+    return shells
+  }
+
+  /**
+   * A session that ran on two hosts is in both hosts' lists. It shows once,
+   * from the host with its newest turn (docs/plans/portable-sessions.md §9);
+   * with no difference known, from the host that showed it before. The facts
+   * of each such host are read once, and their answer draws the list again.
+   */
+  private oneRowPerSession(threads: SolusThreadShell[], shown: readonly SolusThreadShell[]): SolusThreadShell[] {
+    const runHosts = this.runHosts
+    if (!runHosts) return threads
+    const bySession = new Map<string, SolusThreadShell[]>()
+    for (const thread of threads) {
+      const group = bySession.get(thread.record.sessionId)
+      if (group) group.push(thread)
+      else bySession.set(thread.record.sessionId, [thread])
+    }
+    if (bySession.size === threads.length) return threads
+    const shownHost = new Map(shown.map((thread) => [thread.record.sessionId, thread.hostId]))
+    const unknownByHost = new Map<string, string[]>()
+    const kept = new Set<SolusThreadShell>()
+    for (const [sessionId, group] of bySession) {
+      if (group.length === 1) {
+        kept.add(group[0]!)
+        continue
+      }
+      const hostIds = group.map((thread) => thread.hostId)
+      for (const hostId of hostIds) unknownByHost.set(hostId, [...(unknownByHost.get(hostId) ?? []), sessionId])
+      const chosen = listedSessionHost(hostIds, runHosts.turnsFor(sessionId), shownHost.get(sessionId) ?? null)
+      kept.add(group.find((thread) => thread.hostId === chosen) ?? group[0]!)
+    }
+    for (const [hostId, sessionIds] of unknownByHost) runHosts.readOnce(hostId, sessionIds)
+    return threads.filter((thread) => kept.has(thread))
   }
 }

@@ -7,6 +7,8 @@
     ChevronUp as CaretUpIcon,
   } from "@lucide/svelte";
   import CommentMarkdown from '../github-markdown/CommentMarkdown.svelte';
+  import PrReactionBar from "../prs/PrReactionBar.svelte";
+  import PrReactionPicker from "../prs/PrReactionPicker.svelte";
   import { CommentComposer } from "../ui/comment-composer";
   import GuideFileDiff from "./guide/GuideFileDiff.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
@@ -292,7 +294,7 @@
          exchange. 16px between comments keeps two short replies apart. -->
     <div class="px-3 pt-3 pb-3">
       {#each thread.comments as comment, index (comment.id)}
-        <article class="relative grid min-w-0 grid-cols-[18px_minmax(0,1fr)] gap-x-2 pb-4 last-of-type:pb-0">
+        <article class="group/thread-comment relative grid min-w-0 grid-cols-[18px_minmax(0,1fr)] gap-x-2 pb-4 last-of-type:pb-0">
           {#if index < thread.comments.length - 1}
             <span class="absolute top-6 bottom-1 left-[8.5px] w-px bg-border" aria-hidden="true"></span>
           {/if}
@@ -304,13 +306,19 @@
           <div class="min-w-0">
             <div class="flex min-h-[18px] min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
               <span class="truncate font-semibold text-foreground">{comment.author}</span>
-              <span class="shrink-0">
+              <span class="min-w-0 flex-1 truncate">
                 {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
               </span>
+              <PrReactionPicker
+                targetId={comment.id}
+                reactions={comment.reactions}
+                class="size-5 opacity-0 group-hover/thread-comment:opacity-100 pointer-coarse:opacity-100"
+              />
             </div>
             <div class="mt-1 [&_.prose]:[--prose-size:calc(0.8125rem*var(--solus-font-scale,1))]">
               <CommentMarkdown source={comment.body} lineBreaks />
             </div>
+            <PrReactionBar targetId={comment.id} reactions={comment.reactions} />
           </div>
         </article>
       {/each}

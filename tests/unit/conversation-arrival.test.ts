@@ -12,7 +12,7 @@ interface Arrival {
   open(): () => void
 }
 
-function fixture(savedPosition = false) {
+function fixture(savedPosition = false, frameHeights: () => Promise<boolean> = async () => false) {
   const frames: FrameRequestCallback[] = []
   const scroll = { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 }
   const settled = Promise.withResolvers<void>()
@@ -28,13 +28,14 @@ function fixture(savedPosition = false) {
   const release = mock(() => {})
   const onSettled = mock(() => {})
   const settleScroll = mock((_element: typeof scroll, _target: () => number | undefined, _cancelled: () => boolean) => settled.promise)
-  const create = new Function('tick', 'requestAnimationFrame', 'settleScroll', 'options',
+  const waitForFrameHeightsIn = mock((_element: typeof scroll, _cancelled: () => boolean) => frameHeights())
+  const create = new Function('tick', 'requestAnimationFrame', 'settleScroll', 'waitForFrameHeightsIn', 'options',
     `${executable}\nreturn new ConversationArrival(options);`)
-  const arrival: Arrival = create(() => Promise.resolve(), (callback: FrameRequestCallback) => frames.push(callback), settleScroll, {
+  const arrival: Arrival = create(() => Promise.resolve(), (callback: FrameRequestCallback) => frames.push(callback), settleScroll, waitForFrameHeightsIn, {
     viewState, scroll: () => scroll, follower: () => ({ jump, release, atEnd: true }),
     openingSearch: () => false, onSettled,
   })
-  return { arrival, viewState, jump, release, onSettled, settleScroll, settled, restore,
+  return { arrival, viewState, jump, release, onSettled, settleScroll, settled, restore, waitForFrameHeightsIn,
     async frame() {
       await Promise.resolve()
       frames.shift()?.(0)
@@ -52,7 +53,7 @@ test('real rows remain hidden until their initial reading position settles', asy
   expect(f.arrival.pending).toBe(true)
   expect(f.onSettled).not.toHaveBeenCalled()
   f.settled.resolve()
-  await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
   expect(f.arrival.pending).toBe(false)
   expect(f.onSettled).toHaveBeenCalledTimes(1)
 })
@@ -92,7 +93,7 @@ test('a saved row is restored instead of jumping to the end', async () => {
   expect(f.settleScroll.mock.calls[0][1]()).toBe(325)
   expect(f.jump).not.toHaveBeenCalled()
   f.settled.resolve()
-  await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
   expect(f.arrival.pending).toBe(false)
 })
 
@@ -106,4 +107,25 @@ test('completion of a cancelled settle cannot reveal a later opening', async () 
   await Promise.resolve()
   expect(f.arrival.pending).toBe(true)
   expect(f.onSettled).not.toHaveBeenCalled()
+})
+
+test('rows wait for an HTML frame in view to report its height, then settle again', async () => {
+  // WHY: a frame with no remembered height grew after the rows showed and
+  // moved them under the reader (layout shift 0.2–0.4 in the open benchmark).
+  const heights = Promise.withResolvers<boolean>()
+  const f = fixture(false, () => heights.promise)
+  f.arrival.open()
+  await f.frame()
+  f.settled.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(f.waitForFrameHeightsIn).toHaveBeenCalledTimes(1)
+  expect(f.arrival.pending).toBe(true)
+  heights.resolve(true)
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+  // The frames that reported moved the end, so the place is settled again.
+  expect(f.settleScroll).toHaveBeenCalledTimes(2)
+  expect(f.arrival.pending).toBe(false)
 })

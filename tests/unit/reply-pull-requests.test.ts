@@ -18,9 +18,11 @@ function link(number: number, repo = 'hunk'): SessionPullRequestLink {
   }
 }
 
-/** The segments as text, with each card as `[card #N]`. */
+/** The segments as text, with each card as `[card #N]` and a group card as `[card #N #M]`. */
 function shape(segments: ReplySegment[]): string[] {
-  return segments.map((segment) => (segment.kind === 'text' ? segment.text : `[card #${segment.link.number}]`))
+  return segments.map((segment) =>
+    segment.kind === 'text' ? segment.text : `[card ${segment.links.map((link) => `#${link.number}`).join(' ')}]`,
+  )
 }
 
 describe('a mention of a pull request', () => {
@@ -92,6 +94,27 @@ describe('where a card goes in the final reply', () => {
     // WHY: splitting would cut [the fix][1] from its definition.
     const reply = 'See [the fix][1] in PR #12.\n\nMore.\n\n[1]: https://example.com'
     expect(shape(placeReplyPullRequests(reply, [link(12)]).segments)).toEqual([reply, '[card #12]'])
+  })
+
+  test('cards with no text between them share one group card; text between keeps them apart', () => {
+    // WHY: a reply that reports several pull requests at once read as a stack
+    // of cards; one card lists them. Pull requests named in separate
+    // paragraphs keep a card each, under the words about them.
+    const together = 'I opened PR #12 and PR #13.\n\nRun the tests.'
+    expect(shape(placeReplyPullRequests(together, [link(12), link(13)]).segments)).toEqual([
+      'I opened PR #12 and PR #13.\n\n',
+      '[card #12 #13]',
+      'Run the tests.',
+    ])
+    const links = 'The fixes:\n\nhttps://github.com/modem-dev/hunk/pull/12\n\nhttps://github.com/modem-dev/hunk/pull/13\n'
+    expect(shape(placeReplyPullRequests(links, [link(12), link(13)]).segments)).toEqual(['The fixes:\n\n', '[card #12 #13]'])
+    const apart = 'PR #12 fixes the build.\n\nPR #13 fixes the docs.'
+    expect(shape(placeReplyPullRequests(apart, [link(12), link(13)]).segments)).toEqual([
+      'PR #12 fixes the build.\n\n',
+      '[card #12]',
+      'PR #13 fixes the docs.',
+      '[card #13]',
+    ])
   })
 
   test('the text parts join back to the exact reply', () => {

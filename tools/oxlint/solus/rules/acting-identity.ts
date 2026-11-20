@@ -27,8 +27,10 @@ const ambientEnvFiles = new Map([
 /** Names that mean "the host itself", and the files that may use them. */
 const hostNames = new Set(['HOST_ACTOR', 'HOST_IDENTITY', 'HOST_SCOPE', 'withHostScope', 'hostCliEnv'])
 const hostNameFiles = new Map([
+  ['packages/server/src/sync/git-remote.ts', 'runs Git for private Solus repositories with host-scoped credentials'],
   ['packages/server/src/sync/works/git-work-transport.ts', 'writes service-owned work archives with service credentials, never a person’s code checkout'],
   ['packages/server/src/sync/works/local-work-repositories.ts', 'maintains private work history inside the host’s Solus data directory'],
+  ['packages/server/src/sync/sessions/session-repository.ts', 'maintains private session repositories inside the host’s Solus data directory'],
   ['packages/server/src/apps/app-repository.ts', 'maintains an app’s private repository inside the host’s Solus data directory'],
   ['packages/server/src/apps/app-builder.ts', 'builds an app’s revision inside the host’s Solus data directory, as the host'],
   ['packages/server/src/skills/registry-skill-cache.ts', 'downloads a registry skill into the host’s cache, never into a person’s home'],
@@ -58,7 +60,8 @@ const hostNameFiles = new Map([
   ['packages/server/src/code-intel/tool-installer.ts', 'installs host tools'],
   ['packages/server/src/transport/handlers/setup-commands.ts', 'probes and installs host tools'],
   ['packages/server/src/updates/provider-versions.ts', 'reads the host’s CLI versions'],
-  ['packages/server/src/updates/release-sources.ts', 'reads the latest CLI versions through the host’s npm'],
+  ['packages/server/src/updates/agent-software.ts', 'owns installation and update of shared host agent software'],
+  ['packages/server/src/updates/provider-download.ts', 'downloads shared host agent software with the host’s network settings'],
 ])
 
 /** The file that defines the launch point builds launch options from an identity's environment. */

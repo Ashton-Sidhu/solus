@@ -25,6 +25,7 @@ export type PrReviewTab = 'activity' | 'map' | 'guide' | 'lens' | 'diff'
 
 export class PrView {
   /** The project the PRs page is showing, as a `projectPrsKey`. */
+  hostFilterId = $state<string | null>(null)
   activeProjectKey = $state('')
 
   /**

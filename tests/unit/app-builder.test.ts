@@ -36,7 +36,7 @@ writeFileSync(join(out, 'descriptor.json'), JSON.stringify(descriptor))
 writeFileSync(join(out, 'ui.html'), '<!doctype html><title>' + descriptor.name + '</title>')
 `)
 
-const builder = () => new HostAppBuilder({ bundler: () => BUNDLER, node: 'node', root: () => join(root, 'builds') })
+const builder = () => new HostAppBuilder({ bundler: () => BUNDLER, root: () => join(root, 'builds') })
 
 /** A checkout of one revision: it writes these files into the build folder. */
 const revision = (files: { [path: string]: string }) => async (folder: string) => {

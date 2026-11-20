@@ -62,7 +62,7 @@
   let sortOpen = $state(false);
   let filtersOpen = $state(false);
   const activeFilterCount = $derived(
-    filterGroups.filter((group) => group.active).length + Number(projectFilterActive),
+    filterGroups.reduce((count, group) => count + (group.multiple ? (group.selected?.length ?? 0) : Number(group.active)), 0) + Number(projectFilterActive),
   );
 </script>
 

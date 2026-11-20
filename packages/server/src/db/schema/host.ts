@@ -33,3 +33,5 @@ export const mcp_task = host.mcpTask.sqlite
 export const notification_pr_observations = host.notificationPrObservations.sqlite
 export const saved_metrics_queries = host.savedMetricsQueries.sqlite
 export const turn_flags = host.turnFlags.sqlite
+export const session_storage = host.sessionStorage.sqlite
+export const session_storage_turns = host.sessionStorageTurns.sqlite
