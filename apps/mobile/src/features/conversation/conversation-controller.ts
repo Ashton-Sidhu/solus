@@ -45,7 +45,7 @@ import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
 import { SESSION_DIVERGED } from '@solus/contracts/session-repositories'
 import type { SessionRunHosts } from '../threads/session-run-hosts'
 import type { CloudHistory } from '../threads/cloud-history'
-import type { SessionCloudCopyRead } from '@solus/client-core/session-cloud-copy'
+import type { SessionCloudReadStatus } from '@solus/client-core/session-cloud-read'
 
 /**
  * One open conversation on one host (plan 017 stage 3). It owns the watch,
@@ -192,7 +192,7 @@ export class ConversationController {
   /** The host refused a prompt because another host continued the session (`SESSION_DIVERGED`). */
   isSessionDiverged = false
   /** The read of the session's copy from Solus Cloud (docs/plans/portable-sessions-cloud.md, Phase 5B). */
-  cloudRead: SessionCloudCopyRead = { kind: 'idle' }
+  cloudRead: SessionCloudReadStatus = { kind: 'idle' }
   /** The run host's own history shows: a copy from the cloud gives way to it. */
   private hasHostHistory = false
   /** Turns this conversation saw end, so a replayed event counts a turn once. */
@@ -319,7 +319,7 @@ export class ConversationController {
     }))
     this.cleanups.push(connection.onReset(() => { void this.load() }))
     this.cleanups.push(connection.onAccepted(() => {
-      // The host is back after its read failed while the cloud copy showed: its history replaces the copy.
+      // The host is back after its read failed while the cloud read showed: its history replaces the copy.
       if (this.phase.kind === 'error' && this.cloudRead.kind !== 'idle') void this.load()
       void this.drainOutbox()
     }))
@@ -589,14 +589,14 @@ export class ConversationController {
   async loadOlder(): Promise<void> {
     const cursor = this.model.olderCursor
     // A copy from the cloud reads its older turns there, with no host.
-    const isCloudCopy = this.deps.cloudHistory?.isCopy(this.model) === true
-    if (!cursor || this.loadingOlder || (this.phase.kind !== 'ready' && !isCloudCopy)) return
+    const isCloudRead = this.deps.cloudHistory?.isCopy(this.model) === true
+    if (!cursor || this.loadingOlder || (this.phase.kind !== 'ready' && !isCloudRead)) return
     const generation = this.loadGeneration
     const model = this.model
     this.loadingOlder = true
     this.flush(true)
     try {
-      if (isCloudCopy) {
+      if (isCloudRead) {
         await this.deps.cloudHistory?.readOlder(model)
       } else {
         const page = await this.deps.connection.api.loadSessionPage({
@@ -620,7 +620,7 @@ export class ConversationController {
    * (docs/plans/portable-sessions-cloud.md, Phase 5B). The run host's history
    * replaces it when it loads; a prompt still goes to the run host.
    */
-  async readCloudCopy(): Promise<void> {
+  async readCloudHistory(): Promise<void> {
     const history = this.deps.cloudHistory
     if (!history || !this.started || this.showsHostConversation || this.cloudRead.kind === 'loading' || this.closed) return
     this.cloudRead = { kind: 'loading' }

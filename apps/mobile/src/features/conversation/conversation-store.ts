@@ -2,7 +2,7 @@ import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEf
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { setupActivityLabel } from '@solus/contracts/setup-card'
-import type { SessionCloudCopyRead } from '@solus/client-core/session-cloud-copy'
+import type { SessionCloudReadStatus } from '@solus/client-core/session-cloud-read'
 import { Listeners } from '../../lib/listeners'
 import { ConversationController, type ConversationDeps, type ConversationPhase, type ConversationTarget } from './conversation-controller'
 import type { UploadedAttachment } from './lib/attachments'
@@ -49,8 +49,8 @@ export interface ConversationMeta {
   lead: boolean
   /** The host refused a prompt: another host continued the session (`SESSION_DIVERGED`). */
   isSessionDiverged: boolean
-  /** The read of the session's copy from Solus Cloud (`ConversationController.readCloudCopy`). */
-  cloudRead: SessionCloudCopyRead
+  /** The read of the session's copy from Solus Cloud (`ConversationController.readCloudHistory`). */
+  cloudRead: SessionCloudReadStatus
   /** A host gave the rows that show, so no copy from the cloud is read. */
   showsHostConversation: boolean
   /** The run host answered that it has no copy of the session. */

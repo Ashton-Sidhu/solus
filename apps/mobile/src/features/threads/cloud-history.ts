@@ -1,4 +1,4 @@
-import { readSessionTurnDiff } from '@solus/client-core/session-cloud-copy'
+import { readSessionCloudPage, readSessionTurnDiff } from '@solus/client-core/session-cloud-read'
 import type { SessionHistoryPage } from '@solus/contracts/session-history'
 import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
 import type { AgentId } from '@solus/contracts/types'
@@ -16,8 +16,8 @@ export type CloudTurnDiffState =
   | { kind: 'loaded'; diff: SessionTurnDiff }
   | { kind: 'error'; message: string }
 
-/** What a cloud copy read: the head, the next older turn, and which prompt starts which turn. */
-interface CloudCopy {
+/** The head, next older turn, and prompt indexes of a cloud session read. */
+interface CloudRead {
   readonly sessionId: string
   readonly provider: AgentId
   readonly head: string
@@ -42,7 +42,7 @@ const IDLE: CloudTurnDiffState = { kind: 'idle' }
  */
 export class CloudHistory {
   readonly changes = new Listeners()
-  private readonly copies = new WeakMap<TranscriptModel, CloudCopy>()
+  private readonly copies = new WeakMap<TranscriptModel, CloudRead>()
   private readonly diffs = new Map<string, CloudTurnDiffState>()
   private connectionId: string | null
 
@@ -62,7 +62,7 @@ export class CloudHistory {
   async read(sessionId: string, provider: AgentId): Promise<TranscriptModel> {
     const record = this.cloud.recordFor(sessionId)
     if (!record?.head || record.syncedTurn <= 0) throw new Error('Solus Cloud has no turn of this session.')
-    const copy: CloudCopy = { sessionId, provider, head: record.head, nextTurnIndex: record.syncedTurn - 1, unavailableTurns: 0, turnOfPrompt: new Map() }
+    const copy: CloudRead = { sessionId, provider, head: record.head, nextTurnIndex: record.syncedTurn - 1, unavailableTurns: 0, turnOfPrompt: new Map() }
     const model = new TranscriptModel(sessionId)
     // The first page has no cursor; the model takes the page's own after it.
     model.olderCursor = ''
@@ -115,14 +115,14 @@ export class CloudHistory {
   }
 
   /** Reads turns from the copy's next older one until one has rows, the first turn is read, or the cap. */
-  private async readTurns(model: TranscriptModel, copy: CloudCopy): Promise<void> {
+  private async readTurns(model: TranscriptModel, copy: CloudRead): Promise<void> {
     const connection = this.cloud.connection
     if (!connection) throw new Error('Sign in to Solus Cloud to read this session.')
     for (let read = 0; read < MAX_TURNS_FOR_ROWS && model.olderCursor !== null; read += 1) {
       const turnIndex = copy.nextTurnIndex
       let page: SessionHistoryPage
       try {
-        page = await connection.api.loadSessionPage({ sessionId: copy.sessionId, provider: copy.provider, turnLimit: 1, before: model.olderCursor || undefined })
+        page = await readSessionCloudPage(connection.api, { sessionId: copy.sessionId, provider: copy.provider, before: model.olderCursor || undefined })
       } catch (error) {
         // Turns read before the failure stay; the reader can scroll up again.
         if (read === 0) throw error

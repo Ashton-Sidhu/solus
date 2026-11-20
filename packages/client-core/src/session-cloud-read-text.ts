@@ -16,6 +16,7 @@ export function sessionCloudReadText(view: SessionCloudReadView, hostLabel: stri
   switch (view.kind) {
     case 'not-signed-in': return { message: `${hostLabel} is offline.`, detail: 'Sign in to read this session from Solus Cloud.', action: null }
     case 'sync-off': return { message: 'Solus Cloud has no copy of this session.', detail: 'Cloud sync was off on the machine that ran it. Turn that machine on, or choose a machine in Run on.', action: null }
+    case 'not-in-cloud': return { message: 'Solus Cloud has no copy of this session.', detail: 'Choose a machine that has the session in Run on.', action: null }
     case 'empty': return view.reason === 'no-turns'
       ? { message: 'No turn of this session is in Solus Cloud yet.', detail: 'Choose a machine that has the session in Run on.', action: null }
       : { message: 'The turns in Solus Cloud have no saved conversation.', detail: 'Choose a machine that has the session in Run on to read them.', action: null }
@@ -24,8 +25,8 @@ export function sessionCloudReadText(view: SessionCloudReadView, hostLabel: stri
     case 'ready': return {
       message: 'Read only, from Solus Cloud. Choose a machine in Run on and send to continue.',
       detail: view.unavailableTurnCount > 0
-        ? `Tool output is not in the cloud copy. ${view.unavailableTurnCount === 1 ? 'One older turn is' : `${view.unavailableTurnCount} older turns are`} not in it either.`
-        : 'Tool output is not in the cloud copy.',
+        ? `Tool output is not available in Solus Cloud. ${view.unavailableTurnCount === 1 ? 'One older turn is' : `${view.unavailableTurnCount} older turns are`} not in it either.`
+        : 'Tool output is not available in Solus Cloud.',
       action: null,
     }
     case 'stale': return view.reason === 'head-changed'

@@ -72,8 +72,8 @@ import { HostGraceWhisper } from "./ThreadHostLines";
 import { ThreadRunHostRow, useRunHostRow, useRunningHostSend } from "./ThreadRunHostRow";
 import { SessionPushRefusedCard } from "./SessionPushRefusedCard";
 import { HostAsleepCard } from "../hosts/HostAsleepCard";
-import { CloudCopyNote } from "./CloudCopyNote";
-import type { CloudCopyView } from "./lib/cloud-copy-view";
+import { CloudReadNote } from "./CloudReadNote";
+import type { CloudReadView } from "./lib/cloud-read-view";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
 import { ThreadBrowserFloat } from "../browser/ThreadBrowserFloat";
 import { useThreadViewers } from "./use-thread-viewers";
@@ -98,8 +98,8 @@ export interface ThreadDetailScreenProps {
   readonly onChooseHost?: (hostId: string) => void;
   /** Opens the conversation on another host and answers it, for a prompt that goes there. */
   readonly onFollowHost?: (hostId: string) => ConversationStore | null;
-  /** The session's copy from Solus Cloud stands for the host (`useCloudCopy`); null when a host shows it. */
-  readonly cloudCopy?: { readonly view: CloudCopyView; readonly onAction: () => void } | null;
+  /** The session's copy from Solus Cloud stands for the host (`useCloudRead`); null when a host shows it. */
+  readonly cloudRead?: { readonly view: CloudReadView; readonly onAction: () => void } | null;
 }
 
 /** A turn is producing output: the live slot and the working timer show. */
@@ -215,7 +215,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   // While another host runs a turn of the session, the prompt goes to that host.
   const sendStore = useRunningHostSend(store, runHostRow, props.onFollowHost);
   // A copy from the cloud keeps the composer while another host can take the prompt.
-  const hostChrome = withRunHostChoice(threadHostChrome(props.hostReadiness), runHostRow.keepsComposerWhileAway || (!!props.cloudCopy && runHostRow.isShown));
+  const hostChrome = withRunHostChoice(threadHostChrome(props.hostReadiness), runHostRow.keepsComposerWhileAway || (!!props.cloudRead && runHostRow.isShown));
   const hostLabel = props.hostLabel ?? "This host";
   // Nobody can answer a request while the host is away: its cards come back with the host.
   const activePendingApproval = hostChrome.showsRequestCards ? (meta.permissions[0] ?? null) : null;
@@ -560,7 +560,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 historyControls={props.historyControls}
                 startedBy={props.startedBy}
                 handoffPending={meta.handoffPending}
-                isHostAsleep={hostChrome.isAsleep && !props.cloudCopy}
+                isHostAsleep={hostChrome.isAsleep && !props.cloudRead}
                 layoutVariant={props.layoutVariant}
                 usesAutomaticContentInsets={props.usesAutomaticContentInsets}
                 onEndFollowEnabledChange={setEndFollowEnabled}
@@ -681,7 +681,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               ) : null}
             </View>
 
-            {props.cloudCopy ? <CloudCopyNote view={props.cloudCopy.view} onAction={props.cloudCopy.onAction} /> : null}
+            {props.cloudRead ? <CloudReadNote view={props.cloudRead.view} onAction={props.cloudRead.onAction} /> : null}
             {hostChrome.showsGraceWhisper ? (
               <HostGraceWhisper headline={hostReadinessCopy(props.hostReadiness, hostLabel).headline} />
             ) : null}
@@ -714,7 +714,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 sendBlockedReason={
                   hostChrome.showsGraceWhisper
                     ? "Reconnecting"
-                    : props.cloudCopy && !isHostReady
+                    : props.cloudRead && !isHostReady
                       ? "Choose a host in Run on"
                       : meta.phase.kind === "error"
                         ? "Conversation unavailable"

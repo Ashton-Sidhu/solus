@@ -1,4 +1,5 @@
 import type { CloudTurnDiffState } from '../cloud-history'
+import { sessionTurnDiffText } from '@solus/client-core/session-cloud-read-text'
 
 /**
  * What the diff screen of a turn from Solus Cloud shows
@@ -12,23 +13,22 @@ export type CloudTurnDiffView =
 
 export function cloudTurnDiffView(state: CloudTurnDiffState): CloudTurnDiffView {
   if (state.kind === 'idle' || state.kind === 'loading') return { kind: 'loading' }
-  if (state.kind === 'error') return { kind: 'message', title: 'The changes could not be read', detail: state.message, canRetry: true }
+  if (state.kind === 'error') return { kind: 'message', title: sessionTurnDiffText({ status: 'error' })!, detail: state.message, canRetry: true }
   const { diff } = state
   switch (diff.status) {
     case 'available':
       return diff.patch.trim()
         ? { kind: 'patch', patch: diff.patch }
-        : { kind: 'message', title: 'No changes', detail: 'This turn changed no files.', canRetry: false }
+        : { kind: 'message', title: 'No changes', detail: sessionTurnDiffText({ status: 'no-change' })!, canRetry: false }
     case 'too-large': {
-      const files = diff.filesChanged === 1 ? '1 file' : `${diff.filesChanged} files`
       return {
         kind: 'message',
         title: 'Too large to show here',
-        detail: `This turn changed ${files}, +${diff.additions} −${diff.deletions}. Open the session on a host to see the changes.`,
+        detail: sessionTurnDiffText(diff)!,
         canRetry: false,
       }
     }
     case 'not-available':
-      return { kind: 'message', title: 'Not in Solus Cloud', detail: 'Solus Cloud has no changes for this turn. Open the session on a host to see them.', canRetry: false }
+      return { kind: 'message', title: 'Not in Solus Cloud', detail: sessionTurnDiffText(diff)!, canRetry: false }
   }
 }

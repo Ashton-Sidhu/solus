@@ -1,7 +1,7 @@
 import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
-import type { CloudCopyView } from "./lib/cloud-copy-view";
+import type { CloudReadView } from "./lib/cloud-read-view";
 
 /**
  * The note beside a session's read-only copy from Solus Cloud
@@ -9,8 +9,8 @@ import type { CloudCopyView } from "./lib/cloud-copy-view";
  * the one action when the copy can be behind or could not be read. It shows
  * above the composer, or above the asleep card when no host can run a prompt.
  */
-export function CloudCopyNote(props: {
-  readonly view: CloudCopyView;
+export function CloudReadNote(props: {
+  readonly view: CloudReadView;
   readonly onAction: () => void;
 }) {
   const { note, action } = props.view;

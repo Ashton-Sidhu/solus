@@ -1,6 +1,7 @@
 import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
 import type { HostApi } from './host-api'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { SessionCloudHead, SessionHostTurn } from './session-heads'
 
 /**
@@ -18,6 +19,8 @@ export type SessionCloudReadSource =
   | 'not-signed-in'
   /** The cloud list answered, and it has no copy of the session. */
   | 'sync-off'
+  /** The cloud list has no session, but the run host's sync setting is not known to be off. */
+  | 'not-in-cloud'
   /** The cloud knows the session, but no turn commit is in it yet. */
   | 'empty'
   /** The cloud list has not answered yet. */
@@ -32,6 +35,10 @@ export interface SessionCloudReadSourceInput {
   isCloudListed: boolean
   runServerId: string
   isRunHostAway: boolean
+  /** A connected host failed to read its history or has no local copy. */
+  isHostReadUnavailable?: boolean
+  /** False only when the run host's setting is known to be off. */
+  isCloudSyncOn?: boolean | null
   /** What the run host holds of the session, as this client read it. */
   runTurn: SessionHostTurn | undefined
   /** What the cloud knows; null when it has no facts here. */
@@ -48,16 +55,22 @@ export function sessionCloudReadSource(input: SessionCloudReadSourceInput): Sess
   if (!input.hasStarted || input.hasHostRows) return null
   const { cloud, runTurn } = input
   const hasCloudTurns = !!cloud?.head && cloud.syncedTurn > 0
-  if (!input.isRunHostAway) {
+  if (!input.isRunHostAway && !input.isHostReadUnavailable) {
     if (!hasCloudTurns || cloud.lastRunServerId === input.runServerId) return null
     return runTurn && runTurn.syncedTurn > 0 ? null : 'cloud'
   }
   if (!input.isSignedIn) return 'not-signed-in'
-  if (!cloud) return input.isCloudListed ? 'sync-off' : 'listing'
+  if (!cloud) return !input.isCloudListed ? 'listing' : input.isCloudSyncOn === false || input.isCloudSyncOn === undefined ? 'sync-off' : 'not-in-cloud'
   return hasCloudTurns ? 'cloud' : 'empty'
 }
 
-/** How far the client read the cloud copy of one session. */
+/** How far the client read the cloud read of one session. */
+export type SessionCloudReadStatus =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready' }
+  | { kind: 'error'; message: string }
+
 export interface SessionCloudReadProgress {
   status: 'loading' | 'ready' | 'error'
   error: string | null
@@ -71,6 +84,7 @@ export interface SessionCloudReadProgress {
 export type SessionCloudReadView =
   | { kind: 'not-signed-in' }
   | { kind: 'sync-off' }
+  | { kind: 'not-in-cloud' }
   | { kind: 'empty'; reason: 'no-turns' | 'no-rows' }
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
@@ -81,17 +95,21 @@ export type SessionCloudReadView =
 
 export interface SessionCloudReadViewInput {
   /** The answer of `sessionCloudReadSource`, read with `hasHostRows` false
-   *  while the cloud copy is on screen. */
+   *  while the cloud read is on screen. */
   source: SessionCloudReadSource | null
-  /** The cloud copy this client read; null when none. */
+  /** The cloud read this client read; null when none. */
   read: SessionCloudReadProgress | null
   /** The rows on screen. */
   messageCount: number
   /** A turn runs on screen now: the run host holds the session. */
   isTurnLive: boolean
+  /** Another connected host holds the session while these rows still show. */
+  liveServerId?: string | null
   cloud: SessionCloudHead | null | undefined
 }
 
+// The order keeps host rows, sign-in, read errors, and stale heads distinct.
+// eslint-disable-next-line complexity
 export function sessionCloudReadView(input: SessionCloudReadViewInput): SessionCloudReadView | null {
   const { source, read } = input
   if (source === null) {
@@ -99,22 +117,23 @@ export function sessionCloudReadView(input: SessionCloudReadViewInput): SessionC
     // older turns on screen are the same turns. Nothing to say.
     return read && input.messageCount > 0 && !input.isTurnLive ? { kind: 'stale', reason: 'host-online' } : null
   }
-  if (source === 'not-signed-in' || source === 'sync-off') return { kind: source }
+  if (source === 'not-signed-in' || source === 'sync-off' || source === 'not-in-cloud') return { kind: source }
   if (source === 'empty') return { kind: 'empty', reason: 'no-turns' }
   if (source === 'listing' || !read || read.status === 'loading') return { kind: 'loading' }
   if (read.status === 'error') return { kind: 'error', message: read.error ?? 'The conversation could not be read from Solus Cloud.' }
   if (input.messageCount === 0) return { kind: 'empty', reason: read.unavailableTurnCount > 0 ? 'no-rows' : 'no-turns' }
+  if (input.liveServerId && !input.isTurnLive) return { kind: 'stale', reason: 'host-online' }
   if (!input.isTurnLive && read.readHead && input.cloud?.head && input.cloud.head !== read.readHead) return { kind: 'stale', reason: 'head-changed' }
   return { kind: 'ready', unavailableTurnCount: read.unavailableTurnCount }
 }
 
-/** One page of the cloud copy: one whole turn, newest first. */
+/** One page of the cloud read: one whole turn, newest first. */
 export interface SessionCloudPage extends SessionHistoryPage {
   /** When the page's turn started: its first user row, for the turn's diff. */
   turnStartedAt: number | null
 }
 
-/** Read one page of a session's cloud copy from a Solus API connection. The
+/** Read one page of a session's cloud read from a Solus API connection. The
  *  API answers one turn for each call (Phase 5A), whatever `turnLimit` says. */
 export async function readSessionCloudPage(
   api: Pick<HostApi, 'loadSessionPage'>,
@@ -131,3 +150,12 @@ export type SessionTurnDiffView =
   | { status: 'error' }
   | { status: 'no-change' }
   | SessionTurnDiff
+
+/** An older Solus API has no diff route. Keep that absence as a diff state. */
+export async function readSessionTurnDiff(api: Pick<HostApi, 'sessionTurnDiff'>, sessionId: string, turnIndex: number): Promise<SessionTurnDiff> {
+  try { return await api.sessionTurnDiff(sessionId, turnIndex) }
+  catch (error) {
+    if (error instanceof WorkspaceRequestError && error.status === 404) return { status: 'not-available' }
+    throw error
+  }
+}

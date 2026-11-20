@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   readSessionCloudPage,
+  readSessionTurnDiff,
   sessionCloudReadSource,
   sessionCloudReadView,
   type SessionCloudReadSourceInput,
@@ -10,6 +11,7 @@ import { workspaceRecordMethods } from '@solus/client-core/workspace-records'
 import type { SessionCloudHead } from '@solus/client-core/session-heads'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { SolusApiClient } from '@solus/contracts/solus-api/client'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { SolusApiRequest } from '@solus/contracts/solus-api/request'
 
 // Read-only open with no host online (docs/plans/portable-sessions-cloud.md,
@@ -45,6 +47,8 @@ describe('where the conversation comes from', () => {
     expect(sessionCloudReadSource(away)).toBe('cloud')
     expect(sessionCloudReadSource({ ...away, isSignedIn: false, cloud: null })).toBe('not-signed-in')
     expect(sessionCloudReadSource({ ...away, cloud: null })).toBe('sync-off')
+    // WHY: an absent cloud record does not prove that cloud sync is off on the run host.
+    expect(sessionCloudReadSource({ ...away, cloud: null, isCloudSyncOn: null })).toBe('not-in-cloud')
     expect(sessionCloudReadSource({ ...away, cloud: null, isCloudListed: false })).toBe('listing')
     expect(sessionCloudReadSource({ ...away, cloud: { ...CLOUD, head: null, syncedTurn: 0 } })).toBe('empty')
   })
@@ -94,7 +98,7 @@ describe('the state a read-only conversation shows', () => {
 describe('the words of each state', () => {
   test('the ready copy says tool output is not in it, and names turns without rows', () => {
     // WHY: archived rows have no tool result bodies (D8); that is a plain fact, not an error.
-    expect(sessionCloudReadText({ kind: 'ready', unavailableTurnCount: 0 }, 'Studio').detail).toBe('Tool output is not in the cloud copy.')
+    expect(sessionCloudReadText({ kind: 'ready', unavailableTurnCount: 0 }, 'Studio').detail).toBe('Tool output is not available in Solus Cloud.')
     expect(sessionCloudReadText({ kind: 'ready', unavailableTurnCount: 2 }, 'Studio').detail).toContain('2 older turns are not in it')
   })
 
@@ -103,6 +107,7 @@ describe('the words of each state', () => {
     expect(sessionCloudReadText({ kind: 'stale', reason: 'host-online' }, 'Studio')).toMatchObject({ message: 'Studio has this session now.', action: 'show-live' })
     expect(sessionCloudReadText({ kind: 'error', message: 'x' }, 'Studio').action).toBe('retry')
     expect(sessionCloudReadText({ kind: 'not-signed-in' }, 'Studio')).toMatchObject({ message: 'Studio is offline.', action: null })
+    expect(sessionCloudReadText({ kind: 'not-in-cloud' }, 'Studio').detail).toContain('Choose a machine')
   })
 
   test('a turn diff that cannot be drawn says why', () => {
@@ -138,5 +143,11 @@ describe('reading from the Solus API', () => {
     }))
     expect(await records.sessionTurnDiff('s 1', 4)).toEqual({ status: 'not-available' })
     expect(sent[0]?.path).toBe('/sessions/s%201/turns/4/diff')
+  })
+
+  test('an older API with no diff route gives a typed absent diff', async () => {
+    // WHY: old Solus API hosts answer 404 for this route; the phone must not show a retry error.
+    expect(await readSessionTurnDiff({ sessionTurnDiff: async () => { throw new WorkspaceRequestError(404, 'NOT_FOUND', 'No route') } }, 's-1', 0))
+      .toEqual({ status: 'not-available' })
   })
 })

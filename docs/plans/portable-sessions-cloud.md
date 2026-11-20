@@ -1070,8 +1070,9 @@ such as `src/boot-server.ts(2019,37): error TS2322` and
 
 ### Phase 5B (desktop and web) as implemented (2026-11-19)
 
-Desktop and web (`packages/workspace-ui/`, `packages/client-core/`). Mobile is
-not changed. A signed-in person opens a session that no online host shows, and
+Desktop and web (`packages/workspace-ui/`, `packages/client-core/`) use
+the same shared cloud read rule as mobile. A signed-in person opens a session
+that no online host shows, and
 the usual conversation surface shows it read only. The rows and the turn diffs
 come from the Solus API, which reads the session repository at its recorded
 head (Phase 5A). A pick in Run on and a prompt continue the session as before;
@@ -1080,8 +1081,8 @@ that flow is not changed.
 - **Source rule** (`sessionCloudReadSource`, `client-core/session-cloud-read.ts`).
   An online run host shows the session itself, unless the cloud has turns, the
   run host has none, and it did not run the last turn (the rule of
-  `conversationAwaitsMachine`). Then the client reads the cloud copy. With an
-  offline run host the client reads the cloud copy when the cloud has turns;
+  `conversationAwaitsMachine`). Then the client reads the session from Solus Cloud. With an
+  offline run host the client reads the session there when the cloud has turns;
   else it says why: `not-signed-in`, `sync-off` (the cloud list answered and
   does not name the session), `empty` (no turn commit yet), or `listing`
   (shown as loading).
@@ -1177,8 +1178,9 @@ that flow is not changed.
 
 ### Phase 5B (mobile) as implemented (2026-11-19)
 
-Mobile (`apps/mobile/`) and one new client-core file. No server, contract, or
-Svelte change. The phone uses the Phase 5A reader as it is.
+Mobile (`apps/mobile/`) uses the shared `session-cloud-read.ts` and
+`session-cloud-read-text.ts` modules. No server, contract, or Svelte change.
+The phone uses the Phase 5A reader.
 
 #### What the phone does
 
@@ -1194,23 +1196,23 @@ Svelte change. The phone uses the Phase 5A reader as it is.
   goes on to older turns until a page has rows, at most five pages. A model
   that `CloudHistory` made is a copy (`isCopy`). The controller reads older
   turns of a copy from the cloud (`loadOlder`), with no host.
-- **The controller.** `ConversationController.readCloudCopy` reads the copy
+- **The controller.** `ConversationController.readCloudHistory` reads the copy
   and shows it while no host rows show. The run host's history replaces it in
   `load` (`hasHostHistory`). A host that has no copy keeps the copy on screen.
   A host that comes back after a failed read loads at once (`onAccepted`). A
   copy carried to another host by a pick reads its older turns from the cloud
   too. The meta has `cloudRead`, `showsHostConversation`, and `hostHasNoCopy`.
-- **The state rule.** `sessionCloudCopyState` (client-core) gives one of
+- **The state rule.** `sessionCloudReadSource` and `sessionCloudReadView` (client-core) give one of
   `not-signed-in`, `sync-off`, `not-in-cloud`, `empty`, `loading`, `error`, or
-  `ready` with `stale` (`host-online` or `head-changed`). `useCloudCopy`
-  (`features/threads/use-cloud-copy.ts`) reads the facts, starts the read once
-  (`shouldReadSessionCloudCopy`), and gives `cloudCopyView`
-  (`features/threads/lib/cloud-copy-view.ts`).
+  `ready`, or `stale` (`host-online` or `head-changed`). `useCloudRead`
+  (`features/threads/use-cloud-read.ts`) reads the facts, starts the read once
+  (the shared source and the idle read status), and gives `cloudReadView`
+  (`features/threads/lib/cloud-read-view.ts`).
 - **What shows.** A state with no rows takes the conversation's place (the
   feed placeholder shows also while the asleep card shows). With rows, a note
-  shows above the composer, or above the asleep card: "Read-only copy from
-  Solus Cloud. Tool output is not included." and the count of turns that are
-  not in the cloud. Stale: "<host> is online. This copy can be behind." with
+  shows above the composer, or above the asleep card. It uses the shared
+  `sessionCloudReadText` words for read-only rows and unavailable turns.
+  Stale: "<host> has this session now." with
   **Open on <host>** (the existing `followHost`), or "Newer turns are in Solus
   Cloud." with **Show newer turns** (a new read). An error has **Try again**.
 - **The composer.** It stays while another host can take the prompt
@@ -1222,25 +1224,17 @@ Svelte change. The phone uses the Phase 5A reader as it is.
   (`CloudTurnChanges.tsx`, beside the turn's artifact chips). It opens the
   route `ThreadTurnDiff { sessionId, turnIndex }` (`CloudTurnDiffScreen.tsx`)
   on the native diff surface that pull requests use, read-only. `too-large`
-  shows the counts, `not-available` says the cloud has no changes for the
-  turn, and an empty patch says the turn changed no files. A turn's answer is
+  shows the counts, `not-available` says the cloud has no diff for the
+  turn, and an empty patch says the turn changed no files. These words come
+  from `sessionTurnDiffText`. A turn's answer is
   kept until the Solus API connection changes. A build with no diff surface,
   or a patch the parser cannot split, shows the patch text.
 
-#### Client-core for desktop and web
+#### Shared client-core rule
 
-`packages/client-core/src/session-cloud-copy.ts` (new):
+`packages/client-core/src/session-cloud-read.ts` owns source selection, read state, one-turn pages, and the typed `SessionTurnDiffView`. `session-cloud-read-text.ts` owns the words. Mobile uses these modules and calls the typed `sessionTurnDiff` method on the host API. The API client fills both route parameters.
 
-- `SessionCloudCopyRead`, `SessionCloudCopyState`, `SessionCloudCopyStale`,
-  `SessionCloudCopyInput`.
-- `sessionCloudCopyState(input)`, `shouldReadSessionCloudCopy(input)`.
-- `sessionCloudCopyPlaceholder(state, hostLabel)`,
-  `sessionCloudCopyNote(state, hostLabel)`.
-- `sessionTurnDiffPath(sessionId, turnIndex)`,
-  `readSessionTurnDiff(api, sessionId, turnIndex)`. The shared
-  `SolusApiClient` fills only the first path parameter, so this file names the
-  path and sends it through `solusApiRequest`. A 404 (an older Solus API) is
-  `not-available`.
+When the cloud list has no session, a known off sync setting gives `sync-off`; an unknown or on setting gives `not-in-cloud`. A connected host with a failed history read or no local copy permits a cloud read. A ready read becomes stale when another host has the session or the cloud head changes. The shared words apply on all three clients; mobile has short action labels that fit its screen.
 
 `CloudSessions` on the phone has two new answers: `connection` and
 `listState` (`none`, `loading`, `listed`; a failed list read counts as

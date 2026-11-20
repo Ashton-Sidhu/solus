@@ -1,10 +1,10 @@
-import { sessionCloudCopyState, shouldReadSessionCloudCopy, type SessionCloudCopyInput, type SessionCloudCopyState } from '@solus/client-core/session-cloud-copy'
+import { sessionCloudReadSource, sessionCloudReadView, type SessionCloudReadView } from '@solus/client-core/session-cloud-read'
 import type { HostReadinessState } from '@solus/client-core/host-readiness'
 import { useCallback, useEffect, useMemo } from 'react'
 
 import { useApp, useListened } from '../../app/app-context'
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from '../conversation/conversation-store'
-import { cloudCopyView, type CloudCopyView } from './lib/cloud-copy-view'
+import { cloudReadView, type CloudReadView } from './lib/cloud-read-view'
 
 /**
  * The session's copy from Solus Cloud on this thread, while no host that holds
@@ -13,13 +13,15 @@ import { cloudCopyView, type CloudCopyView } from './lib/cloud-copy-view'
  * the copy applies; a host's history replaces it in the controller. Null when a
  * host shows the conversation.
  */
-export function useCloudCopy(props: {
+// The hook joins the host, account, cloud list, and read state for one thread.
+// eslint-disable-next-line complexity
+export function useCloudRead(props: {
   readonly store: ConversationStore
   readonly meta: ConversationMeta
   readonly hostReadiness: HostReadinessState
   readonly hostLabel: string
   readonly onFollowHost?: (hostId: string) => ConversationStore | null
-}): { view: CloudCopyView; onAction: () => void } | null {
+}): { view: CloudReadView; onAction: () => void } | null {
   const app = useApp()
   const { store, meta, onFollowHost } = props
   const hostId = store.controller.hostId
@@ -51,42 +53,43 @@ export function useCloudCopy(props: {
   useListened(app.connections.changes, readLiveHost)
   const liveServerId = useListened(app.threads.changes, readLiveHost)
 
-  const input = useMemo<SessionCloudCopyInput>(() => {
-    const [head = '', syncedTurn = '0'] = cloudFacts?.split(' ') ?? []
-    const [readHead = '', unavailableTurns = '0'] = copy?.split(' ') ?? []
-    return {
-      hasStarted: store.controller.target.record !== undefined,
-      showsHostConversation: meta.showsHostConversation,
-      isRunHostAway: props.hostReadiness.away,
-      hasLoadFailed: meta.phase.kind === 'error' && meta.phase.noAccess !== true,
-      awaitsHostCopy: meta.hostHasNoCopy,
-      isSignedIn,
-      cloudList,
-      cloud: cloudFacts === null ? null : { head: head || null, syncedTurn: Number(syncedTurn) },
-      isCloudSyncOn,
-      read: meta.cloudRead,
-      readHead: readHead || null,
-      unavailableTurns: Number(unavailableTurns),
-      liveServerId,
-    }
-  }, [cloudFacts, cloudList, copy, isCloudSyncOn, isSignedIn, liveServerId, meta.cloudRead, meta.hostHasNoCopy, meta.phase, meta.showsHostConversation, props.hostReadiness.away, store])
-
-  const shouldRead = shouldReadSessionCloudCopy(input)
+  const [head = '', syncedTurn = '0'] = cloudFacts?.split(' ') ?? []
+  const [readHead = '', unavailableTurnCount = '0'] = copy?.split(' ') ?? []
+  const cloud = cloudFacts === null ? null : { head: head || null, syncedTurn: Number(syncedTurn), lastRunServerId: hostId, lastRunHostId: null, runningHostId: null }
+  const source = sessionCloudReadSource({
+    hasStarted: store.controller.target.record !== undefined,
+    hasHostRows: meta.showsHostConversation,
+    isSignedIn,
+    isCloudListed: cloudList !== 'loading',
+    runServerId: hostId,
+    isRunHostAway: props.hostReadiness.away,
+    isHostReadUnavailable: (meta.phase.kind === 'error' && meta.phase.noAccess !== true) || meta.hostHasNoCopy,
+    isCloudSyncOn,
+    runTurn: undefined,
+    cloud,
+  })
+  const read = meta.cloudRead.kind === 'idle' ? null : {
+    status: meta.cloudRead.kind,
+    error: meta.cloudRead.kind === 'error' ? meta.cloudRead.message : null,
+    readHead: readHead || null,
+    unavailableTurnCount: Number(unavailableTurnCount),
+  }
+  const shouldRead = source === 'cloud' && meta.cloudRead.kind === 'idle' && !!cloud?.head
   useEffect(() => {
-    if (shouldRead) void store.controller.readCloudCopy()
+    if (shouldRead) void store.controller.readCloudHistory()
   }, [shouldRead, store])
 
-  // Text, so the view keeps its object while the state is the same.
-  const stateText = JSON.stringify(sessionCloudCopyState(input))
+  const state: SessionCloudReadView | null = sessionCloudReadView({ source, read, messageCount: store.controller.model.order.length, isTurnLive: false, liveServerId, cloud })
+  const stateText = JSON.stringify(state)
   const view = useMemo(() => {
-    // SAFETY: the text is `JSON.stringify` of a `sessionCloudCopyState` answer, made above.
-    const state = JSON.parse(stateText) as SessionCloudCopyState | null
-    return state ? cloudCopyView(state, props.hostLabel, (id) => app.registry.host(id)?.label ?? 'Another host') : null
-  }, [app, props.hostLabel, stateText])
+    // SAFETY: stateText is JSON.stringify of SessionCloudReadView | null above.
+    const current = JSON.parse(stateText) as SessionCloudReadView | null
+    return current ? cloudReadView(current, props.hostLabel, liveServerId, (id) => app.registry.host(id)?.label ?? 'Another host') : null
+  }, [app, props.hostLabel, liveServerId, stateText])
   const action = view?.action ?? null
   const onAction = useCallback(() => {
     if (action?.kind === 'open-live') onFollowHost?.(action.hostId)
-    else if (action) void store.controller.readCloudCopy()
+    else if (action) void store.controller.readCloudHistory()
   }, [action, onFollowHost, store])
   return view ? { view, onAction } : null
 }
