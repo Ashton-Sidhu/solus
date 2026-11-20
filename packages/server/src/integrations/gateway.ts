@@ -12,6 +12,7 @@ import type { IntegrationStore } from './integration-store'
 import { toolSummary } from './integration-tools'
 import { agentResultOf, mergedAccountResults, outputSchemaRefusal } from './result-content'
 import type { ServerFactsKey, ServerFactsStore } from './server-facts-store'
+import { commandStartRefusal, type CommandStarter } from './command-admission'
 import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
 import { endSolusSpan } from '../execution/observability/tracer'
@@ -116,18 +117,22 @@ export class IntegrationGateway {
     this.turnContextOf = turnContextOf
   }
 
-  /** Reads one resource with the current person's connection. It never starts an agent turn. */
-  async readAppResource(integrationId: string, uri: string, options: { signal?: AbortSignal; timeout?: number } = {}): Promise<ReadResourceResult> {
-    return this.withAppSession(integrationId, (client) => client.readResource({ uri }, { timeout: options.timeout ?? CALL_TIMEOUT_MS, signal: options.signal }))
+  /**
+   * Reads one resource with the current person's connection. It never starts an
+   * agent turn. `starter` is who the read acts for: a command starts only for
+   * them (`commandStartRefusal`).
+   */
+  async readAppResource(integrationId: string, uri: string, starter: CommandStarter, options: { signal?: AbortSignal; timeout?: number } = {}): Promise<ReadResourceResult> {
+    return this.withAppSession(integrationId, starter, (client) => client.readResource({ uri }, { timeout: options.timeout ?? CALL_TIMEOUT_MS, signal: options.signal }))
   }
 
-  /** Calls one tool for an MCP App with the current person's connection. It never starts an agent turn. */
-  async callAppTool(integrationId: string, name: string, input: ToolArguments): Promise<AppToolResult> {
-    return this.withAppSession(integrationId, (client) => client.callTool({ name, arguments: input }, { timeout: CALL_TIMEOUT_MS }))
+  /** Calls one tool for an MCP App, or an app of Solus, with the current person's connection. It never starts an agent turn. */
+  async callAppTool(integrationId: string, name: string, input: ToolArguments, starter: CommandStarter): Promise<AppToolResult> {
+    return this.withAppSession(integrationId, starter, (client) => client.callTool({ name, arguments: input }, { timeout: CALL_TIMEOUT_MS }))
   }
 
-  private async withAppSession<T>(integrationId: string, use: (client: Client) => Promise<T>): Promise<T> {
-    const session = await this.session(integrationId, currentPersonKey())
+  private async withAppSession<T>(integrationId: string, starter: CommandStarter, use: (client: Client) => Promise<T>): Promise<T> {
+    const session = await this.session(integrationId, currentPersonKey(), false, DEFAULT_INTEGRATION_ACCOUNT, starter)
     try {
       return await use(session.client)
     } finally {
@@ -169,7 +174,7 @@ export class IntegrationGateway {
    * `recheck` drops the saved verdict and stops a running process first, so the
    * revision is checked again. Throws a plain message.
    */
-  async startProcess(integrationId: string, recheck = false): Promise<IntegrationFacts> {
+  async startProcess(integrationId: string, starter: CommandStarter, recheck = false): Promise<IntegrationFacts> {
     const personKey = currentPersonKey()
     if (personKey === null) throw new Error('A command runs for a person, and this connection acts for none.')
     const key = sessionKey(integrationId, personKey)
@@ -180,6 +185,7 @@ export class IntegrationGateway {
       this.processes.clear(key)
     }
     try {
+      await this.session(integrationId, personKey, false, DEFAULT_INTEGRATION_ACCOUNT, starter)
       await this.list(integrationId, personKey)
     } catch (error) {
       const integration = this.store.get(integrationId, ANY_ORGANIZATION)
@@ -231,7 +237,7 @@ export class IntegrationGateway {
    * it, a read-only tool runs for every account and a tool that may write is
    * refused with the labels to choose from.
    */
-  async call(integrationId: string, tool: string, input: ToolArguments, context: AgentToolContext): Promise<AgentToolResult> {
+  async call(integrationId: string, tool: string, input: ToolArguments, context: AgentToolContext, starter: CommandStarter): Promise<AgentToolResult> {
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) return { ok: false, text: 'This integration was removed.' }
     // A run that started before the tool was turned off still lists it.
@@ -239,20 +245,20 @@ export class IntegrationGateway {
     const personKey = currentPersonKey()
     const accounts = personKey === null ? [] : this.connectedAccounts(integrationId, personKey)
     // With one account the tool has no account input, so every argument is the server's.
-    if (accounts.length <= 1) return this.callAs(integration, tool, input, context, accounts[0]?.accountId ?? DEFAULT_INTEGRATION_ACCOUNT)
+    if (accounts.length <= 1) return this.callAs(integration, tool, input, context, accounts[0]?.accountId ?? DEFAULT_INTEGRATION_ACCOUNT, starter)
     const { account, args } = splitAccount(input)
     const labels = accounts.map(accountLabel)
     if (account) {
       const chosen = accounts.find((candidate) => accountLabel(candidate) === account || candidate.accountId === account)
       if (!chosen) return { ok: false, text: `${integration.name} has no account named ${account}. Its accounts: ${labels.join(', ')}.` }
-      return this.callAs(integration, tool, args, context, chosen.accountId)
+      return this.callAs(integration, tool, args, context, chosen.accountId, starter)
     }
     const upstream = (await this.toolsFor(integrationId, personKey)).find((candidate) => candidate.name === tool)
     if (!upstream?.annotations?.readOnlyHint) {
       return { ok: false, text: `${integration.name} has several accounts: ${labels.join(', ')}. Call ${tool} again with \`${ACCOUNT_INPUT}\` set to one of them.` }
     }
     // A read spans every account; each part names the account it came from.
-    const results = await Promise.all(accounts.map((candidate) => this.callAs(integration, tool, args, context, candidate.accountId)))
+    const results = await Promise.all(accounts.map((candidate) => this.callAs(integration, tool, args, context, candidate.accountId, starter)))
     return mergedAccountResults(results.map((result, index) => ({ label: labels[index], result })))
   }
 
@@ -268,7 +274,7 @@ export class IntegrationGateway {
     return accounts.length > 1 ? accounts.map(accountLabel) : []
   }
 
-  private async callAs(integration: Integration, tool: string, input: ToolArguments, context: AgentToolContext, accountId: string, retried = false): Promise<AgentToolResult> {
+  private async callAs(integration: Integration, tool: string, input: ToolArguments, context: AgentToolContext, accountId: string, starter: CommandStarter, retried = false): Promise<AgentToolResult> {
     const integrationId = integration.id
     // §5: silence stops a call after 60 s, and progress starts that again; 30 minutes stop it in all.
     const timeout = new AbortController()
@@ -280,7 +286,7 @@ export class IntegrationGateway {
     let session: UpstreamSession | null = null
     let ended: AgentToolResult | null = null
     try {
-      session = await this.session(integrationId, currentPersonKey(), false, accountId)
+      session = await this.session(integrationId, currentPersonKey(), false, accountId, starter)
       session.calls.push(call)
       limits.start()
       const result = await session.client.callTool(
@@ -297,7 +303,7 @@ export class IntegrationGateway {
       // the call: read the header again, not from a copy, and try once more.
       if (refusedInFirstCall(session, mapped, retried)) {
         this.readHeaderAgain(session)
-        return this.callAs(integration, tool, input, context, accountId, true)
+        return this.callAs(integration, tool, input, context, accountId, starter, true)
       }
       return ended = mapped
     } catch (error) {
@@ -307,7 +313,7 @@ export class IntegrationGateway {
         // The session's header can outlive its token: a new session reads it again, refreshed, before the person is asked.
         if (!retried) {
           this.readHeaderAgain(session)
-          return this.callAs(integration, tool, input, context, accountId, true)
+          return this.callAs(integration, tool, input, context, accountId, starter, true)
         }
         this.signInRefused(session, integration, error)
         return this.connectionRequired(integration, context)
@@ -504,9 +510,10 @@ export class IntegrationGateway {
   /**
    * A person's session for an integration, opened on first use. Throws
    * `ConnectionRequiredError` when the integration needs sign-in and the person
-   * has none, unless `allowAnonymous`.
+   * has none, unless `allowAnonymous`. A command starts only for `starter`
+   * (`commandStartRefusal`); a read names none, so it starts nothing.
    */
-  private async session(integrationId: string, personKey: string | null, allowAnonymous = false, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<UpstreamSession> {
+  private async session(integrationId: string, personKey: string | null, allowAnonymous = false, accountId: string = DEFAULT_INTEGRATION_ACCOUNT, starter: CommandStarter = null): Promise<UpstreamSession> {
     const key = sessionKey(integrationId, personKey, accountId)
     const open = this.sessions.get(key)
     if (open && this.isCurrent(open)) {
@@ -515,7 +522,7 @@ export class IntegrationGateway {
     }
     let opening = this.opening.get(key)
     if (!opening) {
-      opening = this.open(key, integrationId, personKey, allowAnonymous, accountId).finally(() => this.opening.delete(key))
+      opening = this.open(key, integrationId, personKey, allowAnonymous, accountId, starter).finally(() => this.opening.delete(key))
       this.opening.set(key, opening)
     }
     const session = await opening
@@ -537,10 +544,10 @@ export class IntegrationGateway {
     return Date.now() - session.openedAt < AUTHORIZATION_MAX_AGE_MS
   }
 
-  private async open(key: string, integrationId: string, personKey: string | null, allowAnonymous: boolean, accountId: string): Promise<UpstreamSession> {
+  private async open(key: string, integrationId: string, personKey: string | null, allowAnonymous: boolean, accountId: string, starter: CommandStarter): Promise<UpstreamSession> {
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) throw new Error('This integration was removed.')
-    if (integration.kind === 'stdio') return this.openStdio(key, integration, personKey, accountId)
+    if (integration.kind === 'stdio') return this.openStdio(key, integration, personKey, accountId, starter)
     let authorization: string | null = null
     // The host's own work (null) has no connection: it lists anonymously.
     if (integration.auth.kind !== 'none' && personKey !== null) {
@@ -595,13 +602,15 @@ export class IntegrationGateway {
 
   /**
    * Starts a command (§7.3), with its saved verdict when there is one, so it
-   * starts once (§7.5). The host's own work never starts one (§3 rule 2), and
-   * a command runs for the person who added it alone (§7.8). A verdict the SDK
-   * refuses is dropped and the revision is checked once more.
+   * starts once (§7.5). Every start passes here, so `commandStartRefusal` is
+   * checked once for every path. A verdict the SDK refuses is dropped and the
+   * revision is checked once more.
    */
-  private async openStdio(key: string, integration: Integration, personKey: string | null, accountId: string, retried = false): Promise<UpstreamSession> {
+  private async openStdio(key: string, integration: Integration, personKey: string | null, accountId: string, starter: CommandStarter): Promise<UpstreamSession> {
+    const notAllowed = commandStartRefusal(integration, personKey, starter)
+    if (notAllowed) throw new Error(notAllowed)
+    // The rule refuses the host's own work already; this test only tells the type.
     if (personKey === null) throw new Error(`${integration.name} is a command, and the host's own work starts no command.`)
-    if (personKey !== integration.ownerKey) throw new Error(`${integration.name} runs only for the person who added it.`)
     const refusal = this.processes.refusal(sessionKey(integration.id, personKey))
     if (refusal) throw new Error(refusal)
     const environment = integration.auth.kind === 'env' ? this.credentials?.environmentFor?.(integration.id, personKey, accountId) ?? null : []
@@ -610,7 +619,7 @@ export class IntegrationGateway {
     this.stdioStarting++
     try {
       await this.makeRoomForStdio()
-      return await this.connectStdio(key, integration, personKey, accountId, environment, retried)
+      return await this.connectStdio(key, integration, personKey, accountId, environment, false)
     } finally {
       this.stdioStarting--
     }

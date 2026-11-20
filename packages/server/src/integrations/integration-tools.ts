@@ -1,15 +1,14 @@
 import { z } from 'zod'
 import { mcpAppToolMetadataSchema } from '@solus/contracts/mcp-apps'
 import { ACCOUNT_INPUT, integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
-import { permissionsAllow } from '@solus/contracts/permissions'
 import { ownerKeyOf, type Actor } from '../admission/actor'
-import { permissionsFor } from '../admission/access-policy'
 import { recordScopeOf } from '../admission/principal'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
 import { resolveProjectKey } from '../project-config/project-config'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
+import { mayRunCommands, type CommandStarter } from './command-admission'
 
 const log = createLogger('integrations', 'integration-tools.ts')
 
@@ -65,7 +64,7 @@ export interface IntegrationInstruction { name: string; slug: string; text: stri
  * still holds `host.admin`, because it runs as code on the host (§7.2, §7.8).
  */
 function joinsRun(integration: Integration, actor: Actor, projectKey: () => string | null): boolean {
-  if (integration.kind === 'stdio' && !permissionsAllow(permissionsFor(actor.principal), 'host.admin')) return false
+  if (integration.kind === 'stdio' && !mayRunCommands(actor.principal)) return false
   return integration.projectKey === undefined || integration.projectKey === projectKey()
 }
 
@@ -89,7 +88,7 @@ export async function integrationToolbox(actor: Actor, projectPath?: string | nu
       // An MCP App tool whose `visibility` leaves out `model` is for the app alone.
       const appMetadata = mcpAppToolMetadataSchema.safeParse(upstream._meta)
       if (appMetadata.success && appMetadata.data.ui?.visibility && !appMetadata.data.ui.visibility.includes('model')) continue
-      const agentTool = upstreamToolToAgentTool(integration, upstream, current, current.accountChoices(integration.id, personKey))
+      const agentTool = upstreamToolToAgentTool(integration, upstream, current, current.accountChoices(integration.id, personKey), actor.principal)
       if (names.has(agentTool.name)) {
         if (!reportedCollisions.has(agentTool.name)) {
           reportedCollisions.add(agentTool.name)
@@ -116,6 +115,8 @@ export function upstreamToolToAgentTool(
   calls: Pick<IntegrationGateway, 'call'>,
   /** The labels of the person's accounts when there are several (§13.3); the tool then takes `solus_account`. */
   accounts: string[] = [],
+  /** Who the run acts for: a command's process starts only for them (`commandStartRefusal`). */
+  starter: CommandStarter = null,
 ): AgentTool {
   const fields = inputFieldsFor(upstream.inputSchema)
   const readOnly = toolSummary(upstream).readOnly
@@ -128,7 +129,7 @@ export function upstreamToolToAgentTool(
     inputFields: { ...(fields ?? {}), ...accountField },
     alwaysLoad: false,
     requiresApproval: toolSummary(upstream).destructive,
-    execute: (input, context) => calls.call(integration.id, upstream.name, input, context),
+    execute: (input, context) => calls.call(integration.id, upstream.name, input, context, starter),
   }
   if (!fields) agentTool.passthroughInput = true
   return agentTool

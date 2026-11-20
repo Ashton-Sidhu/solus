@@ -103,7 +103,8 @@ test('writes require approval on the host, including after a tool changes from r
   await expect(s.apps.callTool({ ...s.request(), name: 'save', argumentsJson: '{}', approved: false }, ctx)).rejects.toThrow('approval')
   expect(s.call).not.toHaveBeenCalled()
   await s.apps.callTool({ ...s.request(), name: 'save', argumentsJson: '{"x":1}', approved: true }, ctx)
-  expect(s.call).toHaveBeenCalledWith('charts', 'save', { x: 1 })
+  // The call names who it acts for: a command's process starts only for a person with host.admin.
+  expect(s.call).toHaveBeenCalledWith('charts', 'save', { x: 1 }, ctx.principal)
 })
 
 test('disabled tools and model-only tools stay unavailable to an app', async () => {

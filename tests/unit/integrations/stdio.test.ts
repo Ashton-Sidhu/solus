@@ -26,7 +26,7 @@ const { SolusServer } = await import('@solus/server/transport/server')
 const { Vault } = await import('@solus/server/vault/vault')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
-const { ownerKeyOf } = await import('@solus/server/admission/actor')
+const { actorFor, ownerKeyOf } = await import('@solus/server/admission/actor')
 const { resolveProjectKey } = await import('@solus/server/project-config/project-config')
 const { splitCommandLine } = await import('@solus/contracts/integrations/command-line')
 const { agentProfileEntrySchema } = await import('@solus/contracts/agent-profile')
@@ -44,6 +44,8 @@ const FIXTURE = join(import.meta.dir, '../../fixtures/fake-stdio-mcp-server.mjs'
 const OWNER = ownerKeyOf(TEST_HANDLER_CTX.actor)!
 const OWNER_SCOPE = { identity: HOST_IDENTITY, personKey: OWNER }
 const OTHER = 'local:other-admin'
+/** The local owner holds `host.admin`: a run, an app, or Settings of theirs may start a command. */
+const ADMIN: Principal = TEST_HANDLER_CTX.principal
 const SECRET = 's3cret-value-7f1c'
 
 /** Idle timers that fire only when the test moves the time on. */
@@ -122,12 +124,12 @@ function context(): AgentToolContext {
 const store = new IntegrationStore()
 
 /** A `stdio` record of `owner` for the fake server, with its own start file. */
-function command(options: { era?: 'modern' | 'legacy'; owner?: string; auth?: IntegrationAuth; cwd?: string; extra?: string[]; projectKey?: string } = {}): { integration: Integration; starts: string } {
+function command(options: { era?: 'modern' | 'legacy'; owner?: string; auth?: IntegrationAuth; cwd?: string; extra?: string[]; projectKey?: string; organizationId?: string } = {}): { integration: Integration; starts: string } {
   const starts = join(workDir, `starts-${crypto.randomUUID()}`)
   startFiles.push(starts)
   const launch: IntegrationLaunch = { command: process.execPath, args: [FIXTURE, '--era', options.era ?? 'modern', '--starts', starts, ...(options.extra ?? [])] }
   if (options.cwd) launch.cwd = options.cwd
-  const integration = store.create({ name: 'Fake', url: stdioServerAddress(launch), slug: 'fake', auth: options.auth ?? { kind: 'none' }, launch, projectKey: options.projectKey }, 'local', options.owner ?? OWNER)
+  const integration = store.create({ name: 'Fake', url: stdioServerAddress(launch), slug: 'fake', auth: options.auth ?? { kind: 'none' }, launch, projectKey: options.projectKey }, options.organizationId ?? 'local', options.owner ?? OWNER)
   return { integration, starts }
 }
 
@@ -150,7 +152,7 @@ describe('the verdict and the saved facts (§7.5)', () => {
       // WHY: in `auto` mode the SDK starts a stdio command twice; a saved verdict must make every later start one process.
       const { integration, starts } = command({ era })
       const first = gateway()
-      const facts = await asOwner(() => first.startProcess(integration.id))
+      const facts = await asOwner(() => first.startProcess(integration.id, ADMIN))
       expect(facts.era).toBe(era)
       expect(facts.instructions).toBe(`Use the ${era} fake for tests.`)
       expect(facts.process?.state).toBe('running')
@@ -158,7 +160,7 @@ describe('the verdict and the saved facts (§7.5)', () => {
       await first.close()
 
       const second = gateway()
-      const result = await asOwner(() => second.call(integration.id, 'echo', { text: 'hi' }, context()))
+      const result = await asOwner(() => second.call(integration.id, 'echo', { text: 'hi' }, context(), ADMIN))
       expect(result).toEqual({ ok: true, text: 'echo: hi' })
       expect(startsOf(starts)).toHaveLength(3)
     })
@@ -167,7 +169,7 @@ describe('the verdict and the saved facts (§7.5)', () => {
   test('a run start with saved facts gets the tools and starts no process', async () => {
     // WHY: a run lists every integration's tools; starting each command for that would start code nobody used.
     const { integration, starts } = command()
-    await asOwner(() => gateway().startProcess(integration.id))
+    await asOwner(() => gateway().startProcess(integration.id, ADMIN))
     await Promise.all(gateways.splice(0).map((each) => each.close()))
     const before = startsOf(starts).length
 
@@ -193,7 +195,7 @@ describe('the verdict and the saved facts (§7.5)', () => {
     const projectB = mkdtempSync(join(workDir, 'b-'))
     const { integration } = command({ projectKey: resolveProjectKey(projectA) })
     const started = gateway()
-    await asOwner(() => started.startProcess(integration.id))
+    await asOwner(() => started.startProcess(integration.id, ADMIN))
     setIntegrationGateway(started)
     expect((await integrationToolbox(TEST_HANDLER_CTX.actor, projectA)).tools).toHaveLength(4)
     expect((await integrationToolbox(TEST_HANDLER_CTX.actor, projectB)).tools).toEqual([])
@@ -208,13 +210,13 @@ describe('the process (§7.3)', () => {
     const a = command()
     const b = command()
     const shared = gateway({ clock })
-    await asOwner(() => shared.call(a.integration.id, 'echo', { text: 'a' }, context()))
-    await asOwner(() => shared.call(b.integration.id, 'echo', { text: 'b' }, context()))
+    await asOwner(() => shared.call(a.integration.id, 'echo', { text: 'a' }, context(), ADMIN))
+    await asOwner(() => shared.call(b.integration.id, 'echo', { text: 'b' }, context(), ADMIN))
     const [pidA] = startsOf(a.starts).slice(-1)
     const [pidB] = startsOf(b.starts).slice(-1)
 
     clock.advance(5 * 60_000)
-    await asOwner(() => shared.call(b.integration.id, 'echo', { text: 'b again' }, context()))
+    await asOwner(() => shared.call(b.integration.id, 'echo', { text: 'b again' }, context(), ADMIN))
     expect(isAlive(pidA)).toBe(true)
 
     const stopped = new Promise<void>((resolve) => shared.onFactsChanged((id) => { if (id === a.integration.id) resolve() }))
@@ -229,13 +231,13 @@ describe('the process (§7.3)', () => {
   test('a crash fails the call in flight with the defined text, and the next call starts it again', async () => {
     const { integration, starts } = command()
     const shared = gateway()
-    await asOwner(() => shared.startProcess(integration.id))
-    const crashed = await asOwner(() => shared.call(integration.id, 'crash', {}, context()))
+    await asOwner(() => shared.startProcess(integration.id, ADMIN))
+    const crashed = await asOwner(() => shared.call(integration.id, 'crash', {}, context(), ADMIN))
     expect(crashed).toEqual({ ok: false, text: 'Fake stopped while it ran crash.' })
     expect((await asOwner(() => shared.facts(integration.id))).process).toEqual({ state: 'stopped', message: 'Fake stopped by itself.' })
 
     const before = startsOf(starts).length
-    expect(await asOwner(() => shared.call(integration.id, 'echo', { text: 'back' }, context()))).toEqual({ ok: true, text: 'echo: back' })
+    expect(await asOwner(() => shared.call(integration.id, 'echo', { text: 'back' }, context(), ADMIN))).toEqual({ ok: true, text: 'echo: back' })
     expect(startsOf(starts)).toHaveLength(before + 1)
   })
 
@@ -244,42 +246,42 @@ describe('the process (§7.3)', () => {
     const clock = new FakeClock()
     const { integration, starts } = command()
     const shared = gateway({ clock })
-    for (let end = 0; end < 3; end++) await asOwner(() => shared.call(integration.id, 'crash', {}, context()))
+    for (let end = 0; end < 3; end++) await asOwner(() => shared.call(integration.id, 'crash', {}, context(), ADMIN))
     const facts = await asOwner(() => shared.facts(integration.id))
     expect(facts.process?.state).toBe('failed')
     expect(facts.process?.message).toContain('Start again')
 
     const before = startsOf(starts).length
-    const refused = await asOwner(() => shared.call(integration.id, 'echo', { text: 'x' }, context()))
+    const refused = await asOwner(() => shared.call(integration.id, 'echo', { text: 'x' }, context(), ADMIN))
     expect(refused.ok).toBe(false)
     expect(refused.text).toContain('Start again')
     expect(startsOf(starts)).toHaveLength(before)
 
-    expect((await asOwner(() => shared.startProcess(integration.id))).process).toEqual({ state: 'running' })
+    expect((await asOwner(() => shared.startProcess(integration.id, ADMIN))).process).toEqual({ state: 'running' })
   })
 
   test('a command that is not installed is failed with the reason', async () => {
     const launch: IntegrationLaunch = { command: 'solus-no-such-mcp-command', args: [] }
     const integration = store.create({ name: 'Missing', url: stdioServerAddress(launch), slug: 'missing', auth: { kind: 'none' }, launch }, 'local', OWNER)
     const shared = gateway()
-    await expect(asOwner(() => shared.startProcess(integration.id))).rejects.toThrow('`solus-no-such-mcp-command` is not installed on this host')
+    await expect(asOwner(() => shared.startProcess(integration.id, ADMIN))).rejects.toThrow('`solus-no-such-mcp-command` is not installed on this host')
     expect((await asOwner(() => shared.facts(integration.id))).process?.state).toBe('failed')
   })
 
   test('`~` as the working directory is the home folder', async () => {
     const { integration } = command({ cwd: '~' })
-    expect(await asOwner(() => gateway().call(integration.id, 'cwd', {}, context()))).toEqual({ ok: true, text: homedir() })
+    expect(await asOwner(() => gateway().call(integration.id, 'cwd', {}, context(), ADMIN))).toEqual({ ok: true, text: homedir() })
   })
 
   test('two people get two processes, and the host\'s own work starts none', async () => {
     const mine = command()
     const theirs = command({ owner: OTHER })
     const shared = gateway()
-    await asOwner(() => shared.call(mine.integration.id, 'echo', { text: '1' }, context()))
-    await withActingScope({ identity: HOST_IDENTITY, personKey: OTHER }, () => shared.call(theirs.integration.id, 'echo', { text: '2' }, context()))
+    await asOwner(() => shared.call(mine.integration.id, 'echo', { text: '1' }, context(), ADMIN))
+    await withActingScope({ identity: HOST_IDENTITY, personKey: OTHER }, () => shared.call(theirs.integration.id, 'echo', { text: '2' }, context(), ADMIN))
     expect(startsOf(mine.starts).at(-1)).not.toBe(startsOf(theirs.starts).at(-1))
     // Another person cannot start my command through a call.
-    const refused = await withActingScope({ identity: HOST_IDENTITY, personKey: OTHER }, () => shared.call(mine.integration.id, 'echo', { text: '3' }, context()))
+    const refused = await withActingScope({ identity: HOST_IDENTITY, personKey: OTHER }, () => shared.call(mine.integration.id, 'echo', { text: '3' }, context(), ADMIN))
     expect(refused.text).toContain('runs only for the person who added it')
   })
 })
@@ -301,10 +303,10 @@ describe('the environment (§7.1, §7.9)', () => {
       shared.useCredentials(connections)
       gateways.push(shared)
 
-      expect(await asOwner(() => shared.call(integration.id, 'env', { name: 'API_TOKEN' }, context()))).toEqual({ ok: true, text: SECRET })
-      expect(await asOwner(() => shared.call(integration.id, 'env', { name: 'SOLUS_B1_SERVER_ONLY' }, context()))).toEqual({ ok: true, text: '(unset)' })
-      await asOwner(() => shared.startProcess(integration.id))
-      await asOwner(() => shared.call(integration.id, 'crash', {}, context()))
+      expect(await asOwner(() => shared.call(integration.id, 'env', { name: 'API_TOKEN' }, context(), ADMIN))).toEqual({ ok: true, text: SECRET })
+      expect(await asOwner(() => shared.call(integration.id, 'env', { name: 'SOLUS_B1_SERVER_ONLY' }, context(), ADMIN))).toEqual({ ok: true, text: '(unset)' })
+      await asOwner(() => shared.startProcess(integration.id, ADMIN))
+      await asOwner(() => shared.call(integration.id, 'crash', {}, context(), ADMIN))
       // The owner sees what the server printed; nothing else holds it.
       expect((await asOwner(() => shared.facts(integration.id))).process?.stderrTail).toContain(SECRET)
 
@@ -368,6 +370,55 @@ describe('who may add a command (§7.2)', () => {
   test('a shell operator in the line is refused with the reason', async () => {
     const { server } = handlers()
     await expect(server.handle('integrationCreate', [{ name: 'Piped', commandLine: 'npx server | tee log', envNames: [] }], TEST_HANDLER_CTX)).rejects.toThrow('a pipe (|)')
+  })
+})
+
+describe('who may start a command (§7.2, §7.8)', () => {
+  // The owner's own record, but a principal without `host.admin`: only the admin rule refuses it.
+  const member: Principal = { kind: 'org-member', userId: 'member-1', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Member', deviceId: 'member-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 }
+  const refusal = 'Only an administrator of this host can start a command.'
+
+  test('a run, an MCP App, an app of Solus, and Settings all refuse a start without host.admin, and start for an administrator', async () => {
+    // WHY: a command runs as code on the host. Before, an MCP App call started it with the owner check alone.
+    const { integration, starts } = command()
+    const shared = gateway()
+    const run = await asOwner(() => shared.call(integration.id, 'echo', { text: 'run' }, context(), member))
+    expect(run.ok).toBe(false)
+    expect(run.text).toContain(refusal)
+    await expect(asOwner(() => shared.callAppTool(integration.id, 'echo', { text: 'app' }, member))).rejects.toThrow(refusal)
+    await expect(asOwner(() => shared.readAppResource(integration.id, 'ui://fake/app', member))).rejects.toThrow(refusal)
+    await expect(asOwner(() => shared.startProcess(integration.id, member))).rejects.toThrow(refusal)
+    // The host's own work, such as an app's schedule, names no person: it starts nothing either.
+    await expect(asOwner(() => shared.callAppTool(integration.id, 'echo', { text: 'schedule' }, null))).rejects.toThrow('acts for no person who can start it')
+    expect(startsOf(starts)).toEqual([])
+
+    const answered = await asOwner(() => shared.callAppTool(integration.id, 'echo', { text: 'app' }, ADMIN))
+    expect(answered.content).toEqual([{ type: 'text', text: 'echo: app' }])
+    expect(startsOf(starts).length).toBeGreaterThan(0)
+  })
+
+  test('integrationProcessStart refuses the owner of the record without host.admin, and starts it once they hold it', async () => {
+    installTestIdentities()
+    // The member's own record, in their organization: only the admin rule can refuse them.
+    const memberKey = ownerKeyOf(actorFor(member))!
+    const { integration, starts } = command({ organizationId: 'org1', owner: memberKey })
+    const server = new SolusServer()
+    registerIntegrationHandlers(server, {
+      store,
+      catalog: {} as never,
+      gateway: gateway(),
+      events: { broadcast: () => 1 } as never,
+      connectionStore: {} as never,
+      connections: {} as never,
+      oauth: {} as never,
+      clients: memoryClients(),
+      getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
+    })
+    await expect(server.handle('integrationProcessStart', [{ id: integration.id }], { clientId: 'member', principal: member })).rejects.toThrow(refusal)
+    expect(startsOf(starts)).toEqual([])
+    // The same person as the owner of a managed host's organization holds host.admin.
+    const administrator: Principal = { ...member, organizationRole: 'owner', hostKind: 'managed' }
+    expect((await server.handle('integrationProcessStart', [{ id: integration.id }], { clientId: 'member', principal: administrator })).process).toEqual({ state: 'running' })
   })
 })
 

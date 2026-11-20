@@ -63,7 +63,8 @@ export class AppIntegrationCalls {
     if (!integration && isConnectionProvider(slug)) return this.callConnection(app, slug, toolName, input, authority)
     if (!integration) throw new Error(`Connect ${slug} in Settings → MCP to use this app.`)
     if (integration.disabledTools.includes(toolName)) throw new Error(`The ${toolName} tool of ${integration.name} is turned off in Settings → MCP.`)
-    const result = toolResultSchema.parse(await this.asPerson(app, authority, () => this.deps.gateway.callAppTool(integration.id, toolName, input)))
+    // The host's own work has no principal, so it starts no command (`commandStartRefusal`).
+    const result = toolResultSchema.parse(await this.asPerson(app, authority, () => this.deps.gateway.callAppTool(integration.id, toolName, input, authority?.principal ?? null)))
     const text = (result.content ?? []).filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n')
     if (result.isError) throw new Error(text || `${integration.name} refused the call.`)
     if (result.structuredContent !== undefined) return result.structuredContent

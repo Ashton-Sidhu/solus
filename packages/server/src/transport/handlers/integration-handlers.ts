@@ -18,9 +18,7 @@ import {
 } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { OAuthClientRequiredError } from '@solus/contracts/integrations/oauth-protocol'
-import { permissionsAllow } from '@solus/contracts/permissions'
 import { roleOf } from '../../admission/access'
-import { permissionsFor } from '../../admission/access-policy'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import { recordScopeOf, type Principal } from '../../admission/principal'
 import type { IntegrationCatalog } from '../../integrations/catalog'
@@ -31,6 +29,7 @@ import type { IntegrationPatch, IntegrationStore } from '../../integrations/inte
 import type { IntegrationOAuth } from '../../integrations/oauth'
 import { commandAuth, createIntegration, createStdioIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
 import { stdioServerAddress } from '../../integrations/stdio-process'
+import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
 import { createLogger } from '../../logger'
 import { currentPersonKey, requirePersonKey } from '../../vault/acting-scope'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -59,11 +58,12 @@ function forReader(actor: Actor, integration: Integration): Integration {
 
 /**
  * A command runs as code on the host, as the OS user of the Solus server: only
- * a person with `host.admin` adds one, changes its command or names, or starts
- * it (docs/plans/mcp-first-class.md §7.2).
+ * a person with `host.admin` adds one or changes its command or names
+ * (docs/plans/mcp-first-class.md §7.2). The gateway checks the same rule at a
+ * start (`command-admission.ts`).
  */
 function requireHostAdmin(principal: Principal): void {
-  if (!permissionsAllow(permissionsFor(principal), 'host.admin')) throw new Error('Only an administrator of this host can add or change a command.')
+  if (!mayRunCommands(principal)) throw new Error(COMMAND_CHANGE_REFUSAL)
 }
 
 function requireStdio(integration: Integration): void {
@@ -207,8 +207,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const { id, recheck } = integrationProcessStartRequestSchema.parse(args[0])
     const integration = requireIntegration(id, ctx.actor)
     requireStdio(integration)
-    requireHostAdmin(ctx.principal)
-    return gateway.startProcess(id, recheck)
+    return gateway.startProcess(id, ctx.principal, recheck)
   })
 
   server.register('integrationProcessStop', async (args, ctx) => {

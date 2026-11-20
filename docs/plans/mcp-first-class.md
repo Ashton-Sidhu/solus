@@ -530,6 +530,18 @@ personal (`access-model.md` D3), so only its owner uses it. No agent tool
 creates one: `connect_integration` takes a service name or a URL and never a
 command.
 
+Starting one needs the same rule (wave 3). `integrations/command-admission.ts`
+states it once: `commandStartRefusal(integration, personKey, starter)` refuses
+the host's own work, a person who is not the owner, a request that names no
+person (`starter` is null), and a person without `host.admin`
+(`mayRunCommands`). The gateway checks it in `openStdio`, which every start
+passes: a run's tool call (the run's principal), an MCP App call, read, or
+live read (the caller's principal), a call from an app of Solus (the caller's
+principal; the app's own schedule, webhook, or workflow names none, so it
+starts no command), and `integrationProcessStart`. A read (`integrationTools`,
+`integrationFacts`, a list again) names no starter and starts nothing. The
+handlers check `mayRunCommands` before they create or change a command.
+
 ### 7.3 The process
 
 The owner is the gateway. `upstreamTransport` (`integrations/upstream-session.ts`;
