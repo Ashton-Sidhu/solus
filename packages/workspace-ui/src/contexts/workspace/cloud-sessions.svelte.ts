@@ -47,7 +47,11 @@ export class CloudSessions {
   /** The list row of each cloud-only session, kept while its row and host do not change. */
   private listedByRow = new WeakMap<CloudSessionRow, ListedSession>()
 
-  constructor(private readonly hosts: Pick<SessionListHosts, 'connectedRunnerFor' | 'savedRunnerFor'>) {}
+  constructor(
+    private readonly hosts: Pick<SessionListHosts, 'connectedRunnerFor' | 'savedRunnerFor'>,
+    /** Whether a connected home lists the session: its row is then the home's, not the cloud's. */
+    private readonly isListedByHost: (sessionId: string) => boolean,
+  ) {}
 
   /** The cloud's facts of a session, or undefined when the cloud has none here. */
   factsFor(sessionId: string): SessionRepositoryFacts | undefined {
@@ -85,16 +89,16 @@ export class CloudSessions {
   }
 
   /** The cloud-only row of one session; see `listedRows`. */
-  listed(sessionId: string, isListedByHost: (sessionId: string) => boolean): ListedSession | undefined {
+  listed(sessionId: string): ListedSession | undefined {
     const row = this.rowsBySession.get(sessionId)
-    return (row && this.listedRow(row, isListedByHost)) ?? undefined
+    return (row && this.listedRow(row)) ?? undefined
   }
 
   /** The rows of the sessions only the cloud lists. */
-  listedRows(isListedByHost: (sessionId: string) => boolean): ListedSession[] {
+  listedRows(): ListedSession[] {
     const listed: ListedSession[] = []
     for (const row of this.rowsBySession.values()) {
-      const entry = this.listedRow(row, isListedByHost)
+      const entry = this.listedRow(row)
       if (entry) listed.push(entry)
     }
     return listed
@@ -106,8 +110,8 @@ export class CloudSessions {
    * and does not list it (it was archived there). It opens on the host that
    * ran its last turn when this client keeps that host.
    */
-  private listedRow(row: CloudSessionRow, isListedByHost: (sessionId: string) => boolean): ListedSession | null {
-    if (isListedByHost(row.sessionId)) return null
+  private listedRow(row: CloudSessionRow): ListedSession | null {
+    if (this.isListedByHost(row.sessionId)) return null
     const lastRunHostId = this.factsBySession.get(row.sessionId)?.lastRunHostId
     if (lastRunHostId && this.hosts.connectedRunnerFor(lastRunHostId)) return null
     const serverId = (lastRunHostId ? this.savedRunnerFor(lastRunHostId) : null) ?? row.apiServerId

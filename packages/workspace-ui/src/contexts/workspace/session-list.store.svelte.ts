@@ -178,7 +178,7 @@ export class SessionListStore {
     /** Reads one session's info from one host; its answer comes back through `onSessionMetaRead`. */
     private readonly readMeta: (serverId: string, sessionId: string) => Promise<SessionMeta | null> = readSessionMeta,
   ) {
-    this.cloud = new CloudSessions(hosts)
+    this.cloud = new CloudSessions(hosts, (sessionId) => this.listedBySession.has(sessionId))
     onSessionMetaRead((serverId, meta) => this.noteSessionMeta(serverId, meta))
   }
 
@@ -468,7 +468,7 @@ export class SessionListStore {
 
   /** Every session in this person's list. */
   listed(sessionId: string): ListedSession | undefined {
-    return this.listedBySession.get(sessionId) ?? this.cloud.listed(sessionId, (id) => this.listedBySession.has(id))
+    return this.listedBySession.get(sessionId) ?? this.cloud.listed(sessionId)
   }
 
 
@@ -548,7 +548,7 @@ export class SessionListStore {
 
   /** Every row: the records of the connected homes, then the sessions only the cloud lists. */
   get sessions(): ListedSession[] {
-    return [...this.listedBySession.values(), ...this.cloud.listedRows((sessionId) => this.listedBySession.has(sessionId))]
+    return [...this.listedBySession.values(), ...this.cloud.listedRows()]
   }
 
   /** Local sessions, the selected organization's, and every session of a personal
