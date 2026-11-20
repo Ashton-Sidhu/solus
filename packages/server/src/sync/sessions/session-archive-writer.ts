@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import type { AgentId, PermissionMode, ReasoningEffort, SessionLineageMember, TurnSnapshot } from '@solus/contracts/types'
 import { sessionStarterSchema } from '@solus/contracts/session-starter'
+import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { getSessionRecord } from '../../data/sessions/session-records'
@@ -75,6 +76,7 @@ const pendingTurnSchema = z.object({
   sessionPaths: z.object({ turnPaths: z.array(z.string()), sessionChangedFiles: z.array(z.string()) }).nullable().optional(),
   lastProjectRoot: z.string().nullable().optional(),
   files: z.array(z.object({ key: z.string(), relativePath: z.string(), path: z.string(), length: z.number() })),
+  rows: z.array(z.custom<WireSessionLoadMessage>()).nullable().optional(),
   /** The checkout facts when the turn ended; null for a session with no repository. */
   checkout: z.object({
     workTree: z.string(),
@@ -94,6 +96,8 @@ export interface SessionArchiveDeps {
   repositories: SessionRepositories
   /** The provider files of a thread on this host; empty for a provider that keeps none. */
   threadFiles(provider: AgentId, threadId: string, projectPath: string | undefined): Promise<ThreadFile[]>
+  /** Reads the newest settled user turn with the same projection as the mirror. */
+  turnRows?: (provider: AgentId, sessionId: string, projectPath: string | undefined) => Promise<WireSessionLoadMessage[] | null>
   database?: () => DatabaseSync
   now?: () => number
   /** The wait before a failed turn commit is tried again; it doubles up to `MAX_RETRY_MS`. */
@@ -199,6 +203,8 @@ export class SessionArchiveWriter {
       if (length !== null) files.push({ ...file, length })
     }
     const checkout = await this.checkoutOf(turn).catch(() => null)
+    // Capture before the Git queue runs. A later turn can start before this commit.
+    const rows = await this.captureRows(turn)
     return {
       organizationId: turn.organizationId, provider: turn.provider, threadId: turn.threadId, partial: turn.partial, endedAt: this.now(), files,
       title: record?.customTitle ?? record?.title ?? null,
@@ -207,9 +213,15 @@ export class SessionArchiveWriter {
       lineage: manifestLineage(resolveSessionLineageById(turn.sessionId, this.database())?.members ?? [], turn, !!record?.parentSessionId),
       lastProjectRoot: turn.projectPath ?? null,
       // A folder that cannot be read as a checkout still leaves the thread of the turn to write.
-      checkout,
+      checkout, rows,
       sessionPaths: checkout ? await getSessionPaths(checkout.repoRoot, turn.sessionId) : null,
     }
+  }
+
+  private async captureRows(turn: TurnEnd): Promise<WireSessionLoadMessage[] | null> {
+    const rows = await this.deps.turnRows?.(turn.provider, turn.sessionId, turn.projectPath).catch(() => null) ?? null
+    if (!rows) return null
+    return Buffer.byteLength(rows.map(row => JSON.stringify(row) + '\n').join('')) <= 4 * 1024 * 1024 ? rows : null
   }
 
   private async checkoutOf(turn: TurnEnd): Promise<PendingTurn['checkout']> {
@@ -294,6 +306,16 @@ export class SessionArchiveWriter {
         snapshots: [], bundle: null, hasDiff: false,
       }
       if (pending.checkout) entries.push(...await this.codeEntries(manifest, turn, index, pending.checkout, scratch))
+      const previousCount = manifest.turns.at(-1)?.rowCount ?? 0
+      const rowText = pending.rows?.map(row => JSON.stringify(row) + '\n').join('') ?? null
+      if (rowText !== null) {
+        turn.hasRows = true
+        turn.rowCount = previousCount + pending.rows!.length
+        entries.push({ path: `rows/${index}.jsonl`, content: rowText })
+      } else {
+        turn.hasRows = false
+        turn.rowCount = previousCount
+      }
       if (!entries.length) return head
       Object.assign(manifest.session, {
         title: pending.title ?? null, model: pending.model ?? null,

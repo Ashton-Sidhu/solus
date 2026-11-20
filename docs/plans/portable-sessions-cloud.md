@@ -801,3 +801,22 @@ change, no mobile change. The client extends phase 4A (`portable-sessions.md`
 - A reload of a cloud-only tab before a host has it restores an empty tab on
   the same host; a pick in Run on or a prompt makes a host current and loads it.
 - Mobile is not changed.
+
+### Phase 5A as implemented (archive slice, 2026-11-19)
+
+The host archive writer now accepts an injected history read. Boot supplies the
+lineage-aware, one-turn history page and applies `projectSessionHistory`, the
+projection used by the transcript mirror. At turn capture, the writer saves the
+projected rows in its durable pending-turn record. The background Git job writes
+one JSON object per line to `rows/<n>.jsonl`. It marks the manifest turn with
+`hasRows` and the cumulative `rowCount`. Both fields are optional so an older
+manifest still parses. A failed or oversized row read leaves `hasRows: false`
+and does not stop the thread-file commit.
+
+The host reads one history page for each ended turn. It does not parse the
+whole transcript for each Git commit. The pending row file has a 4 MiB cap;
+an over-limit turn has no row file. The page reader can cut inside a very long
+turn. If its first row is not a user turn, the writer omits the rows rather
+than saving an incomplete turn. This phase does not yet add the API reader,
+read-only history fallback, turn-diff RPC, or client contract. Those remain
+open before a client can read an offline session.

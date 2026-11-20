@@ -61,6 +61,10 @@ const turnSchema = z.object({
   bundle: codeBundleSchema.nullable(),
   /** True when `diff/<n>.patch` exists. */
   hasDiff: z.boolean(),
+  /** Absent in older commits. False means the history reader failed. */
+  hasRows: z.boolean().optional(),
+  /** Number of projected rows through this turn; absent in older commits. */
+  rowCount: z.number().int().nonnegative().optional(),
 })
 
 export const sessionManifestSchema = z.object({
