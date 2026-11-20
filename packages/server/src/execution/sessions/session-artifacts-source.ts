@@ -4,24 +4,24 @@ import { join } from 'node:path'
 import type { SessionRepositoryTokenResponse } from '@solus/contracts/session-repositories'
 import type { Actor } from '../../admission/actor'
 import { GitRemote } from '../../sync/git-remote'
-import { SessionSyncError, type SourceBundle } from './session-sync'
+import { SessionSyncError, type SessionSource, type SessionSourceRequest, type SourceBundle } from './session-sync'
 
 export type SessionReadAccess = (sessionId: string, actor: Actor, signal: AbortSignal) => Promise<SessionRepositoryTokenResponse | null>
 const CLOUD_CATCH_UP_MS = 15_000
 
 /** Prefer the cloud copy; a missing wanted turn comes from the last run host. */
 export async function chooseSessionRepositorySource(
-  cloud: (() => Promise<SourceBundle>) | null,
-  host: () => Promise<SourceBundle>,
-  wantedHead: string | null,
-  signal: AbortSignal,
+  cloud: SessionSource | null,
+  host: SessionSource,
+  request: SessionSourceRequest,
 ): Promise<SourceBundle> {
+  const { wantedHead, signal } = request
   if (cloud) {
-    const result = await cloud().catch(() => ({ state: 'no-repository' as const }))
+    const result = await cloud(request).catch(() => ({ state: 'no-repository' as const }))
     if (result.state !== 'no-repository') return result
   }
   try {
-    return await host()
+    return await host(request)
   } catch (error) {
     if (!cloud || !wantedHead || !(error instanceof SessionSyncError) || error.reason !== 'source-offline') throw error
     const deadline = Date.now() + CLOUD_CATCH_UP_MS
@@ -33,7 +33,7 @@ export async function chooseSessionRepositorySource(
         if (signal.aborted) onAbort()
       })
       signal.throwIfAborted()
-      const result = await cloud().catch(() => ({ state: 'no-repository' as const }))
+      const result = await cloud(request).catch(() => ({ state: 'no-repository' as const }))
       if (result.state !== 'no-repository') return result
     }
     throw error
@@ -44,12 +44,7 @@ export async function chooseSessionRepositorySource(
 export async function fetchSessionArtifacts(
   getReadAccess: SessionReadAccess,
   localRepositoryPath: string | null,
-  sessionId: string,
-  actor: Actor,
-  have: string | null,
-  wantedHead: string | null,
-  outFile: string,
-  signal: AbortSignal,
+  { sessionId, actor, have, wantedHead, outFile, signal }: SessionSourceRequest,
 ): Promise<SourceBundle> {
   const access = await getReadAccess(sessionId, actor, signal)
   if (!access) return { state: 'no-repository' }

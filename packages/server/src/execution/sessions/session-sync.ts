@@ -2,7 +2,6 @@ import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { z } from 'zod'
 import type { Actor } from '../../admission/actor'
 import type { Principal } from '../../admission/principal'
 import type { StatusCardState, StatusCardStep, AgentId, GitCheckout } from '@solus/contracts/types'
@@ -10,6 +9,7 @@ import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionPrepareRequest, SessionPrepareResult, SessionSyncFailure } from '@solus/contracts/rpc'
 import { getDb } from '../../db'
 import { getSessionRecord, upsertOwnSessionRecord } from '../../data/sessions/session-records'
+import { readSessionStorage } from '../../data/sessions/session-storage'
 import { existingDispatchCheckout } from '../../project-config/dispatch-checkouts'
 import { projectsRootFor, chatFolderFor } from '../../workspace'
 import { restoreSessionCode, CodeRestoreError } from '../../git/session-code-restore'
@@ -23,13 +23,30 @@ import type { PrepareDispatchCheckout } from './dispatch-repository'
 import type { SessionRuntime } from '../session-runtime'
 
 const log = createLogger('SessionSync', 'session-sync.ts')
-const storageRow = z.object({ repository: z.string(), head: z.string().nullable() })
 const steps = ['fetch', 'preflight', 'checkout', 'thread', 'records'] as const
 type Step = typeof steps[number]
 
 export type SourceBundle =
   | { state: 'ready'; repositoryPath: string; head: string; source?: 'cloud' | 'host' }
   | { state: 'current' | 'diverged' | 'no-repository' | 'commit-failed' }
+
+/** What a host asks a source of a session repository for. */
+export interface SessionSourceRequest {
+  sessionId: string
+  /** The head of the local copy; null when this host has none. */
+  have: string | null
+  /** The head the client named; null when it named none. */
+  wantedHead: string | null
+  /** The last run host, as the client named it. */
+  sourceHostId: string | undefined
+  /** Where the source writes what it fetched. */
+  outFile: string
+  signal: AbortSignal
+  actor: Actor
+}
+
+/** A place a session repository comes from: the cloud copy or the last run host. */
+export type SessionSource = (request: SessionSourceRequest) => Promise<SourceBundle>
 
 export type SessionSyncResult =
   | { state: 'current'; head: string }
@@ -40,9 +57,9 @@ export class SessionSyncError extends Error {
 }
 
 export interface SessionSyncDeps {
-  repositoryRoot: string
+  repositories: SessionRepositories
   providerInstalled(provider: AgentId): Promise<boolean>
-  fetchBundle(sessionId: string, have: string | null, wantedHead: string | null, sourceHostId: string | undefined, outFile: string, signal: AbortSignal, actor: Actor): Promise<SourceBundle>
+  fetchBundle: SessionSource
   prepareCheckout: PrepareDispatchCheckout
   claimSession?: (sessionId: string, principal: Principal, isProject: boolean) => Promise<void>
 }
@@ -56,7 +73,7 @@ export class SessionSync {
   constructor(private readonly rt: SessionRuntime, private readonly deps: SessionSyncDeps) {}
 
   localHead(sessionId: string): string | null {
-    return storageRow.nullish().parse(getDb().prepare('SELECT repository, head FROM session_storage WHERE session_id = ?').get(sessionId))?.head ?? null
+    return readSessionStorage(sessionId)?.head ?? null
   }
 
   prepare(request: SessionPrepareRequest, actor: Actor, deviceId?: string): SessionPrepareResult {
@@ -111,7 +128,7 @@ export class SessionSync {
       log.info('session_sync_step', { sessionId, step, status })
     }
     const scratch = await mkdtemp(join(tmpdir(), 'solus-session-sync-'))
-    const local = storageRow.nullish().parse(getDb().prepare('SELECT repository, head FROM session_storage WHERE session_id = ?').get(sessionId))
+    const local = readSessionStorage(sessionId)
     const stagingRoot = join(scratch, 'repositories')
     let currentStep: Step = 'fetch'
     let newWorktree: { projectRoot: string; path: string } | null = null
@@ -119,26 +136,26 @@ export class SessionSync {
       // The manifest is in the source bundle. Nothing local changes before it is read.
       publish('fetch', 'active')
       signal.throwIfAborted()
-      const fetched = await this.deps.fetchBundle(sessionId, local?.head ?? null, request.knownHead, request.sourceHostId, join(scratch, 'source.bundle'), signal, actor)
+      const fetched = await this.deps.fetchBundle({
+        sessionId, have: local?.head ?? null, wantedHead: request.knownHead, sourceHostId: request.sourceHostId,
+        outFile: join(scratch, 'source.bundle'), signal, actor,
+      })
       signal.throwIfAborted()
       if (fetched.state === 'current' && local?.head) {
         publish('fetch', 'done', undefined, undefined, true)
         return { state: 'current', head: local.head }
       }
       if (fetched.state !== 'ready') throw new SessionSyncError(fetched.state === 'diverged' ? 'diverged' : fetched.state === 'commit-failed' ? 'commit-failed' : 'no-repository', `Source host returned ${fetched.state}.`)
-      const stagingRepository = local?.repository ?? sessionRepositoryName('staging', sessionId)
-      const repository = stagingRepository
-      const localPath = join(this.deps.repositoryRoot, `${repository}.git`)
+      const repository = local?.repository ?? sessionRepositoryName('staging', sessionId)
+      const staged = new SessionRepositories(stagingRoot).named(repository, signal)
+      const localPath = this.deps.repositories.named(repository).path
       if (existsSync(localPath)) {
         await mkdir(stagingRoot, { recursive: true })
-        await cp(localPath, join(stagingRoot, `${repository}.git`), { recursive: true })
+        await cp(localPath, staged.path, { recursive: true })
       }
-      const staged = new SessionRepositories(stagingRoot, signal)
-      const refusedRow = z.object({ push_refused_head: z.string().nullable() }).nullish().parse(
-        getDb().prepare('SELECT push_refused_head FROM session_storage WHERE session_id = ?').get(sessionId))
-      const wasRefused = !!refusedRow?.push_refused_head && fetched.source === 'cloud'
-      const head = await staged.fetchBundle(repository, fetched.repositoryPath, wasRefused)
-      const manifest = await staged.readManifest(repository, head)
+      const wasRefused = !!readSessionStorage(sessionId)?.pushRefusedHead && fetched.source === 'cloud'
+      const head = await staged.fetchBundle(fetched.repositoryPath, wasRefused)
+      const manifest = await staged.readManifest(head)
       if (manifest.session.id !== sessionId) throw new SessionSyncError('diverged', 'The bundle names another session.')
       if (local && repository !== sessionRepositoryName(manifest.session.organizationId, sessionId)) throw new SessionSyncError('diverged', 'The bundle names another organization.')
       publish('fetch', 'done')
@@ -187,12 +204,12 @@ export class SessionSync {
           if (entry.bundle?.kind === 'too-large' || entry.bundle?.kind === 'failed') throw new SessionSyncError('code-restore', 'The session code bundle is unavailable.')
           if (entry.bundle?.kind !== 'written') continue
           const file = join(scratch, `code-${index}.bundle`)
-          await staged.appendFiles(repository, head, [`code/${index}.bundle`], file)
+          await staged.appendFiles(head, [`code/${index}.bundle`], file)
           bundleFiles.push(file)
         }
         const previousCheckout = this.rt.sessionCheckouts.getGitContext(sessionId)
         const previousRecord = local?.head ? await getSessionRecord(manifest.session.organizationId, sessionId) : null
-        const previousManifest = local?.head ? await new SessionRepositories(this.deps.repositoryRoot, signal).readManifest(local.repository, local.head) : null
+        const previousManifest = local?.head ? await this.deps.repositories.named(local.repository, signal).readManifest(local.head) : null
         const previousTree = previousManifest?.turns.at(-1)?.snapshots.at(-1)?.toTreeSha
         const restored = await restoreSessionCode({
           projectRoot, sessionId, bundleFiles, baseSha: manifest.project.baseSha,
@@ -219,7 +236,7 @@ export class SessionSync {
         const files = []
         for (const file of thread.files) {
           const path = join(scratch, `thread-${files.length}-${member.threadId}`)
-          await staged.writeThreadFile(repository, head, member.threadId, file, path)
+          await staged.writeThreadFile(head, member.threadId, file, path)
           files.push({ relativePath: file.relativePath, path })
         }
         const backend = this.rt.backendFor(member.provider)
@@ -247,8 +264,7 @@ export class SessionSync {
       if (manifest.session.permissionMode) this.rt.sessionPermissionModes.set(sessionId, manifest.session.permissionMode)
       signal.throwIfAborted()
       const finalRepository = local?.repository ?? sessionRepositoryName(manifest.session.organizationId, sessionId)
-      const finalRepositories = new SessionRepositories(this.deps.repositoryRoot, signal)
-      await finalRepositories.fetchBundle(finalRepository, fetched.repositoryPath, wasRefused)
+      await this.deps.repositories.named(finalRepository, signal).fetchBundle(fetched.repositoryPath, wasRefused)
       getDb().prepare('INSERT INTO session_storage (session_id, repository, head, turn_count) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET head = excluded.head, turn_count = excluded.turn_count')
         .run(sessionId, finalRepository, head, manifest.turns.length)
       // Part C adds this column. A fetched cloud head is already pushed.

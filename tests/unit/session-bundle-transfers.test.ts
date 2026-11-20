@@ -26,7 +26,7 @@ test('a session bundle crosses RPC in bounded chunks and advances another reposi
   const repository = sessionRepositoryName('local', 'bundle-session')
   const payload = join(root, 'payload.bin')
   writeFileSync(payload, randomBytes(2 * 1024 * 1024))
-  const head = await source.commit(repository, { expectedHead: null, message: 'turn', entries: [{ path: 'threads/thread/main/0', file: payload }] })
+  const head = await source.named(repository).commit({ expectedHead: null, message: 'turn', entries: [{ path: 'threads/thread/main/0', file: payload }] })
   const transfers = new SessionBundleTransfers(source)
   try {
     const started = await transfers.start('bundle-session', repository, null, 'person-one')
@@ -44,7 +44,7 @@ test('a session bundle crosses RPC in bounded chunks and advances another reposi
       expect(chunk.done).toBe(offset === started.size)
       appendFileSync(bundle, bytes)
     }
-    expect(await target.fetchBundle(repository, bundle)).toBe(head)
+    expect(await target.named(repository).fetchBundle(bundle)).toBe(head)
     expect(transfers.sessionOf(started.transferId, 'person-one')).toBeNull()
   } finally {
     await transfers.stop()

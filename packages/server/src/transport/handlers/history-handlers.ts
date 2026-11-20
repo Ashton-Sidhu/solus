@@ -11,10 +11,10 @@ import { attributionOf } from '../../admission/actor'
 import { stampComments } from '../../annotations/stored-comments'
 import { notifyAnnotationsChanged } from '../../annotations/annotation-events'
 import { getIndexedSession, getSessionMessageWindow, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
-import { getDb } from '../../db'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { getSessionRecord, organizationOfSession, upsertSessionRecord } from '../../data/sessions/session-records'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
+import { readSessionStorage } from '../../data/sessions/session-storage'
 import { readTranscript, readTranscriptPage, readTranscriptMessageWindow } from '../../data/sessions/transcript-reads'
 import { isApiMode } from '../../host/api-mode'
 import { renamePinnedSession } from '../../data/sessions/pinned-sessions'
@@ -63,10 +63,8 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
     if (!meta) meta = record ? sessionMetaFromRecord(record) : null
     if (!meta) return null
-    const storage = !isApiMode() ? z.object({ head: z.string().nullable(), turn_count: z.number(), push_refused_head: z.string().nullable() }).nullish().parse(
-      getDb().prepare('SELECT head, turn_count, push_refused_head FROM session_storage WHERE session_id = ?').get(sessionId),
-    ) : null
-    if (!isApiMode()) meta = { ...meta, head: storage?.head ?? null, syncedTurn: storage?.turn_count ?? 0, pushRefused: !!storage?.push_refused_head }
+    const storage = !isApiMode() ? readSessionStorage(sessionId) : null
+    if (!isApiMode()) meta = { ...meta, head: storage?.head ?? null, syncedTurn: storage?.turnCount ?? 0, pushRefused: !!storage?.pushRefusedHead }
     if (!record) return meta
     const described: SessionMeta = { ...meta, organizationId: record.organizationId, publication: record.publication }
     if (record.isLead) described.isLead = true

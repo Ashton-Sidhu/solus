@@ -1,24 +1,29 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
-import { type SessionCloudScope, type SessionRepositoryCard } from '@solus/contracts/session-repositories'
+import type { SessionRepositoryCard } from '@solus/contracts/session-repositories'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { getSessionRecord } from '../../data/sessions/session-records'
+import { readSessionStorage } from '../../data/sessions/session-storage'
 import { getDb } from '../../db'
 import { sessionCloudSyncDecision } from '../../host/policy/host-policy-store'
 import { cloudAccountOf } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { DelegationError } from '../delegations'
-import { sessionManifestSchema } from './session-manifest'
-import type { SessionRemoteAccess } from './session-remote-access'
+import type { SessionCloudIdentity, SessionRemoteAccess } from './session-remote-access'
 import type { SessionRepositories } from './session-repository'
-import { sessionCloudScope } from './session-cloud-scope'
+import { sessionCloudIdentity } from './session-cloud-identity'
 
 const log = createLogger('SessionPush', 'session-push.ts')
-const refusedRowSchema = z.object({ push_refused_head: z.string().nullable() })
 const rowSchema = z.object({ session_id: z.string(), repository: z.string(), head: z.string().nullable(), turn_count: z.number(),
   cloud_scope: z.string().nullable(), pushed_head: z.string().nullable(), reported_head: z.string().nullable(),
   push_due_at: z.number().nullable(), push_attempts: z.number(), push_refused_head: z.string().nullable() })
 type Row = z.infer<typeof rowSchema>
+/** Where the repository of one session goes in the cloud: who pushes it, and from which host. */
+interface PushTarget {
+  hostId: string
+  identity: SessionCloudIdentity
+  provider: SessionRepositoryCard['provider']
+}
 const MAX_BACKOFF_MS = 30 * 60_000
 
 export interface SessionPushDeps {
@@ -51,8 +56,7 @@ export class SessionPusher {
 
   /** A non-null answer stops all later pushes of this session on this host. */
   refusedHead(sessionId: string): string | null {
-    const row = refusedRowSchema.nullish().parse(this.database().prepare('SELECT push_refused_head FROM session_storage WHERE session_id = ?').get(sessionId))
-    return row?.push_refused_head ?? null
+    return readSessionStorage(sessionId, this.database())?.pushRefusedHead ?? null
   }
 
   /** A turn commit landed. Add only a push job; do not hold the commit queue. */
@@ -61,14 +65,8 @@ export class SessionPusher {
   /** A running report does not delay turn admission. */
   running(sessionId: string): void {
     void (async () => {
-      const record = await (this.deps.record ?? getSessionRecord)(ANY_ORGANIZATION, sessionId)
-      if (!record) return
-      const accountId = (this.deps.accountOf ?? cloudAccountOf)(record.ownerKey)
-      if (!(this.deps.decision ?? sessionCloudSyncDecision)(record.organizationId, accountId ? { accountId } : null).allowed || !accountId) return
-      const hostId = this.deps.hostId()
-      if (!hostId) return
-      const cloudScope = sessionCloudScope(record, accountId)
-      await this.deps.access.report({ hostId, sessionId, event: 'running' }, cloudScope, accountId)
+      const target = await this.target(sessionId)
+      if (target) await this.deps.access.report({ hostId: target.hostId, sessionId, event: 'running' }, target.identity)
     })().catch(() => { log.warn('session_running_report_failed', { sessionId }) })
   }
 
@@ -113,29 +111,36 @@ export class SessionPusher {
     const row = this.row(sessionId)
     if (!row?.head || row.push_refused_head) return
     if ((row.push_due_at ?? 0) > this.now()) { this.wake((row.push_due_at ?? 0) - this.now()); return }
-    const record = await (this.deps.record ?? getSessionRecord)(ANY_ORGANIZATION, sessionId)
-    if (!record) return
-    const accountId = (this.deps.accountOf ?? cloudAccountOf)(record.ownerKey)
-    const decision = (this.deps.decision ?? sessionCloudSyncDecision)(record.organizationId, accountId ? { accountId } : null)
-    if (!decision.allowed || !accountId) return
-    const hostId = this.deps.hostId()
-    if (!hostId) return
-    const cloudScope = sessionCloudScope(record, accountId)
-    this.database().prepare('UPDATE session_storage SET cloud_scope = ? WHERE session_id = ?').run(cloudScope, sessionId)
-    if (row.head !== row.pushed_head && !await this.pushHead(row, cloudScope, accountId, sessionId)) return
-    if (!await this.reportHead(row, cloudScope, accountId, hostId, sessionId, record.provider)) return
+    const target = await this.target(sessionId)
+    if (!target) return
+    this.database().prepare('UPDATE session_storage SET cloud_scope = ? WHERE session_id = ?').run(target.identity.cloudScope, sessionId)
+    if (row.head !== row.pushed_head && !await this.pushHead(row, target)) return
+    if (!await this.reportHead(row, target)) return
     if (this.row(sessionId)?.head !== row.head) this.enqueue(sessionId)
   }
 
-  private async reportHead(row: Row, cloudScope: SessionCloudScope, accountId: string, hostId: string, sessionId: string, provider: SessionRepositoryCard['provider']): Promise<boolean> {
+  /** Null when the session must not go to the cloud from this host now. */
+  private async target(sessionId: string): Promise<PushTarget | null> {
+    const record = await (this.deps.record ?? getSessionRecord)(ANY_ORGANIZATION, sessionId)
+    if (!record) return null
+    const accountId = (this.deps.accountOf ?? cloudAccountOf)(record.ownerKey)
+    const decision = (this.deps.decision ?? sessionCloudSyncDecision)(record.organizationId, accountId ? { accountId } : null)
+    if (!decision.allowed || !accountId) return null
+    const hostId = this.deps.hostId()
+    if (!hostId) return null
+    return { hostId, identity: sessionCloudIdentity(record, accountId), provider: record.provider }
+  }
+
+  private async reportHead(row: Row, target: PushTarget): Promise<boolean> {
     const head = row.head
+    const sessionId = row.session_id
     if (head && head !== row.reported_head) {
-      const manifest = sessionManifestSchema.parse(JSON.parse(await this.deps.repositories.readText(row.repository, head, 'manifest.json')))
+      const manifest = await this.deps.repositories.named(row.repository).readManifest(head)
       const lastTurn = manifest.turns.at(-1)
-      const card: SessionRepositoryCard = { title: manifest.session.title ?? null, provider,
+      const card: SessionRepositoryCard = { title: manifest.session.title ?? null, provider: target.provider,
         model: manifest.session.model ?? null, repositoryKey: manifest.project?.repositoryKey ?? null,
         branch: lastTurn?.head?.branch ?? null, lastActivityAt: lastTurn?.endedAt ?? this.now() }
-      const result = await this.deps.access.report({ hostId, sessionId, event: 'pushed', head, syncedTurn: row.turn_count, card }, cloudScope, accountId)
+      const result = await this.deps.access.report({ hostId: target.hostId, sessionId, event: 'pushed', head, syncedTurn: row.turn_count, card }, target.identity)
       if (result !== 'accepted') { this.defer(sessionId, 60 * 60_000, 'The session head was not reported.'); return false }
       this.database().prepare('UPDATE session_storage SET reported_head = ?, push_attempts = 0, push_due_at = NULL, push_error = NULL WHERE session_id = ?')
         .run(head, sessionId)
@@ -143,12 +148,13 @@ export class SessionPusher {
     return true
   }
 
-  private async pushHead(row: Row, cloudScope: SessionCloudScope, accountId: string, sessionId: string): Promise<boolean> {
+  private async pushHead(row: Row, target: PushTarget): Promise<boolean> {
     const head = row.head
+    const sessionId = row.session_id
     if (head && head !== row.pushed_head) {
-      const answer = await this.deps.access.remote(sessionId, cloudScope, accountId, 'write')
+      const answer = await this.deps.access.remote(sessionId, target.identity, 'write')
       if (answer.status === 'unavailable') { this.defer(sessionId, 60 * 60_000, 'Cloud session storage is not available.'); return false }
-      const result = await this.deps.repositories.push(row.repository, answer.remote.remote, head, row.pushed_head, answer.remote.token || undefined, this.active.signal)
+      const result = await this.deps.repositories.named(row.repository).push(answer.remote.remote, head, row.pushed_head, answer.remote.token || undefined, this.active.signal)
       if (result.status === 'refused') {
         this.database().prepare('UPDATE session_storage SET push_refused_head = ?, push_due_at = NULL, push_error = ? WHERE session_id = ?')
           .run(result.head, 'The remote session has another history.', sessionId)

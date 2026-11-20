@@ -10,6 +10,7 @@ import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { getSessionRecord } from '../../data/sessions/session-records'
+import { readSessionStorage } from '../../data/sessions/session-storage'
 import { getDb, withTx } from '../../db'
 import { runAsync } from '../../git/exec'
 import { resolveRepoRoot, resolveRepositoryKey } from '../../git/git-helpers'
@@ -18,8 +19,8 @@ import { getSessionBaseSha, getSessionPaths, listTurnSnapshots } from '../../git
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
 import { captureActingScope, withActingScope, withUserScope } from '../../vault/acting-scope'
-import { emptySessionManifest, sessionManifestSchema, type SessionManifest, type SessionManifestThreadFile, type SessionManifestTurn } from './session-manifest'
-import { SessionHeadMovedError, SessionRepositories, sessionRepositoryName, type TurnCommitEntry } from './session-repository'
+import { emptySessionManifest, type SessionManifest, type SessionManifestThreadFile, type SessionManifestTurn } from './session-manifest'
+import { SessionHeadMovedError, sessionRepositoryName, type SessionRepositories, type SessionRepository, type TurnCommitEntry } from './session-repository'
 
 const log = createLogger('SessionArchive', 'session-archive-writer.ts')
 
@@ -90,7 +91,6 @@ const pendingTurnSchema = z.object({
 })
 type PendingTurn = z.infer<typeof pendingTurnSchema>
 
-const storageRowSchema = z.object({ repository: z.string(), head: z.string().nullable() })
 const pendingRowSchema = z.object({ operation_id: z.string(), facts: z.string() })
 const sessionIdRowSchema = z.object({ session_id: z.string() })
 
@@ -277,19 +277,18 @@ export class SessionArchiveWriter {
   private async writePending(sessionId: string): Promise<void> {
     const db = this.database()
     for (;;) {
-      const storage = storageRowSchema.nullish().parse(db.prepare('SELECT repository, head FROM session_storage WHERE session_id = ?').get(sessionId))
+      const storage = readSessionStorage(sessionId, db)
       const row = pendingRowSchema.nullish().parse(db.prepare(
         'SELECT operation_id, facts FROM session_storage_turns WHERE session_id = ? ORDER BY created_at, rowid LIMIT 1').get(sessionId))
       if (!storage || !row) return
       const pending = pendingTurnSchema.parse(JSON.parse(row.facts))
+      const repository = this.deps.repositories.named(storage.repository)
       // The repository is the truth for its head: a commit can land before the row that records it.
-      const head = await this.deps.repositories.head(storage.repository)
-      const manifest = head
-        ? sessionManifestSchema.parse(JSON.parse(await this.deps.repositories.readText(storage.repository, head, 'manifest.json')))
-        : emptySessionManifest(sessionId, pending.organizationId)
+      const head = await repository.head()
+      const manifest = head ? await repository.readManifest(head) : emptySessionManifest(sessionId, pending.organizationId)
       const commit = manifest.turns.some((turn) => turn.operationId === row.operation_id)
         ? head
-        : await this.commitTurn(storage.repository, head, manifest, row.operation_id, pending)
+        : await this.commitTurn(repository, head, manifest, row.operation_id, pending)
       withTx(() => {
         db.prepare('UPDATE session_storage SET head = ?, turn_count = ?, error = NULL WHERE session_id = ?').run(commit, manifest.turns.length, sessionId)
         db.prepare('DELETE FROM session_storage_turns WHERE operation_id = ?').run(row.operation_id)
@@ -299,7 +298,7 @@ export class SessionArchiveWriter {
   }
 
   /** Build and write the commit of one turn; answers the head after it. A turn with nothing new writes no commit. */
-  private async commitTurn(repository: string, head: string | null, manifest: SessionManifest, operationId: string, pending: PendingTurn): Promise<string | null> {
+  private async commitTurn(repository: SessionRepository, head: string | null, manifest: SessionManifest, operationId: string, pending: PendingTurn): Promise<string | null> {
     const index = manifest.turns.length
     const scratch = await mkdtemp(join(tmpdir(), 'solus-session-turn-'))
     try {
@@ -334,7 +333,7 @@ export class SessionArchiveWriter {
       manifest.turns.push(turn)
       entries.push({ path: 'manifest.json', content: JSON.stringify(manifest) })
       try {
-        return await this.deps.repositories.commit(repository, { expectedHead: head, message: `Solus session turn ${index} ${operationId}`, entries })
+        return await repository.commit({ expectedHead: head, message: `Solus session turn ${index} ${operationId}`, entries })
       } catch (error) {
         // Only this writer commits to a local copy. A moved head is a commit of this turn that already landed; the next pass reads it.
         if (error instanceof SessionHeadMovedError) log.warn('session_repository_head_moved', { sessionId: manifest.session.id })

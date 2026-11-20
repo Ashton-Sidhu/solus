@@ -1,18 +1,14 @@
 import { open } from 'node:fs/promises'
 import type { RemoteHosts, ReachRequest } from '../orchestration/remote-hosts'
-import { SessionSyncError, type SourceBundle } from './session-sync'
+import { SessionSyncError, type SessionSourceRequest, type SourceBundle } from './session-sync'
 
 const CHUNK_BYTES = 1024 * 1024
 
-/** The one source seam for a session repository. Cloud storage can replace this transport. */
+/** The last run host as a source: its copy comes over bounded RPC calls. */
 export async function fetchSessionBundle(
   hosts: RemoteHosts,
   reach: ReachRequest,
-  sessionId: string,
-  have: string | null,
-  sourceHostId: string | undefined,
-  outFile: string,
-  signal: AbortSignal,
+  { sessionId, have, sourceHostId, outFile, signal }: SessionSourceRequest,
 ): Promise<SourceBundle> {
   if (!sourceHostId) throw new SessionSyncError('source-offline', 'The last run host is not known.')
   const target = await hosts.find(reach, sourceHostId)

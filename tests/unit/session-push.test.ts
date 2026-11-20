@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { emptySessionManifest } from '@solus/server/sync/sessions/session-manifest'
 import type { SessionRemoteAccess } from '@solus/server/sync/sessions/session-remote-access'
 import type { SessionPushDeps } from '@solus/server/sync/sessions/session-push'
+import type { SessionRepositories as Repositories, SessionRepository } from '@solus/server/sync/sessions/session-repository'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 const root = mkdtempSync(join(tmpdir(), 'solus-session-push-'))
@@ -24,6 +25,19 @@ beforeAll(async () => {
 })
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
+type Push = SessionRepository['push']
+
+/** `repos`, with each push of each copy sent through `push`. `real` is the push of the copy. */
+function withPush(repos: Repositories, push: (real: Push, ...args: Parameters<Push>) => ReturnType<Push>): void {
+  const named = repos.named.bind(repos)
+  repos.named = (...args) => {
+    const repository = named(...args)
+    const real = repository.push.bind(repository)
+    repository.push = (...pushArgs) => push(real, ...pushArgs)
+    return repository
+  }
+}
+
 let serial = 0
 async function fixture() {
   const folder = join(root, String(++serial))
@@ -38,7 +52,7 @@ async function fixture() {
   const manifest = emptySessionManifest('test-session', 'local')
   manifest.turns.push({ operationId: 'one', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false,
     head: null, snapshots: [], bundle: null, hasDiff: false })
-  const first = await repos.commit(repository, { expectedHead: null, message: 'first', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
+  const first = await repos.named(repository).commit({ expectedHead: null, message: 'first', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
   db.prepare('INSERT INTO session_storage (session_id, repository, head, turn_count) VALUES (?, ?, ?, 1)').run('test-session', repository, first)
   const reports: string[] = []
   const access: SessionRemoteAccess = {
@@ -73,7 +87,7 @@ test('first push and report', async () => {
 // WHY: A restart after the remote accepted a push must record its head without replacing it.
 test('lost response is reconciled from the remote', async () => {
   const f = await fixture()
-  expect((await f.repos.push(f.repository, pathToFileURL(f.remote).href, f.first, null)).status).toBe('accepted')
+  expect((await f.repos.named(f.repository).push(pathToFileURL(f.remote).href, f.first, null)).status).toBe('accepted')
   const pusher = new SessionPusher(f.deps)
   pusher.resume()
   await pusher.idle()
@@ -86,7 +100,7 @@ test('lost response is reconciled from the remote', async () => {
 // WHY: A report retry must not send the same Git history a second time.
 test('report resumes after the pushed row is durable', async () => {
   const f = await fixture()
-  await f.repos.push(f.repository, pathToFileURL(f.remote).href, f.first, null)
+  await f.repos.named(f.repository).push(pathToFileURL(f.remote).href, f.first, null)
   f.db.prepare('UPDATE session_storage SET pushed_head = ?').run(f.first)
   const pusher = new SessionPusher(f.deps)
   pusher.resume()
@@ -119,7 +133,7 @@ test('next push advances main', async () => {
     head: null, snapshots: [], bundle: null, hasDiff: false })
   manifest.turns.push({ operationId: 'two', endedAt: 2, provider: 'codex', threadId: 'thread', partial: false,
     head: null, snapshots: [], bundle: null, hasDiff: false })
-  const second = await f.repos.commit(f.repository, { expectedHead: f.first, message: 'second', entries: [
+  const second = await f.repos.named(f.repository).commit({ expectedHead: f.first, message: 'second', entries: [
     { path: 'manifest.json', content: JSON.stringify(manifest) },
   ] })
   f.db.prepare('UPDATE session_storage SET head = ?, turn_count = 2').run(second)
@@ -134,9 +148,9 @@ test('next push advances main', async () => {
 // WHY: A host must not overwrite turns that another host pushed first.
 test('divergent remote is refused and stays unchanged', async () => {
   const f = await fixture()
-  await f.repos.push(f.repository, pathToFileURL(f.remote).href, f.first, null)
+  await f.repos.named(f.repository).push(pathToFileURL(f.remote).href, f.first, null)
   f.db.prepare('UPDATE session_storage SET pushed_head = ?, reported_head = ?').run(f.first, f.first)
-  const second = await f.repos.commit(f.repository, { expectedHead: f.first, message: 'our turn', entries: [
+  const second = await f.repos.named(f.repository).commit({ expectedHead: f.first, message: 'our turn', entries: [
     { path: 'other', content: 'ours' },
   ] })
   f.db.prepare('UPDATE session_storage SET head = ?, turn_count = 2').run(second)
@@ -186,12 +200,11 @@ test('a hanging push does not delay a turn commit', async () => {
   const entered = new Promise<void>(resolve => { started = resolve })
   let release = () => {}
   const hanging = new Promise<void>(resolve => { release = resolve })
-  const originalPush = f.repos.push.bind(f.repos)
-  f.repos.push = async (...args) => { started(); await hanging; return originalPush(...args) }
+  withPush(f.repos, async (real, ...args) => { started(); await hanging; return real(...args) })
   const pusher = new SessionPusher(f.deps)
   pusher.committed('test-session')
   await entered
-  const next = await f.repos.commit(f.repository, { expectedHead: f.first, message: 'next', entries: [
+  const next = await f.repos.named(f.repository).commit({ expectedHead: f.first, message: 'next', entries: [
     { path: 'next', content: 'local turn' },
   ] })
   expect(next).not.toBe(f.first)
@@ -208,11 +221,11 @@ test('sign-out stops an in-flight push', async () => {
   const entered = new Promise<void>(resolve => { started = resolve })
   let release = () => {}
   const hanging = new Promise<void>(resolve => { release = resolve })
-  f.repos.push = async (_repository, _remote, _commit, _expected, _token, signal) => {
+  withPush(f.repos, async (_real, _remote, _commit, _expected, _token, signal) => {
     started()
     await hanging
     return { status: 'failed', reason: signal?.aborted ? 'timeout' : 'transport' }
-  }
+  })
   const pusher = new SessionPusher(f.deps)
   pusher.committed('test-session')
   await entered

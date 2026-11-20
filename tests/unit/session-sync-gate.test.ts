@@ -42,7 +42,7 @@ test('equal or absent heads do not fetch', () => {
   // SAFETY: the gate stops before it uses any runtime method in this test.
   const runtime = {} as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositoryRoot: root,
+    repositories: new SessionRepositories(root),
     providerInstalled: async () => true,
     fetchBundle: async () => { fetches++; return { state: 'no-repository' } },
     prepareCheckout: async () => { throw new Error('Unexpected checkout') },
@@ -57,7 +57,7 @@ test('equal or absent heads do not fetch', () => {
 test('a stale client head can find this host current', async () => {
   const runtime = { publish: () => {} } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositoryRoot: root, providerInstalled: async () => true,
+    repositories: new SessionRepositories(root), providerInstalled: async () => true,
     fetchBundle: async () => ({ state: 'current' }),
     prepareCheckout: async () => { throw new Error('Unexpected checkout') },
   })
@@ -75,9 +75,9 @@ test('different heads join one sync and Stop aborts it', async () => {
   // SAFETY: fetch stops before the remaining runtime methods are reached.
   const runtime = { publish: (_sessionId: string, event: { type: string }) => events.push(event.type) } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositoryRoot: root,
+    repositories: new SessionRepositories(root),
     providerInstalled: async () => true,
-    fetchBundle: async (_sessionId, _have, _wanted, _source, _outFile, signal) => {
+    fetchBundle: async ({ signal }) => {
       fetches++
       started?.()
       await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
@@ -113,7 +113,7 @@ test('a projectless session sync imports its thread and record at the same id', 
     { key: 'main', relativePath: 'thread.jsonl', length: 6, parts: [0] },
   ] }]
   manifest.turns = [{ operationId: 'turn-one', endedAt: Date.now(), provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }]
-  const head = await source.commit(repository, { expectedHead: null, message: 'turn', entries: [
+  const head = await source.named(repository).commit({ expectedHead: null, message: 'turn', entries: [
     { path: `threads/${threadId}/main/0`, content: 'hello\n' },
     { path: 'manifest.json', content: JSON.stringify(manifest) },
   ] })
@@ -130,10 +130,10 @@ test('a projectless session sync imports its thread and record at the same id', 
     } }),
   } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositoryRoot: join(root, 'destination'),
+    repositories: new SessionRepositories(join(root), 'destination'),
     providerInstalled: async () => true,
-    fetchBundle: async (_id, _have, _wanted, _sourceHostId, outFile) => {
-      await source.bundleSince(repository, null, outFile)
+    fetchBundle: async ({ outFile }) => {
+      await source.named(repository).bundleSince(null, outFile)
       return { state: 'ready', repositoryPath: outFile, head }
     },
     prepareCheckout: async () => { throw new Error('Projectless sync must not prepare a checkout') },
@@ -199,7 +199,7 @@ test('a project sync restores the exact tree and binds the same session id', asy
   ] }]
   manifest.turns = [{ operationId: 'turn-one', endedAt: Date.now(), provider: 'claude-code', threadId, partial: false,
     head: { sha: git(workA, ['rev-parse', 'HEAD']), branch: 'session-branch' }, snapshots, bundle, hasDiff: false }]
-  const head = await source.commit(repository, { expectedHead: null, message: 'turn', entries: [
+  const head = await source.named(repository).commit({ expectedHead: null, message: 'turn', entries: [
     { path: `threads/${threadId}/main/0`, content: 'hello\n' },
     { path: 'code/0.bundle', file: codeBundle },
     { path: 'manifest.json', content: JSON.stringify(manifest) },
@@ -217,10 +217,10 @@ test('a project sync restores the exact tree and binds the same session id', asy
     sessionCheckouts: { getGitContext: () => undefined, setSessionGitEnvironment: (_id: string, path: string) => { checkoutPath = path } },
   } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositoryRoot: join(root, 'destination-project'),
+    repositories: new SessionRepositories(join(root), 'destination-project'),
     providerInstalled: async () => true,
-    fetchBundle: async (_id, _have, _wanted, _source, outFile) => {
-      await source.bundleSince(repository, null, outFile)
+    fetchBundle: async ({ outFile }) => {
+      await source.named(repository).bundleSince(null, outFile)
       return { state: 'ready', repositoryPath: outFile, head }
     },
     prepareCheckout: async () => { throw new Error('The existing checkout must be used') },
@@ -253,15 +253,15 @@ test('preflight, offline source, divergence, and thread conflict keep the reposi
   manifest.lineage = [{ threadId, provider: 'claude-code', startedAs: 'start' }]
   manifest.threads = [{ threadId, provider: 'claude-code', files: [{ key: 'main', relativePath: 'thread.jsonl', length: 6, parts: [0] }] }]
   manifest.turns = [{ operationId: 'one', endedAt: Date.now(), provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }]
-  const head = await source.commit(repository, { expectedHead: null, message: 'turn', entries: [
+  const head = await source.named(repository).commit({ expectedHead: null, message: 'turn', entries: [
     { path: `threads/${threadId}/main/0`, content: 'hello\n' }, { path: 'manifest.json', content: JSON.stringify(manifest) },
   ] })
   const destination = join(root, 'failure-destination')
   const request = { sessionId, knownHead: head, sourceHostId: 'source' }
-  const sourceBundle = async (_id: string, _have: string | null, _wanted: string | null, _source: string | undefined, outFile: string) => {
+  const sourceBundle = async ({ outFile }: { outFile: string }) => {
     // WHY: the transfer writes only into the sync's disposable directory, never the process directory.
     expect(isAbsolute(outFile)).toBe(true)
-    await source.bundleSince(repository, null, outFile)
+    await source.named(repository).bundleSince(null, outFile)
     return { state: 'ready' as const, repositoryPath: outFile, head }
   }
   const runtimeFor = (importStatus: 'written' | 'conflict') => ({
@@ -276,14 +276,14 @@ test('preflight, offline source, divergence, and thread conflict keep the reposi
   ]
   for (const entry of cases) {
     const sync = new SessionSync(runtimeFor(entry.importStatus), {
-      repositoryRoot: destination, providerInstalled: async () => entry.installed,
+      repositories: new SessionRepositories(destination), providerInstalled: async () => entry.installed,
       fetchBundle: entry.fetchBundle,
       prepareCheckout: async () => { throw new Error('No project checkout expected') },
     })
     expect(sync.prepare(request, HOST_ACTOR)).toEqual({ state: 'started' })
     expect(await sync.wait(sessionId)).toMatchObject({ state: 'failed', reason: entry.reason })
     expect(sync.localHead(sessionId)).toBeNull()
-    expect(existsSync(join(destination, `${repository}.git`))).toBe(false)
+    expect(existsSync(new SessionRepositories(destination).named(repository).path)).toBe(false)
   }
 })
 
@@ -300,7 +300,7 @@ test('code restore reports its typed failure without a worktree', async () => {
   manifest.project = { repositoryKey: 'github.com/acme/missing-code', baseSha: 'a'.repeat(40), ownsWorktree: true }
   manifest.turns = [{ operationId: 'one', endedAt: Date.now(), provider: 'claude-code', threadId, partial: false,
     head: { sha: 'b'.repeat(40), branch: 'session' }, snapshots: [], bundle: { kind: 'empty' }, hasDiff: false }]
-  const head = await source.commit(repository, { expectedHead: null, message: 'turn', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
+  const head = await source.named(repository).commit({ expectedHead: null, message: 'turn', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
   const checkout = join(root, 'missing-code-checkout')
   mkdirSync(checkout)
   git(checkout, ['init'])
@@ -309,8 +309,8 @@ test('code restore reports its typed failure without a worktree', async () => {
     backendFor: () => ({ importThread: async () => ({ files: [], bytesWritten: 0 }) }),
     sessionCheckouts: { getGitContext: () => undefined } } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositoryRoot: join(root, 'code-failure-destination'), providerInstalled: async () => true,
-    fetchBundle: async (_id, _have, _wanted, _source, outFile) => { await source.bundleSince(repository, null, outFile); return { state: 'ready', repositoryPath: outFile, head } },
+    repositories: new SessionRepositories(join(root), 'code-failure-destination'), providerInstalled: async () => true,
+    fetchBundle: async ({ outFile }) => { await source.named(repository).bundleSince(null, outFile); return { state: 'ready', repositoryPath: outFile, head } },
     prepareCheckout: async () => checkout,
   })
   expect(sync.prepare({ sessionId, knownHead: head, sourceHostId: 'source', repository: { cloneUrl: 'https://github.com/acme/missing-code.git' } }, HOST_ACTOR)).toEqual({ state: 'started' })
@@ -330,7 +330,7 @@ test('Stop interrupts every sync step before the local head advances', async () 
   manifest.lineage = [{ threadId, provider: 'claude-code', startedAs: 'start' }]
   manifest.threads = [{ threadId, provider: 'claude-code', files: [] }]
   manifest.turns = [{ operationId: 'one', endedAt: Date.now(), provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }]
-  const head = await source.commit(repository, { expectedHead: null, message: 'turn', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
+  const head = await source.named(repository).commit({ expectedHead: null, message: 'turn', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
   for (const stopAt of ['preflight', 'fetch', 'checkout', 'thread', 'records']) {
     let sync!: InstanceType<typeof SessionSync>
     // SAFETY: the fake backend writes no provider files; the test stops before records.
@@ -342,8 +342,8 @@ test('Stop interrupts every sync step before the local head advances', async () 
       backendFor: () => ({ importThread: async () => ({ files: [], bytesWritten: 0 }) }),
     } as SessionRuntime
     sync = new SessionSync(runtime, {
-      repositoryRoot: join(root, 'stop-destination'), providerInstalled: async () => true,
-      fetchBundle: async (_id, _have, _wanted, _source, outFile) => { await source.bundleSince(repository, null, outFile); return { state: 'ready', repositoryPath: outFile, head } },
+      repositories: new SessionRepositories(join(root), 'stop-destination'), providerInstalled: async () => true,
+      fetchBundle: async ({ outFile }) => { await source.named(repository).bundleSince(null, outFile); return { state: 'ready', repositoryPath: outFile, head } },
       prepareCheckout: async () => { throw new Error('No checkout expected') },
     })
     expect(sync.prepare({ sessionId, knownHead: head, sourceHostId: 'source' }, HOST_ACTOR)).toEqual({ state: 'started' })
@@ -360,13 +360,12 @@ test('a full projectless sync can fetch a file remote', async () => {
   const sessionId = 'portable-cloud-chat'
   const threadId = 'thread-portable-cloud-chat'
   const repository = sessionRepositoryName('local', sessionId)
-  const sourceRoot = join(root, 'source-cloud-chat')
-  const source = new SessionRepositories(sourceRoot)
+  const source = new SessionRepositories(join(root, 'source-cloud-chat'))
   const manifest = emptySessionManifest(sessionId, 'local')
   manifest.lineage = [{ threadId, provider: 'claude-code', startedAs: 'start' }]
   manifest.threads = [{ threadId, provider: 'claude-code', files: [{ key: 'main', relativePath: 'thread.jsonl', length: 6, parts: [0] }] }]
   manifest.turns = [{ operationId: 'one', endedAt: Date.now(), provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }]
-  const head = await source.commit(repository, { expectedHead: null, message: 'turn', entries: [
+  const head = await source.named(repository).commit({ expectedHead: null, message: 'turn', entries: [
     { path: `threads/${threadId}/main/0`, content: 'hello\n' }, { path: 'manifest.json', content: JSON.stringify(manifest) },
   ] })
   let imported = ''
@@ -378,12 +377,12 @@ test('a full projectless sync can fetch a file remote', async () => {
     } }),
   } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositoryRoot: join(root, 'destination-cloud-chat'), providerInstalled: async () => true,
-    fetchBundle: (id, have, wanted, _host, outFile, signal, actor) => fetchSessionArtifacts(async () => ({
-      repository, remote: pathToFileURL(join(sourceRoot, `${repository}.git`)).href, token: '',
+    repositories: new SessionRepositories(join(root), 'destination-cloud-chat'), providerInstalled: async () => true,
+    fetchBundle: request => fetchSessionArtifacts(async () => ({
+      repository, remote: pathToFileURL(source.named(repository).path).href, token: '',
       expiresAt: new Date(Date.now() + 60_000).toISOString(), storageScope: 'test',
       head, syncedTurn: 1, lastRunHostId: 'host-a', runningHostId: null,
-    }), null, id, actor, have, wanted, outFile, signal),
+    }), null, request),
     prepareCheckout: async () => { throw new Error('Projectless sync must not prepare a checkout') },
   })
   expect(sync.prepare({ sessionId, knownHead: head }, HOST_ACTOR)).toEqual({ state: 'started' })
@@ -400,23 +399,22 @@ test('preparing the newer cloud copy retains refused turns and admits another pr
   const sessionId = 'portable-refused-cloud'
   const threadId = 'thread-portable-refused-cloud'
   const repository = sessionRepositoryName('local', sessionId)
-  const sourceRoot = join(root, 'refused-cloud-source')
   const localRoot = join(root, 'refused-cloud-local')
-  const remote = new SessionRepositories(sourceRoot)
+  const remote = new SessionRepositories(join(root, 'refused-cloud-source'))
   const local = new SessionRepositories(localRoot)
   const manifest = emptySessionManifest(sessionId, 'local')
   manifest.lineage = [{ threadId, provider: 'claude-code', startedAs: 'start' }]
   manifest.threads = [{ threadId, provider: 'claude-code', files: [{ key: 'main', relativePath: 'thread.jsonl', length: 5, parts: [0] }] }]
   manifest.turns = [{ operationId: 'base', endedAt: 1, provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }]
-  const base = await remote.commit(repository, { expectedHead: null, message: 'base', entries: [
+  const base = await remote.named(repository).commit({ expectedHead: null, message: 'base', entries: [
     { path: `threads/${threadId}/main/0`, content: 'base\n' }, { path: 'manifest.json', content: JSON.stringify(manifest) },
   ] })
   const firstBundle = join(root, 'refused-base.bundle')
-  await remote.bundleSince(repository, null, firstBundle)
-  await local.fetchBundle(repository, firstBundle)
-  const localHead = await local.commit(repository, { expectedHead: base, message: 'local turn', entries: [{ path: 'local-turn', content: 'ours' }] })
+  await remote.named(repository).bundleSince(null, firstBundle)
+  await local.named(repository).fetchBundle(firstBundle)
+  const localHead = await local.named(repository).commit({ expectedHead: base, message: 'local turn', entries: [{ path: 'local-turn', content: 'ours' }] })
   manifest.turns.push({ operationId: 'remote', endedAt: 2, provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false })
-  const cloudHead = await remote.commit(repository, { expectedHead: base, message: 'cloud turn', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
+  const cloudHead = await remote.named(repository).commit({ expectedHead: base, message: 'cloud turn', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
   getDb().prepare('INSERT INTO session_storage (session_id, repository, head, turn_count, push_refused_head) VALUES (?, ?, ?, 2, ?)')
     .run(sessionId, repository, localHead, cloudHead)
   const dispatch = new PromptDispatch({} as SessionRuntime)
@@ -427,12 +425,12 @@ test('preparing the newer cloud copy retains refused turns and admits another pr
     backendFor: () => ({ importThread: async () => ({ files: [{ relativePath: 'thread.jsonl', status: 'written', bytes: 5 }], bytesWritten: 5 }) }),
   } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositoryRoot: localRoot, providerInstalled: async () => true,
-    fetchBundle: (id, _have, wanted, _host, outFile, signal, actor) => fetchSessionArtifacts(async () => ({
-      repository, remote: pathToFileURL(join(sourceRoot, `${repository}.git`)).href, token: '',
+    repositories: local, providerInstalled: async () => true,
+    fetchBundle: request => fetchSessionArtifacts(async () => ({
+      repository, remote: pathToFileURL(remote.named(repository).path).href, token: '',
       expiresAt: new Date(Date.now() + 60_000).toISOString(), storageScope: 'test',
       head: cloudHead, syncedTurn: 2, lastRunHostId: 'host-a', runningHostId: null,
-    }), join(localRoot, `${repository}.git`), id, actor, null, wanted, outFile, signal),
+    }), local.named(repository).path, { ...request, have: null }),
     prepareCheckout: async () => { throw new Error('No project checkout expected') },
   })
   expect(sync.prepare({ sessionId, knownHead: cloudHead }, HOST_ACTOR)).toEqual({ state: 'started' })
@@ -453,6 +451,6 @@ test('preparing the newer cloud copy retains refused turns and admits another pr
     agentIdFromContext: () => 'claude-code', exchangeProgress: () => undefined,
   })
   expect((await sessionInfo!([sessionId], { principal: HOST_ACTOR.principal } as HandlerCtx))?.pushRefused).toBe(false)
-  expect(await local.readText(repository, localHead, 'local-turn')).toBe('ours')
-  expect(git(localRoot, ['--git-dir', join(localRoot, `${repository}.git`), 'rev-parse', `refs/solus/refused/${localHead}`])).toBe(localHead)
+  expect(await local.named(repository).readText(localHead, 'local-turn')).toBe('ours')
+  expect(git(localRoot, ['--git-dir', local.named(repository).path, 'rev-parse', `refs/solus/refused/${localHead}`])).toBe(localHead)
 })

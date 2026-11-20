@@ -56,7 +56,7 @@ async function archive(sessionId: string, cloudScope: `person:${string}` | `orga
   const row = await makeRow(db, cloudScope, sessionId, 'alice', storageScope)
   const manifest = { schemaVersion: 1, session: { id: sessionId, organizationId: cloudScope }, threads: [], project: null,
     turns: [{ operationId: 'one', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false, head: null, snapshots: [], bundle: null, hasDiff: !!patch, hasRows: true, rowCount: 2 }] }
-  const first = await repositories.commit(row.repository, { expectedHead: null, message: 'first', entries: [
+  const first = await repositories.named(row.repository).commit({ expectedHead: null, message: 'first', entries: [
     { path: 'manifest.json', content: JSON.stringify(manifest) }, { path: 'rows/0.jsonl', content: rows }, ...(patch ? [{ path: 'diff/0.patch', content: patch }] : []),
   ] })
   await db.run(sql`UPDATE session_repositories SET head = ${first}, synced_turn = 1 WHERE cloud_scope = ${cloudScope} AND session_id = ${sessionId}`)
@@ -67,7 +67,7 @@ async function archive(sessionId: string, cloudScope: `person:${string}` | `orga
 test('personal rows and diff use only the recorded head', async () => {
   const rows = '{"role":"user","content":"first","timestamp":1}\n{"role":"assistant","content":"done","timestamp":2}\n'
   const { row, first } = await archive('private', scope('person', 'alice'), rows, 'first patch')
-  const newer = await repositories.commit(row.repository, { expectedHead: first, message: 'unreported', entries: [{ path: 'diff/0.patch', content: 'new patch' }, { path: 'rows/0.jsonl', content: '{"role":"user","content":"new","timestamp":3}\n' }] })
+  const newer = await repositories.named(row.repository).commit({ expectedHead: first, message: 'unreported', entries: [{ path: 'diff/0.patch', content: 'new patch' }, { path: 'rows/0.jsonl', content: '{"role":"user","content":"new","timestamp":3}\n' }] })
   expect(newer).not.toBe(first)
   expect((await reader.page(owner, 'private')).messages.map(message => message.content)).toEqual(['first', 'done'])
   // A client joins the turn diff to the turn the page holds.
@@ -90,12 +90,12 @@ test('absent rows return typed not available', async () => {
   const { row, first } = await archive('old', scope('person', 'alice'), '{"role":"user","content":"x","timestamp":1}\n')
   const manifest = { schemaVersion: 1, session: { id: 'old', organizationId: 'local' }, threads: [], project: null,
     turns: [{ operationId: 'old', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }] }
-  const old = await repositories.commit(row.repository, { expectedHead: first, message: 'old format', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
+  const old = await repositories.named(row.repository).commit({ expectedHead: first, message: 'old format', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
   await db.run(sql`UPDATE session_repositories SET head = ${old} WHERE session_id = 'old'`)
   expect(await reader.page(owner, 'old')).toMatchObject({ availability: 'not-available', unavailableTurns: [0], turnIndex: 0 })
   expect(await reader.diff(owner, 'old', 0)).toEqual({ status: 'not-available' })
   const omittedManifest = { ...manifest, turns: [{ ...manifest.turns[0], hasRows: false, rowCount: 0 }] }
-  const omitted = await repositories.commit(row.repository, { expectedHead: old, message: 'omitted rows', entries: [{ path: 'manifest.json', content: JSON.stringify(omittedManifest) }] })
+  const omitted = await repositories.named(row.repository).commit({ expectedHead: old, message: 'omitted rows', entries: [{ path: 'manifest.json', content: JSON.stringify(omittedManifest) }] })
   await db.run(sql`UPDATE session_repositories SET head = ${omitted} WHERE session_id = 'old'`)
   expect(await reader.page(owner, 'old')).toMatchObject({ availability: 'not-available', unavailableTurns: [0] })
 })
@@ -122,7 +122,7 @@ test('an oversized patch gives counts without patch text', async () => {
     turns: [{ operationId: 'one', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false, head: null,
       snapshots: [{ index: 0, fromTreeSha: head, toTreeSha: head, sha: head, timestamp: 1, partial: false, userMessagePreview: 'change', filesChanged: 2, additions: 3, deletions: 4 }],
       bundle: null, hasDiff: true, hasRows: true, rowCount: 1 }] }
-  const large = await repositories.commit(row.repository, { expectedHead: first, message: 'large patch', entries: [
+  const large = await repositories.named(row.repository).commit({ expectedHead: first, message: 'large patch', entries: [
     { path: 'manifest.json', content: JSON.stringify(manifest) }, { path: 'diff/0.patch', content: 'x'.repeat(2 * 1024 * 1024 + 1) },
   ] })
   await db.run(sql`UPDATE session_repositories SET head = ${large} WHERE session_id = 'large-diff'`)
@@ -137,7 +137,7 @@ test('history pages follow turn indexes', async () => {
       { operationId: 'one', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false, head: null, snapshots: [], bundle: null, hasDiff: false, hasRows: true, rowCount: 1 },
       { operationId: 'two', endedAt: 2, provider: 'codex', threadId: 'thread', partial: false, head: null, snapshots: [], bundle: null, hasDiff: false, hasRows: true, rowCount: 2 },
     ] }
-  const second = await repositories.commit(row.repository, { expectedHead: first, message: 'second', entries: [
+  const second = await repositories.named(row.repository).commit({ expectedHead: first, message: 'second', entries: [
     { path: 'manifest.json', content: JSON.stringify(manifest) }, { path: 'rows/1.jsonl', content: '{"role":"user","content":"second","timestamp":2}\n' },
   ] })
   await db.run(sql`UPDATE session_repositories SET head = ${second} WHERE session_id = 'paged'`)
@@ -170,7 +170,7 @@ test('mirrored rows win when the repository also has rows', async () => {
   const bobRow = await makeRow(db, bobScope, 'both', 'bob', `file://${join(root, 'sessions', 'cloud-repositories')}`)
   const bobManifest = { schemaVersion: 1, session: { id: 'both', organizationId: bobScope }, threads: [], project: null,
     turns: [{ operationId: 'bob', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false, head: null, snapshots: [], bundle: null, hasDiff: false, hasRows: true, rowCount: 1 }] }
-  const bobHead = await repositories.commit(bobRow.repository, { expectedHead: null, message: 'bob', entries: [
+  const bobHead = await repositories.named(bobRow.repository).commit({ expectedHead: null, message: 'bob', entries: [
     { path: 'manifest.json', content: JSON.stringify(bobManifest) }, { path: 'rows/0.jsonl', content: '{"role":"user","content":"bob personal","timestamp":1}\n' },
   ] })
   await db.run(sql`UPDATE session_repositories SET head = ${bobHead} WHERE cloud_scope = ${bobScope} AND session_id = 'both'`)

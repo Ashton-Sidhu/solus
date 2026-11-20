@@ -1,14 +1,12 @@
 import { z } from 'zod'
 import { standingAllows } from '@solus/contracts/permissions'
 import type { Principal } from '../../admission/principal'
-import { getDb } from '../../db'
+import { readSessionStorage } from '../../data/sessions/session-storage'
 import type { ShareManager } from '../../sharing/share-manager'
 import type { SessionBundleTransfers } from '../../sync/sessions/session-bundle-transfers'
 import type { SessionArchiveWriter } from '../../sync/sessions/session-archive-writer'
 import type { SolusServer } from '../server'
 import type { SessionRuntime } from '../../execution/session-runtime'
-
-const storageRow = z.object({ repository: z.string(), head: z.string().nullable() })
 
 function principalKey(principal: Principal): string {
   switch (principal.kind) {
@@ -31,7 +29,7 @@ export function registerSessionRepositoryHandlers(server: SolusServer, transfers
     if (!await archive.waitForSession(sessionId, 30_000)) {
       return { state: 'commit-failed' as const }
     }
-    const row = storageRow.nullish().parse(getDb().prepare('SELECT repository, head FROM session_storage WHERE session_id = ?').get(sessionId))
+    const row = readSessionStorage(sessionId)
     if (!row?.head) return { state: 'no-repository' as const }
     return transfers.start(sessionId, row.repository, have, principalKey(ctx.principal))
   })

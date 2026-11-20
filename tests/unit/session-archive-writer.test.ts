@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { SessionManifest } from '@solus/server/sync/sessions/session-manifest'
 import type { ThreadFile, TurnEnd } from '@solus/server/sync/sessions/session-archive-writer'
+import type { SessionRepositories, SessionRepository } from '@solus/server/sync/sessions/session-repository'
 import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -70,18 +71,32 @@ function turnEnd(extra: Partial<TurnEnd> = {}): TurnEnd {
   return { sessionId: SESSION, organizationId: 'local', provider: 'claude-code', threadId: THREAD, partial: false, ...extra }
 }
 
-async function readManifest(repositories: InstanceType<typeof Repositories>): Promise<SessionManifest> {
-  const head = await repositories.head(REPOSITORY())
-  return manifestSchema.parse(JSON.parse(await repositories.readText(REPOSITORY(), head!, 'manifest.json')))
+async function readManifest(repositories: SessionRepositories): Promise<SessionManifest> {
+  const head = await repositories.named(REPOSITORY()).head()
+  return manifestSchema.parse(JSON.parse(await repositories.named(REPOSITORY()).readText(head!, 'manifest.json')))
 }
 
 /** The provider file as another host builds it: the byte ranges of the manifest, joined in order. */
-async function rebuiltThreadFile(repositories: InstanceType<typeof Repositories>, manifest: SessionManifest): Promise<Buffer> {
+async function rebuiltThreadFile(repositories: SessionRepositories, manifest: SessionManifest): Promise<Buffer> {
   const file = manifest.threads[0].files[0]
   const out = join(tempDir('rebuilt'), 'thread.jsonl')
-  const head = await repositories.head(REPOSITORY())
-  await repositories.appendFiles(REPOSITORY(), head!, file.parts.map((part) => `threads/${THREAD}/${file.key}/${part}`), out)
+  const head = await repositories.named(REPOSITORY()).head()
+  await repositories.named(REPOSITORY()).appendFiles(head!, file.parts.map((part) => `threads/${THREAD}/${file.key}/${part}`), out)
   return readFileSync(out)
+}
+
+type Commit = SessionRepository['commit']
+
+/** `repositories`, with each commit of each copy sent through `commit`. `real` is the commit of the copy. */
+function withCommit(repositories: SessionRepositories, commit: (real: Commit, turn: Parameters<Commit>[0]) => Promise<string>): SessionRepositories {
+  const named = repositories.named.bind(repositories)
+  repositories.named = (...args) => {
+    const repository = named(...args)
+    const real = repository.commit.bind(repository)
+    repository.commit = (turn) => commit(real, turn)
+    return repository
+  }
+  return repositories
 }
 
 function storageRow(): { head: string | null; error: string | null } | null {
@@ -108,22 +123,22 @@ describe('session archive writer', () => {
     git(root, ['init', '--bare', '--initial-branch=main', firstRemote])
     git(root, ['init', '--bare', '--initial-branch=main', forkRemote])
     const baseManifest = (await import('@solus/server/sync/sessions/session-manifest')).emptySessionManifest(sourceId, 'local')
-    const base = await firstHost.commit(sourceRepository, { expectedHead: null, message: 'first host turn', entries: [
+    const base = await firstHost.named(sourceRepository).commit({ expectedHead: null, message: 'first host turn', entries: [
       { path: 'threads/source-thread/main/0', content: 'first host turn\n' },
       { path: 'manifest.json', content: JSON.stringify(baseManifest) },
     ] })
-    expect((await firstHost.push(sourceRepository, pathToFileURL(firstRemote).href, base, null)).status).toBe('accepted')
+    expect((await firstHost.named(sourceRepository).push(pathToFileURL(firstRemote).href, base, null)).status).toBe('accepted')
     const baseBundle = join(tempDir('bundle'), 'base.bundle')
-    await firstHost.bundleSince(sourceRepository, null, baseBundle)
-    await secondHost.fetchBundle(sourceRepository, baseBundle)
-    const secondTurn = await secondHost.commit(sourceRepository, { expectedHead: base, message: 'second host turn', entries: [
+    await firstHost.named(sourceRepository).bundleSince(null, baseBundle)
+    await secondHost.named(sourceRepository).fetchBundle(baseBundle)
+    const secondTurn = await secondHost.named(sourceRepository).commit({ expectedHead: base, message: 'second host turn', entries: [
       { path: 'threads/source-thread/main/1', content: 'second host turn\n' },
     ] })
-    const firstTurn = await firstHost.commit(sourceRepository, { expectedHead: base, message: 'first host next turn', entries: [
+    const firstTurn = await firstHost.named(sourceRepository).commit({ expectedHead: base, message: 'first host next turn', entries: [
       { path: 'threads/source-thread/main/1', content: 'first host next turn\n' },
     ] })
-    expect((await firstHost.push(sourceRepository, pathToFileURL(firstRemote).href, firstTurn, base)).status).toBe('accepted')
-    expect(await secondHost.push(sourceRepository, pathToFileURL(firstRemote).href, secondTurn, base)).toEqual({ status: 'refused', head: firstTurn })
+    expect((await firstHost.named(sourceRepository).push(pathToFileURL(firstRemote).href, firstTurn, base)).status).toBe('accepted')
+    expect(await secondHost.named(sourceRepository).push(pathToFileURL(firstRemote).href, secondTurn, base)).toEqual({ status: 'refused', head: firstTurn })
 
     // A fake provider fork writes its inherited turns and new turn in one new thread file.
     const forkFile = join(tempDir('provider-fork'), 'fork.jsonl')
@@ -133,16 +148,16 @@ describe('session archive writer', () => {
     const writer = new Writer({ repositories: secondHost, threadFiles: async () => [{ key: 'main', relativePath: 'fork.jsonl', path: forkFile }] })
     await writer.turnEnded({ sessionId: forkId, organizationId: 'local', provider: 'claude-code', threadId: 'fork-thread', partial: false })
     await writer.idle()
-    const forkHead = await secondHost.head(forkRepository)
+    const forkHead = await secondHost.named(forkRepository).head()
     expect(forkHead).toBeTruthy()
     expect(forkRepository).not.toBe(sourceRepository)
-    const forkManifest = await secondHost.readManifest(forkRepository, forkHead!)
+    const forkManifest = await secondHost.named(forkRepository).readManifest(forkHead!)
     expect(forkManifest.session.parentSessionId).toBe(sourceId)
     expect(forkManifest.lineage?.[0]?.startedAs).toBe('fork')
     const restored = join(tempDir('restored-fork'), 'fork.jsonl')
-    await secondHost.writeThreadFile(forkRepository, forkHead!, 'fork-thread', forkManifest.threads[0]!.files[0]!, restored)
+    await secondHost.named(forkRepository).writeThreadFile(forkHead!, 'fork-thread', forkManifest.threads[0]!.files[0]!, restored)
     expect(readFileSync(restored, 'utf8')).toBe('first host turn\nsecond host turn\nfork turn\n')
-    expect((await secondHost.push(forkRepository, pathToFileURL(forkRemote).href, forkHead!, null)).status).toBe('accepted')
+    expect((await secondHost.named(forkRepository).push(pathToFileURL(forkRemote).href, forkHead!, null)).status).toBe('accepted')
     expect(git(root, ['--git-dir', forkRemote, 'rev-parse', 'refs/heads/main'])).toBe(forkHead)
     expect(git(root, ['--git-dir', firstRemote, 'rev-parse', 'refs/heads/main'])).toBe(firstTurn)
     await writer.stop()
@@ -161,10 +176,10 @@ describe('session archive writer', () => {
     await writer.turnEnded(turnEnd())
     await writer.idle()
     const manifest = await readManifest(repositories)
-    const head = await repositories.head(REPOSITORY())
+    const head = await repositories.named(REPOSITORY()).head()
     expect(manifest.turns.map(turn => [turn.hasRows, turn.rowCount])).toEqual([[true, 1], [true, 2]])
-    expect(await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')).toContain('"first"')
-    expect(await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')).not.toContain('"second"')
+    expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).toContain('"first"')
+    expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).not.toContain('"second"')
     await writer.stop()
   })
   // WHY: a failed history read must not lose the provider thread of an ended turn.
@@ -194,8 +209,8 @@ describe('session archive writer', () => {
     })
     await writer.turnEnded(turnEnd({ provider: 'codex' }))
     await writer.idle()
-    const head = await repositories.head(REPOSITORY())
-    const rows = await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')
+    const head = await repositories.named(REPOSITORY()).head()
+    const rows = await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')
     expect(rows).not.toContain('private result')
     expect(rows).toContain('"contentBytes":1500000')
     await writer.stop()
@@ -278,7 +293,7 @@ describe('session archive writer', () => {
     expect(manifest.turns.length).toBe(2)
     expect(manifest.threads[0].files[0].length).toBe(afterSecondTurn.length)
     expect((await rebuiltThreadFile(repositories, manifest)).equals(afterSecondTurn)).toBe(true)
-    expect(storageRow()?.head).toBe(await repositories.head(REPOSITORY()))
+    expect(storageRow()?.head).toBe(await repositories.named(REPOSITORY()).head())
     expect(pendingCount()).toBe(0)
   })
 
@@ -318,11 +333,11 @@ describe('session archive writer', () => {
     await writer.idle()
 
     const manifest = await readManifest(repositories)
-    const head = await repositories.head(REPOSITORY())
+    const head = await repositories.named(REPOSITORY()).head()
     const contents: string[] = []
     for (const file of manifest.threads[0].files) {
       const out = join(tempDir('rebuilt'), 'file')
-      await repositories.appendFiles(REPOSITORY(), head!, file.parts.map((part) => `threads/${THREAD}/${file.key}/${part}`), out)
+      await repositories.named(REPOSITORY()).appendFiles(head!, file.parts.map((part) => `threads/${THREAD}/${file.key}/${part}`), out)
       contents.push(readFileSync(out, 'utf8'))
     }
     expect(contents).toEqual(['the first file\n', 'the second file\n'])
@@ -334,14 +349,12 @@ describe('session archive writer', () => {
   test('a turn whose commit landed before a crash is found after the restart and not written twice', async () => {
     const transcript = join(tempDir('thread'), 'thread.jsonl')
     const repositoriesRoot = tempDir('repositories')
-    class CrashAfterCommit extends Repositories {
-      override async commit(...args: Parameters<InstanceType<typeof Repositories>['commit']>): Promise<string> {
-        await super.commit(...args)
-        throw new Error('The process stopped after the commit.')
-      }
-    }
+    const crashAfterCommit = withCommit(new Repositories(repositoriesRoot), async (real, turn) => {
+      await real(turn)
+      throw new Error('The process stopped after the commit.')
+    })
     writeFileSync(transcript, '{"turn":1}\n')
-    const crashing = new Writer({ repositories: new CrashAfterCommit(repositoriesRoot), threadFiles: oneThreadFile(transcript) })
+    const crashing = new Writer({ repositories: crashAfterCommit, threadFiles: oneThreadFile(transcript) })
     await crashing.turnEnded(turnEnd())
     await crashing.stop()
     expect(pendingCount()).toBe(1)
@@ -355,7 +368,7 @@ describe('session archive writer', () => {
 
     expect((await readManifest(repositories)).turns.length).toBe(1)
     expect(pendingCount()).toBe(0)
-    expect(storageRow()).toEqual({ head: await repositories.head(REPOSITORY()), error: null })
+    expect(storageRow()).toEqual({ head: await repositories.named(REPOSITORY()).head(), error: null })
   })
 
   // WHY: the session diff on another host is correct only when that host gets the
@@ -392,16 +405,16 @@ describe('session archive writer', () => {
 
     const hostB = tempDir('host-b')
     git(hostB, ['clone', origin, '.'])
-    const head = await repositories.head(REPOSITORY())
+    const head = await repositories.named(REPOSITORY()).head()
     const spec = `refs/solus/sessions/${SESSION}/bundle/*:refs/solus/sessions/${SESSION}/bundle/*`
     for (const turn of [0, 1]) {
       const bundle = join(tempDir('bundle'), `${turn}.bundle`)
-      await repositories.appendFiles(REPOSITORY(), head!, [`code/${turn}.bundle`], bundle)
+      await repositories.named(REPOSITORY()).appendFiles(head!, [`code/${turn}.bundle`], bundle)
       git(hostB, ['fetch', bundle, spec])
       expect(git(hostB, ['rev-parse', `${bundleRef(SESSION, `${turn}/to`)}^{tree}`])).toBe(manifest.turns[turn].snapshots[0].toTreeSha)
     }
     const patch = join(tempDir('patch'), '1.patch')
-    await repositories.appendFiles(REPOSITORY(), head!, ['diff/1.patch'], patch)
+    await repositories.named(REPOSITORY()).appendFiles(head!, ['diff/1.patch'], patch)
     expect(readFileSync(patch, 'utf8')).toContain('turn-2.txt')
     expect(readFileSync(patch, 'utf8')).not.toContain('turn-1.txt')
   })
@@ -425,11 +438,9 @@ describe('settled row boundaries', () => {
     test(`${provider} keeps two captured turns distinct until commit`, async () => {
       const transcript = join(tempDir(`${provider}-two-rows`), 'thread.jsonl')
       writeFileSync(transcript, 'first\n')
-      const repositories = new Repositories(tempDir(`${provider}-two-repository`))
-      const originalCommit = repositories.commit.bind(repositories)
       let releaseCommit: (() => void) | undefined
       const commitGate = new Promise<void>(resolve => { releaseCommit = resolve })
-      repositories.commit = async (...args) => { await commitGate; return originalCommit(...args) }
+      const repositories = withCommit(new Repositories(tempDir(`${provider}-two-repository`)), async (real, turn) => { await commitGate; return real(turn) })
       let rows = [{ role: 'user', content: 'first', timestamp: 100 }]
       const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows })
       await writer.turnEnded(turnEnd({ provider, endedAt: 150 }))
@@ -439,9 +450,9 @@ describe('settled row boundaries', () => {
       expect(pendingCount()).toBe(2)
       releaseCommit?.()
       await writer.idle()
-      const head = await repositories.head(REPOSITORY())
-      expect(await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')).toContain('first')
-      expect(await repositories.readText(REPOSITORY(), head!, 'rows/1.jsonl')).toContain('second')
+      const head = await repositories.named(REPOSITORY()).head()
+      expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).toContain('first')
+      expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/1.jsonl')).toContain('second')
       await writer.stop()
     })
   }
@@ -451,13 +462,11 @@ describe('settled row boundaries', () => {
 test('restart uses pending turn rows', async () => {
   const transcript = join(tempDir('restart-rows'), 'thread.jsonl')
   writeFileSync(transcript, 'first\n')
-  const repositories = new Repositories(tempDir('restart-row-repository'))
-  const originalCommit = repositories.commit.bind(repositories)
   let attempts = 0
-  repositories.commit = async (...args) => {
+  const repositories = withCommit(new Repositories(tempDir('restart-row-repository')), async (real, turn) => {
     if (++attempts === 1) throw new Error('Git stopped before commit')
-    return originalCommit(...args)
-  }
+    return real(turn)
+  })
   let rows = [{ role: 'user', content: 'first', timestamp: 100 }]
   const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows, retryMs: 60_000 })
   await writer.turnEnded(turnEnd({ endedAt: 150 }))
@@ -468,9 +477,9 @@ test('restart uses pending turn rows', async () => {
   const resumed = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows })
   resumed.resume()
   await resumed.idle()
-  const head = await repositories.head(REPOSITORY())
-  expect(await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')).toContain('first')
-  expect(await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')).not.toContain('later')
+  const head = await repositories.named(REPOSITORY()).head()
+  expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).toContain('first')
+  expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).not.toContain('later')
   expect(pendingCount()).toBe(0)
   await resumed.stop()
 })

@@ -9,7 +9,7 @@ import { SessionArchiveWriter } from './sync/sessions/session-archive-writer'
 import { loadSettledTurnRows } from './sync/sessions/settled-turn-rows'
 import { SessionPusher } from './sync/sessions/session-push'
 import { DelegatedSessionRemoteAccess } from './sync/sessions/session-remote-access'
-import { sessionCloudScope } from './sync/sessions/session-cloud-scope'
+import { sessionCloudIdentity } from './sync/sessions/session-cloud-identity'
 import { SessionRepositories } from './sync/sessions/session-repository'
 import { SessionBundleTransfers } from './sync/sessions/session-bundle-transfers'
 import { AGENT_BIN } from '@solus/contracts/types'
@@ -193,6 +193,7 @@ import { chooseSessionRepositorySource, fetchSessionArtifacts, type SessionReadA
 import { sessionCloudSyncDecision } from './host/policy/host-policy-store'
 import { insightsAccountOf } from './admission/actor'
 import { getSessionRecord } from './data/sessions/session-records'
+import { readSessionStorage } from './data/sessions/session-storage'
 import { registerWorktreeHandlers } from './transport/handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './transport/handlers/git-publish-handlers'
 import { registerFilesystemHandlers } from './transport/handlers/filesystem-handlers'
@@ -1352,13 +1353,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // A Run on prompt copies its repository before its run starts (docs/run-on.md).
   opts.sessionRuntime.launcher.prepareDispatchCheckout = setup.prepareDispatchCheckout
   opts.sessionRuntime.useSessionSync(new SessionSync(opts.sessionRuntime, {
-    repositoryRoot: join(dataDir(), 'sessions', 'repositories'),
+    repositories: sessionRepositories,
     providerInstalled: async (provider) => {
       const binary = AGENT_BIN[provider]
       return binary ? !!findOnPath(binary, await warmCliPath()) : false
     },
     // eslint-disable-next-line complexity
-    fetchBundle: async (sessionId, have, wantedHead, sourceHostId, outFile, signal, actor) => {
+    fetchBundle: async (request) => {
+      const { sessionId, sourceHostId, actor } = request
       const principal = actor.principal
       const reach: ReachRequest = principal.kind === 'org-member'
         ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
@@ -1366,29 +1368,29 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
       const account = insightsAccountOf(actor)
       const decision = sessionCloudSyncDecision(record?.organizationId ?? (principal.kind === 'org-member' ? principal.organizationId : 'local'), account?.id.kind === 'account' ? { accountId: account.id.accountId } : null)
-      // SAFETY: the query selects only the repository column.
-      const storage = getDb().prepare('SELECT repository FROM session_storage WHERE session_id = ?').get(sessionId) as { repository: string } | undefined
-      const localPath = storage ? join(dataDir(), 'sessions', 'repositories', `${storage.repository}.git`) : null
+      const storage = readSessionStorage(sessionId)
+      const localPath = storage ? sessionRepositories.named(storage.repository).path : null
       const readAccess: SessionReadAccess | undefined = opts.sessionReadAccess ?? (sessionRemoteAccess ? async (readSessionId, readActor) => {
         const person = insightsAccountOf(readActor)
         if (person?.id.kind !== 'account') return null
         const localRecord = await getSessionRecord(ANY_ORGANIZATION, readSessionId)
-        const answer = await sessionRemoteAccess!.remote(readSessionId, sessionCloudScope(localRecord, person.id.accountId), person.id.accountId, 'read')
+        const answer = await sessionRemoteAccess!.remote(readSessionId, sessionCloudIdentity(localRecord, person.id.accountId), 'read')
         return answer.status === 'ready' ? answer.remote : null
       } : undefined)
       return chooseSessionRepositorySource(decision.allowed && readAccess
-        ? () => fetchSessionArtifacts(readAccess, localPath, sessionId, actor, sessionPusher?.refusedHead(sessionId) ? null : have, wantedHead, outFile, signal) : null,
-      async () => {
+        // A refused local head is not in the cloud history. With no `have`, the cloud source does not answer `diverged`.
+        ? cloudRequest => fetchSessionArtifacts(readAccess, localPath, { ...cloudRequest, have: sessionPusher?.refusedHead(sessionId) ? null : cloudRequest.have }) : null,
+      async (hostRequest) => {
         if (!sourceHostId && !decision.allowed && decision.reason === 'person-not-signed-in') throw new SessionSyncError('not-signed-in', 'Sign in or connect to the last run host.')
         if (!sourceHostId) throw new SessionSyncError('no-repository', 'No session repository is available.')
-        try { return await fetchSessionBundle(remoteHosts, reach, sessionId, have, sourceHostId, outFile, signal) }
+        try { return await fetchSessionBundle(remoteHosts, reach, hostRequest) }
         catch (error) {
           if (error instanceof SessionSyncError && error.reason === 'source-offline' && decision.allowed) {
             throw new SessionSyncError('source-offline', `${sourceHostId} is offline and the cloud copy is behind the requested head.`)
           }
           throw error
         }
-      }, wantedHead, signal)
+      }, request)
     },
     prepareCheckout: setup.prepareDispatchCheckout,
     claimSession: (sessionId, principal, isProject) => shares.claimSession(sessionId, principal, { shareWithOrganization: isProject }),

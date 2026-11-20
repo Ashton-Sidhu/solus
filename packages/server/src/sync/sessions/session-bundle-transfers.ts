@@ -20,7 +20,7 @@ export class SessionBundleTransfers {
     const folder = await mkdtemp(join(tmpdir(), 'solus-session-bundle-'))
     const path = join(folder, 'repository.bundle')
     try {
-      const result = await this.repositories.bundleSince(repository, have, path)
+      const result = await this.repositories.named(repository).bundleSince(have, path)
       if (result.kind !== 'written') {
         await rm(folder, { recursive: true, force: true })
         if (result.kind === 'current' && !result.head) return { state: 'no-repository' }
