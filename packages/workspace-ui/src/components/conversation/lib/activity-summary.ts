@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Message, TurnStartKind } from '@solus/contracts/types'
 import { isQuestionTool } from '@solus/contracts/question-history'
 import { prettyToolName } from '../../../contexts/workspace/session.utils'
-import { mcpToolLabel } from '@solus/client-core/mcp-tool-label'
+import { integrationAgentToolLabel, mcpToolLabel } from '@solus/client-core/mcp-tool-label'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import type { GroupedItem } from './turns'
@@ -193,7 +193,7 @@ export function liveToolStep(name: string, input?: string): LiveToolStep {
   if (step) return step(input ? parseToolInput(input) : null)
   // Solus and MCP tools are named as commands ("Find works", "create_issue"),
   // so a known verb reads as the step itself.
-  const words = solusAgentToolName(name) ? prettyToolName(name) : toolNameWords(name)
+  const words = integrationAgentToolLabel(name) ?? (solusAgentToolName(name) ? prettyToolName(name) : toolNameWords(name))
   return { label: intentInProgress(words) ?? `Using ${words}`, target: '' }
 }
 
@@ -386,7 +386,7 @@ function describeSolusTool(
 
 /** A failed tool's row label: "linear · export_issues failed". */
 export function failedToolLabel(name: string): string {
-  return `${mcpToolLabel(name) ?? prettyToolName(name)} failed`
+  return `${integrationAgentToolLabel(name) ?? mcpToolLabel(name) ?? prettyToolName(name)} failed`
 }
 
 function describeMcpTool(
@@ -409,6 +409,8 @@ export function getToolDescriptionFromParsed(
   options: { truncate?: boolean } = {},
 ): string {
   const truncate = options.truncate ?? true
+  const integration = integrationAgentToolLabel(name, parsed.sourceJson)
+  if (integration) return integration
   if (solusAgentToolName(name)) return describeSolusTool(name, parsed, truncate)
   if (name.startsWith('mcp__')) return describeMcpTool(name, parsed, truncate)
   switch (name) {
@@ -446,7 +448,7 @@ export function getToolDescription(
   input?: string,
   options: { truncate?: boolean } = {},
 ): string {
-  const pretty = mcpToolLabel(name) ?? prettyToolName(name)
+  const pretty = integrationAgentToolLabel(name) ?? mcpToolLabel(name) ?? prettyToolName(name)
   const truncate = options.truncate ?? true
   if (!input) return pretty
   const parsed = parseToolInput(input)

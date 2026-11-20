@@ -5,7 +5,7 @@ import { hostPathBaseName } from '@solus/contracts/host-path'
 import { isSecretTool, secretReceiptRows, secretReceiptText } from '@solus/contracts/secret-request'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import { toolCallCode, type ToolCallCode } from '@solus/client-core/tool-call-code'
-import { mcpToolLabel } from '@solus/client-core/mcp-tool-label'
+import { integrationAgentToolLabel, mcpToolLabel } from '@solus/client-core/mcp-tool-label'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 /**
@@ -151,6 +151,8 @@ function secretReceipt(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'se
 export function toolRowLabel(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'secretOutcomes'>, expanded = false): string {
   const receipt = secretReceipt(tool)
   if (receipt) return receipt
+  const integration = integrationAgentToolLabel(tool.toolName, tool.input)
+  if (integration) return integration
   const parsed = parseToolInput(tool.input)
   const action = toolGroupAction(tool.toolName)
   const command = commandText(parsed)
@@ -195,7 +197,7 @@ export function toolActivitySummary(tool: Pick<ToolTranscriptItem, 'toolName' | 
     case 'agent':
       return parsed?.description ? compact(parsed.description) : running ? 'Delegating' : 'Delegated'
     case 'other':
-      return pullRequestBatchSummary(tool, running) ?? tool.toolName
+      return integrationAgentToolLabel(tool.toolName, tool.input) ?? pullRequestBatchSummary(tool, running) ?? tool.toolName
   }
 }
 
