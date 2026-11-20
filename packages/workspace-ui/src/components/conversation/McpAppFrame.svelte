@@ -227,7 +227,7 @@
           ? "right-4 left-auto supports-[anchor-name:--a]:right-[calc(anchor(--solus-conversation_right)+1rem)]"
           : "right-auto left-4 supports-[anchor-name:--a]:left-[calc(anchor(--solus-conversation_left)+1rem)]"}`
       : snapshot.prefersBorder
-        ? "relative mx-0 my-2 block w-full min-w-0 max-w-none overflow-hidden rounded-lg border border-border bg-card p-0 text-foreground"
+        ? "relative mx-0 my-2 block w-full min-w-0 max-w-none overflow-hidden rounded-xl border border-(--solus-tool-border) bg-card p-0 text-foreground"
         : "relative mx-0 my-2 block w-full min-w-0 max-w-none border-0 bg-transparent p-0 text-foreground"}
   style:height={displayMode === "inline" ? `${mcpAppFrameHeight(height, snapshot.prefersBorder)}px` : undefined}
 >
@@ -261,46 +261,37 @@
     </div>
   {/if}
   {#if failed}
-    <div role="alert" class="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+    <div role="alert" class="flex h-full flex-col items-center justify-center gap-2 text-workspace-chrome text-muted-foreground">
       <span>This app could not be displayed.</span>
-      <Button variant="ghost" class="pointer-coarse:h-11" onclick={() => (failed = false)}>Try again</Button>
+      <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => (failed = false)}>Try again</Button>
     </div>
   {:else}
     {#key allow}
       <iframe bind:this={frame} {title} sandbox="allow-scripts allow-forms" {allow} {srcdoc} class="h-full min-h-0 w-full flex-1 border-0 bg-transparent"></iframe>
     {/key}
   {/if}
-  <div class="absolute top-1.5 right-1.5 flex gap-1" hidden={isPip}>
+  <!-- The card's controls float over the app as one small toolbar: the
+       popover surface with the menus' shadow, no outline, and the PiP
+       header's ghost buttons. -->
+  <div class="absolute top-2 right-2 flex items-center gap-0.5 rounded-full bg-(--solus-popover-bg) p-0.5 shadow-(--solus-menu-shadow)" hidden={isPip}>
     {#if offersPip && !isFullscreen}
-      <Button
-        variant="outline"
-        size="icon"
-        aria-label="Keep in view"
-        class="rounded-full bg-card/80 text-muted-foreground pointer-coarse:tap-area"
-        onclick={() => choose("pip")}
-      >
-        <PictureInPicture2 size={13} />
+      <Button variant="ghost" size="icon-sm" aria-label="Keep in view" class="rounded-full text-muted-foreground pointer-coarse:tap-area" onclick={() => choose("pip")}>
+        <PictureInPicture2 size={16} />
       </Button>
     {/if}
     {#if offersFullscreen || isFullscreen}
       <Button
-        variant="outline"
-        size="icon"
+        variant="ghost"
+        size="icon-sm"
         aria-label={isFullscreen ? "Exit full screen" : "Open app full screen"}
-        class="rounded-full bg-card/80 text-muted-foreground pointer-coarse:tap-area"
+        class="rounded-full text-muted-foreground pointer-coarse:tap-area"
         onclick={() => choose(isFullscreen ? "inline" : "fullscreen")}
       >
-        {#if isFullscreen}<Minimize size={13} />{:else}<Maximize size={13} />{/if}
+        {#if isFullscreen}<Minimize size={16} />{:else}<Maximize size={16} />{/if}
       </Button>
     {/if}
-    <Button
-      variant="outline"
-      size="icon"
-      aria-label="Close app"
-      class="rounded-full bg-card/80 text-muted-foreground pointer-coarse:tap-area"
-      onclick={() => (host ? void host.close() : close())}
-    >
-      <X size={13} />
+    <Button variant="ghost" size="icon-sm" aria-label="Close app" class="rounded-full text-muted-foreground pointer-coarse:tap-area" onclick={() => (host ? void host.close() : close())}>
+      <X size={16} />
     </Button>
   </div>
 </dialog>
@@ -310,14 +301,14 @@
   <div class="my-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
     <PictureInPicture2 size={16} class="shrink-0" />
     <span class="min-w-0 flex-1 truncate">The {title} app is in picture-in-picture</span>
-    <Button variant="ghost" class="shrink-0 pointer-coarse:h-11" onclick={() => void returnToCard()}>Return to card</Button>
+    <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={() => void returnToCard()}>Return to card</Button>
   </div>
 {/if}
 {#if requestedPermissions.length}
   <div class="mb-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
     <Shield size={16} class="shrink-0" />
     <span class="min-w-0 flex-1 py-1 break-words">This app asks to {mcpAppPermissionAction(requestedPermissions)}</span>
-    <Button variant="ghost" class="shrink-0 pointer-coarse:h-11" onclick={grantPermissions}>Review…</Button>
+    <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={grantPermissions}>Review…</Button>
   </div>
 {/if}
 {#if modelContext}
@@ -325,7 +316,7 @@
     <button
       type="button"
       aria-expanded={isContextOpen}
-      class="flex min-h-11 items-center gap-2 hover:text-foreground"
+      class="flex min-h-11 items-center gap-2 rounded-md outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       onclick={() => (isContextOpen = !isContextOpen)}
     >
       <Bot size={16} class="shrink-0" />
@@ -333,8 +324,8 @@
       {#if isContextOpen}<ChevronDown size={16} />{:else}<ChevronRight size={16} />{/if}
     </button>
     {#if isContextOpen}
-      <p class="mb-1">The agent gets this with each new turn of this session.</p>
-      <pre class="max-h-60 overflow-auto rounded-lg border border-border p-3 font-mono text-xs whitespace-pre-wrap text-foreground">{modelContext}</pre>
+      <p class="mb-2">The agent gets this with each new turn of this session.</p>
+      <pre class="m-0 max-h-60 overflow-auto rounded-[0.625rem] bg-(--solus-code-tint) p-3 font-mono text-transcript-meta whitespace-pre-wrap text-foreground">{modelContext}</pre>
     {/if}
   </div>
 {/if}
@@ -342,18 +333,18 @@
 <dialog
   bind:this={confirmDialog}
   oncancel={() => decide(false)}
-  class="m-auto max-h-[80dvh] w-full max-w-120 rounded-2xl border-0 bg-(--solus-popover-bg) p-5 text-popover-foreground shadow-(--solus-popover-shadow) outline-none backdrop:modal-backdrop"
+  class="m-auto max-h-[80dvh] w-[min(30rem,calc(100vw-2rem))] max-w-none rounded-2xl border-0 bg-(--solus-popover-bg) p-6 text-workspace-chrome text-foreground shadow-(--solus-popover-shadow) outline-none backdrop:modal-backdrop"
 >
   {#if confirmation}
-    <h2 class="text-base font-semibold">{confirmation.title}</h2>
+    <h2 class="m-0 font-medium text-foreground">{confirmation.title}</h2>
     {#if confirmation.format === "arguments"}
-      <pre class="my-4 max-h-80 overflow-auto rounded-lg border border-border p-3 font-mono text-xs whitespace-pre-wrap break-words">{confirmation.detail}</pre>
+      <pre class="mt-3 mb-5 max-h-80 overflow-auto rounded-lg bg-muted px-3 py-2 font-mono text-chrome-dense whitespace-pre-wrap break-words text-foreground">{confirmation.detail}</pre>
     {:else}
-      <p class="my-4 max-h-80 overflow-auto text-sm whitespace-pre-wrap break-words">{confirmation.detail}</p>
+      <p class="mt-2 mb-5 max-h-80 overflow-auto text-pretty whitespace-pre-wrap break-words text-(--solus-text-secondary)">{confirmation.detail}</p>
     {/if}
     <div class="flex justify-end gap-2">
-      <Button bind:ref={cancelButton} variant="outline" class="pointer-coarse:h-11" onclick={() => decide(false)}>Cancel</Button>
-      <Button class="pointer-coarse:h-11" onclick={() => decide(true)}>Allow</Button>
+      <Button bind:ref={cancelButton} variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => decide(false)}>Cancel</Button>
+      <Button size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => decide(true)}>Allow</Button>
     </div>
   {/if}
 </dialog>

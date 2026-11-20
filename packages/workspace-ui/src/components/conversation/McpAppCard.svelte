@@ -83,7 +83,7 @@
   {:else if isClosed}
     <div class="my-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
       <span class="min-w-0 flex-1 truncate">The {app.title} app was closed</span>
-      <Button variant="ghost" class="shrink-0 pointer-coarse:h-11" onclick={show}>Show app</Button>
+      <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={show}>Show app</Button>
     </div>
   {:else if value.phase === "ready"}
     <McpAppFrame
@@ -105,11 +105,11 @@
       onMovePip={() => viewState.moveMcpAppPip()}
     />
   {:else if value.phase === "error"}
-    <div class="my-2 flex min-h-28 flex-col items-center justify-center gap-2 text-sm text-muted-foreground" role="alert">
+    <div class="my-2 flex min-h-28 flex-col items-center justify-center gap-2 text-workspace-chrome text-muted-foreground" role="alert">
       <span>{value.message}</span>
-      <Button variant="ghost" class="pointer-coarse:h-11" onclick={() => void store.load(request)}>Try again</Button>
+      <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => void store.load(request)}>Try again</Button>
     </div>
   {:else}
-    <div class="my-2 flex min-h-28 items-center justify-center text-sm text-muted-foreground" role="status">Loading app…</div>
+    <div class="my-2 flex min-h-28 items-center justify-center text-workspace-chrome text-muted-foreground" role="status">Loading app…</div>
   {/if}
 </div>

@@ -96,7 +96,7 @@
   {#if isClosed}
     <div class="my-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
       <span class="min-w-0 flex-1 truncate">The {liveDocument.title} app was closed</span>
-      <Button variant="ghost" class="shrink-0 pointer-coarse:h-11" onclick={() => viewState.closedMcpApps.delete(toolUseId)}>Show app</Button>
+      <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={() => viewState.closedMcpApps.delete(toolUseId)}>Show app</Button>
     </div>
   {:else}
     <McpAppFrame
