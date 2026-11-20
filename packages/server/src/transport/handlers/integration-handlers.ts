@@ -30,6 +30,7 @@ import type { IntegrationOAuth } from '../../integrations/oauth'
 import { commandAuth, createIntegration, createStdioIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
 import { stdioServerAddress } from '../../integrations/stdio-process'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
+import { cliSkipLog } from '../../integrations/cli-skips'
 import { createLogger } from '../../logger'
 import { currentPersonKey, requirePersonKey } from '../../vault/acting-scope'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -121,6 +122,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const integration = store.update(existing.id, patch, recordScopeOf(principal))
     if (!integration) throw new Error('That integration is no longer on this host.')
     gateway.forget(existing.id)
+    cliSkipLog.forget(existing.id)
     if (request.envNames) connections.removeAllFor(existing)
     void events.broadcast('integration.changed', { integrationId: existing.id, change: 'updated' })
     return integration
@@ -171,6 +173,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     if (!integration) throw new Error('That integration is no longer on this host.')
     // Turning tools on or off keeps the upstream session: the filter is on the record.
     if (name !== undefined || url !== undefined || oauthClient !== undefined) gateway.invalidate(id)
+    // Every tool off, or a new address, can give the CLI its copy back at the next run (§8.5).
+    cliSkipLog.forget(id)
     void events.broadcast('integration.changed', { integrationId: id, change: 'updated' })
     void deps.profile?.saved(ctx.principal, integration)
     return forReader(ctx.actor, integration)
@@ -183,8 +187,9 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     if (!integration) return { removed: false }
     // It leaves the caller's profile first, so no host's next pull brings it back.
     await deps.profile?.removing(ctx.principal, integration)
-    // A command's process stops, and its saved facts go (§7.7).
+    // A command's process stops, and its saved facts go (§7.7). The next run gives the CLI its copy back (§8.5).
     gateway.forget(id)
+    cliSkipLog.forget(id)
     const removed = store.remove(id, scope)
     if (removed) connections.removeAllFor(integration)
     if (removed) void events.broadcast('integration.changed', { integrationId: id, change: 'removed' })
@@ -197,10 +202,12 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     return gateway.tools(id)
   })
 
-  server.register('integrationFacts', (args, ctx) => {
+  server.register('integrationFacts', async (args, ctx) => {
     const { id } = integrationIdRequestSchema.parse(args[0])
     requireIntegration(id, ctx.actor)
-    return gateway.facts(id)
+    const facts = await gateway.facts(id)
+    const cliSkips = cliSkipLog.for(id, currentPersonKey())
+    return cliSkips.length ? { ...facts, cliSkips } : facts
   })
 
   server.register('integrationProcessStart', async (args, ctx) => {

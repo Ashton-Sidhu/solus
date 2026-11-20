@@ -590,7 +590,8 @@ describe('integration gateway with sign-in', () => {
       seen.length = 0
       const fresh = signedInGateway(new Map([['member-1', 'Bearer good']]), personal).gateway
       setIntegrationGateway(fresh)
-      expect(await integrationToolbox(HOST_ACTOR)).toEqual({ tools: [], instructions: [] })
+      const hostWork = await integrationToolbox(HOST_ACTOR)
+      expect({ tools: hostWork.tools, instructions: hostWork.instructions, skipped: hostWork.cliSkip.servers }).toEqual({ tools: [], instructions: [], skipped: [] })
       expect(seen.every((header) => header === undefined)).toBe(true)
       await fresh.close()
     } finally {
