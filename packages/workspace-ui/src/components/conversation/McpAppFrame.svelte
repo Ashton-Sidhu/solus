@@ -3,6 +3,7 @@
   import { Bot, ChevronDown, ChevronRight, Maximize, Minimize, Shield, X } from "@lucide/svelte";
   import type { HostApi } from "@solus/client-core/host-api";
   import { localApi } from "@solus/client-core/local-api";
+  import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
   import type { McpAppConfirmFormat, McpAppHost, McpAppLiveCall } from "@solus/client-core/mcp-app-host";
   import { mcpAppAllowAttribute, mcpAppPermissionLabel, mcpAppPermissionPrompt, mcpAppPermissionRequest } from "@solus/client-core/mcp-app-permissions";
   import { mcpAppDocument, type McpAppCancelReason, type McpAppLiveDocument, type McpAppPermission, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
@@ -164,7 +165,7 @@
     : snapshot.prefersBorder
       ? "relative mx-0 my-2 block w-full min-w-0 max-w-none overflow-hidden rounded-lg border border-border bg-card p-0 text-foreground"
       : "relative mx-0 my-2 block w-full min-w-0 max-w-none border-0 bg-transparent p-0 text-foreground"}
-  style:height={isFullscreen ? undefined : `${height}px`}
+  style:height={isFullscreen ? undefined : `${mcpAppFrameHeight(height, snapshot.prefersBorder)}px`}
 >
   {#if isFullscreen}
     <div class="flex min-h-11 items-center px-1 text-workspace-chrome font-medium">{title}</div>

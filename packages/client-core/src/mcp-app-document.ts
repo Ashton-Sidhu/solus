@@ -1,5 +1,17 @@
 import { mcpAppDocument, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
 
+/** The width of the border a frame with `prefersBorder` draws on each edge, in CSS pixels and React Native points. */
+const FRAME_BORDER_WIDTH = 1
+
+/**
+ * The height of an inline app box for the height the app reported. Desktop,
+ * web, and mobile size the box with its border inside it, so a bordered box
+ * adds both edges: the app gets all the height it asked for.
+ */
+export function mcpAppFrameHeight(reportedHeight: number, prefersBorder: boolean | undefined): number {
+  return prefersBorder ? reportedHeight + 2 * FRAME_BORDER_WIDTH : reportedHeight
+}
+
 /**
  * The native web view's page. The app runs in an opaque-origin frame inside it.
  * Android exposes the native message bridge to nested frames too, so the outer

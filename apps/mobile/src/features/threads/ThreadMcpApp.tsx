@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { McpAppHost, McpAppLiveCall } from "@solus/client-core/mcp-app-host";
+import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
 import { mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
 import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
 import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument, type McpAppReference, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
@@ -188,7 +189,7 @@ export function McpAppCard(props: {
   return (
     <>
     <View
-      style={{ height, marginBottom: 8 }}
+      style={{ height: mcpAppFrameHeight(height, document.prefersBorder), marginBottom: 8 }}
       className={document.prefersBorder ? "overflow-hidden rounded-lg border border-border bg-card" : undefined}
     >
       {isFullscreen ? null : frame(false)}

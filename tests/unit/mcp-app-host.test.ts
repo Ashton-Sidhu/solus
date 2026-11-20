@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { MCP_APP_MAX_HEIGHT, mcpAppContainerDimensions, mcpAppHostContext, type McpAppHostContext, type McpAppPalette } from '@solus/client-core/mcp-app-context'
 import { createMcpAppHost, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
 import { mcpAppAllowAttribute, mcpAppPermissionRequest } from '@solus/client-core/mcp-app-permissions'
-import { nativeMcpAppDocument } from '@solus/client-core/mcp-app-document'
+import { mcpAppFrameHeight, nativeMcpAppDocument } from '@solus/client-core/mcp-app-document'
 import { McpAppStore } from '@solus/client-core/mcp-app-store'
 import { MCP_APP_MAX_MODEL_CONTEXT_CHARS, mcpAppDocument, mcpAppCspSchema, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
 
@@ -37,6 +37,15 @@ describe('MCP App container dimensions', () => {
   test('an inline frame follows the app, and a full-screen frame is a box the app must fit', () => {
     expect(mcpAppContainerDimensions({ width: 640, height: 320 }, false)).toEqual({ width: 640, maxHeight: MCP_APP_MAX_HEIGHT })
     expect(mcpAppContainerDimensions({ width: 640, height: 320 }, true)).toEqual({ width: 640, height: 320 })
+  })
+})
+
+describe('MCP App inline box', () => {
+  test('a bordered box adds both 1 px edges, so the app gets the height it reported', () => {
+    // WHY: desktop, web, and mobile draw the border inside the box; without this a bordered app was 2 px short and scrolled.
+    expect(mcpAppFrameHeight(320, true)).toBe(322)
+    expect(mcpAppFrameHeight(320, false)).toBe(320)
+    expect(mcpAppFrameHeight(320, undefined)).toBe(320)
   })
 })
 

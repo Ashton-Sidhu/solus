@@ -146,7 +146,9 @@ The frame keeps its opaque sandbox origin. A grant lasts while the client keeps
 the conversation's view state.
 
 `prefersBorder: true` draws a border and a card surface around the frame;
-`false` or no value keeps the frame bare. `baseUriDomains` sets the frame's
+`false` or no value keeps the frame bare. The bordered box is the reported
+height plus both 1 px edges (`mcpAppFrameHeight` in client-core), so the app
+gets all the height it asked for on desktop, web, and mobile. `baseUriDomains` sets the frame's
 `base-uri`; with none it stays `'none'`, which is stricter than `'self'` for an
 opaque origin.
 
