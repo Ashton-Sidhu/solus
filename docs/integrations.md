@@ -130,6 +130,27 @@ the agent and the tool call both get a note that names the limit. Data that
 does not match the tool's output schema fails the call with that reason
 (`plans/mcp-first-class.md` §6).
 
+**Resources.** A server can list resources: documents, files, or records it
+can read. When one of your servers in a session lists resources, the agent
+gets two more tools, `list_integration_resources` and
+`read_integration_resource`. A read is yours, with your connection; it changes
+nothing, so it needs no approval. The contents reach the agent as a tool
+result does. A resource link in a tool result names the read tool and the
+server, so the agent can follow it. A server lists at most 200 resources and
+200 templates to Solus; a list-changed notification of the server makes
+Solus read the list again (`plans/mcp-first-class.md` §11).
+
+You can attach a resource to your message yourself. On desktop and web, type
+`@`: after the files, the menu shows up to five resources whose name, title,
+or address matches, under "MCP resources". `@<server>:` shows only that
+server's resources. On mobile, the + menu has **MCP Resource…**: a sheet with
+your servers, their resources, and a search field. The host reads the
+resource as you and keeps the contents as attachments of the conversation, as
+an upload. The chip shows the server's logo and the resource name while the
+host reads it; if the read fails, the chip says why, with Retry and Remove.
+The agent gets what the resource held when you attached it. A command server
+(stdio) that is not running shows no resources in the menu until it runs.
+
 When you ask the agent to use a service that has no tools in the session, it
 can call `connect_integration` with the service's name. The tool uses your
 server for that service if you have one. Otherwise it adds the one catalog
@@ -296,5 +317,7 @@ the host owner and an organization owner included (docs/plans/access-model.md
 
 A per-tool ask rule (only on and off exist), OpenAPI documents, renaming an
 account, several API keys for one server, and the Settings screens for stdio
-servers are later phases of the plan. The tools you turned off are part of your agent profile, so they
+servers are later phases of the plan. Resource templates show to the agent but not in the
+`@` menu or the mobile sheet until the argument form of MCP prompts is built;
+watching a resource for changes is a later phase too. The tools you turned off are part of your agent profile, so they
 follow a personal server to every host.
