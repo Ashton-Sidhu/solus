@@ -144,6 +144,48 @@ describe('where the list is read', () => {
     expect(journal).not.toContain('credential.remove a')
   })
 
+  test('signing out after the account list failed to read keeps the hosts this device paired, and they go to the device list', async () => {
+    // WHY: §3 Q1 deletes a credential only after a successful read of the source that
+    // is active now. With no read of the account list it is not known which hosts it
+    // names, so a sign-out must carry every pairing of this device, or the empty
+    // device list and the signed-out directory would let Q1 delete them.
+    const journal: Journal = []
+    const credentials = memoryCredentials(journal, { a: credentialFor('a'), b: credentialFor('b') })
+    const directory = fakeDirectory()
+    directory.answer([])
+    const catalog = catalogOf({ credentials, directory })
+    await catalog.refreshDirectory()
+    const account = fakeList(journal, 'account')
+    account.state.failing = true
+    await catalog.useListSource(account.source)
+    expect(catalog.listState()).toBe('failed')
+
+    directory.state.answer = null
+    directory.state.signedOut = true
+    const device = fakeList(journal, 'device')
+    await catalog.useListSource(device.source)
+    await catalog.refreshDirectory()
+    expect(catalog.listState()).toBe('ready')
+    expect(catalog.directoryState()).toBe('ready')
+    expect([...credentials.stored.keys()].sort()).toEqual(['a', 'b'])
+    expect([...device.state.listings.keys()].sort()).toEqual(['a', 'b'])
+    expect(ids(catalog).sort()).toEqual(['a', 'b'])
+    expect(journal.filter((entry) => entry.startsWith('credential.remove'))).toEqual([])
+  })
+
+  test('the first source gets no copy of the credentials: Q1 still forgets a host no answer names', async () => {
+    // WHY: only a change of source carries pairings. At boot a credential the list does
+    // not name was forgotten on another device, and Q1 deletes it.
+    const journal: Journal = []
+    const credentials = memoryCredentials(journal, { a: credentialFor('a'), gone: credentialFor('gone') })
+    const directory = fakeDirectory()
+    directory.answer([])
+    const catalog = catalogOf({ credentials, directory })
+    await catalog.refreshDirectory()
+    await catalog.useListSource(fakeList(journal, 'account', [listingFor('a')]).source)
+    expect([...credentials.stored.keys()]).toEqual(['a'])
+  })
+
   test('another client of the device host changed the list: it is read again', async () => {
     const journal: Journal = []
     const catalog = catalogOf({ credentials: memoryCredentials(journal) })
@@ -173,6 +215,37 @@ describe('§3 Q1: a credential no answer names', () => {
     await catalog.refreshDirectory()
     expect([...credentials.stored.keys()].sort()).toEqual(['a', 'cloud'])
     expect(forgotten).toEqual(['gone'])
+  })
+
+  test('the host that served the page is never on its own list, and Q1 keeps its credential', async () => {
+    // WHY: a host's list holds the hosts the person connected to from it, not the host
+    // itself. The page's credential for its own host must survive a list that does not
+    // name it, or each boot would delete it and the page could not dial its host.
+    const journal: Journal = []
+    const credentials = memoryCredentials(journal, { page: credentialFor('page'), gone: credentialFor('gone') })
+    const directory = fakeDirectory()
+    directory.state.signedOut = true
+    const catalog = catalogOf({ credentials, directory })
+    catalog.setDeviceHost('page')
+    const own = fakeList(journal, 'host:page')
+    await catalog.useListSource(own.source)
+    await catalog.refreshDirectory()
+    expect([...credentials.stored.keys()]).toEqual(['page'])
+    expect(ids(catalog)).toEqual(['page'])
+    expect(catalog.find('page')?.sessionToken).toBe('token-page')
+
+    // Paired again at the page's address: the credential changes, the list does not.
+    const { listError } = await catalog.pair(pairedHost('page', { sessionToken: 'token-page-2' }))
+    expect(listError).toBeNull()
+    expect(credentials.stored.get('page')?.token).toBe('token-page-2')
+    expect(own.state.listings.size).toBe(0)
+
+    // Signing in does not carry it to the account list either.
+    const account = fakeList(journal, 'account')
+    await catalog.useListSource(account.source)
+    expect(account.state.listings.size).toBe(0)
+    expect(journal.filter((entry) => entry.endsWith('.put page'))).toEqual([])
+    expect(credentials.stored.has('page')).toBe(true)
   })
 
   test('a failed read deletes nothing', async () => {

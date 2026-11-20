@@ -305,9 +305,8 @@ async function bootFromCatalog(intent?: BootIntent): Promise<void> {
     // The host that served the page is the one it runs beside (plans/031 D7): it is
     // dialed first, and signed out the person's list is read there.
     serverConnections.registerTarget(knownHostTarget(servingHost))
+    // The catalog's device host: never put on its own list, and kept out of §3 Q1 (plans/033).
     serverConnections.setServingHostId(servingHost.id)
-    // A host this browser paired stays on that list, so the list never forgets it (plans/033 §3 Q1).
-    if (servingHost.sessionToken) await hostCatalog.pair(servingHost)
   }
   // The person's list (plans/033 §4.5): the account's while signed in at the account
   // origin, the serving host's, or this browser's own at the account origin signed out.

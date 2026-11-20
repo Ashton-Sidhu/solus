@@ -468,9 +468,10 @@ export class ServerConnections {
     return null
   }
 
-  /** A web page served by a host names it here: it is the host the page runs beside. */
+  /** A web page served by a host names it here: it is the host the page runs beside, and the catalog's device host. */
   setServingHostId(serverId: string): void {
     this.servingHostId = serverId
+    this.catalog.setDeviceHost(serverId)
   }
 
   /**

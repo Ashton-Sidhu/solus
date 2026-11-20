@@ -70,6 +70,8 @@ export interface CatalogAnswers {
   directory: DirectoryAnswer | null
   credentials: ReadonlyMap<string, HostCredential>
   learned: ReadonlyMap<string, LearnedFacts>
+  /** The host that served this web page: shown from its credential, as no list names it. */
+  deviceHostId?: string | null
 }
 
 /** What `pair` did: the host, and why its listing did not reach the list (it is sent again at the next read). */
@@ -171,7 +173,8 @@ function joinedHost(answers: HostAnswers, routes: HostRoute[], directoryUrl: str
  *   there that this page cannot reach is left out (`isListingReachable`);
  * - a host this device holds a credential for that no answer names shows only while
  *   the list read failed, so a client with no network still reaches the hosts it paired.
- *   While the list loads it waits, so boot dials the listed hosts after the read.
+ *   While the list loads it waits, so boot dials the listed hosts after the read;
+ * - the device host shows from its credential at all times: it is not on its own list.
  */
 export function joinHosts(answers: CatalogAnswers, now: number, clientOrigin: string): KnownHost[] {
   const directoryUrl = answers.directory?.directoryUrl ?? ''
@@ -193,12 +196,11 @@ export function joinHosts(answers: CatalogAnswers, now: number, clientOrigin: st
     if (seen.has(listed.installationId)) continue
     add({ id: listed.installationId, label: listed.label, sessionToken: '', installationId: listed.installationId, lastConnected: 0, routes: [], os: listed.os }, listed)
   }
-  if (answers.listState === 'failed') {
-    for (const [id, credential] of answers.credentials) {
-      if (seen.has(id) || id === LOCAL_SERVER_ID) continue
-      const address = pairedAddress(credential)
-      add({ id, label: address ? urlHost(address) : id, sessionToken: '', installationId: id, lastConnected: 0, routes: [] }, undefined)
-    }
+  for (const [id, credential] of answers.credentials) {
+    if (seen.has(id) || id === LOCAL_SERVER_ID) continue
+    if (answers.listState !== 'failed' && id !== answers.deviceHostId) continue
+    const address = pairedAddress(credential)
+    add({ id, label: address ? urlHost(address) : id, sessionToken: '', installationId: id, lastConnected: 0, routes: [] }, undefined)
   }
   return joined
 }
@@ -250,6 +252,8 @@ export class HostCatalog {
   private directorySignedInValue: boolean | null = null
   private directoryRead: Promise<void> | null = null
   private readonly learned = new Map<string, LearnedFacts>()
+  /** The host that served this web page; null elsewhere (the desktop's own host is `LOCAL_SERVER_ID`). */
+  private deviceHostId: string | null = null
   private joined: KnownHost[] = []
   private byId = new Map<string, KnownHost>()
   private managedIds: ReadonlySet<string> = new Set()
@@ -285,6 +289,18 @@ export class HostCatalog {
     if (!credential?.token) return null
     const alone: CatalogAnswers = { listings: new Map(), listState: 'failed', directory: null, credentials: new Map([[id, credential]]), learned: this.learned }
     return this.find(id) ?? joinHosts(alone, (this.options.now ?? Date.now)(), this.options.clientOrigin?.() ?? globalThis.location?.origin ?? '')[0] ?? null
+  }
+
+  /**
+   * Names the host that served this web page (plans/031 D7). A host's list holds the
+   * hosts the person connected to from it, not the host itself: the device host is
+   * never put on a list, and §3 Q1 never deletes its credential, as no list names it.
+   */
+  setDeviceHost(id: string | null): void {
+    if (id === this.deviceHostId) return
+    this.deviceHostId = id
+    if (id) this.unconfirmed.delete(id)
+    this.rejoin()
   }
 
   /** The hosts provisioned for an organization (`uplink.kind === 'managed'`). */
@@ -348,9 +364,7 @@ export class HostCatalog {
     }
     this.stopSourceEvents?.()
     this.stopSourceEvents = null
-    for (const listing of this.listings?.values() ?? []) {
-      if (this.credentials.get(listing.id)?.token) this.unconfirmed.set(listing.id, listing)
-    }
+    if (this.source) this.carryPairedHosts()
     this.source = next
     this.listings = null
     this.listStateValue = 'loading'
@@ -360,6 +374,27 @@ export class HostCatalog {
     // Another client of the same list changed it: read it again.
     this.stopSourceEvents = next.subscribe?.(() => void this.refreshList()) ?? null
     return this.refreshList()
+  }
+
+  /**
+   * The hosts this device paired that the old source names go to the next source.
+   * When no read of the old source succeeded, it is not known which ones it names,
+   * so each host this device holds a token for goes: a sign-in or sign-out never
+   * loses a pairing of this device to §3 Q1.
+   */
+  private carryPairedHosts(): void {
+    if (this.listings) {
+      for (const listing of this.listings.values()) {
+        if (this.credentials.get(listing.id)?.token && listing.id !== this.deviceHostId) this.unconfirmed.set(listing.id, listing)
+      }
+      return
+    }
+    for (const id of this.credentials.keys()) {
+      if (this.unconfirmed.has(id)) continue
+      const host = this.pairedHost(id)
+      const listing = host ? this.listingToSend(host) : null
+      if (listing) this.unconfirmed.set(id, listing)
+    }
   }
 
   /** Reads both answers again. */
@@ -443,7 +478,7 @@ export class HostCatalog {
     await this.options.credentials.write(paired.id, credential)
     this.credentials.set(paired.id, credential)
     this.learned.delete(paired.id)
-    const listing = listingOf(paired)
+    const listing = this.listingToSend(paired)
     if (listing) this.unconfirmed.set(listing.id, listing)
     this.rejoin()
     const listError = listing ? await this.send(listing) : null
@@ -609,10 +644,15 @@ export class HostCatalog {
   /** Sends the listing of a host this client paired again when what the list holds of it changed. */
   private sendListingOf(id: string): void {
     const host = this.find(id)
-    const listing = host ? listingOf(host) : null
+    const listing = host ? this.listingToSend(host) : null
     if (!listing || !this.credentials.get(id)?.token) return
     this.unconfirmed.set(id, listing)
     void this.send(listing)
+  }
+
+  /** The listing this client puts on the list for a host; null for the device host, which is never on a list. */
+  private listingToSend(host: KnownHost): HostListing | null {
+    return host.id === this.deviceHostId ? null : listingOf(host)
   }
 
   /** Puts a listing to the list; null when it landed. It stays unconfirmed until a read holds it. */
@@ -632,11 +672,13 @@ export class HostCatalog {
    * §3 Q1: once the list and the directory both answered, a credential for a host
    * that neither names was forgotten elsewhere (or the list was wiped), so it is
    * deleted here too. Only a successful read calls this: a failed read deletes nothing.
+   * The device host is exempt: no list names it (`setDeviceHost`).
    */
   private forgetUnnamed(): void {
     if (this.listStateValue !== 'ready' || this.directoryStateValue !== 'ready' || !this.listings) return
     const named = new Set([...this.listings.keys(), ...this.unconfirmed.keys()])
     for (const host of this.directory?.hosts ?? []) named.add(host.installationId)
+    if (this.deviceHostId) named.add(this.deviceHostId)
     for (const id of this.credentials.keys()) {
       if (named.has(id)) continue
       const host = this.find(id) ?? { id, label: id, sessionToken: '', installationId: id, lastConnected: 0, routes: [] }
@@ -664,6 +706,7 @@ export class HostCatalog {
       directory: this.directory,
       credentials: this.credentials,
       learned: this.learned,
+      deviceHostId: this.deviceHostId,
     }, (this.options.now ?? Date.now)(), this.options.clientOrigin?.() ?? globalThis.location?.origin ?? '')
     this.byId = new Map(this.joined.map((host) => [host.id, host]))
     this.managedIds = new Set(this.joined.filter((host) => host.uplink?.kind === 'managed').map((host) => host.id))
