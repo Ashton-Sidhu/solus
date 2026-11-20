@@ -220,4 +220,18 @@ describe('adding (§8.3, §8.4)', () => {
     expect(updated.integration.id).toBe(added.integration.id)
     expect(updated.integration.launch).toEqual({ command: NODE, args: ['v2.js'] })
   })
+
+  test('a URL is added when the CLI skip calls it the same server, a slash or the case of the host aside', async () => {
+    // WHY: "added" says Solus runs this server, so each Solus run leaves out the
+    // CLI's copy (§8.5). The two rules must agree, or a row says added for a
+    // copy the run still loads, or offers to add a server Solus already runs.
+    store.create({ name: 'Linear', url: 'https://mcp.linear.app/mcp', slug: 'linear', auth: { kind: 'none' } }, 'local', OWNER)
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: {
+      slash: { url: 'https://MCP.linear.app/mcp/' },
+      query: { url: 'https://mcp.linear.app/mcp?team=1' },
+    } })
+    const { servers } = await found().list(ADMIN, OWNER, {})
+    expect(byName(servers, 'slash').state).toBe('added')
+    expect(byName(servers, 'query').state).toBe('new')
+  })
 })

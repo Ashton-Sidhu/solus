@@ -31,6 +31,7 @@ import type { IntegrationGateway } from './gateway'
 import { createIntegration, createStdioIntegration, probeForWrite, updateCommand, type IntegrationCreateDeps } from './integration-create'
 import type { IntegrationStore } from './integration-store'
 import { stdioServerAddress } from './stdio-process'
+import { sameServerAddress } from './cli-skips'
 
 const log = createLogger('integrations', 'found-servers.ts')
 
@@ -304,7 +305,10 @@ export class FoundServers {
     if (!transport) return { ...server, state: 'unsupported', unsupported: 'invalid' }
     const unsupported = transport.kind === 'sse' ? 'sse' : merged.expands ? 'expansion' : null
     if (unsupported) return { ...server, state: 'unsupported', unsupported }
-    const added = integrations.find((integration) => integration.url === merged.key)
+    // The address rule of the CLI skip (§8.5): a server shown as added is one whose CLI copy a run leaves out.
+    const added = integrations.find((integration) => transport.kind === 'stdio'
+      ? integration.url === merged.key
+      : integration.kind === 'mcp' && sameServerAddress({ kind: 'url', url: integration.url }, { kind: 'url', url: transport.url }))
     if (added) return { ...server, state: 'added', integrationId: added.id }
     if (transport.kind === 'stdio') {
       if (!mayRunCommands(principal)) return { ...server, state: 'unsupported', unsupported: 'not-allowed' }
