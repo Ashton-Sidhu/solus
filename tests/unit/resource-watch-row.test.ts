@@ -20,6 +20,9 @@ describe('resource watch row', () => {
       expect(resourceWatchItem({ ...base, state }).actions.map((action) => action.id)).toEqual(['stop'])
     }
     expect(resourceWatchItem(base)).toMatchObject({ label: 'Docs · Release notes', detail: 'Watching for changes', state: 'waiting', startedAt: null })
+    // WHY: Stop is an icon button, so its name says what it stops.
+    expect(resourceWatchItem(base).stopLabel).toBe('Stop watching Release notes')
+    expect(resourceWatchItem(base).actions.every((action) => action.stops)).toBe(true)
     expect(resourceWatchItem({ ...base, wakes: 3 }).detail).toBe('Watching for changes · started the agent 3 times')
     expect(resourceWatchItem({ ...base, state: 'changed' })).toMatchObject({ state: 'running', detail: 'Changed · the agent starts soon' })
     expect(resourceWatchItem({ ...base, state: 'changed', message: 'The agent starts after the running turn.' }).detail).toBe('The agent starts after the running turn.')

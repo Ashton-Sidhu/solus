@@ -8,7 +8,7 @@ import type { ResourceWatchesView } from "./use-resource-watches";
 /**
  * The thread's resource watches above the composer, beside the MCP task rows,
  * as desktop shows them under the last turn (docs/plans/mcp-first-class.md
- * §11.5): one row each, with Stop while it is live.
+ * §11.5): one row each, with the stop control while it is live.
  */
 export function ThreadResourceWatches(props: { readonly view: ResourceWatchesView; readonly mayDrive: boolean }) {
   const iconSubtleColor = useUniwindTheme()["--color-icon-subtle"];

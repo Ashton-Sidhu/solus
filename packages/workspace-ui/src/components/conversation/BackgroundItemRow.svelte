@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Ban as StoppedIcon, Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon, Eye as WaitingIcon } from "@lucide/svelte";
+  import { Ban as StoppedIcon, Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon, Eye as WaitingIcon, Square as StopIcon } from "@lucide/svelte";
   import type { BackgroundItem } from "@solus/client-core/background-item";
   import ActivityRow from "./ActivityRow.svelte";
   import { Button } from "../ui/button";
@@ -10,8 +10,8 @@
   /**
    * One item of a session's background work that the host keeps (an MCP task
    * or a resource watch), on the row `BackgroundWorkRow` uses: the glyph,
-   * what runs, its state in the target, its actions, and the time since the
-   * start on the rail. It knows nothing of the kind: `item` is all it reads.
+   * what runs, its state in the target, its actions, and on the rail the time
+   * since the start and the stop button. It knows nothing of the kind: `item` is all it reads.
    */
   interface Props {
     item: BackgroundItem;
@@ -40,14 +40,16 @@
     });
   });
   const elapsed = $derived(item.startedAt === null ? "" : formatActivityDuration(Math.max(0, now - item.startedAt)));
+  const stopAction = $derived(item.actions.find((action) => action.stops));
+  const wordActions = $derived(item.actions.filter((action) => !action.stops));
 </script>
 
 {#snippet detailText()}{item.detail}{/snippet}
 
 {#snippet actionButtons()}
-  {#if item.actions.length}
+  {#if wordActions.length}
     <span class="flex shrink-0 items-center gap-1">
-      {#each item.actions as action (action.id)}
+      {#each wordActions as action (action.id)}
         <Button
           variant="ghost"
           size="xs"
@@ -63,13 +65,33 @@
   {/if}
 {/snippet}
 
-{#snippet elapsedRail()}<span class="activity-rail-time">{elapsed}</span>{/snippet}
+<!-- The time since the start, then Stop: `BackgroundWorkRow`'s own stop
+     button, last on the rail as it is there, so every row of the session's
+     background work stops the same way and in the same place. -->
+{#snippet railItems()}
+  {#if elapsed}<span class="activity-rail-time">{elapsed}</span>{/if}
+  {#if stopAction}
+    {@const name = busyActionId === stopAction.id ? stopAction.busyLabel : item.stopLabel}
+    <Button
+      variant="ghost"
+      size="xs"
+      class="size-5 rounded-full p-0 text-[color:color-mix(in_oklch,var(--failure)_70%,var(--foreground))] shadow-[shadow:0_0_0_0.03125rem_color-mix(in_oklch,var(--failure)_45%,transparent)] hover:bg-[color:color-mix(in_oklch,var(--failure)_10%,transparent)] hover:text-(color:--failure) dark:hover:bg-[color:color-mix(in_oklch,var(--failure)_14%,transparent)] pointer-coarse:tap-area"
+      disabled={busyActionId !== null}
+      onclick={() => act(stopAction.id)}
+      aria-label={name}
+      title={name}
+      data-testid="background-item-{stopAction.id}"
+    >
+      <StopIcon class="size-2" fill="currentColor" strokeWidth={0} aria-hidden="true" />
+    </Button>
+  {/if}
+{/snippet}
 
 <ActivityRow
   target={detailText}
   proseTarget
   actions={actionButtons}
-  rail={elapsed ? elapsedRail : undefined}
+  rail={elapsed || stopAction ? railItems : undefined}
   glyphClass={item.state === "failed" ? "is-destructive" : ""}
   testid="background-item-row"
 >

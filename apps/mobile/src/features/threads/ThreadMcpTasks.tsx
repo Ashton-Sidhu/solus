@@ -4,6 +4,7 @@ import type { BackgroundItem } from "@solus/client-core/background-item";
 import { mcpTaskItem, MCP_TASK_ANSWER } from "@solus/client-core/mcp-task-row";
 import type { McpTask } from "@solus/contracts/integrations/mcp-task";
 import { SymbolView } from "../../components/AppSymbol";
+import { ControlPill } from "../../components/ControlPill";
 import { AppText as Text } from "../../components/AppText";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import type { ConversationStore } from "../conversation/conversation-store";
@@ -15,8 +16,8 @@ import type { McpTasksView } from "./use-mcp-tasks";
 /**
  * The thread's MCP tasks above the composer, as desktop shows them under the
  * last turn (docs/plans/mcp-first-class.md §12.5): one row each, in the work
- * log's row style (`HostNoticeRow`), with Cancel, and Answer while the server
- * asks. Answer opens the question card that the agent's questions use.
+ * log's row style (`HostNoticeRow`), with the stop control, and Answer while
+ * the server asks. Answer opens the question card that the agent's questions use.
  */
 export function ThreadMcpTasks(props: {
   readonly view: McpTasksView;
@@ -82,6 +83,7 @@ export function BackgroundItemRow(props: {
 }) {
   const { item } = props;
   const nowMs = useVisibleSecondClock(item.startedAt !== null);
+  const stopAction = item.actions.find((action) => action.stops);
   return (
     <View className="min-h-9 flex-row items-center gap-1.5" accessibilityLabel={`${item.label}, ${item.detail}`}>
       <View className="w-5 items-center">
@@ -102,7 +104,7 @@ export function BackgroundItemRow(props: {
       {item.startedAt !== null ? (
         <Text className="text-xs text-foreground-muted opacity-60">{formatWorkingDuration(item.startedAt, nowMs)}</Text>
       ) : null}
-      {item.actions.map((action) => (
+      {item.actions.filter((action) => !action.stops).map((action) => (
         <Pressable
           key={action.id}
           accessibilityRole="button"
@@ -115,6 +117,16 @@ export function BackgroundItemRow(props: {
           <Text className="text-sm font-t3-bold text-foreground">{props.busyActionId === action.id ? action.busyLabel : action.label}</Text>
         </Pressable>
       ))}
+      {stopAction ? (
+        // The composer's own Stop control, at its full 44 pt tap target.
+        <ControlPill
+          icon="stop.fill"
+          variant="danger"
+          accessibilityLabel={props.busyActionId === stopAction.id ? stopAction.busyLabel : item.stopLabel}
+          disabled={!props.mayDrive || props.busyActionId !== null}
+          onPress={() => props.onAction(stopAction.id)}
+        />
+      ) : null}
     </View>
   );
 }

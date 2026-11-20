@@ -3,7 +3,7 @@ import type { BackgroundItem, BackgroundItemAction } from './background-item'
 
 // An MCP task as a background work row (docs/plans/mcp-first-class.md §12.5).
 
-export const MCP_TASK_CANCEL: BackgroundItemAction = { id: 'cancel', label: 'Cancel', busyLabel: 'Cancelling…' }
+export const MCP_TASK_CANCEL: BackgroundItemAction = { id: 'cancel', label: 'Cancel', busyLabel: 'Cancelling…', stops: true }
 export const MCP_TASK_ANSWER: BackgroundItemAction = { id: 'answer', label: 'Answer', busyLabel: 'Answer' }
 
 export function mcpTaskItem(task: McpTask): BackgroundItem {
@@ -15,6 +15,7 @@ export function mcpTaskItem(task: McpTask): BackgroundItem {
     state: mcpTaskState(task),
     startedAt: live ? task.createdAt : null,
     actions: !live || task.cancelling ? [] : task.input?.length ? [MCP_TASK_ANSWER, MCP_TASK_CANCEL] : [MCP_TASK_CANCEL],
+    stopLabel: `Stop ${task.tool}`,
   }
 }
 

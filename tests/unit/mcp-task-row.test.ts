@@ -15,9 +15,14 @@ describe('MCP task row', () => {
   test('a live MCP task can be cancelled, and one that asks can be answered', () => {
     expect(mcpTaskItem(base)).toMatchObject({ label: 'Reports · create_report', detail: 'Running in the background', state: 'running', startedAt: 1_000 })
     expect(mcpTaskItem(base).actions.map((action) => action.id)).toEqual(['cancel'])
+    // WHY: Cancel shows as the stop button of the background work rows, so it
+    // needs a name that says what it stops; Answer stays a word.
+    expect(mcpTaskItem(base).actions.map((action) => !!action.stops)).toEqual([true])
+    expect(mcpTaskItem(base).stopLabel).toBe('Stop create_report')
     const asking = mcpTaskItem({ ...base, status: 'input_required', input: [{ key: 'colour', request: { questionId: 'q', questions: [] } }] })
     expect(asking).toMatchObject({ detail: 'Needs your input', state: 'attention' })
     expect(asking.actions.map((action) => action.id)).toEqual(['answer', 'cancel'])
+    expect(asking.actions.map((action) => !!action.stops)).toEqual([false, true])
   })
 
   test('a cancel in flight offers nothing more; an ended MCP task offers nothing and stops its clock', () => {

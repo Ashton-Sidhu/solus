@@ -5,7 +5,7 @@ import type { BackgroundItem, BackgroundItemAction } from './background-item'
 // A watch can stay for a day, so its row shows no running clock, and it spins
 // only while it opens or while a change is about to start the agent.
 
-export const RESOURCE_WATCH_STOP: BackgroundItemAction = { id: 'stop', label: 'Stop', busyLabel: 'Stopping…' }
+export const RESOURCE_WATCH_STOP: BackgroundItemAction = { id: 'stop', label: 'Stop', busyLabel: 'Stopping…', stops: true }
 
 export function resourceWatchItem(watch: ResourceWatch): BackgroundItem {
   return {
@@ -15,6 +15,7 @@ export function resourceWatchItem(watch: ResourceWatch): BackgroundItem {
     state: resourceWatchState(watch),
     startedAt: null,
     actions: resourceWatchIsLive(watch) ? [RESOURCE_WATCH_STOP] : [],
+    stopLabel: `Stop watching ${watch.name}`,
   }
 }
 

@@ -12,6 +12,8 @@ export interface BackgroundItemAction {
   label: string
   /** The label while the action runs. */
   busyLabel: string
+  /** Ends the work. The row shows it as its stop button, named by `BackgroundItem.stopLabel`. */
+  stops?: boolean
 }
 
 export interface BackgroundItem {
@@ -25,4 +27,6 @@ export interface BackgroundItem {
   /** For the time since the start, while the work runs; null once it ended. */
   startedAt: number | null
   actions: BackgroundItemAction[]
+  /** What the stop button does, as its name and tooltip: "Stop watching <resource>", "Stop <tool>". */
+  stopLabel: string
 }
