@@ -3,6 +3,14 @@
 A client reads session lists and session search through the workspace HTTP API.
 The client does not scan provider files over RPC.
 
+Each session row has a **Pin session** control. Pinned sessions stay at the top
+of the session list without a separate header. The pin mark shows their state;
+**Unpin session** returns them to their normal place. Desktop and web keep
+pins above project folders in project view. Drafts stay first in status view.
+Mobile uses the same host pins. Completing or archiving a session removes its
+pin. Reopening it does not restore the pin. Snoozing keeps the pin. Meta mode
+sessions use the normal sections.
+
 The session sidebar context menu on desktop and web has a **Snooze** submenu.
 Choose a preset to snooze the session immediately, or **Pick date and time…**
 to open a centered dialog with the session title, calendar, time, and an optional

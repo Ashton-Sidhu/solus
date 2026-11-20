@@ -1,3 +1,7 @@
+import { currentPersonKey } from '../../vault/acting-scope'
+import { credentialLocationOf } from '../../vault/vault'
+import { accountConnectionsUrl } from '../../vault/account-reads'
+import { linearConnection } from './providers/linear-api'
 import { z } from 'zod'
 import type { TaskSourceOptions } from '@solus/contracts/task-types'
 import type { AuthStatus } from '@solus/contracts/types'
@@ -81,6 +85,7 @@ export interface TaskSourceOptionsDeps {
   /** The connected Jira site, or null. */
   jiraSite(): Promise<{ cloudId: string; siteUrl: string } | null>
   jira: JiraTransport
+  linear?: typeof linearConnection
 }
 
 const defaultDeps: TaskSourceOptionsDeps = {
@@ -89,6 +94,7 @@ const defaultDeps: TaskSourceOptionsDeps = {
   github: githubRun,
   jiraSite: () => connectedSite('jira'),
   jira: jiraTransport,
+  linear: linearConnection,
 }
 
 type GithubOptions = TaskSourceOptions['github']
@@ -176,8 +182,27 @@ async function jiraOptions(deps: TaskSourceOptionsDeps): Promise<JiraOptions> {
   return options
 }
 
-/** What the caller can choose as a task source. */
+async function linearOptions(read: typeof linearConnection): Promise<NonNullable<TaskSourceOptions['linear']>> {
+  let options: NonNullable<TaskSourceOptions['linear']>
+  try {
+    const account = await read()
+    options = { connected: true, account: account.viewer.name, workspaceId: account.organization.id, teams: account.teams.nodes }
+  } catch (error) {
+    options = { connected: false, teams: [], error: error instanceof Error ? error.message : String(error) }
+  }
+  const location = credentialLocationOf(currentPersonKey()).kind
+  options.location = location
+  const url = location === 'account' ? accountConnectionsUrl() : null
+  if (url) options.accountConnectionsUrl = url
+  return options
+}
+
+/** What the caller can choose as a task source. One provider does not hold the others. */
 export async function taskSourceOptions(deps: TaskSourceOptionsDeps = defaultDeps): Promise<TaskSourceOptions> {
-  const [github, jira] = await Promise.all([githubOptions(deps), jiraOptions(deps)])
-  return { github, jira }
+  const [github, jira, linear] = await Promise.all([
+    githubOptions(deps), jiraOptions(deps), deps.linear ? linearOptions(deps.linear) : undefined,
+  ])
+  const options: TaskSourceOptions = { github, jira }
+  if (linear) options.linear = linear
+  return options
 }

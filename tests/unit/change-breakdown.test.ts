@@ -8,6 +8,13 @@ test('sorts a changed file by its path, first match winning', () => {
     'dist/app.min.js': 'generated',
     // Convex writes its client bindings here.
     'convex/_generated/api.d.ts': 'generated',
+    'drizzle/0000_baseline.sql': 'generated',
+    'packages/server/drizzle/postgres/0002_task_assignees.sql': 'generated',
+    'packages/server/drizzle/sqlite/meta/0002_snapshot.json': 'generated',
+    'packages\\server\\drizzle\\metrics\\meta\\_journal.json': 'generated',
+    'db/migrations/0002_backfill.sql': 'code',
+    'packages/server/drizzle/sqlite/queries.sql': 'code',
+    'packages/server/drizzle/sqlite/schema.ts': 'code',
     // Test support is not a test: a large fixture must not read as test logic.
     'tests/fixtures/session.json': 'mocks',
     'src/__snapshots__/app.test.ts.snap': 'mocks',

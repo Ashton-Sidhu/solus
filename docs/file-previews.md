@@ -8,6 +8,12 @@ the session's project or worktree support editing and autosave on desktop,
 web, and mobile. Files outside that directory and text previews truncated at
 1 MiB are read-only. For HTML files, select Source to edit the markup.
 
+On desktop and web, open an image from a turn's carousel to browse its images
+in the media dialog. Use the side arrows or the Left and Right arrow keys.
+The header shows the image position. Navigation stops at the first and last
+image. A single image has no navigation arrows. Mobile supports swiping
+between images in its native gallery.
+
 For Markdown files, select Editor or Markdown in the outlined control in the
 pane header. Editor opens the rich-text editor; Markdown opens the source.
 

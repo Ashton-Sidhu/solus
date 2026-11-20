@@ -88,3 +88,33 @@ describe('setup readiness on a host with seats', () => {
     expect(readiness.git.identity).toEqual({ name: 'octocat', email: 'octocat@users.noreply.github.com' })
   })
 })
+
+test('setup selects the agent object and forwards the explicit installation choice', async () => {
+  const server = new SolusServer()
+  const calls: string[] = []
+  registerSetupHandlers(server, { agents: {
+    claude: { install: async () => { throw new Error('must select Codex') } },
+    codex: { install: async (selection) => { calls.push('codex:' + selection) } },
+  } })
+  const result = await server.handle('setupInstallAgentCli', [{ agent: 'codex', installation: 'native' }], TEST_HANDLER_CTX)
+  expect(result).toMatchObject({ step: 'install-codex', status: 'done' })
+  expect(calls).toEqual(['codex:native'])
+})
+
+test('a failed agent install remains a failed setup command', async () => {
+  const server = new SolusServer()
+  registerSetupHandlers(server, { agents: {
+    claude: { install: async () => {} },
+    codex: { install: async () => { throw new Error('Checksum mismatch; previous version remains selected') } },
+  } })
+  await expect(server.handle('setupInstallAgentCli', [{ agent: 'codex', installation: 'native' }], TEST_HANDLER_CTX)).rejects.toThrow('Checksum mismatch')
+})
+
+test('a client cannot supply an arbitrary installer or download URL', async () => {
+  const server = new SolusServer()
+  let started = false
+  const software = { install: async () => { started = true } }
+  registerSetupHandlers(server, { agents: { claude: software, codex: software } })
+  await expect(server.handle('setupInstallAgentCli', [{ agent: 'codex', installation: 'native', url: 'https://unapproved.example/install.sh' }], TEST_HANDLER_CTX)).rejects.toThrow()
+  expect(started).toBe(false)
+})

@@ -46,7 +46,6 @@ function list(overrides: Partial<ProjectListInput> = {}) {
     snoozed: [],
     completed: [],
     isSharedOpen: true,
-    isPinnedOpen: true,
     isSnoozedOpen: true,
     isCompletedOpen: true,
     shelfRevealTaskId: null,
@@ -215,15 +214,17 @@ describe('the sidebar project view', () => {
     expect(folder.folder).toMatchObject({ key: 'repo-key', label: 'scratch', project: null })
   })
 
-  test('the Pinned section sits between Shared with you and the shelves', () => {
-    // WHY: both views keep the same order of sections below the sessions.
+  test('pinned rows sit above project folders without a header', () => {
+    // WHY: pins must stay above active sessions in both sidebar views.
     const items = list({
+      sessions: [row('active', 'alpha')],
       shared: [row('sh1', 'alpha')],
       pinned: [{ pin: { sessionId: 'p1', serverId: 'local', provider: 'claude', title: 'p1', cwd: '/repo', pinnedAt: 0 }, row: null }],
       snoozed: [row('s1', 'alpha', { lifecycle: 'snoozed' })],
     })
     const headers = items.filter((item) => item.kind === 'header').map((item) => item.key)
-    expect(headers).toEqual(['header:shared', 'header:pinned', 'header:snoozed'])
+    expect(headers).toEqual(['header:shared', 'header:snoozed'])
+    expect(items.map((item) => item.key).slice(0, 3)).toEqual(['pinned:local:p1', 'folder:alpha', 'active:card'])
   })
 })
 

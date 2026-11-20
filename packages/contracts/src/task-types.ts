@@ -8,7 +8,7 @@ import type { Attribution } from './user'
 import type { Activity } from './activity'
 import type { TaskSource, TaskStatusCategory } from './task-sources'
 
-export type TaskProviderId = 'github' | 'jira'
+export type TaskProviderId = 'github' | 'jira' | 'linear'
 
 /** A GitHub issue or a Jira issue is an `issue`. A `draft` is a GitHub Project
  *  item that is not an issue yet: it has no repository, reference or URL. */
@@ -129,6 +129,7 @@ export interface Task {
   category: TaskStatusCategory
   /** The sources that list the task, with its column in each. */
   placements: TaskPlacement[]
+  assignees?: TaskAssigneeCandidate[]
   assignee?: string
   /** Provider-hosted avatar for the assignee, when the provider exposes one. */
   assigneeAvatarUrl?: string
@@ -176,6 +177,7 @@ export interface TaskCreateInput {
   body?: string
   /** A column of the source to start in. Absent = where the provider starts a task. */
   columnId?: string
+  assignees?: string[]
   assignee?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
@@ -187,6 +189,7 @@ export interface TaskCreateInput {
 export interface TaskUpdatePatch {
   title?: string
   body?: string
+  assignees?: string[]
   assignee?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
@@ -203,6 +206,8 @@ export type TaskMoveTarget =
  *  could not send yet is `unsent` and stays on this host until it is sent or
  *  discarded. */
 export interface TaskComment {
+  /** Stable comment id on the provider, for reactions. */
+  providerCommentId?: string
   id: string
   taskId: string
   /** Who wrote a comment that Solus sent or holds. Absent on a comment that
@@ -485,12 +490,14 @@ export interface TaskSourceState {
   fetchedAt?: number
   /** The source holds more tasks than the host read. Search reaches the rest. */
   truncated?: boolean
+  nextCursor?: string | null
   /** The host reads the source now; `tasks.sourcesChanged` says when it ends. */
   refreshing?: boolean
 }
 
 /** What a person can choose as a task source: what their GitHub and Jira connections list. */
 export interface TaskSourceOptions {
+  linear?: { location?: 'host' | 'account' | 'none'; accountConnectionsUrl?: string; connected: boolean; account?: string; workspaceId?: string; teams: Array<{ id: string; key: string; name: string }>; error?: string }
   github: {
     connected: boolean
     login?: string

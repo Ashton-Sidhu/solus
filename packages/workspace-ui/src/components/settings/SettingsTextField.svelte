@@ -68,9 +68,9 @@
 
 <Dialog.Root open={expanded} onOpenChange={setExpanded}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-50 modal-backdrop" />
+    <Dialog.Overlay class="fixed inset-0 z-[10001] modal-backdrop" />
     <Dialog.Content
-      class="text-workspace-chrome fixed top-1/2 left-1/2 z-50 flex h-[min(48rem,calc(100dvh-2rem))] w-[min(56rem,calc(100vw-2rem))] -translate-1/2 flex-col overflow-hidden rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) shadow-(--solus-popover-shadow)"
+      class="text-workspace-chrome fixed top-1/2 left-1/2 z-[10001] flex h-[min(48rem,calc(100dvh-2rem))] w-[min(56rem,calc(100vw-2rem))] -translate-1/2 flex-col overflow-hidden rounded-2xl border border-(--solus-tool-border) bg-(--solus-container-bg) shadow-(--solus-popover-shadow)"
       onOpenAutoFocus={(event) => {
         event.preventDefault();
         dialogEditor?.focus();

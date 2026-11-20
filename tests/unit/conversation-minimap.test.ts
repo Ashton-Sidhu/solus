@@ -51,6 +51,18 @@ describe('conversation minimap active marker', () => {
 describe('minimap nav item builder', () => {
   const userMessage = (id: string, content: string) => ({ id, role: 'user', content })
 
+  test('gives a host notice no tick, live or reloaded', () => {
+    // WHY: the rail jumps between a person's prompts. A host notice is the
+    // host's news about work the agent started; live it carries its origin,
+    // and after a reload only its text says what it is.
+    const build = createNavItemBuilder()
+    const live = { id: 'w1', role: 'user', content: 'checks passed', via: 'pull-request-watch' as const }
+    const reloaded = userMessage('w2', 'Update on pull request #12 (https://github.com/o/r/pull/12), which Solus is watching for you.\n- Checks failed: ci')
+    const command = userMessage('c1', 'A background command finished after your turn ended (exit 0): bun test')
+    const items = build([userMessage('u1', 'fix it'), live, reloaded, command, userMessage('u2', 'thanks')])
+    expect(items.map((item) => item.id)).toEqual(['u1', 'u2'])
+  })
+
   test('hands back the same array when only non-user rows arrive', () => {
     // WHY: the component re-indexes every mounted transcript row whenever
     // `items` changes identity. A turn appends a tool row per call, so a

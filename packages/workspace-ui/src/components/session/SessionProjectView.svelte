@@ -34,7 +34,6 @@
       snoozed: input.snoozed,
       completed: input.completed,
       isSharedOpen: input.isSharedOpen,
-      isPinnedOpen: input.isPinnedOpen,
       isSnoozedOpen: input.isSnoozedOpen,
       isCompletedOpen: input.isCompletedOpen,
       shelfRevealTaskId: input.shelfRevealTaskId,

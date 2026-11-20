@@ -135,6 +135,9 @@ export class PullRequest implements Contracts.PullRequest {
   needsMyReview = $state<boolean>()
   autoMergeEnabled = $state<boolean>()
   autoMergeMethod = $state<Contracts.PrMergeMethod>()
+  /** The pull request's own reactions. Only a detail read carries them, so a
+   *  list row keeps the last detail's. */
+  reactions = $state<Contracts.PullRequest['reactions']>()
   /** Where this sits in its GitHub stack; null when in none, undefined until
    *  a read that asks has answered. */
   stack = $state<Contracts.PrStackMembership | null>()
@@ -261,6 +264,7 @@ export class PullRequest implements Contracts.PullRequest {
     this.needsMyReview = source.needsMyReview
     this.autoMergeEnabled = source.autoMergeEnabled
     this.autoMergeMethod = source.autoMergeMethod
+    if (source.reactions !== undefined) this.reactions = source.reactions
     // A direct read does not ask about stacks; only an answer replaces one.
     if (source.stack !== undefined) this.stack = source.stack
     // Likewise checks; a new head makes the last answer someone else's.

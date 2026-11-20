@@ -1,3 +1,7 @@
+import type { PrReactionContent, PrReactions, PrUrlInspection } from './pr-social'
+import type { RepoRef } from './providers'
+import type { TaskInvolvement, TaskInspection, TaskReactionContent, TaskTemplate, TaskExternalIssue } from './task-inspection'
+import type { RunningServer, StopRunningServerResult, RunningServerTunnel, NativeServerForward, NativeServerForwardRequest } from './running-servers'
 import type { VoiceTranscriptionOptions } from './voice-dictionary'
 import type { VoiceTranscript, VoicePartial, VoiceStreamRequest, VoiceStreamFeedRequest, VoiceWarmRequest } from './voice-stream'
 import type { ProviderInstancesSnapshot, ProviderInstancesWrite, ProviderInstanceTarget, ProviderInstanceCode, ProviderInstanceStatus } from './provider-instances'
@@ -693,7 +697,7 @@ export interface SolusAPI {
   otelSettingsGet(): Promise<OtelSettingsSnapshot>
   discoverServers(): Promise<DiscoveredServer[]>
   setProjectsBaseDirectory(path: string): Promise<Pick<HostCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'>>
-  setupInstallAgentCli(args: { agent: SetupAgent }): Promise<SetupStepResult>
+  setupInstallAgentCli(args: { agent: SetupAgent; installation?: 'native' | 'existing' }): Promise<SetupStepResult>
   setupCheckAgentAuth(args: { agent: SetupAgent }): Promise<SetupAgentAuthCheckResult>
   setupListGithubRepos(): Promise<SetupGithubReposResult>
   setupCloneProject(args: SetupCloneProjectRequest): Promise<SetupCloneProjectResult>
@@ -799,6 +803,13 @@ export interface SolusAPI {
   /** Fetch the PR's body, author, and state for the Activity overview. */
   prGetDetail(ctx: IpcContext, number: number): Promise<PullRequest>
   prUpdate(ctx: IpcContext, number: number, patch: PullRequestUpdate): Promise<PullRequest>
+  /** Adds or removes the viewer's reaction on the pull request (`targetId`
+   *  null) or one of its comments or reviews. Answers with the target's
+   *  reactions after the write, so no read follows it. Reactions are read
+   *  with the pull request, its comments, and its threads. */
+  prReact(repo: RepoRef, number: number, targetId: string | null, content: PrReactionContent, add: boolean): Promise<PrReactions>
+  prInspectUrl(url: string): Promise<PrUrlInspection>
+  /** Fetch the PR detail, commits, and reviewers for the PR list detail pane. */
   /** Fetch the PR detail, commits, and reviewers for the PR list detail pane. */
   prGetOverview(ctx: IpcContext, number: number): Promise<PullRequestOverview>
   /** Per-file +/- counts from the code host for the PR's changed files. */
@@ -877,6 +888,14 @@ export interface SolusAPI {
 
   /** This machine's load, read on demand and cached for 5 s. */
   hostResources(): Promise<HostResources>
+  /** Web and API servers discovered on this host, independent of browser pages. */
+  runningServersList(): Promise<RunningServer[]>
+  /** Renew the connection's lease and return its current list. */
+  runningServersWatch(checkoutPaths?: string[]): Promise<RunningServer[]>
+  runningServersCheckoutRoots(paths: string[]): Promise<{ path: string; root: string | null }[]>
+  runningServersUnwatch(): Promise<void>
+  runningServerTunnel(serverId: string, endpointId: string): Promise<RunningServerTunnel>
+  runningServerStop(serverId: string): Promise<StopRunningServerResult>
   /** Start or renew this client's process telemetry, and read the current state.
    *  A subscription ends 20 s after its last renewal (`host.telemetry`). */
   hostTelemetrySubscribe(): Promise<HostTelemetry>
@@ -1040,10 +1059,12 @@ export interface SolusAPI {
    */
   tasksSources(sources: TaskSource[], opts?: { refresh?: 'stale' | 'force' }): Promise<TaskSourceState[]>
   /** What the caller can choose as a task source. */
+  tasksLoadMore(source: TaskSource): Promise<void>
   tasksSourceOptions(): Promise<TaskSourceOptions>
+  tasksConnectLinear(key: string | null): Promise<void>
   /** Ask the provider for the tasks of these sources that match `query`.
    *  The only way to reach a task that a truncated source did not list. */
-  tasksSearch(sources: TaskSource[], query: string): Promise<TaskSummary[]>
+  tasksSearch(sources: TaskSource[], query: string, involvement?: TaskInvolvement): Promise<TaskSummary[]>
   tasksSidebarSnapshot(filter?: TaskSidebarFilter): Promise<TaskSidebarSnapshot>
   /** The tasks whose comments hold every word of a query (docs/plans/unified-search.md §7). */
   tasksSearchComments(query: TaskCommentSearchQuery): Promise<TaskCommentHit[]>
@@ -1051,6 +1072,10 @@ export interface SolusAPI {
    *  this host. Answers the host's last copy, with `fromCache`, when the
    *  provider does not answer. */
   tasksGet(id: string): Promise<TaskDetails>
+  tasksInspect(id: string, cursor?: string): Promise<TaskInspection>
+  tasksReact(id: string, targetId: string, content: TaskReactionContent, add: boolean): Promise<void>
+  tasksTemplates(source: TaskSource): Promise<TaskTemplate[]>
+  tasksResolve(url: string): Promise<TaskExternalIssue>
   /** The attachments of a task on a host that does not read the task itself. */
   tasksAttachments(id: string): Promise<TaskAttachments>
   /** Create a task on the provider. */
@@ -1176,8 +1201,12 @@ export interface SolusAPI {
   gitRunAction(ctx: IpcContext, request: GitActionRequest): Promise<GitActionResult>
   gitDiscard(ctx: IpcContext): Promise<GitDiscardResult>
   gitSync(ctx: IpcContext): Promise<GitSyncResult>
-  /** `create` makes the branch from HEAD; otherwise the branch must exist. */
-  gitCheckoutBranch(ctx: IpcContext, branch: string, options?: { create?: boolean }): Promise<GitCheckoutBranchResult>
+  /** `create` makes the branch from HEAD; otherwise the branch must exist.
+   *  The host reads the refs again: a branch already in another worktree
+   *  names that worktree instead of a switch, and a remote branch becomes a
+   *  local branch that tracks it. `remoteOnly` says the person picked the
+   *  remote branch, so a local branch of that name must track it. */
+  gitCheckoutBranch(ctx: IpcContext, branch: string, options?: { create?: boolean; remoteOnly?: boolean }): Promise<GitCheckoutBranchResult>
   /** `skipFetch` lists the refs on disk now instead of after a fetch. */
   worktreeBranches(ctx: IpcContext, options?: { remoteOnly?: boolean; skipFetch?: boolean }): Promise<BranchRef[]>
   worktreeRestore(ctx: IpcContext, worktreePath: string): Promise<GitCheckout | null>
@@ -1437,6 +1466,9 @@ export interface GuestShortcut {
 }
 
 export interface NativeSolusAPI {
+  serverForwardStart(request: NativeServerForwardRequest): Promise<NativeServerForward>
+  serverForwardStop(forwardId: string): Promise<void>
+  serverForwardList(): Promise<NativeServerForward[]>
   getPlatform(): string
   /** Null when the local host is off (docs/plans/desktop-remote-only.md). */
   getLocalConnection(): Promise<LocalConnectionInfo | null>

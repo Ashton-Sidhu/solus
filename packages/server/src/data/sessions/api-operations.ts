@@ -28,6 +28,7 @@ import { admitSession, SessionAdmissionConflict, type SessionAdmission } from '.
 import { onSessionPullRequestsChanged, readSessionPullRequests } from './session-pull-requests'
 import { sessionsWithPendingAsyncQuestion } from './async-questions'
 import { SessionShelf, SessionViewer } from './session-states'
+import { removePinnedSession } from './pinned-sessions'
 import { personalResourceState } from '../personal-state/schema'
 import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
@@ -176,6 +177,9 @@ export class SessionApiOperations {
       if (input.archived === false) await viewer.unarchive()
       if (input.snoozedUntil !== undefined) await viewer.snooze(input.snoozedUntil, input.snoozeNote)
       changed.view = await viewer.view()
+      if (isHostOwner(context.principal) && (input.settled === true || input.archived === true)) {
+        removePinnedSession(sessionId)
+      }
     }
     return changed
   }

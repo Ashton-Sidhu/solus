@@ -5,8 +5,8 @@ import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib
 
 /**
  * When another agent session stops a run, the phone says so and names that
- * session, as the desktop and web divider do. A person's stop adds no row: the
- * phone has never drawn one.
+ * session, as the desktop and web divider do. A person's stop must also stay
+ * visible, including after reopening the thread.
  */
 
 const subject = { kind: 'session' as const, id: 'session-1' }
@@ -26,9 +26,20 @@ function noticeTexts(model: TranscriptModel): string[] {
 }
 
 describe("an agent's stop on mobile", () => {
-  test('history names the stopping session; a person stop adds no row', () => {
+  test('history names both the stopping agent and the person who stopped a turn', () => {
     const model = TranscriptModel.fromHistory('session-1', page([agentStop, personStop]))
-    expect(noticeTexts(model)).toEqual(['Stopped by Lead review'])
+    expect(noticeTexts(model)).toEqual(['Stopped by Lead review', 'Stopped by Me'])
+  })
+
+  test('a person stop before any answer remains visible live and after a reload', () => {
+    const model = TranscriptModel.fromHistory('session-1', page([]))
+    model.apply({ type: 'user_message', text: 'Start work', clientPromptId: 'prompt-1' })
+    model.apply({ type: 'status_change', status: 'running', oldStatus: 'connecting' })
+    model.apply({ type: 'status_change', status: 'interrupted', oldStatus: 'running' })
+    model.apply({ type: 'activity', activity: personStop })
+    model.apply({ type: 'activity', activity: personStop })
+    expect(noticeTexts(model)).toEqual(['Stopped by Me'])
+    expect(noticeTexts(TranscriptModel.fromHistory('session-1', page([personStop])))).toEqual(['Stopped by Me'])
   })
 
   test('a live stop with no session title says an agent stopped it, once', () => {

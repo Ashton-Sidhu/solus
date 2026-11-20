@@ -12,7 +12,7 @@ import { threadKey, type SolusThreadShell } from '../../apps/mobile/src/features
 import { parseDeepLink } from '../../apps/mobile/src/navigation/deep-links'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { appPairLink, pairLink } from '@solus/client-core/pairing'
-import { AGENT_ACTIVITY_STALE_AFTER_MS, type AgentActivityCard } from '@solus/contracts/uplink'
+import { AGENT_ACTIVITY_IDLE_AFTER_MS, AGENT_ACTIVITY_STALE_AFTER_MS, type AgentActivityCard } from '@solus/contracts/uplink'
 
 const shell = (sessionId: string, fields: Partial<SessionRecord> = {}): SolusThreadShell => ({
   key: threadKey('mac', sessionId),
@@ -80,8 +80,10 @@ describe('Live Activity content (canonical session status)', () => {
 })
 
 describe('Live Activity lifecycle', () => {
-  function harness(options: { existing?: number; foreground?: boolean; saved?: string[] } = {}) {
+  function harness(options: { existing?: number; foreground?: boolean; saved?: string[]; savedIdleSince?: number } = {}) {
     const calls: string[] = []
+    const deadlines: Array<{ run: () => void; delayMs: number; cancelled: boolean }> = []
+    let rejectUpdate = false
     // The cards iOS shows; each read answers new handles, as expo-widgets does.
     const cards = Array.from({ length: options.existing ?? 0 }, (_, index) => `old${index}`)
     let started = 0
@@ -90,7 +92,7 @@ describe('Live Activity lifecycle', () => {
     const relayed: string[] = []
     const handle = (name: string): LiveActivityHandle => ({
       getId: () => name,
-      update: async (props: AgentActivityCard, stale: Date) => { calls.push(`${name}:update:${props.activeCount}:${stale.getTime()}`) },
+      update: async (props: AgentActivityCard, stale: Date) => { calls.push(`${name}:update:${props.activeCount}:${stale.getTime()}`); if (rejectUpdate) throw new Error('Update refused') },
       end: async (policy, props) => {
         cards.splice(cards.indexOf(name), 1)
         calls.push(`${name}:end:${policy}:${props?.subtitle ?? ''}`)
@@ -114,6 +116,7 @@ describe('Live Activity lifecycle', () => {
     }
     const storage = memoryKeyValueStore()
     if (options.saved) storage.setItem('solus.liveActivities.tracked', JSON.stringify(options.saved))
+    if (options.savedIdleSince !== undefined) storage.setItem('solus.liveActivities.idleSince', String(options.savedIdleSince))
     const state = {
       threads: [shell('a'), shell('b')],
       status: live([]),
@@ -124,6 +127,11 @@ describe('Live Activity lifecycle', () => {
     }
     const controller = new AgentLiveActivityController({
       bridge,
+      schedule: (run, delayMs) => {
+        const task = { run, delayMs, cancelled: false }
+        deadlines.push(task)
+        return () => { task.cancelled = true }
+      },
       ready: () => state.ready,
       read: () => ({ threads: state.threads, liveStatus: state.status, projectTitleOf: () => 'solus' }),
       enabled: () => state.enabled,
@@ -135,7 +143,7 @@ describe('Live Activity lifecycle', () => {
         unregister: (pushToken) => { relayed.push(`unregister:${pushToken}`) },
       },
     })
-    return { calls, cards, state, controller, storage, relayed, issueToken }
+    return { calls, cards, state, controller, storage, relayed, issueToken, deadlines, failUpdates: () => { rejectUpdate = true } }
   }
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -172,8 +180,8 @@ describe('Live Activity lifecycle', () => {
     expect(relayed).toEqual(['register:aa11:1000:1', 'register:aa11:301000:1', 'register:aa11:901000:1'])
   })
 
-  test('changes update the card; when all work settles it shows the outcome and ends', async () => {
-    const { calls, state, controller } = harness()
+  test('changes update the card; finished work stays on the same card until the idle deadline', async () => {
+    const { calls, state, controller, deadlines } = harness()
     state.status = live([['a', 'running']])
     controller.sync()
     state.status = live([['a', 'running'], ['b', 'awaiting_input']])
@@ -181,7 +189,43 @@ describe('Live Activity lifecycle', () => {
     state.status = live([['a', 'completed'], ['b', 'completed']])
     controller.sync()
     await flush()
-    expect(calls.slice(1)).toEqual([`new:update:2:${1_000 + AGENT_ACTIVITY_STALE_AFTER_MS}`, 'new:end:default:Agent work completed'])
+    expect(calls.slice(1)).toEqual([`new:update:2:${1_000 + AGENT_ACTIVITY_STALE_AFTER_MS}`, `new:update:0:${1_000 + AGENT_ACTIVITY_STALE_AFTER_MS}`])
+    expect(deadlines[0]!.delayMs).toBe(AGENT_ACTIVITY_IDLE_AFTER_MS)
+    state.now += AGENT_ACTIVITY_IDLE_AFTER_MS
+    deadlines[0]!.run()
+    expect(calls.at(-1)).toBe('new:end:immediate:')
+  })
+
+  test('a new turn reuses the Done card and cancels its idle deadline', async () => {
+    const { calls, state, controller, deadlines, cards } = harness()
+    state.status = live([['a', 'running']])
+    controller.sync()
+    state.status = live([['a', 'completed']])
+    controller.sync()
+    state.now += 60_000
+    state.status = live([['a', 'running']])
+    controller.sync()
+    await flush()
+    expect(deadlines[0]!.cancelled).toBe(true)
+    expect(cards).toEqual(['new'])
+    expect(calls.filter((call) => call.startsWith('start:'))).toHaveLength(1)
+    expect(calls.some((call) => call.includes(':end:'))).toBe(false)
+    controller.dispose()
+  })
+
+  test('an update failure retries the same existing card instead of creating a duplicate', async () => {
+    const { calls, state, controller, failUpdates, cards } = harness()
+    state.status = live([['a', 'running']])
+    controller.sync()
+    failUpdates()
+    state.status = live([['a', 'awaiting_input']])
+    controller.sync()
+    await flush()
+    controller.sync()
+    await flush()
+    expect(cards).toEqual(['new'])
+    expect(calls.filter((call) => call.startsWith('start:'))).toHaveLength(1)
+    expect(calls.filter((call) => call.startsWith('new:update:'))).toHaveLength(2)
   })
 
   test('turning Live Activities off ends the card at once', async () => {
@@ -222,12 +266,47 @@ describe('Live Activity lifecycle', () => {
     state.status = live([['a', 'completed']])
     controller.sync()
     await flush()
-    expect(calls).toEqual(['old0:end:default:Agent work completed'])
-    expect(storage.getItem('solus.liveActivities.tracked')).toBeNull()
+    expect(calls).toEqual([`old0:update:0:${1_000 + AGENT_ACTIVITY_STALE_AFTER_MS}`])
+    expect(storage.getItem('solus.liveActivities.tracked')).not.toBeNull()
+  })
+
+  test('unmount cancels the local idle timer and token listener without unregistering the background card', () => {
+    const { controller, state, deadlines, issueToken, relayed } = harness()
+    state.status = live([['a', 'running']])
+    controller.sync()
+    issueToken('new', 'aa11')
+    state.status = live([['a', 'completed']])
+    controller.sync()
+    controller.dispose()
+    expect(deadlines[0]!.cancelled).toBe(true)
+    issueToken('new', 'bb22')
+    expect(relayed).toEqual(['register:aa11:1000:1', 'register:aa11:1001:0'])
+  })
+
+  test('a restart preserves the idle deadline instead of keeping Done indefinitely', () => {
+    const { controller, state, calls, storage } = harness({ existing: 1, saved: [threadKey('mac', 'a')], savedIdleSince: 1_000 })
+    state.now = 1_000 + AGENT_ACTIVITY_IDLE_AFTER_MS
+    state.status = live([['a', 'completed']])
+    controller.sync()
+    expect(calls).toEqual(['old0:end:immediate:'])
+    expect(storage.getItem('solus.liveActivities.idleSince')).toBeNull()
+  })
+
+  test('a failed update for a removed card permits a replacement', async () => {
+    const { controller, state, calls, cards, failUpdates } = harness()
+    state.status = live([['a', 'running']])
+    controller.sync()
+    failUpdates()
+    state.status = live([['a', 'awaiting_input']])
+    controller.sync()
+    cards.splice(0)
+    await flush()
+    controller.sync()
+    expect(calls.filter((call) => call.startsWith('start:'))).toHaveLength(2)
   })
 
   test('the hosts get each card once its push token arrives, until the card ends', async () => {
-    const { state, controller, relayed, issueToken } = harness()
+    const { state, controller, relayed, issueToken, deadlines } = harness()
     state.status = live([['a', 'running']])
     controller.sync()
     // No token yet: nothing to give the hosts.
@@ -239,7 +318,10 @@ describe('Live Activity lifecycle', () => {
     controller.sync()
     await flush()
     // Generations rise although the clock stands still: the relay keeps the newest card.
-    expect(relayed).toEqual(['register:aa11:1000:1', 'register:aa11:1001:2', 'unregister:aa11'])
+    expect(relayed).toEqual(['register:aa11:1000:1', 'register:aa11:1001:2', 'register:aa11:1002:0'])
+    state.now += AGENT_ACTIVITY_IDLE_AFTER_MS
+    deadlines[0]!.run()
+    expect(relayed.at(-1)).toBe('unregister:aa11')
   })
 
   test('a replaced push token is taken back from the hosts and the new one gets the card', () => {

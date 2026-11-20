@@ -12,6 +12,7 @@ import type { ActivityFilter, PullRequestActivity } from '../lib/pull-request-ac
 import { pullRequestLabelColor } from '../lib/pull-request-list'
 import { PullRequestMarkdown } from './PullRequestMarkdown'
 import { PullRequestAvatar } from './pull-request-ui'
+import { PrReactionBar, PrReactionPicker } from '../PrReactions'
 
 export interface ActivityRow {
   readonly key: string
@@ -124,7 +125,10 @@ function TimelineComment({ item, threads, now, onOpenThread, deletion }: {
         verb={verb}
         at={item.createdAt}
         now={now}
-        trailing={deletion.canDelete(item) ? <DeleteCommentButton deleting={deletion.deletingId === item.id} onDelete={() => deletion.onDelete(item.id)} /> : null}
+        trailing={<>
+          <PrReactionPicker targetId={item.id} reactions={item.reactions} />
+          {deletion.canDelete(item) ? <DeleteCommentButton deleting={deletion.deletingId === item.id} onDelete={() => deletion.onDelete(item.id)} /> : null}
+        </>}
       />
       {item.body.trim() ? (
         // No box: the comment is the event on the spine, and only its
@@ -141,6 +145,7 @@ function TimelineComment({ item, threads, now, onOpenThread, deletion }: {
           ) : null}
         </View>
       ) : null}
+      <PrReactionBar targetId={item.id} reactions={item.reactions} />
       {threads.map((thread) => <ThreadCard key={thread.id} thread={thread} onOpen={onOpenThread} />)}
     </TimelineEvent>
   )

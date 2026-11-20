@@ -1,16 +1,18 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/NewTaskContextPickerScreens.tsx (MIT, see UPSTREAM.md).
-// The Environment picker is a route pushed in the new-task sheet, as T3; it
-// reads the draft's host and project from its params instead of a flow provider.
+// The Environment and Branch pickers are routes pushed in the new-task sheet, as
+// T3; they read the draft from their params instead of a flow provider.
 import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
+import type { BranchRef } from "@solus/contracts/git-types";
 import type { HostOperatingSystem } from "@solus/contracts/types";
 import * as Haptics from "expo-haptics";
-import { useMemo, type ReactNode } from "react";
-import { Platform, Pressable, ScrollView, View } from "react-native";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Platform, Pressable, ScrollView, View, type TextInputInstance } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { MaterialListRow } from "../../components/MaterialListRow";
+import { MaterialSearchField } from "../../components/MaterialSearchField";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
@@ -22,7 +24,11 @@ import { cn } from "../../lib/cn";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import type { ScreenProps } from "../../navigation/routes";
 import { groupProjectScopes, scopeOfProject } from "./new-task-project-selection";
+import { isDraftThreadRoute } from "./thread-route-state";
 import { useNewTaskBalanceCandidates } from "./new-task-balance";
+import type { ConversationStore } from "../conversation/conversation-store";
+import { branchBadge, selectedBranchName, worktreeBaseChoices } from "./lib/worktree-branches";
+import { useWorktreeBranches } from "./use-worktree-branches";
 
 /** The glyph a Solus host wears: T3's machine kinds by operating system. */
 export function hostMachineKind(os: HostOperatingSystem | undefined): EnvironmentMachineKind {
@@ -175,19 +181,29 @@ export function NewTaskEnvironmentPickerRouteScreen({ route, navigation }: Scree
   const insets = useSafeAreaInsets();
   const { environments } = useNewTaskEnvironments(hostId, projectPath);
   const balanceCandidates = useNewTaskBalanceCandidates(environments, null);
-  const select = (choice: NewTaskEnvironmentChoice) => {
-    void Haptics.selectionAsync();
-    if (choice.hostId === hostId) {
-      // The same host, chosen by hand, still ends Auto balance on this draft.
-      navigation.popTo("NewTask", { hostId, projectPath, hostChoice: "manual" });
+  const returnToDraft = (nextHostId: string, nextProjectPath: string, choice?: "manual", balanceRequest?: number) => {
+    const draftRoute = navigation.getState().routes.findLast(isDraftThreadRoute);
+    const params = { hostId: nextHostId, projectPath: nextProjectPath, hostChoice: choice, balanceRequest };
+    if (!draftRoute) {
+      navigation.popTo("NewTask", params);
       return;
     }
-    app.saveDraft(choice.hostId, `new-task:${choice.projectPath}`, app.draft(hostId, `new-task:${projectPath}`));
-    navigation.popTo("NewTask", { hostId: choice.hostId, projectPath: choice.projectPath, hostChoice: "manual" });
+    navigation.popTo("Thread", {
+      hostId: nextHostId,
+      sessionId: draftRoute.params.sessionId,
+      draft: { ...draftRoute.params.draft, ...params },
+    });
+  };
+  const select = (choice: NewTaskEnvironmentChoice) => {
+    void Haptics.selectionAsync();
+    if (choice.hostId !== hostId) {
+      app.saveDraft(choice.hostId, `new-task:${choice.projectPath}`, app.draft(hostId, `new-task:${projectPath}`));
+    }
+    returnToDraft(choice.hostId, choice.projectPath, "manual");
   };
   const chooseAutoBalance = () => {
     void Haptics.selectionAsync();
-    navigation.popTo("NewTask", { hostId, projectPath, balanceRequest: Date.now() });
+    returnToDraft(hostId, projectPath, undefined, Date.now());
   };
   return (
     <View className="flex-1 bg-sheet" collapsable={false}>
@@ -232,6 +248,133 @@ export function NewTaskEnvironmentPickerRouteScreen({ route, navigation }: Scree
               />
             ))}
           </PickerSurface>
+        </ScrollView>
+      </MaterialScreenContent>
+    </View>
+  );
+}
+
+/**
+ * T3's Branch screen in the new-task sheet: the base of a new worktree, or the
+ * branch of the project's checkout. Picking returns to the draft; a checkout
+ * branch first waits for the host, which may name another worktree.
+ */
+export function NewTaskBranchPickerRouteScreen({ route, navigation }: ScreenProps<"NewTaskBranch">) {
+  const store = useApp().openConversation(route.params.hostId, route.params.conversationId);
+  // A draft closed under the picker leaves nothing to choose for.
+  useEffect(() => {
+    if (!store) navigation.goBack();
+  }, [navigation, store]);
+  if (!store) return <View className="flex-1 bg-sheet" />;
+  return <NewTaskBranchPicker store={store} onClose={() => navigation.goBack()} />;
+}
+
+function NewTaskBranchPicker(props: { readonly store: ConversationStore; readonly onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const searchInput = useRef<TextInputInstance | null>(null);
+  const meta = useListened(props.store.meta, props.store.metaSnapshotOf);
+  const branchState = useWorktreeBranches(props.store, meta.runOptions.canChooseStart);
+  const branches = branchState?.branches ?? null;
+  const newWorktree = meta.run.worktreeBaseBranch !== null;
+  const currentBranch = branchState?.currentBranch ?? null;
+  const selectedBranch = selectedBranchName(branches, newWorktree ? meta.run.worktreeBaseBranch : meta.run.checkoutBranch ?? currentBranch);
+  const title = newWorktree ? "Base branch" : "Branch";
+  const [query, setQuery] = useState("");
+  const [switching, setSwitching] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  // Left during a switch: the draft takes the host's answer; nothing more closes.
+  const open = useRef(true);
+  useEffect(() => () => { open.current = false; }, []);
+  const choices = worktreeBaseChoices(branches ?? [], query);
+  const select = async (branch: BranchRef) => {
+    void Haptics.selectionAsync();
+    if (newWorktree) {
+      props.store.controller.chooseWorktreeBase(branch.name);
+      props.onClose();
+      return;
+    }
+    setSwitching(branch.name);
+    setFailure(null);
+    const refusal = await props.store.controller.chooseCheckoutBranch(branch);
+    if (!open.current) return;
+    setSwitching(null);
+    if (refusal) setFailure(refusal);
+    else props.onClose();
+  };
+  const notice = branches === null ? "Loading branches…" : choices.length === 0 ? "No matching branches" : null;
+  return (
+    <View className="flex-1 bg-sheet" collapsable={false}>
+      <NativeStackScreenOptions
+        options={{
+          headerShown: Platform.OS !== "android",
+          title,
+          headerSearchBarOptions:
+            Platform.OS === "ios"
+              ? {
+                  autoCapitalize: "none",
+                  hideNavigationBar: false,
+                  obscureBackground: false,
+                  onCancelButtonPress: () => setQuery(""),
+                  onChangeText: (event) => setQuery(event.nativeEvent.text),
+                  placeholder: "Find a branch",
+                }
+              : undefined,
+        }}
+      />
+      {Platform.OS === "android" ? (
+        <AndroidScreenHeader title={title} hideBottomBorder onBack={props.onClose} />
+      ) : null}
+      <MaterialScreenContent>
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{
+            gap: 12,
+            paddingBottom: Math.max(insets.bottom, 16) + 16,
+            paddingHorizontal: 16,
+            paddingTop: 16,
+          }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {Platform.OS === "android" ? (
+            <View className="flex-row">
+              <MaterialSearchField
+                inputRef={searchInput}
+                accessibilityLabel="Find a branch"
+                clearAccessibilityLabel="Clear branch search"
+                placeholder="Find a branch"
+                value={query}
+                onChangeText={setQuery}
+              />
+            </View>
+          ) : null}
+          {failure ? (
+            <Text accessibilityRole="alert" className="px-1 text-sm text-danger-foreground">{failure}</Text>
+          ) : null}
+          {notice ? (
+            <Text className="px-1 text-sm text-foreground-muted">{notice}</Text>
+          ) : (
+            <PickerSurface>
+              {choices.map((branch, index) => (
+                <SelectionRow
+                  key={branch.name}
+                  icon={
+                    <SymbolView
+                      name="arrow.triangle.branch"
+                      size={Platform.OS === "android" ? 24 : 17}
+                      tintColorClassName="accent-icon-muted"
+                    />
+                  }
+                  disabled={switching !== null}
+                  isLast={index === choices.length - 1}
+                  onPress={() => void select(branch)}
+                  selected={branch.name === selectedBranch}
+                  subtitle={switching === branch.name ? "Switching…" : branchBadge(branch, currentBranch) ?? undefined}
+                  title={branch.name}
+                />
+              ))}
+            </PickerSurface>
+          )}
         </ScrollView>
       </MaterialScreenContent>
     </View>

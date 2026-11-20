@@ -30,6 +30,32 @@ export interface ProviderUpdateStatus {
   /** Null when the CLI is absent or its version could not be read. */
   installedVersion: string | null
   check: UpdateCheckState
+  /** Absent on older hosts. Paths name files on the host, never on the client. */
+  installation?: ProviderInstallation
+  update?: ProviderUpdateOperation
+}
+
+export interface ProviderInstallation {
+  method: 'native' | 'npm' | 'homebrew' | 'winget' | 'external' | 'absent'
+  managed: boolean
+  path: string | null
+  canUpdate: boolean
+  remediation: string | null
+  source: 'vendor' | 'mirror' | 'npm'
+  automatic: boolean
+  /** Lets the user return to the installation already on this host's PATH. */
+  existingPath?: string | null
+}
+
+export interface ProviderUpdateOperation {
+  phase: 'downloading' | 'verifying' | 'succeeded' | 'failed'
+  version: string | null
+  message: string | null
+  updatedAt: number
+}
+
+export function isProviderUpdateActive(operation: ProviderUpdateOperation | undefined): boolean {
+  return operation?.phase === 'downloading' || operation?.phase === 'verifying'
 }
 
 export interface HostUpdateStatus {

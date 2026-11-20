@@ -1,4 +1,6 @@
 <script lang="ts">
+  import PrReactionBar from "../prs/PrReactionBar.svelte";
+  import { providePrReactions } from "../prs/lib/pr-reactions.svelte";
   import { tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import {
@@ -177,6 +179,14 @@
   // anywhere reaches this feed without a second listener.
   const detail = $derived(
     pullRequests.projects.at(serverId, projectScopeOf(feedCtx().session))?.prFor(pr.number) ?? null,
+  );
+  // The page's reaction writes. The reactions come with the detail, the
+  // comments, and the threads; every bar below shows a write over them.
+  const reactions = providePrReactions();
+  $effect(() =>
+    reactions.follow(
+      detail?.baseRepo ? { serverId, repo: detail.baseRepo, number: pr.number } : null,
+    ),
   );
   let commits = $state<PrCommit[]>([]);
   let comments = $state<PrConversationItem[]>([]);
@@ -1058,6 +1068,11 @@
               lineBreaks
             />
           </section>
+        {/if}
+        {#if !editing}
+          <div class="mt-2">
+            <PrReactionBar targetId={null} reactions={detail?.reactions} />
+          </div>
         {/if}
 
         <!-- The rail's inline home. With no column beside the conversation,

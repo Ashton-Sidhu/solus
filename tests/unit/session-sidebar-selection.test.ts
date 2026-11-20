@@ -56,7 +56,7 @@ describe('selecting a sidebar row', () => {
 })
 
 // WHY: the next/previous-session keys must walk the rows in the order the
-// sidebar lists them — sessions, shared with you, pinned, then working — not the order tabs
+// sidebar lists them — pinned, sessions, shared with you, then working — not the order tabs
 // were opened. Otherwise the key jumps to a row that is not the one below.
 describe('next and previous session keys', () => {
   function harness(onScreenTaskId: string | null) {
@@ -82,15 +82,15 @@ describe('next and previous session keys', () => {
 
     const shared = harness('shared')
     await shared.store.selectAdjacentRow(1)
-    expect(shared.opened).toEqual(['pinned'])
+    expect(shared.opened).toEqual(['working'])
 
     const pinned = harness('pinned')
     await pinned.store.selectAdjacentRow(1)
-    expect(pinned.opened).toEqual(['working'])
+    expect(pinned.opened).toEqual(['session-a'])
 
     const last = harness('working')
     await last.store.selectAdjacentRow(1)
-    expect(last.opened).toEqual(['session-a'])
+    expect(last.opened).toEqual(['pinned'])
   })
 
   test('moves to the row listed above and wraps to the bottom', async () => {
@@ -98,7 +98,7 @@ describe('next and previous session keys', () => {
     await store.selectAdjacentRow(-1)
     expect(opened).toEqual(['session-a'])
 
-    const first = harness('session-a')
+    const first = harness('pinned')
     await first.store.selectAdjacentRow(-1)
     expect(first.opened).toEqual(['working'])
   })
@@ -106,7 +106,7 @@ describe('next and previous session keys', () => {
   test('with no row on screen, starts from the top or the bottom', async () => {
     const down = harness(null)
     await down.store.selectAdjacentRow(1)
-    expect(down.opened).toEqual(['session-a'])
+    expect(down.opened).toEqual(['pinned'])
 
     const up = harness(null)
     await up.store.selectAdjacentRow(-1)

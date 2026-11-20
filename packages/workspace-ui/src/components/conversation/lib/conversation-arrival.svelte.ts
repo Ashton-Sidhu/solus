@@ -1,6 +1,7 @@
 import { tick } from 'svelte'
 import type { ConversationViewState } from './conversation-view-state.svelte'
 import { settleScroll, type createEndFollow } from './response-scroll'
+import { waitForFrameHeightsIn } from '../../artifact/lib/artifact-view'
 
 interface ConversationArrivalOptions {
   viewState: ConversationViewState
@@ -45,6 +46,9 @@ export class ConversationArrival {
       }
       if (cancelled) return
       if (target) await settleScroll(element, target, () => cancelled)
+      // An HTML frame in view with no height yet grows when it reports one and
+      // moves the rows. Show them once it has, then settle on the place again.
+      if (target && await waitForFrameHeightsIn(element, () => cancelled)) await settleScroll(element, target, () => cancelled)
       if (cancelled) return
       this.isAwayFromEnd = !(follower()?.atEnd ?? true)
       this.pending = false

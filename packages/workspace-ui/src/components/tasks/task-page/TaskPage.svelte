@@ -40,6 +40,7 @@
   import TaskRecordBar from "./TaskRecordBar.svelte";
   import TaskDetailsTrigger from "./TaskDetailsTrigger.svelte";
   import TaskHeader from "./TaskHeader.svelte";
+  import TaskProviderDetails from "./TaskProviderDetails.svelte";
   import TaskLinkPicker from "./TaskLinkPicker.svelte";
   import TaskLinkedTable from "./TaskLinkedTable.svelte";
   import TaskPinnedArtifact from "./TaskPinnedArtifact.svelte";
@@ -484,6 +485,8 @@
               detailsTrigger={railFolded ? detailsTrigger : undefined}
               detailsPanel={railFolded ? detailsPanel : undefined}
             />
+
+            <TaskProviderDetails {task} enabled={surfaceVisible && !hiddenTab("overview")} onOpenExternal={(url) => void localApi.openExternal(url)} />
 
             {#if prRows.length}
               <TaskPrList

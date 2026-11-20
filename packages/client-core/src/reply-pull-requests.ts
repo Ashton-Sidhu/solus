@@ -5,13 +5,14 @@ import type { SessionPullRequestLink } from '@solus/contracts/session-pull-reque
  * A pull request the turn linked and its final reply mentions takes a card
  * after the block that mentions it, so a sentence or a list is never cut. A
  * block that is only the link becomes the card. Any other pull request the
- * turn linked stays a chip at the turn's end. Desktop, web, and the phone
- * place the cards with this one model; each renders the text parts with its
- * own markdown renderer.
+ * turn linked stays a chip at the turn's end. Cards with no text between
+ * them are one segment: one pull request is its card, two or more fold into
+ * one group card. Desktop, web, and the phone place the cards with this one
+ * model; each renders the text parts with its own markdown renderer.
  */
 export type ReplySegment =
   | { kind: 'text'; text: string }
-  | { kind: 'pull-request'; link: SessionPullRequestLink }
+  | { kind: 'pull-requests'; links: SessionPullRequestLink[] }
 
 export interface ReplyPlacement {
   segments: ReplySegment[]
@@ -102,13 +103,20 @@ function joinText(segments: ReplySegment[], text: string): void {
   else segments.push({ kind: 'text', text })
 }
 
+/** A card right after another card joins its group. */
+function joinCard(segments: ReplySegment[], link: SessionPullRequestLink): void {
+  const last = segments.at(-1)
+  if (last?.kind === 'pull-requests') last.links.push(link)
+  else segments.push({ kind: 'pull-requests', links: [link] })
+}
+
 /** Place the turn's pull request cards in its final reply. */
 export function placeReplyPullRequests(reply: string, links: readonly SessionPullRequestLink[]): ReplyPlacement {
   const mentioned = links.filter((link) => mentionsPullRequest(reply, link))
   if (mentioned.length === 0) return { segments: [{ kind: 'text', text: reply }], placed: new Set() }
   const placed = new Set(mentioned.map(pullRequestKey))
   if (REFERENCE_DEFINITION.test(reply)) {
-    return { segments: [{ kind: 'text', text: reply }, ...mentioned.map((link) => ({ kind: 'pull-request' as const, link }))], placed }
+    return { segments: [{ kind: 'text', text: reply }, { kind: 'pull-requests', links: mentioned }], placed }
   }
   const segments: ReplySegment[] = []
   const waiting = [...mentioned]
@@ -121,11 +129,11 @@ export function placeReplyPullRequests(reply: string, links: readonly SessionPul
     const here = isCode ? [] : linkOnly ? waiting.filter((link) => link === linkOnly) : waiting.filter((link) => mentionsPullRequest(block, link))
     if (!linkOnly) joinText(segments, block)
     for (const link of here) {
-      segments.push({ kind: 'pull-request', link })
+      joinCard(segments, link)
       waiting.splice(waiting.indexOf(link), 1)
     }
   }
   // Named only inside code: the card follows the reply.
-  for (const link of waiting) segments.push({ kind: 'pull-request', link })
+  for (const link of waiting) joinCard(segments, link)
   return { segments, placed }
 }

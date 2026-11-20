@@ -8,13 +8,9 @@
  * mapping from `Task` / `PullRequest` into these specs.
  */
 
-import {
-  type ChevronRight,
-  CircleCheck as CircleCheckIcon,
-  CircleDashed as CircleDashedIcon,
-  CircleX as CircleXIcon,
-} from '@lucide/svelte'
+import type { ChevronRight } from '@lucide/svelte'
 import { z } from 'zod'
+import { CheckCircleFillIcon, DotFillIcon, XCircleFillIcon } from '../octicons'
 
 /** One project in a page's project selector (docs/plans/project-model.md §5). */
 export interface ListProjectOption {
@@ -111,11 +107,11 @@ export interface ListChecksSpec {
 export function checksChip(checks: ListChecksSpec): ListChipSpec | null {
   switch (checks.state) {
     case 'passing':
-      return { label: checks.label, tint: 'success', emphasis: 'strong', icon: CircleCheckIcon }
+      return { label: checks.label, tint: 'success', emphasis: 'strong', icon: CheckCircleFillIcon }
     case 'pending':
-      return { label: checks.label, tint: 'running', icon: CircleDashedIcon }
+      return { label: checks.label, tint: 'running', icon: DotFillIcon }
     case 'failing':
-      return { label: checks.label, tint: 'failure', emphasis: 'strong', icon: CircleXIcon }
+      return { label: checks.label, tint: 'failure', emphasis: 'strong', icon: XCircleFillIcon }
     case 'none':
       return null
   }

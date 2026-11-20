@@ -1759,6 +1759,8 @@
     },
     "apps/mobile/src/features/threads/NewTaskContextPickerScreens.tsx": {
       "compiled": [
+        "NewTaskBranchPicker",
+        "NewTaskBranchPickerRouteScreen",
         "NewTaskEnvironmentPickerRouteScreen",
         "PickerSurface",
         "SelectionRow",
@@ -1768,14 +1770,7 @@
     },
     "apps/mobile/src/features/threads/NewTaskRouteScreen.tsx": {
       "compiled": [
-        "HeroProjectMark",
-        "NewTaskDraftContent",
-        "NewTaskDraftScreen",
-        "NewTaskHeader",
-        "NewTaskProjectScreen",
-        "NewTaskRouteScreen",
-        "PlanModeToggle",
-        "useDraftConversation"
+        "NewTaskRouteScreen"
       ],
       "skipped": []
     },
@@ -1935,13 +1930,12 @@
     "apps/mobile/src/features/threads/ThreadFeed.tsx": {
       "compiled": [
         "AssistantMessageRow",
+        "HostNoticeRow",
         "NoticeRow",
         "PlanRow",
         "ThreadFeed",
         "ThreadFeedListHeader",
-        "ThreadFeedLoadEarlierControl",
-        "ThreadFeedPlaceholder",
-        "UserMessageRow",
+        "UserTurnRow",
         "WorktreeOfferRow"
       ],
       "skipped": []
@@ -2043,6 +2037,7 @@
     },
     "apps/mobile/src/features/threads/ThreadRouteScreen.tsx": {
       "compiled": [
+        "LiveThreadRouteScreen",
         "OpeningThreadLoadingScreen",
         "ThreadRouteContent",
         "ThreadRouteScreen",
@@ -2055,10 +2050,10 @@
         "AutoRow",
         "ChoiceRow",
         "DisclosureRow",
-        "FastModeRow",
         "ModelRow",
         "ProviderHeader",
-        "SelectedCheckmark"
+        "SelectedCheckmark",
+        "SwitchRow"
       ],
       "skipped": []
     },
@@ -2117,6 +2112,12 @@
         "useReloadThreadLists",
         "useThreadListRefresh",
         "useThreadListState"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/use-thread-settings-sheet-presentation.ts": {
+      "compiled": [
+        "useThreadSettingsSheetPresentation"
       ],
       "skipped": []
     },
@@ -2386,6 +2387,44 @@
         "EmptyState",
         "Field",
         "Row"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/NewTaskDraftScreen.tsx": {
+      "compiled": [
+        "NewTaskDraftContent",
+        "NewTaskDraftScreen",
+        "NewTaskWorkspaceControls",
+        "NewTaskWorkspaceIcon",
+        "useDraftConversation"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/NewTaskProjectScreen.tsx": {
+      "compiled": [
+        "NewTaskProjectScreen",
+        "ProjectPickerRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadScreenHost.tsx": {
+      "compiled": [
+        "ThreadScreenBinding",
+        "ThreadScreenFallback",
+        "ThreadScreenHost",
+        "ThreadScreenOutlet"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadFeedLoadEarlierControl.tsx": {
+      "compiled": [
+        "ThreadFeedLoadEarlierControl"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/use-worktree-branches.ts": {
+      "compiled": [
+        "useWorktreeBranches"
       ],
       "skipped": []
     }

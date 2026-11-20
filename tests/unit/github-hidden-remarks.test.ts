@@ -17,7 +17,7 @@ const repo: RepoRef = { host: 'github.com', owner: 'acme', repo: 'app' }
 const lastPage = { hasNextPage: false, endCursor: null }
 
 function remark(id: string, createdAt: string, isMinimized = false) {
-  return { id, author: { login: 'octocat', avatarUrl: '' }, body: id, createdAt, lastEditedAt: null, isMinimized, url: `https://github.com/${id}` }
+  return { id, author: { login: 'octocat', avatarUrl: '' }, body: id, createdAt, lastEditedAt: null, isMinimized, url: `https://github.com/${id}`, viewerCanReact: true, reactionGroups: [] }
 }
 
 function graphqlClient(answer: (query: string) => unknown): GitHubClient {
@@ -42,6 +42,7 @@ describe('hidden GitHub remarks', () => {
   test('the conversation leaves out hidden comments and hidden reviews', async () => {
     // WHY: 253 hidden spam reviews still showed in full in the PR panel.
     const provider = new FixtureProvider(graphqlClient(() => ({
+      viewer: { login: 'viewer' },
       repository: {
         pullRequest: {
           comments: {
@@ -65,9 +66,10 @@ describe('hidden GitHub remarks', () => {
 
   test('review threads leave out hidden comments, and a thread with none left', async () => {
     const thread = (id: string, comments: ReturnType<typeof remark>[]) => ({
-      id, isResolved: false, isOutdated: false, path: 'src/a.ts', line: 1, diffSide: 'RIGHT', comments: { nodes: comments },
+      id, isResolved: false, isOutdated: false, path: 'src/a.ts', line: 1, diffSide: 'RIGHT', comments: { pageInfo: lastPage, nodes: comments },
     })
     const provider = new FixtureProvider(graphqlClient(() => ({
+      viewer: { login: 'viewer' },
       repository: {
         pullRequest: {
           reviewThreads: {

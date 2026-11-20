@@ -1,3 +1,5 @@
+import { initRunningServers } from './host/running-servers/registry'
+import { registerRunningServerHandlers } from './transport/handlers/running-server-handlers'
 import { onHostRecordRemoved } from './host/host-list'
 import type { VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { configureOtel } from './otel'
@@ -21,7 +23,6 @@ import { UpdateStatusService } from './updates/update-status-service'
 import { ModelProfilesService, downloadModelProfiles } from './updates/model-profiles-service'
 import { detectInstallKind } from './updates/install-kind'
 import { fetchLatestRelease } from './updates/release-sources'
-import { readProviderVersion } from './updates/provider-versions'
 import { rmSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
@@ -766,7 +767,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSessionHandlers(server, sessionDeps)
   registerSettingsHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
-    onHostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
+    onHostConfigChanged: (snapshot) => {
+      events.broadcast('config.changed', snapshot)
+      hostUpdates.refreshInstallations()
+    },
     onProviderInstancesChanged: () => events.broadcast('provider-instances.changed', {}),
   })
 
@@ -1222,6 +1226,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     seats,
     clientsForSeat,
   })
+  const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) })
+  const serverTunnels = registerRunningServerHandlers(server, serverRegistry)
   const resourceTelemetry = new ResourceTelemetry({
     resolvePath: resolveResourceMonitorPath,
     createMonitor: (options) => new ResourceMonitor(options),
@@ -1235,11 +1241,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   domainEventUnsubscribes.push(registerHostListHandlers(server, { broadcast: (topic, payload) => events.broadcast(topic, payload) }))
   registerSessionReadStateHandlers(server)
   phaseDone('domain_handlers_registered')
+  const updatesAllowed = () => hostPolicies().hostSetting('updates')?.value.mode !== 'off'
   const hostUpdates = new UpdateStatusService({
     currentVersion: packageJson.version,
     install: hostCategory() === 'managed' ? 'cloud' : detectInstallKind(),
-    latest: (target) => fetchLatestRelease(target, packageJson.version),
-    providerVersion: readProviderVersion,
+    latest: () => fetchLatestRelease(packageJson.version),
+    automaticUpdates: () => getServerSettings().hostConfig.agentAutoUpdates,
+    canCheck: updatesAllowed,
+    assertInstallAllowed: assertUpdatesAllowed,
     publish: (status) => { events.broadcast('host.updateStatusChanged', status) },
   })
   let activeSetupSteps = 0
@@ -1249,7 +1258,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     status: () => hostUpdates.status,
     publish: (support) => hostUpdates.setServerUpdate(support),
     blockNewTurns: (blocked) => { opts.sessionRuntime.setUpdatePending(blocked); setAutomationUpdatesPaused(blocked) },
-    hasWork: () => activeSetupSteps > 0 || hasAutomationWork() || opts.sessionRuntime.hasWorkForUpdate(),
+    hasWork: () => hostUpdates.isUpdatingAgents || activeSetupSteps > 0 || hasAutomationWork() || opts.sessionRuntime.hasWorkForUpdate(),
     send: (message) => { if (!supervisor) throw new Error('No update supervisor.'); supervisor.send(message) },
   }, supervisor?.support ?? { supported: false, reason: 'Start a supported installation through solus start or solus-server to enable remote updates.', operation: null })
   const stopSupervisor = supervisor?.subscribe((message) => {
@@ -1274,7 +1283,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       appWorkflows.start()
     })
   // A policy with `updates.mode: off` manages this host's updates (plans/030 §6.8).
-  const assertUpdatesAllowed = () => {
+  function assertUpdatesAllowed(): void {
     const rule = hostPolicies().hostSetting('updates')
     if (rule?.value.mode === 'off') throw new PolicyRefusedError('UPDATES_MANAGED', `${rule.source.document.organization.name} manages Solus updates.`)
   }
@@ -1282,6 +1291,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))
   server.register('hostCheckForUpdates', () => { assertUpdatesAllowed(); return hostUpdates.check() })
+  hostUpdates.refreshInstallations()
   hostUpdates.start()
   const modelProfiles = new ModelProfilesService({
     cachePath: join(solusDir(), 'model-profiles.json'),
@@ -1297,9 +1307,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   server.register('modelProfilesCheck', () => modelProfiles.checkIfStale())
   modelProfiles.start()
   const setup = registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
+    agents: hostUpdates.agents,
     assertNewWorkAllowed: () => opts.sessionRuntime.assertNewWorkAllowed(),
     onActiveStepsChanged: (count) => { activeSetupSteps = count },
-    onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent),
     seats,
   })
   setProjectToolHost({
@@ -1847,7 +1857,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
       return
     }
-    if (!isHostSocketPath(request.url) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
+    if (!isHostSocketPath(request.url) && !serverTunnels.handleUpgrade(request, socket, head) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   let ws = attachWebSocketTransport(http, server, {
     clientEvents,
@@ -1869,6 +1879,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       handlePresenceDisconnected(clientId)
       workLive.disconnected(clientId)
       resourceTelemetry.unsubscribe(clientId)
+      serverRegistry.unwatch(clientId)
+        serverTunnels.disconnect(clientId)
     },
     onClientExpired: ({ clientId }) => {
       opts.sessionRuntime.watchers.handleClientExpired(clientId)
@@ -1969,7 +1981,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const tunnelHttp = createNodeHttpServer(requestListener)
   tunnelHttp.on('upgrade', (request, socket, head) => {
     if (isHostSocketPath(request.url)) ws.handleUpgrade(request, socket, head)
-    else if (!devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
+    else if (!serverTunnels.handleUpgrade(request, socket, head) && !devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   // The workspace service has no tunnel and no link to resume (cloud-service-model.md §15).
   if (!apiMode) {
@@ -2053,6 +2065,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         handlePresenceDisconnected(clientId)
         workLive.disconnected(clientId)
         resourceTelemetry.unsubscribe(clientId)
+        serverRegistry.unwatch(clientId)
+        serverTunnels.disconnect(clientId)
       },
       onClientExpired: ({ clientId }) => {
         opts.sessionRuntime.watchers.handleClientExpired(clientId)
@@ -2066,6 +2080,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   // A policy change applies at once (plans/030 §5.2): the bind moves, the tunnel closes, telemetry export follows.
   policyStore.onChanged(() => {
+    hostUpdates.refreshInstallations()
     void rebind(effectiveRemoteAccess()).catch((error) => log.warn('policy_rebind_failed', { error: error instanceof Error ? error.message : String(error) }))
     if (hostPolicies().hostSetting('cloudTunnel')?.value === false && uplinkManager.status().linked) {
       void uplinkManager.unlink().catch((error) => log.warn('policy_tunnel_close_failed', { error: error instanceof Error ? error.message : String(error) }))
@@ -2168,6 +2183,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         prSync.stop()
         prWatcher.stop()
         resourceTelemetry.stop()
+        serverRegistry.stop()
+        serverTunnels.close()
         hostUpdates.stop()
         modelProfiles.stop()
         remoteUpdates.stop()

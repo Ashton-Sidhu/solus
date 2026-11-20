@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import { isSecretTool, secretReceiptRows, secretReceiptText } from '@solus/contracts/secret-request'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
+import { toolCallCode, type ToolCallCode } from '@solus/client-core/tool-call-code'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 /**
@@ -294,4 +295,31 @@ export function toolFullDetail(tool: Pick<ToolTranscriptItem, 'input' | 'errorHe
     }
   }
   return [body, tool.errorHead].filter((part): part is string => !!part && part.trim().length > 0).join('\n\n') || null
+}
+
+/** What an open call shows: its input as code when it reads as code, and the
+ *  text the code does not hold. A running call has no full input yet. */
+export interface ToolExpandedBody {
+  readonly code: ToolCallCode | null
+  readonly text: string | null
+}
+
+export function toolExpandedBody(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'status' | 'errorHead'>): ToolExpandedBody {
+  const code = tool.status === 'running' ? null : toolCallCode(tool.toolName, tool.input)
+  return { code, text: code ? tool.errorHead?.trim() || null : toolFullDetail(tool) }
+}
+
+/** A row's label and, while it is open, its body. An open row with code keeps
+ *  its label to one line: the code holds the whole command. */
+export interface ToolRowView {
+  readonly label: string
+  readonly body: ToolExpandedBody | null
+}
+
+export function toolRowView(
+  tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'status' | 'errorHead' | 'secretOutcomes'>,
+  expanded: boolean,
+): ToolRowView {
+  const body = expanded ? toolExpandedBody(tool) : null
+  return { label: toolRowLabel(tool, expanded && !body?.code), body }
 }

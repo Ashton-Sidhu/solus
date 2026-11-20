@@ -1,3 +1,4 @@
+import type { TaskInvolvement } from '@solus/contracts/task-inspection'
 import type { TaskSource } from '@solus/contracts/task-sources'
 import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
 import { githubProjectOptionCategory } from '../status-category'
@@ -8,6 +9,7 @@ import {
   issueToTask,
   PROJECT_QUERY,
   pushToCap,
+  restIssueToTask,
   SET_PROJECT_FIELD_MUTATION,
   statusValueOf,
   type AddDraftResponse,
@@ -15,7 +17,6 @@ import {
   type ProjectResponse,
 } from '../providers/github-model'
 import {
-  MAX_SOURCE_TASKS,
   TaskProviderError,
   type GithubRun,
   type ProviderTask,
@@ -66,12 +67,14 @@ export class GitHubProjectSource implements TaskSourceAdapter {
 
   constructor(private readonly run: GithubRun) {}
 
-  async read(source: TaskSource): Promise<SourceRead> {
+  async read(source: TaskSource, continuation?: string): Promise<SourceRead> {
     const { owner, number } = projectSource(source)
     return this.run('read_github_project', async ({ graphql }) => {
       const items: SourceItem[] = []
-      let cursor: string | null = null
+      let cursor: string | null = continuation ?? null
+      let pages = 0
       for (;;) {
+        pages++
         const res: ProjectResponse = await graphql<ProjectResponse>(PROJECT_QUERY, { owner, number, cursor })
         const project = res.repositoryOwner?.projectV2
         if (!project) {
@@ -87,7 +90,7 @@ export class GitHubProjectSource implements TaskSourceAdapter {
         // At the cap, one more page can hold only pull requests, so Solus does
         // not read to the end of the Project to know: more items is `truncated`.
         const { hasNextPage } = project.items.pageInfo
-        const truncated = pushToCap(items, page) || (items.length >= MAX_SOURCE_TASKS && hasNextPage)
+        const truncated = pushToCap(items, page) || (pages >= 4 && hasNextPage)
         if (!truncated && hasNextPage) {
           cursor = project.items.pageInfo.endCursor
           continue
@@ -105,13 +108,25 @@ export class GitHubProjectSource implements TaskSourceAdapter {
           writeState: { kind: 'github-project', projectId: project.id, statusFieldId: statusField?.id ?? null },
           items,
           truncated,
+          nextCursor: hasNextPage ? project.items.pageInfo.endCursor : null,
         }
       }
     })
   }
 
   /** GitHub has no search of one Project, so the search is a filter of the source read. */
-  async search(source: TaskSource, query: string): Promise<ProviderTask[]> {
+  async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
+    if (involvement !== 'all') {
+      const { owner, number } = projectSource(source)
+      return this.run('search_github_project_involvement', async ({ rest }) => {
+        const response = await rest.search.issuesAndPullRequests({ q: [`project:${owner}/${number}`, 'is:issue', involvement === 'authored' ? 'author:@me' : involvement === 'assigned' ? 'assignee:@me' : 'mentions:@me', query.trim()].filter(Boolean).join(' '), per_page: 100, sort: 'updated' })
+        return response.data.items.map((issue) => {
+          const match = /\/repos\/([^/]+)\/([^/]+)$/.exec(issue.repository_url)
+          if (!match) throw new Error('GitHub returned an issue without a repository.')
+          return restIssueToTask(issue, { owner: match[1], repo: match[2] })
+        })
+      })
+    }
     const { items } = await this.read(source)
     const needle = query.trim().toLowerCase()
     return items
@@ -138,7 +153,7 @@ export class GitHubProjectSource implements TaskSourceAdapter {
         projectId,
         title: draft.title,
         body: draft.body,
-        assigneeIds: draft.assignee ? [await githubUserId(graphql, draft.assignee)] : undefined,
+        assigneeIds: draft.assignees ? await Promise.all(draft.assignees.map((login) => githubUserId(graphql, login))) : draft.assignee ? [await githubUserId(graphql, draft.assignee)] : undefined,
       })
       const item = res.addProjectV2DraftIssue.projectItem
       if (!columnId) {

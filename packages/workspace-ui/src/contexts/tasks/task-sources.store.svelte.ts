@@ -141,6 +141,20 @@ export class TaskSourcesStore {
     }
   }
 
+  async loadMore(source: TaskSource): Promise<void> {
+    const hostId = taskHostId()
+    if (!hostId) throw new Error('No connected task host.')
+    await serverConnections.apiFor(hostId).tasksLoadMore(source)
+    await this.load()
+  }
+
+  async connectLinear(key: string | null): Promise<void> {
+    const hostId = taskHostId()
+    if (!hostId) throw new Error('No connected task host.')
+    await serverConnections.apiFor(hostId).tasksConnectLinear(key)
+    await this.loadOptions()
+  }
+
   // --- Source setup -------------------------------------------------------
 
   /** Read the choices when the source setup opens. Each open reads again: a

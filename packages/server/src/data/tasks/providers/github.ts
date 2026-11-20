@@ -151,6 +151,12 @@ function withWrittenFields(task: ProviderTask, patch: TaskUpdatePatch, onBoard: 
     task.assignee = patch.assignee ?? undefined
     task.assigneeAvatarUrl = undefined
   }
+  if (patch.assignees !== undefined || patch.assignee !== undefined) {
+    const logins = patch.assignees ?? (patch.assignee ? [patch.assignee] : [])
+    task.assignees = logins.map((login) => task.assignees?.find((person) => person.login === login) ?? { login })
+    task.assignee = logins[0]
+    task.assigneeAvatarUrl = task.assignees[0]?.avatarUrl
+  }
   if (patch.dueDate !== undefined) task.dueDate = patch.dueDate || undefined
   if (patch.priority !== undefined) task.priority = patch.priority || undefined
   return task
@@ -174,7 +180,7 @@ export function createRepoIssue(
       title: draft.title,
       body: draft.body,
       labels: draft.labels,
-      assignees: draft.assignee ? [draft.assignee] : undefined,
+      assignees: draft.assignees ?? (draft.assignee ? [draft.assignee] : undefined),
     })
     const issue = closed
       ? (await rest.issues.update({ ...base, issue_number: created.data.number, state: 'closed' })).data
@@ -268,7 +274,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
       }
 
       // `labels` replaces the whole set, and one assignee replaces all assignees.
-      const assignees = patch.assignee === undefined ? undefined : patch.assignee ? [patch.assignee] : []
+      const assignees = patch.assignees ?? (patch.assignee === undefined ? undefined : patch.assignee ? [patch.assignee] : [])
       if (
         patch.title !== undefined || patch.body !== undefined
         || patch.labels !== undefined || assignees !== undefined
@@ -299,9 +305,8 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
     return this.run('update_github_draft', async ({ graphql }) => {
       // The mutation takes the draft's id, which is the content of the board item.
       const before = await readDraftItem(graphql, home.itemId)
-      const assigneeIds = patch.assignee === undefined
-        ? undefined
-        : patch.assignee ? [await githubUserId(graphql, patch.assignee)] : []
+      const logins = patch.assignees ?? (patch.assignee === undefined ? undefined : patch.assignee ? [patch.assignee] : [])
+      const assigneeIds = logins === undefined ? undefined : await Promise.all(logins.map((login) => githubUserId(graphql, login)))
       const res = await graphql<UpdateDraftResponse>(UPDATE_DRAFT_MUTATION, {
         draftIssueId: before.ref.id,
         title: patch.title,

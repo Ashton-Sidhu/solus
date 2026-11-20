@@ -191,3 +191,17 @@ test('lists each host as it answers and keeps a failed host’s last works', asy
   expect(store.get('stale')).toBeDefined()
   expect(store.listLoading).toBe(false)
 })
+
+test('a transcript card reads the saved work on its session host without listing every host first', async () => {
+  // WHY: an html_path card holds the opening session until its body loads. The
+  // current work answers in one read when the version still matches, but only
+  // if the store asks the session's host instead of listing every host's works.
+  let lists = 0
+  connections.registerPrimary('local', { listWorks: async () => { lists += 1; return [] }, loadWork: async () => null })
+  connections.registerHost('machine-b', { listWorks: async () => { lists += 1; return [] }, loadWork: async () => ({ ...artifact }) })
+  const store = await newStore()
+
+  expect((await store.ensureContent('chart', 'transcript-artifact', 'machine-b'))?.contentVersion).toBe(1)
+  expect(lists).toBe(0)
+  expect(store.hostFor('chart')).toBe('machine-b')
+})

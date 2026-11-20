@@ -29,6 +29,8 @@
     glyph: Snippet;
     /** Counts and time only. */
     rail?: Snippet;
+    /** The row's own control at its end, such as a pull request's watch. */
+    trailing?: Snippet;
   }
 
   let {
@@ -46,6 +48,7 @@
     onOpenSecondary,
     glyph,
     rail,
+    trailing,
   }: Props = $props();
 
   function handleClick(e: MouseEvent) {
@@ -70,7 +73,7 @@
   class="tx-row"
   class:is-clickable={!!onOpen}
   class:is-open={open}
-  class:ends-in-button={!!onOpenSecondary}
+  class:ends-in-button={!!onOpenSecondary || !!trailing}
   role={onOpen ? "button" : undefined}
   tabindex={onOpen ? 0 : undefined}
   aria-label={onOpen ? (ariaLabel ?? name) : undefined}
@@ -92,6 +95,7 @@
   {#if rail}
     <span class="tx-row__rail">{@render rail()}</span>
   {/if}
+  {#if trailing}{@render trailing()}{/if}
   {#if onOpenSecondary}
     <button
       type="button"

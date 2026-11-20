@@ -1,5 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
-import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
+import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from '@solus/contracts/session-pull-requests'
 import type { TaskSidebarPrLink } from '@solus/contracts/task-types'
 import type { SessionRecord } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -119,6 +119,17 @@ export class SessionPullRequestsStore {
     this.watchHost(home)
     await serverConnections.apiFor(home).sessionPullRequestDelete(link.sessionId, link)
     await this.refresh(home, link.sessionId)
+  }
+
+  /** Watch one of a session's pull requests, or stop (docs/plans/pr-watch.md).
+   *  A watch is a record of the host that runs the session, so the request
+   *  goes there; the links are then read again from their home. */
+  async setWatch(serverId: string, link: Pick<SessionPullRequestLink, 'sessionId' | 'repository' | 'number'>, watching: boolean): Promise<SessionPullRequestWatchOutcome> {
+    const home = this.homeFor(serverId, link.sessionId)
+    this.watchHost(home)
+    const outcome = await serverConnections.apiFor(serverId).sessionPullRequestWatch(link.sessionId, link.repository, link.number, watching)
+    await this.refresh(home, link.sessionId)
+    return outcome
   }
 }
 

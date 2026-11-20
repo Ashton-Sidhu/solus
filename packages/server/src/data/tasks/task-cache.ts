@@ -34,6 +34,7 @@ export function stateColumnOf(source: StoredTaskSource, task: ProviderTask): str
       const stateId = task.stateId
       return source.writeState.columns.find((column) => column.statusIds.includes(stateId))?.columnId ?? null
     }
+    case 'linear-team': return task.stateId ?? null
     case 'github-project':
       return undefined
   }
@@ -102,7 +103,7 @@ export interface StoredSourceRead {
  * nothing else holds it, and so is each old copy that nothing holds, such as a
  * task that only a search found (`pruneUnheldTasks`).
  */
-export async function storeSourceRead(source: TaskSource, read: SourceRead, now = Date.now()): Promise<StoredSourceRead> {
+export async function storeSourceRead(source: TaskSource, read: SourceRead, now = Date.now(), append = false): Promise<StoredSourceRead> {
   const sourceKey = taskSourceKey(source)
   const changed = new Set<string>()
   const assigned: TaskAssignment[] = []
@@ -112,7 +113,7 @@ export async function storeSourceRead(source: TaskSource, read: SourceRead, now 
     const taskIds = read.items.map((item) => taskKey(item.task.ref))
     const stored = await storedTaskIds(db, taskIds)
     const created = new Set(taskIds.filter((taskId) => !stored.has(taskId)))
-    await db.run(sql`DELETE FROM ${taskSourceItems} WHERE source_key = ${sourceKey}`)
+    if (!append) await db.run(sql`DELETE FROM ${taskSourceItems} WHERE source_key = ${sourceKey}`)
     const placed = new Set<string>()
     for (const [position, item] of read.items.entries()) {
       const taskId = taskKey(item.task.ref)
@@ -127,21 +128,22 @@ export async function storeSourceRead(source: TaskSource, read: SourceRead, now 
       if (!before.has(taskId) || before.get(taskId) !== item.columnId) changed.add(taskId)
       await db.run(sql`
         INSERT INTO ${taskSourceItems}(source_key, task_id, column_id, item_id, position)
-        VALUES (${sourceKey}, ${taskId}, ${item.columnId}, ${item.itemId}, ${position})
+        VALUES (${sourceKey}, ${taskId}, ${item.columnId}, ${item.itemId}, ${append ? before.size + position : position})
+        ON CONFLICT(source_key, task_id) DO UPDATE SET column_id = excluded.column_id, item_id = excluded.item_id
       `)
     }
-    for (const taskId of before.keys()) if (!placed.has(taskId)) changed.add(taskId)
+    if (!append) for (const taskId of before.keys()) if (!placed.has(taskId)) changed.add(taskId)
     await db.run(sql`
-      INSERT INTO ${taskSources}(source_key, source, label, columns, write_state, fetched_at, truncated)
+      INSERT INTO ${taskSources}(source_key, source, label, columns, write_state, fetched_at, truncated, next_cursor)
       VALUES (${sourceKey}, ${JSON.stringify(source)}, ${read.label}, ${JSON.stringify(read.columns)},
-        ${read.writeState ? JSON.stringify(read.writeState) : null}, ${now}, ${read.truncated ? 1 : 0})
+        ${read.writeState ? JSON.stringify(read.writeState) : null}, ${now}, ${read.truncated ? 1 : 0}, ${read.nextCursor ?? null})
       ON CONFLICT(source_key) DO UPDATE SET
         label = excluded.label, columns = excluded.columns, write_state = excluded.write_state,
-        fetched_at = excluded.fetched_at, truncated = excluded.truncated
+        fetched_at = excluded.fetched_at, truncated = excluded.truncated, next_cursor = excluded.next_cursor
     `)
     // The columns of the source can change the category of a task that left it too.
     categoryChanges = await refreshTaskCategories(db, [...placed, ...before.keys()], created)
-    const pruned = new Set(await pruneUnheldTasks(db, [...before.keys()].filter((taskId) => !placed.has(taskId)), now - UNHELD_TASK_MAX_AGE_MS))
+    const pruned = new Set(await pruneUnheldTasks(db, [...before.keys()].filter((taskId) => !append && !placed.has(taskId)), now - UNHELD_TASK_MAX_AGE_MS))
     for (const taskId of pruned) changed.add(taskId)
     categoryChanges = categoryChanges.filter((change) => !pruned.has(change.taskId))
   })

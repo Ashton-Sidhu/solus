@@ -885,7 +885,7 @@
           <ComposingLine serverId={runHost(sess.run)} sessionId={sess.id} />
 
           {#if showSessionActions}
-            <div class="min-h-12"></div>
+            <div class="min-h-9"></div>
           {/if}
         </div>
       </div>

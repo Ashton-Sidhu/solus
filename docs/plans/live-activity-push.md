@@ -34,18 +34,22 @@ merges them.
    uses too). Then it sends `PUT /v1/hosts/:hostId/live-activities` with its control
    token: the card, its generation, and its own rows. A burst of statuses in 300 ms is
    one report. If the phone's card shows a status that is out of date, the host
-   corrects it at registration. Every 5 minutes the host also reports each card on which
-   one of its sessions is still live, so a long turn with no new status does not go stale.
+   corrects it at registration. Every new phone generation is reported even if
+   its rows match, so resumed work cancels the previous idle deadline. Every 5 minutes
+   the host also reports each card on which one of its sessions is still live, so a long turn with no new status does not go stale.
 3. The relay keeps the newest card of each push token. It replaces the rows that the
    host reported, counts the live rows again, and sends the card to APNs if the content
    changed. While a session is live it sends `update` with a 10-minute stale date. When
-   no session is live it sends `end`, and stops sending for that card. A live card that
+   no session is live it sends a quiet `update` showing Done and keeps the card for
+   five minutes. New work updates the same card and cancels that deadline. After
+   five minutes without live work it sends `end` with immediate dismissal. A refused
+   end retries after 30 seconds without waiting for another host report. A live card that
    did not change is sent again when its last push is 4 minutes old or more, to move the
    stale date.
 4. When a row changes to a phase that needs the person, the push has an `alert` with a
-   sound and priority 10: "Needs approval", "Needs input", "Failed", or "Done", with the
+   sound and priority 10: "Needs approval", "Needs input", or "Failed", with the
    session title as the body. The most urgent change gives the alert. The `end` push also
-   has priority 10. All other pushes (Working, Background, Rate limited, stale-date
+   has priority 10. All other pushes (Working, Background, Rate limited, Done, stale-date
    refreshes) have priority 5, because iOS limits priority-10 Live Activity pushes.
 5. When the card ends on the phone, or the token changes, the phone calls
    `liveActivityUnregister`.
@@ -60,7 +64,11 @@ decide whether a freshness push is due, rather than treating receipt of an old
 card as a fresh update on the phone.
 
 The phone continues to update the card while the app runs. A push and a local update can
-both arrive; they carry the same content.
+both arrive; they carry the same content. The phone also keeps Done on the active
+card for five minutes, preserves its idle deadline across a restart, and removes the
+card immediately when that deadline expires. Update failures retain the existing card
+if ActivityKit still lists it; only a missing card permits a replacement. Unmounting
+the mobile hook cancels local timers and listeners; the cloud continues background updates.
 
 ## Decisions
 

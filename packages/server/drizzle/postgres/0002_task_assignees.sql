@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "assignees" text DEFAULT '[]' NOT NULL;

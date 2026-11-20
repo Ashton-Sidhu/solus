@@ -26,6 +26,9 @@
   import SidePanel from "../layout/SidePanel.svelte";
   import PanelSection from "./PanelSection.svelte";
   import GoalSection from "./GoalSection.svelte";
+  import RunningServers from "./RunningServers.svelte";
+  import ServerUrlsEditor from "./ServerUrlsEditor.svelte";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
   import GitSetupSection from "./GitSetupSection.svelte";
@@ -177,6 +180,8 @@
   // What the person chose to show. A hidden item unmounts, and the reads that
   // only it needs stop with it.
   const hiddenItems = $derived(settings.projectPanelHiddenItems);
+  const serversShown = $derived(isSectionShown(hiddenItems, "servers"));
+  const serverHostId = $derived(serverConnections.serverIdForApi(session.apiFor(sourceId)));
   const gitShown = $derived(isSectionShown(hiddenItems, "git"));
   const gitSetupShown = $derived(isPanelItemShown(hiddenItems, "git.setup"));
   const goalShown = $derived(isSectionShown(hiddenItems, "goal"));
@@ -270,6 +275,7 @@
   // The menu of what the panel shows: from the header button, a right-click,
   // or the context-menu key (Shift+F10) anywhere in the panel.
   let itemsMenuOpen = $state(false);
+  let serverUrlsOpen = $state(false);
   let itemsMenuAnchor = $state<PanelMenuAnchor | null>(null);
   let customizeButton = $state<HTMLButtonElement | null>(null);
 
@@ -452,6 +458,15 @@
         <GitSetupSection {sourceId} active={active && open} />
       </PanelSection>
     {/if}
+    {#if serversShown && active && open}
+      <RunningServers
+        hostId={serverHostId}
+        checkoutPath={panelEnvironment.cwd ?? null}
+        collapsed={collapsedSections.servers}
+        onToggle={() => toggleSection("servers")}
+        onResizePointerDown={startResize}
+      />
+    {/if}
     <!-- The section exists only while a goal is set. It owns its own card
          because the header controls share edit/confirm state with the body. -->
     {#if goalShown && panelSession?.goal}
@@ -474,7 +489,10 @@
       />
     {/if}
   </div>
-  <ProjectPanelItemsMenu bind:open={itemsMenuOpen} anchor={itemsMenuAnchor} />
+  <ProjectPanelItemsMenu bind:open={itemsMenuOpen} anchor={itemsMenuAnchor} onConfigureServerUrls={panelEnvironment.cwd ? () => { serverUrlsOpen = true; } : undefined} />
+  {#if serverUrlsOpen && panelEnvironment.cwd}
+    <ServerUrlsEditor hostId={serverHostId} checkoutPath={panelEnvironment.cwd} onClose={() => { serverUrlsOpen = false; }} />
+  {/if}
 </SidePanel>
 
 <style>

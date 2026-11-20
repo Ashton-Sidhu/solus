@@ -82,7 +82,6 @@ describe('the section a row is in', () => {
       snoozed: [],
       completed: [],
       isSharedOpen: true,
-      isPinnedOpen: true,
       isWorkingOpen: true,
       isSnoozedOpen: false,
       isCompletedOpen: false,

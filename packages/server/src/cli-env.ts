@@ -1,7 +1,9 @@
 import { execSync, spawn } from 'child_process'
-import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'fs'
+import { accessSync, constants, existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'fs'
 import { homedir } from 'os'
-import { join, win32 } from 'path'
+import { isAbsolute, join, relative, resolve, win32 } from 'path'
+import { z } from 'zod'
+import type { SetupAgent } from '@solus/contracts/types'
 
 let cachedPath: string | null = null
 let warmPromise: Promise<string> | null = null
@@ -213,7 +215,9 @@ export function getCliPath(): string {
 
 /** Walk a PATH ourselves, the way `which` is supposed to — the fallback for
  *  callers that can't afford to believe a probe which answers "nothing". */
-export function findOnPath(bin: string, path: string): string | null {
+export function findOnPath(bin: string, path: string, includeManaged = true): string | null {
+  const managed = includeManaged && (bin === 'claude' || bin === 'codex') ? agentExecutables[bin].binary : null
+  if (managed) return managed
   if (isWindows) return findWindowsCommand(bin, path, process.env.PATHEXT)
   for (const dir of path.split(':')) {
     if (!dir) continue
@@ -251,6 +255,8 @@ export function hostCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  * a name it cannot find is left for `spawn` to report. Elsewhere `spawn` finds it.
  */
 export function startableCommand(file: string, env: NodeJS.ProcessEnv): ResolvedCommand {
+  // A managed native package is selected by an atomic file, not a shell shim.
+  if (file === 'claude' || file === 'codex') file = findOnPath(file, env.PATH ?? getCliPath()) ?? file
   // A path names its file, unless that file is a shim Node cannot start.
   if (!isWindows || (/[\\/]/.test(file) && !/\.(?:cmd|bat)$/i.test(file))) return { file, args: [] }
   const path = Object.entries(env).find(([name]) => name.toUpperCase() === 'PATH')?.[1] ?? getCliPath()
@@ -476,3 +482,53 @@ export function launchOptions(extraEnv?: NodeJS.ProcessEnv): LaunchOptions {
 export function launchProcess(file: string, args: readonly string[], extraEnv?: NodeJS.ProcessEnv): LaunchedProcess {
   return launchedProcess(launchOptions(extraEnv), file, args)
 }
+
+const selectionSchema = z.object({ release: z.string(), binary: z.string(), version: z.string(), enabled: z.boolean().optional() }).strict()
+export type AgentSelection = z.infer<typeof selectionSchema>
+
+export function isInside(directory: string, path: string): boolean {
+  let parent = resolve(directory)
+  let target = resolve(path)
+  try { parent = realpathSync(parent) } catch { /* A new package has no directory yet. */ }
+  try { target = realpathSync(target) } catch { /* Validation also checks paths before extraction. */ }
+  const child = relative(parent, target)
+  return child !== '' && child !== '..' && !child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) && !isAbsolute(child)
+}
+
+/** The executable selection shared by command discovery and agent software. */
+export class AgentExecutable {
+  readonly agent: SetupAgent
+  private readonly rootOverride?: string
+
+  // Keep this module loadable by Node's type stripping without a bundle.
+  constructor(agent: SetupAgent, rootOverride?: string) {
+    this.agent = agent
+    this.rootOverride = rootOverride
+  }
+
+  get root(): string {
+    return this.rootOverride ?? join(process.env.SOLUS_DATA_DIR || join(homedir(), '.solus'), 'agents', this.agent)
+  }
+
+  get selection(): AgentSelection | null {
+    try {
+      const selection = selectionSchema.parse(JSON.parse(readFileSync(join(this.root, 'current.json'), 'utf8')))
+      const release = join(this.root, 'releases', selection.release)
+      if (!isInside(join(this.root, 'releases'), release) || !isInside(release, join(release, selection.binary))) return null
+      return selection
+    } catch { return null }
+  }
+
+  get binary(): string | null {
+    const selection = this.selection
+    if (!selection || selection.enabled === false) return null
+    const binary = join(this.root, 'releases', selection.release, selection.binary)
+    try { accessSync(binary, constants.X_OK); return binary } catch { return null }
+  }
+
+  owns(binary: string): boolean {
+    return isInside(join(this.root, 'releases'), binary)
+  }
+}
+
+export const agentExecutables = { claude: new AgentExecutable('claude'), codex: new AgentExecutable('codex') }

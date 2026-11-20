@@ -55,8 +55,8 @@
 </SettingsSection>
 
 <Dialog.Root bind:open={confirmSignOut}>
-  <Dialog.Portal><Dialog.Overlay class="fixed inset-0 z-50 bg-black/30" />
-    <Dialog.Content class="fixed top-1/2 left-1/2 z-50 flex w-[min(28rem,calc(100%-2rem))] -translate-1/2 flex-col gap-4 rounded-xl border border-border bg-background p-6 text-workspace-chrome shadow-lg">
+  <Dialog.Portal><Dialog.Overlay class="fixed inset-0 z-[10001] bg-black/30" />
+    <Dialog.Content class="fixed top-1/2 left-1/2 z-[10001] flex w-[min(28rem,calc(100%-2rem))] -translate-1/2 flex-col gap-4 rounded-xl border border-border bg-background p-6 text-workspace-chrome shadow-lg">
       <Dialog.Title class="text-lg font-medium">Sign out of this provider account?</Dialog.Title>
       <Dialog.Description class="text-sm text-muted-foreground">Other instances that use the same provider home share this login. New turns need a valid login.</Dialog.Description>
       <div class="flex justify-end gap-2"><Button variant="ghost" size="sm" onclick={() => (confirmSignOut = false)}>Cancel</Button><Button variant="outline" size="sm" onclick={() => { confirmSignOut = false; void client.signOut(instanceId); }}>Sign out</Button></div>

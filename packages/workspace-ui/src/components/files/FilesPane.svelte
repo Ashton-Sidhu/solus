@@ -9,18 +9,18 @@
   } from "@pierre/trees";
   import {
     RotateCw as ArrowClockwiseIcon,
-    ChevronRight as CaretRightIcon,
     FilePlus as FilePlusIcon,
     FileText as FileTextIcon,
     Save as FloppyDiskIcon,
     Folder as FolderIcon,
     FolderPlus as FolderPlusIcon,
-    PanelRight as FileTreeIcon,
+    FolderTree as FileTreeIcon,
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
   import FileIcon from "../ui/file-icon/FileIcon.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import { Button } from "../ui/button";
+  import { PAGE_PILL_GROUP, PAGE_PILL_ICON_BTN, PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import type { IpcContext, ProjectFileMutation } from "@solus/contracts/types";
   import type { HostApi } from "@solus/client-core/host-api";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -220,6 +220,13 @@
     if (saveState === "saved") return "Saved";
     return "";
   });
+
+  // An editable file keeps its status slot mounted, even while idle, so the
+  // first keystroke and each save step do not move the header controls.
+  const SAVE_LABELS = ["Unsaved", "Saving...", "Saved"];
+  const reservesSaveStatus = $derived(
+    selectedContents !== null && !selectedTruncated && !selectedReadOnly && canWriteFiles,
+  );
 
   const statusClass = $derived(
     saveState === "saved"
@@ -548,14 +555,6 @@
         if (next && next !== selectedPath) void openFile(next, true);
       },
       unsafeCSS: `
-        [data-type='item'][data-item-selected='true']::after {
-          content: '';
-          position: absolute;
-          top: 0.1875rem; bottom: 0.1875rem; left: 0;
-          width: 0.1563rem;
-          border-radius: 0 0.1875rem 0.1875rem 0;
-          background: var(--solus-accent);
-        }
         [data-type='item'][data-item-selected='true']::before {
           outline-color: transparent !important;
         }
@@ -667,13 +666,33 @@
   });
 </script>
 
-<!-- The three plain header controls differ only in label, icon, and handler.
-     The tree toggle stays written out: it alone carries a pressed state and a
-     label that changes with it. -->
-{#snippet newFileIcon()}<FilePlusIcon size={15} strokeWidth={1.5} />{/snippet}
-{#snippet newFolderIcon()}<FolderPlusIcon size={15} strokeWidth={1.5} />{/snippet}
-{#snippet refreshIcon()}<ArrowClockwiseIcon size={15} strokeWidth={1.5} />{/snippet}
+{#snippet newFileIcon()}<FilePlusIcon strokeWidth={1.5} class="size-4" />{/snippet}
+{#snippet newFolderIcon()}<FolderPlusIcon strokeWidth={1.5} class="size-4" />{/snippet}
+{#snippet refreshIcon()}<ArrowClockwiseIcon strokeWidth={1.5} class="size-4" />{/snippet}
 {#snippet saveAsWorkIcon()}<FileTextIcon size={15} strokeWidth={1.5} />{/snippet}
+{#snippet fileTreeIcon()}<FileTreeIcon strokeWidth={1.5} class="size-4" />{/snippet}
+
+<!-- One button in the file toolbar pill. -->
+{#snippet treeAction(label: string, onclick: () => void, icon: Snippet, hint?: string, pressed?: boolean)}
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <Button
+          {...tooltipProps}
+          variant="ghost"
+          size="icon-sm"
+          class={PAGE_PILL_ICON_BTN}
+          aria-label={label}
+          aria-pressed={pressed}
+          {onclick}
+        >
+          {@render icon()}
+        </Button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={hint ? `${label} (${hint})` : label} />
+  </TooltipUI.Root>
+{/snippet}
 
 {#snippet chromeAction(label: string, onclick: () => void, icon: Snippet)}
   <TooltipUI.Root>
@@ -700,38 +719,12 @@
   class={`flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) ${isUnderStrip() ? "" : "pointer-fine:[--solus-pane-chrome-inset:4.625rem]"} ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
   bind:clientWidth={panelWidth}
 >
-  <!-- In-content path line on the shared chrome centreline: the tree/refresh
-       controls sit at its left and the pane's close lives in the floating
+  <!-- In-content path line on the shared chrome centreline: the file actions
+       sit at its right end and the pane's close lives in the floating
        PaneChrome cluster, which the right gutter reserves room for. -->
   <div
     class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
   >
-    <!-- One cluster so the four controls read as a toolbar; its margin and the
-         row's `gap-2` set it apart from the path line. -->
-    <div class="mr-2 flex shrink-0 items-center gap-1.5">
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <button
-              {...tooltipProps}
-              type="button"
-              class="{PAGE_SOFT_ICON_BTN} {treeCollapsed ? '' : 'bg-[var(--wash-3)]! text-foreground!'}"
-              aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
-              aria-pressed={!treeCollapsed}
-              onclick={toggleTree}
-            >
-              <FileTreeIcon size={15} strokeWidth={1.5} />
-            </button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={treeCollapsed ? `Show file tree (${treeHint})` : `Hide file tree (${treeHint})`} />
-      </TooltipUI.Root>
-      {#if canWriteFiles}
-        {@render chromeAction("New file", () => void startCreate(newEntryDirectory, "file"), newFileIcon)}
-        {@render chromeAction("New folder", () => void startCreate(newEntryDirectory, "folder"), newFolderIcon)}
-      {/if}
-      {@render chromeAction("Refresh files", () => void loadFiles(), refreshIcon)}
-    </div>
     {#if selectedPath}
       <FileIcon path={selectedPath} />
       <div class="min-w-0 flex-1 truncate text-sm">
@@ -763,7 +756,18 @@
         compact
       />
     {/if}
-    {#if statusLabel}
+    {#if reservesSaveStatus}
+      <!-- Every save label shares one grid cell, so the slot is always as wide
+           as the widest one. Hidden labels leave the accessibility tree. -->
+      <div class="flex shrink-0 items-center gap-1 text-xs font-medium {statusClass}" role="status">
+        <FloppyDiskIcon size={11} class="shrink-0 {statusLabel ? '' : 'invisible'}" />
+        <span class="inline-grid tabular-nums">
+          {#each SAVE_LABELS as label (label)}
+            <span class="[grid-area:1/1] {label === statusLabel ? '' : 'invisible'}">{label}</span>
+          {/each}
+        </span>
+      </div>
+    {:else if statusLabel}
       <div class="flex shrink-0 items-center gap-1 text-xs font-medium {statusClass}" role="status">
         <FloppyDiskIcon size={11} class="shrink-0" />
         <span class="tabular-nums">{statusLabel}</span>
@@ -778,6 +782,16 @@
         Reload
       </button>
     {/if}
+    <!-- A plain group, not ButtonGroup: that primitive squares the inner
+         corners and joins borders, and a pill wants neither. -->
+    <div role="group" aria-label="File actions" class="ml-1 {PAGE_PILL_GROUP}">
+      {#if canWriteFiles}
+        {@render treeAction("New file", () => void startCreate(newEntryDirectory, "file"), newFileIcon)}
+        {@render treeAction("New folder", () => void startCreate(newEntryDirectory, "folder"), newFolderIcon)}
+      {/if}
+      {@render treeAction("Refresh files", () => void loadFiles(), refreshIcon)}
+      {@render treeAction(treeCollapsed ? "Show file tree" : "Hide file tree", toggleTree, fileTreeIcon, treeHint, !treeCollapsed)}
+    </div>
   </div>
 
   <Resizable.PaneGroup
@@ -879,28 +893,9 @@
       class="tree-pane"
     >
       <aside
-        class="relative flex h-full min-h-48 w-full flex-col border-t border-(--solus-container-border) md:min-h-0 md:border-t-0 md:border-l"
+        class="flex h-full min-h-48 w-full flex-col border-t border-(--solus-container-border) md:min-h-0 md:border-t-0 md:border-l"
         aria-hidden={treeCollapsed}
       >
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button {...tooltipProps}
-          type="button"
-          onclick={toggleTree}
-          aria-label="Hide file tree"
-          class="tree-collapse-btn absolute top-[0.875rem] right-3 z-10 w-5 h-5 flex items-center justify-center rounded cursor-pointer text-(--solus-text-tertiary)"
-        >
-          <span
-            class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-            aria-hidden="true"
-          ></span>
-          <CaretRightIcon size={12} weight="bold" />
-        </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={`Hide file tree (${treeHint})`} />
-        </TooltipUI.Root>
         <div class="min-h-0 flex-1 overflow-hidden">
           {#if loading && treePaths.length === 0}
             <FilesPaneSkeleton variant="tree" />
@@ -941,28 +936,17 @@
   .tree-pane {
     transition: flex-grow 180ms cubic-bezier(0.2, 0, 0, 1);
   }
-  .tree-collapse-btn {
-    transition:
-      color 120ms ease,
-      background-color 120ms ease;
-  }
-  .tree-collapse-btn:hover {
-    color: var(--solus-text-primary);
-    background: var(--solus-surface-hover);
-  }
-  .tree-collapse-btn:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.125rem;
-  }
   .files-tree {
     --trees-bg-override: transparent;
     --trees-fg-override: var(--solus-text-secondary);
     --trees-fg-muted-override: var(--solus-text-tertiary);
-    --trees-bg-muted-override: var(--solus-surface-hover);
+    --trees-bg-muted-override: var(--wash-2);
     --trees-accent-override: var(--solus-accent);
     --trees-border-color-override: var(--solus-container-border);
     --trees-selected-fg-override: var(--solus-text-primary);
-    --trees-selected-bg-override: var(--solus-accent-light);
+    /* Neutral, like the sidebar's active row: the accent no longer marks a
+       selection. Hover is a lighter wash so the open file still stands out. */
+    --trees-selected-bg-override: var(--solus-surface-hover);
     --trees-selected-focused-border-color-override: transparent;
     --trees-focus-ring-color-override: var(--solus-accent);
     --trees-scrollbar-thumb-override: var(--solus-scroll-thumb);

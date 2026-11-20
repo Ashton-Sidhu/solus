@@ -69,12 +69,33 @@ import { snoozeWakeDelay } from '../../components/session/lib/task-snooze'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { sessionListStore, type ListedSession, type SessionListTarget } from './session-list.store.svelte'
+import { SessionUnavailableError } from './session-errors'
 import { isUnopenedShare } from './shared-sessions'
 import { canDriveSession } from '../sharing/resource-roles'
 import { projectHome, runHost, workingPlace } from './run-location'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { managedHostIds } from '@solus/client-core/server-registry'
 import { hostPathBaseName } from '@solus/contracts/host-path'
+
+/** The facts a listed session opens with, before its description answers:
+ *  the open needs no read of its own (`SessionOpening.resumeSession`). */
+function listedSessionMeta(listed: ListedSession): SessionMeta {
+  return {
+    ...listed.opensWith,
+    serverId: listed.serverId,
+    sessionId: listed.sessionId,
+    slug: null,
+    firstMessage: listed.title,
+    lastTimestamp: new Date(listed.lastActivityAt).toISOString(),
+    size: 0,
+  }
+}
+
+/** How long the pointer stays on a row before its page is read: shorter than
+ *  a deliberate rest, longer than a pass over the list. */
+const ROW_REST_MS = 100
+/** A page read on a rest serves an open for this long; after that the click reads again. */
+const RESTED_PAGE_LIFE_MS = 10_000
 
 function restoredSessionActivityAt(
   liveActivityAt: number,
@@ -171,6 +192,7 @@ export class SessionSidebarStore {
 
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
   pinnedSessions = $state<PinnedSession[]>([])
+  private readonly pinRequests = new Map<string, number>()
   visibleTabIds: string[] = $derived.by(() => mountedSidebarTabIds(
     this.session.tabOrder,
     this.session.tabs,
@@ -562,7 +584,7 @@ export class SessionSidebarStore {
       .toSorted((a, b) => b.completedAt - a.completedAt || a.id.localeCompare(b.id)),
   )
 
-  /** The Pinned section, in pin order: each pin with the row that stands for
+  /** The pins at the top of the list, in pin order: each pin with the row that stands for
    *  its session, or none when the list has no row for it (a closed session).
    *  A pinned session shows here and nowhere else, Drafts included. Pins are
    *  the person's own choice, so the project scope does not hide them. */
@@ -572,10 +594,10 @@ export class SessionSidebarStore {
       const pin = this.pinFor(this.sessionIdOfRow(row), row.serverId)
       if (pin) rowByPin.set(pin, row)
     }
-    return this.pinnedSessions.map((pin) => ({ pin, row: rowByPin.get(pin) ?? null }))
+    return this.pinnedSessions.toSorted((a, b) => b.pinnedAt - a.pinnedAt).map((pin) => ({ pin, row: rowByPin.get(pin) ?? null }))
   })
 
-  /** The rows of the Pinned section, in its order. */
+  /** The pinned rows at the top of the list, in pin order. */
   pinnedRows: SidebarTask[] = $derived(this.pinnedEntries.flatMap((entry) => (entry.row ? [entry.row] : [])))
 
   /** The one section a row is in (`sidebarSectionOf`). */
@@ -917,11 +939,20 @@ export class SessionSidebarStore {
     const stopEvents = subscribeAllHosts('session.statusChanged', (serverId, event) => {
       this.sessionStatusFeed().apply(serverId, event)
     })
+    const stopViews = subscribeAllHosts('session.viewChanged', (serverId, { sessionId, view }) => {
+      if (view.settledAt === null && view.archivedAt === null) return
+      const resolvedServerId = serverConnections.resolveId(serverId)
+      this.pinRequests.set(resolvedServerId, (this.pinRequests.get(resolvedServerId) ?? 0) + 1)
+      for (let index = this.pinnedSessions.length - 1; index >= 0; index--) {
+        const pin = this.pinnedSessions[index]
+        if (pin.sessionId === sessionId && pin.serverId === resolvedServerId) this.pinnedSessions.splice(index, 1)
+      }
+    })
     // A list read (each reconnect makes one) answers what the events missed.
     const stopRecords = sessionListStore.onRecordsRead((serverId, records, readStartedAt) => {
       for (const record of records) this.sessionStatusFeed().adoptRecord(serverId, record, readStartedAt)
     })
-    return () => { stopEvents(); stopRecords() }
+    return () => { stopEvents(); stopViews(); stopRecords() }
   }
 
   /** A tab is closing: the status the feed held for its session is stale. */
@@ -938,8 +969,11 @@ export class SessionSidebarStore {
   async loadPinnedSessions(): Promise<void> {
     const serverIds = serverConnections.connectedServerIds()
     await Promise.all(serverIds.map(async (serverId) => {
+      const request = (this.pinRequests.get(serverId) ?? 0) + 1
+      this.pinRequests.set(serverId, request)
       try {
         const rows = await serverConnections.apiFor(serverId).pinnedSessionsList()
+        if (this.pinRequests.get(serverId) !== request) return
         const seen = new Set<string>()
         const pins = rows.filter((row) => {
           if (seen.has(row.sessionId)) return false
@@ -1128,6 +1162,7 @@ export class SessionSidebarStore {
 
   /** The metadata read `prepareOpen` started for a row, taken by its open. */
   private preparedOpen: { rowKey: string; at: number; meta: Promise<SessionMeta | null> } | null = null
+  private restTimer: ReturnType<typeof setTimeout> | null = null
 
   /** Start the reads opening a listed session needs at the click, before the
    *  deferred switch: its metadata, then its first history page. */
@@ -1140,10 +1175,31 @@ export class SessionSidebarStore {
     const listed = sessionListStore.listed(row.sessionId)
     if (listed && !listed.runnerOffline) {
       this.session.opening.prefetchFirstPage({ sessionId: row.sessionId, serverId: listed.serverId, ...listed.opensWith })
+      // The open takes its facts from the list: no metadata read is needed.
+      this.preparedOpen = { rowKey: row.key, at: Date.now(), meta: Promise.resolve(listedSessionMeta(listed)) }
+      return
     }
     const meta = readSessionMeta(row.serverId, row.sessionId)
     void meta.then((read) => { if (read) this.session.opening.prefetchFirstPage(read) })
     this.preparedOpen = { rowKey: row.key, at: Date.now(), meta }
+  }
+
+  /**
+   * The pointer or the keyboard rests on a row: its first history page is read
+   * before the click, so an open on a remote host does not wait a round trip
+   * for it. A row passed over on the way to another is not read. A running
+   * session changes while the reader decides, so it is read at the click.
+   */
+  restOn(row: SidebarTask, isResting: boolean): void {
+    if (this.restTimer) clearTimeout(this.restTimer)
+    this.restTimer = null
+    if (!isResting || row.tabIds.length || !row.sessionId) return
+    const listed = sessionListStore.listed(row.sessionId)
+    if (!listed || listed.runnerOffline || listed.status === 'running') return
+    this.restTimer = setTimeout(() => {
+      this.restTimer = null
+      this.session.opening.prefetchFirstPage({ sessionId: listed.sessionId, serverId: listed.serverId, ...listed.opensWith }, RESTED_PAGE_LIFE_MS)
+    }, ROW_REST_MS)
   }
 
   /** Open a listed session that has no conversation here. */
@@ -1153,10 +1209,18 @@ export class SessionSidebarStore {
       ? this.preparedOpen.meta
       : null
     this.preparedOpen = null
-    const meta = await (prepared ?? readSessionMeta(row.serverId, row.sessionId))
+    const listed = sessionListStore.listed(row.sessionId)
+    const meta = await (prepared ?? (listed && !listed.runnerOffline
+      ? Promise.resolve(listedSessionMeta(listed))
+      : readSessionMeta(row.serverId, row.sessionId)))
     if (meta) {
-      await this.session.opening.resumeSession(meta)
-      return
+      try {
+        await this.session.opening.resumeSession(meta)
+        return
+      } catch (error) {
+        // The description found no session: the row is stale.
+        if (!(error instanceof SessionUnavailableError)) throw error
+      }
     }
     // A stale row of a shared session: say why it does not open.
     const { noticeUnopenableSession } = await import('../sharing/unopenable-session')
@@ -1306,7 +1370,7 @@ export class SessionSidebarStore {
    *  one on screen, in the order the column lists them, wrapping at the ends.
    *  With no row on screen, start from the top or the bottom. */
   async selectAdjacentRow(delta: 1 | -1): Promise<void> {
-    const rows = [...this.sessionRows, ...this.sharedRows, ...this.pinnedRows, ...this.workingRows]
+    const rows = [...this.pinnedRows, ...this.sessionRows, ...this.sharedRows, ...this.workingRows]
     if (!rows.length) return
     const index = rows.findIndex((row) => row.id === this.onScreenRowId)
     const next = index === -1
@@ -1334,7 +1398,7 @@ export class SessionSidebarStore {
   closeTabs(tabIds: string[], via: Via = 'click'): void {
     const activeTabId = this.session.activeTabId
     const closesActiveTab = tabIds.includes(activeTabId)
-    const openRows = [...this.sessionRows, ...this.sharedRows, ...this.pinnedRows, ...this.workingRows]
+    const openRows = [...this.pinnedRows, ...this.sessionRows, ...this.sharedRows, ...this.workingRows]
     const sidebarTasks = [
       ...openRows,
       ...this.snoozedTasks,
@@ -1433,6 +1497,33 @@ export class SessionSidebarStore {
   closeSidebarTab(tabId: string): void {
     const row = this.taskForTab(tabId)
     if (row) this.closeTask(row)
+  }
+
+  /** Toggle the row's host-owned pin, including a session with no open tab. */
+  async toggleRowPin(row: SidebarTask): Promise<void> {
+    const sessionId = this.sessionIdOfRow(row)
+    if (!sessionId || !row.serverId) return
+    const existing = this.pinFor(sessionId, row.serverId)
+    if (existing) {
+      await this.unpinSession(existing)
+      return
+    }
+    const tabId = row.tabIds[0]
+    if (tabId) {
+      await this.togglePinnedSession(tabId)
+      return
+    }
+    const listed = sessionListStore.listed(sessionId)
+    if (!listed) return
+    await serverConnections.apiFor(row.serverId).togglePinnedSession({
+      sessionId,
+      serverId: row.serverId,
+      provider: listed.opensWith.provider,
+      title: row.title,
+      cwd: listed.opensWith.cwd,
+      pinnedAt: Date.now(),
+    })
+    await this.loadPinnedSessions()
   }
 
   /** Pin or unpin the session backing a tab. No-op for tabs without an agent session. */

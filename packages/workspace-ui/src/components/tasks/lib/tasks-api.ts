@@ -110,6 +110,7 @@ export const PRIORITY_OPTIONS: TaskPriority[] = ['urgent', 'high', 'medium', 'lo
 export const PROVIDER_NAMES = {
   github: 'GitHub',
   jira: 'Jira',
+  linear: 'Linear',
 } satisfies Record<TaskProviderId, string>
 
 /**

@@ -829,6 +829,9 @@ export const AGENT_ACTIVITY_NAME = 'AgentActivity'
 /** The card's stale date, on the phone and in a push: past it the card says "Out of date". */
 export const AGENT_ACTIVITY_STALE_AFTER_MS = 10 * 60_000
 
+/** Keep the same card between turns; remove it after five minutes without live work. */
+export const AGENT_ACTIVITY_IDLE_AFTER_MS = 5 * 60_000
+
 export const agentActivityRowSchema = z.object({
   /** The host as the phone knows it; the phone's id, not the control plane's. */
   hostId: z.string().min(1).max(200),

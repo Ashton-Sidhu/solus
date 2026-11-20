@@ -2988,6 +2988,8 @@ export const DEFAULT_SOURCE_CONTROL_WRITING: SourceControlWritingPreferences = {
 /** Per-project settings read on the project's owner host. */
 export interface ProjectConfig {
   version: 1
+  /** Explicit local preview addresses; scheme, path, query and fragment are preserved. */
+  serverUrls?: string[]
   /** Move a task to done when its linked pull request merges. */
   taskDoneOnMerge?: boolean
   /** Overrides the host's worktree branch naming for this project. Absent =
@@ -3060,6 +3062,8 @@ export interface ResolvedTerminal {
 
 export interface TerminalLaunchRequest {
   command: string
+  /** Durable Solus session, when this terminal was opened from a conversation. */
+  sessionId?: string
   /** Terminal to open only when no terminal is attached to the shared tmux session. */
   fallbackTerminalId: TerminalAppId
   cwd?: string
@@ -3471,6 +3475,9 @@ export function sameGitCheckout(
 export interface GitCheckoutBranchResult {
   success: boolean
   gitContext?: GitCheckout
+  /** Where work continues on success: the folder the request named, or the
+   *  existing worktree that already has the branch. An older host omits it. */
+  workingDirectory?: string
   error?: string
 }
 

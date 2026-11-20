@@ -1,3 +1,8 @@
+import { PrInspectScreen } from '../features/prs/PrInspectScreen'
+import { TaskRouteScreen } from '../features/tasks/TaskRouteScreen'
+import { TaskSourcesScreen } from '../features/tasks/TaskSourcesScreen'
+import { TaskCreateScreen } from '../features/tasks/TaskCreateScreen'
+import { RunningServersScreen } from '../features/running-servers/RunningServersScreen'
 import { SettingsScopeScreen } from '../features/settings/SettingsScopeScreen'
 import { ProviderInstancesScreen } from '../features/settings/ProviderInstancesScreen'
 import {
@@ -29,7 +34,7 @@ import { ThreadSettingsRouteScreen } from '../features/threads/ThreadSettingsShe
 import { HostBalancingScreen } from '../features/hosts/HostBalancingScreen'
 import { HostResourcesScreen } from '../features/hosts/HostResourcesScreen'
 import { NewTaskRouteScreen } from '../features/threads/NewTaskRouteScreen'
-import { NewTaskEnvironmentPickerRouteScreen } from '../features/threads/NewTaskContextPickerScreens'
+import { NewTaskBranchPickerRouteScreen, NewTaskEnvironmentPickerRouteScreen } from '../features/threads/NewTaskContextPickerScreens'
 import { HostsScreen } from '../features/hosts/HostsScreen'
 import { PairHostScreen } from '../features/hosts/PairHostScreen'
 import { AddSshHostScreen } from '../features/hosts/AddSshHostScreen'
@@ -308,6 +313,9 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
               ...getCompactBrandHeaderOptions(),
             }}
           />
+          <Stack.Screen name="Task" component={TaskRouteScreen} options={GLASS_HEADER_OPTIONS} />
+          <Stack.Screen name="TaskSources" component={TaskSourcesScreen} options={GLASS_HEADER_OPTIONS} />
+          <Stack.Screen name="TaskCreate" component={TaskCreateScreen} options={GLASS_HEADER_OPTIONS} />
           <Stack.Screen name="Thread" component={ThreadRouteScreen} options={GLASS_HEADER_OPTIONS} />
           <Stack.Screen name="ThreadSubagent" component={ProviderSubagentScreen} options={{ ...GLASS_HEADER_OPTIONS, title: 'Agent' }} />
           <Stack.Screen
@@ -340,11 +348,16 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             component={NewTaskRouteScreen}
             options={{ ...GLASS_HEADER_OPTIONS, title: 'Choose project', gestureEnabled: true }}
           />
-          {/* T3 Code's Environment screen (Stack.tsx), pushed in the new-task sheet. */}
+          {/* T3 Code's Environment and Branch screens (Stack.tsx), pushed in the new-task sheet. */}
           <Stack.Screen
             name="NewTaskEnvironment"
             component={NewTaskEnvironmentPickerRouteScreen}
             options={{ ...SHEET_GLASS_HEADER_OPTIONS, title: 'Host' }}
+          />
+          <Stack.Screen
+            name="NewTaskBranch"
+            component={NewTaskBranchPickerRouteScreen}
+            options={{ ...SHEET_GLASS_HEADER_OPTIONS, title: 'Base branch' }}
           />
           <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
           <Stack.Screen name="PairHost" component={PairHostScreen} options={{ title: 'Connect to a host' }} />
@@ -435,7 +448,8 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             component={PullRequestEditSheet}
             options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
           />
-          <Stack.Screen
+          <Stack.Screen name="PrInspect" component={PrInspectScreen} options={{ title: "Inspect PR" }} />
+        <Stack.Screen
             name="PullRequestFilterSearch"
             component={PullRequestFilterSearchScreen}
             options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Search', headerBackVisible: false, sheetAllowedDetents: formSheetDetents(Platform.OS, 0.75), sheetGrabberVisible: true }}
@@ -452,6 +466,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             component={DevicePreviewRouteScreen}
             options={{ presentation: 'fullScreenModal', headerShown: false, gestureEnabled: false, statusBarHidden: true, navigationBarHidden: true }}
           />
+          <Stack.Screen name="RunningServers" component={RunningServersScreen} options={{ ...SOLID_HEADER_OPTIONS, title: 'Running servers' }} />
           <Stack.Screen
             name="ThreadBrowserPreview"
             component={BrowserPreviewRouteScreen}

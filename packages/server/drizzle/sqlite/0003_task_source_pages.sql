@@ -1,0 +1,1 @@
+ALTER TABLE `task_sources` ADD `next_cursor` text;

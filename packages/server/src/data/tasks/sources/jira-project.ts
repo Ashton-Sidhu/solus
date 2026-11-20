@@ -1,3 +1,4 @@
+import type { TaskInvolvement } from '@solus/contracts/task-inspection'
 import type { TaskSource } from '@solus/contracts/task-sources'
 import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
 import { jiraStatusCategory } from '../status-category'
@@ -40,10 +41,10 @@ export class JiraProjectSource implements TaskSourceAdapter {
 
   constructor(private readonly jira: JiraTransport) {}
 
-  async read(source: TaskSource): Promise<SourceRead> {
+  async read(source: TaskSource, continuation?: string): Promise<SourceRead> {
     const { cloudId, projectKey } = jiraProject(source)
     const issues: JiraIssue[] = []
-    let nextPageToken: string | undefined
+    let nextPageToken: string | undefined = continuation
     let truncated = false
     do {
       const body: JiraSearchBody = {
@@ -75,6 +76,7 @@ export class JiraProjectSource implements TaskSourceAdapter {
         return { task, columnId: task.stateId ?? null, itemId: null }
       }),
       truncated,
+      nextCursor: truncated ? nextPageToken ?? null : null,
     }
   }
 
@@ -102,10 +104,11 @@ export class JiraProjectSource implements TaskSourceAdapter {
    * Solus holds: the issue a person looks for is frequently an older one. The
    * text goes to Jira, which searches the whole project.
    */
-  async search(source: TaskSource, query: string): Promise<ProviderTask[]> {
+  async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
+    if (involvement === 'mentioned') throw new Error('Jira does not expose a reliable mentioned-by-me issue search. Open Jira to use its mention notifications.')
     const { cloudId, projectKey } = jiraProject(source)
     const body: JiraSearchBody = {
-      jql: `project = "${escapeJql(projectKey)}" AND ${textClause(query)} ORDER BY updated DESC`,
+      jql: `project = "${escapeJql(projectKey)}" AND ${[query.trim() ? textClause(query) : '', involvement === 'authored' ? 'reporter = currentUser()' : involvement === 'assigned' ? 'assignee = currentUser()' : ''].filter(Boolean).join(' AND ') || 'created IS NOT EMPTY'} ORDER BY updated DESC`,
       maxResults: SEARCH_LIMIT,
       fields: LIST_FIELDS,
     }

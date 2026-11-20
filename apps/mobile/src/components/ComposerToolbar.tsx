@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/components/ComposerToolbar.tsx (MIT, see UPSTREAM.md).
 import type { ComponentProps, ReactNode } from "react";
+import { useRef } from "react";
 import { Pressable, View, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
 
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
@@ -8,6 +9,7 @@ import { cn } from "../lib/cn";
 import { AppText as Text } from "./AppText";
 import { SymbolView } from "./AppSymbol";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
+import { ComposerActionTouch } from "../features/threads/lib/composer-action-touch";
 
 const INLINE_CONTROL_LABEL_ENTERING = FadeIn.duration(160);
 
@@ -173,16 +175,19 @@ export function ComposerToolbarRow(props: {
 }
 
 export function ComposerActionButton(props: {
+  readonly actionKey?: string;
   readonly size?: "regular" | "large";
   readonly accessibilityLabel: string;
   readonly disabled?: boolean;
   readonly icon: ComponentProps<typeof SymbolView>["name"];
-  readonly onPress: () => void;
+  readonly onPress: NonNullable<PressableProps["onPress"]>;
   readonly variant?: "primary" | "stop";
   // Menu injects onLongPress on Android and onTouchStart/onPress on iOS.
   readonly onLongPress?: PressableProps["onLongPress"];
   readonly onTouchStart?: PressableProps["onTouchStart"];
 }) {
+  const touch = useRef(new ComposerActionTouch());
+  const actionKey = `${props.variant ?? "primary"}:${props.actionKey ?? ""}`;
   const { scale, smallIconSize } = useAndroidControlSizing();
   const circleSize = Math.round((props.size === "large" ? 44 : 30) * scale);
   const fadeIcon = props.disabled === true && props.variant !== "stop";
@@ -194,9 +199,15 @@ export function ComposerActionButton(props: {
       className="size-[44px] shrink-0 items-center justify-center active:opacity-70"
       style={props.size === "large" ? { width: 62 } : undefined}
       disabled={props.disabled}
-      onPress={props.onPress}
+      onPress={(event) => {
+        if (touch.current.accept(actionKey, event.nativeEvent.identifier)) props.onPress(event);
+      }}
       onLongPress={props.onLongPress}
-      onTouchStart={props.onTouchStart}
+      onTouchStart={(event) => {
+        touch.current.begin(actionKey, event.nativeEvent.identifier);
+        props.onTouchStart?.(event);
+      }}
+      onTouchCancel={() => touch.current.cancel()}
     >
       <View
         style={{ width: circleSize, height: circleSize }}

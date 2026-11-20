@@ -190,6 +190,9 @@ export class PromptDispatch {
     void api.watchSession({ sessionId: watchedSessionId }).catch((error) => {
       console.warn('[Solus] Session watch failed; the prompt still sends.', error)
     })
+    // A turn's first prompt is withdrawn by Stop, as a held send is
+    // (`sendWhenUploaded`). A queued prompt keeps its own way out.
+    const isQueued = promptSession.outboundPrompts.some((entry) => entry.clientPromptId === options.clientPromptId)
     // A run that will branch a new worktree already has its base branch, which
     // only a Git answer for its folder sets. The host reads the rest of the
     // checkout itself, so the send does not wait for a refresh in flight.
@@ -202,6 +205,13 @@ export class PromptDispatch {
         // submission to avoid a phantom run that can never be cancelled.
         const session = this.workspace.sessionFor(tabId)
         if (!session) return
+        // Stop came while the steps above ran. The host had no turn to stop
+        // then, so a prompt sent now would start the stopped turn again.
+        if (options.clientPromptId && !isQueued && session.status !== 'connecting') {
+          sendOutbox.remove(outboxServerId, options.clientPromptId)
+          if (!session.prompt.text) session.prompt.text = options.displayPrompt
+          return
+        }
         return api.prompt(ctx, resolved)
           .then(() => {
             // The host accepted the prompt: its durable copy has done its job.

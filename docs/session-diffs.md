@@ -51,3 +51,5 @@ Filters do not change the files included in a commit or review submission.
 Desktop and web share these controls. The native mobile pull request Files tab
 has the same choices in its Changed files menu. Classification uses paths and
 is the same for both agent providers and all host connection modes.
+Numbered Drizzle SQL migrations and their snapshot and journal files appear
+under Generated.

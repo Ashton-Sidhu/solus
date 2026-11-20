@@ -142,7 +142,7 @@ const workflow = (name: string, host: AppRunnerHost, steps: AppRunnerStep[] = []
 
 let runners: AppRunners | null = null
 function start(options: { callTimeoutMs?: number } = {}): AppRunners {
-  runners = new AppRunners({ node: 'node', ...options })
+  runners = new AppRunners(options)
   return runners
 }
 

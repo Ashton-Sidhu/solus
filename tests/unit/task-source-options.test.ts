@@ -120,3 +120,10 @@ describe('what a person can choose as a task source', () => {
     expect(options.jira.boardsError).toBe('Connect Atlassian again to give Solus the Jira Software permission that boards need.')
   })
 })
+
+test('a refused Linear connection does not hide GitHub or Jira source choices', async () => {
+  const options = await taskSourceOptions(deps({ linear: async () => { throw new Error('Linear key expired') } }))
+  expect(options.github.repositories).toHaveLength(2)
+  expect(options.jira.projects).toHaveLength(1)
+  expect(options.linear).toMatchObject({ connected: false, teams: [], error: 'Linear key expired' })
+})

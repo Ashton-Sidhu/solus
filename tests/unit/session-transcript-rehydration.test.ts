@@ -291,7 +291,7 @@ describe('session transcript rehydration', () => {
     const ctx = {
       apiForSession: () => connections.apiFor('transcript-host'),
       automationsStore: { loaded: true },
-      worksStore: { works: {}, history: { bodyAtVersion: async (workId: string, version: number) => workId === 'w-art' && version === 1 ? html : null } },
+      worksStore: { works: {}, ensureContent: async () => null, history: { bodyAtVersion: async (workId: string, version: number) => workId === 'w-art' && version === 1 ? html : null } },
     } as unknown as WorkspaceContext
 
     const transcript = await loadSessionTranscript(ctx, {
@@ -306,6 +306,50 @@ describe('session transcript rehydration', () => {
       artifact: { kind: 'html', html },
       workRef: { workId: 'w-art', title: 'Latency', workType: 'artifact' },
     })
+  })
+
+  test('reads artifact bodies while automations load, and shows rows only when both answered', async () => {
+    // WHY: automation and artifact cards must be in the rows when they first
+    // show, or the cards grow in under the reader. On a remote host each read
+    // is a round trip, so the two reads must not wait for each other.
+    connections.registerPrimary('transcript-host', {
+      loadSession: async () => [
+        { role: 'tool' as const, content: '', toolName: 'mcp__solus__create_automation', toolId: 'auto-1', toolInput: JSON.stringify({ name: 'Nightly' }), timestamp: 1 },
+        { role: 'tool' as const, content: '', toolName: 'mcp__solus__render_artifact', toolId: 'artifact-1', toolInput: JSON.stringify({ html_path: 'chart.html' }), artifactWorkRef: { workId: 'w-art', title: 'Chart', contentVersion: 1 }, timestamp: 2 },
+      ],
+    })
+    let finishAutomations!: () => void
+    const automationHosts: (string | undefined)[] = []
+    const automationsStore = {
+      loaded: false, items: [] as unknown[], hasLoadedHost: () => false,
+      // Only the session's host holds the automation its rows show.
+      loadAll: (serverId?: string) => { automationHosts.push(serverId); return new Promise<void>((resolve) => { finishAutomations = resolve }) },
+    }
+    const bodyReads: string[] = []
+    const ctx = {
+      apiForSession: () => connections.apiFor('transcript-host'),
+      automationsStore,
+      worksStore: { works: {}, ensureContent: async (workId: string, _source: string, likelyServerId?: string) => {
+        // The session's host is asked directly; a read elsewhere would miss.
+        if (likelyServerId !== 'transcript-host') return null
+        bodyReads.push(workId)
+        return { content: '<p>Chart</p>', contentVersion: 1 }
+      }, history: { bodyAtVersion: async () => null } },
+    } as unknown as WorkspaceContext
+
+    let settled = false
+    const loading = loadSessionTranscript(ctx, {
+      sessionId: 'session-1', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
+    }).then((transcript) => { settled = true; return transcript })
+    await Bun.sleep(0)
+    expect(bodyReads).toEqual(['w-art'])
+    expect(automationHosts).toEqual(['transcript-host'])
+    expect(settled).toBe(false)
+
+    finishAutomations()
+    const transcript = await loading
+    expect(transcript.messages.find((message) => message.artifact)?.artifact?.html).toBe('<p>Chart</p>')
   })
 
   test('rebuilds provider-history images as user-message attachments', async () => {

@@ -565,12 +565,13 @@ export class WorksStore {
   }
 
   /** The saved record, read from its host when none is held. A provisional
-   *  work has none yet. */
-  ensureContent(workId: string, source = 'unknown'): Promise<Work | null> {
+   *  work has none yet. `likelyServerId` is where a reader knows the work was
+   *  made (`followMove`). */
+  ensureContent(workId: string, source = 'unknown', likelyServerId?: string): Promise<Work | null> {
     const held = this.saved[workId]
     if (held) return Promise.resolve(held)
     if (this.streaming[workId]) return Promise.resolve(null)
-    return this.readSaved(workId, source)
+    return this.readSaved(workId, source, likelyServerId)
   }
 
   /** Bring a held record up to date: an open work re-reads under its own
@@ -581,19 +582,20 @@ export class WorksStore {
     else void this.readSaved(workId, 'stale-listing')
   }
 
-  private readSaved(workId: string, source: string): Promise<Work | null> {
+  private readSaved(workId: string, source: string, likelyServerId?: string): Promise<Work | null> {
     const pending = this.savedReads.get(workId)
     if (pending) return pending
-    const read = this.loadSavedFromHost(workId, source).finally(() => this.savedReads.delete(workId))
+    const read = this.loadSavedFromHost(workId, source, likelyServerId).finally(() => this.savedReads.delete(workId))
     this.savedReads.set(workId, read)
     return read
   }
 
-  private async loadSavedFromHost(workId: string, source: string): Promise<Work | null> {
-    if (!(this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId())) return null
+  private async loadSavedFromHost(workId: string, source: string, likelyServerId?: string): Promise<Work | null> {
+    if (!(this.hostByWorkId.get(workId) ?? likelyServerId ?? serverConnections.defaultServerId())) return null
     try {
-      const work = await this.followMove(workId, (api) => api.loadWork(workId))
-      const serverId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+      const work = await this.followMove(workId, (api) => api.loadWork(workId), likelyServerId)
+      // A guess that answered is the owner; a move that answered set the owner.
+      const serverId = this.hostByWorkId.get(workId) ?? likelyServerId ?? serverConnections.defaultServerId()
       if (work && serverId) {
         this.acceptSaved(work, serverId)
         return this.saved[workId] ?? null

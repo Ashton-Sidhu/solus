@@ -1,14 +1,14 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/ThreadDetailScreen.tsx (MIT, see UPSTREAM.md).
-import { useKeyboardChatComposerInset, useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
+import { useKeyboardScrollToEnd } from "@legendapp/list/keyboard";
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/routes";
 import * as Haptics from "expo-haptics";
 import { hostReadinessCopy, type HostReadinessState } from "@solus/client-core/host-readiness";
 import { isSessionBusyStatus, type SessionStarterFromHost, type SessionStatus } from "@solus/contracts/types";
-import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   AppState,
   Keyboard,
@@ -16,6 +16,7 @@ import {
   useWindowDimensions,
   View,
   type GestureResponderEvent,
+  type LayoutChangeEvent,
 } from "react-native";
 import {
   KeyboardController,
@@ -30,6 +31,7 @@ import Animated, {
   useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
+  useReducedMotion,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -39,7 +41,6 @@ import { useAppearancePreferences } from "../settings/appearance/AppearancePrefe
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import type { LayoutVariant } from "../../lib/layout";
-import type { ViewInstance } from "react-native";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import { permissionForFeedback } from "../conversation/lib/transcript-model";
@@ -57,7 +58,6 @@ import { KeyboardResumeGuard } from "./android-keyboard-resume";
 import { useTurnAnnouncements } from "./use-turn-announcements";
 import {
   COMPOSER_COLLAPSED_CHROME,
-  COMPOSER_LAYOUT_TRANSITION,
   THREAD_COMPOSER_BOTTOM_GUTTER,
   ThreadComposer,
 } from "./ThreadComposer";
@@ -72,10 +72,18 @@ import { HostGraceWhisper } from "./ThreadHostLines";
 import { HostAsleepCard } from "../hosts/HostAsleepCard";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
 import { ThreadBrowserFloat } from "../browser/ThreadBrowserFloat";
+import { composerSubmissionBehavior, resolveThreadFeedSubmissionAnchor } from "./thread-feed-scroll-position";
 import { useThreadViewers } from "./use-thread-viewers";
 import { IntegrationConnectSheet } from "../conversation/components/IntegrationConnectSheet";
 
 export interface ThreadDetailScreenProps {
+  readonly header?: ReactNode;
+  readonly draftMode?: {
+    readonly content: (composerHeight: number) => ReactNode;
+    readonly controls: ReactNode;
+    readonly onDraftChange: (text: string) => void;
+    readonly onSent: () => void;
+  };
   readonly store: ConversationStore;
   readonly meta: ConversationMeta;
   /** `hostId` and session id joined: the feed's identity. */
@@ -119,8 +127,11 @@ function workStartedAt(store: ConversationStore, working: boolean): number | nul
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
   const { store, meta } = props;
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
+  const [sendingWithKeyboard, setSendingWithKeyboard] = useState(false);
+  if (sendingWithKeyboard && !isKeyboardVisible) setSendingWithKeyboard(false);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
   // Android can swallow the IME hide callbacks when the app is backgrounded
   // mid keyboard-hide; quarantine the sticky translation on resume until the
@@ -156,13 +167,28 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     }
   }, []);
   const windowHeight = useWindowDimensions().height;
+  const [contentViewportHeight, setContentViewportHeight] = useState(windowHeight);
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + 44;
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
-  const composerOverlayRef = useRef<ViewInstance>(null);
   const listRef = useRef<LegendListRef>(null);
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerHeight, setComposerHeight] = useState<number | null>(null);
+  const composerHeightSettle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleComposerHeightChange = useCallback((height: number) => {
+    // T3 lets native layout drive the inset each frame and settles React's
+    // estimate after the 220 ms composer transition.
+    setComposerHeight((current) => current ?? height);
+    if (composerHeightSettle.current !== null) clearTimeout(composerHeightSettle.current);
+    composerHeightSettle.current = setTimeout(() => {
+      composerHeightSettle.current = null;
+      setComposerHeight(height);
+    }, 220);
+  }, []);
+  useEffect(() => () => {
+    if (composerHeightSettle.current !== null) clearTimeout(composerHeightSettle.current);
+  }, []);
+  const [composerOverlayHeight, setComposerOverlayHeight] = useState<number | null>(null);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const queuedEdit = useQueuedMessageEdit(store);
   const handleComposerFocusChange = useCallback(
@@ -172,6 +198,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     },
     [handleOwnedInputFocusChange],
   );
+  const [anchorMessageId, setAnchorMessageId] = useState<string | null>(null);
   const [submittedMessageId, setSubmittedMessageId] = useState<string | null>(null);
   const [endFollowEnabled, setEndFollowEnabled] = useState(true);
   // The composer already adds its own gutter; the iPad aligns the pill's edge
@@ -183,13 +210,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     Platform.OS === "ios" && Platform.isPad
       ? Math.max(0, Math.max(insets.bottom, 12) - composerBottomGutter)
       : Math.max(insets.bottom, 12);
-  // Android keys the safe-area padding on keyboard visibility; iOS on the
-  // keyboard's height, because visibility only flips after the hide animation.
-  // A hardware keyboard can focus the editor without any screen height, and
-  // then the inset stays.
-  const composerBottomInset = (Platform.OS === "android" ? isKeyboardVisible : liveKeyboardHeight > 0)
-    ? 0
-    : alignedBottomInset;
+  // T3 keeps this padding fixed while the sticky view follows the keyboard.
+  // Changing it at keyboardDidHide creates another layout after the keyboard lands.
+  const composerBottomInset = alignedBottomInset;
   const contentPresentationKind = props.contentPresentation.kind;
   const turnActive = isSessionBusyStatus(meta.status);
   // A reader the session is shared with to view cannot prompt or stop it (docs/plans/access-model.md §2.7).
@@ -287,15 +310,14 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     composerOverlapHeight: composerBottomInset,
   });
   const estimatedOverlayHeight = composerOverlapHeight;
-  // UIKit adds the safe-area bottom to the content inset again under automatic
-  // insets; report the overlay height without it.
-  const nativeInsetOvercount =
-    props.usesAutomaticContentInsets === true && Platform.OS === "ios" ? insets.bottom : 0;
-  const { contentInsetEndAdjustment, onComposerLayout } = useKeyboardChatComposerInset(
-    listRef,
-    composerOverlayRef,
-    Math.max(0, estimatedOverlayHeight - nativeInsetOvercount),
-  );
+  // T3 reports the animated native layout directly, rather than measuring again.
+  const contentInsetEndAdjustment = useSharedValue(estimatedOverlayHeight);
+  const handleComposerOverlayLayout = useCallback((event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    contentInsetEndAdjustment.set(height);
+    const roundedHeight = Math.round(height);
+    if (props.draftMode) setComposerOverlayHeight((current) => current === roundedHeight ? current : roundedHeight);
+  }, [contentInsetEndAdjustment, props.draftMode]);
   const floatingControlCoverage = useSharedValue(
     showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0,
   );
@@ -306,7 +328,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     );
   }, [floatingControlCoverage, showFloatingStatus]);
   const combinedContentInsetEndAdjustment = useSharedValue(
-    Math.max(0, estimatedOverlayHeight - nativeInsetOvercount),
+    estimatedOverlayHeight,
   );
   useAnimatedReaction(
     () => contentInsetEndAdjustment.value + floatingControlCoverage.value,
@@ -315,51 +337,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     },
   );
   const { freeze, scrollMessageToEnd } = useKeyboardScrollToEnd({ listRef });
-  const endFollowEnabledRef = useRef(true);
-  // Read only by the re-pin timer, after commit. A write during render would
-  // stop the React Compiler.
-  useLayoutEffect(() => {
-    endFollowEnabledRef.current = endFollowEnabled;
-  });
-  const overlayRepinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const previousFloatingVisibleRef = useRef({ threadKey: props.threadKey, visible: false });
-  // The list's own corrections for inset changes drift on short content, so
-  // re-pin the end once a change settles — unless the reader scrolled away.
-  const scheduleOverlayRepin = useCallback(
-    (delayMs: number) => {
-      if (overlayRepinTimerRef.current !== null) {
-        clearTimeout(overlayRepinTimerRef.current);
-      }
-      overlayRepinTimerRef.current = setTimeout(() => {
-        overlayRepinTimerRef.current = null;
-        if (!endFollowEnabledRef.current) {
-          return;
-        }
-        void scrollMessageToEnd({ animated: false, closeKeyboard: false }).catch(() => {
-          freeze.set(false);
-        });
-      }, delayMs);
-    },
-    [freeze, scrollMessageToEnd],
-  );
-  useEffect(
-    () => () => {
-      if (overlayRepinTimerRef.current !== null) {
-        clearTimeout(overlayRepinTimerRef.current);
-      }
-    },
-    [],
-  );
-  useEffect(() => {
-    const previous = previousFloatingVisibleRef.current;
-    const threadChanged = previous.threadKey !== props.threadKey;
-    const visibilityChanged = previous.visible !== showFloatingStatus;
-    previousFloatingVisibleRef.current = { threadKey: props.threadKey, visible: showFloatingStatus };
-    if ((!threadChanged && !visibilityChanged) || (threadChanged && !showFloatingStatus)) {
-      return;
-    }
-    scheduleOverlayRepin(230);
-  }, [scheduleOverlayRepin, props.threadKey, showFloatingStatus]);
   const handleToggleUserInputCollapsed = useCallback(() => {
     if (activeUserInputRequestId === null) {
       return;
@@ -371,8 +348,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       Keyboard.dismiss();
       setCollapsedUserInputRequestId(activeUserInputRequestId);
     }
-    scheduleOverlayRepin(260);
-  }, [activeUserInputRequestId, scheduleOverlayRepin, userInputCollapsed]);
+  }, [activeUserInputRequestId, userInputCollapsed]);
   const isSplitLayout = props.layoutVariant === "split";
   const workspaceContentWidth = useWorkspaceContentWidth();
   const composerWidthStyle = useAnimatedStyle(() =>
@@ -388,6 +364,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   useEffect(() => {
     setSubmittedMessageId(null);
+    setAnchorMessageId(null);
     setEndFollowEnabled(true);
     freeze.set(false);
   }, [freeze, props.threadKey]);
@@ -398,26 +375,51 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     if (isBackground) void store.controller.stopBackgroundWork();
     else void store.controller.stop();
   }, [store, isBackground]);
-  // Stop applies only to a running turn; otherwise the command passes on.
+  // Navigation keeps older screens mounted. They must never receive Stop
+  // when the visible thread has no work to stop.
   useKeyboardCommand("stop", () => {
-    if (!canStop) return false;
-    stopThread();
-  });
+    if (canStop) stopThread();
+  }, isFocused);
 
+  const reduceMotion = useReducedMotion();
   const handleSent = useCallback(() => {
-    const targetThreadKey = props.threadKey;
-    setSubmittedMessageId(`${targetThreadKey}:${Date.now()}`);
-    composerEditorRef.current?.blur();
-    // Wait for the keyboard to leave before scrolling, so the keyboard inset
-    // freeze cannot swallow its close event.
+    props.draftMode?.onSent();
+    const userIds = store.orderSnapshot().filter((id) => store.item(id)?.kind === "user");
+    const messageId = userIds.at(-1) ?? null;
+    let nextAnchorMessageId = anchorMessageId;
+    if (messageId !== null) {
+      setSubmittedMessageId(messageId);
+      nextAnchorMessageId = resolveThreadFeedSubmissionAnchor({
+        currentAnchorMessageId: anchorMessageId,
+        submittedMessageId: messageId,
+        hasStartedTurn: store.controller.run.agentSessionId !== null,
+        hasUserMessage: userIds.length > 1,
+        queuedMessageCount: queuedCount,
+        deliveryDeferred: !isHostReady,
+      });
+      setAnchorMessageId(nextAnchorMessageId);
+    }
+    const behavior = composerSubmissionBehavior({
+      isIOS: Platform.OS === "ios",
+      keyboardVisible: KeyboardController.isVisible(),
+      hasUserMessage: userIds.length > 1,
+      contentReady: contentPresentationKind === "ready",
+      anchorsSubmission: messageId !== null && nextAnchorMessageId === messageId,
+    });
+    if (!behavior.blurEditor) setSendingWithKeyboard(true);
+    if (behavior.blurEditor) composerEditorRef.current?.blur();
+    if (!behavior.dismissKeyboard) return;
+    // Commit the optimistic row, then let the keyboard leave before freezing its inset.
     requestAnimationFrame(() => {
       void KeyboardController.dismiss()
-        .then(() => scrollMessageToEnd({ animated: true, closeKeyboard: false }))
+        .then(() => {
+          if (behavior.followSubmission) return scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false });
+        })
         .catch(() => {
           freeze.set(false);
         });
     });
-  }, [freeze, props.threadKey, scrollMessageToEnd]);
+  }, [anchorMessageId, contentPresentationKind, freeze, props.draftMode, reduceMotion, scrollMessageToEnd, store, queuedCount, isHostReady]);
 
   const handleScrollToEnd = useCallback(() => {
     void Haptics.selectionAsync();
@@ -500,7 +502,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   }, []);
 
   return (
-    <View className="flex-1">
+    <View className="flex-1" onLayout={(event) => setContentViewportHeight(event.nativeEvent.layout.height)}>
       <View
         style={{ flex: 1 }}
         onTouchStart={handleFeedTouchStart}
@@ -519,40 +521,47 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         {/* While the host is away the thread stays readable and scrolls; its
             state takes the composer's place below. */}
         <View className="flex-1">
-          <RenderErrorBoundary
-            key={props.threadKey}
-            renderFallback={(fallback) => (
-              <RenderFailureView
-                {...fallback}
-                title="The conversation couldn't be displayed"
-                bottomInset={estimatedOverlayHeight}
-              />
-            )}
-          >
-            <QuoteInReplyContext value={store.quoteInReply}>
-              <ThreadFeed
-                store={store}
-                threadKey={props.threadKey}
-                contentPresentation={props.contentPresentation}
-                turnActive={turnActive}
-                working={working}
-                listRef={listRef}
-                freeze={freeze}
-                submittedMessageId={submittedMessageId}
-                contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
-                contentBottomInset={
-                  estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
-                }
-                historyControls={props.historyControls}
-                startedBy={props.startedBy}
-                handoffPending={meta.handoffPending}
-                isHostAsleep={hostChrome.isAsleep}
-                layoutVariant={props.layoutVariant}
-                usesAutomaticContentInsets={props.usesAutomaticContentInsets}
-                onEndFollowEnabledChange={setEndFollowEnabled}
-              />
-            </QuoteInReplyContext>
-          </RenderErrorBoundary>
+          {props.draftMode ? (
+            props.draftMode.content(composerOverlayHeight ?? estimatedOverlayHeight)
+          ) : (
+            <RenderErrorBoundary
+              key={props.threadKey}
+              renderFallback={(fallback) => (
+                <RenderFailureView
+                  {...fallback}
+                  title="The conversation couldn't be displayed"
+                  bottomInset={estimatedOverlayHeight}
+                />
+              )}
+            >
+              <QuoteInReplyContext value={store.quoteInReply}>
+                <ThreadFeed
+                  store={store}
+                  threadKey={props.threadKey}
+                  contentPresentation={props.contentPresentation}
+                  turnActive={turnActive}
+                  working={working}
+                  listRef={listRef}
+                  freeze={freeze}
+                  submittedMessageId={submittedMessageId}
+                  anchorMessageId={anchorMessageId}
+                  contentTopInset={props.usesAutomaticContentInsets ? navigationHeaderHeight : 0}
+                  contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
+                  sendingWithKeyboard={sendingWithKeyboard}
+                  contentBottomInset={
+                    estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
+                  }
+                  historyControls={props.historyControls}
+                  startedBy={props.startedBy}
+                  handoffPending={meta.handoffPending}
+                  isHostAsleep={hostChrome.isAsleep}
+                  layoutVariant={props.layoutVariant}
+                  usesAutomaticContentInsets={props.usesAutomaticContentInsets}
+                  onEndFollowEnabledChange={setEndFollowEnabled}
+                />
+              </QuoteInReplyContext>
+            </RenderErrorBoundary>
+          )}
         </View>
       </View>
 
@@ -568,19 +577,18 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
       {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
       <KeyboardStickyView
-        enabled={Platform.OS === "ios" || (isKeyboardVisible && !keyboardStateSuspect)}
+        enabled={Platform.OS === "ios" || !keyboardStateSuspect}
         pointerEvents="box-none"
         style={{ position: "absolute", bottom: 0, left: 0, right: 0, top: 0 }}
-        offset={{ closed: 0, opened: 0 }}
+        offset={{ closed: 0, opened: composerBottomInset }}
       >
         <Animated.View
-          layout={COMPOSER_LAYOUT_TRANSITION}
           pointerEvents="box-none"
           style={[{ position: "absolute", bottom: 0, left: 0 }, composerWidthStyle]}
         >
           {/* No paddingTop here: the overlay's measured height becomes the
               list's bottom inset. */}
-          <View ref={composerOverlayRef} onLayout={onComposerLayout} className="w-full">
+          <View onLayout={handleComposerOverlayLayout} className="w-full">
             <FloatingWorkingControl
               colorScheme={isDarkMode ? "dark" : "light"}
               status={floatingStatus}
@@ -677,12 +685,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 activeUserInputRequestId !== null || !hostChrome.showsComposer ? { display: "none" } : undefined
               }
             >
+              {props.draftMode?.controls}
               <ThreadComposer
                 store={store}
                 meta={meta}
                 draftKey={props.draftKey}
                 editorRef={composerEditorRef}
-                placeholder={permissionForFeedback(meta.permissions) ? "Send feedback to deny this request" : "Ask the repo agent, or run a command…"}
+                placeholder={permissionForFeedback(meta.permissions) ? "Send feedback to decline this request" : "Ask anything"}
                     connected={isHostReady}
                 disabled={hostChrome.showsGraceWhisper}
                 sendBlockedReason={
@@ -701,14 +710,23 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 canStopThread={canStop}
                 bottomInset={composerBottomInset}
                 onStopThread={stopThread}
+                onDraftChange={props.draftMode?.onDraftChange}
                 onSent={handleSent}
                 onExpandedChange={setComposerExpanded}
-                onHeightChange={setComposerHeight}
+                onHeightChange={handleComposerHeightChange}
                 onEditorFocusChange={handleComposerFocusChange}
               />
             </View>
             {hostChrome.isAsleep ? (
-              <HostAsleepCard hostId={store.controller.hostId} bottomInset={composerBottomInset} />
+              <HostAsleepCard
+                hostId={store.controller.hostId}
+                bottomInset={composerBottomInset}
+                maxHeight={Math.max(0, Math.min(
+                  contentViewportHeight * 0.6,
+                  contentViewportHeight - navigationHeaderHeight -
+                    FLOATING_WORKING_CONTROL_COVERAGE - composerBottomInset - 8,
+                ))}
+              />
             ) : null}
           </View>
         </Animated.View>

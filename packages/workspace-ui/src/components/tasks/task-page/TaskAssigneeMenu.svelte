@@ -11,6 +11,8 @@
    *  picker in the app opens, over the host's assignable people. */
   interface Props {
     assignee?: string;
+    assignees?: TaskAssigneeCandidate[];
+    onSelectMany?: (logins: string[]) => void;
     assigneeAvatarUrl?: string;
     candidates: TaskAssigneeCandidate[];
     loading: boolean;
@@ -25,6 +27,8 @@
 
   let {
     assignee,
+    assignees = [],
+    onSelectMany,
     assigneeAvatarUrl,
     candidates,
     loading,
@@ -52,9 +56,14 @@
   }
 
   function select(next: string | null): void {
-    open = false;
-    query = "";
-    onSelect(next);
+    if (onSelectMany) {
+      const logins = assignees.map((person) => person.login);
+      onSelectMany(next === null ? [] : logins.includes(next) ? logins.filter((login) => login !== next) : [...logins, next]);
+    } else {
+      open = false;
+      query = "";
+      onSelect(next);
+    }
   }
 </script>
 
@@ -62,7 +71,7 @@
   <Popover.Trigger disabled={lock !== null} title={lock ?? undefined} class={triggerClass}>
     {#if assignee}
       <ListAvatar person={personFrom(assignee, undefined, assigneeAvatarUrl)} size={20} />
-      <span class="min-w-0 truncate">{assignee}</span>
+      <span class="min-w-0 truncate">{assignees.length > 1 ? `${assignee} +${assignees.length - 1}` : assignee}</span>
     {:else}
       <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--wash-3)] text-muted-foreground">
         <UserIcon size={12} aria-hidden="true" />
@@ -105,7 +114,7 @@
           </p>
         {:else}
           {#each visibleCandidates as candidate (candidate.login)}
-            {@const current = candidate.login === assignee}
+            {@const current = onSelectMany ? assignees.some((person) => person.login === candidate.login) : candidate.login === assignee}
             <Command.Item
               value={candidate.login}
               onSelect={() => select(candidate.login)}

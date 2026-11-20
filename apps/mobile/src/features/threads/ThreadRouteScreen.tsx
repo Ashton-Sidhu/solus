@@ -5,7 +5,7 @@ import { isChat } from "@solus/contracts/chat";
 import { hostPathBaseName } from "@solus/contracts/host-path";
 import type { SessionRecord } from "@solus/contracts/types";
 import { useEffect, useMemo } from "react";
-import { ScrollView, useWindowDimensions, View } from "react-native";
+import { ScrollView, useWindowDimensions } from "react-native";
 
 import { useApp, useListened } from "../../app/app-context";
 import type { LastRoute } from "../../app/solus-app";
@@ -20,7 +20,8 @@ import type { ConversationStore } from "../conversation/conversation-store";
 import { newThreadTarget } from "./new-thread-targets";
 import { threadKey } from "./thread-directory";
 import { threadProjectPath } from "./threadListV2";
-import { ThreadDetailScreen } from "./ThreadDetailScreen";
+import { ThreadScreenHost, ThreadScreenBinding, ThreadScreenFallback } from "./ThreadScreenHost";
+import { NewTaskDraftScreen } from "./NewTaskDraftScreen";
 import type { ThreadContentPresentation, ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
 
@@ -82,7 +83,25 @@ function ThreadUnavailableScreen(props: {
  * new-task sheet that just started it; until one of them knows it, the host
  * is asked again.
  */
-export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
+export function ThreadRouteScreen(props: ScreenProps<"Thread">) {
+  const { hostId, sessionId, draft } = props.route.params;
+  return (
+    <ThreadScreenHost>
+      {draft ? (
+        <NewTaskDraftScreen
+          key={`${hostId}\n${draft.projectPath}\n${draft.taskId ?? ""}`}
+          {...draft}
+          hostId={hostId}
+          sessionId={sessionId}
+          hostChoice={draft.hostChoice}
+          balanceRequest={draft.balanceRequest}
+        />
+      ) : <LiveThreadRouteScreen {...props} />}
+    </ThreadScreenHost>
+  );
+}
+
+function LiveThreadRouteScreen({ route }: ScreenProps<"Thread">) {
   const app = useApp();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { hostId, sessionId } = route.params;
@@ -118,17 +137,21 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
 
   if (!host) {
     return (
-      <ThreadUnavailableScreen
+      <ThreadScreenFallback>
+        <ThreadUnavailableScreen
         detail="This host is no longer on this device."
         actionLabel="Manage hosts"
         onAction={() => navigation.navigate("Hosts")}
       />
+      </ThreadScreenFallback>
     );
   }
   if (!target) {
-    if (hostState.kind === "idle" || hostState.kind === "loading") return <OpeningThreadLoadingScreen />;
+    if (hostState.kind === "idle" || hostState.kind === "loading") return <ThreadScreenFallback><OpeningThreadLoadingScreen />
+      </ThreadScreenFallback>;
     return (
-      <ThreadUnavailableScreen
+      <ThreadScreenFallback>
+        <ThreadUnavailableScreen
         detail={
           hostState.kind === "error"
             ? `This host's sessions could not be read: ${hostState.message}`
@@ -137,15 +160,18 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
         actionLabel="Try again"
         onAction={() => void app.threads.load(hostId)}
       />
+      </ThreadScreenFallback>
     );
   }
   if (!store) {
     return (
-      <ThreadUnavailableScreen
+      <ThreadScreenFallback>
+        <ThreadUnavailableScreen
         detail="This host cannot be reached now. Check its state in Hosts."
         actionLabel="Manage hosts"
         onAction={() => navigation.navigate("Hosts")}
       />
+      </ThreadScreenFallback>
     );
   }
   // The project the header names and opens files in, not the provider's
@@ -187,10 +213,14 @@ function ThreadRouteContent(props: {
   const headerSubtitle = [chat ? null : lastFolderName(props.projectPath), props.hostLabel]
     .filter(Boolean)
     .join(" · ");
+  const mayUseHost = useListened(app.connections.changes, () => app.connections.may(hostId, 'host.use'));
   const header = useThreadHeaderOptions({
     title,
     subtitle: headerSubtitle,
     usesNativeHeaderGlass: NATIVE_LIQUID_GLASS_SUPPORTED,
+    sessionId: props.sessionId,
+    checkoutPath: chat ? null : store.controller.run.workingDirectory,
+    mayUseHost,
     hostId,
     projectPath: chat || !props.projectPath ? null : props.projectPath,
   });
@@ -219,7 +249,7 @@ function ThreadRouteContent(props: {
         ? { kind: "loading" }
         : { kind: "ready" };
 
-  return (
+  const headerContent = (
     <>
       {layout.usesSplitView ? (
         <NativeHeaderToolbar placement="left">
@@ -236,45 +266,50 @@ function ThreadRouteContent(props: {
         groupActions
         hideBottomBorder
       />
-      <View
-        className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas"
-      >
-        {meta.phase.kind === "error" && meta.phase.noAccess === true ? (
-          // The session is named, never the host: the host answered, and only
-          // its owner can give access (docs/plans/shared-with-you.md §4.5).
-          // This app does not read people's names, so the owner is not named.
-          <ThreadUnavailableScreen
-            title="You don't have access to this session"
-            detail={
-              props.shellTitle || runTitle
-                ? `Ask the owner of ${props.shellTitle || runTitle} to share it with you.`
-                : "Ask its owner to share it with you."
-            }
-            actionLabel="Try again"
-            onAction={() => void store.controller.load()}
-          />
-        ) : meta.phase.kind === "error" && !hasRows ? (
-          <ThreadUnavailableScreen
-            detail={`This conversation could not be opened: ${meta.phase.message}`}
-            actionLabel="Try again"
-            onAction={() => void store.controller.load()}
-          />
-        ) : (
-          <ThreadDetailScreen
-            store={store}
-            meta={meta}
-            threadKey={threadKey(hostId, props.sessionId)}
-            draftKey={props.sessionId}
-            contentPresentation={contentPresentation}
-            hostLabel={props.hostLabel}
-            hostReadiness={hostReadiness}
-            historyControls={historyControls}
-            startedBy={meta.startedBy}
-            layoutVariant={layout.variant}
-            usesAutomaticContentInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
-          />
-        )}
-      </View>
     </>
+  );
+
+  if (meta.phase.kind === "error" && meta.phase.noAccess === true) {
+    return (
+      <ThreadScreenFallback header={headerContent}>
+        <ThreadUnavailableScreen
+          title="You don't have access to this session"
+          detail={
+            props.shellTitle || runTitle
+              ? `Ask the owner of ${props.shellTitle || runTitle} to share it with you.`
+              : "Ask its owner to share it with you."
+          }
+          actionLabel="Try again"
+          onAction={() => void store.controller.load()}
+        />
+      </ThreadScreenFallback>
+    );
+  }
+  if (meta.phase.kind === "error" && !hasRows) {
+    return (
+      <ThreadScreenFallback header={headerContent}>
+        <ThreadUnavailableScreen
+          detail={`This conversation could not be opened: ${meta.phase.message}`}
+          actionLabel="Try again"
+          onAction={() => void store.controller.load()}
+        />
+      </ThreadScreenFallback>
+    );
+  }
+  return (
+    <ThreadScreenBinding
+      header={headerContent}
+      store={store}
+      meta={meta}
+      threadKey={threadKey(hostId, props.sessionId)}
+      draftKey={props.sessionId}
+      contentPresentation={contentPresentation}
+      hostLabel={props.hostLabel}
+      hostReadiness={hostReadiness}
+      historyControls={historyControls}
+      startedBy={meta.startedBy}
+      layoutVariant={layout.variant}
+      usesAutomaticContentInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
+    />
   );
 }

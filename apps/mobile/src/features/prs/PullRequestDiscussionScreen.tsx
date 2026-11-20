@@ -18,6 +18,7 @@ import { PullRequestMarkdown } from './detail/PullRequestMarkdown'
 import { PullRequestMediaContext, usePullRequestMediaLocation } from './detail/use-pull-request-media-url'
 import { PullRequestAvatar } from './detail/pull-request-ui'
 import { OFFLINE_REASON } from './detail/pull-request-view'
+import { PrReactionBar, PrReactionPicker, PrReactionsProvider } from './PrReactions'
 
 /**
  * One review thread: where it is, its comments, a reply, and resolve or
@@ -82,50 +83,54 @@ export function PullRequestDiscussionScreen({ navigation, route }: ScreenProps<'
   const now = Date.now()
   return (
     <PullRequestMediaContext.Provider value={mediaLocation}>
-      <KeyboardAvoidingView behavior="padding" className="flex-1 bg-screen">
-        <NativeScrollView className="flex-1" contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingBottom: 24 }}>
-          <HostStatusBanner hostId={hostId} />
-          {state.kind === 'error' && detail ? <Text className="pb-3 text-xs text-foreground-muted">{`Not refreshed: ${state.message}`}</Text> : null}
-          {thread ? (
-            <ThreadLocation thread={thread} />
-          ) : (
-            <Text className="text-sm text-foreground-muted">{detail ? 'This discussion is no longer on the pull request.' : 'Loading discussion…'}</Text>
-          )}
-          {thread?.comments.map((comment) => (
-            <View key={comment.id} className="gap-3 border-b border-border-subtle py-4">
-              <View className="flex-row items-center gap-2">
-                <PullRequestAvatar login={comment.author} avatarUrl={comment.authorAvatarUrl ?? null} size={28} />
-                <Text className="min-w-0 flex-1 text-sm font-t3-medium" numberOfLines={1}>{comment.author}</Text>
-                <Text className="text-2xs text-foreground-muted">{prAge(comment.createdAt, now)}</Text>
-              </View>
-              <PullRequestMarkdown markdown={comment.body} lineBreaks />
-            </View>
-          ))}
-          {error ? <Text selectable className="py-4 text-sm text-danger-foreground">{error}</Text> : null}
-        </NativeScrollView>
-        {thread ? (
-          <View className="flex-row items-end gap-2 border-t border-border-subtle bg-screen px-4 pt-2" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
-            {permissions.canReply ? (
-              <>
-                <TextInput
-                  accessibilityLabel="Reply to discussion"
-                  multiline
-                  maxLength={65536}
-                  placeholder="Reply…"
-                  placeholderTextColorClassName="accent-placeholder"
-                  value={body}
-                  onChangeText={setBody}
-                  editable={!busy}
-                  className="max-h-36 min-h-11 min-w-0 flex-1 rounded-[22px] bg-grouped-card px-4 py-3 text-base text-foreground"
-                />
-                <MaterialButton label={busy ? 'Posting…' : 'Reply'} tone="primary" loading={busy} disabled={!body.trim()} onPress={() => void reply()} />
-              </>
+      <PrReactionsProvider hostId={hostId} repo={detail?.overview.pullRequest.baseRepo ?? null} number={number}>
+        <KeyboardAvoidingView behavior="padding" className="flex-1 bg-screen">
+          <NativeScrollView className="flex-1" contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingBottom: 24 }}>
+            <HostStatusBanner hostId={hostId} />
+            {state.kind === 'error' && detail ? <Text className="pb-3 text-xs text-foreground-muted">{`Not refreshed: ${state.message}`}</Text> : null}
+            {thread ? (
+              <ThreadLocation thread={thread} />
             ) : (
-              <Text className="flex-1 py-2 text-xs text-foreground-muted">{connected ? 'Your account cannot reply to this discussion.' : OFFLINE_REASON}</Text>
+              <Text className="text-sm text-foreground-muted">{detail ? 'This discussion is no longer on the pull request.' : 'Loading discussion…'}</Text>
             )}
-          </View>
-        ) : null}
-      </KeyboardAvoidingView>
+            {thread?.comments.map((comment) => (
+              <View key={comment.id} className="gap-3 border-b border-border-subtle py-4">
+                <View className="flex-row items-center gap-2">
+                  <PullRequestAvatar login={comment.author} avatarUrl={comment.authorAvatarUrl ?? null} size={28} />
+                  <Text className="min-w-0 flex-1 text-sm font-t3-medium" numberOfLines={1}>{comment.author}</Text>
+                  <Text className="text-2xs text-foreground-muted">{prAge(comment.createdAt, now)}</Text>
+                  <PrReactionPicker targetId={comment.id} reactions={comment.reactions} />
+                </View>
+                <PullRequestMarkdown markdown={comment.body} lineBreaks />
+                <PrReactionBar targetId={comment.id} reactions={comment.reactions} />
+              </View>
+            ))}
+            {error ? <Text selectable className="py-4 text-sm text-danger-foreground">{error}</Text> : null}
+          </NativeScrollView>
+          {thread ? (
+            <View className="flex-row items-end gap-2 border-t border-border-subtle bg-screen px-4 pt-2" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+              {permissions.canReply ? (
+                <>
+                  <TextInput
+                    accessibilityLabel="Reply to discussion"
+                    multiline
+                    maxLength={65536}
+                    placeholder="Reply…"
+                    placeholderTextColorClassName="accent-placeholder"
+                    value={body}
+                    onChangeText={setBody}
+                    editable={!busy}
+                    className="max-h-36 min-h-11 min-w-0 flex-1 rounded-[22px] bg-grouped-card px-4 py-3 text-base text-foreground"
+                  />
+                  <MaterialButton label={busy ? 'Posting…' : 'Reply'} tone="primary" loading={busy} disabled={!body.trim()} onPress={() => void reply()} />
+                </>
+              ) : (
+                <Text className="flex-1 py-2 text-xs text-foreground-muted">{connected ? 'Your account cannot reply to this discussion.' : OFFLINE_REASON}</Text>
+              )}
+            </View>
+          ) : null}
+        </KeyboardAvoidingView>
+      </PrReactionsProvider>
     </PullRequestMediaContext.Provider>
   )
 }

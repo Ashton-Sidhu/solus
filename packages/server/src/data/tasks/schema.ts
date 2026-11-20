@@ -30,6 +30,7 @@ export const tasks = defineTable('tasks', {
   state_id: text(),
   /** `Task.category`: from the state and the columns of the task (`taskCategory`). */
   category: text({ notNull: true }),
+  assignees: json({ notNull: true, default: '[]' }),
   assignee: text(),
   assignee_avatar_url: text(),
   labels: json({ notNull: true, default: '[]' }),
@@ -66,6 +67,7 @@ export const taskSources = defineTable('task_sources', {
   /** When a provider last answered a read. Null = never read. */
   fetched_at: bigint(),
   truncated: integer({ notNull: true, default: 0 }),
+  next_cursor: text(),
 })
 
 /** Where a source puts each of its tasks. A read of the source replaces its rows. */

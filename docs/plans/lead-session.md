@@ -97,9 +97,10 @@ tasks: a lead may or may not be linked to a task.
    not change, so synced settings are kept.
 8. **Both providers.** Claude Code and Codex get the contract through the
    system prompt; nothing is provider-specific.
-9. **Mobile** offers the same button on a new thread, in its composer toolbar
-   row, with the same glyph (`LEAD_SYMBOL`), and sends `isLead` with the first
-   prompt (`apps/mobile/`).
+9. **Mobile** offers Meta mode on a new thread as a switch in the model
+   picker's Options, where T3 keeps the run options that are not the
+   workspace, and sends `isLead` with the first prompt (`apps/mobile/`). The
+   session row shows the same glyph (`LEAD_SYMBOL`).
 10. **A quiet footer button.** Meta mode is a ghost button at the end of
    the footer under the card, filled with the accent tint while selected. The
    card's row keeps its words: the permission mode and the model with its

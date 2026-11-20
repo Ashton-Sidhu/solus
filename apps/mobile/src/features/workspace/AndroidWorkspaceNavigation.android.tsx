@@ -16,6 +16,7 @@ import { WORKSPACE_TAB_LABELS } from './workspace-tabs-state'
 const DESTINATIONS = [
   { destination: 'chats', icon: 'text.bubble', label: WORKSPACE_TAB_LABELS.chats },
   { destination: 'pullRequests', icon: 'arrow.triangle.pull', label: WORKSPACE_TAB_LABELS.pullRequests },
+  { destination: 'tasks', icon: 'checkmark.circle', label: WORKSPACE_TAB_LABELS.tasks },
   { destination: 'settings', icon: 'gearshape', label: 'Settings' },
 ] as const
 

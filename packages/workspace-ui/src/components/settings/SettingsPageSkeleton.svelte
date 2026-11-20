@@ -44,7 +44,7 @@
 
   <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
     <header
-      class="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-5"
+      class="flex h-12 shrink-0 items-center justify-between gap-3 px-5"
     >
       <div class="flex items-center gap-2.5">
         <Skeleton class="h-2.5 w-16 rounded-[0.1875rem] opacity-70" />
@@ -54,7 +54,7 @@
     </header>
 
     <div class="flex-1 overflow-hidden px-[clamp(2rem,3cqi,3rem)]">
-      <div class="mx-auto w-full max-w-4xl pt-6 pb-12">
+      <div class="mx-auto w-full max-w-4xl pt-8 pb-12">
         <div class="flex flex-col gap-8">
           {#each ROW_WIDTHS as width, i (i)}
             <div class="flex flex-col gap-2.5">

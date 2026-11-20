@@ -8,7 +8,7 @@
   import { requestFilePreview } from "../../lib/filePreview";
   import BrowserSnapshots from "../browser/BrowserSnapshots.svelte";
 
-  let { message, serverId, snapshots = [] }: { message: Message; serverId?: string; snapshots?: BrowserSnapshotRef[] } = $props();
+  let { message, serverId, snapshots = [], getGallery }: { message: Message; serverId?: string; snapshots?: BrowserSnapshotRef[]; getGallery: () => string[] } = $props();
   const context = getMarkdownImageContext();
   const images = $derived(messageImages(message));
 </script>
@@ -25,6 +25,7 @@
       onclick={() => requestFilePreview({
         path: image.href,
         mediaKind: "image",
+        gallery: getGallery(),
         source: { serverId: serverId ?? context?.serverId(), cwd: context?.cwd(), ctx: context?.ctx() },
       })}
     >

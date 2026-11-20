@@ -3,7 +3,7 @@
   import * as Carousel from "../ui/carousel";
   import type { CarouselAPI } from "../ui/carousel/context";
   import TurnImages from "./TurnImages.svelte";
-  import { hasGallerySlides } from "./lib/turn-images";
+  import { galleryHrefs, hasGallerySlides } from "./lib/turn-images";
 
   let { messages, serverId }: { messages: Message[]; serverId?: string } = $props();
   let api = $state<CarouselAPI>();
@@ -35,7 +35,7 @@
   </div>
   <Carousel.Content class="-ms-2">
     {#each messages as message (message.id)}
-      <TurnImages {message} {serverId} {snapshots} />
+      <TurnImages {message} {serverId} {snapshots} getGallery={() => galleryHrefs(messages)} />
     {/each}
   </Carousel.Content>
 </Carousel.Root>

@@ -256,7 +256,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const projectPath = resolveHomePath(ctx.session.workingDirectory || '~')
     const command = buildAgentTerminalCommand(agentId, agentBin, sessionId)
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
-    const launcher = await terminal.launch({ command, fallbackTerminalId, cwd: projectPath })
+    const launcher = await terminal.launch({ command, sessionId: ctx.session.sessionId, fallbackTerminalId, cwd: projectPath })
     if (launcher && terminal.hidesAppAfterLaunch) deps.hideAppWindow()
     return launcher
   })
@@ -267,7 +267,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     if (!existsSync(targetPath) || !statSync(targetPath).isDirectory()) return false
 
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
-    const launcher = await terminal.launch({ command: terminal.shellCommand(process.env), fallbackTerminalId, cwd: targetPath })
+    const launcher = await terminal.launch({ command: terminal.shellCommand(process.env), sessionId: ctx.session.sessionId, fallbackTerminalId, cwd: targetPath })
     if (launcher && terminal.hidesAppAfterLaunch) deps.hideAppWindow()
     return launcher
   })

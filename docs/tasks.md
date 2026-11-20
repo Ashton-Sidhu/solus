@@ -1,15 +1,15 @@
 # Tasks
 
-A task in Solus is an item of work that GitHub or Jira owns: a GitHub issue, a
-draft item of a GitHub Project, or a Jira issue. Solus has no task of its own.
+A task in Solus is an item of work that GitHub, Jira or Linear owns: a GitHub issue, a
+draft item of a GitHub Project, a Jira issue or a Linear issue. Solus has no task of its own.
 It reads tasks from your task sources, sends each change to the provider, and
 adds only its own attachments. Tasks belong to no project. The design is in
 [Provider-owned tasks](plans/provider-owned-tasks.md).
 
 ## Words
 
-- **Task source.** One place you read tasks from. There are four kinds:
-  a GitHub repository, a GitHub Project, a Jira project, and a Jira board.
+- **Task source.** One place you read tasks from. There are five kinds:
+  a GitHub repository, a GitHub Project, a Jira project, a Jira board and a Linear team.
 - **Board.** A GitHub Project or a Jira board: a task source that has columns
   of its own.
 - **Column.** A status grouping that the source owns: a Status option of a
@@ -28,7 +28,7 @@ adds only its own attachments. Tasks belong to no project. The design is in
 Your task sources are yours, not a project's. They are in your personal
 settings (`taskSources`), which sync with your account,
 so each of your clients shows the same sources. You can have many task
-sources, and you can mix GitHub and Jira. With no task source you have no
+sources, and you can mix GitHub, Jira and Linear. With no task source you have no
 tasks: the Tasks page then shows the source setup.
 
 A task belongs to no project. A task that two of your sources list shows one
@@ -107,7 +107,10 @@ filter, and a row names no project. The row of sources above the search field
 shows each source with how many tasks it holds. **All** shows every source
 together, grouped by status category. A source chip shows that source in the
 provider's own columns. You also narrow the list by column or status, and with the filters **Agent running**,
-**Overdue**, **Assigned** and **Snoozed**. The search finds a title, a
+**Overdue**, **Has an assignee** and **Snoozed**. **Involvement** uses
+**Authored by me** and **Assigned to me**, with the account that reads the source.
+GitHub also supports **Mentioning me**; Jira and Linear explain that their APIs
+do not supply a reliable mention search. The search finds a title, a
 reference, a label or an assignee.
 
 The client asks one host for your sources and their tasks, the task host: the
@@ -276,3 +279,78 @@ A write that fails because of the connection says so in its error.
 - A move to a status category changes only the GitHub Projects that a person
   on the host has as a task source.
 - The mobile app shows no tasks.
+
+## Issue workflow additions
+
+The desktop and web Tasks page and the native mobile Tasks tab use the same
+provider operations. Mobile has its own task list, source setup, composer and
+detail screen. Choose a connected host before reading or changing tasks. A
+session started from a mobile task checks the task before it sends the prompt.
+A refused check leaves the prompt available for Retry.
+
+Add repository task sources from task source setup on the Tasks page.
+Removing a source does not change a project or delete provider issues.
+
+### Linear connection
+
+Add a Linear team in task source setup. A signed-in person selects **Open account
+connections**, then adds a personal Linear API key on the Solus account website.
+The account vault checks the key, seals it, and gives the acting host the key
+through its existing delegated credential read. The key is never saved in task
+sources or personal settings. A host that is not linked to an account can keep
+the host owner's key in its secure store. A guest cannot save a connection.
+
+Linear supports reads, creation, title and description changes, labels, one
+assignee, priority, due date, workflow transitions, comments and reactions.
+Local asset upload and issue deletion are refused. Close an issue or upload
+an attachment on Linear instead.
+
+### Saved views and involvement
+
+**Saved views** stores a named source, search, columns, layout, sort order and
+filter selection in personal settings. Create, apply, rename and remove are
+available on every client. Mobile presents saved filters as a native list.
+There can be at most 50 named views.
+
+**Opened by me** searches issues authored by your provider account. **Mentioning
+me** uses GitHub's mention search. Jira and Linear show an explicit unsupported
+message for mentions. A subscription is not treated as a mention.
+
+### Provider context
+
+Task details show provider history apart from Solus activity. **Load older
+history** retains current rows on failure and can retry the same page. GitHub
+shows provider-reported pull requests, their state and whether they close the
+issue. Linear shows GitHub PR attachments as references with unknown state;
+its attachment response does not establish closing behavior.
+
+GitHub tasks keep every assignee returned by the provider, and the assignee
+control supports a set of people. Jira and Linear support one assignee.
+GitHub and Linear support reactions on issues and comments. The host checks
+that a reaction target belongs to the issue before it sends a mutation.
+Reactions are loaded for the first 100 comments; a partial-read message directs
+you to the provider when more comments exist.
+
+### Continued lists, external URLs and templates
+
+A bounded source read can return **Load more**. The host stores the continuation,
+retains existing placements when it appends a page, and keeps both rows and cursor
+if that page fails. Refresh starts a new read from the first page.
+
+**Inspect issue URL** reads one GitHub, connected Jira-site or connected Linear
+workspace issue. It does not add a source. This inspection is read-only and has
+an **Open on provider** action. Unsupported hosts and non-issue URLs are refused.
+
+The task composer lists GitHub repository templates and Linear team templates.
+GitHub Markdown templates fill the title, body, labels and assignees. Applying
+one asks before it replaces a draft. GitHub issue forms and Linear templates
+open their native provider form so required fields and validation are preserved.
+
+## Native task store
+
+Native task screens read `tasksStoreFor(context, hostId)` from the Tasks
+feature. The store is created on first use and shared by the task list, task
+details and source setup for that host. Reading it does not start a request.
+`TasksStore` in client-core owns task state and commands. The feature owns its
+cache and clears state when the account or organization changes, or when a host
+is removed. `SolusApp` does not construct or cache task stores.

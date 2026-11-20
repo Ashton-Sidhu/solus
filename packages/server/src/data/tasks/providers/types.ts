@@ -1,3 +1,4 @@
+import type { TaskInvolvement } from '@solus/contracts/task-inspection'
 import type { z } from 'zod'
 import type { TaskRef, TaskSource, TaskStatusCategory } from '@solus/contracts/task-sources'
 import type {
@@ -27,6 +28,7 @@ export type TaskHome =
   /** A draft item has no repository: it is addressed by its Project and its item. */
   | { provider: 'github'; kind: 'draft'; projectId: string; itemId: string }
   | { provider: 'jira'; cloudId: string; key: string }
+  | { provider: 'linear'; workspaceId: string; issueId: string; teamId: string }
 
 /** One task as a provider read gives it. */
 export interface ProviderTask {
@@ -41,6 +43,7 @@ export interface ProviderTask {
   /** The Jira status id of `state`. A Jira project column is this id, and a
    *  Jira board column lists it. Absent on GitHub. */
   stateId?: string
+  assignees?: TaskAssigneeCandidate[]
   assignee?: string
   assigneeAvatarUrl?: string
   labels: string[]
@@ -100,6 +103,7 @@ export interface SourceRead {
   items: SourceItem[]
   /** The source holds more tasks than `items`. */
   truncated: boolean
+  nextCursor?: string | null
 }
 
 /** A list read of one source holds at most this many tasks. */
@@ -111,6 +115,7 @@ export interface TaskDraft {
   body?: string
   /** A column of the source to start in. */
   columnId?: string
+  assignees?: string[]
   assignee?: string | null
   dueDate?: string | null
   priority?: TaskPriority | null
@@ -130,9 +135,9 @@ export interface SourceMove {
 /** One adapter for each source kind. Each method refuses a source of another kind. */
 export interface TaskSourceAdapter {
   readonly kind: TaskSource['kind']
-  read(source: TaskSource): Promise<SourceRead>
+  read(source: TaskSource, cursor?: string): Promise<SourceRead>
   /** Ask the provider for the tasks of the source that match `query`. */
-  search(source: TaskSource, query: string): Promise<ProviderTask[]>
+  search(source: TaskSource, query: string, involvement?: TaskInvolvement): Promise<ProviderTask[]>
   /** Create a task in the source. A GitHub Project source creates a draft item. */
   create(input: { source: TaskSource; writeState: SourceWriteState | null; draft: TaskDraft }): Promise<SourceItem>
   /**

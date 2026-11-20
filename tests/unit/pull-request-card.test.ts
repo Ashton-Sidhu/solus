@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import type { TaskPrSnapshot } from '@solus/contracts/task-types'
-import { pullRequestCard } from '@solus/client-core/pull-request-card'
+import { pullRequestCard, pullRequestGroupSummary } from '@solus/client-core/pull-request-card'
 import { pullRequestCardMeta } from '../../packages/workspace-ui/src/components/conversation/lib/pull-request-card'
 
 const baseRepo = { host: 'github.com', owner: 'modem-dev', repo: 'hunk' }
@@ -50,6 +50,7 @@ describe('a pull request card', () => {
       title: 'feat(review): run a review session headless',
       author: 'benvinegar',
       openedAt: Date.parse('2026-11-13T09:56:00Z'),
+      fileCount: 31,
       filesLabel: '31 files',
       additionsLabel: '+2,682',
       deletionsLabel: '−1,509',
@@ -91,5 +92,28 @@ describe('the card line under the title', () => {
     expect(pullRequestCardMeta(pullRequestCard(link(), read()), now)).toBe('modem-dev/hunk #1285 · benvinegar · 4m ago')
     // WHY: before a read, the line must not show an empty author or a made-up age.
     expect(pullRequestCardMeta(pullRequestCard(link(), null), now)).toBe('modem-dev/hunk #1285')
+  })
+})
+
+describe('the line of a group card', () => {
+  test('counts the pull requests and their states in the order of a pull request life', () => {
+    // WHY: the folded line is all a reader sees of the group, so it must say
+    // what needs a look (open work) before what is finished.
+    const cards = [
+      pullRequestCard(link({ number: 1, snapshot: snapshot('merged') }), null),
+      pullRequestCard(link({ number: 2 }), read()),
+      pullRequestCard(link({ number: 3, snapshot: snapshot('open', undefined, true) }), null),
+    ]
+    expect(pullRequestGroupSummary(cards)).toMatchObject({ title: '3 pull requests', status: '1 open · 1 draft · 1 merged' })
+  })
+
+  test('totals the files only when the host counted every pull request', () => {
+    // WHY: a total that leaves one pull request out is a smaller number that looks right.
+    expect(pullRequestGroupSummary([pullRequestCard(link(), read()), pullRequestCard(link(), read({ changedFiles: 1 }))]).filesLabel).toBe('32 files')
+    expect(pullRequestGroupSummary([pullRequestCard(link(), read()), pullRequestCard(link(), null)]).filesLabel).toBeNull()
+  })
+
+  test('states nothing it does not know yet', () => {
+    expect(pullRequestGroupSummary([pullRequestCard(link(), null), pullRequestCard(link(), null)]).status).toBe('')
   })
 })

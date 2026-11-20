@@ -628,10 +628,17 @@
     </Sidebar.Root>
   </Sidebar.Provider>
 
-  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-    <!-- Section navigation and actions stay above the scrolling content. -->
+  <div class="relative flex-1 flex flex-col min-w-0 overflow-hidden">
+    <!-- A floating band, like the conversation's: no rule under it. The content
+         scrolls beneath and dissolves into the background under the scrim.
+         Where the chip strip shows, it sits below the band, so no scrim. -->
+    <div
+      class="pointer-events-none absolute inset-x-0 top-0 z-[2] h-20 {openHostLabel ? '' : '@max-[48rem]/pane:hidden'}"
+      style="background:linear-gradient(to bottom, var(--background) 56%, transparent)"
+      aria-hidden="true"
+    ></div>
     <header
-      class="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-5"
+      class="absolute inset-x-0 top-0 z-[3] flex h-12 items-center justify-between gap-3 px-5"
     >
       <div class="flex min-w-0 items-center gap-2.5">
         {#if openHostLabel}{@render backButton()}{/if}
@@ -683,7 +690,7 @@
          nothing above that width. -->
     {#if !openHostLabel}
       <div class="contents @min-[48rem]/pane:hidden">
-        {@render tabChips('px-[clamp(2rem,3cqi,3rem)] pt-3 pb-2')}
+        {@render tabChips('px-[clamp(2rem,3cqi,3rem)] pt-15 pb-2')}
       </div>
     {/if}
 
@@ -693,7 +700,7 @@
       style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
     >
       <!-- Reading column: the pane width, with a readable limit on wide panes. -->
-      <div class="mx-auto w-full max-w-6xl pt-8 pb-12">
+      <div class="mx-auto w-full max-w-6xl pt-20 pb-12 {openHostLabel ? '' : '@max-[48rem]/pane:pt-8'}">
         <!-- A host page heads itself with the host's name and address. -->
         {#if !openHostLabel}
           <header class="mb-10 flex flex-col gap-1.5">

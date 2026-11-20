@@ -1,3 +1,4 @@
+import { prSortSchema } from '@solus/contracts/pr-views'
 /**
  * What the pull request list remembers on this device, across reloads.
  *
@@ -29,16 +30,19 @@ const PREFERENCES_KEY = 'solus.prs.preferences'
 
 export type PrListPreferences = Pick<
   PrListView,
-  'sortMode' | 'statusKeys' | 'involvement' | 'author' | 'label' | 'draft' | 'review' | 'checks' | 'guide' | 'lens'
+  'sortMode' | 'statusKeys' | 'involvement' | 'author' | 'label' | 'labelGroups' | 'labels' | 'excludedLabels' | 'draft' | 'review' | 'checks' | 'guide' | 'lens'
 >
 
 const bounded = z.string().max(200)
 const preferencesSchema = z.object({
-  sortMode: z.enum(['ready', 'updated', 'created']),
+  sortMode: prSortSchema,
   statusKeys: z.array(z.enum(['open', 'draft', 'merged', 'closed'])).max(4),
-  involvement: z.enum(['all', 'created', 'assigned', 'review-requested']),
+  involvement: z.enum(['all', 'created', 'assigned', 'review-requested', 'others']),
   author: bounded.nullable(),
   label: bounded.nullable(),
+  labelGroups: z.array(z.array(bounded).max(20)).max(20).optional(),
+  labels: z.array(bounded).max(100).optional(),
+  excludedLabels: z.array(bounded).max(100).optional(),
   draft: z.enum(['all', 'ready', 'draft']),
   review: z.enum(['all', 'approved', 'changes-requested', 'review-required', 'no-reviews']),
   checks: z.enum(['all', 'passing', 'pending', 'failing']),
@@ -67,6 +71,9 @@ export function prListPreferencesOf(view: PrListView): PrListPreferences {
     involvement: view.involvement,
     author: view.author,
     label: view.label,
+    labels: view.labels,
+    labelGroups: view.labelGroups,
+    excludedLabels: view.excludedLabels,
     draft: view.draft,
     review: view.review,
     checks: view.checks,

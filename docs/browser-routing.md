@@ -84,6 +84,10 @@ channel, as the web client's streamed surface does, and paints them in a
 WebView. One frame is in flight at a time: a frame that arrives while the
 WebView paints replaces the waiting one, so a slow phone shows the newest
 picture. The host streams no more pixels than the phone's view can show.
+The host and client keep only the most recent frame while a page is watched.
+A new viewer gets that frame at once, including when a floating preview and
+the full viewer share a connection. A still page does not need to repaint
+before the new viewer can show it. The last watcher leaving releases the frame.
 
 A tap is a `clickAt`, a drag scrolls (`scrollAt`), and typed text is
 `insertText`; Return, Backspace, and the arrow keys are `press`. Before a tap

@@ -1,4 +1,4 @@
-import { AGENT_ACTIVITY_STALE_AFTER_MS, type AgentActivityCard } from '@solus/contracts/uplink'
+import { AGENT_ACTIVITY_IDLE_AFTER_MS, AGENT_ACTIVITY_STALE_AFTER_MS, type AgentActivityCard } from '@solus/contracts/uplink'
 import type { KeyValueStore } from '../../platform/ports'
 import { deriveAgentActivity, type AgentActivityInput } from './agent-activity-model'
 
@@ -15,7 +15,7 @@ import { deriveAgentActivity, type AgentActivityInput } from './agent-activity-m
  * plane does not update it; the card's stale date (10 minutes, T3's window)
  * then offers "Tap to refresh" instead of claiming work it cannot see.
  * A card starts only while the app is in front, as ActivityKit allows and as
- * T3 does; it ends when nothing is left running.
+ * T3 does; it ends after five minutes without live work.
  */
 
 export interface LiveActivityHandle {
@@ -53,10 +53,18 @@ export interface AgentLiveActivityDeps {
   /** Keeps the card's sessions across a restart, so a card left running can show how its work ended. */
   readonly storage: Pick<KeyValueStore, 'getItem' | 'setItem' | 'removeItem'>
   readonly relay: LiveActivityRelay
+  /** A cancellable idle deadline. Tests can advance it without wall time. */
+  readonly schedule?: (run: () => void, delayMs: number) => () => void
   readonly onError?: (error: unknown) => void
 }
 
 const TRACKED_KEY = 'solus.liveActivities.tracked'
+const IDLE_SINCE_KEY = 'solus.liveActivities.idleSince'
+
+function scheduleIdle(run: () => void, delayMs: number): () => void {
+  const timer = setTimeout(run, delayMs)
+  return () => clearTimeout(timer)
+}
 
 export class AgentLiveActivityController {
   private activity: LiveActivityHandle | null = null
@@ -69,6 +77,8 @@ export class AgentLiveActivityController {
   private pushToken: string | null = null
   private stopPushToken: (() => void) | null = null
   private generation = 0
+  private idleSince: number | null = null
+  private cancelIdle: (() => void) | null = null
 
   constructor(private readonly deps: AgentLiveActivityDeps) {}
 
@@ -91,14 +101,22 @@ export class AgentLiveActivityController {
       return
     }
     if (state.activeCount === 0) {
-      // All work settled: the card shows the outcome, and iOS keeps it on the
-      // Lock Screen for a while before removing it.
-      const finished = this.activity
-      this.setActivity(null)
-      this.track(new Map())
-      this.sent = ''
-      if (finished) this.guard(finished.end('default', state.props))
-      return
+      if (!this.activity) return
+      if (this.idleSince === null) {
+        this.idleSince = this.deps.now()
+        this.deps.storage.setItem(IDLE_SINCE_KEY, String(this.idleSince))
+      }
+      const remaining = this.idleSince + AGENT_ACTIVITY_IDLE_AFTER_MS - this.deps.now()
+      if (remaining <= 0) {
+        this.endAll('immediate')
+        return
+      }
+      if (!this.cancelIdle) this.cancelIdle = (this.deps.schedule ?? scheduleIdle)(() => {
+        this.cancelIdle = null
+        this.sync()
+      }, remaining)
+    } else {
+      this.clearIdle()
     }
     const staleDate = new Date(this.deps.now() + AGENT_ACTIVITY_STALE_AFTER_MS)
     const content = JSON.stringify({ ...state.props, updatedAt: '', activities: state.props.activities.map((row) => ({ ...row, updatedAt: '' })) })
@@ -118,8 +136,10 @@ export class AgentLiveActivityController {
     this.sendToRelay(state.props)
     const card = this.activity
     card.update(state.props, staleDate).catch((error: unknown) => {
-      // The card is gone: the next change starts a new one.
-      this.drop(card)
+      if (this.activity !== card) return
+      // A rejected update does not prove that iOS removed the card.
+      if (!this.isActive(card)) this.drop(card)
+      else this.sent = ''
       this.deps.onError?.(error)
     })
   }
@@ -128,6 +148,21 @@ export class AgentLiveActivityController {
   refresh(): void {
     this.sent = ''
     this.sync()
+  }
+
+  /** Stop local deadlines when the hook unmounts; the relay still owns background updates. */
+  dispose(): void {
+    this.cancelIdle?.()
+    this.cancelIdle = null
+    this.stopPushToken?.()
+    this.stopPushToken = null
+  }
+
+  private clearIdle(): void {
+    this.cancelIdle?.()
+    this.cancelIdle = null
+    this.idleSince = null
+    if (this.deps.storage.getItem(IDLE_SINCE_KEY) !== null) this.deps.storage.removeItem(IDLE_SINCE_KEY)
   }
 
   private adopt(): void {
@@ -147,10 +182,15 @@ export class AgentLiveActivityController {
     // since then stay on it as Done or Failed.
     if (first) this.tracked = new Map(this.savedKeys().map((key) => [key, null]))
     else this.deps.storage.removeItem(TRACKED_KEY)
+    const savedIdle = this.deps.storage.getItem(IDLE_SINCE_KEY)
+    const idleSince = savedIdle === null ? NaN : Number(savedIdle)
+    if (first && Number.isFinite(idleSince)) this.idleSince = idleSince
+    else this.clearIdle()
   }
 
   private endAll(policy: 'default' | 'immediate'): void {
     this.adopt()
+    this.clearIdle()
     const card = this.activity
     this.setActivity(null)
     this.track(new Map())
@@ -172,6 +212,7 @@ export class AgentLiveActivityController {
   private drop(card: LiveActivityHandle): void {
     if (this.activity !== card) return
     this.setActivity(null)
+    this.clearIdle()
     this.sent = ''
   }
 

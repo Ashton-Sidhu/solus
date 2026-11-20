@@ -1,16 +1,18 @@
+import { RUNNING_SERVER_SESSION_ENV } from '@solus/contracts/running-servers'
 import { instanceRuntime, providerHistoryInstanceId, type ProviderRuntime } from '../../seats/provider-runtime'
 import { privateProviderInstances } from '../../seats/provider-instances'
 import { requireActingScope } from '../../../vault/acting-scope'
 import { restoreAsyncQuestionAnswers } from '../../../data/sessions/async-questions'
 import { sameHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
-import { loadCodexHistoryPage } from './codex-history-page'
+import { historyPageTurnId, loadCodexHistoryPage } from './codex-history-page'
 import { BaseAgentBackend } from '../base-backend'
 import type { AgentToolImage } from '../tools/agent-tool'
-import { loadCodexTurns } from './codex-turns'
+import { loadCodexTurns, loadCodexTurnWindow } from './codex-turns'
 import { rememberCodexModels } from './listed-models'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
+import { watchCommandStops } from '../../../host/running-servers/command-stops'
 import { unlistedCodexModelProfiles } from './codex-models'
 import type { Model } from './generated/v2/Model'
 import { seatKey, type SeatManager, type TurnSeat } from '../../seats/seat-manager'
@@ -365,9 +367,17 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   /** Each app-server's number, so its request ids cannot collide with another's. */
   private readonly clientNumbers = new WeakMap<CodexAppServerClient, number>()
   private nextClientNumber = 0
+  private readonly stopWatchingCommandStops: () => void
 
   constructor() {
     super()
+    this.stopWatchingCommandStops = watchCommandStops((commandId) => {
+      const command = this.runningCommands.get(commandId)
+      if (!command) return
+      const previous = command.isStopping
+      command.isStopping = true
+      return () => { command.isStopping = previous }
+    })
     // A pending request is answered on the app-server it came from.
     this.permissions = new CodexPermissionResponder()
     this.attachClient(this.client)
@@ -646,6 +656,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         request.systemPrompt?.trim(),
         runtimeInstructions({ harness: 'Codex', model, reasoningEffort, workingDirectory: request.cwd }, tools),
       ].filter(Boolean).join('\n\n')
+      const config = { ...THREAD_CONFIG, [`shell_environment_policy.set.${RUNNING_SERVER_SESSION_ENV}`]: handle.sessionId ?? '' }
       const threadConfig: CodexThreadStartParams = {
         model,
         serviceTier: request.fastMode ? 'fast' : null,
@@ -655,7 +666,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         experimentalRawEvents: false,
         persistExtendedHistory: request.persistence === 'session',
         ephemeral: request.persistence === 'ephemeral',
-        config: request.bare ? { ...THREAD_CONFIG, ...await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess) } : THREAD_CONFIG,
+        config: request.bare ? { ...config, ...await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess) } : config,
       }
       threadConfig.developerInstructions = developerInstructions
       // Dynamic tools (list/read/update_work) are an experimental app-server
@@ -685,7 +696,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           threadId: sourceThreadId,
           lastTurnId,
           developerInstructions,
-          config: THREAD_CONFIG,
+          config,
         }))
         threadId = response.thread.id
       } else if (!threadId) {
@@ -948,6 +959,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   shutdown(): void {
+    this.stopWatchingCommandStops()
     if (this.sessionIndexRefreshTimer) {
       clearTimeout(this.sessionIndexRefreshTimer)
       this.sessionIndexRefreshTimer = null
@@ -1118,15 +1130,21 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
-  private async readThreadTurns(client: CodexAppServerClient, sessionId: string): Promise<Turn[]> {
+  private readThreadTurns(client: CodexAppServerClient, sessionId: string): Promise<Turn[]> {
+    return this.readLoadedThread(client, sessionId, () => loadCodexTurns(client, sessionId))
+  }
+
+  /** `onResume` learns that the thread was dormant and had to be loaded first. */
+  private async readLoadedThread<T>(client: CodexAppServerClient, sessionId: string, read: () => Promise<T>, onResume?: () => void): Promise<T> {
     try {
-      return await loadCodexTurns(client, sessionId)
+      return await read()
     } catch (error) {
       // Dormant threads must be loaded on their owning app-server before paging.
       if (!(error instanceof Error) || !isThreadNotLoadedError(error)) throw error
+      onResume?.()
       await client.request('thread/resume', { threadId: sessionId })
       this.armThreadIdle(client, sessionId)
-      return loadCodexTurns(client, sessionId)
+      return read()
     }
   }
 
@@ -1142,16 +1160,19 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return messages
   }
 
+  /** Only the turns the page can hold are listed, newest first: a long thread
+   *  is not listed whole to open its last turns. */
   async loadSessionPage(sessionId: string, _projectPath: string | undefined, turnLimit: number, before?: string) {
-    return this.readHistoryPage(sessionId, (turns) => turns, turnLimit, before)
+    const beforeTurnId = historyPageTurnId(before)
+    return this.readHistoryPage(sessionId, (client) => loadCodexTurnWindow(client, sessionId, beforeTurnId, turnLimit), turnLimit, before)
   }
 
   /** Only the first turn's items are read; the turn list itself is a summary. */
   async loadSessionFirstTurn(sessionId: string): Promise<SessionLoadMessage[]> {
-    return (await this.readHistoryPage(sessionId, (turns) => turns.slice(0, 1), 1)).messages
+    return (await this.readHistoryPage(sessionId, async (client) => (await loadCodexTurns(client, sessionId)).slice(0, 1), 1)).messages
   }
 
-  private async readHistoryPage(sessionId: string, pickTurns: (turns: CodexTurnHistory[]) => CodexTurnHistory[], turnLimit: number, before?: string) {
+  private async readHistoryPage(sessionId: string, readTurns: (client: CodexAppServerClient) => Promise<CodexTurnHistory[]>, turnLimit: number, before?: string) {
     const startedAt = performance.now()
     let stage = 'reader'
     let stageStartedAt = startedAt
@@ -1167,13 +1188,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     let turnCount = 0
     let messageCount = 0
     let succeeded = false
+    let resumed = false
     try {
       const client = await this.readerFor(sessionId, { startSeatClient: true })
       nextStage('turns')
-      const turns = await this.readThreadTurns(client, sessionId)
+      const turns = await this.readLoadedThread(client, sessionId, () => readTurns(client), () => { resumed = true })
       turnCount = turns.length
       nextStage('items')
-      const page = await loadCodexHistoryPage(sessionId, pickTurns(turns), async (params) => {
+      const page = await loadCodexHistoryPage(sessionId, turns, async (params) => {
         const requestedAt = performance.now()
         itemRequests++
         try {
@@ -1194,7 +1216,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       nextStage('done')
       log.info('codex_history_page_profile', {
         sessionId, olderPage: before !== undefined, turnLimit, turnCount, messageCount,
-        itemRequests, itemRequestMs, stages, succeeded,
+        itemRequests, itemRequestMs, stages, succeeded, resumed,
         failedStage: succeeded ? undefined : finalStage,
         durationMs: performance.now() - startedAt,
       })

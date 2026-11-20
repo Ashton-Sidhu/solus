@@ -1,3 +1,5 @@
+import { inspectPullRequestUrl } from '../../providers/pr-inspection'
+import { changePrReaction, prRepoSchema, prNumberSchema } from '../../providers/github/pr-social'
 import { createLogger } from '../../logger'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { getProvider, providerForRepo } from '../../providers/registry'
@@ -752,6 +754,15 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return updated
   })
 
+  server.register('prReact', async ([repo, number, targetId, content, add], handlerCtx) => {
+    const target = prRepoSchema.parse(repo); prNumberSchema.parse(number)
+    await assertMayChangePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, repoKeyOf(target), number)
+    const reactions = await changePrReaction(target, number, targetId, content, add)
+    // The held conversation has the old counts; the next read asks GitHub.
+    prIndex.invalidate(target)
+    return reactions
+  })
+  server.register('prInspectUrl', ([address]) => inspectPullRequestUrl(address, (repo) => providerForRepo(repo)?.review ?? null))
   server.register('prGetOverview', async (args) => {
     const [ctx, number] = args
     const { repo, provider } = await reviewTargetFor(ctx)

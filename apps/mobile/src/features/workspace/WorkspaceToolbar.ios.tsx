@@ -72,7 +72,7 @@ export function WorkspaceToolbar(props: {
                     : "stacked",
                   allowToolbarIntegration: NATIVE_LIQUID_GLASS_SUPPORTED,
                   placeholder:
-                    selectedTab === "pullRequests"
+                    selectedTab === "tasks" ? "Search tasks" : selectedTab === "pullRequests"
                       ? "Search pull requests"
                       : "Search chats",
                   cancelButtonText: "✕",
@@ -98,7 +98,7 @@ export function WorkspaceToolbar(props: {
         {NATIVE_LIQUID_GLASS_SUPPORTED ? null : (
           <NativeHeaderToolbar.Button
             accessibilityLabel={
-              selectedTab === "pullRequests"
+              selectedTab === "tasks" ? "Search tasks" : selectedTab === "pullRequests"
                 ? "Search pull requests"
                 : "Search chats"
             }

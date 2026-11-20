@@ -5,6 +5,8 @@
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import ProviderPanel from "../servers/ProviderPanel.svelte";
+  import AgentUpdateSettings from './AgentUpdateSettings.svelte';
+  import AgentInstallations from './AgentInstallations.svelte';
   import type { HostSetupSession } from "../servers/host-setup.store.svelte";
 
   interface Props {
@@ -16,6 +18,8 @@
 </script>
 
 <ProviderPanel {setup} />
+<AgentUpdateSettings serverId={setup.serverId} />
+<AgentInstallations {setup} />
 {#if setup.logLines.length}
   <details class="text-workspace-chrome">
     <summary class="cursor-pointer text-muted-foreground">Provider setup output</summary>

@@ -96,6 +96,7 @@ function sourceState(
   if (access?.message) state.message = access.message
   if (visible?.fetchedAt != null) state.fetchedAt = visible.fetchedAt
   if (visible?.truncated) state.truncated = true
+  if (visible?.nextCursor) state.nextCursor = visible.nextCursor
   if (reads.has(sourceKey)) state.refreshing = true
   return state
 }
@@ -182,6 +183,30 @@ async function runSourceRead(sourceKey: string, source: TaskSource, personKey: s
       log.error('task_source_access_write_failed', { sourceKey, error: storeError instanceof Error ? storeError.message : String(storeError) })
     })
   }
+}
+
+/** Append one explicit page. Concurrent clicks share a read; a failed page retains its cursor and rows. */
+export function loadMoreTaskSource(source: TaskSource, personKey: string): Promise<void> {
+  const sourceKey = taskSourceKey(source)
+  const held = reads.get(sourceKey)
+  if (held) return held
+  const read = (async () => {
+    const stored = (await loadTaskSources([sourceKey])).get(sourceKey)
+    const access = (await loadTaskSourceAccess(personKey, [sourceKey])).get(sourceKey)
+    if (!access?.checkedAt) throw new Error('Read this source before loading more tasks.')
+    if (!stored?.nextCursor) return
+    try {
+      const page = await taskAdapters().source(source.kind).read(source, stored.nextCursor)
+      await storeSourceRead(source, page, Date.now(), true)
+      await recordTaskSourceAccess(personKey, sourceKey, { checkedAt: Date.now() })
+      emitChanged()
+    } catch (error) {
+      await recordTaskSourceAccess(personKey, sourceKey, classifyProviderFailure(error))
+      throw error
+    }
+  })().finally(() => { reads.delete(sourceKey); announce([sourceKey]); void readForWaiting(sourceKey) })
+  reads.set(sourceKey, read)
+  return read
 }
 
 /** Give each person who waited for another person's read their own read, when they still have no access. */

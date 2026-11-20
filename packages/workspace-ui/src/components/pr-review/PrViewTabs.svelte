@@ -27,7 +27,7 @@
    *
    * The rung is the home's. The panel band shares the row with the number,
    * four verbs, the overflow, and the pane controls — about 22rem before a
-   * single tab — so there the group folds at 48rem, under the 52rem where
+   * single tab — so there the group folds at 48rem, under the 56rem where
    * the verbs drop their labels. The masthead's row holds only the identity
    * link, which truncates, so the group keeps its labels down to 30rem.
    */

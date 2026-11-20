@@ -1,12 +1,16 @@
+import type { TaskSnapshot } from '@solus/contracts/task-types'
+import type { SolusAPI } from '@solus/contracts/host-api'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionStarterFromHost, SessionRecord, SessionStatus, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, GitCheckoutBranchResult, PermissionMode, ReasoningEffort, SessionStarterFromHost, SessionRecord, SessionStatus, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
-import type { ExecutionPreferences } from '@solus/contracts/settings'
+import type { ExecutionPreferences, LeadModelSelection } from '@solus/contracts/settings'
+import type { BranchRef } from '@solus/contracts/git-types'
+import { isChat } from '@solus/contracts/chat'
 import type { ModelOptions } from '@solus/contracts/settings'
-import { isSessionBusyStatus, replaceModelProfiles, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
+import { isSessionBusyStatus, replaceModelProfiles, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText, worktreeProjectRoot } from '@solus/contracts/types'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import type { WorkPolicy } from '@solus/contracts/host-policies'
 import { isPermissionModeAbove, isPolicyRefusalCode, type PolicyRefusalCode } from '@solus/contracts/policy'
@@ -22,6 +26,7 @@ import {
   type RunSettings,
 } from './lib/ipc-context'
 import { hostAgents } from './lib/host-agents'
+import { LeadSessionChoice } from './lib/lead-session'
 import { queuedMessageAttachments, uploadedMessageAttachments } from './lib/message-attachments'
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
 import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
@@ -73,6 +78,7 @@ export interface ConversationTarget {
 
 export interface ConversationDeps {
   connection: HostConnection
+  taskApi?(hostId: string): SolusAPI
   outbox: SendOutbox
   /** The person's run settings when the conversation opens. */
   runSettings(): Promise<RunSettings>
@@ -105,6 +111,12 @@ interface InFlightUpload {
 }
 
 export class ConversationController {
+  private taskBinding: { taskId: string; hostId: string } | null = null
+  bindTask(taskId: string, hostId: string): void {
+    if (this.started) throw new Error('A started session keeps its task.')
+    this.taskBinding = { taskId, hostId }
+  }
+
   model: TranscriptModel
   phase: ConversationPhase = { kind: 'loading' }
   run: ConversationRun
@@ -147,7 +159,13 @@ export class ConversationController {
   /** True once the host knows the session; before that uploads name a draft. */
   private started: boolean
   private projectPath: string
+  /** The branch picked for a new session's checkout; null until one is
+   *  picked, and again when the session goes back to the project's own. */
+  checkoutBranch: string | null = null
+  /** The branch a pick moved the project's checkout to; null when none did. */
+  private projectBranch: string | null = null
   private settings: RunSettings | null = null
+  private readonly leadChoice = new LeadSessionChoice()
   /** Bumps on each (re)load; an answer for an older load is dropped. */
   private loadGeneration = 0
   private held: WireNormalizedEvent[] | null = null
@@ -329,6 +347,90 @@ export class ConversationController {
     return canRouteAuto({ started: this.started, agentSessionId: this.run.agentSessionId })
   }
 
+  /** Meta mode and a new worktree: open until the first prompt starts the
+   *  session, and never for a chat, which has no project. */
+  get canChooseStart(): boolean {
+    return this.canRoute && !isChat(this.run.workingDirectory)
+  }
+
+  /** Makes the new session a lead or not (docs/plans/lead-session.md). False
+   *  when nothing changed or the session has started. */
+  chooseLead(lead: boolean, leadModel: LeadModelSelection | null): boolean {
+    if (!this.canChooseStart || !this.leadChoice.choose(this.run, lead, leadModel, this.settings)) return false
+    // An empty change keeps the new run inside what the agent offers and shows it.
+    return this.updateRun({})
+  }
+
+  /** The new session starts in a new worktree from `baseBranch`, or in the
+   *  project's checkout when null. As in T3, both start from the project
+   *  folder: a worktree another branch pick named is left. */
+  chooseWorktreeBase(baseBranch: string | null): void {
+    if (!this.canChooseStart || (this.run.worktreeBaseBranch ?? null) === baseBranch) return
+    this.run.worktreeBaseBranch = baseBranch
+    this.run.workingDirectory = this.projectDirectory
+    this.checkoutBranch = this.projectBranch
+    this.flush(true)
+  }
+
+  /** The new session starts in the project's checkout on `branch` (T3's
+   *  current-checkout branch picker). The host reads the refs again, then
+   *  checks the branch out in the project or names the worktree that already
+   *  has it; the draft works in the folder the host names. Returns the
+   *  host's refusal, or null. */
+  async chooseCheckoutBranch(branch: BranchRef): Promise<string | null> {
+    if (!this.canChooseStart) return 'The session has started.'
+    const project = this.projectDirectory
+    let result: GitCheckoutBranchResult
+    try {
+      result = await this.deps.connection.api.gitCheckoutBranch(this.projectCheckoutContext(), branch.name, { remoteOnly: branch.remoteOnly })
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+    if (!result.success) return result.error || "Couldn't switch the branch."
+    // An older host names no folder: its switch is always in the project.
+    const workingDirectory = result.workingDirectory ?? project
+    const picked = result.gitContext?.branch ?? branch.name
+    if (workingDirectory === project) this.projectBranch = picked
+    if (this.canChooseStart) {
+      this.checkoutBranch = picked
+      this.run.worktreeBaseBranch = null
+      this.run.workingDirectory = workingDirectory
+    }
+    this.flush(true)
+    return null
+  }
+
+  /** The other worktree a new session works in after a branch pick; null in
+   *  the project's own checkout (T3's "Current worktree"). */
+  get checkoutWorktree(): string | null {
+    return this.run.workingDirectory === this.projectDirectory ? null : this.run.workingDirectory
+  }
+
+  /** The folder a new session was opened for. */
+  private get projectDirectory(): string {
+    return this.target.newSession?.workingDirectory ?? this.run.workingDirectory
+  }
+
+  /** The context of a call about the project's own checkout, not the folder
+   *  the draft works in now. */
+  private projectCheckoutContext() {
+    const ctx = this.context()
+    const project = this.projectDirectory
+    return { ...ctx, session: { ...ctx.session, workingDirectory: project, projectPath: worktreeProjectRoot(project) } }
+  }
+
+  /** The project's branches, the bases a new worktree can start from. No
+   *  fetch first: the list is what the checkout has now, and it is fast. As
+   *  in T3, they are read in the project's own checkout, wherever the draft
+   *  works now, so its badges and current branch describe that checkout. */
+  async branches(): Promise<{ branches: BranchRef[]; currentBranch: string | null }> {
+    const [branches, identity] = await Promise.all([
+      this.deps.connection.api.worktreeBranches(this.projectCheckoutContext(), { skipFetch: true }),
+      this.deps.connection.api.gitIdentity(this.projectDirectory).catch(() => null),
+    ])
+    return { branches, currentBranch: identity?.branch ?? null }
+  }
+
   /** What governs this work on its host (plans/030 §7). A saved session keeps its record's organization; new work takes the device's. Nothing is locked until the host answers. */
   get policy(): WorkPolicy {
     return workPolicy(this.deps.connection.facts.value('policy'), this.target.record?.organizationId ?? this.run.organizationId)
@@ -373,6 +475,9 @@ export class ConversationController {
       this.held = null
       for (const event of held) this.receive(event)
 
+      // Show the history now. Joining the live session can take another
+      // network round trip and must not hold back rows already read.
+      this.flush()
       const watched = await this.watch()
       if (generation !== this.loadGeneration) return
       this.applyWatch(watched)
@@ -479,6 +584,11 @@ export class ConversationController {
   private async readHistory(generation: number): Promise<TranscriptModel | null> {
     if (!this.started) return new TranscriptModel(this.run.sessionId)
     const api = this.deps.connection.api
+    // The page travels while the session is described. A lineage that moves
+    // the thread to another provider reads the page again from that provider.
+    const firstSource = this.historySource
+    const firstPage = api.loadSessionPage({ ...firstSource, turnLimit: INITIAL_HISTORY_TURNS })
+    void firstPage.catch(() => {})
     const description = await api.describeSession(this.run.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
     this.startedBy = hostStarterOf(description?.meta?.startedBy)
@@ -487,7 +597,10 @@ export class ConversationController {
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
       this.followThread(lineage.active.provider)
     }
-    const page = await api.loadSessionPage({ ...this.historySource, turnLimit: INITIAL_HISTORY_TURNS })
+    const source = this.historySource
+    const page = await (source.provider === firstSource.provider && source.projectPath === firstSource.projectPath
+      ? firstPage
+      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS }))
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
     return TranscriptModel.fromHistory(this.run.sessionId, page)
@@ -618,7 +731,7 @@ export class ConversationController {
       sessionId: this.run.sessionId,
       text: prompt,
       enqueuedAt: Date.now(),
-      payload: { ...composed, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? delivery ?? 'steer' : undefined,
+      payload: { ...composed, taskId: this.taskBinding?.taskId, taskHostId: this.taskBinding?.hostId, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? delivery ?? 'steer' : undefined,
         queueAttachments: attachments.map((attachment) => ({ id: attachment.id, type: attachment.kind, name: attachment.name,
           hostPath: attachment.hostPath, mimeType: attachment.mimeType, size: attachment.size })),
         queueAttachmentContext: attachments.filter((attachment) => attachment.kind === 'file').map((attachment) => `[Attached file: ${attachment.hostPath}]`).join('\n'),
@@ -1093,7 +1206,19 @@ export class ConversationController {
         if (!this.watching) this.watchBeside()
         const ctx = this.context()
         this.policyRefusals.delete(record.clientPromptId)
+        const taskId = record.payload?.taskId
+        const taskHostId = record.payload?.taskHostId
+        const isRemoteTask = !!taskHostId && taskHostId !== this.target.hostId
+        const taskApi = taskId && taskHostId ? isRemoteTask ? this.deps.taskApi?.(taskHostId) : this.deps.connection.api : null
+        if (taskId && !taskApi) throw new Error('The task host is unavailable.')
+        let taskSnapshot: TaskSnapshot | undefined
+        if (taskId && taskApi && !this.started) {
+          const prepared = await taskApi.tasksPrepareForSession({ taskId, includeSnapshot: isRemoteTask })
+          if (!prepared.task) throw new Error('The task is unavailable. Open it again before starting this session.')
+          taskSnapshot = prepared.snapshot ?? undefined
+        } else if (taskId && taskApi && isRemoteTask) taskSnapshot = await taskApi.tasksSnapshot(taskId)
         const result = await this.deps.connection.api.prompt(ctx, {
+          taskId, taskSnapshot,
           prompt: record.payload?.prompt ?? record.text,
           displayPrompt: record.payload?.displayPrompt ?? record.text,
           clientPromptId: record.clientPromptId,
@@ -1108,7 +1233,10 @@ export class ConversationController {
           if (code && isPolicyRefusalCode(code)) this.policyRefusals.set(record.clientPromptId, code)
           throw error
         })
+        if (taskId && taskApi && isRemoteTask) await taskApi.tasksLinkSession(taskId, this.run.sessionId, 'working', taskHostId === this.target.hostId ? null : { serverId: this.target.hostId, provider: this.run.provider, projectRoot: this.run.workingDirectory })
         this.started = true
+        // The worktree is made once, by the prompt that started the session.
+        this.run.worktreeBaseBranch = null
         // The first prompt starts the thread on the provider it carried.
         this.threadProvider ??= ctx.session.provider
         this.model.markDelivery(record.clientPromptId, result.disposition === 'queued' ? 'queued' : 'sent')

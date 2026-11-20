@@ -42,6 +42,7 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
   const [fields, setFields] = useState<SecretField[]>(() =>
     prompts.map(() => ({ value: "", isDeclined: false })),
   );
+  const [revealed, setRevealed] = useState<boolean[]>(() => prompts.map(() => false));
   const canRespond = props.request.expired === undefined;
   const disabled = !canRespond || props.responding || !props.mayDrive;
   const isReady = canSubmitSecrets(fields);
@@ -49,9 +50,13 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
   const changeField = (index: number, patch: Partial<SecretField>) => {
     setFields((current) => current.map((field, at) => (at === index ? { ...field, ...patch } : field)));
   };
+  const setFieldRevealed = (index: number, isRevealed: boolean) => {
+    setRevealed((current) => current.map((value, at) => (at === index ? isRevealed : value)));
+  };
   const send = (values: (string | null)[]) => {
     // No value is kept after a send.
     setFields((current) => current.map((field) => ({ ...field, value: "" })));
+    setRevealed((current) => current.map(() => false));
     void props.onSubmit(values);
   };
 
@@ -78,6 +83,7 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
         ) : null}
         {prompts.map((prompt, index) => {
           const field = fields[index];
+          const isRevealed = revealed[index];
           const isFile = prompt.delivery === "file";
           const link = secretRequestLink(prompt);
           return (
@@ -122,19 +128,38 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
                 </View>
               ) : (
                 <>
-                  <TextInput
-                    accessibilityLabel={`Value of ${prompt.name}`}
-                    editable={!disabled}
-                    secureTextEntry
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="off"
-                    textContentType="none"
-                    placeholder={SECRET_PLACEHOLDER}
-                    value={field.value}
-                    onChangeText={(value) => changeField(index, { value })}
-                    className="min-h-12 rounded-2xl border border-border bg-input px-3.5 py-3 font-mono text-sm text-foreground"
-                  />
+                  <View className="justify-center">
+                    <TextInput
+                      accessibilityLabel={`Value of ${prompt.name}`}
+                      editable={!disabled}
+                      secureTextEntry={!isRevealed}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="off"
+                      textContentType="none"
+                      placeholder={SECRET_PLACEHOLDER}
+                      value={field.value}
+                      onChangeText={(value) => changeField(index, { value })}
+                      className="min-h-12 rounded-2xl border border-border bg-input py-3 pl-3.5 pr-12 font-mono text-sm text-foreground"
+                    />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={isRevealed ? `Hide value of ${prompt.name}` : `Show value of ${prompt.name}`}
+                      accessibilityState={{ selected: isRevealed, disabled }}
+                      disabled={disabled}
+                      hitSlop={8}
+                      onPress={() => setFieldRevealed(index, !isRevealed)}
+                      className="absolute right-1 h-10 w-10 items-center justify-center active:opacity-60"
+                    >
+                      <SymbolView
+                        name={isRevealed ? "eye.slash" : "eye"}
+                        size={18}
+                        tintColorClassName="accent-icon-muted"
+                        type="monochrome"
+                        weight="regular"
+                      />
+                    </Pressable>
+                  </View>
                   <View className="flex-row items-center gap-2">
                     <View className="min-w-0 flex-1 flex-row items-start gap-1.5">
                       <SymbolView name={isFile ? "terminal" : "lock"} size={12} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
@@ -146,7 +171,10 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
                         accessibilityLabel={`Decline ${prompt.name}`}
                         disabled={disabled}
                         hitSlop={8}
-                        onPress={() => changeField(index, { isDeclined: true, value: "" })}
+                        onPress={() => {
+                          changeField(index, { isDeclined: true, value: "" });
+                          setFieldRevealed(index, false);
+                        }}
                         className="min-h-8 justify-center rounded-full px-3 active:opacity-70"
                       >
                         <Text className="font-t3-bold text-xs text-foreground-secondary">Decline</Text>

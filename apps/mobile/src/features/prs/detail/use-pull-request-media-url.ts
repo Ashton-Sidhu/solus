@@ -10,7 +10,9 @@ import { pullRequestMediaUrl } from '../pull-request-media'
 /** The pull request whose host signs the GitHub media of the text below it. */
 export const PullRequestMediaContext = createContext<PullRequestMediaLocation | null>(null)
 
-export interface PullRequestMediaLocation extends Pick<PullRequestRef, 'hostId' | 'projectPath'> {
+export interface PullRequestMediaLocation extends Pick<PullRequestRef, 'hostId'> {
+  /** Absent for read-only URL inspection without a checkout. */
+  projectPath?: string
   /** The pull request's `owner/name`, once it is read. */
   repository?: string
 }
@@ -42,7 +44,7 @@ export function usePullRequestMediaUrl(url: string): PullRequestMediaUrl {
   const resolve = useCallback((refresh: boolean) => {
     if (!location) return Promise.resolve(url)
     const connection = app.connections.connection(location.hostId)
-    return pullRequestMediaUrl(connection, url, app.pullRequests.context(location.projectPath), location.repository, refresh)
+    return pullRequestMediaUrl(connection, url, location.projectPath ? app.pullRequests.context(location.projectPath) : undefined, location.repository, refresh)
   }, [app, location, url])
 
   useEffect(() => {
@@ -69,7 +71,7 @@ export function usePullRequestMarkdownMedia(): MarkdownMediaContext {
   return useMemo(() => ({
     hostFile: () => null,
     webUrl: (url: string) => location
-      ? pullRequestMediaUrl(app.connections.connection(location.hostId), url, app.pullRequests.context(location.projectPath), location.repository)
+      ? pullRequestMediaUrl(app.connections.connection(location.hostId), url, location.projectPath ? app.pullRequests.context(location.projectPath) : undefined, location.repository)
       : Promise.resolve(url),
   }), [app, location])
 }

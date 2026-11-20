@@ -5,6 +5,8 @@
   import SignInSteps from "../seats/SignInSteps.svelte";
   import ProviderChoiceCard from "./ProviderChoiceCard.svelte";
   import type { HostSetupSession } from "./host-setup.store.svelte";
+  import { hosts } from '../../contexts/hosts/hosts.svelte';
+  import { updatesLock } from '../settings/policy/managed-setting.svelte';
   import {
     codingProviderRows,
     SETUP_PROVIDERS,
@@ -23,7 +25,7 @@
       readiness: setup.readiness,
       stages: setup.providerStages,
       add: (provider, opts) => void setup.addProvider(provider, opts),
-    }), hostUpdatesStore.providerUpdatesFor(setup.serverId), (agent) => void hostUpdater.updateTarget(setup.serverId, agent)),
+    }), hostUpdatesStore.providerUpdatesFor(setup.serverId), (agent) => void hostUpdater.updateTarget(setup.serverId, agent), hosts.get(setup.serverId).me.may('host.admin') && !updatesLock(setup.serverId)),
   );
 </script>
 

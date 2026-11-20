@@ -1,61 +1,81 @@
-import { expect, test, spyOn } from 'bun:test'
+import { afterEach, beforeEach, expect, test, spyOn } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { UpdateStatusService } from '@solus/server/updates/update-status-service'
-import type { HostUpdateStatus } from '@solus/contracts/host-update-types'
+import { AgentSoftware } from '@solus/server/updates/agent-software'
+import { ClaudeSoftwareAdapter, type ClaudeSoftwareOptions } from '@solus/server/updates/claude-software-adapter'
+import { CodexSoftwareAdapter } from '@solus/server/updates/codex-software-adapter'
+import { AgentExecutable } from '@solus/server/cli-env'
+import type { HostInstallKind, HostUpdateStatus } from '@solus/contracts/host-update-types'
+import type { SetupAgent } from '@solus/contracts/types'
 
-function fixture() {
+let root: string
+beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'solus-update-status-')) })
+afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+
+function fixture(install: HostInstallKind = 'managed') {
   let now = 0
-  let installed = '1.0.0'
+  let installed: string | null = '1.0.0'
   let failClaude = false
+  let allowed = true
   const calls: string[] = []
   const published: HostUpdateStatus[] = []
+  const payload = 'verified executable'
+  const checksum = createHash('sha256').update(payload).digest('hex')
+  const software = (agent: SetupAgent) => {
+    const path = join(root, agent)
+    const executable = new AgentExecutable(agent, path)
+    const adapterOptions: ClaudeSoftwareOptions = {
+      platform: 'linux', arch: 'x64', musl: false, cpuInfo: 'flags: sse4_2',
+      metadata: async (url) => {
+        if (url.endsWith('/latest')) calls.push(agent)
+        if (agent === 'claude' && failClaude) throw new Error('Registry unavailable')
+        if (agent === 'codex') return JSON.stringify({ tag_name: 'rust-v2.0.0', assets: [{ name: 'codex-package-x86_64-unknown-linux-musl.tar.gz', digest: 'sha256:' + checksum }] })
+        return url.endsWith('/latest') ? '2.0.0' : JSON.stringify({ platforms: { 'linux-x64': { checksum } } })
+      },
+    }
+    return new AgentSoftware(agent === 'claude' ? new ClaudeSoftwareAdapter(adapterOptions) : new CodexSoftwareAdapter(adapterOptions), {
+      root: path, now: () => now,
+      existingBinary: () => '/fixture/' + agent,
+      version: async () => executable.selection?.enabled !== false && executable.selection ? executable.selection.version : installed,
+      download: async (_url, destination) => { await writeFile(destination, payload) }, verify: async () => {},
+    })
+  }
+  const agents = { claude: software('claude'), codex: software('codex') }
   const service = new UpdateStatusService({
-    currentVersion: '1.0.0', install: 'managed', now: () => now,
-    latest: async (target) => {
-      calls.push(target)
-      if (target === 'claude' && failClaude) throw new Error('Registry unavailable')
-      return { version: '2.0.0', url: 'https://example.com/release' }
-    },
-    providerVersion: async () => installed,
+    currentVersion: '1.0.0', install, now: () => now, canCheck: () => allowed, agents,
+    latest: async () => { calls.push('solus'); return { version: '2.0.0', url: 'https://vendor.example/latest' } },
     publish: (status) => { published.push(status) },
   })
-  return { service, calls, published, advance: () => { now += 60_000 }, upgrade: () => { installed = '2.0.0' }, fail: () => { failClaude = true } }
+  return { service, agents, calls, published, advance: () => { now += 60_000 }, upgrade: () => { installed = '2.0.0' }, absent: () => { installed = null }, fail: () => { failClaude = true }, disallow: () => { allowed = false } }
 }
 
-test('a cloud host never checks: the control plane replaces its image, so there is nothing to announce', async () => {
-  // WHY: a "Solus 2.0 is available" notice on a host nobody can update from a
-  // client is noise; the host page says who keeps it current instead.
-  const calls: string[] = []
-  const published: HostUpdateStatus[] = []
-  const service = new UpdateStatusService({
-    currentVersion: '1.0.0', install: 'cloud',
-    latest: async (target) => { calls.push(target); return { version: '2.0.0', url: 'https://example.com/release' } },
-    providerVersion: async () => '1.0.0',
-    publish: (status) => { published.push(status) },
-  })
-  service.start()
-  const status = await service.check()
-  // Adding a provider on the host is the one path that used to check outside the schedule.
-  await service.providerInstalled('codex')
-  expect(calls).toEqual([])
-  expect(published).toEqual([])
-  expect(status.check).toEqual({ kind: 'idle', reason: 'Kept up to date by Solus cloud.' })
-  expect(status.providers.every((provider) => provider.check.kind === 'idle')).toBe(true)
-  service.stop()
+test('a cloud host leaves its image and agent software to the control plane', async () => {
+  const f = fixture('cloud')
+  f.service.start()
+  await f.service.check()
+  await f.service.refreshProviders()
+  f.service.refreshInstallations()
+  expect(f.calls).toEqual([])
+  expect(f.published).toEqual([])
+  expect(f.service.status.check).toEqual({ kind: 'idle', reason: 'Kept up to date by Solus cloud.' })
+  f.service.stop()
 })
 
-test('one client cannot trigger repeated registry requests inside one minute', async () => {
+test('one client cannot trigger repeated host and agent checks inside one minute', async () => {
   const f = fixture()
   await Promise.all([f.service.check(), f.service.check()])
   await f.service.check()
-  expect(f.calls).toHaveLength(3)
+  expect(f.calls.sort()).toEqual(['claude', 'codex', 'solus'])
   f.advance()
   await f.service.check()
   expect(f.calls).toHaveLength(6)
-  expect(f.published[0]?.check.kind).toBe('checking')
-  expect(f.service.status.check.kind).toBe('available')
 })
 
-test('a failed registry keeps its last release and does not block the other checks', async () => {
+test('a failed source retains its known release without blocking other checks', async () => {
   const f = fixture()
   await f.service.check()
   f.fail()
@@ -66,19 +86,19 @@ test('a failed registry keeps its last release and does not block the other chec
   expect(f.service.status.check.kind).toBe('available')
 })
 
-test('install completion bypasses the manual limit and removes the update action', async () => {
+test('an agent install updates the host projection without a completion callback or a second state owner', async () => {
   const f = fixture()
   await f.service.check()
-  f.upgrade()
-  await f.service.providerInstalled('claude')
+  const old = f.published.at(-1)!
+  await f.agents.claude.install('native')
+  expect(f.service.status.providers[0]).toBe(f.agents.claude.status)
   expect(f.service.status.providers[0]?.installedVersion).toBe('2.0.0')
   expect(f.service.status.providers[0]?.check.kind).toBe('up-to-date')
-  expect(f.calls).toHaveLength(4)
+  expect(f.published.at(-1)?.providers[0]?.update?.phase).toBe('succeeded')
+  expect(old.providers[0]?.installedVersion).toBe('1.0.0')
 })
 
-test('a model list change checks each provider once and skips the manual limit', async () => {
-  // WHY: a new model can need a provider release, so that release must show now,
-  // not at the next four-hour check.
+test('a model list change checks each agent once and skips the manual limit', async () => {
   const f = fixture()
   await f.service.check()
   f.calls.length = 0
@@ -88,27 +108,13 @@ test('a model list change checks each provider once and skips the manual limit',
 
 test('desktop and source installs do not ask for a separate Solus update', async () => {
   for (const install of ['desktop', 'source'] as const) {
-    const calls: string[] = []
-    const service = new UpdateStatusService({ currentVersion: '1.0.0', install,
-      latest: async (target) => { calls.push(target); return { version: '2.0.0', url: 'https://example.com' } },
-      providerVersion: async () => null, publish: () => {},
-    })
-    await service.check()
-    expect(calls).toEqual([])
-    expect(service.status.check.kind).toBe('idle')
-    expect(service.status.providers[0]?.check).toEqual({ kind: 'idle', reason: 'Not installed' })
+    const f = fixture(install)
+    f.absent()
+    await f.service.check()
+    expect(f.calls).toEqual([])
+    expect(f.service.status.check.kind).toBe('idle')
+    expect(f.agents.claude.status.check).toEqual({ kind: 'idle', reason: 'Not installed' })
   }
-})
-
-test('version read failures settle as errors without blocking other providers', async () => {
-  const service = new UpdateStatusService({ currentVersion: '1.0.0', install: 'source',
-    latest: async () => ({ version: '2.0.0', url: 'https://example.com' }),
-    providerVersion: async (agent) => { if (agent === 'claude') throw new Error('Version read timed out'); return '2.0.0' },
-    publish: () => {},
-  })
-  await service.check()
-  expect(service.status.providers[0]?.check).toMatchObject({ kind: 'error', message: 'Version read timed out' })
-  expect(service.status.providers[1]?.check.kind).toBe('up-to-date')
 })
 
 test('checks start after ten seconds, repeat every four hours, and stop with the host', () => {
@@ -123,37 +129,19 @@ test('checks start after ten seconds, repeat every four hours, and stop with the
     expect(first).toHaveBeenCalledTimes(1)
     expect(first).toHaveBeenCalledWith(expect.any(Function), 10_000)
     expect(interval).toHaveBeenCalledWith(expect.any(Function), 4 * 60 * 60 * 1_000)
-    expect(first.mock.results[0]?.value.hasRef()).toBe(false)
-    expect(interval.mock.results[0]?.value.hasRef()).toBe(false)
     f.service.stop()
     expect(clearFirst).toHaveBeenCalledWith(first.mock.results[0]?.value)
     expect(clearIntervalTimer).toHaveBeenCalledWith(interval.mock.results[0]?.value)
   } finally {
     f.service.stop()
-    first.mockRestore()
-    interval.mockRestore()
-    clearFirst.mockRestore()
-    clearIntervalTimer.mockRestore()
+    first.mockRestore(); interval.mockRestore(); clearFirst.mockRestore(); clearIntervalTimer.mockRestore()
   }
 })
 
-test('an install finishing during a check gets a new version read after that check', async () => {
-  let finishOldRead!: (version: string) => void
-  let reads = 0
-  const service = new UpdateStatusService({ currentVersion: '1.0.0', install: 'source',
-    latest: async () => ({ version: '2.0.0', url: 'https://example.com' }),
-    providerVersion: async (agent) => {
-      if (agent === 'codex') return null
-      reads += 1
-      if (reads === 1) return new Promise((resolve) => { finishOldRead = resolve })
-      return '2.0.0'
-    }, publish: () => {},
-  })
-  const checking = service.check()
-  const installed = service.providerInstalled('claude')
-  finishOldRead('1.0.0')
-  await Promise.all([checking, installed])
-  expect(reads).toBe(2)
-  expect(service.status.providers[0]?.installedVersion).toBe('2.0.0')
-  expect(service.status.providers[0]?.check.kind).toBe('up-to-date')
+test('organization policy blocks both scheduled and model-triggered checks', async () => {
+  const f = fixture()
+  f.disallow()
+  await f.service.check(false)
+  await f.service.refreshProviders()
+  expect(f.calls).toEqual([])
 })

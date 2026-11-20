@@ -34,7 +34,7 @@
   function onSearchKeydown(event: KeyboardEvent): void {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      listEl?.querySelector<HTMLElement>('[data-slot="dropdown-menu-radio-item"]')?.focus();
+      listEl?.querySelector<HTMLElement>('[role="menuitemradio"], [role="menuitemcheckbox"]')?.focus();
       return;
     }
     if (event.key === "Enter" && visibleOptions[0]) {
@@ -79,6 +79,13 @@
     <DropdownMenu.Label>{group.label}</DropdownMenu.Label>
   {/if}
   <div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    {#if group.multiple}
+      {#each visibleOptions as option (option.value)}
+        <DropdownMenu.CheckboxItem onpointermove={keepSearchFocus} onpointerleave={keepSearchFocus} checked={option.value ? group.selected?.includes(option.value) : !group.selected?.length} onCheckedChange={() => group.select(option.value)} closeOnSelect={false}>
+          <span class="min-w-0 flex-1 truncate">{option.value ? option.label : 'Clear selection'}</span>
+        </DropdownMenu.CheckboxItem>
+      {/each}
+    {:else}
     <DropdownMenu.RadioGroup value={group.value} onValueChange={group.select}>
       {#each visibleOptions as option (option.value)}
         {@const Icon = option.icon}
@@ -113,6 +120,7 @@
         </DropdownMenu.RadioItem>
       {/each}
     </DropdownMenu.RadioGroup>
+    {/if}
     {#if visibleOptions.length === 0}
       <div class="px-2.5 py-3 text-menu text-muted-foreground">No matches.</div>
     {/if}

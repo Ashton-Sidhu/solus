@@ -36,6 +36,7 @@ export const PROJECT_PANEL_SECTIONS = [
       { id: "git.setup", label: "Repository setup" },
     ],
   },
+  { id: "servers", label: "Running servers", rows: [] },
   {
     id: "goal",
     label: "Goal",

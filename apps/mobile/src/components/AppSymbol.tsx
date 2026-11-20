@@ -44,7 +44,10 @@ import IconChevronRight from "@tabler/icons-react-native/IconChevronRight";
 import IconChevronUp from "@tabler/icons-react-native/IconChevronUp";
 import IconCircle from "@tabler/icons-react-native/IconCircle";
 import IconCircleCheck from "@tabler/icons-react-native/IconCircleCheck";
+import IconCircleCheckFilled from "@tabler/icons-react-native/IconCircleCheckFilled";
+import IconPointFilled from "@tabler/icons-react-native/IconPointFilled";
 import IconCircleXFilled from "@tabler/icons-react-native/IconCircleXFilled";
+import IconMoodPlus from "@tabler/icons-react-native/IconMoodPlus";
 import IconTicket from "@tabler/icons-react-native/IconTicket";
 import IconClock from "@tabler/icons-react-native/IconClock";
 import IconCode from "@tabler/icons-react-native/IconCode";
@@ -129,8 +132,10 @@ import { withUniwind } from "uniwind";
 const ANDROID_ICON_BY_SF_SYMBOL = {
   "circle.dashed": IconCircleDashed,
   "circle.dashed.inset.filled": IconCircleDot,
+  "circlebadge.fill": IconPointFilled,
   "questionmark.bubble": IconMessageCircleQuestion,
   "exclamationmark.shield": IconShieldQuestion,
+  "face.smiling": IconMoodPlus,
   "arrow.branch": IconGitBranch,
   // Permission modes (`PERMISSION_MODE_ICON`), as the desktop's Lucide set.
   checklist: IconListCheck,
@@ -167,6 +172,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "chart.bar.xaxis": IconChartBar,
   checkmark: IconCheck,
   "checkmark.circle": IconCircleCheck,
+  "checkmark.circle.fill": IconCircleCheckFilled,
   circle: IconCircle,
   clock: IconClock,
   timer: IconClock,

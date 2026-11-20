@@ -375,3 +375,60 @@ describe('AutomationsStore run graphs', () => {
     expect(graph[0].id).toBe('r20')
   })
 })
+
+describe('AutomationsStore host reads', () => {
+  test('a load of every host and a load of one host share that host\'s read', async () => {
+    // WHY: a reload asked for every host while a card asked for its own host,
+    // and the same list went out twice. Each host is read once at a time.
+    let reads = 0
+    let finish!: () => void
+    const answered = new Promise<void>((resolve) => { finish = resolve })
+    connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => [],
+      automationList: async () => { reads++; await answered; return [automation('a', '/one')] },
+    })
+    const store = new AutomationsStore()
+
+    const all = store.loadAll()
+    const one = store.loadAll('host-a')
+    finish()
+    await Promise.all([all, one])
+
+    expect(reads).toBe(1)
+    expect(store.hostFor('a')).toBe('host-a')
+  })
+
+  test('the list request does not wait for the host capabilities', async () => {
+    // WHY: the capabilities read cost a round trip before every list read, and
+    // a session open waits for the list.
+    let listRequested = false
+    let answerCapabilities!: () => void
+    connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => [],
+      automationList: async () => { listRequested = true; return [automation('a', '/one')] },
+    })
+    connections.capabilitiesFor = async () => {
+      await new Promise<void>((resolve) => { answerCapabilities = resolve })
+      return { ...(await defaultCapabilitiesFor()), automations: true }
+    }
+    const store = new AutomationsStore()
+
+    const load = store.loadAll('host-a')
+    await Bun.sleep(0)
+    expect(listRequested).toBe(true)
+    answerCapabilities()
+    await load
+    expect(store.hostFor('a')).toBe('host-a')
+  })
+
+  test('the Solus API is not asked: it holds no automations', async () => {
+    let reads = 0
+    connections.registerHost('workspace:org-1', { automationRecentRuns: async () => [], automationList: async () => { reads++; return [] } })
+    const store = new AutomationsStore()
+
+    await store.loadAll('workspace:org-1')
+
+    expect(reads).toBe(0)
+    expect(store.hasLoadedHost('workspace:org-1')).toBe(true)
+  })
+})

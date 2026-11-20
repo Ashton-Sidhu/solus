@@ -136,6 +136,20 @@ or a message, and do not call the scope a filter.
    on" while a watch can start, "Turn off" while it runs. A merged, closed,
    or missing pull request offers none, and a reader without `edit` sees a
    running watch but no switch.
+   Two or more cards with no text between them are one segment
+   (`{ kind: 'pull-requests', links }`) and one group card
+   (`ReplyPullRequestGroup`; `PullRequestGroupCard` on the phone). Its line
+   counts the pull requests and their states in the order of a pull
+   request's life, "3 pull requests · 1 open · 1 draft · 1 merged"
+   (`pullRequestGroupSummary`). Folded, the rail totals the files, and only
+   when the host counted every one. It opens unfolded, with one row per pull
+   request: the state glyph, the title, the state word, `owner/repo #N`, and
+   the size. The eye at the end of a row is that pull request's watch, the
+   same switch as the single card's footer: an open eye while it runs, a
+   crossed eye while a watch can start, and an empty slot for a merged or
+   closed pull request. A reader without `edit` sees a running watch but no
+   switch. Pull requests named in separate paragraphs keep a card each, under
+   the words about them.
 
 10. **The surface is the session, not only its links.** Under one head (the
     session's name, how it stands, its branch) it shows the recent row

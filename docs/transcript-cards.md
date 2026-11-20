@@ -104,6 +104,20 @@ which cancels the waiting sign-ins, and Continue, which sends a prompt that
 names each connected account. When all rows are connected, the card becomes
 quiet. On mobile, the connect sheet shows one card for each integration.
 
+### Pull request group card
+
+When a final reply links two or more pull requests in a row, they share one
+card (`ReplyPullRequestGroup`). It is a disclosure card with the quiet shell:
+a muted pull request glyph, "3 pull requests", and the states as the target
+("1 open · 1 draft · 1 merged"). It opens unfolded, and a click on its line
+folds it; folded, the rail totals the files. Each row is the grouped form of
+`PullRequestTurnCard`, a `TranscriptCardRow`: the state glyph in its tone, the
+title, the lowercase state word, `owner/repo #N`, and the size. The row's
+`trailing` slot holds its watch, a 24px icon button: a green eye while the
+session watches it, a crossed eye while a watch can start, and an empty slot
+for a merged or closed pull request, so the sizes line up. The rules of the
+single card's watch footer apply (docs/plans/session-artifacts.md §9).
+
 ### Sign-in panel
 
 The Claude and Codex sign-in card (`SeatConnectCard`) is the one card that does

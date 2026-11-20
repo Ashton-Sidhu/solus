@@ -145,8 +145,6 @@
   }
   /** Open by default, and opened again when a new share arrives. */
   let sharedSectionOpen = $state(true);
-  /** Open by default: a pin is a session the person wants at hand. */
-  let pinnedSectionOpen = $state(true);
   /** Closed by default: busy rows stay out of the way until they need you. */
   let workingSectionOpen = $state(false);
   let snoozedShelfOpen = $state(false);
@@ -155,7 +153,6 @@
   function toggleSection(section: SidebarSection) {
     let isOpen: boolean;
     if (section === "shared") isOpen = sharedSectionOpen = !sharedSectionOpen;
-    else if (section === "pinned") isOpen = pinnedSectionOpen = !pinnedSectionOpen;
     else if (section === "working") isOpen = workingSectionOpen = !workingSectionOpen;
     else if (section === "snoozed") isOpen = snoozedShelfOpen = !snoozedShelfOpen;
     else isOpen = completedShelfOpen = !completedShelfOpen;
@@ -202,13 +199,13 @@
   const searchedPinnedEntries = $derived(
     filterPinnedEntries(sidebarStore.pinnedEntries, taskQuery),
   );
-  /** Every open row in list order: sessions, shared, pinned, then working
+  /** Every open row in list order: pinned, sessions, shared, then working
    *  rows. Selection ranges, bulk actions and "the next row" all read this
    *  one order. */
   const openRows = $derived([
+    ...searchedPinnedEntries.flatMap((entry) => (entry.row ? [entry.row] : [])),
     ...searchedSessionRows,
     ...searchedSharedRows,
-    ...searchedPinnedEntries.flatMap((entry) => (entry.row ? [entry.row] : [])),
     ...searchedWorkingRows,
   ]);
   const isSearching = $derived(taskQuery.trim().length > 0);
@@ -242,7 +239,6 @@
     snoozed: searchedSnoozedTasks,
     completed: searchedCompletedTasks,
     isSharedOpen: sharedSectionOpen || isSearching,
-    isPinnedOpen: pinnedSectionOpen || isSearching,
     isWorkingOpen: workingSectionOpen || isSearching,
     isSnoozedOpen: snoozedShelfOpen,
     isCompletedOpen: isCompletedShelfExpanded,
@@ -852,6 +848,13 @@
   {@const prChoices = sidebarStore.prChoicesFor(task)}
   <TaskRow
     {task}
+    isPinned={sidebarStore.isPinned(sidebarStore.sessionIdOfRow(task), task.serverId)}
+    onTogglePin={() => {
+      void sidebarStore.toggleRowPin(task).catch((error) =>
+        toasts.error("Couldn't change the pin", { description: error instanceof Error ? error.message : String(error) }),
+      );
+      requestInputFocus();
+    }}
     shareOwner={task.share ? (memberByKey(sharesStore.directory, task.share.ownerKey) ?? null) : null}
     prChip={prChipForChoices(prChoices)}
     {prChoices}
@@ -868,6 +871,7 @@
     onSelect={(event) => selectOrActivateTask(task, event)}
     isTooltipQuiet={tooltipQuietAt !== null}
     onPressStart={() => sidebarStore.prepareOpen(task)}
+    onRest={(isResting) => sidebarStore.restOn(task, isResting)}
     onStartRename={(child) => startRename(child ? child.tabId : task.tabIds[0])}
     onRename={(child, next) => renameSidebarItem(task, child, next)}
     onRenameCancel={cancelRename}

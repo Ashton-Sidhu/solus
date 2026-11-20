@@ -46,10 +46,10 @@ describe('native typography (T3 parity)', () => {
     expect(enriched).toMatch(/fontFamily: style\.headingFontFamily,\s*fontSize,/)
   })
 
-  test('user bubble and composer geometry follow T3', () => {
+  test('user bubble geometry and the shared composer route follow T3', () => {
     expect(read('src/features/threads/ThreadUserMessageRow.tsx')).toContain('rounded-[20px] px-3.5 py-2.5')
-    expect(read('src/features/threads/ThreadComposer.tsx')).toContain('borderRadius: 27,')
-    expect(read('src/features/threads/NewTaskRouteScreen.tsx')).toContain('<ThreadComposer')
+    expect(read('src/features/threads/NewTaskDraftScreen.tsx')).toContain('<ThreadScreenBinding')
+    expect(read('src/features/threads/ThreadDetailScreen.tsx')).toContain('<ThreadComposer')
   })
 })
 
@@ -69,10 +69,30 @@ describe('native session settings sheet (T3 parity)', () => {
 
   test('the thread composer and the new-task draft open the same route', () => {
     const composer = read('src/features/threads/ThreadComposer.tsx')
-    const draft = read('src/features/threads/NewTaskRouteScreen.tsx')
+    const draft = read('src/features/threads/NewTaskDraftScreen.tsx')
     expect(composer).toContain('navigation.navigate("ThreadSettings"')
-    expect(draft).toContain('<ThreadComposer')
+    expect(draft).toContain('<ThreadScreenBinding')
+    expect(read('src/features/threads/ThreadDetailScreen.tsx')).toContain('<ThreadComposer')
     expect(draft).not.toContain('<ThreadSettingsSheet')
     expect(composer).not.toContain('<ThreadSettingsSheet')
+  })
+})
+
+describe('new-task prompt controls (T3 parity)', () => {
+  // WHY: T3's draft shows only where the work runs above the composer: the
+  // checkout or a new worktree, and its branch. Every other run option is in
+  // the model picker, so the two places never offer the same choice twice.
+  test('above the composer: the workspace and its base branch; Plan and Meta mode are in the model picker', () => {
+    const draft = read('src/features/threads/NewTaskDraftScreen.tsx')
+    expect(draft).toContain('<NewTaskWorkspaceControls')
+    expect(draft).toContain('navigation.navigate("NewTaskBranch"')
+    expect(draft).not.toContain('PlanModeToggle')
+    expect(draft).not.toContain('LeadToggle')
+
+    const sheet = read('src/features/threads/ThreadSettingsSheet.tsx')
+    expect(sheet).toContain('label="Permission mode"')
+    expect(sheet).toContain('label="Meta mode"')
+    expect(sheet).toContain('lead={meta.runOptions.canChooseStart ? meta.lead : null}')
+    expect(read('src/navigation/RootNavigator.tsx')).toMatch(/name="NewTaskBranch"\s*component=\{NewTaskBranchPickerRouteScreen\}/)
   })
 })
