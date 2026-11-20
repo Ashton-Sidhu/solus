@@ -42,7 +42,10 @@ export function withBranchRules(row: Contracts.PullRequest, held: Contracts.Pull
   const capabilities = { ...row.capabilities, mergeMethods: held.capabilities.mergeMethods }
   delete capabilities.defaultMergeMethod
   if (held.capabilities.defaultMergeMethod) capabilities.defaultMergeMethod = held.capabilities.defaultMergeMethod
-  return { ...row, capabilities, requiredApprovingReviewCount: held.requiredApprovingReviewCount }
+  const merged: Contracts.PullRequest = { ...row, capabilities, requiredApprovingReviewCount: held.requiredApprovingReviewCount }
+  // Only a detail read carries the pull request's own reactions, as it does the rules.
+  if (row.reactions === undefined && held.reactions) merged.reactions = held.reactions
+  return merged
 }
 
 /**

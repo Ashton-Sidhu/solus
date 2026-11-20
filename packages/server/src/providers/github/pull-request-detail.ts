@@ -11,6 +11,7 @@ import {
   type GithubRepositoryFacts,
 } from './pull-request-actions'
 import { githubDefaultBranchOf, headRepoOf, requestedReviewers, reviewStatusOf, shownReviewCount } from './pull-request-rows'
+import { GITHUB_REACTION_FIELDS, toPrReactions, type GqlReactionFields } from './pr-social'
 
 // ─── One pull request, read in one GraphQL request ────────────────────────────
 // The detail, the viewer, the repository's merge settings, the base branch's
@@ -37,6 +38,7 @@ const PULL_REQUEST_DETAIL_QUERY = `
         body
         state
         isDraft
+        ${GITHUB_REACTION_FIELDS}
         createdAt
         updatedAt
         author { login avatarUrl }
@@ -102,7 +104,7 @@ interface GqlReview {
   author: { login: string; avatarUrl?: string } | null
 }
 
-interface GqlDetailPullRequest {
+interface GqlDetailPullRequest extends GqlReactionFields {
   number: number
   url: string
   title: string
@@ -255,6 +257,7 @@ function toDetailPullRequest(
     requiredApprovingReviewCount: branch.requiredApprovingReviewCount,
     reviewStatus: reviewStatusOf(pr.reviewDecision, shownReviewCount(pr.latestReviews)),
     autoMergeEnabled: pr.autoMergeRequest !== null,
+    reactions: toPrReactions(pr, viewer),
     ...access,
   }
   const autoMergeMethod = githubAutoMergeMethod(pr.autoMergeRequest?.mergeMethod)

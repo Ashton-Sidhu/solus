@@ -654,3 +654,14 @@ describe('publishing a body to Jira', () => {
     expect(requests).toHaveLength(0)
   })
 })
+
+
+test('authored and assigned tasks use the same personal roles on a Jira project and board', async () => {
+  const project = fakeJira(() => ({ issues: [] })), board = fakeJira(() => ({ total: 0, issues: [] }))
+  for (const [involvement, clause] of [['authored', 'reporter = currentUser()'], ['assigned', 'assignee = currentUser()']] as const) {
+    await new JiraProjectSource(project.jira).search(PROJECT_SOURCE, '', involvement)
+    expect(jqlBodySchema.parse(project.requests.at(-1)?.body).jql).toContain(clause)
+    await new JiraBoardSource(board.jira).search(BOARD_SOURCE, '', involvement)
+    expect(board.requests.at(-1)?.query?.jql).toBe(clause)
+  }
+})

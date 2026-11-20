@@ -1,4 +1,9 @@
 <script lang="ts">
+  import PrUrlInspector from "./PrUrlInspector.svelte";
+  import PrSavedViews from "./PrSavedViews.svelte";
+  import { capturePrView, applyPrView } from "./lib/pr-saved-views";
+  import type { PrViewFilters } from "@solus/contracts/pr-views";
+  import { PR_SORT_OPTIONS } from "@solus/contracts/pr-views";
   import { localApi } from "@solus/client-core/local-api";
   import { onDestroy, tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
@@ -149,7 +154,7 @@
   });
 
   // ── Project scope ── one project, or every project; see `PrPageScope`.
-  const pageScope = new PrPageScope(session);
+  const pageScope = new PrPageScope(session, () => pullRequests.view.hostFilterId);
 
   // ── Review multi-select ── `x` or the row's checkbox.
   const reviewSelection = new PrReviewSelection({
@@ -189,11 +194,7 @@
   const allProjectsLoading = $derived(allProjectScopes.some((project) => project.loading));
   const activeRefreshing = $derived(pageScope.allProjects ? allProjectsLoading : (shown?.loading ?? false));
 
-  const SORT_OPTIONS: { value: PrSortMode; label: string }[] = [
-    { value: "ready", label: "Merge readiness" },
-    { value: "created", label: "Created" },
-    { value: "updated", label: "Updated" },
-  ];
+  const SORT_OPTIONS = PR_SORT_OPTIONS;
 
   // The fetch scope the statuses imply — merged
   // and closed pull requests are a separate page on the host, so asking for
@@ -707,8 +708,20 @@
    *  releases the pin, so the list goes back to following it. The scope effect
    *  above owns forgetting the old list — it fires on any scope change, whether
    *  it came from here or from the input bar. */
+  async function applySavedView(filters: PrViewFilters) {
+    if (filters.project) {
+      const option = pageScope.projectOptions.find((option) => option.serverId === filters.project!.hostId && option.projectKey === filters.project!.projectPath);
+      if (!option?.available) { toasts.error('The saved view’s project is unavailable. Reconnect its host and retry.'); return; }
+      selectProject(option);
+    } else session.setProjectPageScope({ kind: 'all' });
+    await tick();
+    pullRequests.view.hostFilterId = filters.hostId;
+    applyPrView(pullRequests.view.listView, filters);
+    searchEl?.focus();
+  }
   function selectProject(option: ListProjectOption): void {
     if (!option.available) return;
+    pullRequests.view.hostFilterId = null;
     session.scopePageToProject(option.key);
     aggregateSelectedKey = null;
     aggregateOpenKey = null;
@@ -863,6 +876,7 @@
 
   /** Clears what the Filters badge counts: the facets, and the project scope where the menu offers it. */
   function clearMenuFilters() {
+    pullRequests.view.hostFilterId = null;
     clearPrFilters(listView);
     if (!splitList) session.setProjectPageScope({ kind: "all" });
   }
@@ -945,6 +959,7 @@
 {/snippet}
 
 {#snippet filterBar()}
+  <PrUrlInspector serverId={pageScope.serverId ?? pullRequests.view.hostFilterId} />
   <!-- One row in every shape the list takes, for one project or every one.
        Refresh joins the row only while the crumb line that carries it is gone. -->
   <PrListToolbar
@@ -958,6 +973,9 @@
     onClearFilters={clearMenuFilters}
     onSearchFocusChange={fold.searchFocusChanged}
   />
+  <PrSavedViews filters={capturePrView(listView, pullRequests.view.hostFilterId, pageScope.serverId && pageScope.projectPath ? { hostId: pageScope.serverId, projectPath: pageScope.projectPath } : null)} onApply={(filters) => void applySavedView(filters)} />
+  {#if pullRequests.view.hostFilterId}<button type="button" class="rounded-md px-2 py-1 text-workspace-chrome hover:bg-muted" onclick={() => pullRequests.view.hostFilterId = null}>Host: {serversStore.servers.find((server) => server.id === pullRequests.view.hostFilterId)?.label ?? pullRequests.view.hostFilterId} · Clear</button>{/if}
+
 {/snippet}
 
 <!-- The narrow rail is navigation for the open detail: changing project there

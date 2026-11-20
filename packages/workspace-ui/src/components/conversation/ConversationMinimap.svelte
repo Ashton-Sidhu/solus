@@ -283,7 +283,7 @@
   }
 
   /* Collapsed ruler ticks: tight hairline marks like a scrubber. The active tick
-     is longer, fully opaque and accent-inked. Hidden once the rail expands. */
+     is longer, fully opaque and inked in the primary text colour. Hidden once the rail expands. */
   .msg-nav-dash {
     display: block;
     width: 11px;
@@ -305,20 +305,19 @@
     width: 16px;
     height: 2.5px;
     opacity: 1;
-    background: var(--solus-accent);
   }
   .msg-nav.expanded .msg-nav-dash {
     display: none;
   }
 
-  /* Expanded rows read as a menu: hover stays neutral while active keeps the
-     accent wash used for the current location. */
+  /* Expanded rows read as a menu: hover and the current location both use
+     neutral washes, the current one a step stronger. */
   .msg-nav.expanded .msg-nav-row:hover {
     background: var(--solus-surface-hover);
     color: var(--solus-text-primary);
   }
   .msg-nav.expanded .msg-nav-row.active {
-    background: var(--solus-accent-light);
+    background: var(--solus-surface-active);
     color: var(--solus-text-primary);
   }
   .msg-nav-row:focus-visible {

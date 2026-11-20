@@ -103,3 +103,40 @@ export function expandScale(
   if (nativeWidth <= 0 || contentHeight <= 0 || avail.w <= 0) return 1;
   return Math.min(avail.w / nativeWidth, avail.h / contentHeight) * 0.92;
 }
+
+/** Frames with no height yet: this browser remembered none for their markup,
+ *  and they have not reported one. Such a frame grows when it reports. */
+const framesWithoutHeight = new Set<Element>();
+
+/** Count a frame as having no height until the returned release runs. */
+export function holdFrameHeight(frame: Element): () => void {
+  framesWithoutHeight.add(frame);
+  return () => framesWithoutHeight.delete(frame);
+}
+
+function hasFrameWithoutHeightIn(scroll: Element): boolean {
+  if (framesWithoutHeight.size === 0) return false;
+  const view = scroll.getBoundingClientRect();
+  for (const frame of framesWithoutHeight) {
+    if (!scroll.contains(frame)) continue;
+    const box = frame.getBoundingClientRect();
+    if (box.bottom > view.top && box.top < view.bottom) return true;
+  }
+  return false;
+}
+
+/** The longest a reveal waits for the frames in view to report a height. A
+ *  frame whose render never reports must not hold the conversation. */
+const FRAME_HEIGHT_WAIT_MS = 300;
+
+/** Wait until the frames in view of `scroll` have a height, so they do not
+ *  grow and move the rows after the reader sees them. Answers whether it
+ *  waited: the frames that reported moved what is in view. */
+export async function waitForFrameHeightsIn(scroll: Element, isCancelled: () => boolean): Promise<boolean> {
+  if (!hasFrameWithoutHeightIn(scroll)) return false;
+  const deadline = performance.now() + FRAME_HEIGHT_WAIT_MS;
+  while (!isCancelled() && performance.now() < deadline && hasFrameWithoutHeightIn(scroll)) {
+    await new Promise(requestAnimationFrame);
+  }
+  return true;
+}

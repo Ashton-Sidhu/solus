@@ -319,6 +319,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         prompt: handle.input,
         cwd: resolveHomePath(request.cwd),
         sessionId,
+        solusSessionId: sessionState?.sessionId,
         forkSession: conversation.kind === 'fork',
         resumeSessionAt: resumeSessionAt ?? undefined,
         model,

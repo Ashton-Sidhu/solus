@@ -14,6 +14,7 @@ const REFERENCE_SESSION_ACTION: MenuAction = { id: "session", title: "Reference 
 
 export function ComposerAttachmentButton(props: {
   readonly disabled?: boolean;
+  readonly size?: "regular" | "large";
   readonly supportsFiles: boolean;
   readonly onPickMedia: () => Promise<void>;
   readonly onPickFiles: () => Promise<void>;
@@ -34,7 +35,7 @@ export function ComposerAttachmentButton(props: {
     >
       <SymbolView
         name="plus"
-        size={Math.round(20 * scale)}
+        size={Math.round((props.size === "large" ? 26 : 20) * scale)}
         weight="regular"
         tintColorClassName="accent-icon"
         type="monochrome"

@@ -81,6 +81,7 @@ export function useAgentLiveActivity(): void {
     const hostWait = setTimeout(schedule, HOST_WAIT_MS);
     controller.sync();
     return () => {
+      controller.dispose();
       for (const stop of stops) stop();
       appState.remove();
       clearInterval(heartbeat);

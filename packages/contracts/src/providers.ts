@@ -1,5 +1,6 @@
 import type { NumberedPrChecksSummary } from './checks-rpc-types'
 import type { PrChecksState } from './checks-types'
+import type { PrReactions } from './pr-social'
 
 // Host-neutral code-host DTOs shared across main, preload, and renderer. These
 // never leak Octokit/GraphQL response types — that is the whole point of the
@@ -31,7 +32,7 @@ export function parseGitHubPullRequestUrl(value: string): GitHubPullRequestUrl |
   } catch {
     return null
   }
-  if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'github.com') return null
+  if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'github.com' || url.username || url.password || url.port) return null
   const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)\/?$/i)
   if (!match) return null
   const number = Number(match[3])
@@ -190,6 +191,9 @@ export interface PullRequest {
   requiredApprovingReviewCount?: number | null
   capabilities: PrReviewCapabilities
   viewerPermissions: PrViewerPermissions
+  /** The pull request's own reactions. Only a detail read carries them; a
+   *  list row leaves them absent, and a reader keeps the last detail's. */
+  reactions?: PrReactions
   /** Who the host has asked to review this PR and who has not answered yet. */
   requestedReviewers?: PrRequestedReviewer[]
   /** Host logins currently assigned to this PR. */
@@ -512,6 +516,8 @@ export interface ReviewComment {
    * when the host did not say, or for a record read before it was asked.
    */
   reviewId?: string
+  /** Absent when the host does not read reactions. */
+  reactions?: PrReactions
 }
 
 /** One commit on a PR, for the Activity timeline. */
@@ -588,6 +594,8 @@ export interface PrCommentActivityItem extends PrActivityItemBase {
   body: string
   /** Present only for review bodies; uses the host's canonical review state. */
   reviewState?: Exclude<PrReviewer['state'], null>
+  /** Absent when the host does not read reactions. */
+  reactions?: PrReactions
 }
 
 /** A label mutation from the provider's pull request timeline. */

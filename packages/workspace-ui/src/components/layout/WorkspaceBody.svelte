@@ -2,6 +2,7 @@
   import type CompanionSurfaceStripComponent from "./CompanionSurfaceStrip.svelte";
   import type UnifiedPickerComponent from "../session/unified-picker/UnifiedPicker.svelte";
   import { afterPaint } from "../../lib/after-paint";
+  import { preloadConversationView } from "../conversation/lib/conversation-view-loader";
 
   // A companion pane's strip loads beside the workspace, not in its first
   // chunks: the first screen has no companion pane. Kept as state so a pane
@@ -20,6 +21,7 @@
       (module) => (UnifiedPicker = module.default),
       () => (unifiedPickerFailed = true),
     );
+  preloadConversationView();
 </script>
 
 <script lang="ts">
@@ -888,7 +890,7 @@
 
                         <div
                           bind:this={inputDockEl}
-                          class="input-dock no-drag absolute inset-x-0 bottom-0 z-10 px-4 pt-2.5 pb-2.5"
+                          class="input-dock no-drag absolute inset-x-0 bottom-0 z-10 px-4 pt-1.5 pb-2.5"
                           data-composer-dock
                           class:mode-hidden={!conversationChromeVisible}
                           onfocusin={() => router.focusPane(leadingPane.id)}

@@ -62,9 +62,17 @@ export function cardPullRequests(input: {
 }
 
 /** How the card names a pull request: `#412` in this checkout's repository,
- *  `site#52` in another. */
-export function prReference(number: number, otherRepository: string | null): string {
-  return `${otherRepository?.split('/').pop() ?? ''}#${number}`
+ *  `site#52` in another. The parts are apart because a narrow card cuts the
+ *  repository and keeps the number. */
+export interface PrReferenceParts {
+  /** The repository's name, null in this checkout's repository. */
+  repository: string | null
+  /** `#52`. */
+  number: string
+}
+
+export function prReferenceParts(number: number, otherRepository: string | null): PrReferenceParts {
+  return { repository: otherRepository?.split('/').pop() ?? null, number: `#${number}` }
 }
 
 /** One checks read for each context: the host answers checks per repository. */

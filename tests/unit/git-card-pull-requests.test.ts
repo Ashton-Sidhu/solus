@@ -5,7 +5,7 @@ import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import {
   cardPullRequests,
   checksReads,
-  prReference,
+  prReferenceParts,
 } from '@solus/workspace-ui/components/project-panel/lib/card-pull-requests'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 
@@ -54,7 +54,8 @@ test('a session link in another repository is on the card, read through that rep
   expect(projectScopeOf(other.ctx.session)).toBe('github.com/acme/site')
   expect(other.ctx.session.gitContext).toBeNull()
   expect(other.otherRepository).toBe('acme/site')
-  expect(prReference(other.pr.number, other.otherRepository)).toBe('site#52')
+  expect(prReferenceParts(other.pr.number, other.otherRepository)).toEqual({ repository: 'site', number: '#52' })
+  expect(prReferenceParts(cards[1]!.pr.number, cards[1]!.otherRepository)).toEqual({ repository: null, number: '#398' })
   // This checkout's own pull requests keep the checkout, where agent handoffs run.
   expect(cards[1]!.ctx).toBe(projectCtx)
   expect(cards[1]!.otherRepository).toBeNull()

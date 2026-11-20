@@ -5,7 +5,7 @@ import { SendOutbox } from '@solus/client-core/send-outbox'
 import { BUNDLED_MODEL_PROFILES, MODEL_PROFILES, replaceModelProfiles, type AgentMetadata, type IpcContext, type ModelProfilesStatus, type PromptOptions } from '@solus/contracts/types'
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
-import { canChoosePermissionMode, canRouteAuto, modelChoices, offersPlanToggle, PERMISSION_MODE_ICON, rememberedFastMode, newSessionModel, permissionModesFor, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode } from '../../apps/mobile/src/features/conversation/lib/run-settings'
+import { canChoosePermissionMode, canRouteAuto, modelChoices, PERMISSION_MODE_ICON, rememberedFastMode, newSessionModel, permissionModesFor, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode } from '../../apps/mobile/src/features/conversation/lib/run-settings'
 import { KeyboardCommands } from '../../apps/mobile/src/features/keyboard/keyboard-commands'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
@@ -103,6 +103,23 @@ describe('native run settings in a conversation', () => {
 })
 
 describe('native hardware keyboard commands', () => {
+  test('Stop on an idle visible thread cannot interrupt a mounted thread behind it', () => {
+    const commands = new KeyboardCommands()
+    const stopped: string[] = []
+    commands.register('stop', () => { stopped.push('hidden running thread') })
+    // The visible thread owns Stop even when it has nothing to cancel.
+    const leaveVisible = commands.register('stop', () => {})
+    expect(commands.dispatch('stop')).toBe(true)
+    expect(stopped).toEqual([])
+    leaveVisible()
+
+    // Keep the screen binding tied to navigation focus: native stacks retain
+    // older screens, and registration order does not follow Back navigation.
+    const detail = readFileSync(join(process.cwd(), 'apps/mobile/src/features/threads/ThreadDetailScreen.tsx'), 'utf8')
+    expect(detail).toContain('const isFocused = useIsFocused();')
+    expect(detail).toMatch(/useKeyboardCommand\("stop", \(\) => \{\s*if \(canStop\) stopThread\(\);\s*\}, isFocused\)/)
+  })
+
   test('the newest handler answers; one that declines passes the command on', () => {
     const commands = new KeyboardCommands()
     const calls: string[] = []
@@ -130,10 +147,6 @@ describe('native mode and model capability', () => {
     expect(permissionModesFor(undefined)).toContain('plan')
     expect(canChoosePermissionMode({ permissions: false })).toBe(false)
     expect(canChoosePermissionMode(undefined)).toBe(true)
-    // The draft composer's Plan shortcut follows the same rule.
-    expect(offersPlanToggle({ planMode: false })).toBe(false)
-    expect(offersPlanToggle({ permissions: false })).toBe(false)
-    expect(offersPlanToggle(undefined)).toBe(true)
   })
 
   test('a mode the agent lacks falls back to the run default, never to Plan', () => {

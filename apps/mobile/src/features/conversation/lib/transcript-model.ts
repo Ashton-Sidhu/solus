@@ -208,6 +208,12 @@ export class TranscriptModel {
   private rowsToItems(page: SessionHistoryPage): string[] {
     const rows = this.unresolvedRows.length ? page.messages.concat(this.unresolvedRows) : page.messages
     this.unresolvedRows = []
+    // Claude stores a call and its result as separate rows. Read the exchange
+    // facts at the call so cards retain their turn, just as for inline results.
+    const resultsByTool = new Map(rows.flatMap((row) =>
+      row.role === 'tool_result' && row.toolResultForId
+        ? [[row.toolResultForId, row.agentConversationResults] as const]
+        : []))
     const ids: string[] = []
     this.collecting = ids
     for (const row of rows) {
@@ -224,7 +230,8 @@ export class TranscriptModel {
       } else if (row.role === 'tool_result') this.applyHistoryResult(row)
       else if (row.activity?.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(row.activity.offerId, row.activity.resolution)
       else {
-        const id = this.historyItem(row)
+        const results = row.role === 'tool' && row.toolId ? resultsByTool.get(row.toolId) : undefined
+        const id = this.historyItem(results && !row.agentConversationResults ? { ...row, agentConversationResults: results } : row)
         if (id) ids.push(id)
       }
     }
@@ -934,14 +941,16 @@ export class TranscriptModel {
     else if (activity.kind === 'stopped') this.addSessionEvent(activity, true)
   }
 
-  /** Promotion stays visible; a stop names the other agent that made it. */
+  /** Stops stay visible on every client, including the one that sent Stop. */
   private addSessionEvent(activity: Activity, append: boolean): string | null {
-    if (activity.kind !== 'became_lead' && activity.by.kind !== 'agent') return null
+    if (activity.kind !== 'became_lead' && activity.kind !== 'stopped') return null
     const id = `activity:${activity.id}`
     if (this.items.has(id)) return null
     const item: TranscriptItem = activity.kind === 'became_lead'
       ? { kind: 'lead_promotion', id }
-      : { kind: 'notice', id, text: `Stopped by ${activity.by.kind === 'agent' ? activity.by.title ?? 'an agent' : 'an agent'}`, tone: 'info' }
+      : { kind: 'notice', id, text: activity.by.kind === 'agent'
+          ? `Stopped by ${activity.by.title ?? 'an agent'}`
+          : activity.by.kind === 'user' ? `Stopped by ${activity.by.user.displayName}` : 'Stopped', tone: 'info' }
     if (append) {
       this.streamTarget = null
       this.append(item)

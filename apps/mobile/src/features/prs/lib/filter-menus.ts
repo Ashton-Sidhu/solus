@@ -1,3 +1,4 @@
+import { PR_SORT_OPTIONS } from '@solus/contracts/pr-views'
 // Adapted from T3 Code features/pull-requests/PullRequestListFilters.tsx (MIT, see UPSTREAM.md).
 import type { ControlPillMenuProps } from '../../../components/ControlPillMenu.types'
 import {
@@ -11,11 +12,12 @@ import {
   type PullRequestListMenuField,
 } from './list-filter-menu'
 
-const STATES = { open: 'Open', closed: 'Closed', all: 'All states' } as const
+const STATES = { open: 'Open', closed: 'Closed', merged: 'Merged', all: 'All states' } as const
 const INVOLVEMENT = {
   all: 'All PRs',
-  reviewing: 'Your review',
-  authored: 'By you',
+  reviewing: 'Review requested',
+  assigned: 'Assigned to me',
+  authored: 'Authored by me',
   others: 'Others',
 } as const
 const DRAFTS = {
@@ -36,11 +38,7 @@ const CHECKS = {
   failing: 'Failing',
   pending: 'Running',
 } as const
-const SORTS = {
-  updated: 'Recently updated',
-  created: 'Newest created',
-  oldest: 'Oldest updated',
-} as const
+const SORTS = Object.fromEntries(PR_SORT_OPTIONS.map((option) => [option.value, option.label]))
 
 const id = (field: PullRequestListMenuField, value: string) =>
   JSON.stringify([field, value])
@@ -59,6 +57,7 @@ function choices(
 /** Menu items that open the host search; not `[field, value]` ids, so the
  *  menu choice reducer never reads them. */
 const SEARCH_LABELS = 'search-labels'
+const SEARCH_EXCLUDED = 'search-excluded-labels'
 const SEARCH_AUTHORS = 'search-authors'
 
 const projectId = (project: PullRequestListProject | null) =>
@@ -105,6 +104,8 @@ function moreFilterActions(
         projectId(project),
       ),
     },
+    { id: id('guide', ''), title: 'Has review guide', state: value.filters.guide ? 'on' : 'off' },
+    { id: id('lens', ''), title: 'Has review lens', state: value.filters.lens ? 'on' : 'off' },
     {
       id: 'sort',
       title: SORTS[value.sort],
@@ -127,7 +128,7 @@ export interface PullRequestFilterMenuProps {
   readonly labels: readonly string[]
   readonly projects: readonly PullRequestFilterProject[]
   /** Opens the host search for labels or authors beyond the loaded rows. */
-  readonly onSearch: (field: 'label' | 'author') => void
+  readonly onSearch: (field: 'label' | 'author' | 'exclude-label') => void
 }
 
 /** Both platforms use the same choices; Android also puts them in its header. */
@@ -137,6 +138,7 @@ export function pullRequestListFilterMenus(props: PullRequestFilterMenuProps) {
   const selectedLabelSet = new Set(selectedLabels)
   const author = value.filters.author
   const select = (event: string) => {
+    if (event === SEARCH_EXCLUDED) { props.onSearch('exclude-label'); return }
     if (event === SEARCH_LABELS || event === SEARCH_AUTHORS) {
       props.onSearch(event === SEARCH_LABELS ? 'label' : 'author')
       return
@@ -150,6 +152,7 @@ export function pullRequestListFilterMenus(props: PullRequestFilterMenuProps) {
   }
   const count = activePullRequestFilterCount(value)
   const more = moreFilterActions(value, props.projects, props.project)
+  more.unshift({ id: 'excluded-labels', title: `Exclude labels${value.filters.excludedLabels?.length ? ` (${value.filters.excludedLabels.length})` : ''}`, subactions: [{ id: SEARCH_EXCLUDED, title: 'Search labels…' }, { id: id('excluded-labels', ''), title: 'Clear excluded labels' }, ...[...new Set([...(value.filters.excludedLabels ?? []), ...props.labels])].map((label) => ({ id: id('exclude-label', label), title: label, state: value.filters.excludedLabels?.includes(label) ? 'on' as const : 'off' as const }))] })
   const labels = [...new Set([...selectedLabels, ...props.labels])].slice(0, 60)
   const authors = [
     ...new Set([
@@ -200,7 +203,7 @@ export function pullRequestListFilterMenus(props: PullRequestFilterMenuProps) {
     resetHost: boolean,
   ): ControlPillMenuProps['actions'][number] => ({
     id: id('reset', resetHost ? 'host' : ''),
-    title: 'Reset filters',
+    title: 'Clear filters',
     attributes: {
       disabled:
         count === 0 &&

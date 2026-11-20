@@ -1,11 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/components/ComposerEditor.tsx (MIT, see UPSTREAM.md).
 import { type Ref } from "react";
-import { Platform, Text, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
+import { type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 
 import type { ClipboardAttachmentRef } from "@solus/client-core/attachment-clipboard";
 import { parseAttachmentClipboardHtml } from "@solus/client-core/attachment-clipboard";
 import { ComposerEditor as NativeComposerEditor } from "../native/T3ComposerEditor";
-import { MOBILE_FONTS } from "../lib/typography";
 
 export interface ComposerEditorSelection {
   readonly start: number;
@@ -62,15 +61,6 @@ export interface ComposerEditorProps {
   readonly textStyle?: TextStyle;
 }
 
-/** The editor's font: the measurement below must lay text out exactly as the editor does. */
-function editorFont(textStyle: TextStyle | undefined): TextStyle {
-  return {
-    fontFamily: MOBILE_FONTS.regular,
-    ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
-    ...textStyle,
-  };
-}
-
 export function ComposerEditor(props: ComposerEditorProps) {
   return <NativeComposerEditor {...props} onPasteContext={(paste) => {
     // Insert text before asynchronous attachment work so later typing is preserved.
@@ -79,44 +69,4 @@ export function ComposerEditor(props: ComposerEditorProps) {
     const refs = parseAttachmentClipboardHtml(paste.html);
     if (refs) void props.onPasteAttachmentRefs?.(refs, paste.text);
   }} />;
-}
-
-/**
- * A hidden copy of an editor's text, laid out by the platform text engine
- * (TextKit on iOS, StaticLayout on Android) in the editor's font, inside a
- * frame the caller positions. `onLines` receives each layout's lines with
- * their exact substrings, so a caller can tell which text a layout measured.
- * Fabric sends a text layout only when the lines change.
- */
-export function ComposerTextMeasure(props: {
-  readonly text: string;
-  readonly textStyle?: TextStyle;
-  readonly frameStyle: ViewStyle;
-  readonly onLines: (lines: ReadonlyArray<{ readonly text: string }>) => void;
-}) {
-  const font = editorFont(props.textStyle);
-  return (
-    <View
-      pointerEvents="none"
-      accessible={false}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[props.frameStyle, { opacity: 0 }]}
-    >
-      <Text
-        accessible={false}
-        style={{
-          fontFamily: font.fontFamily,
-          fontSize: font.fontSize,
-          fontStyle: font.fontStyle,
-          fontWeight: font.fontWeight,
-          letterSpacing: font.letterSpacing,
-          includeFontPadding: font.includeFontPadding,
-        }}
-        onTextLayout={(event) => props.onLines(event.nativeEvent.lines)}
-      >
-        {props.text}
-      </Text>
-    </View>
-  );
 }

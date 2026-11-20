@@ -24,6 +24,22 @@ describe('browser frame subscriber', () => {
     expect(two).toEqual([])
   })
 
+  test('a second viewer gets the current frame while the page is still', () => {
+    const subscriber = new BrowserFrameSubscriber()
+    const off = subscriber.subscribe('page', () => {})
+    subscriber.receive({ browserPageId: 'page', seq: 3 }, new Uint8Array([42]))
+    const seen: number[] = []
+    const offSecond = subscriber.subscribe('page', (header, data) => {
+      seen.push(header.seq)
+      expect([...new Uint8Array(data)]).toEqual([42])
+    })
+    expect(seen).toEqual([3])
+    off()
+    offSecond()
+    subscriber.subscribe('page', (header) => seen.push(header.seq))
+    expect(seen).toEqual([3])
+  })
+
   test('normalizes a Buffer view to a standalone ArrayBuffer', () => {
     // WHY: a decoded wire frame is a view into the frame's buffer, after its header.
     // Handing the whole buffer to `createImageBitmap` would decode the header's

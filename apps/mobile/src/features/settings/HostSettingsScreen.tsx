@@ -30,6 +30,7 @@ import { useGithubConnection } from "./use-github-connection";
 import { hostSettingsErrorText } from "./host-settings";
 import { useHostSettings } from "./use-host-settings";
 import { useHostUpdateStatus } from "./use-host-update-status";
+import { ProviderUpdatesSection } from './ProviderUpdatesSection';
 import { hostLockMessage, updatesLockMessage } from "../policy/lib/policy-view";
 import { PolicyLockNote } from "../policy/PolicyLockNote";
 import { useHostPolicy } from "../policy/use-host-policy";
@@ -250,6 +251,8 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               ) : null}
               {hostUpdate.error ? <SettingsNote tone="danger">{hostUpdate.error}</SettingsNote> : null}
             </View>
+
+            {connected ? <ProviderUpdatesSection hostId={hostId} updates={hostUpdate} mayEdit={isAdmin && !updatesLock} /> : null}
 
             {state.kind === "loaded" ? (
               <>

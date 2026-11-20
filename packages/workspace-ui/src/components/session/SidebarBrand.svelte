@@ -19,7 +19,7 @@
 </script>
 
 {#snippet lockup()}
-  <svg viewBox="0 0 18 18" class="size-5 shrink-0" aria-hidden="true">
+  <svg viewBox="0 0 18 18" class="size-4.5 shrink-0" aria-hidden="true">
     <circle cx="9" cy="9" r="4.8" class={onDarkSky ? "fill-[#f6c48e]" : "fill-[#b45a3c]"} />
     <g
       fill="none"
@@ -33,7 +33,7 @@
     </g>
   </svg>
   <span
-    class="font-[family-name:Geist,var(--solus-font-family)] text-[1.125rem] leading-none font-medium tracking-[-0.035em] @max-[17rem]/rail:hidden {onDarkSky
+    class="font-[family-name:Geist,var(--solus-font-family)] text-base leading-none font-medium tracking-[-0.035em] @max-[17rem]/rail:hidden {onDarkSky
       ? 'text-white'
       : 'text-[color-mix(in_oklch,var(--foreground)_62%,#b45a3c)]'}">solus</span
   >

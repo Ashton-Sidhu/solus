@@ -9,6 +9,8 @@ export interface FilePreviewRequest {
   line?: number;
   tabId?: string;
   mediaKind?: "image" | "video";
+  /** Images in the carousel, in display order. Paths use the same source. */
+  gallery?: readonly string[];
   source?: { serverId?: string; cwd?: string; ctx?: IpcContext };
 }
 

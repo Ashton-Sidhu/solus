@@ -60,7 +60,7 @@ function baseApi(): FakeApi {
  *  read beside history. */
 // The host's policy is a shared host fact (plans/030 §7), read once per host, not a call of this conversation.
 const conversationCalls = (api: FakeApi) => api.calls.map((call) => call.method).filter((method) => method !== 'hostPolicy')
-  .filter((method) => method !== 'serverGetCapabilities' && method !== 'connectionsGetServerInfo' && method !== 'start' && method !== 'configGet' && method !== 'setSessionReadState')
+  .filter((method) => method !== 'serverGetCapabilities' && method !== 'connectionsGetServerInfo' && method !== 'start' && method !== 'configGet' && method !== 'setSessionReadState' && method !== 'sessionSuggestions' && method !== 'typeSafeKeyStatus')
 
 const texts = (controller: ConversationController) => controller.model.order.map((id) => {
   const item = controller.model.items.get(id)
@@ -68,13 +68,29 @@ const texts = (controller: ConversationController) => controller.model.order.map
 })
 
 describe('native conversation: history and live events', () => {
+  test('publishes history while the live watch is still pending', async () => {
+    let finishWatch!: (value: { runtime: null }) => void
+    const api = baseApi().on('watchSession', () => new Promise<{ runtime: null }>((resolve) => { finishWatch = resolve }))
+    const { controller, changes } = await open({ api })
+    const loading = controller.load()
+    await flushPromises()
+    // A slow live subscription must not hide history that has already arrived.
+    expect(changes.some((change) => change.order)).toBe(true)
+    expect(texts(controller)).toEqual(['user:hello', 'assistant:hi there'])
+    expect(controller.phase.kind).toBe('loading')
+    finishWatch({ runtime: null })
+    await loading
+    expect(controller.phase.kind).toBe('ready')
+    controller.close()
+  })
+
   test('loads history before joining the live stream and holds events that arrive meanwhile', async () => {
     let releasePage!: (value: SessionHistoryPage) => void
     const api = baseApi().on('loadSessionPage', () => new Promise<SessionHistoryPage>((resolve) => { releasePage = resolve }))
     const { controller, transport } = await open({ api })
     const loading = controller.load()
     await flushPromises()
-    expect(conversationCalls(api)).toEqual(['describeSession', 'loadSessionPage'])
+    expect(conversationCalls(api)).toEqual(['loadSessionPage', 'describeSession'])
 
     // An event for this session while history is in flight is held, not applied.
     transport.emitSession('thread-1', { type: 'text_chunk', text: 'later' })
@@ -82,7 +98,7 @@ describe('native conversation: history and live events', () => {
 
     releasePage(page([userRow('hello', 'm1')]))
     await loading
-    expect(conversationCalls(api)).toEqual(['describeSession', 'loadSessionPage', 'watchSession'])
+    expect(conversationCalls(api)).toEqual(['loadSessionPage', 'describeSession', 'watchSession'])
     expect(api.callsOf('watchSession')[0]?.[0]).toEqual({ sessionId: 'thread-1', attachRuntime: true })
     expect(texts(controller)).toEqual(['user:hello', 'assistant:later'])
     expect(controller.phase).toEqual({ kind: 'ready' })
@@ -153,6 +169,29 @@ describe('native conversation: history and live events', () => {
     expect(texts(controller)).toEqual(['user:first ever', 'user:hello'])
     expect(api.callsOf('loadSessionPage')[1]?.[0]).toMatchObject({ before: 'cursor-1', turnLimit: 20 })
     expect(controller.model.olderCursor).toBeNull()
+  })
+
+  test('reads the first page while the session is described, and again only when the thread moved provider', async () => {
+    // WHY: on a remote host each read is a round trip. The page must not wait
+    // for the description, but a session handed off to another provider must
+    // show that provider's transcript, not the one the record named.
+    let describe!: (value: unknown) => void
+    const lineage = (provider: 'claude-code' | 'codex') => ({
+      sessionId: 'thread-1', lineageToken: 't', members: [],
+      active: { position: 0, provider, providerSessionId: 'p-1', cwd: '/work/app', startedAt: 1, endedAt: null },
+    })
+    for (const [activeProvider, pageReads] of [['claude-code', 1], ['codex', 2]] as const) {
+      const api = baseApi().on('describeSession', () => new Promise((resolve) => { describe = resolve }))
+      const { controller } = await open({ api })
+      const loading = controller.load()
+      await flushPromises()
+      expect(api.callsOf('loadSessionPage')).toHaveLength(1)
+      describe({ lineage: lineage(activeProvider), meta: null })
+      await loading
+      expect(api.callsOf('loadSessionPage')).toHaveLength(pageReads)
+      expect(api.callsOf('loadSessionPage').at(-1)?.[0]).toMatchObject({ provider: activeProvider })
+      expect(texts(controller)).toEqual(['user:hello', 'assistant:hi there'])
+    }
   })
 
   test('opens a Codex session with its own provider on every call', async () => {
@@ -553,4 +592,28 @@ describe('native saved artifact bodies', () => {
     await controller.ensureArtifact(id)
     expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Saved version</p>' })
   })
+})
+
+test('a task-bound native session prepares its task before dispatch and leaves the local link to the server', async () => {
+  const task = { id: 'github:I_1', title: 'Fix login' }
+  const api = baseApi().on('tasksPrepareForSession', () => ({ task, snapshot: null }))
+  const { controller } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-task-session', provider: 'codex', workingDirectory: '/work/app' } } })
+  controller.bindTask(task.id, 'inst-a')
+  await controller.load()
+  await controller.send('Fix this issue')
+  const methods = api.calls.map((call) => call.method)
+  expect(methods.indexOf('tasksPrepareForSession')).toBeLessThan(methods.indexOf('prompt'))
+  expect(api.callsOf('tasksPrepareForSession')[0]).toEqual([{ taskId: task.id, includeSnapshot: false }])
+  expect(api.callsOf('prompt')[0]?.[1]).toMatchObject({ taskId: task.id, prompt: 'Fix this issue' })
+  expect(api.callsOf('tasksLinkSession')).toHaveLength(0)
+})
+
+test('a refused task preparation keeps the native prompt for retry and never starts an unbound agent', async () => {
+  const api = baseApi().on('tasksPrepareForSession', () => { throw new Error('Task access ended') })
+  const { controller, outbox } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-task-session', provider: 'codex', workingDirectory: '/work/app' } } })
+  controller.bindTask('github:I_1', 'inst-a')
+  await controller.load()
+  await controller.send('Fix this issue')
+  expect(api.callsOf('prompt')).toHaveLength(0)
+  expect(outbox.entriesFor('inst-a/new-task-session')[0]?.lastError).toBe('Task access ended')
 })

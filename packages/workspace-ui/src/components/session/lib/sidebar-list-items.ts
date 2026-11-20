@@ -7,8 +7,9 @@ import type { SidebarFolder } from './sidebar-project-folders'
 export type SidebarSection = 'sessions' | 'shared' | 'pinned' | 'working' | 'snoozed' | 'completed'
 
 /**
- * One entry of the sidebar's single list. Drafts, the sessions, Shared with
- * you, the Pinned and Working sections, and the Snoozed and Completed sections are one list with section headers as entries
+ * One entry of the sidebar's single list. Drafts, pinned and active sessions,
+ * Shared with you, Working, Snoozed, and Completed form one list. Only the
+ * collapsible sections have headers
  * (docs/plans/sidebar-motion.md, step 3), so a row that changes section, and a
  * draft that arrives or leaves, animate like any other change of order.
  */
@@ -47,7 +48,6 @@ export interface SidebarListInput {
   snoozed: readonly SidebarTask[]
   completed: readonly SidebarTask[]
   isSharedOpen: boolean
-  isPinnedOpen: boolean
   isWorkingOpen: boolean
   isSnoozedOpen: boolean
   isCompletedOpen: boolean
@@ -95,31 +95,13 @@ export function sectionItems(
   ]
 }
 
-/** The Pinned section, in pin order. A pin with a row draws that row, so it
- *  shows its state as it would in any other section; a closed section still
- *  shows the row on screen. */
-export function pinnedItems(
-  entries: readonly PinnedEntry[],
-  isOpen: boolean,
-  shelfRevealTaskId: string | null,
-): SidebarListItem[] {
-  if (entries.length === 0) return []
-  const isOnScreen = (entry: PinnedEntry) => entry.row !== null && entry.row.id === shelfRevealTaskId
-  return [
-    {
-      kind: 'header',
-      key: 'header:pinned',
-      section: 'pinned',
-      count: entries.length,
-      isOpen,
-      canToggle: entries.some((entry) => !isOnScreen(entry)),
-    },
-    ...(isOpen ? entries : entries.filter(isOnScreen)).map((entry): SidebarListItem =>
-      entry.row
-        ? taskItem(entry.row, 'pinned')
-        : { kind: 'pinned', key: `pinned:${entry.pin.serverId ?? ''}:${entry.pin.sessionId}`, pin: entry.pin },
-    ),
-  ]
+/** Pins lead the session list without a separate header or collapse state. */
+export function pinnedItems(entries: readonly PinnedEntry[]): SidebarListItem[] {
+  return entries.map((entry): SidebarListItem =>
+    entry.row
+      ? taskItem(entry.row, 'pinned')
+      : { kind: 'pinned', key: `pinned:${entry.pin.serverId ?? ''}:${entry.pin.sessionId}`, pin: entry.pin },
+  )
 }
 
 /** A pinned session matches a search by its row's title and project, or by
@@ -145,11 +127,10 @@ export function draftItems(drafts: readonly DraftRow[]): SidebarListItem[] {
 export function buildSidebarListItems(input: SidebarListInput): SidebarListItem[] {
   return [
     ...draftItems(input.drafts),
-    // Sessions are the body of the list: a header would only divide them from
-    // nothing, so they stand bare and cannot collapse.
+    ...pinnedItems(input.pinned),
+    // Active sessions stay visible below Pinned and cannot collapse.
     ...input.sessions.map((task) => taskItem(task, 'sessions')),
     ...sectionItems('shared', input.shared, input.isSharedOpen, input.shelfRevealTaskId),
-    ...pinnedItems(input.pinned, input.isPinnedOpen, input.shelfRevealTaskId),
     ...sectionItems('working', input.working, input.isWorkingOpen, input.shelfRevealTaskId),
     ...sectionItems('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
     ...sectionItems('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),

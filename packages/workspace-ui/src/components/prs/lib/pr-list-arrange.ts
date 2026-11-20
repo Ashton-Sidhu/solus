@@ -57,7 +57,7 @@ export function arrangePrList(
   )
   const ordered = search.typed.text.trim() && listView.sortMode === 'ready'
     ? rankPrMatches(filtered, search.typed.text)
-    : sortPrs(filtered, listView.sortMode, facts.checksState)
+    : sortPrs(filtered, listView.sortMode, facts.checksState, facts.viewerLogin)
   const sectioned = showsPrSections(listView.involvement, listView.query)
   return {
     searched,

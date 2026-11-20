@@ -3,6 +3,8 @@
 // the component holds only markup + thin handlers.
 
 import type { ConversationWidth } from "@solus/contracts/settings";
+import type { PromptVia } from "@solus/contracts/types";
+import { hostNoticeKind } from "./host-notice";
 
 const REM = 16;
 
@@ -108,6 +110,7 @@ interface NavSourceMessage {
   id: string;
   role: string;
   content: string;
+  via?: PromptVia;
 }
 
 /**
@@ -128,7 +131,9 @@ export function createNavItemBuilder(): (messages: readonly NavSourceMessage[]) 
   // Keyed by the message object, so a row that is dropped from the transcript
   // takes its cache entry with it. Content is stored alongside because an
   // edited message keeps its identity but must not keep its preview.
-  const cache = new WeakMap<object, { content: string; item: NavItem }>();
+  // A host notice (a pull request watch's news, a finished background
+  // command) is the host's caption, not a person's words, so it gets no tick; the null is cached so its text is read only once.
+  const cache = new WeakMap<object, { content: string; item: NavItem | null }>();
   let previous: NavItem[] = [];
 
   return function build(messages: readonly NavSourceMessage[]): NavItem[] {
@@ -137,13 +142,16 @@ export function createNavItemBuilder(): (messages: readonly NavSourceMessage[]) 
     for (const message of messages) {
       if (message.role !== "user") continue;
       const cached = cache.get(message);
-      let item: NavItem;
+      let item: NavItem | null;
       if (cached && cached.content === message.content) {
         item = cached.item;
       } else {
-        item = { id: message.id, preview: previewText(message.content) };
+        item = hostNoticeKind(message)
+          ? null
+          : { id: message.id, preview: previewText(message.content) };
         cache.set(message, { content: message.content, item });
       }
+      if (!item) continue;
       // Cached items are identity-stable, so `!==` catches an added, removed,
       // reordered or re-previewed row without comparing any strings.
       if (matchesPrevious && previous[next.length] !== item) matchesPrevious = false;

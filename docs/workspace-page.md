@@ -83,3 +83,8 @@ makes an app when you ask for one.
 The search field, the sort, and the facets (project, type, time, pinned, needs
 my review) apply to the two works tabs. Pinned is the reader's own mark, so its
 facet shows only on Your works. The sessions tab keeps the search and the sort.
+
+App cards in the Apps tab have a context menu. Right-click a card or use its
+App options button. The menu has Open app, Manage app, View activity, View
+versions, Pin to sidebar (or Unpin from sidebar), and Copy app ID. On mobile, press and hold an app row to use the
+same options. These actions use the host that owns the app.

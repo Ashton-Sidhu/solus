@@ -29,6 +29,7 @@ export function WorkspaceSidebarTabs() {
         >
           <Text modifiers={[tag("chats")]}>{WORKSPACE_TAB_LABELS.chats}</Text>
           <Text modifiers={[tag("pullRequests")]}>{WORKSPACE_TAB_LABELS.pullRequests}</Text>
+          <Text modifiers={[tag("tasks")]}>{WORKSPACE_TAB_LABELS.tasks}</Text>
         </Picker>
       </Host>
     </View>

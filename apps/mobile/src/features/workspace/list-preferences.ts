@@ -1,3 +1,4 @@
+import { prSortSchema } from '@solus/contracts/pr-views'
 // Adapted from T3 Code apps/mobile/src/persistence/mobile-preferences.ts (MIT, see UPSTREAM.md).
 import { z } from 'zod'
 import type { KeyValueStore } from '../../platform/ports'
@@ -54,11 +55,13 @@ export interface PullRequestListPreferences {
 }
 
 const PullRequestListPreferencesSchema = z.object({
-  state: z.enum(['open', 'closed', 'all']),
+  state: z.enum(['open', 'closed', 'merged', 'all']),
   hostId: z.string().nullable(),
   project: z.object({ hostId: z.string(), projectPath: z.string() }).nullable(),
-  involvement: z.enum(['all', 'authored', 'reviewing', 'others']),
+  involvement: z.enum(['all', 'authored', 'assigned', 'reviewing', 'others']),
   filters: z.object({
+    guide: z.boolean().optional(),
+    lens: z.boolean().optional(),
     labels: z.array(z.array(z.string())).optional(),
     excludedLabels: z.array(z.string()).optional(),
     author: z.string().optional(),
@@ -66,7 +69,7 @@ const PullRequestListPreferencesSchema = z.object({
     review: z.enum(['approved', 'changes-requested', 'review-required', 'none']).optional(),
     checks: z.enum(['pending', 'passing', 'failing']).optional(),
   }),
-  sort: z.enum(['updated', 'created', 'oldest']),
+  sort: prSortSchema,
 })
 
 export const DEFAULT_PULL_REQUEST_LIST_PREFERENCES: PullRequestListPreferences = {
@@ -127,7 +130,7 @@ export function resolvePullRequestListScope(preferences: PullRequestListPreferen
     ? preferences.project
     : null
   const scopeHostId = project?.hostId ?? hostId
-  const controls: PullRequestListControls = { involvement: preferences.involvement, filters: preferences.filters, sort: preferences.sort }
+  const controls: PullRequestListControls = { state: preferences.state, involvement: preferences.involvement, filters: preferences.filters, sort: preferences.sort }
   if (scopeHostId) controls.hostId = scopeHostId
   if (project) controls.projectPath = project.projectPath
   return { hostIds: scopeHostId ? [scopeHostId] : [...pairedHostIds], controls, hostId, project }
@@ -139,6 +142,8 @@ export function activePullRequestFilterCount(preferences: PullRequestListPrefere
   const { filters } = preferences
   return Number(preferences.state !== 'open')
     + Number(preferences.involvement !== 'all')
+    + (filters.excludedLabels?.length ?? 0)
+    + Number(!!filters.guide) + Number(!!filters.lens)
     + Number(Boolean(filters.author))
     + (filters.labels?.flat().length ?? 0)
     + Number(Boolean(filters.draft))

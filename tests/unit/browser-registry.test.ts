@@ -743,6 +743,29 @@ describe('browser registry', () => {
     expect(got).toEqual([1, 2])
   })
 
+  test('a phone joining a still page gets the current frame without another repaint', async () => {
+    const { registry, driver, frames } = harness()
+    const page = registry.open({ target: TARGET }, 'local:owner')
+    await registry.attachSurface(page.browserPageId, 1)
+    const desktop: number[] = []
+    const phone: number[] = []
+    frames.register('desktop', (header) => desktop.push(header.seq))
+    frames.register('phone', (header, data) => { phone.push(header.seq); expect([...data]).toEqual([42]) })
+    await registry.subscribeFrames(page.browserPageId, 'desktop')
+    driver.emitFrame(new Uint8Array([42]))
+
+    await registry.subscribeFrames(page.browserPageId, 'phone', { maxWidth: 390, maxHeight: 700 })
+
+    expect(phone).toEqual([1])
+    expect(desktop).toEqual([1])
+    expect(driver.screencasts).toHaveLength(1)
+    await registry.unsubscribeFrames(page.browserPageId, 'phone')
+    await registry.unsubscribeFrames(page.browserPageId, 'desktop')
+    await registry.subscribeFrames(page.browserPageId, 'phone')
+    // A new stream must not show a picture from the stopped guest.
+    expect(phone).toEqual([1])
+  })
+
   test('a frame reaches only the clients watching that page', async () => {
     // WHY: a page nobody subscribed to must produce no frames for that client —
     // the "hidden panes stream nothing" rule, enforced at the source.

@@ -5,13 +5,14 @@
     MessageCircle as ChatCircleTextIcon,
     Minimize as ArrowsInIcon,
     Maximize as ArrowsOutIcon,
-    PanelRight as FileTreeIcon,
+    FolderTree as FileTreeIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import type { TurnSnapshot } from "@solus/contracts/types";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import { PAGE_PILL_GROUP, PAGE_PILL_ICON_BTN } from "../../lib/page-chrome";
+  import { Button } from "../ui/button";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import type { ChangeKind } from "@solus/client-core/change-breakdown";
   import ChangeSummaryPopover from "./ChangeSummaryPopover.svelte";
@@ -37,7 +38,7 @@
    * overflow, whose contents follow the active tab.
    *
    * There is no rule under it and no divider beside it. Separation comes from
-   * the gap before the window controls and from the body's own surface.
+   * the gap before the action pill and from the body's own surface.
    *
    * Height is the workspace chrome row rather than the mock's flat 46px: this
    * row shares a baseline with the tab strip in the pane beside it, and macOS
@@ -229,72 +230,71 @@
     {onOpenFile}
   />
 
-  {#if view === "diff" && changedFiles.length > 0}
-    <!-- The tree is how a reader moves between files, so its toggle keeps a
-         slot on the band. A stacked pane never shows the tree, so the record
-         rung has nothing for it to toggle. -->
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props: tooltipProps })}
-          <button
-            {...tooltipProps}
-            type="button"
-            class="{PAGE_SOFT_ICON_BTN} @max-[30rem]/band:hidden {treeCollapsed
-              ? ''
-              : 'bg-[var(--wash-3)]! text-foreground!'}"
-            aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
-            aria-pressed={!treeCollapsed}
-            onclick={onToggleTree}
-          >
-            <FileTreeIcon size={15} strokeWidth={1.5} />
-          </button>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content
-        value={`${treeCollapsed ? "Show file tree" : "Hide file tree"} (${comboHint("diff-panel.toggle-tree")})`}
-      />
-    </TooltipUI.Root>
-  {/if}
+  <!-- The tree toggle, the view's menu and the window controls share one pill.
+       A plain group, not ButtonGroup: that primitive squares the inner corners
+       and joins borders, and a pill wants neither. -->
+  <div role="group" aria-label="Review panel actions" class="ml-1.5 {PAGE_PILL_GROUP}">
+    {#if view === "diff" && changedFiles.length > 0}
+      <!-- The tree is how a reader moves between files, so its toggle keeps a
+           slot on the band. A stacked pane never shows the tree, so the record
+           rung has nothing for it to toggle. -->
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <Button
+              {...tooltipProps}
+              variant="ghost"
+              size="icon-sm"
+              class="{PAGE_PILL_ICON_BTN} @max-[30rem]/band:hidden"
+              aria-label={treeCollapsed ? "Show file tree" : "Hide file tree"}
+              aria-pressed={!treeCollapsed}
+              onclick={onToggleTree}
+            >
+              <FileTreeIcon strokeWidth={1.5} class="size-4" />
+            </Button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content
+          value={`${treeCollapsed ? "Show file tree" : "Hide file tree"} (${comboHint("diff-panel.toggle-tree")})`}
+        />
+      </TooltipUI.Root>
+    {/if}
 
-  <ReviewPanelOverflowMenu
-    {view}
-    {diffStyle}
-    {onSetStyle}
-    {tokenHighlight}
-    {onToggleTokenHighlight}
-    {allCollapsed}
-    {onToggleCollapseAll}
-    {onRefresh}
-    {refreshing}
-    {guide}
-    hasFiles={changedFiles.length > 0}
-  />
+    <ReviewPanelOverflowMenu
+      {view}
+      {diffStyle}
+      {onSetStyle}
+      {tokenHighlight}
+      {onToggleTokenHighlight}
+      {allCollapsed}
+      {onToggleCollapseAll}
+      {onRefresh}
+      {refreshing}
+      {guide}
+      hasFiles={changedFiles.length > 0}
+    />
 
-  <!-- The one place a divider used to be. Space, not a rule.
-
-       Both act on a pane, and a record has one: there is no smaller state to
-       restore to, and the ✕ would be a second way out beside the chevron that
-       leads this row. -->
-  <div
-    class="flex shrink-0 items-center gap-1.5 @max-[30rem]/band:hidden"
-  >
+    <!-- Both act on a pane, and a record has one: there is no smaller state to
+         restore to, and the ✕ would be a second way out beside the chevron that
+         leads this row. -->
     {#if onToggleMaximize}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props: tooltipProps })}
-            <button
+            <Button
               {...tooltipProps}
-              type="button"
-              class={PAGE_SOFT_ICON_BTN}
+              variant="ghost"
+              size="icon-sm"
+              class="{PAGE_PILL_ICON_BTN} @max-[30rem]/band:hidden"
               aria-label={maximized ? "Restore panel size" : "Maximize panel"}
               onclick={onToggleMaximize}
             >
               {#if maximized}
-                <ArrowsInIcon size={15} strokeWidth={1.5} />
+                <ArrowsInIcon strokeWidth={1.5} class="size-4" />
               {:else}
-                <ArrowsOutIcon size={15} strokeWidth={1.5} />
+                <ArrowsOutIcon strokeWidth={1.5} class="size-4" />
               {/if}
-            </button>
+            </Button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content
@@ -306,16 +306,17 @@
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
-          <button
+          <Button
             {...tooltipProps}
-            type="button"
-            class={PAGE_SOFT_ICON_BTN}
+            variant="ghost"
+            size="icon-sm"
+            class="{PAGE_PILL_ICON_BTN} @max-[30rem]/band:hidden"
             aria-label="Close review"
             data-testid="review-panel-close"
             onclick={onClose}
           >
-            <XIcon size={16} strokeWidth={1.5} />
-          </button>
+            <XIcon strokeWidth={1.5} class="size-4" />
+          </Button>
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content value={`Close review (${comboHint("diff-panel.close")})`} />

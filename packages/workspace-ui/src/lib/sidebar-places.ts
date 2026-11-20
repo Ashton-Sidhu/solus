@@ -1,4 +1,6 @@
 import type { PersonalSettings } from '@solus/contracts/settings'
+import { isSamePin, type SidebarAppPin } from '@solus/client-core/sidebar-apps'
+export { isSamePin, isAppPinned, withAppPinned, type SidebarAppPin } from '@solus/client-core/sidebar-apps'
 
 /**
  * What the places column of the sidebar shows (docs/plans/sidebar-places-and-sky.md,
@@ -10,7 +12,6 @@ import type { PersonalSettings } from '@solus/contracts/settings'
  */
 
 export type SidebarPlacesLayout = PersonalSettings['sidebarPlaces']
-export type SidebarAppPin = PersonalSettings['sidebarApps'][number]
 
 export const SIDEBAR_PLACES = [
   { id: 'workspace', label: 'Workspace' },
@@ -74,20 +75,6 @@ export function isPlacesLayoutChanged(layout: SidebarPlacesLayout): boolean {
 /** The pin of an app. A server id names a host only on this client, so the pin names the host's installation id. */
 export function appPinOf(serverId: string, appId: string, host: { id: string; installationId?: string } | null): SidebarAppPin {
   return { host: host?.installationId || serverId, appId }
-}
-
-export function isSamePin(a: SidebarAppPin, b: SidebarAppPin): boolean {
-  return a.host === b.host && a.appId === b.appId
-}
-
-export function isAppPinned(pins: readonly SidebarAppPin[], pin: SidebarAppPin): boolean {
-  return pins.some((candidate) => isSamePin(candidate, pin))
-}
-
-/** The pins after one app is pinned (at the end) or unpinned. */
-export function withAppPinned(pins: readonly SidebarAppPin[], pin: SidebarAppPin, pinned: boolean): SidebarAppPin[] {
-  const rest = pins.filter((candidate) => !isSamePin(candidate, pin))
-  return pinned ? [...rest, { ...pin }] : rest
 }
 
 /** The pins after `pin` moves onto `target`, as `withPlaceMoved`. A pin of a host that is not connected keeps its place. */

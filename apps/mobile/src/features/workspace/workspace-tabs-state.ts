@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/workspace/workspace-tabs-state.ts (MIT, see UPSTREAM.md).
 
 /**
- * The two list tabs of the mobile workspace (docs/plans/mobile-pull-requests.md).
+ * The three list tabs of the mobile workspace (docs/plans/mobile-pull-requests.md).
  * The workspace owns this state, so it stays while a detail screen is pushed.
  * Android also shows Settings as a destination beside them; that selection
  * comes from the root stack, not from here (workspace-destinations.ts).
@@ -13,7 +13,7 @@
  * Search modes (iOS): `resting` shows no search field; `active` shows it and
  * gives it focus; `expanded` keeps it shown after it lost focus.
  */
-export type WorkspaceTab = 'chats' | 'pullRequests'
+export type WorkspaceTab = 'chats' | 'pullRequests' | 'tasks'
 export type WorkspaceSearchMode = 'resting' | 'active' | 'expanded'
 
 export interface WorkspaceTabsState {
@@ -47,4 +47,4 @@ export function workspaceTabsReducer(state: WorkspaceTabsState, action: Workspac
   }
 }
 
-export const WORKSPACE_TAB_LABELS = { chats: 'Chats', pullRequests: 'Pull Requests' } as const satisfies Record<WorkspaceTab, string>
+export const WORKSPACE_TAB_LABELS = { chats: 'Chats', pullRequests: 'Pull Requests', tasks: 'Tasks' } as const satisfies Record<WorkspaceTab, string>

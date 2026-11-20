@@ -8,6 +8,11 @@ the `toggle-sidebar-view` palette entry). User behavior: `docs/session-lists.md`
 Reference: t3code PR 21039 ("boring sidebar") and PR 26391 (folders ordered by
 the last prompt the person sent).
 
+Pinned rows come before active sessions in both views, with no header or
+collapse control. Each row has a pin control and pinned rows show a pin mark.
+In status view, drafts stay first. In project view, pinned rows come before the
+project folders. Meta mode uses the normal session sections.
+
 ## Vocabulary
 
 - **Status view** (`sidebarView: 'status'`, the default): the sidebar as it was

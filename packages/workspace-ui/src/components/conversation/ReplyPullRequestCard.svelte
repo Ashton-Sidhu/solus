@@ -17,8 +17,8 @@
 
   /** A pull request the turn linked, where its final reply mentions it
    *  (`placeReplyPullRequests`): the card, kept fresh by PR sync, with the
-   *  session's watch on it. */
-  let { link, tabId }: { link: SessionPullRequestLink; tabId: string } = $props();
+   *  session's watch on it. Grouped, it is a row of `ReplyPullRequestGroup`. */
+  let { link, tabId, grouped = false }: { link: SessionPullRequestLink; tabId: string; grouped?: boolean } = $props();
 
   const session = getWorkspaceContext();
   const pullRequests = getPullRequestsContext();
@@ -63,12 +63,21 @@
   }
 </script>
 
-<div class="not-prose my-2">
+{#snippet turnCard()}
   <PullRequestTurnCard
     {card}
+    {grouped}
     {canWatch}
     {isWatchBusy}
     onOpen={() => openArtifact(session, { kind: "pull-request", link }, link.sessionId, serverId)}
     onSetWatch={(watching) => void setWatch(watching)}
   />
-</div>
+{/snippet}
+
+{#if grouped}
+  {@render turnCard()}
+{:else}
+  <div class="not-prose my-2">
+    {@render turnCard()}
+  </div>
+{/if}

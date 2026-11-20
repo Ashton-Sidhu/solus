@@ -3,7 +3,6 @@ import { SendOutbox } from '@solus/client-core/send-outbox'
 import type { IpcContext, PromptOptions } from '@solus/contracts/types'
 import type { LeadModelSelection } from '@solus/contracts/settings'
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
-import { LeadSessionChoice } from '../../apps/mobile/src/features/conversation/lib/lead-session'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
@@ -39,12 +38,9 @@ async function open(target: ConversationTarget = NEW) {
   })
   await controller.load()
   const prompts = () => api.callsOf('prompt') as Array<[IpcContext, PromptOptions]>
-  // As the new-session composer does it.
-  const choice = new LeadSessionChoice()
-  const setLead = (lead: boolean, leadModel: LeadModelSelection | null) => {
-    if (choice.choose(controller.run, lead, leadModel, { defaultModels: {}, modelOptionsByProvider: {} })) controller.updateRun({})
-  }
-  return { controller, prompts, setLead }
+  // As the model picker's Meta mode switch does it.
+  const setLead = (lead: boolean, leadModel: LeadModelSelection | null) => controller.chooseLead(lead, leadModel)
+  return { controller, prompts, setLead, api }
 }
 
 describe('native lead session', () => {
@@ -86,4 +82,48 @@ describe('native lead session', () => {
     expect(prompts()[0]?.[0].session).toMatchObject({ provider: 'codex', preferredModel: 'gpt-5.5' })
     expect(prompts()[0]?.[1].isLead).toBe(true)
   })
+
+  test('a chat offers no Meta mode', async () => {
+    const { controller, prompts, setLead } = await open({ hostId: 'inst-a', newSession: { sessionId: 'chat-1', provider: 'claude-code', workingDirectory: 'solus:new-chat' } })
+    expect(controller.canChooseStart).toBe(false)
+    expect(setLead(true, null)).toBe(false)
+    await controller.send('hello')
+    expect(prompts()[0]?.[1].isLead).toBeUndefined()
+  })
+})
+
+describe('native new worktree', () => {
+  // WHY: the host makes a worktree for the prompt that starts a session from
+  // `worktreeBaseBranch` (run-launcher.ts). A later prompt that still named a
+  // base would ask for a worktree the session already has.
+  test('the base branch goes with the first prompt only, and is fixed after it', async () => {
+    const { controller, prompts } = await open()
+    expect(controller.canChooseStart).toBe(true)
+    controller.chooseWorktreeBase('main')
+    await controller.send('fix it')
+    controller.chooseWorktreeBase('release')
+    await controller.send('and test it')
+    expect(prompts().map(([ctx]) => ctx.session.worktreeBaseBranch)).toEqual(['main', null])
+  })
+
+  test('the project folder is the default, and choosing it again clears a base', async () => {
+    const { controller, prompts } = await open()
+    controller.chooseWorktreeBase('main')
+    controller.chooseWorktreeBase(null)
+    await controller.send('fix it')
+    expect(prompts()[0]?.[0].session.worktreeBaseBranch).toBeNull()
+  })
+})
+
+// The current checkout must come from this host, not the remote's default ref.
+test('new-worktree branches include the host current checkout without fetching', async () => {
+  const { controller, api } = await open()
+  const branches = [{ name: 'feature', activeAt: 1, remoteOnly: false, isDefault: false }]
+  api.on('worktreeBranches', () => branches)
+  api.on('gitIdentity', () => ({ repoRoot: '/work/app', headSha: 'abc', branch: 'feature', targetBranch: 'main' }))
+  expect(await controller.branches()).toEqual({ branches, currentBranch: 'feature' })
+  expect(api.callsOf('gitIdentity')).toEqual([['/work/app']])
+  expect(api.callsOf('worktreeBranches')[0]?.[1]).toEqual({ skipFetch: true })
+  api.on('gitIdentity', () => { throw new Error('old host') })
+  expect(await controller.branches()).toEqual({ branches, currentBranch: null })
 })

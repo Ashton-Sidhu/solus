@@ -23,8 +23,13 @@ const MINUTE_MS = 60_000;
  * thing to do, with the thread above it still readable. The facts to find the
  * cause or to send to support wait behind Details, which starts closed.
  * `bottomInset` keeps the card clear of the home indicator.
+ * `maxHeight` comes from the thread pane, including in a small iPad window.
  */
-export function HostAsleepCard(props: { readonly hostId: string; readonly bottomInset: number }) {
+export function HostAsleepCard(props: {
+  readonly hostId: string;
+  readonly bottomInset: number;
+  readonly maxHeight: number;
+}) {
   const { hostId } = props;
   const app = useApp();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -63,7 +68,8 @@ export function HostAsleepCard(props: { readonly hostId: string; readonly bottom
   return (
     <View className="px-3" style={{ paddingBottom: props.bottomInset + 8 }}>
       <ScrollView
-        className="max-h-[60vh] rounded-3xl border border-border bg-card"
+        className="rounded-3xl border border-border bg-card"
+        style={{ maxHeight: props.maxHeight }}
         contentContainerClassName="items-center gap-2 p-6"
         accessibilityLiveRegion="polite"
       >

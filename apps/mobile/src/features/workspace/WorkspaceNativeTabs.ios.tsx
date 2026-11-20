@@ -30,7 +30,7 @@ import { WORKSPACE_TAB_LABELS } from "./workspace-tabs-state";
 // Tabler's git-pull-request geometry, rasterized at 1x/2x/3x for UIKit template images.
 const PULL_REQUEST_ICON = require("../../../assets/icons/pull-request.png");
 const COMPOSE_TAB = "compose";
-const TABS = ["chats", "pullRequests", "settings"] as const;
+const TABS = ["chats", "pullRequests", "tasks", "settings"] as const;
 
 /** Retain each native controller tree; removing its root can leave RNS's stack empty. */
 function RetainedWorkspaceTab(props: {
@@ -115,7 +115,7 @@ export function WorkspaceNativeTabs(props: {
           nativeEvent,
         }: NativeSyntheticEvent<TabSelectedEvent>) => {
           const tab = nativeEvent.selectedScreenKey;
-          if (tab !== "chats" && tab !== "pullRequests" && tab !== "settings")
+          if (tab !== "chats" && tab !== "pullRequests" && tab !== "tasks" && tab !== "settings")
             return;
           setProvenance(nativeEvent.provenance);
           if (
@@ -143,6 +143,8 @@ export function WorkspaceNativeTabs(props: {
               icon:
                 tab === "chats"
                   ? { type: "sfSymbol", name: "text.bubble" }
+                  : tab === "tasks"
+                    ? { type: "sfSymbol", name: "checkmark.circle" }
                   : tab === "settings"
                     ? { type: "sfSymbol", name: "gearshape" }
                     : {

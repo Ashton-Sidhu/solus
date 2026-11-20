@@ -357,7 +357,7 @@
   {/if}
 
   <div class="flex items-start gap-5">
-    <nav class="sticky top-0 flex w-[12rem] shrink-0 flex-col gap-0.5 self-stretch border-r border-border/60 pr-5" aria-label="Shortcut categories">
+    <nav class="sticky top-16 @max-[48rem]/pane:top-0 flex w-[12rem] shrink-0 flex-col gap-0.5 self-stretch border-r border-border/60 pr-5" aria-label="Shortcut categories">
       {#each railItems as item (item.key)}
         {@const active = selectedCategory === item.key && !searchQuery}
         <button

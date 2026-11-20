@@ -115,12 +115,16 @@ export interface BranchRef {
   remoteOnly: boolean
   /** The branch the remote's HEAD names. */
   isDefault: boolean
+  /** The checkout the list was read in is on this branch. An older host omits it. */
+  current?: boolean
+  /** Another worktree has this branch checked out. An older host omits it. */
+  worktreePath?: string
 }
 
 const branchRefsSchema = z.array(z.union([
   // An older host lists branch names only.
   z.string().transform((name): BranchRef => ({ name, activeAt: 0, remoteOnly: false, isDefault: false })),
-  z.object({ name: z.string(), activeAt: z.number(), remoteOnly: z.boolean(), isDefault: z.boolean() }),
+  z.object({ name: z.string(), activeAt: z.number(), remoteOnly: z.boolean(), isDefault: z.boolean(), current: z.boolean().optional(), worktreePath: z.string().optional() }),
 ]))
 
 /** Decode a host's branch list; a list this client cannot read is empty. */

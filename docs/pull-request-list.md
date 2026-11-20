@@ -24,7 +24,7 @@ The default sort is **Merge readiness**:
 4. Merged and closed pull requests.
 5. Pull requests with a merge conflict.
 
-In each tier, a smaller diff comes first. A pull request with no known diff size comes after the others. Then the most recently updated comes first. **Created** and **Updated** are also available. The sort applies in each section, and Authored stays first.
+In each tier, a smaller diff comes first. A pull request with no known diff size comes after the others. Then the most recently updated comes first. Desktop, web and native mobile offer the same sort choices: **Merge readiness**, **Blocked on me**, **Recently updated**, **Newest created**, **Oldest updated**, **Smallest diff** and **Largest diff**. Blocked on me puts open PRs that need your review first. It also puts your own open PRs first when checks fail, changes are requested or a merge conflict exists. It uses the GitHub account of each host. Size sorts order the loaded results; an unknown size follows measured diffs. The sort applies in each section, and Authored stays first.
 
 ## Search
 
@@ -42,6 +42,57 @@ The search field accepts these GitHub qualifiers:
 | `status:success`, `status:failure` | Only pull requests whose checks pass, or fail |
 
 An unknown key is read as a label with that name, for example `size:XL`. Put a term in quotes to search for it as text.
+
+## Saved views and label filters
+
+Use **Saved views** to name the current query, host, project, state, involvement,
+labels, author, draft, review, checks, review-guide and review-lens filters, and sort.
+You can apply, rename or remove a view. Renaming preserves its filters. Views are
+personal settings (`prSavedViews`); account settings sync carries them between
+clients when sync is enabled. A view for a host that is not paired cannot be
+applied on mobile. Reconnect a host before applying an unavailable project view.
+
+The State choices are **Open**, **Merged**, **Closed** and **All**. Closed excludes
+merged PRs. The native app asks the host for closed records for a Merged view,
+then keeps only merged rows. Involvement has **Authored by me**, **Assigned to me**,
+**Review requested** and **Others**, in addition to **All**.
+
+**Include labels** and **Exclude labels** let you select several labels. Each
+included group must match; a group can contain alternatives. Saving and applying
+a view preserves those alternatives. Removing one label from an alternative
+group keeps its other labels. An excluded label always hides a matching row.
+Native guide and lens filters read saved review records from the host in batches.
+They show loading or Retry when those records cannot be read.
+
+## Reactions and URL inspection
+
+Reactions sit where GitHub puts them: under the description and under each
+conversation comment, review, and inline comment, on desktop, web, and the
+native app. Each reaction someone made shows as a pill with its count; a pill
+you made is tinted. Hover a pill (long-press on the native app) to see who
+reacted: you first, then up to three names, then how many more. Press a pill
+to add your reaction or take it back. The smiley button opens all eight
+reactions; it is in the bar, and in a comment's header (on hover, or always on
+touch). Where GitHub says you may not react (a locked conversation, an
+archived repository), or the host is offline, the pills only show.
+
+Reactions are not a read of their own. GitHub sends them with the reads the
+page already makes: the pull request detail, the conversation, and the review
+threads, each with `viewer { login }` and up to ten names for each reaction.
+Review threads carry ten comments each, and a longer thread is read from its
+own cursor, so a page of a hundred threads does not reserve 10,000 rows. A
+reaction shows at once; GitHub's answer to the write carries the target's new
+reactions, so no read follows it. A failed write puts back what was shown and
+says why. The server checks that the target is this pull request, or a visible
+comment or review on it, before it writes.
+
+Use **Inspect a PR URL** to read a GitHub PR without adding a project or preparing
+a checkout. Inspection reads the description, conversation and inline comments.
+It is read-only on every client and uses the selected host's GitHub connection.
+Other code hosts and invalid URLs give an error. The response has a text budget
+of 256,000 characters and bounds of 100 conversation entries, 50 threads, 100
+inline comments, 100 commits and 100 reviewers. A notice links to the full record
+on GitHub when content is omitted.
 
 ## Memory on this device
 
@@ -380,7 +431,7 @@ The iOS and Android app shows pull requests in the **Pull Requests** tab beside
 **Chats**. The tab lists the pull requests of every connected host in one list.
 Filter pills above the list choose the host, the project, the involvement, the
 labels, the author, drafts, the review state, the checks, and the sort. The app
-keeps these filters on the device. A saved host or project stays selected while
+keeps the active filters on the device. Named saved views also use personal settings sync. A saved host or project stays selected while
 that host is offline.
 
 A pull request opens with the tabs **Overview**, **Activity**, **Commits**,

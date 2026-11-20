@@ -1,0 +1,120 @@
+import type { RunningServer, StopRunningServerResult } from '@solus/contracts/running-servers'
+import { RunningServerScanner } from './scanner'
+
+const REFRESH_MS = 3000
+const LEASE_MS = 20_000
+
+export interface RunningServerRegistryDeps {
+  scanner: Pick<RunningServerScanner, 'scan' | 'identityMatches' | 'stopJob'>
+  publish: (clientIds: string[], servers: RunningServer[], error: string | null) => void
+  now: () => number
+  schedule: (tick: () => Promise<void>, delayMs: number) => () => void
+}
+
+/** One bounded scan for all clients. A disconnected client loses its lease. */
+export class RunningServerRegistry {
+  private readonly subscribers = new Map<string, { at: number; paths: string[] }>()
+  private servers: RunningServer[] = []
+  private signature = ''
+  private inFlight: Promise<RunningServer[]> | null = null
+  private timer: (() => void) | null = null
+  private scannedAt = -Infinity
+  private generation = 0
+
+  constructor(private readonly deps: RunningServerRegistryDeps) {}
+
+  async list(force = false): Promise<RunningServer[]> {
+    if (this.inFlight) return this.inFlight
+    if (!force && this.deps.now() - this.scannedAt < REFRESH_MS) return this.servers
+    const generation = this.generation
+    this.inFlight = this.deps.scanner.scan([...new Set([...this.subscribers.values()].flatMap((lease) => lease.paths))]).then((servers) => {
+      if (generation !== this.generation) return servers
+      this.scannedAt = this.deps.now()
+      this.servers = servers
+      const signature = JSON.stringify(servers)
+      if (signature !== this.signature) {
+        this.signature = signature
+        this.deps.publish([...this.subscribers.keys()], servers, null)
+      }
+      return servers
+    }).finally(() => { this.inFlight = null })
+    return this.inFlight
+  }
+
+  async watch(clientId: string, paths: string[] = []): Promise<RunningServer[]> {
+    const changed = JSON.stringify(this.subscribers.get(clientId)?.paths ?? []) !== JSON.stringify(paths)
+    this.subscribers.set(clientId, { at: this.deps.now(), paths })
+    if (changed && this.inFlight) await this.inFlight
+    try { return await this.list(changed) } finally { this.schedule() }
+  }
+
+  unwatch(clientId: string): void {
+    this.subscribers.delete(clientId)
+    if (!this.subscribers.size && this.timer) {
+      this.timer()
+      this.timer = null
+    }
+  }
+
+  stop(): void {
+    this.generation++
+    this.subscribers.clear()
+    if (this.timer) this.timer()
+    this.timer = null
+  }
+
+  async stopServer(serverId: string): Promise<StopRunningServerResult> {
+    // The client sends an opaque id, never a PID it wants us to kill.
+    const selected = this.servers.find((server) => server.serverId === serverId)
+    if (!selected) return { status: 'already-exited' }
+    if (!selected.actions.canStop) return { status: 'refused', reason: 'not-permitted' }
+    const current = await this.list(true)
+    const server = current.find((candidate) => candidate.serverId === serverId)
+    if (!server) return current.some((candidate) => candidate.process.pid === selected.process.pid)
+      ? { status: 'refused', reason: 'identity-changed' }
+      : { status: 'already-exited' }
+    if (!server.actions.canStop || !await this.deps.scanner.identityMatches(server)) return { status: 'refused', reason: 'identity-changed' }
+    const result = await this.deps.scanner.stopJob(server)
+    this.scannedAt = -Infinity
+    await this.list(true)
+    return result
+  }
+
+  identityMatches(server: RunningServer): Promise<boolean> { return this.deps.scanner.identityMatches(server) }
+
+  private schedule(): void {
+    if (this.timer || !this.subscribers.size) return
+    this.timer = this.deps.schedule(async () => {
+      this.timer = null
+      await this.tick()
+    }, REFRESH_MS)
+  }
+
+  private async tick(): Promise<void> {
+    for (const [clientId, lease] of this.subscribers) if (this.deps.now() - lease.at >= LEASE_MS) this.subscribers.delete(clientId)
+    if (!this.subscribers.size) return
+    try { await this.list(true) } catch (error) {
+      this.signature = ''
+      this.deps.publish([...this.subscribers.keys()], [], error instanceof Error ? error.message : 'Cannot scan running servers.')
+    } finally { this.schedule() }
+  }
+}
+
+let registry: RunningServerRegistry | null = null
+export function initRunningServers(publish: RunningServerRegistryDeps['publish']): RunningServerRegistry {
+  registry?.stop()
+  registry = new RunningServerRegistry({
+    scanner: new RunningServerScanner(), publish,
+    now: Date.now,
+    schedule: (tick, delayMs) => {
+      const timer = setTimeout(() => void tick(), delayMs)
+      timer.unref()
+      return () => clearTimeout(timer)
+    },
+  })
+  return registry
+}
+export function runningServers(): RunningServerRegistry {
+  if (!registry) throw new Error('Running server discovery is not initialized')
+  return registry
+}

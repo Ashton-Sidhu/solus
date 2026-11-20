@@ -23,6 +23,7 @@ export function composerFieldsFor(kind: TaskSource['kind'] | undefined): TaskCom
   switch (kind) {
     case 'github-repo':
       return { labels: true, planning: false }
+    case 'linear-team':
     case 'jira-project':
     case 'jira-board':
       return { labels: true, planning: true }

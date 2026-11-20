@@ -7,6 +7,7 @@ import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { withUserScope } from '../vault/acting-scope'
 import { AppProjectError, readAppBuild, type AppBuild } from './app-project'
+import { appNode } from './app-node'
 
 const log = createLogger('apps', 'app-builder.ts')
 
@@ -57,7 +58,7 @@ export interface AppBuilder {
 export interface HostAppBuilderOptions {
   /** The host's bundler: the `bundle-artifact.mjs` of the installed Solus plugin. */
   bundler: () => string
-  /** The Node that runs the bundler. The host's own by default. */
+  /** The Node that runs the bundler. Electron and Bun hosts use Node from the host's PATH. */
   node?: string
   root?: () => string
 }
@@ -78,7 +79,7 @@ function tail(text: string): string {
 function runStep(file: string, args: readonly string[], cwd: string, timeoutMs: number, extraEnv: NodeJS.ProcessEnv = {}): Promise<string> {
   // A build is the host's own work, not a person's process.
   return withUserScope(null, () => new Promise<string>((resolve, reject) => {
-    const env = hostCliEnv({ ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1', npm_config_update_notifier: 'false', ...extraEnv })
+    const env = hostCliEnv({ NODE_NO_WARNINGS: '1', npm_config_update_notifier: 'false', ...extraEnv })
     const command = startableCommand(file, env)
     const child = spawn(command.file, [...command.args, ...args], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
@@ -120,7 +121,7 @@ export class HostAppBuilder implements AppBuilder {
   }
 
   private node(): string {
-    return this.options.node ?? process.execPath
+    return this.options.node ?? appNode()
   }
 
   buildRevision(appId: string, checkout: (folder: string) => Promise<void>): Promise<AppBuildResult> {

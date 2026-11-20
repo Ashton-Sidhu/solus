@@ -1,3 +1,4 @@
+import { TaskInspectionStore } from '@solus/client-core/task-inspection'
 // One task, as this client can read and act on it.
 //
 // GitHub and Jira own every task (docs/plans/provider-owned-tasks.md). A host
@@ -64,6 +65,7 @@ export class Task implements TaskRecord {
   state = $state<TaskState>({ name: '', category: 'open' })
   category = $state<TaskStatusCategory>('open')
   placements = $state<TaskPlacement[]>([])
+  assignees = $state<TaskRecord['assignees']>([])
   assignee = $state<string | undefined>()
   assigneeAvatarUrl = $state<string | undefined>()
   labels = $state<string[]>([])
@@ -78,6 +80,7 @@ export class Task implements TaskRecord {
 
   // --- What this client knows besides the row -----------------------------
 
+  readonly inspection: TaskInspectionStore
   readonly #store: TasksStore
 
   /** Whether any host has described this task yet. `TasksStore.get` mints a task
@@ -113,6 +116,10 @@ export class Task implements TaskRecord {
   constructor(store: TasksStore, id: string) {
     this.#store = store
     this.id = id
+    this.inspection = new TaskInspectionStore(id, () => {
+      if (!this.serverId) throw new Error('The task host is disconnected.')
+      return serverConnections.apiFor(this.serverId)
+    })
   }
 
   // --- Answers ------------------------------------------------------------
@@ -128,7 +135,9 @@ export class Task implements TaskRecord {
   }
 
   set serverId(serverId: string | null) {
+    if (this.#serverId === serverId) return
     this.#serverId = serverId
+    this.inspection.reset()
   }
 
   /** Hidden while its Undo toast is up. The draft still exists on the provider
@@ -572,7 +581,7 @@ export class Task implements TaskRecord {
    * `serverId` names the host that read the task from its provider.
    */
   hydrate(record: TaskRecord | TaskSummary, serverId?: string): this {
-    if (serverId) this.#serverId = serverId
+    if (serverId) this.serverId = serverId
     // A draft inside its Undo window still exists on the provider, so a refresh
     // landing here would otherwise put it straight back on screen.
     if (this.#hiddenForUndo) return this
@@ -590,6 +599,7 @@ export class Task implements TaskRecord {
     }
     this.url = record.url
     this.category = record.category
+    if (JSON.stringify(this.assignees) !== JSON.stringify(record.assignees ?? [])) this.assignees = record.assignees ?? []
     this.assignee = record.assignee
     this.assigneeAvatarUrl = record.assigneeAvatarUrl
     this.dueDate = record.dueDate

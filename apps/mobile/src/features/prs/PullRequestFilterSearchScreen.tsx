@@ -56,7 +56,7 @@ export function PullRequestFilterSearchScreen({ navigation, route }: ScreenProps
     let current = true
     setAnswer({ kind: 'loading' })
     const timer = setTimeout(() => {
-      void app.pullRequestActions.filterOptions(projects, field, query.trim()).then((choices) => {
+      void app.pullRequestActions.filterOptions(projects, field === 'exclude-label' ? 'label' : field, query.trim()).then((choices) => {
         if (current) setAnswer({ kind: 'loaded', choices })
       })
     }, SEARCH_DELAY_MS)
@@ -66,20 +66,20 @@ export function PullRequestFilterSearchScreen({ navigation, route }: ScreenProps
     }
   }, [app, field, query, projects])
 
-  const selected = new Set(field === 'label' ? (preferences.filters.labels?.flat() ?? []) : [preferences.filters.author ?? ''])
+  const selected = new Set(field === 'author' ? [preferences.filters.author ?? ''] : field === 'exclude-label' ? preferences.filters.excludedLabels ?? [] : preferences.filters.labels?.flat() ?? [])
   const choose = (value: string) => {
     const next = pullRequestListMenuChoice(JSON.stringify([field, value]), { value: preferences, hostIds, projects: [] })
     if (!next) return
     setPullRequestPreferences(next)
     if (field === 'author') navigation.goBack()
   }
-  const noun = field === 'label' ? 'labels' : 'authors'
+  const noun = field !== 'author' ? 'labels' : 'authors'
 
   return (
     <View className="flex-1 bg-sheet">
       <SheetHeader
         presentation={Platform.OS === 'android' ? 'inline' : 'native'}
-        title={field === 'label' ? 'Labels' : 'Author'}
+        title={field === 'exclude-label' ? 'Exclude labels' : field === 'label' ? 'Include labels' : 'Author'}
         onClose={() => navigation.goBack()}
         accessibilityLabel={`Close ${noun} search`}
       />
@@ -110,8 +110,8 @@ export function PullRequestFilterSearchScreen({ navigation, route }: ScreenProps
           const color = pullRequestLabelColor(item.color)
           return (
             <Pressable
-              accessibilityRole={field === 'label' ? 'checkbox' : 'button'}
-              accessibilityState={field === 'label' ? { checked: on } : { selected: on }}
+              accessibilityRole={field !== 'author' ? 'checkbox' : 'button'}
+              accessibilityState={field !== 'author' ? { checked: on } : { selected: on }}
               onPress={() => choose(item.value)}
               className="min-h-13 flex-row items-center gap-3 border-b border-border-subtle px-4 py-3 active:opacity-70"
             >

@@ -330,3 +330,36 @@ describe('a task that became yours', () => {
     expect(await notificationsOf(ALICE)).toEqual([])
   })
 })
+
+describe('explicit source continuation', () => {
+  test('append keeps the first page and does not replace its placements', async () => {
+    host.providers.answer(REPO, { ...repoRead([githubIssue(1)]), truncated: true, nextCursor: 'page2' })
+    await ask([REPO], ALICE)
+    host.providers.answer(REPO, { ...repoRead([githubIssue(2)]), nextCursor: null })
+    await sources.loadMoreTaskSource(REPO, ALICE)
+    expect(await titlesFor(ALICE)).toEqual(['Issue 1', 'Issue 2'])
+    const [state] = await sources.tasksSources([REPO], ALICE)
+    expect(state.nextCursor).toBeUndefined()
+    expect(state.truncated).toBeUndefined()
+  })
+  test('a caller who never read a source cannot continue another person’s cache', async () => {
+    host.providers.answer(REPO, { ...repoRead([githubIssue(1)]), truncated: true, nextCursor: 'page2' })
+    await ask([REPO], ALICE)
+    await expect(sources.loadMoreTaskSource(REPO, BOB)).rejects.toThrow('Read this source')
+    expect(await titlesFor(BOB)).toEqual([])
+  })
+})
+
+test('a failed source page retains its cursor and rows for retry', async () => {
+  host.providers.answer(REPO, { ...repoRead([githubIssue(1)]), truncated: true, nextCursor: 'page2' })
+  await ask([REPO], ALICE)
+  host.providers.failure = new Error('rate limited')
+  await expect(sources.loadMoreTaskSource(REPO, ALICE)).rejects.toThrow('rate limited')
+  const [failed] = await sources.tasksSources([REPO], ALICE)
+  expect(failed.nextCursor).toBe('page2')
+  expect(await titlesFor(ALICE)).toEqual(['Issue 1'])
+  host.providers.failure = null
+  host.providers.answer(REPO, { ...repoRead([githubIssue(2)]), nextCursor: null })
+  await sources.loadMoreTaskSource(REPO, ALICE)
+  expect(await titlesFor(ALICE)).toEqual(['Issue 1', 'Issue 2'])
+})

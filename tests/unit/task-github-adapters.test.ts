@@ -757,3 +757,35 @@ describe('a GitHub Project source', () => {
     expect(restCalls).toHaveLength(0)
   })
 })
+
+test('repository continuation starts after the last retained page, without losing issues', async () => {
+  const github = fakeGithub(({ variables }) => {
+    const previous = typeof variables.cursor === 'string' ? Number(variables.cursor) : 0
+    return { repository: { issues: { nodes: [issueNode({ id: `I_${previous + 1}`, number: previous + 1 })], pageInfo: { hasNextPage: previous < 4, endCursor: String(previous + 1) } } } }
+  })
+  const source = new GitHubRepoSource(github.run)
+  const first = await source.read({ kind: 'github-repo', owner: 'acme', repo: 'app' })
+  expect(first.items.map((item) => item.task.ref.id)).toEqual(['I_1', 'I_2', 'I_3', 'I_4'])
+  expect(github.graphqlCalls).toHaveLength(4)
+  expect(JSON.parse(first.nextCursor!)).toEqual({ state: 'OPEN', cursor: '4' })
+})
+
+test('writing multiple assignees retains the complete written set despite a stale GraphQL read', async () => {
+  const github = fakeGithub(() => ({ repository: { issue: issueNode() } }), { update: () => ({}) })
+  const provider = new GitHubTaskProvider(github.run)
+  const task = await provider.update({ provider: 'github', kind: 'issue', owner: 'acme', repo: 'app', number: 7 }, { assignees: ['ada', 'grace'] })
+  expect(github.restCalls[0]?.params.assignees).toEqual(['ada', 'grace'])
+  expect(task.assignees?.map((person) => person.login)).toEqual(['ada', 'grace'])
+})
+
+
+test('authored and assigned task searches remain distinct for repositories and Projects', async () => {
+  const { run, restCalls } = fakeGithub(() => ({}), { issuesAndPullRequests: () => ({ items: [] }) })
+  for (const [source, adapter] of [[REPO_SOURCE, new GitHubRepoSource(run)], [PROJECT_SOURCE, new GitHubProjectSource(run)]] as const) {
+    await adapter.search(source, 'fix', 'authored')
+    expect(restCalls.at(-1)?.params.q).toContain('author:@me')
+    await adapter.search(source, 'fix', 'assigned')
+    expect(restCalls.at(-1)?.params.q).toContain('assignee:@me')
+    expect(restCalls.at(-1)?.params.q).not.toContain('author:@me')
+  }
+})

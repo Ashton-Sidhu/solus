@@ -27,6 +27,8 @@ export interface ConversationRun {
   organizationId: string | null
   /** The new session is a lead (`LeadSessionChoice`); only the prompt that starts it says so. */
   lead?: boolean
+  /** The new session starts in a new worktree from this branch; null works in the project folder. Only the prompt that starts it says so. */
+  worktreeBaseBranch?: string | null
 }
 
 /** The person's settings a new run starts from (plans/018: personal, not the host's). */
@@ -55,7 +57,7 @@ export function conversationContext(run: ConversationRun, settings: RunSettings,
       fastMode: run.fastMode,
       permissionMode: run.permissionMode,
       gitContext: null,
-      worktreeBaseBranch: null,
+      worktreeBaseBranch: run.worktreeBaseBranch ?? null,
       readOnlyReason: null,
       title: run.title,
       organizationId: run.organizationId ?? undefined,

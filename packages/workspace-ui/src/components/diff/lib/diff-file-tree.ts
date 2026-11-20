@@ -6,14 +6,6 @@ import { FILE_TREE_THEME_CSS } from "../../../lib/fileTreeTheme";
 import { createRowDecorationRenderer } from "../../../lib/diffTreeAdapter";
 
 const DIFF_TREE_CSS = `
-  [data-type='item'][data-item-selected='true']::after {
-    content: '';
-    position: absolute;
-    top: 0.1875rem; bottom: 0.1875rem; left: 0;
-    width: 0.1563rem;
-    border-radius: 0 0.1875rem 0.1875rem 0;
-    background: var(--solus-accent);
-  }
   [data-type='item'][data-item-selected='true']::before {
     outline-color: transparent !important;
   }

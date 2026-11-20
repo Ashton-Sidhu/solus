@@ -27,6 +27,7 @@ import {
   type BrowserAppearance,
   type BrowserCloseResult,
   type BrowserFrameCaps,
+  type BrowserFrameHeader,
   type BrowserDetachReason,
   type BrowserInteractOp,
   type BrowserInteractResult,
@@ -171,6 +172,8 @@ export class BrowserRegistry {
   /** The per-page frame counter, so a client can drop a frame that decoded
    *  slower than its successor. */
   private frameSeq = new Map<string, number>()
+  /** A joining viewer needs a picture even when the guest has stopped repainting. */
+  private latestFrames = new Map<string, { header: BrowserFrameHeader; data: Uint8Array }>()
   /** One pending announcement per page that an agent has stopped using it.
    *  Held so a close, a shutdown, or a fresh verb cancels the old one rather
    *  than letting a stale timer clear a use that started since. */
@@ -305,6 +308,7 @@ export class BrowserRegistry {
     this.frameCaps.delete(browserPageId)
     this.streamStarts.delete(browserPageId)
     this.frameSeq.delete(browserPageId)
+    this.latestFrames.delete(browserPageId)
     await this.queueDriver(record, async () => {
       await record.driver?.dispose().catch(() => {})
       record.driver = null
@@ -993,7 +997,11 @@ export class BrowserRegistry {
         }
       }).catch(() => {})
     }
-    if (!startup) return
+    if (!startup) {
+      const latest = this.latestFrames.get(browserPageId)
+      if (latest) this.frames.publish([clientId], latest.header, latest.data)
+      return
+    }
     // The first watcher is what starts the guest. If it cannot be hosted — no
     // headless engine on this host — drop the watcher again so a retry is a
     // fresh first subscribe rather than a no-op against a page that never
@@ -1090,6 +1098,7 @@ export class BrowserRegistry {
     this.frameWatchers.delete(browserPageId)
     this.frameCaps.delete(browserPageId)
     this.frameSeq.delete(browserPageId)
+    this.latestFrames.delete(browserPageId)
     if (record) {
       await this.queueDriver(record, async () => {
         await record.driver?.stopScreencast().catch(() => {})
@@ -1123,6 +1132,7 @@ export class BrowserRegistry {
     const options = this.recorders.has(browserPageId)
       ? recordingScreencastOptions(record.page.viewport)
       : this.viewerOptions(record)
+    this.latestFrames.delete(browserPageId)
     await driver.startScreencast(options, (frame) => {
       // Read per frame, not captured: a recording that starts or stops while
       // the stream runs must not need a second stream.
@@ -1133,7 +1143,9 @@ export class BrowserRegistry {
       if (clientIds.length === 0) return
       const seq = (this.frameSeq.get(browserPageId) ?? 0) + 1
       this.frameSeq.set(browserPageId, seq)
-      this.frames.publish(clientIds, { browserPageId, seq }, frame)
+      const header = { browserPageId, seq }
+      this.latestFrames.set(browserPageId, { header, data: frame })
+      this.frames.publish(clientIds, header, frame)
     })
   }
 
@@ -1266,6 +1278,7 @@ export class BrowserRegistry {
     this.frameWatchers.clear()
     this.streamStarts.clear()
     this.frameSeq.clear()
+    this.latestFrames.clear()
   }
 
   private async pointOf(

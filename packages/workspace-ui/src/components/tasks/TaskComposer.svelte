@@ -33,6 +33,11 @@
     composerFieldsFor,
   } from "./lib/task-composer";
   import type { TaskCreateInput, TaskPriority, TaskSourceState } from "@solus/contracts/task-types";
+  import { TaskTemplateStore } from '@solus/client-core/task-inspection';
+  import type { TaskTemplate } from '@solus/contracts/task-inspection';
+  import { taskHostId } from '../../contexts/tasks/task-sources.store.svelte';
+  import { serverConnections } from '@solus/client-core/server-connections';
+  import { localApi } from '@solus/client-core/local-api';
   import { taskSourceProvider } from "@solus/contracts/task-sources";
   import { formatComboText } from "../../lib/keybindings/match";
 
@@ -85,6 +90,41 @@
 
   const session = getSurfaceContext();
 
+  const templateStore = new TaskTemplateStore();
+  let templates = $state<TaskTemplate[]>([]);
+  let templatesError = $state<string | null>(null);
+  let templateGeneration = 0;
+  let pendingTemplate = $state<TaskTemplate | null>(null);
+  let templateAssignees = $state<string[]>([]);
+  $effect(() => {
+    const chosen = source?.source;
+    const hostId = taskHostId();
+    const generation = ++templateGeneration;
+    templates = [];
+    templateAssignees = [];
+    pendingTemplate = null;
+    templatesError = null;
+    if (chosen && hostId) void templateStore.load(serverConnections.apiFor(hostId), chosen).then(() => {
+      if (generation !== templateGeneration) return;
+      templates = templateStore.templates;
+      templatesError = templateStore.error;
+    });
+  });
+  function applyTemplate(templateId: string) {
+    const template = templates.find((candidate) => candidate.id === templateId);
+    if (!template) return;
+    if (template.url) { void localApi.openExternal(template.url); return; }
+    if (title.trim() || body.trim()) { pendingTemplate = template; return; }
+    commitTemplate(template);
+  }
+  function commitTemplate(template: TaskTemplate) {
+    title = template.title;
+    body = template.body;
+    labels = template.labels ?? [];
+    templateAssignees = template.assignees ?? [];
+    pendingTemplate = null;
+    void tick().then(() => titleEl?.focus());
+  }
   let title = $state("");
   let body = $state("");
   // ISO calendar day (YYYY-MM-DD), empty when unset.
@@ -204,6 +244,7 @@
         dueDate: fields.planning ? dueDate || undefined : undefined,
         priority: fields.planning ? priority || undefined : undefined,
         labels: fields.labels && labels.length ? [...labels] : undefined,
+        assignees: templateAssignees.length ? [...templateAssignees] : undefined,
       });
     } catch {
       // The caller showed a toast; keep the modal open so the user can retry.
@@ -329,6 +370,19 @@
     aria-label="New task"
     aria-modal="true"
   >
+    {#if templates.length}
+      <label class="grid gap-1 px-5 pt-4 text-workspace-chrome">Issue template
+        <select name="issue-template" class="rounded-md border border-input bg-transparent p-2" onchange={(event) => applyTemplate(event.currentTarget.value)}>
+          <option value="">Choose a template</option>
+          {#each templates as template (template.id)}<option value={template.id}>{template.name}{template.url ? ' · Open form on provider' : ''}</option>{/each}
+        </select>
+      </label>
+    {/if}
+    {#if pendingTemplate}
+      <div class="flex items-center gap-2 px-5 pt-3 text-sm"><span class="min-w-0 flex-1">Replace the draft with {pendingTemplate.name}?</span><button type="button" class="rounded-md p-2 hover:bg-muted" onclick={() => { if (pendingTemplate) commitTemplate(pendingTemplate); }}>Replace draft</button><button type="button" class="rounded-md p-2 hover:bg-muted" onclick={() => pendingTemplate = null}>Keep draft</button></div>
+    {/if}
+    {#if templateAssignees.length}<p class="px-5 pt-2 text-sm text-muted-foreground">Template assignees: {templateAssignees.join(', ')}</p>{/if}
+    {#if templatesError}<p class="px-5 pt-3 text-sm text-destructive">Could not load templates: {templatesError}</p>{/if}
     <!-- Header: the title IS the header. The panel's own name was noise, so the
          field the user types into takes that line, with the window controls on
          its right. The placeholder stays visibly softer than entered text so

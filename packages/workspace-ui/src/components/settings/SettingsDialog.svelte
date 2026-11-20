@@ -21,7 +21,10 @@
 
 <Dialog.Root open onOpenChange={(open) => { if (!open) close(); }}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-50 modal-backdrop" />
+    <!-- In the app's dialog band (10000), not z-50. The desktop workspace is not
+         its own stacking context, so its layers (up to 9999) paint over anything
+         lower. Dialogs that Settings opens sit at 10001; menus stay above at 10002. -->
+    <Dialog.Overlay class="fixed inset-0 z-[10000] modal-backdrop" />
     <Dialog.Content
       bind:ref={content}
       aria-label="Settings"
@@ -29,7 +32,7 @@
       data-settings-dialog
       onOpenAutoFocus={(event) => { event.preventDefault(); content?.focus(); }}
       onCloseAutoFocus={(event) => { event.preventDefault(); requestInputFocus(); }}
-      class="no-drag @container/pane fixed top-1/2 left-1/2 z-50 flex h-[min(76rem,88dvh)] w-[min(104rem,88%)] min-w-0 -translate-1/2 overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl outline-none dark:shadow-none [--solus-page-top-inset:0px]"
+      class="no-drag @container/pane fixed top-1/2 left-1/2 z-[10000] flex h-[min(76rem,88dvh)] w-[min(104rem,88%)] min-w-0 -translate-1/2 overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl outline-none dark:shadow-none [--solus-page-top-inset:0px]"
     >
       <Dialog.Title class="sr-only">Settings</Dialog.Title>
       <Dialog.Description class="sr-only">Change Solus settings. Close to return to your workspace.</Dialog.Description>

@@ -5,6 +5,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { recordVisibleInWindow } from '../../lib/organization-filter'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
+import { isSolusApiId } from '@solus/contracts/uplink'
 import { RUN_GRAPH_WINDOW } from './run-graph-window'
 
 // Renderer-side cache + RPC wrapper for automations. Mirrors WorksStore: the UI
@@ -30,12 +31,11 @@ export class AutomationsStore {
   private hostByAutomationId = new SvelteMap<string, string>()
   private loadedServerIds = new SvelteSet<string>()
   private loadingServerIds = new SvelteSet<string>()
-  private loadingCountByServerId = new Map<string, number>()
   readonly loadErrors = new SvelteMap<string, string>()
   private hostWatches = new Map<string, { count: number; stop: () => void }>()
   private revision = 0
   private revisions = new Map<string, number>()
-  private listLoads = new Map<string, Promise<void>>()
+  private hostLoads = new Map<string, Promise<void>>()
 
   /** A soft-deleted row awaiting its undo window. Hidden from `items` but not yet
    *  deleted on disk; filtered out of `loadAll` so a refresh can't resurrect it. */
@@ -96,94 +96,85 @@ export class AutomationsStore {
 
   /** Load one machine, or every connected host. */
   loadAll(serverId?: string): Promise<void> {
-    return serverId === undefined ? this.loadHosts(serverConnections.connectedServerIds(), '*') : this.loadHosts([serverId])
+    return this.loadHosts(serverId === undefined ? serverConnections.connectedServerIds() : [serverId])
   }
 
-  /** Load the named machines. A host without the automations capability (the
-   *  Solus API) answers nothing. */
-  loadHosts(scope: readonly string[], loadKey?: string): Promise<void> {
-    const serverIds = loadKey === '*' ? scope : scope.map((serverId) => serverConnections.resolveId(serverId))
-    loadKey ??= serverIds.join('\n')
-    const existingLoad = this.listLoads.get(loadKey)
+  /** Load the named machines. Each host is read once at a time, whoever asks:
+   *  a load of every host and a load of one host share that host's read. */
+  async loadHosts(scope: readonly string[]): Promise<void> {
+    await Promise.all(scope.map((serverId) => this.loadHost(serverConnections.resolveId(serverId))))
+    this.loaded = true
+  }
+
+  private loadHost(serverId: string): Promise<void> {
+    const existingLoad = this.hostLoads.get(serverId)
     if (existingLoad) return existingLoad
-    for (const targetServerId of serverIds) {
-      this.loadingCountByServerId.set(targetServerId, (this.loadingCountByServerId.get(targetServerId) ?? 0) + 1)
-      this.loadingServerIds.add(targetServerId)
-    }
-    this.loading = this.loadingServerIds.size > 0
+    this.loadingServerIds.add(serverId)
+    this.loading = true
+    const load = this.readHost(serverId).finally(() => {
+      this.hostLoads.delete(serverId)
+      this.loadingServerIds.delete(serverId)
+      this.loadedServerIds.add(serverId)
+      this.loading = this.loadingServerIds.size > 0
+    })
+    this.hostLoads.set(serverId, load)
+    return load
+  }
+
+  /** A host without the automations capability answers nothing. The Solus API
+   *  holds no automations, so it is not asked. Another host's capabilities are
+   *  read beside its list, not before it: the list request does not wait a
+   *  round trip for them. */
+  private async readHost(serverId: string): Promise<void> {
+    if (isSolusApiId(serverId)) return
     const startedRevision = this.revision
-    const listLoad = (async () => {
-      try {
-        const results = await Promise.all(serverIds.map(async (serverId) => {
-          try {
-            const capabilities = await serverConnections.capabilitiesFor(serverId)
-            if (capabilities.automations !== true) return { serverId }
-            const api = serverConnections.apiFor(serverId)
-            const [list, recentRuns] = await Promise.all([
-              api.automationList(),
-              // A host older than this client has no run graphs; the list still loads.
-              api.automationRecentRuns(RUN_GRAPH_WINDOW).catch((): AutomationRunPoint[] => []),
-            ])
-            return { serverId, list, recentRuns }
-          } catch (error) {
-            console.error('automation list host load failed', serverId, error)
-            return { serverId, error }
-          }
-        }))
-        const pendingId = this.pendingDelete?.automation.id
-        for (const result of results) {
-          if (!result.list) {
-            if (result.error) this.loadErrors.set(result.serverId, 'Schedule state is unavailable. Reconnect or retry.')
-            continue
-          }
-          this.loadErrors.delete(result.serverId)
-          const runsByAutomation = new Map<string, AutomationRunPoint[]>()
-          for (const run of result.recentRuns) {
-            const runs = runsByAutomation.get(run.automationId)
-            if (runs) runs.push(run)
-            else runsByAutomation.set(run.automationId, [run])
-          }
-          const liveIds = new Set<string>()
-          for (const automation of result.list) {
-            liveIds.add(automation.id)
-            if ((this.revisions.get(automation.id) ?? 0) > startedRevision) continue
-            this.hostByAutomationId.set(automation.id, result.serverId)
-            this.recentRuns.set(automation.id, runsByAutomation.get(automation.id) ?? [])
-            if (automation.id !== pendingId) this.upsert(automation)
-          }
-          // Only a host that answered can confirm deletion of its own rows. A
-          // failed host cannot evict another host's automations from the union.
-          for (let index = this.items.length - 1; index >= 0; index--) {
-            const automation = this.items[index]
-            if (this.hostByAutomationId.get(automation.id) !== result.serverId) continue
-            if ((this.revisions.get(automation.id) ?? 0) > startedRevision) continue
-            if (liveIds.has(automation.id) || automation.id === pendingId) continue
-            this.items.splice(index, 1)
-            this.runs.delete(automation.id)
-            this.recentRuns.delete(automation.id)
-            this.hostByAutomationId.delete(automation.id)
-          }
-        }
-        this.loaded = true
-      } catch (err) {
-        console.error('automation list load failed', err)
-      } finally {
-        for (const targetServerId of serverIds) {
-          const remainingLoads = (this.loadingCountByServerId.get(targetServerId) ?? 1) - 1
-          if (remainingLoads === 0) {
-            this.loadingCountByServerId.delete(targetServerId)
-            this.loadingServerIds.delete(targetServerId)
-          } else {
-            this.loadingCountByServerId.set(targetServerId, remainingLoads)
-          }
-          this.loadedServerIds.add(targetServerId)
-        }
-        this.loading = this.loadingServerIds.size > 0
-        this.listLoads.delete(loadKey)
-      }
-    })()
-    this.listLoads.set(loadKey, listLoad)
-    return listLoad
+    let list: Automation[]
+    let recentRuns: AutomationRunPoint[]
+    try {
+      const api = serverConnections.apiFor(serverId)
+      const read = Promise.all([
+        api.automationList(),
+        // A host older than this client has no run graphs; the list still loads.
+        api.automationRecentRuns(RUN_GRAPH_WINDOW).catch((): AutomationRunPoint[] => []),
+      ])
+      // A host without the capability fails the list read; that answer is not an error.
+      read.catch(() => {})
+      const capabilities = await serverConnections.capabilitiesFor(serverId)
+      if (capabilities.automations !== true) return
+      ;[list, recentRuns] = await read
+    } catch (error) {
+      console.error('automation list host load failed', serverId, error)
+      this.loadErrors.set(serverId, 'Schedule state is unavailable. Reconnect or retry.')
+      return
+    }
+    this.loadErrors.delete(serverId)
+    const pendingId = this.pendingDelete?.automation.id
+    const runsByAutomation = new Map<string, AutomationRunPoint[]>()
+    for (const run of recentRuns) {
+      const runs = runsByAutomation.get(run.automationId)
+      if (runs) runs.push(run)
+      else runsByAutomation.set(run.automationId, [run])
+    }
+    const liveIds = new Set<string>()
+    for (const automation of list) {
+      liveIds.add(automation.id)
+      if ((this.revisions.get(automation.id) ?? 0) > startedRevision) continue
+      this.hostByAutomationId.set(automation.id, serverId)
+      this.recentRuns.set(automation.id, runsByAutomation.get(automation.id) ?? [])
+      if (automation.id !== pendingId) this.upsert(automation)
+    }
+    // Only a host that answered can confirm deletion of its own rows. A
+    // failed host cannot evict another host's automations from the union.
+    for (let index = this.items.length - 1; index >= 0; index--) {
+      const automation = this.items[index]
+      if (this.hostByAutomationId.get(automation.id) !== serverId) continue
+      if ((this.revisions.get(automation.id) ?? 0) > startedRevision) continue
+      if (liveIds.has(automation.id) || automation.id === pendingId) continue
+      this.items.splice(index, 1)
+      this.runs.delete(automation.id)
+      this.recentRuns.delete(automation.id)
+      this.hostByAutomationId.delete(automation.id)
+    }
   }
 
   get(id: string): Automation | undefined {

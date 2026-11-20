@@ -13,6 +13,7 @@ runes.$derived = Object.assign(<T>(value: T) => value, { by: <T>(fn: () => T) =>
 runes.$effect = Object.assign(() => {}, { root: () => () => {}, pre: () => {}, tracking: () => false })
 afterAll(() => Object.assign(runes, previousRunes))
 const { PromptDispatch } = await import('@solus/workspace-ui/contexts/workspace/prompt-dispatch')
+const { sendOutbox } = await import('@solus/client-core/send-outbox')
 
 // The first send of a new session goes to a host that may be far away. Each
 // reply the send waits for is a round trip before the host starts any work, so
@@ -33,6 +34,7 @@ function harness(opts: { worktreeBaseBranch: string | null; startTarget: Promise
   const session = {
     id: 'session-1',
     agentSessionId: null,
+    status: 'connecting',
     outboundPrompts: [],
     prompt: { text: '' },
     run: {
@@ -68,7 +70,7 @@ function harness(opts: { worktreeBaseBranch: string | null; startTarget: Promise
     },
   }
   const dispatch = new PromptDispatch(workspace as never)
-  return { calls, watchReply, dispatch, sentOptions, confirmed }
+  return { calls, watchReply, dispatch, sentOptions, confirmed, session }
 }
 
 /** Let every queued step of the send run. */
@@ -115,6 +117,30 @@ describe('promptTab', () => {
     await settle()
     expect(calls).toEqual(['watchSession'])
     refresh.resolve()
+    await settle()
+    expect(calls).toEqual(['watchSession', 'prompt'])
+  })
+
+  test('Stop before the prompt reaches the host withdraws it, so the stopped turn never starts', async () => {
+    // WHY: Ctrl+C right after Send reaches the host while this send still
+    // waits. The host has no turn to stop then, so a prompt sent after it
+    // would start the turn the person stopped, and the tab would show it running.
+    const refresh = deferred()
+    const { calls, dispatch, session } = harness({ worktreeBaseBranch: null, startTarget: refresh.promise })
+    dispatch.promptTab('tab-1', { prompt: 'hello', displayPrompt: 'hello', clientPromptId: 'prompt-1' })
+    session.status = 'interrupted'
+    refresh.resolve()
+    await settle()
+    expect(calls).toEqual(['watchSession'])
+    expect(sendOutbox.entriesFor('remote-host')).toEqual([])
+    expect(session.prompt.text).toBe('hello')
+  })
+
+  test('Stop of the running turn does not withdraw a prompt queued behind it', async () => {
+    const { calls, dispatch, session } = harness({ worktreeBaseBranch: null, startTarget: null })
+    session.status = 'interrupted'
+    session.outboundPrompts.push({ clientPromptId: 'prompt-2', text: 'next', state: 'queueing', enqueuedAt: 0 })
+    dispatch.promptTab('tab-1', { prompt: 'next', displayPrompt: 'next', clientPromptId: 'prompt-2' })
     await settle()
     expect(calls).toEqual(['watchSession', 'prompt'])
   })

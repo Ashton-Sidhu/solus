@@ -2,6 +2,8 @@ import type { HostUpdateStatus, ProviderUpdateStatus, UpdateCheckState } from '@
 import type { ProviderRow } from '../../servers/lib/host-onboarding'
 import type { SetupAgent } from '@solus/contracts/types'
 import { formatCheckedAt } from '../../settings/lib/update-status-text'
+import { isProviderUpdateActive } from '@solus/contracts/host-update-types'
+import { providerUpdateDetail } from '@solus/client-core/provider-update-text'
 
 export function checkStatusLine(check: UpdateCheckState): string {
   switch (check.kind) {
@@ -20,10 +22,16 @@ export function hostUpdateLine(status: HostUpdateStatus | undefined): string {
   return `Solus ${status.currentVersion} · ${checkStatusLine(status.check)}`
 }
 
-export function providerUpdateRows(rows: ProviderRow[], updates: ProviderUpdateStatus[], update: (agent: SetupAgent) => void): ProviderRow[] {
+export function providerUpdateRows(rows: ProviderRow[], updates: ProviderUpdateStatus[], update: (agent: SetupAgent) => void, mayUpdate = true): ProviderRow[] {
   for (const row of rows) {
     const status = updates.find((item) => item.agent === row.id)
     if (!status) continue
+    if (isProviderUpdateActive(status.update)) {
+      row.state = 'busy'
+      row.detail = providerUpdateDetail(status)
+      row.disabled = true
+      continue
+    }
     if (row.state === 'busy') {
       if (status.installedVersion && row.detail === 'Installing…') row.detail = 'Updating…'
       continue
@@ -33,7 +41,9 @@ export function providerUpdateRows(rows: ProviderRow[], updates: ProviderUpdateS
     // An available release is named by its Update button, not repeated here.
     if (status.installedVersion) row.detail += status.check.kind === 'available' ? ` · ${status.installedVersion}` : ` · ${status.installedVersion} · ${checkStatusLine(status.check)}`
     else if (status.check.kind === 'error') row.detail += ` · version unknown · ${status.check.message}`
-    if (status.check.kind === 'available') row.update = { label: `Update to ${status.check.latestVersion}`, run: () => update(status.agent) }
+    const detail = providerUpdateDetail(status)
+    if (detail) row.detail += `\n${detail}`
+    if (status.check.kind === 'available' && status.installation?.canUpdate !== false) row.update = { label: `${status.update?.phase === 'failed' ? 'Retry update to' : 'Update to'} ${status.check.latestVersion}`, disabled: !mayUpdate, run: () => { if (mayUpdate) update(status.agent) } }
   }
   return rows
 }

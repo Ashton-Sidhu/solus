@@ -2,6 +2,8 @@ import { useCallback } from "react";
 import { StackActions } from "@react-navigation/native";
 import { Alert, View } from "react-native";
 
+import { isAppPinned, withAppPinned } from "@solus/client-core/sidebar-apps";
+import { ControlPill } from "../../../components/ControlPill";
 import { appTileHue } from "@solus/client-core/app-tile";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { AppMetrics, AppScheduleView, AppUpdate } from "@solus/contracts/apps";
@@ -46,6 +48,13 @@ import type { AppSectionProps } from "./section-props";
  */
 export function OverviewSection({ hostId, appId, state, connected, reloadState, navigation }: AppSectionProps) {
   const app = useApp();
+  const pins = useListened(app.personal.changes, () => app.personal.current().sidebarApps);
+  const pin = { host: hostId, appId };
+  const pinned = isAppPinned(pins, pin);
+  const togglePinned = () => {
+    const current = app.personal.current().sidebarApps;
+    app.personal.set({ sidebarApps: withAppPinned(current, pin, !isAppPinned(current, pin)) });
+  };
   const hostLabel = useListened(app.registry.changes, () => app.registry.host(hostId)?.label ?? null);
   const hasSchedules = (state.descriptor?.schedules.length ?? 0) > 0;
   const readMetrics = useCallback((api: HostApi) => api.appMetrics({ appId }), [appId]);
@@ -109,10 +118,10 @@ export function OverviewSection({ hostId, appId, state, connected, reloadState, 
 
   return (
     <>
-      <View accessible accessibilityRole="header" className="flex-row items-center gap-4 px-2">
+      <View className="flex-row items-center gap-4 px-2">
         <AppTile hue={appTileHue(summary)} name={summary.name} size="large" />
         <View className="min-w-0 flex-1 gap-1">
-          <Text className="text-xl font-t3-bold text-foreground" numberOfLines={2}>
+          <Text accessibilityRole="header" className="text-xl font-t3-bold text-foreground" numberOfLines={2}>
             {summary.name}
           </Text>
           {summary.description ? (
@@ -124,6 +133,11 @@ export function OverviewSection({ hostId, appId, state, connected, reloadState, 
             {appMetaLine(summary, hostLabel)}
           </Text>
         </View>
+        <ControlPill
+          icon={pinned ? "pin.slash" : "pin"}
+          accessibilityLabel={pinned ? "Unpin from sidebar" : "Pin to sidebar"}
+          onPress={togglePinned}
+        />
       </View>
 
       <OverviewAppCard app={summary} disabled={disabled} onSave={update} />

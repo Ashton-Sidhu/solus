@@ -89,12 +89,13 @@ export class LiveActivityRelay {
     }
     this.cards.set(registration.pushToken, { ...registration, rows, expiresAt: this.now() + REGISTRATION_TTL_MS })
     // The phone may have missed a change: correct the card at once.
-    let changed = false
     for (const row of rows) {
       const status = this.deps.statusOf(row.sessionId)
-      if (status && this.apply(row, status)) changed = true
+      if (status) this.apply(row, status)
     }
-    if (changed) this.schedule(registration.pushToken)
+    // The relay must see a new generation even when rows match: it cancels
+    // the previous idle deadline when the phone reuses the card for new work.
+    this.schedule(registration.pushToken)
     this.save()
   }
 

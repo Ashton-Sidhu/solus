@@ -127,12 +127,17 @@
 <!-- The tone classes are the state, so they are the one choice made here: in
      the card a move is a filled button and a state a quiet ringed one in its
      own colour; in the band every state is the band's quiet pill and only the
-     text carries the colour. -->
+     text carries the colour.
+
+     In the band this is the one slot that is not `shrink-0`. Its label is a
+     readiness headline of any length ("Conflicts with <base>"), so no rung can
+     reserve room for it: when the row is tight the label truncates, rather than
+     pushing the overflow and the ✕ off the band's edge. -->
 <div
   bind:this={triggerEl}
   data-testid="pr-primary-action"
   class="flex min-w-0 items-stretch overflow-hidden transition-[scale] duration-150 active:scale-[0.985] {layout === 'band'
-      ? 'h-6.5 shrink-0 rounded-full bg-background text-workspace-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] pointer-coarse:h-10'
+      ? 'h-6.5 rounded-full bg-background text-workspace-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] pointer-coarse:h-10'
       : 'h-[34px] w-full rounded-[10px]'} {layout === 'band'
     ? !action
       ? 'text-muted-foreground'
@@ -163,7 +168,7 @@
     type="button"
     variant="ghost"
     class="inline-flex h-full min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-none border-0 bg-transparent text-inherit shadow-none hover:text-inherit disabled:opacity-100 {layout === 'band'
-      ? 'font-normal px-2.5 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:px-3.5 @max-[52rem]/band:px-[5.5px] @max-[52rem]/band:pointer-coarse:px-[12.5px]'
+      ? 'font-normal px-2.5 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:px-3.5 @max-[56rem]/band:px-[5.5px] @max-[56rem]/band:pointer-coarse:px-[12.5px]'
       : 'font-medium px-3.5 hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)]'} {action?.move || hasMenu ? 'cursor-pointer' : 'cursor-default'}"
     disabled={!!running || !action || (!action.move && !hasMenu)}
     aria-haspopup={!action?.move && hasMenu ? "menu" : undefined}
@@ -197,7 +202,7 @@
     {/if}
     {#if action}
       {#if layout === "band"}
-        <span class="min-w-0 truncate @max-[52rem]/band:hidden">{running ? runningLabel : action.short}</span>
+        <span class="min-w-0 truncate @max-[56rem]/band:hidden">{running ? runningLabel : action.short}</span>
       {:else}
         <span class="min-w-0 truncate">{running ? runningLabel : action.label}</span>
       {/if}

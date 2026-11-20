@@ -71,7 +71,7 @@
         />
       </div>
 
-      <div class="split-input-dock shrink-0 px-4 pt-2.5 pb-2.5" data-composer-dock>
+      <div class="split-input-dock shrink-0 px-4 pt-1.5 pb-2.5" data-composer-dock>
         <EditorInputCard
           active={surfaceVisible}
           class="mx-auto max-w-(--solus-reading-max)"

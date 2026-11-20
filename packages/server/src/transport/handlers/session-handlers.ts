@@ -128,6 +128,16 @@ async function probeAgentBinary(agentId: AgentId): Promise<string | null> {
 }
 
 async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
+  // A native update changes the selected package, never a live executable.
+  // Do not keep the old absolute package path in the metadata cache.
+  const bin = AGENT_BIN[agentId]
+  if (bin === 'claude' || bin === 'codex') {
+    const selected = findOnPath(bin, await warmCliPath())
+    if (selected) {
+      _agentBinaryCache.set(agentId, selected)
+      return selected
+    }
+  }
   const cached = _agentBinaryCache.get(agentId)
   if (cached !== undefined) {
     log.info('agent_binary_memory_cache_hit', { agentId, path: cached ?? null })

@@ -7,8 +7,8 @@ import type { SidebarTask } from './task-list'
  * The sidebar's project view (docs/plans/sidebar-project-view.md): the
  * person's open sessions and drafts in one folder per project. A draft leads
  * its folder, because it is the prompt the person is about to send there. The
- * Shared with you, Pinned, Snoozed, and Completed sections stay below, as in the
- * status view. There is no Working section: a busy session stays in its
+ * Pinned section comes first. Shared with you, Snoozed, and Completed stay
+ * below, as in the status view. There is no Working section: a busy session stays in its
  * project's folder, and its row shows that it works.
  */
 export interface SidebarFolder {
@@ -111,7 +111,6 @@ export interface ProjectListInput extends ProjectFolderInput {
   snoozed: readonly SidebarTask[]
   completed: readonly SidebarTask[]
   isSharedOpen: boolean
-  isPinnedOpen: boolean
   isSnoozedOpen: boolean
   isCompletedOpen: boolean
 }
@@ -119,7 +118,7 @@ export interface ProjectListInput extends ProjectFolderInput {
 /** The project view as one list, so a row that changes place animates as the
  *  status view's rows do (docs/plans/sidebar-motion.md). */
 export function buildProjectListItems(input: ProjectListInput): SidebarListItem[] {
-  const items: SidebarListItem[] = []
+  const items: SidebarListItem[] = pinnedItems(input.pinned)
   for (const { folder, drafts, rows } of buildProjectFolders(input)) {
     items.push({ kind: 'folder', key: `folder:${folder.key}`, folder })
     for (const draft of drafts) items.push({ ...draftItem(draft), folderKey: folder.key })
@@ -127,7 +126,6 @@ export function buildProjectListItems(input: ProjectListInput): SidebarListItem[
   }
   items.push(
     ...sectionItems('shared', input.shared, input.isSharedOpen, input.shelfRevealTaskId),
-    ...pinnedItems(input.pinned, input.isPinnedOpen, input.shelfRevealTaskId),
     ...sectionItems('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
     ...sectionItems('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),
   )

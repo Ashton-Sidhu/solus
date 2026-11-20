@@ -4,6 +4,7 @@ import type { SessionRuntime } from '../../execution/session-runtime'
 import type { IpcContext, GitCheckoutBranchResult } from '@solus/contracts/types'
 import { discardChanges, syncWithOrigin, listBranches, listBranchRefs, listProjectWorktrees, getWorkingBranch, getDefaultBranch, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runGitAction } from '../../git/git-action-manager'
+import { checkoutBranch } from '../../git/checkout-branch'
 import { runAsync } from '../../git/exec'
 import { GitUnavailableError } from '../../git/git-availability'
 import { computeGitIdentity, computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
@@ -264,6 +265,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     try {
       const cwd = ctx.session.workingDirectory
       if (!cwd || cwd === '~') return { success: false, error: 'No active git repository for this tab' }
+      let workingDirectory = cwd
       if (options?.create) {
         // check-ref-format rejects a name git could not create, and one that
         // reads as an option.
@@ -273,15 +275,17 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         if (listBranches(cwd).includes(branch)) return { success: false, error: `Branch already exists: ${branch}` }
         await runAsync('git', ['checkout', '-b', branch], cwd)
       } else {
-        if (!branch || !listBranches(cwd).includes(branch)) {
-          return { success: false, error: `Branch not found: ${branch}` }
-        }
-        await runAsync('git', ['checkout', branch], cwd)
+        const choice = await checkoutBranch(cwd, branch, { remoteOnly: options?.remoteOnly })
+        if (choice.kind === 'refused') return { success: false, error: choice.error }
+        workingDirectory = choice.workingDirectory
       }
-      const gitContext = (await sessionRuntime.checkouts.refresh(cwd)).checkout
+      const gitContext = (await sessionRuntime.checkouts.refresh(workingDirectory)).checkout
       if (!gitContext) return { success: false, error: 'Checkout succeeded but branch status could not be resolved' }
-      sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
-      return { success: true, gitContext }
+      // A branch found in another worktree leaves the session where it is: the
+      // caller moves its own run there. Binding the session to that worktree
+      // would move a started conversation the caller did not choose.
+      if (workingDirectory === cwd) sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
+      return { success: true, gitContext, workingDirectory }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Checkout failed' }
     }

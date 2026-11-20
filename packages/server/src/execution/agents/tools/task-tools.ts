@@ -33,7 +33,7 @@ const log = createLogger('main', 'task-tools.ts')
 /**
  * Agent-facing task tools for long-running sessions. Like work-tools.ts and
  * automation-tools.ts, one set of Zod shapes backs both agent backends.
- * GitHub and Jira own every task (docs/plans/provider-owned-tasks.md §6): a
+ * GitHub, Jira and Linear own every task (docs/plans/provider-owned-tasks.md §6): a
  * tool reads the host's copy, and a write goes to the provider with the
  * connection of the person the turn acts for. This is the same on a personal
  * host and on an organization machine; a tool never calls the Solus API for a
@@ -49,7 +49,7 @@ const LIST_LIMIT = 100
 
 // ─── Schemas ───
 
-const TASK_KEY_DESC = 'The task key (github:... or jira:...), from the task context or list_tasks.'
+const TASK_KEY_DESC = 'The task key (github:..., jira:... or linear:...), from the task context or list_tasks.'
 
 const readTaskFields = {
   task_id: z.string().describe(TASK_KEY_DESC),
@@ -349,7 +349,7 @@ async function executeTaskTool(
 }
 
 function providerName(task: Pick<TaskRecord, 'providerId'>): string {
-  return task.providerId === 'jira' ? 'Jira' : 'GitHub'
+  return { github: 'GitHub', jira: 'Jira', linear: 'Linear' }[task.providerId]
 }
 
 /** The column of the task in each source that lists it, as `source label: column name`. */
@@ -368,7 +368,7 @@ function taskFactLines(task: TaskRecord, columns: string[]): string[] {
   const facts: Array<[string, string | undefined]> = [
     ['columns', columns.join('; ')],
     ['labels', task.labels.join(', ')],
-    ['assignee', task.assignee],
+    ['assignee', task.assignees?.map((person) => person.login).join(', ') || task.assignee],
     ['priority', task.priority],
     ['due', task.dueDate],
   ]

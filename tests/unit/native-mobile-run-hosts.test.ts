@@ -234,6 +234,7 @@ describe('mobile session list with portable sessions', () => {
       api: {
         sessionRecordList: async (filter: SessionRecordListFilter) => ({ records: filter.scope === 'all' ? [] : records, indexing: false }),
         listProjects: async () => [],
+      pinnedSessionsList: async () => [],
         getSessionInfos: async (ids: string[]) => ids.map((sessionId) => ({ sessionId, head: `head-${syncedTurn}`, syncedTurn })),
       },
       facts: { value: () => undefined },

@@ -27,9 +27,9 @@ const REVIEW_ICON = {
 } as const
 
 const CHECKS = {
-  passing: { icon: 'checkmark.circle', tint: 'accent-adaptive-emerald-600-400' },
+  passing: { icon: 'checkmark.circle.fill', tint: 'accent-adaptive-emerald-600-400' },
   failing: { icon: 'xmark.circle.fill', tint: 'accent-danger-foreground' },
-  pending: { icon: 'clock', tint: 'accent-warning-foreground' },
+  pending: { icon: 'circlebadge.fill', tint: 'accent-warning-foreground' },
 } as const
 
 function pullRequestRowColors(sidebar: boolean, selected: boolean) {

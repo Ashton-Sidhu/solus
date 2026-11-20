@@ -13,6 +13,8 @@ const SOURCE_HIGHLIGHT_CACHE_LIMIT = 8;
 
 export interface SourceHighlightInput {
   readonly path: string;
+  /** Wins over the language the path names; code with no file has only this. */
+  readonly language?: string;
   readonly contents: string;
   readonly theme: HighlightScheme;
 }
@@ -36,7 +38,7 @@ const HIGHLIGHTING: SourceHighlightResult = { status: "highlighting", tokens: nu
 const HIGHLIGHT_FAILED: SourceHighlightResult = { status: "error", tokens: null };
 
 function highlightSourceFile(input: SourceHighlightInput): HighlightedLines | Promise<HighlightedLines> {
-  return highlightCode(input.contents, resolveHighlightLanguage({ path: input.path }), input.theme);
+  return highlightCode(input.contents, resolveHighlightLanguage({ language: input.language, path: input.path }), input.theme);
 }
 
 function startHighlight(
@@ -87,7 +89,7 @@ export function createSourceHighlightCache(options?: {
   const entries = new Map<string, CachedHighlight>();
 
   const keyOf = (input: SourceHighlightInput) =>
-    `${input.theme}\u0000${input.path}\u0000${input.contents}`;
+    `${input.theme}\u0000${input.language ?? ""}\u0000${input.path}\u0000${input.contents}`;
 
   function entryFor(input: SourceHighlightInput): CachedHighlight {
     const key = keyOf(input);
@@ -124,9 +126,9 @@ export function createSourceHighlightCache(options?: {
 const sourceHighlightCache = createSourceHighlightCache();
 
 export function useSourceHighlight(input: SourceHighlightInput): SourceHighlightResult {
-  const { path, contents, theme } = input;
-  const key = `${theme}\u0000${path}\u0000${contents}`;
-  const settled = sourceHighlightCache.peek({ path, contents, theme });
+  const { path, language, contents, theme } = input;
+  const key = `${theme}\u0000${language ?? ""}\u0000${path}\u0000${contents}`;
+  const settled = sourceHighlightCache.peek({ path, language, contents, theme });
   const isSettled = settled !== null;
   const [loaded, setLoaded] = useState<{ key: string; result: SourceHighlightResult } | null>(
     null,
@@ -135,13 +137,13 @@ export function useSourceHighlight(input: SourceHighlightInput): SourceHighlight
   useEffect(() => {
     if (isSettled) return;
     let active = true;
-    void sourceHighlightCache.load({ path, contents, theme }).then((result) => {
+    void sourceHighlightCache.load({ path, language, contents, theme }).then((result) => {
       if (active) setLoaded({ key, result });
     });
     return () => {
       active = false;
     };
-  }, [contents, isSettled, key, path, theme]);
+  }, [contents, isSettled, key, language, path, theme]);
 
   if (settled) return settled;
   return loaded?.key === key ? loaded.result : HIGHLIGHTING;

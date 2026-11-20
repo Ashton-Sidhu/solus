@@ -15,6 +15,7 @@
     expandScale,
     lastReportedHeight,
     rememberReportedHeight,
+    holdFrameHeight,
   } from "./lib/artifact-view";
   import { scrollContainerOf } from "../../lib/scroll-container";
   import { isMac } from "../../lib/keybindings/match";
@@ -150,10 +151,17 @@
   });
 
   let frameEl = $state<HTMLDivElement | null>(null);
-  let contentHeight = $state(untrack(() => {
+  const rememberedHeight = untrack(() => {
     const key = heightKey ?? html;
     return key === undefined ? undefined : lastReportedHeight(key);
-  }) ?? 120);
+  });
+  let contentHeight = $state(rememberedHeight ?? 120);
+  // A frame with no remembered height grows when it reports one. Until then a
+  // conversation that opens waits for it, if it is in view.
+  let hasHeight = $state(rememberedHeight !== undefined);
+  $effect(() => {
+    if (!hasHeight && !isApp && html !== undefined && frameEl) return holdFrameHeight(frameEl);
+  });
   let expanded = $state(false);
   let isNearViewport = $state(untrack(() => !lazy));
   // Inline content width, captured the moment we expand. Fullscreen pins the
@@ -211,6 +219,7 @@
       // iframe pinned to its inline width, so the reported height stays the
       // inline content height even while expanded.
       contentHeight = Math.max(40, Math.ceil(parsed.data.h));
+      hasHeight = true;
       const key = heightKey ?? html;
       if (key !== undefined) rememberReportedHeight(key, contentHeight);
     }
@@ -373,6 +382,7 @@
         }}
         onerror={() => {
           frameResult = { srcdoc: srcdoc ?? "", reloadKey, failed: true };
+          hasHeight = true;
           onError?.();
         }}
         {srcdoc}

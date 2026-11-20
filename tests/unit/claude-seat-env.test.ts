@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { claudeConfigDir, claudeEnv } from '@solus/server/execution/agents/claude/claude-agent'
@@ -73,3 +75,21 @@ describe('claudeConfigDir', () => {
   })
 })
 
+
+test('a native Solus package uses only the host updater, including with the default runtime name', () => {
+  const previousDataDir = process.env.SOLUS_DATA_DIR
+  const sandbox = mkdtempSync(join(tmpdir(), 'solus-claude-native-env-'))
+  process.env.SOLUS_DATA_DIR = sandbox
+  try {
+    const root = join(sandbox, 'agents', 'claude')
+    mkdirSync(join(root, 'releases', 'verified'), { recursive: true })
+    writeFileSync(join(root, 'releases', 'verified', 'claude'), '', { mode: 0o755 })
+    writeFileSync(join(root, 'current.json'), JSON.stringify({ release: 'verified', binary: 'claude', version: '2.1.211' }))
+    expect(claudeEnv({ home: '/host/.claude', binaryPath: 'claude', isHostLogin: true }).DISABLE_AUTOUPDATER).toBe('1')
+    expect(claudeEnv({ home: '/member/.claude', binaryPath: 'claude', user: { uid: 20000 }, env: {} }).DISABLE_AUTOUPDATER).toBeUndefined()
+  } finally {
+    if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+    else process.env.SOLUS_DATA_DIR = previousDataDir
+    rmSync(sandbox, { recursive: true, force: true })
+  }
+})

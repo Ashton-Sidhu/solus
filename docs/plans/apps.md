@@ -417,6 +417,12 @@ One process for each app, the host's own Node under the permission model, a
 memory limit, five idle minutes. It starts for a call, a schedule, a webhook,
 or a run that is due. A runner with a run in progress does not stop for idle.
 
+On Electron and Bun hosts, builds and runners use Node from the host's login
+shell PATH. They must not start the Solus executable: packaged macOS and Linux
+apps disable Electron's Node mode, so that command opens Solus again. A server
+that runs under Node uses its own executable. A host with no Node cannot start
+an app backend or build an app; it gets an error that asks it to install Node.
+
 The host and the runner exchange one JSON object on each line. The runner asks
 the host for what the host owns: an integration tool, an app file's record, a
 step's receipt, a workflow control. It sends each log line and each span as
@@ -787,3 +793,10 @@ replaced in place by the fifth model because:
   repair what it could not see;
 - a UI could not take a file from the person;
 - everything an owner does to an app was in a menu over the app.
+
+The app Overview has a circular pin icon button. It uses the same soft
+button style as the pane controls, shows the pin state, and offers Pin to
+sidebar or Unpin from sidebar through its accessible label and tooltip.
+The Workspace app context menu offers the same pin action. Both use the
+existing synced personal setting `sidebarApps`. Mobile exposes the pin
+action in the app list menu and as a circular button on Overview.

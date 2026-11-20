@@ -57,6 +57,7 @@ import {
 import { readGithubViewedFiles, writeGithubViewedFiles } from './viewed-files'
 import { canonicalRepoRef } from './canonical-repo'
 import { readGithubPullRequestCommits, readGithubPullRequestDetail } from './pull-request-detail'
+import { GITHUB_REACTION_FIELDS, toPrReactions, type GqlReactionFields } from './pr-social'
 import { readGithubPullRequestDiff } from './pull-request-diff'
 import { readPriorityNumbers, readPullRequestPages } from './pull-request-search'
 import { checkRows, normalizeChecksResponse, uniquePrNumbers } from './checks'
@@ -177,8 +178,17 @@ export function githubComparedHeadSha(comparison: {
 // REST can't report a thread's resolution state, and there is no REST mutation to
 // resolve/unresolve — so threads and their lifecycle go through GraphQL (§6.3).
 
+const THREAD_COMMENT_FIELDS = `id author { login avatarUrl } body createdAt lastEditedAt isMinimized diffHunk pullRequestReview { id } ${GITHUB_REACTION_FIELDS}`
+
+// Ten comments ride with each thread, as T3 Code reads them: a hundred
+// threads of a hundred comments made GitHub reserve 10,000 nested rows and
+// charge about a hundred points for one page, and reactions multiply that.
+// A thread with more is followed from its own cursor (REVIEW_THREAD_COMMENTS_QUERY).
+const THREAD_COMMENTS_PER_PAGE = 10
+
 const REVIEW_THREADS_QUERY = `
   query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+    viewer { login }
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
         reviewThreads(first: 100, after: $cursor) {
@@ -190,10 +200,26 @@ const REVIEW_THREADS_QUERY = `
             path
             line
             diffSide
-            comments(first: 100) {
-              nodes { id author { login avatarUrl } body createdAt lastEditedAt isMinimized diffHunk pullRequestReview { id } }
+            comments(first: ${THREAD_COMMENTS_PER_PAGE}) {
+              pageInfo { hasNextPage endCursor }
+              nodes { ${THREAD_COMMENT_FIELDS} }
             }
           }
+        }
+      }
+    }
+  }
+`
+
+/** The rest of one thread's comments. GraphQL pages a connection nested in
+ *  another only from the inner node, so a long thread is read on its own. */
+const REVIEW_THREAD_COMMENTS_QUERY = `
+  query($threadId: ID!, $cursor: String) {
+    node(id: $threadId) {
+      ... on PullRequestReviewThread {
+        comments(first: 100, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes { ${THREAD_COMMENT_FIELDS} }
         }
       }
     }
@@ -203,7 +229,7 @@ const REVIEW_THREADS_QUERY = `
 const REPLY_MUTATION = `
   mutation($threadId: ID!, $body: String!) {
     addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $threadId, body: $body }) {
-      comment { id author { login avatarUrl } body createdAt }
+      comment { id author { login avatarUrl } body createdAt ${GITHUB_REACTION_FIELDS} }
     }
   }
 `
@@ -238,15 +264,16 @@ const PR_CONVERSATION_QUERY = `
     $includeReviews: Boolean!
     $includeTimeline: Boolean!
   ) {
+    viewer { login }
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
         comments(first: 100, after: $commentsCursor) @include(if: $includeComments) {
           pageInfo { hasNextPage endCursor }
-          nodes { id author { login avatarUrl } body createdAt lastEditedAt isMinimized url }
+          nodes { id author { login avatarUrl } body createdAt lastEditedAt isMinimized url ${GITHUB_REACTION_FIELDS} }
         }
         reviews(first: 100, after: $reviewsCursor) @include(if: $includeReviews) {
           pageInfo { hasNextPage endCursor }
-          nodes { id author { login avatarUrl } body createdAt lastEditedAt isMinimized submittedAt state url }
+          nodes { id author { login avatarUrl } body createdAt lastEditedAt isMinimized submittedAt state url ${GITHUB_REACTION_FIELDS} }
         }
         timelineItems(
           first: 100
@@ -306,7 +333,7 @@ const NEEDS_REVIEW_QUERY = `
   ${NEEDS_REVIEW_FIELDS}
 `
 
-interface GqlComment {
+interface GqlComment extends GqlReactionFields {
   id: string
   author: { login: string; avatarUrl: string } | null
   body: string
@@ -326,10 +353,20 @@ interface GqlThread {
   path: string
   line: number | null
   diffSide: 'LEFT' | 'RIGHT'
-  comments: { nodes: GqlComment[] }
+  comments: GqlThreadComments
+}
+
+interface GqlThreadComments {
+  pageInfo: { hasNextPage: boolean; endCursor: string | null }
+  nodes: GqlComment[]
+}
+
+interface ReviewThreadCommentsResponse {
+  node: { comments: GqlThreadComments } | null
 }
 
 interface ReviewThreadsResponse {
+  viewer: { login: string }
   repository: {
     pullRequest: {
       reviewThreads: {
@@ -340,7 +377,7 @@ interface ReviewThreadsResponse {
   }
 }
 
-interface GqlConversationNode {
+interface GqlConversationNode extends GqlReactionFields {
   id: string
   author: { login: string; avatarUrl: string } | null
   body: string
@@ -369,6 +406,7 @@ interface GqlConversationPage<T> {
 }
 
 interface PrConversationResponse {
+  viewer: { login: string }
   repository: {
     pullRequest: {
       comments?: GqlConversationPage<GqlConversationNode>
@@ -531,12 +569,13 @@ function autoMergeOf(pr: RestPull): Pick<PullRequest, 'autoMergeEnabled' | 'auto
   return autoMerge
 }
 
-function toComment(c: GqlComment): ReviewComment {
+function toComment(c: GqlComment, viewer: string | null): ReviewComment {
   const comment: ReviewComment = {
     id: c.id,
     author: c.author?.login ?? '',
     body: c.body,
     createdAt: c.createdAt,
+    reactions: toPrReactions(c, viewer),
   }
   if (c.author?.avatarUrl) comment.authorAvatarUrl = c.author.avatarUrl
   if (c.lastEditedAt) comment.editedAt = c.lastEditedAt
@@ -550,7 +589,7 @@ function toComment(c: GqlComment): ReviewComment {
  * conversation: they are spam, off-topic, or outdated, and reach no reader or
  * agent. A thread with no comment left is null.
  */
-function toThread(t: GqlThread): ReviewThread | null {
+function toThread(t: GqlThread, viewer: string): ReviewThread | null {
   const comments = t.comments.nodes.filter((comment) => !comment.isMinimized)
   if (comments.length === 0) return null
   return {
@@ -560,7 +599,7 @@ function toThread(t: GqlThread): ReviewThread | null {
     side: t.diffSide,
     isResolved: t.isResolved,
     isOutdated: t.isOutdated,
-    comments: comments.map(toComment),
+    comments: comments.map((comment) => toComment(comment, viewer)),
   }
 }
 
@@ -973,7 +1012,6 @@ export class GitHubProvider implements ReviewProvider {
     return this.withClient('list_pull_request_threads', repo.host, async ({ graphql }) => {
       const threads: ReviewThread[] = []
       let cursor: string | null = null
-      // Threads paginate; comments per thread (first 100) effectively never do.
       for (;;) {
         const res: ReviewThreadsResponse = await graphql<ReviewThreadsResponse>(REVIEW_THREADS_QUERY, {
           owner: repo.owner,
@@ -982,8 +1020,21 @@ export class GitHubProvider implements ReviewProvider {
           cursor,
         })
         const page = res.repository.pullRequest.reviewThreads
+        // Only a thread longer than its first page costs a request of its own.
+        await Promise.all(page.nodes.map(async (node) => {
+          let comments = node.comments
+          while (comments.pageInfo.hasNextPage) {
+            const more: ReviewThreadCommentsResponse = await graphql<ReviewThreadCommentsResponse>(
+              REVIEW_THREAD_COMMENTS_QUERY,
+              { threadId: node.id, cursor: comments.pageInfo.endCursor },
+            )
+            if (!more.node) break
+            node.comments.nodes.push(...more.node.comments.nodes)
+            comments = more.node.comments
+          }
+        }))
         for (const node of page.nodes) {
-          const thread = toThread(node)
+          const thread = toThread(node, res.viewer.login)
           if (thread) threads.push(thread)
         }
         if (!page.pageInfo.hasNextPage) break
@@ -1296,7 +1347,8 @@ export class GitHubProvider implements ReviewProvider {
         REPLY_MUTATION,
         { threadId, body },
       )
-      return toComment(res.addPullRequestReviewThreadReply.comment)
+      // A new reply has no reactions yet, so no viewer is needed to read them.
+      return toComment(res.addPullRequestReviewThreadReply.comment, null)
     })
   }
 
@@ -1343,6 +1395,7 @@ export class GitHubProvider implements ReviewProvider {
               author: comment.author?.login ?? '',
               body: comment.body,
               createdAt: comment.createdAt,
+              reactions: toPrReactions(comment, res.viewer.login),
             }
             if (comment.author?.avatarUrl) item.authorAvatarUrl = comment.author.avatarUrl
             if (comment.lastEditedAt) item.editedAt = comment.lastEditedAt
@@ -1364,6 +1417,7 @@ export class GitHubProvider implements ReviewProvider {
               body: review.body,
               createdAt: review.submittedAt ?? review.createdAt,
               reviewState: review.state,
+              reactions: toPrReactions(review, res.viewer.login),
             }
             if (review.author?.avatarUrl) item.authorAvatarUrl = review.author.avatarUrl
             if (review.lastEditedAt) item.editedAt = review.lastEditedAt

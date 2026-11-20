@@ -656,7 +656,7 @@ writes require edit standing (D4). Sessions use a namespace separate from works
 
 `SessionPusher` in `session-push.ts` owns one host-wide push queue, apart from the turn commit queue. `committed`, `resume`, `established`, `signedOut`, `idle`, `stop`, and `refusedHead` are its public operations. It checks `sessionCloudSyncDecision` before upload. It selects an organization scope only for published organization work; other sessions use the person's scope. It pushes a fixed commit from the local bare repository, confirms the result, then reports the head and turn count. A report is retried without a second push. A remote head that is not an ancestor stops the push for that session. The later prompt gate and Fork action are not in this part.
 
-`session_storage` adds `cloud_scope`, `pushed_head`, `reported_head`, `push_due_at`, `push_attempts`, `push_error`, and `push_refused_head`. The SQLite migration is `0005_session_cloud_push.sql`. The Git push limit is one hour with a 60-second low-speed stall limit. No repository file is held in memory by the push.
+`session_storage` adds `cloud_scope`, `pushed_head`, `reported_head`, `push_due_at`, `push_attempts`, `push_error`, and `push_refused_head`. The SQLite migration is `0007_session_cloud_push.sql`. The Git push limit is one hour with a 60-second low-speed stall limit. No repository file is held in memory by the push.
 
 ### Part D as implemented (2026-11-18)
 
@@ -1273,3 +1273,7 @@ listed).
   not written again.
 - No person checked the screens on a phone. The rules and the store are
   covered by unit tests only.
+
+## Merge with main (2026-11-20)
+
+Main keeps SQLite `0002_task_assignees` and `0003_task_source_pages`, and PostgreSQL migrations with the same numbers. Portable sessions now uses SQLite `0004_session_storage`, `0005_session_turn_count`, `0006_session_repositories`, and `0007_session_cloud_push`, plus PostgreSQL `0004_session_repositories`. The migration order preserves existing databases.

@@ -1,3 +1,4 @@
+import type { TaskInvolvement } from '@solus/contracts/task-inspection'
 import type { z } from 'zod'
 import type { TaskSource } from '@solus/contracts/task-sources'
 import type { TaskAssigneeCandidate, TaskColumn } from '@solus/contracts/task-types'
@@ -112,7 +113,7 @@ export class JiraBoardSource implements TaskSourceAdapter {
     )
   }
 
-  async read(source: TaskSource): Promise<SourceRead> {
+  async read(source: TaskSource, continuation?: string): Promise<SourceRead> {
     const board = jiraBoard(source)
     const boardPath = `/rest/agile/1.0/board/${board.boardId}`
     const [details, configuration, siteStatuses] = await Promise.all([
@@ -137,17 +138,19 @@ export class JiraBoardSource implements TaskSourceAdapter {
       writeState.columns.push({ columnId: column.name, statusIds })
     }
 
+    const offset = continuation ? Number(continuation) : 0
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid Jira page.')
     const issues: JiraIssue[] = []
     let truncated = false
     for (;;) {
-      const page = await this.issuesPage(board, 'ORDER BY updated DESC', issues.length)
+      const page = await this.issuesPage(board, 'ORDER BY updated DESC', offset + issues.length)
       issues.push(...page.issues)
       const total = page.total ?? issues.length
       if (issues.length >= MAX_SOURCE_TASKS) {
-        truncated = total > MAX_SOURCE_TASKS
+        truncated = total > offset + issues.length
         break
       }
-      if (!page.issues.length || issues.length >= total) break
+      if (!page.issues.length || offset + issues.length >= total) break
     }
 
     const siteUrl = await this.jira.siteUrl(board.cloudId)
@@ -160,13 +163,15 @@ export class JiraBoardSource implements TaskSourceAdapter {
         return { task, columnId: columnOf(writeState, task.stateId), itemId: null }
       }),
       truncated,
+      nextCursor: truncated ? String(offset + issues.length) : null,
     }
   }
 
   /** The text goes to Jira, which searches each issue of the board, not only the list Solus holds. */
-  async search(source: TaskSource, query: string): Promise<ProviderTask[]> {
+  async search(source: TaskSource, query: string, involvement: TaskInvolvement = 'all'): Promise<ProviderTask[]> {
+    if (involvement === 'mentioned') throw new Error('Jira does not expose a reliable mentioned-by-me issue search. Open Jira to use its mention notifications.')
     const board = jiraBoard(source)
-    const { issues } = await this.issuesPage(board, textClause(query), 0)
+    const { issues } = await this.issuesPage(board, [query.trim() ? textClause(query) : '', involvement === 'authored' ? 'reporter = currentUser()' : involvement === 'assigned' ? 'assignee = currentUser()' : ''].filter(Boolean).join(' AND ') || 'created IS NOT EMPTY', 0)
     const siteUrl = await this.jira.siteUrl(board.cloudId)
     return issues.map((issue) => issueToTask(issue, board.cloudId, siteUrl))
   }

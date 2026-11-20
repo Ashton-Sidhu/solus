@@ -193,13 +193,19 @@ export class ThreadDirectory {
     let next: HostThreadsState
     let retryAfterMs: number | null = null
     try {
-      const [list, unlisted, projects] = await Promise.all([
+      const [list, unlisted, projects, pins] = await Promise.all([
         connection.api.sessionRecordList({ includeWorktrees: true }),
         connection.api.sessionRecordList({ includeWorktrees: true, scope: 'all', limit: UNLISTED_LIMIT }),
         connection.api.listProjects(),
+        connection.api.pinnedSessionsList().catch(() => []),
       ])
       const shell = (record: SessionRecord): SolusThreadShell => ({ key: threadKey(hostId, record.sessionId), hostId, hostLabel: host.label, record })
       const shells = list.records.map(shell)
+      const knownSessions = new Set([...list.records, ...unlisted.records].map((record) => record.sessionId))
+      // A pin must remain available even after its record leaves recent history.
+      const missingPins = await Promise.all(pins.filter((pin) => !knownSessions.has(pin.sessionId))
+        .map((pin) => connection.api.sessionRecordGet(pin.sessionId).catch(() => null)))
+      const pinnedRecords = missingPins.filter((record): record is SessionRecord => record !== null)
       // An unchanged project keeps its object, so a reader of projects alone sees no change.
       const held = new Map(previous?.projects.map((project) => [project.key, project]))
       const projectShells = projects.map((project): SolusProjectShell => {
@@ -212,7 +218,7 @@ export class ThreadDirectory {
         kind: 'loaded',
         value: {
           threads: shells,
-          unlisted: unlisted.records.filter((record) => record.listed === false).map(shell),
+          unlisted: [...unlisted.records.filter((record) => record.listed === false), ...pinnedRecords].map(shell),
           projects: previous && sameItems(projectShells, previous.projects) ? previous.projects : projectShells,
           indexing: list.indexing,
         },

@@ -19,6 +19,7 @@ import type { LocalConnectionInfo } from '@solus/contracts/host-api'
 
 export type { NativeSolusAPI } from '@solus/contracts/host-api'
 import type { GuestShortcut, NativeSolusAPI } from '@solus/contracts/host-api'
+import type { NativeServerForwardRequest } from '@solus/contracts/running-servers'
 
 // Main has finished booting the local server before it creates either renderer
 // window. Start this immutable bootstrap lookup while the preload itself is
@@ -58,6 +59,9 @@ const subscribeAccountStateChange = channelFanOut<[state: AccountState]>('solus:
 const subscribeUpdateStatusChange = channelFanOut<[status: DesktopUpdateStatus]>('solus:update-status-changed')
 
 const nativeApi: NativeSolusAPI = {
+  serverForwardStart: (request: NativeServerForwardRequest) => ipcRenderer.invoke('solus:server-forward-start', request),
+  serverForwardStop: (forwardId: string) => ipcRenderer.invoke('solus:server-forward-stop', forwardId),
+  serverForwardList: () => ipcRenderer.invoke('solus:server-forward-list'),
   getPlatform: () => process.platform,
   getLocalConnection: () => localConnectionPromise,
   refreshLocalSessionToken: () =>

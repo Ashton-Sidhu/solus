@@ -34,6 +34,8 @@
   import ArtifactActivityCard from "../artifact/ArtifactActivityCard.svelte";
   import PrReviewStateBadge from "../prs/PrReviewStateBadge.svelte";
   import PrThreadCard from "./PrThreadCard.svelte";
+  import PrReactionBar from "../prs/PrReactionBar.svelte";
+  import PrReactionPicker from "../prs/PrReactionPicker.svelte";
   import {
     activityEventKey,
     commitRunAuthorLabel,
@@ -432,6 +434,11 @@
             </span>
           {/if}
           </span>
+          <PrReactionPicker
+            targetId={event.comment.id}
+            reactions={event.comment.reactions}
+            class="size-5 opacity-0 group-hover/comment:opacity-100 pointer-coarse:opacity-100"
+          />
           {#if onReplyToComment && hasBody}
             {@render replyButton(event.comment)}
           {/if}
@@ -448,6 +455,11 @@
           <div class="mt-1 [&_.prose]:[--prose-size:calc(0.8125rem*var(--solus-font-scale,1))]">
             <CommentMarkdown source={event.comment.body} lineBreaks />
           </div>
+        {/if}
+        <!-- An approval with no words still takes reactions, so the bar is
+             not tied to a body; it folds with the comment. -->
+        {#if !collapsedComments[eventKey]}
+          <PrReactionBar targetId={event.comment.id} reactions={event.comment.reactions} />
         {/if}
         <!-- The review's inline threads, nested as the host nests them: each
              the same card a lone thread gets on the spine, stacked under the

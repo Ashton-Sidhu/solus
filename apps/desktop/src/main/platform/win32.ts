@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import { randomUUID } from 'node:crypto'
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
 import { desktopCapturer, Menu, nativeImage, screen } from 'electron'
@@ -79,7 +80,9 @@ export const win32Platform: DesktopPlatform = {
     async launch(request) {
       log.info('terminal_launch', { fallbackTerminalId: request.fallbackTerminalId, command: request.command })
       const cwd = request.cwd ? resolveHomePath(request.cwd) : undefined
-      const launch = windowsTerminalLaunch(await windowsTerminalPrograms(), request.command, cwd)
+      const quote = (value: string) => `'${value.replace(/'/g, "''")}'`
+      const command = `$env:SOLUS_TERMINAL_ID=${quote(randomUUID())}; $env:SOLUS_SESSION_ID=${quote(request.sessionId ?? '')}; $env:SOLUS_TERMINAL_CWD=${quote(cwd ?? '')}; ${request.command}`
+      const launch = windowsTerminalLaunch(await windowsTerminalPrograms(), command, cwd)
       // Detached gives a console program its own window.
       return startDetached(launch.file, launch.args, cwd, launch.name)
     },

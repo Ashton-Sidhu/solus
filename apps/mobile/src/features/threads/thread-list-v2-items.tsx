@@ -22,6 +22,8 @@ import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { ProviderInstanceIcon } from "../../components/ProviderIcon";
 import type { RootStackParamList } from "../../navigation/routes";
 import { SESSION_CONTEXT_ACTIONS, sessionContextDestination } from "./session-context-actions";
+import { openPullRequestLink } from "../prs/lib/pull-request-link";
+import { usePullRequestLinkActions } from "../prs/use-pull-request-link-actions";
 import { cn } from "../../lib/cn";
 import { useThreadListState } from "./use-thread-list";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
@@ -44,6 +46,8 @@ import {
   type ThreadListV2Status,
   type ThreadPrPresentation,
   type ThreadPrWatchTarget,
+  openPullRequestMenuItems,
+  openPullRequestSelection,
   unlinkPullRequestActionId,
   unlinkPullRequestMenuItems,
 } from "./threadListV2";
@@ -316,6 +320,7 @@ export const ThreadListV2ShowMoreRow = memo(function ThreadListV2ShowMoreRow(pro
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly thread: SolusThreadShell;
   readonly variant: "card" | "slim";
+  readonly pinned?: boolean;
   /** Snoozed-shelf row: shows its wake time and offers Wake. */
   readonly snoozed?: boolean;
   /** Archived row a search found: offers Return to List. */
@@ -387,6 +392,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   } = props;
   const list = useThreadListState();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const pullRequestLinkActions = usePullRequestLinkActions();
   const record = thread.record;
   const title = threadTitle(record);
   // Another person's session: the row marks it shared; screen readers hear the role.
@@ -467,21 +473,26 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
   const hasPullRequests = pr !== null;
   const watchTarget = pr?.watchTarget ?? null;
-  const unlinkTargets = pr?.unlinkTargets;
+  const pullRequestLinks = pr?.links;
+  const togglePin = useCallback(() => {
+    void list.togglePin(thread).catch((error: Error) => Alert.alert("Could not change the pin", error.message));
+  }, [list, thread]);
   const titleMenuItems = useMemo<MenuAction[]>(
     () => [
+      ...openPullRequestMenuItems(pullRequestLinks ?? []),
       ...(watchTarget
         ? [watchTarget.isWatched
-          ? { id: "stop-watching-pr", title: `Stop Watching #${watchTarget.number}`, image: "eye.slash" }
+          ? { id: "stop-watching-pr", title: `Stop Watch #${watchTarget.number}`, image: "eye.slash" }
           : { id: "watch-pr", title: `Watch #${watchTarget.number}`, subtitle: "Wake the agent on checks and reviews", image: "eye" }]
         : []),
-      ...unlinkPullRequestMenuItems(unlinkTargets ?? []),
+      ...unlinkPullRequestMenuItems(pullRequestLinks ?? []),
       ...(hasPullRequests ? [{ id: "open-pull-requests", title: "Open pull requests", image: "arrow.triangle.pull" }] : []),
+      { id: "toggle-pin", title: props.pinned ? "Unpin" : "Pin", image: props.pinned ? "pin.slash" : "pin" },
       ...SESSION_CONTEXT_ACTIONS,
       { id: "mark-unread", title: "Mark Unread", image: "circle.fill" },
       { id: "rename", title: "Rename", image: "square.and.pencil" },
     ],
-    [hasPullRequests, watchTarget, unlinkTargets],
+    [hasPullRequests, pullRequestLinks, watchTarget, props.pinned],
   );
   const snoozableCardMenuActions = useMemo<MenuAction[]>(
     () => [
@@ -528,6 +539,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         else navigation.navigate(...destination);
         return;
       }
+      if (nativeEvent.event === "toggle-pin") togglePin();
       if (nativeEvent.event === "settle") void handleSettle();
       if (nativeEvent.event === "unsettle") handleUnsettle();
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
@@ -539,7 +551,24 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           Alert.alert("Could not mark session unread", error.message);
         });
       }
-      const unlinkTarget = unlinkTargets?.find((target) => nativeEvent.event === unlinkPullRequestActionId(target));
+      const opening = openPullRequestSelection(nativeEvent.event, pullRequestLinks ?? []);
+      if (opening?.place === "browser") void pullRequestLinkActions.openBrowser(opening.target.url);
+      if (opening?.place === "solus") {
+        // In Solus means the pull request screen: a pull request no project of
+        // the host reads says so rather than leaving for the browser.
+        void openPullRequestLink(
+          opening.target.url,
+          { hostId: thread.hostId, workingDirectory: record.cwd ?? "" },
+          {
+            ...pullRequestLinkActions,
+            openBrowser: () => Alert.alert(
+              "Could not open in Solus",
+              `This host cannot be reached, or no project on it reads ${opening.target.repository}. Open it in the browser instead.`,
+            ),
+          },
+        );
+      }
+      const unlinkTarget = pullRequestLinks?.find((target) => nativeEvent.event === unlinkPullRequestActionId(target));
       if (unlinkTarget) {
         void list.unlinkPullRequest(thread.hostId, record.sessionId, unlinkTarget).catch((error: Error) => {
           Alert.alert("Could not unlink pull request", error.message);
@@ -563,6 +592,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     },
     [
       navigation,
+      togglePin,
       handleArchive,
       handleRename,
       list,
@@ -572,10 +602,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       handleUnsettle,
       handleUnsnooze,
       onSetPullRequestWatch,
+      pullRequestLinkActions,
+      pullRequestLinks,
+      record.cwd,
       record.sessionId,
       snoozePresets,
       thread,
-      unlinkTargets,
       watchTarget,
     ],
   );
@@ -693,6 +725,19 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         )}
       </View>
       <View className="mt-1 flex-row items-center gap-2 pl-[23px]">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={props.pinned ? "Unpin session" : "Pin session"}
+          accessibilityState={{ selected: props.pinned === true }}
+          hitSlop={16}
+          className="size-4 items-center justify-center"
+          style={({ pressed }) => ({ opacity: pressed ? 1 : props.pinned ? 0.8 : 0.45 })}
+          onPress={(event) => { event.stopPropagation(); togglePin(); }}
+        >
+          <View style={{ transform: [{ rotate: "-35deg" }] }}>
+            <SymbolView name="pin" weight="regular" size={12} tintColorClassName={rowAppearance.mutedIconTintClassName} />
+          </View>
+        </Pressable>
         <Text className={cn("min-w-0 flex-1 text-xs", selected ? selectedThreadRowColors.mutedForegroundClassName : rowAppearance.mutedForegroundClassName)} numberOfLines={1}>
           {props.projectTitle}
           {record.branch ? <Text style={{ fontFamily: MONO_FONT }}>{`  ·  ${record.branch}`}</Text> : null}

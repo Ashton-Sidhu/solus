@@ -35,7 +35,6 @@ function list(overrides: Partial<SidebarListInput> = {}) {
     snoozed: [],
     completed: [],
     isSharedOpen: true,
-    isPinnedOpen: true,
     isWorkingOpen: true,
     isSnoozedOpen: true,
     isCompletedOpen: true,
@@ -175,7 +174,7 @@ describe('the sidebar as one list', () => {
     expect(sidebarListOrderKey(list({ sessions: [changed] }))).toBe(sidebarListOrderKey(base))
   })
 
-  test('pinned sessions have their own section, directly above Working', () => {
+  test('pinned sessions lead the list without a section header', () => {
     // WHY: a pin is a session the person wants at hand, so it is a section of
     // the list itself, not a button out of sight in the places column.
     const items = list({
@@ -185,34 +184,30 @@ describe('the sidebar as one list', () => {
       working: [row('w1')],
     })
     expect(items.map((item) => item.key)).toEqual([
+      'pinned:local:p1',
+      'busy:card',
       'a1:card',
       'header:shared',
       'sh1:card',
-      'header:pinned',
-      'pinned:local:p1',
-      'busy:card',
       'header:working',
       'w1:card',
     ])
-    expect(items.find((item) => item.key === 'header:pinned')).toMatchObject({ count: 2, isOpen: true, canToggle: true })
+    expect(items.some((item) => item.kind === 'header' && item.section === 'pinned')).toBe(false)
   })
 
   test('a pinned session with a row draws that row, in the shape its state gives it', () => {
     // WHY: Pinned is the only place the session shows, so the row must still
     // say whether its agent works, waits, or is done.
     const items = list({ pinned: [pin('p1', 'p1', row('open')), pin('p2', 'p2', row('done', 'completed'))] })
-    expect(items.slice(1)).toMatchObject([
+    expect(items).toMatchObject([
       { kind: 'task', key: 'open:card', section: 'pinned' },
       { kind: 'task', key: 'done:slim', section: 'pinned' },
     ])
   })
 
-  test('a closed Pinned section keeps its header, and the row on screen', () => {
-    // WHY: closing the section hides the rows, but never the conversation you
-    // are reading, as in every other section.
-    expect(list({ pinned: [pin('p1')], isPinnedOpen: false }).map((item) => item.key)).toEqual(['header:pinned'])
-    expect(list({ pinned: [pin('p1'), pin('p2', 'p2', row('here'))], isPinnedOpen: false, shelfRevealTaskId: 'here' })
-      .map((item) => item.key)).toEqual(['header:pinned', 'here:card'])
+  test('pins have no header or collapse state and remain first', () => {
+    expect(list({ pinned: [pin('p1')], sessions: [row('active')] }).map((item) => item.key))
+      .toEqual(['pinned:local:p1', 'active:card'])
     expect(list({ pinned: [] }).some((item) => item.key === 'header:pinned')).toBe(false)
   })
 

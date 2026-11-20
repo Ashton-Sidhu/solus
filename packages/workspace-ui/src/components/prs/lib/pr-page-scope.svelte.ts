@@ -20,7 +20,7 @@ import { prProjectTargets } from './pr-cross-project'
 import { isSolusApiId } from '@solus/contracts/uplink'
 
 export class PrPageScope {
-  constructor(private readonly session: SurfaceContext) {}
+  constructor(private readonly session: SurfaceContext, private readonly hostFilter: () => string | null = () => null) {}
 
   /** The scoped project's key, or null across every project. */
   readonly pageKey = $derived.by(() => {
@@ -61,7 +61,7 @@ export class PrPageScope {
 
   /** Every project the every-project list can read right now. */
   readonly projectTargets = $derived.by<PrProject[]>(() =>
-    prProjectTargets(this.projectOptions.filter((option) => !option.localOnly), {
+    prProjectTargets(this.projectOptions.filter((option) => !option.localOnly && (!this.hostFilter() || option.serverId === this.hostFilter())), {
       isOnlineCheckout: (serverId) =>
         !isSolusApiId(serverId) && serversStore.readinessFor(serverId).readiness === 'ready',
       apiFor: (serverId) => serverConnections.apiFor(serverId),

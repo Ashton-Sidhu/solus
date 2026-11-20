@@ -1,3 +1,6 @@
+import { matchesPrLabels } from '@solus/client-core/pr-label-filters'
+import type { PrSort } from '@solus/contracts/pr-views'
+import { comparePrs } from '@solus/client-core/pr-sort'
 import {
     GitBranch as GitBranchIcon,
     GitMerge as GitMergeIcon,
@@ -10,15 +13,18 @@ import { matchesPrText } from './pr-search-query'
 
 export type PrStateFilter = 'open' | 'closed' | 'all'
 /** `ready` is merge readiness — the default review queue. */
-export type PrSortMode = 'ready' | 'updated' | 'created'
+export type PrSortMode = PrSort
 export type PrChecksState = 'passing' | 'pending' | 'failing'
 
 export interface PrFacetSelection {
   guide?: 'all' | 'has-guide'
   lens?: 'all' | 'has-lens'
-  involvement: 'all' | 'created' | 'assigned' | 'review-requested'
+  involvement: 'all' | 'created' | 'assigned' | 'review-requested' | 'others'
   author: string | null
   label: string | null
+  labels?: string[]
+  labelGroups?: string[][]
+  excludedLabels?: string[]
   draft: 'all' | 'ready' | 'draft'
   review: 'all' | 'approved' | 'changes-requested' | 'review-required' | 'no-reviews'
   checks: 'all' | 'passing' | 'pending' | 'failing'
@@ -41,8 +47,8 @@ export function filterPrFacets(
     if (selection.guide === 'has-guide' && !context.hasGuide?.(pr)) return false
     if (selection.lens === 'has-lens' && !context.hasLens?.(pr)) return false
     if (!matchesInvolvement(pr, selection.involvement, context.viewerLogin(pr))) return false
-    if (selection.author && pr.author.toLowerCase() !== selection.author.toLowerCase()) return false
-    if (selection.label && !pr.labels.some((label) => label.name === selection.label)) return false
+    if (!matchesPrAuthor(pr, selection.author, context.viewerLogin(pr))) return false
+    if (!matchesFacetLabels(pr, selection)) return false
     if (selection.draft === 'ready' && pr.draft) return false
     if (selection.draft === 'draft' && !pr.draft) return false
     if (selection.review !== 'all' && pr.reviewStatus !== selection.review) return false
@@ -51,12 +57,25 @@ export function filterPrFacets(
   })
 }
 
+function matchesPrAuthor(pr: PullRequest, selected: string | null, viewerLogin: string | null): boolean {
+  if (!selected) return true
+  const author = selected === 'me' ? viewerLogin : selected
+  return !!author && pr.author.toLowerCase() === author.toLowerCase()
+}
+
+function matchesFacetLabels(pr: PullRequest, selection: PrFacetSelection): boolean {
+  const included = selection.labels ?? (selection.label ? [selection.label] : [])
+  const groups = selection.labelGroups ?? included.map((name) => [name])
+  return matchesPrLabels(pr.labels.map((label) => label.name), groups, selection.excludedLabels ?? [])
+}
+
 function matchesInvolvement(pr: PullRequest, involvement: PrFacetSelection['involvement'], login: string | null): boolean {
   const viewer = login?.toLowerCase() ?? null
   switch (involvement) {
+    case 'others': return pr.author.toLowerCase() !== viewer && !pr.needsMyReview && !pr.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === viewer)
     case 'created': return pr.author.toLowerCase() === viewer
     case 'assigned': return !!pr.assignees?.some((assignee) => assignee.toLowerCase() === viewer)
-    case 'review-requested': return !!pr.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === viewer)
+    case 'review-requested': return !!pr.needsMyReview || !!pr.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === viewer)
     default: return true
   }
 }
@@ -138,35 +157,16 @@ export function rankPrsByMergeReadiness(
   items: readonly PullRequest[],
   checksState: (pr: PullRequest) => PrChecksState | null,
 ): PullRequest[] {
-  const tier = (pr: PullRequest): number => {
-    if (hasMergeConflicts(pr)) return 4
-    if (pr.state !== 'open') return 3
-    if (pr.draft) return 2
-    const checks = checksState(pr)
-    if (checks === 'passing' && pr.reviewStatus === 'approved') return 0
-    if (checks === 'passing') return 1
-    return 2
-  }
-  const size = (pr: PullRequest) => pr.additions + pr.deletions
-  return items.toSorted((a, b) =>
-    tier(a) - tier(b)
-      || Number(size(b) > 0) - Number(size(a) > 0)
-      || size(a) - size(b)
-      || b.updatedAt.localeCompare(a.updatedAt),
-  )
+  return items.toSorted((a, b) => comparePrs(a, b, 'ready', (pr) => ({ viewerLogin: null, checks: checksState(pr) })))
 }
 
 export function sortPrs(
   items: PullRequest[],
   mode: PrSortMode,
   checksState: (pr: PullRequest) => PrChecksState | null = () => null,
+  viewerLogin: (pr: PullRequest) => string | null = () => null,
 ): PullRequest[] {
-  if (mode === 'ready') return rankPrsByMergeReadiness(items, checksState)
-  return [...items].sort((a, b) => {
-    const dateA = mode === 'created' ? a.createdAt : a.updatedAt
-    const dateB = mode === 'created' ? b.createdAt : b.updatedAt
-    return dateB.localeCompare(dateA)
-  })
+  return items.toSorted((a, b) => comparePrs(a, b, mode, (pr) => ({ viewerLogin: viewerLogin(pr), checks: checksState(pr) })))
 }
 
 export interface PrInboxFacts {

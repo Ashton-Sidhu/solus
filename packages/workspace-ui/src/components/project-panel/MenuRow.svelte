@@ -16,6 +16,9 @@
     disabled?: boolean;
     /** Quiet tabular metric or qualifier in the trailing slot ("28", "Ghostty"). */
     badge?: string;
+    /** Joined to the front of the badge and cut first when the row is narrow,
+     *  before the label: a linked pull request's repository before its number. */
+    badgePrefix?: string;
     /** Glyph in the badge slot, for a qualifier a word would overstate (a local host). */
     badgeIcon?: ActionRowIcon;
     /** Added and removed line counts, tinted, before the badge. A zero count
@@ -32,14 +35,11 @@
     /** Keyboard hint, set in mono after the badge ("⌥⇧D"). */
     hint?: string;
     tooltip?: string;
-    /** Set when the row opens a menu instead of running: the row trades its key
-     *  hint for a caret and the click toggles the popover of that name. */
-    disclosure?: string;
   }
 </script>
 
 <script lang="ts">
-  import { ChevronRight as CaretRightIcon, Check as CheckIcon, LoaderCircle as SpinnerGapIcon } from "@lucide/svelte";
+  import { Check as CheckIcon, LoaderCircle as SpinnerGapIcon } from "@lucide/svelte";
   import Kbd from "@solus/workspace-ui/components/ui/Kbd.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
 
@@ -47,8 +47,6 @@
     item: ActionRowItem;
     /** Primary half of a split row: stretches so the caret can sit beside it. */
     split?: boolean;
-    /** Whether this disclosure row's menu is currently open. */
-    menuOpen?: boolean;
     /** Renders the idle icon in place of `item.icon`, for an icon that needs
      *  more than a size — a project's favicon needs its root and host. */
     iconSnippet?: Snippet;
@@ -58,7 +56,7 @@
       event: MouseEvent & { currentTarget: HTMLButtonElement },
     ) => void;
   }
-  let { item, split = false, menuOpen = false, iconSnippet, onInspect, onActivate }: Props = $props();
+  let { item, split = false, iconSnippet, onInspect, onActivate }: Props = $props();
 </script>
 
 <TooltipUI.Root>
@@ -72,10 +70,8 @@
         class:is-danger={item.danger}
         class:is-success={item.phase === "success"}
         class:is-loading={item.phase === "loading"}
-        class:is-open={!!item.disclosure && menuOpen}
+        class:has-badge-prefix={!!item.badge && !!item.badgePrefix}
         disabled={item.disabled}
-        aria-haspopup={item.disclosure ? "menu" : undefined}
-        aria-expanded={item.disclosure ? menuOpen : undefined}
         onclick={onActivate}
         onmouseenter={() => { if (!item.disabled) onInspect?.(); }}
         onfocusin={() => { if (!item.disabled) onInspect?.(); }}
@@ -106,12 +102,13 @@
               class="menu-trail inline-flex"
               data-tone={item.badgeIconTone}><BadgeIcon size={14} /></span
             >{/if}
-          {#if item.badge}<span class="menu-trail">{item.badge}</span>{/if}
-          {#if item.hint && !item.disclosure}<Kbd variant="inline"
+          {#if item.badge && item.badgePrefix}<span class="menu-trail badge-with-prefix"
+              ><span class="badge-prefix">{item.badgePrefix}</span><span
+                >{item.badge}</span
+              ></span
+            >{:else if item.badge}<span class="menu-trail">{item.badge}</span>{/if}
+          {#if item.hint}<Kbd variant="inline"
               >{item.hint}</Kbd
-            >{/if}
-          {#if item.disclosure}<span class="menu-caret"
-              ><CaretRightIcon size={11} /></span
             >{/if}
         </span>
       </button>
@@ -238,35 +235,30 @@
     font-weight: 400;
     font-variant-numeric: tabular-nums;
   }
+  /* A prefixed badge gives way before the label: the trailing slot shrinks
+     first, down to its fixed parts, and only the prefix's grid track can go
+     to zero. The badge itself always shows. */
+  .menu-row.has-badge-prefix .menu-right {
+    flex-shrink: 1000;
+    min-width: auto;
+  }
+  .menu-trail.badge-with-prefix {
+    flex-shrink: 1;
+    min-width: 0;
+    display: inline-grid;
+    grid-template-columns: minmax(0, max-content) max-content;
+  }
+  .badge-prefix {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .menu-trail.stat-add {
     color: var(--solus-diff-added-text-vivid);
   }
   .menu-trail.stat-del {
     color: var(--solus-diff-removed-text-vivid);
   }
-  /* Disclosure caret closes the row. It points at where the menu opens — the
-     menus flank the column rather than dropping into it. */
-  .menu-caret {
-    display: inline-flex;
-    flex-shrink: 0;
-    color: var(--solus-text-tertiary);
-    opacity: 0.55;
-    transition: opacity 0.15s ease;
-  }
-  .menu-row:hover .menu-caret,
-  .menu-row:focus-visible .menu-caret,
-  .menu-row.is-open .menu-caret {
-    opacity: 1;
-  }
-  /* An open row keeps the hover wash so it stays tied to its menu. */
-  .menu-row.is-open {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .menu-row.is-open .menu-icon {
-    color: var(--solus-text-primary);
-  }
-
   .menu-row.is-danger,
   .menu-row.is-danger .menu-icon {
     color: var(--solus-status-error);

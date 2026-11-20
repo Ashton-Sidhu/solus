@@ -779,23 +779,30 @@ export function listBranches(projectPath: string, options: { remoteOnly?: boolea
 /**
  * Every branch, most recently active first. A branch is active when it gets a
  * commit or when this checkout moves onto it, so a branch you only looked at
- * still rises. A remote branch with a local twin is one entry.
+ * still rises. A remote branch with a local twin is one entry. A local branch
+ * says whether this checkout is on it, or which other worktree has it.
  */
 export async function listBranchRefs(projectPath: string, options: { remoteOnly?: boolean } = {}): Promise<BranchRef[]> {
   const [refsOutput, reflogOutput] = await Promise.all([
-    runAsync('git', ['for-each-ref', '--format=%(refname)%09%(committerdate:unix)%09%(symref)', 'refs/heads', 'refs/remotes'], projectPath).catch(() => ''),
+    runAsync('git', ['for-each-ref', '--format=%(refname)%09%(committerdate:unix)%09%(symref)%09%(HEAD)%09%(worktreepath)', 'refs/heads', 'refs/remotes'], projectPath).catch(() => ''),
     runAsync('git', ['reflog', '--date=unix', '--format=%gd%x09%gs', '-n', '500'], projectPath).catch(() => ''),
   ])
   const byName = new Map<string, BranchRef>()
   let defaultBranch: string | null = null
   for (const line of refsOutput.split('\n').filter(Boolean)) {
-    const [ref, seconds, symref] = line.split('\t')
+    // The worktree path is last: a path may hold a tab.
+    const [ref, seconds, symref, head, ...worktreePathParts] = line.split('\t')
     const activeAt = Number(seconds) * 1000 || 0
     if (ref.startsWith('refs/heads/')) {
       if (options.remoteOnly) continue
       const name = ref.slice('refs/heads/'.length)
       const known = byName.get(name)
-      byName.set(name, { name, activeAt: Math.max(activeAt, known?.activeAt ?? 0), remoteOnly: false, isDefault: false })
+      // `%(HEAD)` marks the branch of the worktree git runs in.
+      const current = head === '*'
+      const entry: BranchRef = { name, activeAt: Math.max(activeAt, known?.activeAt ?? 0), remoteOnly: false, isDefault: false, current }
+      const worktreePath = worktreePathParts.join('\t')
+      if (worktreePath && !current) entry.worktreePath = worktreePath
+      byName.set(name, entry)
       continue
     }
     const remoteBranch = ref.slice('refs/remotes/'.length)
@@ -807,7 +814,7 @@ export async function listBranchRefs(projectPath: string, options: { remoteOnly?
     const name = remoteBranch.slice(remote.length + 1)
     const known = byName.get(name)
     if (known) known.activeAt = Math.max(known.activeAt, activeAt)
-    else byName.set(name, { name, activeAt, remoteOnly: true, isDefault: false })
+    else byName.set(name, { name, activeAt, remoteOnly: true, isDefault: false, current: false })
   }
   // `HEAD@{<seconds>}\tcheckout: moving from <a> to <b>`
   for (const line of reflogOutput.split('\n')) {

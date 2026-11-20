@@ -154,12 +154,12 @@ describe('what can be added', () => {
     return group
   }
 
-  test('offers the four kinds, in one order, each choice with the source it adds', () => {
+  test('offers the five kinds, in one order, each choice with the source it adds', () => {
     // WHY: a person can read tasks from boards and from the plain scopes
     // (decision 5). The repositories the person pushed to are suggested first.
     const groups = sourceChoiceGroups(options, [])
 
-    expect(groups.map((group) => group.kind)).toEqual(['github-repo', 'github-project', 'jira-project', 'jira-board'])
+    expect(groups.map((group) => group.kind)).toEqual(['github-repo', 'github-project', 'linear-team', 'jira-project', 'jira-board'])
     expect(groupOf(groups, 'github-repo').choices).toEqual([
       expect.objectContaining({ source: REPO, sourceKey: 'github-repo:acme/app', label: 'acme/app', detail: 'Repository' }),
       expect.objectContaining({ sourceKey: 'github-repo:acme/site', label: 'acme/site', detail: 'Repository' }),

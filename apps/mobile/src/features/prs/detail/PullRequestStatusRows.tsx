@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestStatusRows.tsx and pullRequestStatus.ts (MIT, see UPSTREAM.md).
 import { useNavigation } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Pressable, View } from 'react-native'
 import type { CheckItem } from '@solus/contracts/checks-types'
 import type { PrStateAction } from '@solus/contracts/providers'
@@ -30,9 +30,9 @@ const LIFECYCLE = {
 } as const satisfies Record<StatusAction, { title: string; icon: AppSymbolName }>
 
 const CHECK_TONE = {
-  passing: { icon: 'checkmark.circle', tint: 'accent-adaptive-emerald-600-400' },
-  failing: { icon: 'exclamationmark.circle', tint: 'accent-danger-foreground' },
-  pending: { icon: 'clock', tint: 'accent-warning-foreground' },
+  passing: { icon: 'checkmark.circle.fill', tint: 'accent-adaptive-emerald-600-400' },
+  failing: { icon: 'xmark.circle.fill', tint: 'accent-danger-foreground' },
+  pending: { icon: 'circlebadge.fill', tint: 'accent-warning-foreground' },
   neutral: { icon: 'minus', tint: 'accent-icon-muted' },
 } as const satisfies Record<CheckStatus['tone'], { icon: AppSymbolName; tint: string }>
 
@@ -99,6 +99,11 @@ export function PullRequestChecksRow({ view }: { readonly view: PullRequestView 
   const [expanded, setExpanded] = useState(false)
   const summary = view.detail.checks
   const current = summary && summary.headSha === view.pr.headSha ? [...summary.required, ...summary.optional] : []
+  const hasFailedChecks = current.some((check) => checkItemLabel(check).tone === 'failing')
+  // Open when failures arrive, but let the reader fold the section again.
+  useEffect(() => {
+    if (hasFailedChecks) setExpanded(true)
+  }, [hasFailedChecks])
   const unavailable = view.detail.missing.includes('checks')
   const reading = view.detail.reading?.includes('checks') ?? false
   const totals = reading && current.length === 0
@@ -107,7 +112,7 @@ export function PullRequestChecksRow({ view }: { readonly view: PullRequestView 
       ? { title: 'Checks unavailable', count: undefined, ...CHECK_TONE.neutral }
       : checkSummary(current)
   const sorted = [...current].sort((a, b) => CHECK_ORDER[checkItemLabel(a).tone] - CHECK_ORDER[checkItemLabel(b).tone])
-  const fixable = view.pr.state === 'open' && current.some((check) => checkItemLabel(check).tone === 'failing')
+  const fixable = view.pr.state === 'open' && hasFailedChecks
   const feedback = agent.actions.find((entry) => entry.task === 'feedback')
   return (
     <View>

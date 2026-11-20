@@ -4,7 +4,6 @@
     CircleAlert as CircleAlertIcon,
     CircleCheck as CheckCircleIcon,
     ChevronRight as CaretRightIcon,
-    CircleMinus as MinusCircleIcon,
     CircleX as XCircleIcon,
     Clock as ClockIcon,
     GitMerge as GitMergeIcon,
@@ -16,6 +15,7 @@
     X as XIcon,
   } from "@lucide/svelte";
   import FileIcon from "../ui/file-icon/FileIcon.svelte";
+  import { CheckCircleFillIcon, DotFillIcon, XCircleFillIcon } from "../ui/octicons";
   import { untrack, type Snippet } from "svelte";
   import type { ChangedFileStat } from "@solus/contracts/types";
   import type { CheckItem, PrChecksSummary } from "@solus/contracts/checks-types";
@@ -134,8 +134,7 @@
   // this sitting, not a preference worth persisting. Read once on mount: a
   // rail that moves homes is a different instance, not the same one resized.
   const startsOpen = untrack(() => variant === "column");
-  // Checks start folded on both homes: the section head carries a one-line
-  // summary ("1 of 5 failing"), which is the answer most readings need.
+  // Checks stay folded until a failure needs attention.
   let sectionOpen = $state({
     reviewers: startsOpen,
     checks: false,
@@ -147,6 +146,11 @@
   // broken rather than whichever the host happened to list first.
   const allChecks = $derived(orderedChecks(checks));
   const checksHeadline = $derived(checksSummary(allChecks));
+  const hasFailedChecks = $derived(checksHeadline.icon === "failed");
+  // Open when failures arrive, but let the reader fold the section again.
+  $effect(() => {
+    if (hasFailedChecks) sectionOpen.checks = true;
+  });
   let showAllChecks = $state(false);
   const visibleChecks = $derived(
     showAllChecks ? allChecks : allChecks.slice(0, CHECKS_VISIBLE_ROWS),
@@ -532,15 +536,11 @@
                then the words. -->
           <span class="flex items-center gap-1.5 tabular-nums text-muted-foreground">
             {#if checksHeadline.icon === "failed"}
-              <XCircleIcon size={13} class="shrink-0 text-(--solus-art-negative)" aria-hidden="true" />
+              <XCircleFillIcon size={13} class="shrink-0 text-(--solus-art-negative)" aria-hidden="true" />
             {:else if checksHeadline.icon === "running"}
-              <CircleNotchIcon
-                size={12}
-                class="shrink-0 animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
-                aria-hidden="true"
-              />
+              <DotFillIcon size={13} class="shrink-0 text-chart-2" aria-hidden="true" />
             {:else}
-              <CheckCircleIcon size={13} class="shrink-0 text-(--solus-art-positive)" aria-hidden="true" />
+              <CheckCircleFillIcon size={13} class="shrink-0 text-(--solus-art-positive)" aria-hidden="true" />
             {/if}
             {checksHeadline.text}
           </span>
@@ -573,22 +573,17 @@
                 >
                   <span class="grid size-3.5 shrink-0 place-items-center" aria-hidden="true">
                     {#if verdict.icon === "passed"}
-                      <CheckCircleIcon
+                      <CheckCircleFillIcon
                         size={13}
                         class="text-(--solus-art-positive)"
                       />
                     {:else if verdict.icon === "failed"}
-                      <XCircleIcon
+                      <XCircleFillIcon
                         size={13}
                         class="text-(--solus-art-negative)"
                       />
-                    {:else if verdict.icon === "running"}
-                      <CircleNotchIcon
-                        size={12}
-                        class="animate-spin text-muted-foreground [animation-duration:0.9s]"
-                      />
                     {:else}
-                      <MinusCircleIcon size={12} class="text-muted-foreground" />
+                      <DotFillIcon size={13} class="text-chart-2" />
                     {/if}
                   </span>
                   <span class="min-w-0 flex-1 truncate">

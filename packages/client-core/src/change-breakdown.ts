@@ -1,5 +1,6 @@
 // Adapted from T3 Code packages/shared/src/changedFileKind.ts (MIT, see apps/mobile/UPSTREAM.md).
 import type { ChangedFileStat } from '@solus/contracts/git-types'
+import { hostPathKey, hostPathSegments } from '@solus/contracts/host-path'
 
 /** What a changed file is, judged from its path alone. */
 export type ChangeKind = 'code' | 'tests' | 'mocks' | 'generated' | 'docs'
@@ -30,6 +31,7 @@ const GENERATED_FILES = new Set([
 const GENERATED_NAME =
   /(\.generated\.|\.gen\.|\.g\.dart$|\.pb\.go$|_pb2(_grpc)?\.py$|\.pb\.(cc|h)$|\.min\.(js|css)$|\.(js|css)\.map$)/
 const GENERATED_DIRS = new Set(['__generated__', '_generated', 'generated'])
+const DRIZZLE_MIGRATION_PATH = /(?:^|\/)drizzle\/(?:[^/]+\/)?(?:\d{4,}_[^/]+\.sql|meta\/(?:\d{4,}_snapshot|_journal)\.json)$/i
 
 const MOCK_NAME = /(\.snap$|\.(mocks?|fixtures?|stubs?|fakes?)\.[^.]+$|^(mocks?|fixtures?|stubs?|fakes?)([-_.A-Z]|$))/
 const MOCK_DIRS = new Set(['__fixtures__', '__mocks__', '__snapshots__', 'fakes', 'fixture', 'fixtures', 'mock', 'mocks', 'stubs', 'testdata'])
@@ -44,17 +46,16 @@ const DOCS_NAME = /\.(md|mdx|markdown|rst|adoc|txt)$/i
 const NOT_DOCS_NAME = /^(requirements.*|constraints.*|CMakeLists|robots|llms)\.txt$/i
 
 /**
- * Sorts a changed file by naming conventions. The first match wins:
- * lockfiles and build output are generated, test support (mocks, fixtures,
- * snapshots) is kept apart from the tests, and prose is docs, so a reviewer
- * sees how much of a change is logic.
+ * Sorts a changed file by naming conventions. The first match wins. Lockfiles,
+ * build output, and Drizzle migration files go under Generated. Mocks, fixtures,
+ * and test snapshots go under Mocks. Prose goes under Docs.
  */
 export function changedFileKind(path: string): ChangeKind {
-  const segments = path.replaceAll('\\', '/').split('/')
+  const segments = hostPathSegments(path)
   const name = segments.pop() ?? ''
   const dirs = segments.map((segment) => segment.toLowerCase())
   const inDir = (set: ReadonlySet<string>) => dirs.some((dir) => set.has(dir))
-  if (GENERATED_FILES.has(name.toLowerCase()) || GENERATED_NAME.test(name) || inDir(GENERATED_DIRS)) return 'generated'
+  if (GENERATED_FILES.has(name.toLowerCase()) || GENERATED_NAME.test(name) || inDir(GENERATED_DIRS) || DRIZZLE_MIGRATION_PATH.test(hostPathKey(path))) return 'generated'
   if (MOCK_NAME.test(name) || inDir(MOCK_DIRS)) return 'mocks'
   if (TEST_NAME.test(name) || CLASS_TEST_NAME.test(name) || inDir(TEST_DIRS)) return 'tests'
   if (DOCS_NAME.test(name) && !NOT_DOCS_NAME.test(name)) return 'docs'

@@ -1,3 +1,5 @@
+import { setLinearKey } from '../../data/tasks/providers/linear-api'
+import { inspectTask, reactToTask, taskTemplates, resolveTaskUrl } from '../../data/tasks/task-inspection'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import type { PrepareSessionTaskResult } from '@solus/contracts/task-types'
@@ -33,7 +35,7 @@ import { readTaskSidebarSnapshot } from '../../data/tasks/task-sidebar'
 import { taskListChangesSince, taskListRevision } from '../../data/tasks/task-revisions'
 import { searchTaskComments } from '../../data/tasks/comment-search'
 import { taskSourceOptions } from '../../data/tasks/source-options'
-import { startTaskSourcePolling, tasksSources } from '../../data/tasks/task-sources'
+import { loadMoreTaskSource, startTaskSourcePolling, tasksSources } from '../../data/tasks/task-sources'
 import type { TaskReader } from '../../data/tasks/task-store'
 import type { HandlerCtx, SolusServer } from '../server'
 import { organizationForNew, recordScopeOf, type Principal } from '../../admission/principal'
@@ -101,11 +103,17 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
     return tasksSources(taskSourcesSchema.parse(sources), readerOf(ctx).personKey, { refresh: opts?.refresh })
   })
 
+  server.register('tasksLoadMore', ([source], ctx) => loadMoreTaskSource(taskSourceSchema.parse(source), readerOf(ctx).personKey))
   server.register('tasksSourceOptions', () => taskSourceOptions())
+  server.register('tasksConnectLinear', ([key]) => setLinearKey(z.string().max(4096).nullable().parse(key)))
+  server.register('tasksInspect', ([id, cursor]) => inspectTask(id, cursor))
+  server.register('tasksReact', ([id, targetId, content, add]) => reactToTask(id, targetId, content, add))
+  server.register('tasksTemplates', ([source]) => taskTemplates(taskSourceSchema.parse(source)))
+  server.register('tasksResolve', ([url], ctx) => resolveTaskUrl(recordScopeOf(ctx.principal), url, readerOf(ctx).personKey))
 
   server.register('tasksSearch', (args) => {
-    const [sources, query] = args
-    return searchTasks(taskSourcesSchema.parse(sources), query)
+    const [sources, query, involvement] = args
+    return searchTasks(taskSourcesSchema.parse(sources), query, z.enum(['all', 'authored', 'assigned', 'mentioned']).default('all').parse(involvement))
   })
 
   server.register('tasksGet', (args, ctx) => {

@@ -1,3 +1,4 @@
+import { RunningServersStore } from './running-servers.svelte'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { HostPolicies } from '@solus/contracts/host-policies'
 import type {
@@ -40,6 +41,7 @@ export class Host {
     private readonly assumedRoles: () => readonly HostRole[],
   ) {
     this.#facts = facts
+    this.runningServers = new RunningServersStore(id)
     this.me = new HostStanding(id, () => this.serverInfo, () => this.presence === 'gone')
     this.#stopFacts = facts.subscribe((key) => this.#emit(key))
     for (const key of FACT_KEYS) {
@@ -50,6 +52,9 @@ export class Host {
       }))
     }
   }
+
+  /** This host's live web and API servers, shared by its reactive readers. */
+  readonly runningServers: RunningServersStore
 
   /** This client's standing here: what it may do (docs/plans/permissions.md). */
   readonly me: HostStanding

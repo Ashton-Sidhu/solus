@@ -5,7 +5,7 @@
    *  in this card's local state: they are never echoed, never kept in a draft or
    *  in the transcript, and they go to the host once through
    *  `secretRequestAnswer`. The host closes the card with `permission_resolved`. */
-  import { ExternalLink as ExternalLinkIcon, LockKeyhole as LockIcon, SquareTerminal as TerminalIcon } from "@lucide/svelte";
+  import { ExternalLink as ExternalLinkIcon, Eye as ShowIcon, EyeOff as HideIcon, LockKeyhole as LockIcon, SquareTerminal as TerminalIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import type { QuestionRequest } from "@solus/contracts/types";
   import { untrack } from "svelte";
@@ -35,6 +35,8 @@
 
   // One field per secret. Callers key the card by request, so it is set once.
   let fields = $state<SecretField[]>(untrack(() => prompts.map(() => ({ value: "", isDeclined: false }))));
+  // Shows a field's value so the user can check what they entered. Local to the card.
+  let revealed = $state<boolean[]>(untrack(() => prompts.map(() => false)));
   let isSending = $state(false);
   let responded = $state(false);
   const closed = $derived(responded || !!request.expired);
@@ -58,6 +60,7 @@
     } finally {
       // No value is kept after a send, also after a failed send.
       for (const field of fields) field.value = "";
+      revealed.fill(false);
       isSending = false;
     }
   }
@@ -67,10 +70,16 @@
     if (canSubmitSecrets(fields)) void send(secretAnswer(fields));
   }
 
-  function toggleDeclined(field: SecretField) {
+  function toggleDeclined(field: SecretField, index: number) {
     field.isDeclined = !field.isDeclined;
     // A declined secret keeps no value.
     field.value = "";
+    revealed[index] = false;
+  }
+
+  function toggleRevealed(index: number, inputId: string) {
+    revealed[index] = !revealed[index];
+    document.getElementById(inputId)?.focus();
   }
 </script>
 
@@ -116,27 +125,44 @@
                 class="text-(--muted-foreground)"
                 disabled={closed || isSending || !canDrive}
                 aria-label="Undo decline of {prompt.name}"
-                onclick={() => toggleDeclined(field)}
+                onclick={() => toggleDeclined(field, index)}
               >
                 Undo
               </Button>
             </div>
           {:else}
             <div class="flex min-w-0 items-center gap-2">
-              <Input
-                id={inputId}
-                bind:value={field.value}
-                type="password"
-                autocomplete="off"
-                spellcheck={false}
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore
-                placeholder={SECRET_PLACEHOLDER}
-                disabled={closed || isSending || !canDrive}
-                aria-describedby="{inputId}-note"
-                class="min-w-0 flex-1"
-              />
+              <div class="relative min-w-0 flex-1">
+                <Input
+                  id={inputId}
+                  bind:value={field.value}
+                  type={revealed[index] ? "text" : "password"}
+                  dictation={false}
+                  autocomplete="off"
+                  spellcheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
+                  placeholder={SECRET_PLACEHOLDER}
+                  disabled={closed || isSending || !canDrive}
+                  aria-describedby="{inputId}-note"
+                  class="pr-9"
+                />
+                <!-- Inside the field's right edge; the field's right padding keeps text clear of it. -->
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  class="absolute top-1/2 right-1 -translate-y-1/2 text-(--muted-foreground) pointer-coarse:tap-area"
+                  disabled={closed || isSending || !canDrive}
+                  aria-controls={inputId}
+                  aria-pressed={revealed[index]}
+                  aria-label="{revealed[index] ? 'Hide' : 'Show'} {prompt.name}"
+                  title={revealed[index] ? "Hide secret" : "Show secret"}
+                  onclick={() => toggleRevealed(index, inputId)}
+                >
+                  {#if revealed[index]}<HideIcon size={16} />{:else}<ShowIcon size={16} />{/if}
+                </Button>
+              </div>
               {#if !isGroup}
                 <Button type="submit" disabled={closed || isSending || !canDrive || !canSubmitSecrets(fields)}>Save securely</Button>
               {/if}
@@ -156,7 +182,7 @@
                 class="shrink-0 text-(--muted-foreground)"
                 disabled={closed || isSending || !canDrive}
                 aria-label="Decline {prompt.name}"
-                onclick={() => (isGroup ? toggleDeclined(field) : void send([null]))}
+                onclick={() => (isGroup ? toggleDeclined(field, index) : void send([null]))}
               >
                 Decline
               </Button>

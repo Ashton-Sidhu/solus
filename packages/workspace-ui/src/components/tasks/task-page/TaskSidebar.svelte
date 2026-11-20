@@ -168,6 +168,8 @@
       <span class={ROW_LABEL}>Assignee</span>
       <TaskAssigneeMenu
         assignee={task.assignee}
+        assignees={task.assignees}
+        onSelectMany={task.providerId === "github" ? (assignees) => void onSave({ assignees }) : undefined}
         assigneeAvatarUrl={task.assigneeAvatarUrl ?? assigneeCandidates.find((candidate) => candidate.login === task.assignee)?.avatarUrl}
         candidates={assigneeCandidates}
         loading={assigneeCandidatesLoading}

@@ -14,7 +14,8 @@ import type { PendingPermission, PendingQuestion, QueuedPrompt, TranscriptItem }
 /**
  * React's view of one conversation, in three slices: the row order, each row,
  * and the chrome around them (`ConversationMeta`). A streamed token notifies
- * one row's listeners only; the list and the composer do not re-render.
+ * one row's listeners only, at most once per display frame; the list and
+ * the composer do not re-render for text alone.
  */
 
 export interface ConversationMeta {
@@ -56,11 +57,13 @@ export interface ConversationMeta {
   /** The run host answered that it has no copy of the session. */
   hostHasNoCopy: boolean
   /** What the next prompt runs with. */
-  run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode }
+  run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode; worktreeBaseBranch: string | null; checkoutBranch: string | null; checkoutWorktree: string | null }
   /** What the next prompt may choose: Auto before the host starts the
    *  session, and the permission modes the agent's host reports. */
   runOptions: {
     canRoute: boolean
+    /** Meta mode and a new worktree may still change (`ConversationController.canChooseStart`). */
+    canChooseStart: boolean
     autoNeedsKey: boolean
     capabilities: AgentCapabilities
     agents: readonly AgentMetadata[] | null
@@ -78,28 +81,42 @@ export class ConversationStore {
   private readonly remarkListeners = new Set<(remarks: readonly string[]) => void>()
   private readonly hostChoiceListeners = new Set<() => void>()
   private metaSnapshot: ConversationMeta
+  private readonly pendingItemIds = new Set<string>()
+  private itemFrame: number | null = null
   /** Where the reader was, kept across a remount (rotation, a split resize). */
   scrollOffset = 0
   readerAtEnd = true
   readonly closedMcpApps = new Set<string>()
   readonly mcpAppHeights = new Map<string, number>()
 
-  constructor(target: ConversationTarget, deps: Omit<ConversationDeps, 'onChange'>) {
+  constructor(target: ConversationTarget, deps: Omit<ConversationDeps, 'onChange'>, private readonly frames = {
+    request: (callback: () => void): number => requestAnimationFrame(callback),
+    cancel: (frame: number): void => cancelAnimationFrame(frame),
+  }) {
     this.controller = new ConversationController(target, {
       ...deps,
       onChange: (changes) => {
         if (changes.order) {
+          this.cancelItemFrame()
+          this.pendingItemIds.clear()
           // A rebuilt model may reuse ids for different content; every row re-reads.
           for (const listeners of this.itemListeners.values()) for (const listener of Array.from(listeners)) listener()
           this.order.notify()
         } else {
-          for (const id of changes.items) for (const listener of Array.from(this.itemListeners.get(id) ?? [])) listener()
           for (const id of changes.items) {
+            if (this.itemListeners.has(id)) this.pendingItemIds.add(id)
             const item = this.item(id)
             if (item?.kind !== 'tool' || !item.children) continue
             for (const childId of item.children.takeChanges().items) {
-              for (const listener of Array.from(this.itemListeners.get(`${id}\0${childId}`) ?? [])) listener()
+              const childKey = `${id}\0${childId}`
+              if (this.itemListeners.has(childKey)) this.pendingItemIds.add(childKey)
             }
+          }
+          // Status and request changes show at once. Text bursts notify each
+          // row once per frame, using the latest item, without dropping events.
+          if (changes.meta) this.notifyItems()
+          else if (this.pendingItemIds.size > 0 && this.itemFrame === null) {
+            this.itemFrame = this.frames.request(() => this.notifyItems())
           }
         }
         if (changes.meta || changes.order) {
@@ -109,6 +126,19 @@ export class ConversationStore {
       },
     })
     this.metaSnapshot = this.readMeta()
+  }
+
+  private cancelItemFrame(): void {
+    if (this.itemFrame === null) return
+    this.frames.cancel(this.itemFrame)
+    this.itemFrame = null
+  }
+
+  private notifyItems(): void {
+    this.cancelItemFrame()
+    const ids = [...this.pendingItemIds]
+    this.pendingItemIds.clear()
+    for (const id of ids) for (const listener of Array.from(this.itemListeners.get(id) ?? [])) listener()
   }
 
   subscribeItem(id: string, listener: () => void): () => void {
@@ -195,9 +225,13 @@ export class ConversationStore {
         reasoningEffort: this.controller.run.reasoningEffort,
         fastMode: this.controller.run.fastMode,
         permissionMode: this.controller.run.permissionMode,
+        worktreeBaseBranch: this.controller.run.worktreeBaseBranch ?? null,
+        checkoutBranch: this.controller.checkoutBranch,
+        checkoutWorktree: this.controller.checkoutWorktree,
       },
       runOptions: {
         canRoute: this.controller.canRoute,
+        canChooseStart: this.controller.canChooseStart,
         autoNeedsKey: this.controller.autoNeedsKey,
         capabilities: this.controller.capabilitiesOf(this.controller.run.provider),
         agents: this.controller.agents,
@@ -207,6 +241,8 @@ export class ConversationStore {
   }
 
   close(): void {
+    this.cancelItemFrame()
+    this.pendingItemIds.clear()
     this.controller.close()
     this.itemListeners.clear()
   }

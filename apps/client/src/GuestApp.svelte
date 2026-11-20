@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { Link2Off } from '@lucide/svelte';
   import { createAppCore } from '@solus/workspace-ui/contexts/app/app-core';
   import { initializeRuntime } from '@solus/workspace-ui/contexts/app/runtime-boot';
@@ -23,7 +23,7 @@
    * in its pane. A task has no link of its own, because its organization sees it.
    */
   let { serverId, share }: { serverId: string; share: GuestShare } = $props();
-  const { settings, session, sessionSidebarStore } = createAppCore(new GuestShell(share.resource.kind));
+  const { settings, session, sessionSidebarStore } = createAppCore(new GuestShell(untrack(() => share.resource.kind)));
   serversStore.trackConnections();
   setupAgentEvents(session);
   let overlayEl: HTMLElement | null = $state(null);

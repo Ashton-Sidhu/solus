@@ -1,260 +1,45 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  composerUsesCard,
-  measuredDraftText,
-  ONE_ROW_MEASURE_LIMIT,
-  oneRowEditorHeight,
-  oneRowEditorInset,
-  oneRowMeasureFrame,
-  oneRowVerdict,
-} from '../../apps/mobile/src/features/threads/composer-layout'
+import { compactEditorInsets, nativeComposerOverflowsRow, oneRowEditorHeight, oneRowEditorInset } from '../../apps/mobile/src/features/threads/composer-layout'
+import { resolveComposerTextRole } from '../../apps/mobile/src/lib/appearancePreferences'
 import { KeyboardResumeGuard } from '../../apps/mobile/src/features/threads/android-keyboard-resume'
 
 const mobile = join(import.meta.dir, '../../apps/mobile')
 const read = (path: string) => readFileSync(join(mobile, path), 'utf8')
 
-const editing = { editing: true, hasEditingAttachments: false, rowMeasured: true, fitsOneRow: true }
-
-describe('compact-until-wrap composer rules (T3 #20812)', () => {
-  test('focus alone keeps the one-row capsule; the card is for a draft that does not fit one line', () => {
-    expect(composerUsesCard({ ...editing, text: '' })).toBe(false)
-    expect(composerUsesCard({ ...editing, text: 'fix the test' })).toBe(false)
-    expect(composerUsesCard({ ...editing, text: 'a draft the text engine wrapped', fitsOneRow: false })).toBe(true)
+describe('T3 compact composer layout', () => {
+  test('text in the wider expanded field must fit its compact slot before collapsing', () => {
+    expect(nativeComposerOverflowsRow({ width: 650, height: 23 }, 600, 23)).toBe(true)
+    expect(nativeComposerOverflowsRow({ width: 599, height: 23 }, 600, 23)).toBe(false)
+    expect(nativeComposerOverflowsRow({ width: 450, height: 23 }, 350, 23)).toBe(true)
+    expect(nativeComposerOverflowsRow({ width: 0, height: 46 }, 320, 23)).toBe(true)
+    expect(nativeComposerOverflowsRow({ width: 0, height: 0 }, 0, 23)).toBe(false)
   })
 
-  test('an unfocused composer is always the capsule, whatever the draft', () => {
-    expect(composerUsesCard({ ...editing, editing: false, text: 'one\ntwo', fitsOneRow: false, hasEditingAttachments: true })).toBe(false)
+  test('the floating editor stays between the attach button and the model controls, also in RTL', () => {
+    const row = { slotX: 44, slotWidth: 400, rowWidth: 600 }
+    expect(compactEditorInsets({ ...row, isRTL: false })).toEqual({ left: 48, right: 160 })
+    expect(compactEditorInsets({ ...row, isRTL: true })).toEqual({ left: 160, right: 48 })
   })
 
-  test('a line break is its own line, also a trailing one that iOS line fragments do not count', () => {
-    for (const text of ['one\ntwo', 'trailing\n', 'windows\r\n', 'separator\u2028', 'paragraph\u2029']) {
-      expect(composerUsesCard({ ...editing, text })).toBe(true)
-    }
-  })
-
-  test('a cleared draft returns to the row, even before the hidden copy is laid out again', () => {
-    expect(composerUsesCard({ ...editing, text: '', fitsOneRow: false })).toBe(false)
-  })
-
-  test('removable attachments use the card, where their strip is', () => {
-    expect(composerUsesCard({ ...editing, text: '', hasEditingAttachments: true })).toBe(true)
-  })
-
-  test('a draft longer than the measured prefix is the card without laying it all out', () => {
-    expect(composerUsesCard({ ...editing, text: 'x'.repeat(ONE_ROW_MEASURE_LIMIT + 1) })).toBe(true)
-    expect(composerUsesCard({ ...editing, text: 'x'.repeat(ONE_ROW_MEASURE_LIMIT) })).toBe(false)
-    expect(measuredDraftText('x'.repeat(ONE_ROW_MEASURE_LIMIT + 5)).length).toBe(ONE_ROW_MEASURE_LIMIT)
-  })
-
-  test('until the row chrome is measured, a wrapping verdict cannot hold the card: the row shows to be measured', () => {
-    expect(composerUsesCard({ ...editing, text: 'long draft', rowMeasured: false, fitsOneRow: false })).toBe(false)
-  })
-
-  test('a text layout counts only for the draft it measured', () => {
-    expect(oneRowVerdict('hello world', [{ text: 'hello world' }])).toBe(true)
-    expect(oneRowVerdict('hello world', [{ text: 'hello ' }, { text: 'world' }])).toBe(false)
-    expect(oneRowVerdict('hello world!', [{ text: 'hello ' }, { text: 'world' }])).toBeNull()
-    expect(oneRowVerdict('', [])).toBe(true)
-  })
-
-  test('the editor keeps T3’s 36-point minimum and leaves room for the text insets', () => {
+  test('the compact editor uses the upstream baseline inset and leaves room for scaled text', () => {
+    expect(oneRowEditorInset({ fontSize: 16, lineHeight: 23 }, 'ios')).toBe(6)
+    expect(oneRowEditorInset({ fontSize: 16, lineHeight: 23 }, 'android')).toBe(6)
     expect(oneRowEditorHeight(23)).toBe(36)
-    expect(oneRowEditorHeight(41.5)).toBe(50)
-  })
-  test('compact text uses the system-font baseline inset and fits at larger text sizes', () => {
-    const normal = { fontSize: 16, lineHeight: 23 }
-    const large = { fontSize: 24, lineHeight: 35 }
-    expect(oneRowEditorInset(normal, 'ios')).toBe(4)
-    expect(oneRowEditorInset(normal, 'android')).toBe(6)
+    expect(oneRowEditorHeight(41.5)).toBe(54)
     for (const platform of ['ios', 'android'] as const) {
-      const inset = oneRowEditorInset(large, platform)
+      const text = { fontSize: 24, lineHeight: 35 }
+      const inset = oneRowEditorInset(text, platform)
       expect(inset).toBeGreaterThanOrEqual(0)
-      expect(oneRowEditorHeight(large.lineHeight, inset)).toBeGreaterThanOrEqual(large.lineHeight + 2 * inset)
+      expect(oneRowEditorHeight(text.lineHeight, inset)).toBeGreaterThanOrEqual(text.lineHeight + 2 * inset)
     }
-    const composer = read('src/features/threads/ThreadComposer.tsx')
-    expect(composer).toContain('contentInsetVertical={usesCard ? 4 : rowInset}')
-    expect(composer).not.toContain('rowLineHeight')
   })
 
-})
-
-/**
- * A model of the protocol between ThreadComposer and Fabric, at the level the
- * composer sees it: each commit is laid out in one pass, and that pass sends
- * layout events whose handlers run later, against the props committed then.
- * The geometry is the row's flex layout; the text engine is a fixture of 8
- * points a character. This proves the event protocol, not device text
- * layout parity.
- */
-const ATTACH = 44
-const SEND = 44
-const CHAR = 8
-
-/** The editing row as Yoga lays it out: the editor keeps 40%, the model control shrinks first. */
-function editingRow(surfaceWidth: number, modelWidth: number) {
-  const editor = Math.max(0.4 * surfaceWidth, surfaceWidth - ATTACH - modelWidth - SEND)
-  return { leading: ATTACH, trailing: surfaceWidth - ATTACH - editor, textWidth: editor - 8 - 2 }
-}
-
-/** The hidden copy's frame as Yoga resolves an absolute view with left, right and minWidth. */
-function frameTextWidth(surfaceWidth: number, chrome: { leading: number; trailing: number }) {
-  const frame = oneRowMeasureFrame(chrome)
-  const minWidth = (Number.parseFloat(frame.minWidth) / 100) * surfaceWidth
-  return Math.max(surfaceWidth - frame.left - frame.right, minWidth) - frame.paddingLeft - frame.paddingRight
-}
-
-function layoutLines(text: string, width: number) {
-  const perLine = Math.max(1, Math.floor(width / CHAR))
-  const lines: { text: string }[] = []
-  for (let start = 0; start < text.length; start += perLine) lines.push({ text: text.slice(start, start + perLine) })
-  return lines
-}
-
-const truthUsesCard = (text: string, surfaceWidth: number, modelWidth: number) =>
-  text.length * CHAR > editingRow(surfaceWidth, modelWidth).textWidth
-
-class ComposerModel {
-  text = ''
-  label = 'Opus'
-  leading: number | null = null
-  trailing: { label: string; width: number } | null = null
-  fits = true
-
-  usesCard() {
-    const trailing = this.trailing?.label === this.label ? this.trailing.width : null
-    return composerUsesCard({
-      editing: true,
-      text: this.text,
-      hasEditingAttachments: false,
-      rowMeasured: this.leading !== null && trailing !== null,
-      fitsOneRow: this.fits,
-    })
-  }
-
-  /** One commit's layout pass; returns its events, not yet delivered. */
-  layoutPass(surfaceWidth: number, modelWidth: number): Array<() => void> {
-    const events: Array<() => void> = []
-    const label = this.label
-    if (!this.usesCard()) {
-      const row = editingRow(surfaceWidth, modelWidth)
-      events.push(() => { this.leading = row.leading })
-      events.push(() => { this.trailing = { label, width: row.trailing } })
-    }
-    const trailing = this.trailing?.label === label ? this.trailing.width : null
-    if (this.leading !== null && trailing !== null) {
-      const lines = layoutLines(measuredDraftText(this.text), frameTextWidth(surfaceWidth, { leading: this.leading, trailing }))
-      // The handler compares with the draft committed when it runs.
-      events.push(() => {
-        const verdict = oneRowVerdict(measuredDraftText(this.text), lines)
-        if (verdict !== null) this.fits = verdict
-      })
-    }
-    return events
-  }
-
-  /** Lays out and delivers until nothing changes; returns the layout shown after each pass. */
-  settle(surfaceWidth: number, modelWidth: number, order: 'fifo' | 'reversed'): boolean[] {
-    const shown: boolean[] = []
-    let previous = ''
-    for (let pass = 0; pass < 10; pass++) {
-      const events = this.layoutPass(surfaceWidth, modelWidth)
-      for (const event of order === 'fifo' ? events : events.reverse()) event()
-      shown.push(this.usesCard())
-      const state = JSON.stringify([this.leading, this.trailing, this.fits, this.usesCard()])
-      if (state === previous) break
-      previous = state
-    }
-    return shown
-  }
-}
-
-const changes = (shown: boolean[], before: boolean) =>
-  shown.reduce((count, card, index) => count + (card !== (index === 0 ? before : shown[index - 1]) ? 1 : 0), 0)
-
-describe('row measurement under any layout event order', () => {
-  for (const order of ['fifo', 'reversed'] as const) {
-    test(`narrowing and widening across the wrap boundary changes the layout once and lands on the truth (${order})`, () => {
-      const composer = new ComposerModel()
-      composer.text = 'x'.repeat(19) // 152 points
-      const model = 100
-      let before = false
-      for (const surfaceWidth of [360, 340, 360, 330, 520, 340]) {
-        const shown = composer.settle(surfaceWidth, model, order)
-        expect(shown.at(-1)).toBe(truthUsesCard(composer.text, surfaceWidth, model))
-        expect(changes(shown, before)).toBeLessThanOrEqual(1)
-        before = shown.at(-1)!
-      }
-    })
-
-    test(`a model control measured shrunk corrects within one row visit and then holds (${order})`, () => {
-      const composer = new ComposerModel()
-      const model = 100
-      composer.text = 'x'.repeat(10)
-      composer.settle(250, model, order) // the editor sits at its 40% minimum; the model control shrinks
-      composer.text = 'x'.repeat(26) // 208 points
-      expect(composer.settle(250, model, order).at(-1)).toBe(true)
-      const widened = composer.settle(400, model, order)
-      expect(widened.at(-1)).toBe(truthUsesCard(composer.text, 400, model))
-      expect(changes(widened, true)).toBeLessThanOrEqual(2)
-      // Settled: further passes at the same width change nothing.
-      expect(composer.settle(400, model, order).every((card) => card === widened.at(-1))).toBe(true)
-    })
-
-    test(`a new model label while the card shows is measured again instead of locking the card (${order})`, () => {
-      const composer = new ComposerModel()
-      composer.text = 'x'.repeat(19)
-      expect(composer.settle(340, 100, order).at(-1)).toBe(true)
-      composer.label = 'Haiku' // a shorter label: the row now has room
-      const shown = composer.settle(340, 40, order)
-      expect(shown.at(-1)).toBe(truthUsesCard(composer.text, 340, 40))
-      expect(shown.at(-1)).toBe(false)
-    })
-  }
-})
-
-describe('stale text layouts', () => {
-  const measuredComposer = () => {
-    const composer = new ComposerModel()
-    composer.settle(360, 100, 'fifo')
-    return composer
-  }
-
-  test('a layout of the wrapped draft that arrives after a delete cannot set the card', () => {
-    const composer = measuredComposer()
-    composer.text = 'x'.repeat(30)
-    const wrappedPass = composer.layoutPass(360, 100)
-    composer.text = 'x'.repeat(5) // deleted before the wrapped layout was delivered
-    const shortPass = composer.layoutPass(360, 100)
-    for (const event of shortPass) event()
-    for (const event of wrappedPass) event() // late
-    expect(composer.fits).toBe(true)
-    expect(composer.usesCard()).toBe(false)
-  })
-
-  test('typing past the edge then sending: the queued layouts end on an empty row', () => {
-    const composer = measuredComposer()
-    composer.text = 'x'.repeat(18)
-    const fitsPass = composer.layoutPass(360, 100)
-    composer.text = 'x'.repeat(21)
-    const wrapPass = composer.layoutPass(360, 100)
-    composer.text = '' // sent
-    const sentPass = composer.layoutPass(360, 100)
-    for (const event of [...fitsPass, ...wrapPass, ...sentPass]) event()
-    expect(composer.usesCard()).toBe(false)
-    composer.text = 'x'.repeat(3)
-    expect(composer.usesCard()).toBe(false)
-  })
-
-  test('in order, each layout applies to its own draft', () => {
-    const composer = measuredComposer()
-    composer.text = 'x'.repeat(21)
-    for (const event of composer.layoutPass(360, 100)) event()
-    expect(composer.usesCard()).toBe(true)
-    composer.text = 'x'.repeat(4)
-    for (const event of composer.layoutPass(360, 100)) event()
-    expect(composer.usesCard()).toBe(false)
+  test('iOS native text follows Dynamic Type without scaling Android text twice', () => {
+    const text = { fontSize: 16, lineHeight: 23 }
+    expect(resolveComposerTextRole(text, 1.5, 'ios')).toEqual({ fontSize: 24, lineHeight: 34.5 })
+    expect(resolveComposerTextRole(text, 1.5, 'android')).toEqual(text)
   })
 })
 
@@ -369,9 +154,12 @@ describe('shared sheet header (T3 #21978)', () => {
 // the port, not styling.
 describe('new-thread draft and composer alignment (T3 #23206, #23355, #23366)', () => {
   test('the draft hero scrolls in the native-marked view and takes its top inset from UIKit, not a fixed iPhone bar height', () => {
-    const draft = read('src/features/threads/NewTaskRouteScreen.tsx')
+    const draft = read('src/features/threads/NewTaskDraftScreen.tsx')
     expect(draft).not.toContain('ios:pt-[72px]')
-    expect(draft).toMatch(/<ScreenScrollView\s+className="flex-1"\s+contentInsetAdjustmentBehavior="automatic"\s+contentContainerClassName="grow items-center justify-center pb-\[236px\] pt-12"/)
+    expect(draft).toMatch(/<ScreenScrollView\s+className="flex-1"\s+contentInsetAdjustmentBehavior="automatic"\s+contentContainerClassName="grow items-center justify-center pt-12"/)
+    // Reserve the real dock, including expanded text and the task-source offer.
+    expect(draft).toContain('paddingBottom: composerDockHeight + 16')
+    expect(read('src/features/threads/ThreadDetailScreen.tsx')).toContain('props.draftMode.content(composerOverlayHeight ?? estimatedOverlayHeight)')
     // The title sits beside Back, as T3's draft page does.
     expect(draft).toContain('unstable_navigationItemStyle: "editor"')
   })
@@ -389,10 +177,11 @@ describe('new-thread draft and composer alignment (T3 #23206, #23355, #23366)', 
     expect(read('src/features/threads/ThreadRouteScreen.tsx')).toContain('accessibilityLabel="New session"')
   })
 
-  test('the iOS composer inset leaves only for a keyboard with height; the iPad takes the composer gutter out of it once', () => {
+  test('the composer keeps its safe-area padding while the keyboard moves; the sticky offset accounts for it', () => {
     const detail = read('src/features/threads/ThreadDetailScreen.tsx')
     expect(detail).not.toContain('composerFocused')
-    expect(detail).toContain('Platform.OS === "android" ? isKeyboardVisible : liveKeyboardHeight > 0')
+    expect(detail).toContain('const composerBottomInset = alignedBottomInset')
+    expect(detail).toContain('offset={{ closed: 0, opened: composerBottomInset }}')
     expect(detail).toContain('Math.max(0, Math.max(insets.bottom, 12) - composerBottomGutter)')
   })
 })
