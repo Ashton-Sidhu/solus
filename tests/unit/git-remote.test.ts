@@ -125,3 +125,12 @@ test('Cloudflare accepts session names and requests read scope', async () => {
   expect(JSON.parse(calls[1]!.body!)).toMatchObject({ scope: 'read' })
   await expect(access.remote('session-bad', 'read')).rejects.toThrow('Invalid Solus repository name')
 })
+
+// WHY: works and sessions read their files through one Artifacts client. A
+// person who reads a session from Solus Cloud must not get an error about a
+// work body.
+test('a failed Artifacts read names the repository file, not a feature', async () => {
+  const failing: typeof fetch = async () => new Response('', { status: 500 })
+  const access = new ArtifactsRepositoryProvider('a'.repeat(32), 'test', 'account-token', undefined, failing)
+  await expect(access.readFile(`session-${'b'.repeat(48)}`, 'c'.repeat(40), 'manifest.json')).rejects.toThrow('The Artifacts repository file could not be read.')
+})

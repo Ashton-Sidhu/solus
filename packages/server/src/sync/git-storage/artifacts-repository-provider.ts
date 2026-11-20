@@ -71,7 +71,7 @@ export class ArtifactsRepositoryProvider implements RepositoryProvider {
   async readFile(repository: string, commit: string, path: string, maxBytes?: number): Promise<string> {
     this.checkName(repository)
     const response = await this.request(`/repos/${repository}/file?${new URLSearchParams({ ref: commit, path })}`)
-    if (!response.ok) throw new Error('The Artifacts work body could not be read.')
+    if (!response.ok) throw new Error('The Artifacts repository file could not be read.')
     if (maxBytes === undefined) return response.text()
     const reader = response.body?.getReader()
     if (!reader) throw new Error('The Artifacts file has no body.')
