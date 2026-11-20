@@ -801,3 +801,10 @@ change, no mobile change. The client extends phase 4A (`portable-sessions.md`
 - A reload of a cloud-only tab before a host has it restores an empty tab on
   the same host; a pick in Run on or a prompt makes a host current and loads it.
 - Mobile is not changed.
+
+### Integration fixes (2026-11-19)
+
+- The shared sync card has typed text for `not-signed-in` and `commit-failed`. Desktop, web, and mobile use it.
+- A sync gate test now passes the bundle output path in the correct callback position. The path is absolute and lies in the sync's removed temporary directory. The repository writer rejects a relative bundle path.
+- A refused-push test uses two local copies and `file://` remotes. The fork has a separate repository. Its provider fork file contains the second host's earlier turn and the fork turn. The original remote stays at the first host's head.
+- A cloud prepare test checks that the host adopts the newer head, clears the refused state, admits a prompt, and keeps the old local head under `refs/solus/refused/<sha>`.

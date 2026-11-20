@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { GitRemote, type CheckedPushResult } from '../git-remote'
 import { hostCliEnv } from '../../cli-env'
@@ -118,6 +118,7 @@ export class SessionRepositories {
 
   /** Write commits after `have`; a divergent `have` gets no bundle. */
   async bundleSince(repository: string, have: string | null, outFile: string): Promise<{ kind: 'written'; head: string } | { kind: 'current'; head: string | null } | { kind: 'diverged'; head: string | null }> {
+    if (!isAbsolute(outFile)) throw new Error('The session bundle path must be absolute.')
     if (have && !/^[a-f0-9]{40}$/.test(have)) throw new Error('Invalid session repository head.')
     const head = await this.head(repository)
     if (!head || head === have) return { kind: 'current', head }

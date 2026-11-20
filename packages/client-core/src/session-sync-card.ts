@@ -50,32 +50,23 @@ export function sessionSyncFailureAction(reason: SessionSyncFailure): SessionSyn
 /** A plain text for each reason a sync failed, and the action that fits it. */
 export function sessionSyncFailureText(reason: SessionSyncFailure, names: SessionSyncCardNames): SessionSyncFailureText {
   const { sourceHost, runHost, provider } = names
-  switch (reason) {
-    case 'provider-unavailable':
-      return { message: `${provider} is not installed on ${runHost}. Install it there, or choose another host.`, action: 'choose-host' }
-    case 'seat-required':
-      return { message: `Connect ${provider} on ${runHost} to continue this session there.`, action: 'connect-seat' }
-    case 'model-unavailable':
-      return { message: `${runHost} does not offer the model of this session. Choose another model or another host.`, action: 'choose-host' }
-    case 'provider-too-old':
-      return { message: `${provider} on ${runHost} is older than the version that ran this session. Update it, or choose another host.`, action: 'choose-host' }
-    case 'source-offline':
-      return { message: `${sourceHost} is offline. It has the newest turn of this session. Turn it on, or choose another host.`, action: 'choose-host' }
-    case 'no-repository':
-      return { message: `${sourceHost} has no saved copy of this session yet. Continue on ${sourceHost}.`, action: 'choose-host' }
-    case 'no-project-checkout':
-      return { message: `${runHost} has no copy of this project, and the project has no remote to clone. Choose another host.`, action: 'choose-host' }
-    case 'diverged':
-      return { message: `${runHost} has other turns of this session than ${sourceHost}. Continue on ${sourceHost}.`, action: 'choose-host' }
-    case 'code-restore':
-      return { message: `The code of this session could not be restored on ${runHost}. Nothing there was changed.`, action: 'choose-host' }
-    case 'thread-conflict':
-      return { message: `${runHost} has a different copy of this conversation. Nothing there was changed.`, action: 'choose-host' }
-    case 'interrupted':
-      return { message: 'The sync was stopped. Send again to continue.', action: null }
-    case 'failed':
-      return { message: `The session could not sync to ${runHost}.`, action: 'choose-host' }
-  }
+  const messages = {
+    'not-signed-in': { message: `The newer turns are in Solus Cloud. Sign in on ${runHost}, or run on the host that has them.`, action: 'choose-host' },
+    'commit-failed': { message: `The last turn on ${sourceHost} was not saved. Try again.`, action: 'choose-host' },
+    'provider-unavailable': { message: `${provider} is not installed on ${runHost}. Install it there, or choose another host.`, action: 'choose-host' },
+    'seat-required': { message: `Connect ${provider} on ${runHost} to continue this session there.`, action: 'connect-seat' },
+    'model-unavailable': { message: `${runHost} does not offer the model of this session. Choose another model or another host.`, action: 'choose-host' },
+    'provider-too-old': { message: `${provider} on ${runHost} is older than the version that ran this session. Update it, or choose another host.`, action: 'choose-host' },
+    'source-offline': { message: `${sourceHost} is offline. It has the newest turn of this session. Turn it on, or choose another host.`, action: 'choose-host' },
+    'no-repository': { message: `${sourceHost} has no saved copy of this session yet. Continue on ${sourceHost}.`, action: 'choose-host' },
+    'no-project-checkout': { message: `${runHost} has no copy of this project, and the project has no remote to clone. Choose another host.`, action: 'choose-host' },
+    diverged: { message: `${runHost} has other turns of this session than ${sourceHost}. Continue on ${sourceHost}.`, action: 'choose-host' },
+    'code-restore': { message: `The code of this session could not be restored on ${runHost}. Nothing there was changed.`, action: 'choose-host' },
+    'thread-conflict': { message: `${runHost} has a different copy of this conversation. Nothing there was changed.`, action: 'choose-host' },
+    interrupted: { message: 'The sync was stopped. Send again to continue.', action: null },
+    failed: { message: `The session could not sync to ${runHost}.`, action: 'choose-host' },
+  } satisfies Record<SessionSyncFailure, SessionSyncFailureText>
+  return messages[reason]
 }
 
 /**

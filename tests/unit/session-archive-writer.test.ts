@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { SessionManifest } from '@solus/server/sync/sessions/session-manifest'
 import type { ThreadFile, TurnEnd } from '@solus/server/sync/sessions/session-archive-writer'
 import { resetTestDatabase } from './helpers/test-db'
@@ -94,6 +95,58 @@ function pendingCount(): number {
 }
 
 describe('session archive writer', () => {
+  // WHY: a refused push must leave the second host's turns available in a new fork repository without changing the first history.
+  test('a fork after a refused push carries the provider history to its own remote', async () => {
+    const sourceId = 'refused-source'
+    const forkId = 'refused-fork'
+    const sourceRepository = repositoryName('local', sourceId)
+    const forkRepository = repositoryName('local', forkId)
+    const firstHost = new Repositories(tempDir('first-host'))
+    const secondHost = new Repositories(tempDir('second-host'))
+    const firstRemote = join(tempDir('remote'), 'first.git')
+    const forkRemote = join(tempDir('remote'), 'fork.git')
+    git(root, ['init', '--bare', '--initial-branch=main', firstRemote])
+    git(root, ['init', '--bare', '--initial-branch=main', forkRemote])
+    const baseManifest = (await import('@solus/server/sync/sessions/session-manifest')).emptySessionManifest(sourceId, 'local')
+    const base = await firstHost.commit(sourceRepository, { expectedHead: null, message: 'first host turn', entries: [
+      { path: 'threads/source-thread/main/0', content: 'first host turn\n' },
+      { path: 'manifest.json', content: JSON.stringify(baseManifest) },
+    ] })
+    expect((await firstHost.push(sourceRepository, pathToFileURL(firstRemote).href, base, null)).status).toBe('accepted')
+    const baseBundle = join(tempDir('bundle'), 'base.bundle')
+    await firstHost.bundleSince(sourceRepository, null, baseBundle)
+    await secondHost.fetchBundle(sourceRepository, baseBundle)
+    const secondTurn = await secondHost.commit(sourceRepository, { expectedHead: base, message: 'second host turn', entries: [
+      { path: 'threads/source-thread/main/1', content: 'second host turn\n' },
+    ] })
+    const firstTurn = await firstHost.commit(sourceRepository, { expectedHead: base, message: 'first host next turn', entries: [
+      { path: 'threads/source-thread/main/1', content: 'first host next turn\n' },
+    ] })
+    expect((await firstHost.push(sourceRepository, pathToFileURL(firstRemote).href, firstTurn, base)).status).toBe('accepted')
+    expect(await secondHost.push(sourceRepository, pathToFileURL(firstRemote).href, secondTurn, base)).toEqual({ status: 'refused', head: firstTurn })
+
+    // A fake provider fork writes its inherited turns and new turn in one new thread file.
+    const forkFile = join(tempDir('provider-fork'), 'fork.jsonl')
+    writeFileSync(forkFile, 'first host turn\nsecond host turn\nfork turn\n')
+    await records.upsertOwnSessionRecord({ sessionId: forkId, provider: 'claude-code', projectPath: root,
+      parentSessionId: sourceId, rootSessionId: sourceId, lastActivityAt: 1 })
+    const writer = new Writer({ repositories: secondHost, threadFiles: async () => [{ key: 'main', relativePath: 'fork.jsonl', path: forkFile }] })
+    await writer.turnEnded({ sessionId: forkId, organizationId: 'local', provider: 'claude-code', threadId: 'fork-thread', partial: false })
+    await writer.idle()
+    const forkHead = await secondHost.head(forkRepository)
+    expect(forkHead).toBeTruthy()
+    expect(forkRepository).not.toBe(sourceRepository)
+    const forkManifest = await secondHost.readManifest(forkRepository, forkHead!)
+    expect(forkManifest.session.parentSessionId).toBe(sourceId)
+    expect(forkManifest.lineage?.[0]?.startedAs).toBe('fork')
+    const restored = join(tempDir('restored-fork'), 'fork.jsonl')
+    await secondHost.writeThreadFile(forkRepository, forkHead!, 'fork-thread', forkManifest.threads[0]!.files[0]!, restored)
+    expect(readFileSync(restored, 'utf8')).toBe('first host turn\nsecond host turn\nfork turn\n')
+    expect((await secondHost.push(forkRepository, pathToFileURL(forkRemote).href, forkHead!, null)).status).toBe('accepted')
+    expect(git(root, ['--git-dir', forkRemote, 'rev-parse', 'refs/heads/main'])).toBe(forkHead)
+    expect(git(root, ['--git-dir', firstRemote, 'rev-parse', 'refs/heads/main'])).toBe(firstTurn)
+    await writer.stop()
+  })
   // WHY: a bundle requested at turn end must include the commit even while its transcript is still being captured.
   test('the per-session wait includes an in-progress capture and commit', async () => {
     const transcript = join(tempDir('late-turn'), 'thread.jsonl')

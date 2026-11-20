@@ -2,7 +2,7 @@ import { afterAll, expect, mock, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import { DatabaseSync } from './helpers/bun-sqlite'
 
@@ -258,7 +258,9 @@ test('preflight, offline source, divergence, and thread conflict keep the reposi
   ] })
   const destination = join(root, 'failure-destination')
   const request = { sessionId, knownHead: head, sourceHostId: 'source' }
-  const sourceBundle = async (_id: string, _have: string | null, _source: string | undefined, outFile: string) => {
+  const sourceBundle = async (_id: string, _have: string | null, _wanted: string | null, _source: string | undefined, outFile: string) => {
+    // WHY: the transfer writes only into the sync's disposable directory, never the process directory.
+    expect(isAbsolute(outFile)).toBe(true)
     await source.bundleSince(repository, null, outFile)
     return { state: 'ready' as const, repositoryPath: outFile, head }
   }
@@ -388,4 +390,69 @@ test('a full projectless sync can fetch a file remote', async () => {
   expect(await sync.wait(sessionId)).toEqual({ state: 'current', head })
   expect(imported).toBe('hello\n')
   expect(sync.localHead(sessionId)).toBe(head)
+})
+
+// WHY: after a refused push, choosing the cloud copy must clear the refusal and keep the local turns reachable.
+test('preparing the newer cloud copy retains refused turns and admits another prompt', async () => {
+  const { fetchSessionArtifacts } = await import('@solus/server/execution/sessions/session-artifacts-source')
+  const { pathToFileURL } = await import('node:url')
+  const { PromptDispatch } = await import('@solus/server/execution/sessions/prompt-dispatch')
+  const sessionId = 'portable-refused-cloud'
+  const threadId = 'thread-portable-refused-cloud'
+  const repository = sessionRepositoryName('local', sessionId)
+  const sourceRoot = join(root, 'refused-cloud-source')
+  const localRoot = join(root, 'refused-cloud-local')
+  const remote = new SessionRepositories(sourceRoot)
+  const local = new SessionRepositories(localRoot)
+  const manifest = emptySessionManifest(sessionId, 'local')
+  manifest.lineage = [{ threadId, provider: 'claude-code', startedAs: 'start' }]
+  manifest.threads = [{ threadId, provider: 'claude-code', files: [{ key: 'main', relativePath: 'thread.jsonl', length: 5, parts: [0] }] }]
+  manifest.turns = [{ operationId: 'base', endedAt: 1, provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }]
+  const base = await remote.commit(repository, { expectedHead: null, message: 'base', entries: [
+    { path: `threads/${threadId}/main/0`, content: 'base\n' }, { path: 'manifest.json', content: JSON.stringify(manifest) },
+  ] })
+  const firstBundle = join(root, 'refused-base.bundle')
+  await remote.bundleSince(repository, null, firstBundle)
+  await local.fetchBundle(repository, firstBundle)
+  const localHead = await local.commit(repository, { expectedHead: base, message: 'local turn', entries: [{ path: 'local-turn', content: 'ours' }] })
+  manifest.turns.push({ operationId: 'remote', endedAt: 2, provider: 'claude-code', threadId, partial: false, head: null, snapshots: [], bundle: null, hasDiff: false })
+  const cloudHead = await remote.commit(repository, { expectedHead: base, message: 'cloud turn', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
+  getDb().prepare('INSERT INTO session_storage (session_id, repository, head, turn_count, push_refused_head) VALUES (?, ?, ?, 2, ?)')
+    .run(sessionId, repository, localHead, cloudHead)
+  const dispatch = new PromptDispatch({} as SessionRuntime)
+  dispatch.refusedHead = id => id === sessionId && (getDb().prepare('SELECT push_refused_head FROM session_storage WHERE session_id = ?').get(id) as { push_refused_head: string | null })?.push_refused_head || null
+  expect(() => dispatch.assertSessionCurrent(sessionId)).toThrow()
+  const runtime = {
+    publish: () => {}, getMetadataFor: () => ({ available: true }), seatForTurn: async () => null,
+    backendFor: () => ({ importThread: async () => ({ files: [{ relativePath: 'thread.jsonl', status: 'written', bytes: 5 }], bytesWritten: 5 }) }),
+  } as SessionRuntime
+  const sync = new SessionSync(runtime, {
+    repositoryRoot: localRoot, providerInstalled: async () => true,
+    fetchBundle: (id, _have, wanted, _host, outFile, signal, actor) => fetchSessionArtifacts(async () => ({
+      repository, remote: pathToFileURL(join(sourceRoot, `${repository}.git`)).href, token: '',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(), storageScope: 'test',
+      head: cloudHead, syncedTurn: 2, lastRunHostId: 'host-a', runningHostId: null,
+    }), join(localRoot, `${repository}.git`), id, actor, null, wanted, outFile, signal),
+    prepareCheckout: async () => { throw new Error('No project checkout expected') },
+  })
+  expect(sync.prepare({ sessionId, knownHead: cloudHead }, HOST_ACTOR)).toEqual({ state: 'started' })
+  expect(await sync.wait(sessionId)).toEqual({ state: 'current', head: cloudHead })
+  expect(sync.localHead(sessionId)).toBe(cloudHead)
+  expect((getDb().prepare('SELECT push_refused_head FROM session_storage WHERE session_id = ?').get(sessionId) as { push_refused_head: string | null }).push_refused_head).toBeNull()
+  await expect(dispatch.admitTurn({ session: { sessionId } }, HOST_ACTOR)).resolves.toBeUndefined()
+  const { registerHistoryHandlers } = await import('@solus/server/transport/handlers/history-handlers')
+  type SessionMeta = import('@solus/contracts/types').SessionMeta
+  type HandlerCtx = import('@solus/server/transport/server').HandlerCtx
+  let sessionInfo: ((args: [string], context: HandlerCtx) => Promise<SessionMeta | null>) | undefined
+  // SAFETY: registration only stores the requested handler; the test calls it with the host actor.
+  registerHistoryHandlers({ register: (name: string, handler: typeof sessionInfo) => {
+    if (name === 'getSessionInfo') sessionInfo = handler
+  } } as import('@solus/server/transport/server').SolusServer, {
+    sessionRuntime: { history: { getSessionInfo: async () => null } } as SessionRuntime,
+    events: {} as import('@solus/server/transport/events/host-event-publisher').HostEventPublisher,
+    agentIdFromContext: () => 'claude-code', exchangeProgress: () => undefined,
+  })
+  expect((await sessionInfo!([sessionId], { principal: HOST_ACTOR.principal } as HandlerCtx))?.pushRefused).toBe(false)
+  expect(await local.readText(repository, localHead, 'local-turn')).toBe('ours')
+  expect(git(localRoot, ['--git-dir', join(localRoot, `${repository}.git`), 'rev-parse', `refs/solus/refused/${localHead}`])).toBe(localHead)
 })

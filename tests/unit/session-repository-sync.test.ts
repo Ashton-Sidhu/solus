@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionBundleDivergedError, SessionRepositories, sessionRepositoryName } from '@solus/server/sync/sessions/session-repository'
@@ -23,6 +23,13 @@ function copies(name: string): SessionRepositories {
 }
 
 describe('session repository bundles', () => {
+  // WHY: a bundle must never be written into the host's process directory.
+  test('a relative output path is refused before Git writes a bundle', async () => {
+    const source = copies('relative-path-source')
+    await source.commit(repository, { expectedHead: null, message: 'turn', entries: [{ path: 'turn', content: 'saved' }] })
+    await expect(source.bundleSince(repository, null, 'source')).rejects.toThrow('must be absolute')
+    expect(existsSync('source')).toBe(false)
+  })
   // WHY: a second host must get only the new turns and rebuild the exact
   // provider file. Its first fetch also has to create its local repository.
   test('an incremental bundle advances a second copy and joins thread ranges', async () => {
