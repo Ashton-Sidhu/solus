@@ -450,6 +450,8 @@ export class SessionEventReducer {
               this.deps.workStreamTracker.updateStreamingArtifact(session, m.toolName, event.toolInput, m.toolId)
             }
             if (event.toolImages) m.toolImages = event.toolImages
+            if (event.toolAudio) m.toolAudio = event.toolAudio
+            if (event.toolLeftOut) m.toolLeftOut = event.toolLeftOut
             break
           }
         }
@@ -1232,6 +1234,8 @@ export class SessionEventReducer {
     target.errorHead = event.errorHead
     target.contentBytes = event.contentBytes
     if (event.toolImages) target.toolImages = event.toolImages
+    if (event.toolAudio) target.toolAudio = event.toolAudio
+    if (event.toolLeftOut) target.toolLeftOut = event.toolLeftOut
     if (event.secretOutcomes) target.secretOutcomes = event.secretOutcomes
     target.toolStatus = event.status === 'error' ? 'error' : 'completed'
     if (event.status === 'error' && !event.parentToolUseId) {

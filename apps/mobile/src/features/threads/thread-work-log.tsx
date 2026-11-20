@@ -28,11 +28,14 @@ import Animated, {
 } from "react-native-reanimated";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { ThreadToolImages } from "./ThreadImages";
+import { ThreadToolAudio } from "./ThreadToolAudio";
 import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
 import {
   summarizeToolGroup,
   toolActivitySummary,
+  toolDetailAudio,
   toolDetailImages,
+  toolDetailLeftOut,
   toolFullDetail,
   toolGroupAction,
   toolGroupSummaryKind,
@@ -433,7 +436,9 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
   const failed = row.status === "error";
   const live = row.status === "running";
   const images = toolDetailImages(row);
-  const canExpand = fullDetail !== null || images.length > 0;
+  const audio = toolDetailAudio(row);
+  const leftOut = toolDetailLeftOut(row);
+  const canExpand = fullDetail !== null || images.length > 0 || audio.length > 0 || leftOut.length > 0;
   const displayText = toolRowLabel(row, expanded);
   const icon = toolGroupSummarySymbolName(toolGroupAction(row.toolName));
   const copyText = fullDetail ?? displayText;
@@ -539,6 +544,16 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
             </Animated.ScrollView>
           ) : null}
           {images.length > 0 ? <ThreadToolImages images={images} store={props.store} /> : null}
+          {audio.map((clip) => <ThreadToolAudio key={clip.audio.assetId} audio={clip.audio} label={clip.label} store={props.store} />)}
+          {leftOut.length > 0 ? (
+            <View accessibilityLabel="Left out of this result" className="gap-0.5">
+              {leftOut.map((note, index) => (
+                <Text key={index} selectable className="text-2xs leading-normal text-foreground-muted">
+                  Left out: {note}
+                </Text>
+              ))}
+            </View>
+          ) : null}
         </Animated.View>
       ) : null}
     </Animated.View>

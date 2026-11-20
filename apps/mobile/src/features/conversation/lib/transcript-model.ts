@@ -1,7 +1,7 @@
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
-import type { ContextCompaction, PermissionOption, QuestionItem, QuestionRequest, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
+import type { ContextCompaction, PermissionOption, QuestionItem, QuestionRequest, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolResultAudio, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import type { SecretOutcomeRecord } from '@solus/contracts/secret-request'
 import { planKey } from '@solus/contracts/types'
@@ -44,6 +44,10 @@ export type TranscriptItem =
       report: string | null
       /** Pictures the call returned, stored on the host. */
       images?: readonly ToolResultImage[]
+      /** Audio the call returned, stored on the host. */
+      audio?: readonly ToolResultAudio[]
+      /** What the host left out of the call's result, with the limit. */
+      leftOut?: readonly string[]
       /** A `request_secret` call's outcomes: its label after the card closes. */
       secretOutcomes?: SecretOutcomeRecord[]
       /** The provider child's own transcript, kept off the parent's feed. */
@@ -279,6 +283,8 @@ export class TranscriptModel {
         subagent: row.isSubagent ? row.subagentType ?? 'agent' : subagentFromToolName(toolName),
         report: row.report ?? null,
         images: row.toolImages,
+        audio: row.toolAudio,
+        leftOut: row.toolLeftOut,
         secretOutcomes: row.secretOutcomes,
       })
       if (!isAgentConversationTool(toolName)) return id
@@ -314,6 +320,8 @@ export class TranscriptModel {
       status: row.status === 'error' ? 'error' : 'completed',
       errorHead: row.errorHead ?? null,
       images: row.toolImages ?? tool.images,
+      audio: row.toolAudio ?? tool.audio,
+      leftOut: row.toolLeftOut ?? tool.leftOut,
       secretOutcomes: row.secretOutcomes ?? tool.secretOutcomes,
     }))
   }
@@ -373,7 +381,14 @@ export class TranscriptModel {
       }
       case 'tool_call_update':
         this.updateToolInput(event.toolId, event.toolInput)
-        if (event.toolImages) this.patchToolById(event.toolId, true, (tool) => ({ ...tool, images: event.toolImages }))
+        if (event.toolImages || event.toolAudio || event.toolLeftOut) {
+          this.patchToolById(event.toolId, true, (tool) => ({
+            ...tool,
+            images: event.toolImages ?? tool.images,
+            audio: event.toolAudio ?? tool.audio,
+            leftOut: event.toolLeftOut ?? tool.leftOut,
+          }))
+        }
         return true
       case 'tool_call_complete':
         this.completeTool(event)
@@ -384,6 +399,8 @@ export class TranscriptModel {
           status: event.status === 'error' ? 'error' : 'completed',
           errorHead: event.errorHead ?? null,
           images: event.toolImages ?? tool.images,
+          audio: event.toolAudio ?? tool.audio,
+          leftOut: event.toolLeftOut ?? tool.leftOut,
           secretOutcomes: event.secretOutcomes ?? tool.secretOutcomes,
         }))
         return true
