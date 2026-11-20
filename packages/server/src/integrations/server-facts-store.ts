@@ -6,7 +6,7 @@ import { z } from 'zod'
 import type { IntegrationFacts } from '@solus/contracts/integration-types'
 import { getDb } from '../db'
 import { createLogger } from '../logger'
-import type { UpstreamTool } from './gateway'
+import type { UpstreamPrompt, UpstreamTool } from './gateway'
 
 const log = createLogger('integrations', 'server-facts-store.ts')
 
@@ -19,6 +19,8 @@ export interface SavedServerFacts {
   era: IntegrationFacts['era']
   instructions: string | null
   capabilities: IntegrationFacts['capabilities']
+  /** The MCP prompts (mcp-first-class.md §10); absent until the process listed them. */
+  prompts?: UpstreamPrompt[]
 }
 
 /** One person's and account's saved row. `verdict.checkedAt` is when a revision check made it. */
@@ -41,6 +43,7 @@ const factsSchema = z.object({
   era: z.enum(['modern', 'legacy']).nullable(),
   instructions: z.string().nullable(),
   capabilities: z.object({ prompts: z.boolean(), resources: z.boolean(), resourceSubscribe: z.boolean(), tasks: z.boolean() }),
+  prompts: z.array(z.unknown()).optional(),
 })
 
 const dialect = new SQLiteSyncDialect()
@@ -68,7 +71,13 @@ function factsOf(text: string): SavedServerFacts | null {
     if (!isSpecType.Tool(tool)) return null
     tools.push(tool)
   }
-  return { ...parsed.data, tools }
+  const { prompts: savedPrompts, ...rest } = parsed.data
+  const prompts: UpstreamPrompt[] = []
+  for (const prompt of savedPrompts ?? []) {
+    if (!isSpecType.Prompt(prompt)) return null
+    prompts.push(prompt)
+  }
+  return savedPrompts ? { ...rest, tools, prompts } : { ...rest, tools }
 }
 
 /**

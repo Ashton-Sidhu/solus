@@ -287,6 +287,9 @@ export const RPC_PLANES = {
   // The host reads its own config files (mcp-first-class.md §8)
   integrationFoundList: 'execution',
   integrationFoundAdd: 'execution',
+  // The host lists and expands MCP prompts with the caller's connection (mcp-first-class.md §10)
+  integrationPromptList: 'execution',
+  integrationPromptGet: 'execution',
   // The host runs the sign-in and keeps the token (mcp-integrations.md §4.2)
   integrationConnectionList: 'execution',
   integrationConnectStart: 'execution',

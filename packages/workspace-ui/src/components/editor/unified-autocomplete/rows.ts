@@ -9,6 +9,7 @@
  */
 import type { User } from "@solus/contracts/user";
 import type { SlashCommand } from "../../input/slash-commands";
+import type { McpPromptChoice } from "../../input/lib/mcp-prompt-composer.svelte";
 import type { ReferenceToken } from "../reference-tokens";
 import type { CodeHostAccount } from "../../mentions/lib/code-host-mentions";
 import { KINDS, KIND_NOUN, kindFor, GLYPH, type RefKind } from "./kinds";
@@ -37,6 +38,8 @@ export interface MenuItem {
   directoryPath?: string;
   /** Set on `/` rows the host may need to execute rather than insert. */
   command?: SlashCommand;
+  /** Set on the `/` menu's MCP rows: accepting starts the prompt or its server's sign-in. */
+  mcpPrompt?: McpPromptChoice;
   /** Present for `#` rows so the metadata pass can match the noun. */
   kindNoun?: string;
   refKind?: RefKind;
@@ -94,6 +97,8 @@ export interface RowInput {
   trigger: Trigger;
   /** `/` channel. Already filtered to what this provider offers. */
   commands: MenuItem[];
+  /** The `/` channel's MCP band: prompts, then the servers that need a sign-in. */
+  mcpPrompts?: MenuItem[];
   /** `@` channel, split into the two bands. */
   openFiles: MenuItem[];
   worktreeFiles: MenuItem[];
@@ -165,7 +170,9 @@ export function buildRows(input: RowInput): MenuRow[] {
 
 function commandRows(input: RowInput): MenuRow[] {
   const matches = rank(uniqueItemsById(input.commands), input.trigger.query);
-  if (matches.length === 0)
+  // MCP prompts come from servers, so they sit under their own label, after the commands.
+  const mcp = rank(input.mcpPrompts ?? [], input.trigger.query);
+  if (matches.length === 0 && mcp.length === 0)
     return [
       {
         type: "deadEnd",
@@ -176,7 +183,13 @@ function commandRows(input: RowInput): MenuRow[] {
         action: "clear",
       },
     ];
-  return matches.map((match) => itemRow(match, false, "cmd"));
+  const rows = matches.map((match) => itemRow(match, false, "cmd"));
+  if (mcp.length === 0) return rows;
+  return [
+    ...rows,
+    { type: "label", key: "mcp", label: "MCP", hint: "" },
+    ...mcp.map((match) => itemRow(match, false, "mcp")),
+  ];
 }
 
 /** A file row shows its name as the title and its folder as the meta. A

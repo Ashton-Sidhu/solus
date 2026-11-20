@@ -229,6 +229,7 @@ const PERMISSION_OF_METHOD = {
   integrationProcessStart: HOST_USE, integrationProcessStop: HOST_USE,
   // The handler shows the host's own files and adds a command only for `host.admin` (mcp-first-class.md §8.6).
   integrationFoundList: HOST_USE, integrationFoundAdd: HOST_USE,
+  integrationPromptList: HOST_USE, integrationPromptGet: HOST_USE,
   integrationConnectionList: HOST_USE, integrationConnectStart: HOST_USE, integrationConnectSubmit: HOST_USE,
   integrationConnectCancel: HOST_USE, integrationDisconnect: HOST_USE, agentProfileApply: HOST_USE,
   agentProfilePull: HOST_USE, agentProfileStatus: HOST_USE, typeSafeKeyStatus: HOST_USE, configGet: HOST_USE,

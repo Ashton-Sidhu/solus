@@ -53,6 +53,9 @@ import { ReferenceIndex } from "./unified-autocomplete/reference-index.svelte";
 import type { FleetMachine } from "../fleet/lib/fleet-model";
 import { autocompleteSessionChangedFiles } from "./autocomplete-scope";
 import { serverConnections } from "@solus/client-core/server-connections";
+import { integrationPromptsStore } from "../input/lib/integration-prompts.store.svelte";
+import type { McpPromptChoice } from "../input/lib/mcp-prompt-composer.svelte";
+import { mcpPromptItems } from "./unified-autocomplete/mcp-prompt-items";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
 
@@ -78,6 +81,9 @@ export interface AutocompleteDeps {
    *  menu (the document editor) keeps `/`. Defaults to enabled when absent. */
   enableSlash?: () => boolean;
   onSolusCommand: () => ((cmd: SlashCommand) => void) | undefined;
+  /** Where an MCP prompt row goes (mcp-first-class.md §10). Absent, the `/`
+   *  menu lists no MCP prompts: only a composer that sends can expand one. */
+  onMcpPrompt?: () => ((choice: McpPromptChoice) => void) | undefined;
   onRefsChange: () =>
     | ((
         planRefs: PlanReference[],
@@ -231,6 +237,25 @@ export class UnifiedAutocompleteController {
     })),
   );
 
+  /** The kept list of this composer's host and project; read once per opening of `/`, never per keystroke. */
+  #mcpPromptList = $derived.by(() => {
+    const serverId = this.deps.serverId?.();
+    if (!serverId || !this.deps.onMcpPrompt?.()) return null;
+    return integrationPromptsStore.stateFor(serverId, this.deps.workingDirectory());
+  });
+
+  #mcpPromptItems = $derived.by((): MenuItem[] =>
+    this.#mcpPromptList
+      ? mcpPromptItems(this.#mcpPromptList, this.#commandItems.map((item) => item.title))
+      : [],
+  );
+
+  /** Every command a typed line can name, MCP prompts included: the editor marks them. */
+  commandNames = $derived([
+    ...this.#commandItems.map((item) => `/${item.title}`),
+    ...this.#mcpPromptItems.flatMap((item) => item.mcpPrompt?.kind === "prompt" ? [item.mcpPrompt.prompt.command] : []),
+  ]);
+
   // ─── Files (`@`) ───
 
   #openFileItems = $derived.by((): MenuItem[] => {
@@ -282,6 +307,7 @@ export class UnifiedAutocompleteController {
     return buildRows({
       trigger,
       commands: this.#commandItems,
+      mcpPrompts: this.#mcpPromptItems,
       openFiles: this.#openFileItems,
       worktreeFiles: this.#worktreeFileItems,
       worktreeFileCount: this.#fileTotal,
@@ -415,6 +441,10 @@ export class UnifiedAutocompleteController {
     }
 
     if (trigger.char === "@") this.#searchFiles(trigger.query);
+    if (trigger.char === "/" && this.#warmedForAnchor !== trigger.anchor) {
+      this.#warmedForAnchor = trigger.anchor;
+      this.#warmMcpPrompts();
+    }
     if (trigger.char === "#" && this.#warmedForAnchor !== trigger.anchor) {
       this.#warmedForAnchor = trigger.anchor;
       this.#loadReferenceIndexes();
@@ -456,6 +486,12 @@ export class UnifiedAutocompleteController {
       },
       isOpening ? 0 : 80,
     );
+  }
+
+  /** Opening `/` reads the MCP prompts once if they were never read; a kept list stays fresh through host events. */
+  #warmMcpPrompts() {
+    const serverId = this.deps.serverId?.();
+    if (serverId && this.deps.onMcpPrompt?.()) integrationPromptsStore.ensure(serverId, this.deps.workingDirectory());
   }
 
   /** One key, one index: opening `#` warms all six categories concurrently,
@@ -508,6 +544,13 @@ export class UnifiedAutocompleteController {
     if (this.deps.readOnly()) return;
     const trigger = this.trigger;
     if (!trigger) return;
+
+    // An MCP prompt is a whole intent too: the composer expands it or opens its form.
+    if (item.mcpPrompt) {
+      this.clearCompletions();
+      this.deps.onMcpPrompt?.()?.(item.mcpPrompt);
+      return;
+    }
 
     // A Solus built-in is a whole intent, not a reference: the host runs it.
     if (item.command?.run) {

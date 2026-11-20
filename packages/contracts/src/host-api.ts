@@ -96,6 +96,7 @@ import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
 import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundListRequest, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
+import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptListRequest, IntegrationPromptText } from './integrations/prompts'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
@@ -669,6 +670,10 @@ export interface SolusAPI {
   integrationFoundList(request: IntegrationFoundListRequest): Promise<FoundServerList>
   /** Reads the file again and adds the found server the person saw; a command needs a host administrator and starts nothing. */
   integrationFoundAdd(request: IntegrationFoundAddRequest): Promise<IntegrationFoundAddResult>
+  /** The MCP prompts of the caller's integrations for one project, and the servers that need the caller's sign-in first (mcp-first-class.md §10). */
+  integrationPromptList(request: IntegrationPromptListRequest): Promise<IntegrationPromptList>
+  /** Owner: expands one MCP prompt with the caller's connection; the text becomes the caller's message. */
+  integrationPromptGet(request: IntegrationPromptGetRequest): Promise<IntegrationPromptText>
   /** The caller's own connections (§4). Changes arrive as `integration.connectionChanged`. */
   integrationConnectionList(): Promise<IntegrationConnection[]>
   /** Starts the caller's sign-in to one integration. The end of a `waiting` flow arrives as `host.integrationAuthFinished`. */

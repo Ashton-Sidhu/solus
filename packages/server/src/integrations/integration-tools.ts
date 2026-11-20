@@ -70,6 +70,17 @@ function joinsRun(integration: Integration, actor: Actor, projectKey: () => stri
 }
 
 /**
+ * The actor's integrations that join a run in `projectPath`, the run's working
+ * directory: the toolbox lists their tools, the slash menu their MCP prompts.
+ */
+export function integrationsForRun(source: Pick<IntegrationGateway, 'store'>, actor: Actor, projectPath?: string | null): Integration[] {
+  // The key asks git for the project root, so it is read only when a project integration needs it.
+  let projectKey: string | null | undefined
+  const runProjectKey = () => (projectKey ??= projectPath ? resolveProjectKey(resolveHomePath(projectPath)) : null)
+  return source.store.list(recordScopeOf(actor.principal), ownerKeyOf(actor)).filter((integration) => joinsRun(integration, actor, runProjectKey))
+}
+
+/**
  * `projectPath`: the run's working directory, whose project key a project integration must match.
  * `cliSkip`: each integration that adds a tool to this run, whose CLI copy the run leaves out (§8.5).
  * One that adds none (every tool off, not listed in time, not signed in) leaves the CLI's copy alone.
@@ -78,10 +89,7 @@ export async function integrationToolbox(actor: Actor, projectPath?: string | nu
   const current = gateway
   if (!current) return { tools: [], instructions: [], cliSkip: runCliSkip(null, [], []) }
   const personKey = ownerKeyOf(actor)
-  // The key asks git for the project root, so it is read only when a project integration needs it.
-  let projectKey: string | null | undefined
-  const runProjectKey = () => (projectKey ??= projectPath ? resolveProjectKey(resolveHomePath(projectPath)) : null)
-  const integrations = current.store.list(recordScopeOf(actor.principal), personKey).filter((integration) => joinsRun(integration, actor, runProjectKey))
+  const integrations = integrationsForRun(current, actor, projectPath)
   const listed = await Promise.all(integrations.map((integration) => toolsForRun(current, integration, personKey)))
   const tools: AgentTool[] = []
   const included = new Set<string>()

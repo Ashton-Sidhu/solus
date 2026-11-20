@@ -5,6 +5,7 @@ import type {
   IntegrationFacts,
   IntegrationToolSummary,
 } from '@solus/contracts/integration-types'
+import type { IntegrationPromptList } from '@solus/contracts/integrations/prompts'
 
 // MCP servers for the demo's MCP settings page.
 //
@@ -219,3 +220,43 @@ export const DEMO_CATALOG: CatalogEntry[] = [
     source: 'solus',
   },
 ]
+
+/** The MCP prompts the demo's servers list (docs/plans/mcp-first-class.md §10): two servers, and one that waits on a sign-in. */
+export const DEMO_INTEGRATION_PROMPTS: IntegrationPromptList = {
+  prompts: [
+    {
+      integrationId: 'demo-mcp-github', integrationName: 'GitHub', command: '/github:review_pr', name: 'review_pr',
+      title: 'Review a pull request', description: 'Review one pull request against the repository rules.',
+      arguments: [
+        { name: 'number', description: 'The pull request number', required: true },
+        { name: 'focus', description: 'What to look at first, such as tests', required: false },
+      ],
+    },
+    {
+      integrationId: 'demo-mcp-github', integrationName: 'GitHub', command: '/github:triage', name: 'triage',
+      description: 'Sort the open issues of one label.',
+      arguments: [{ name: 'label', description: 'The label to sort', required: true }],
+    },
+    {
+      integrationId: 'demo-mcp-linear', integrationName: 'Linear', command: '/linear:standup', name: 'standup',
+      description: 'Write the standup from your Linear issues of yesterday.',
+      arguments: [],
+    },
+  ],
+  signIn: [{ integrationId: 'demo-mcp-sentry', integrationName: 'Sentry', slug: 'sentry', needs: 'sign-in' }],
+}
+
+/** The text each demo prompt expands to, from its arguments. */
+export function demoPromptText(name: string, values: ReadonlyMap<string, string>): string {
+  if (name === 'review_pr') {
+    const focus = values.get('focus')
+    return [
+      `Review pull request #${values.get('number')} of acme/web.`,
+      'Read the diff, the linked issue, and the checks. List each problem with its file and line, the most severe first.',
+      ...(focus ? [`Look at ${focus} first.`] : []),
+      'Assistant:\nI will read the diff and the checks first.',
+    ].join('\n\n')
+  }
+  if (name === 'triage') return `Sort the open issues with the label "${values.get('label')}" by severity, and propose an owner for each.`
+  return 'Write my standup from the Linear issues I changed yesterday: what I did, what I do today, and what blocks me.'
+}

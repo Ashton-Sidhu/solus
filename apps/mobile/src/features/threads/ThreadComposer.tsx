@@ -73,6 +73,9 @@ import {
 import { ComposerQueuedEditAttachments } from "./ComposerQueuedEdit";
 import { composerDraftView, useComposerQueuedEdit } from "./use-composer-queued-edit";
 import { SessionReferencePicker } from "./SessionReferencePicker";
+import { McpPromptPicker } from "./McpPromptPicker";
+import { promptAttachmentRefs } from "./lib/mcp-prompt-sheet";
+import type { IntegrationPromptSignIn, IntegrationPromptText } from "@solus/contracts/integrations/prompts";
 import { insertSessionReference, sessionReferenceOf } from "./session-reference";
 import type { SolusThreadShell } from "./thread-directory";
 
@@ -462,6 +465,38 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }, 300);
   }, [inputRef, locked, onChangeText, text]);
 
+  // "MCP Prompt…" in the + menu: the phone's way to the prompts desktop lists
+  // in the `/` menu (mcp-first-class.md §10). The expanded text is sent as the
+  // person's own message; the draft in the composer stays as it was.
+  const [pickingPrompt, setPickingPrompt] = useState(false);
+  const openPromptPicker = useCallback(() => {
+    inputRef.current?.blur();
+    setPickingPrompt(true);
+  }, [inputRef]);
+  const closePromptPicker = useCallback(() => {
+    setPickingPrompt(false);
+    // The sheet must be gone before the editor can take focus.
+    setTimeout(() => inputRef.current?.focus(), 300);
+  }, [inputRef]);
+  const sendExpandedPrompt = useCallback(
+    async (answer: Extract<IntegrationPromptText, { kind: "text" }>) => {
+      const refs = promptAttachmentRefs(answer.attachments, hostId);
+      if (refs.length > 0) await store.controller.attachHostFiles(refs);
+      closePromptPicker();
+      const sending = store.controller.send(answer.text);
+      props.onSent?.();
+      await sending;
+    },
+    [closePromptPicker, hostId, props.onSent, store],
+  );
+  const signInFromPrompts = useCallback(
+    (server: Pick<IntegrationPromptSignIn, "integrationId" | "integrationName">) => {
+      store.controller.askToConnect({ integrationId: server.integrationId, integrationName: server.integrationName, sessionId: store.controller.run.sessionId });
+      closePromptPicker();
+    },
+    [closePromptPicker, store],
+  );
+
   // A question that closed unanswered gives back what the user typed for it.
   // It goes to the conversation's draft, not to a queued message being edited.
   useEffect(
@@ -633,6 +668,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           onClose={() => closeReferencePicker(null)}
         />
       ) : null}
+      {pickingPrompt ? (
+        <McpPromptPicker
+          hostId={hostId}
+          projectPath={store.controller.run.workingDirectory}
+          sessionId={store.controller.run.sessionId}
+          onExpanded={sendExpandedPrompt}
+          onSignIn={signInFromPrompts}
+          onClose={closePromptPicker}
+        />
+      ) : null}
       <Animated.View
         className="relative w-full self-center"
         style={{ maxWidth: props.contentMaxWidth }}
@@ -677,6 +722,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onPickMedia={onPickDraftMedia}
                 onPickFiles={onPickDraftFiles}
                 onReferenceSession={openReferencePicker}
+                onMcpPrompt={openPromptPicker}
               />
             ) : null}
             {usesCard && queuedAttachments !== null ? (
@@ -841,6 +887,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         onPickMedia={onPickDraftMedia}
                         onPickFiles={onPickDraftFiles}
                         onReferenceSession={openReferencePicker}
+                        onMcpPrompt={openPromptPicker}
                       />
                       <View className="min-w-0 shrink">
                         <ComposerInlineControl

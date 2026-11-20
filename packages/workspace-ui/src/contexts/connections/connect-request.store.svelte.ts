@@ -78,6 +78,11 @@ export class ConnectRequestStore {
     this.requests[index] = { kind: 'integration', serverId: request.serverId, sessionId: request.sessionId, integrationId: integration.id, integrationName: integration.name }
   }
 
+  /** The person chose a server's sign-in in the composer (mcp-first-class.md §10): the same card a turn shows. */
+  requestIntegration(serverId: string, sessionId: string, integration: { integrationId: string; integrationName: string }): void {
+    this.add({ kind: 'integration', serverId, sessionId, integrationId: integration.integrationId, integrationName: integration.integrationName })
+  }
+
   private add(request: ConnectRequest): void {
     const key = connectRequestKey(request)
     const index = this.requests.findIndex(

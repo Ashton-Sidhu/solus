@@ -18,6 +18,7 @@ import {
   type IntegrationOAuthClientInput,
 } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { integrationPromptGetRequestSchema, integrationPromptListRequestSchema } from '@solus/contracts/integrations/prompts'
 import { OAuthClientRequiredError } from '@solus/contracts/integrations/oauth-protocol'
 import { roleOf } from '../../admission/access'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
@@ -29,6 +30,7 @@ import type { IntegrationGateway } from '../../integrations/gateway'
 import type { IntegrationStore } from '../../integrations/integration-store'
 import type { IntegrationOAuth } from '../../integrations/oauth'
 import { createIntegration, createStdioIntegration, probeAddress, probeForWrite, updateCommand } from '../../integrations/integration-create'
+import { integrationPromptList, integrationPromptText } from '../../integrations/integration-prompts'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
 import type { FoundServers } from '../../integrations/found-servers'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
@@ -219,6 +221,17 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
     const result = await deps.found.add(ctx.principal, owner, request)
     return result.kind === 'saved' ? { kind: 'saved' as const, integration: forReader(ctx.actor, result.integration) } : result
+  })
+
+  // MCP prompts as slash commands (mcp-first-class.md §10): the caller's own servers, with the caller's connection.
+  server.register('integrationPromptList', (args, ctx) => {
+    const { projectPath } = integrationPromptListRequestSchema.parse(args[0] ?? {})
+    return integrationPromptList(gateway, ctx.actor, projectPath)
+  })
+
+  server.register('integrationPromptGet', (args, ctx) => {
+    const request = integrationPromptGetRequestSchema.parse(args[0])
+    return integrationPromptText(gateway, ctx.actor, requireIntegration(request.integrationId, ctx.actor), request)
   })
 
   server.register('integrationConnectionList', () => {
