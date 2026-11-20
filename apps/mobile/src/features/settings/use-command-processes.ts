@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Integration, IntegrationConnection, IntegrationFacts } from '@solus/contracts/integration-types'
+import { loopbackServerPort } from '@solus/contracts/integrations/local-servers'
 import { commandProcessStatus, type CommandProcessActionKind, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
 import { useApp, useListened } from '../../app/app-context'
 import { errorMessage, type IntegrationListState } from './integrations'
+import { runningServers } from '../running-servers/running-servers.store'
 
 /**
  * The person's processes of the commands of one host
@@ -11,6 +13,9 @@ import { errorMessage, type IntegrationListState } from './integrations'
  * start or stop on another client shows here too; and Start and test, Start
  * again, Test again, and Stop. A read starts no command. `mayRunCommands` is
  * the person's `host.admin`: without it the screen offers no add, edit, or start.
+ * A server on the host's loopback has facts too: whether it runs (§9.3). While
+ * the screen is open it holds the host's running-servers lease, so the host
+ * follows those servers and looks for new ones (§9.1); no screen, no scan.
  */
 export function useCommandProcesses(hostId: string, list: IntegrationListState) {
   const app = useApp()
@@ -50,7 +55,9 @@ export function useCommandProcesses(hostId: string, list: IntegrationListState) 
     )
   }, [connection, put])
 
-  const commandIds = list.kind === 'loaded' ? list.integrations.filter((integration) => integration.kind === 'stdio').map((integration) => integration.id).join('\u0000') : ''
+  const commandIds = list.kind === 'loaded' ? list.integrations.filter(showsFactsOnRow).map((integration) => integration.id).join('\u0000') : ''
+
+  useEffect(() => runningServers.forHost(app.connections, hostId).retain(), [app, hostId])
 
   // The list, a reconnect, or a change of the commands: each command's state is read again.
   useEffect(() => {
@@ -114,5 +121,13 @@ export function useCommandProcesses(hostId: string, list: IntegrationListState) 
     void (kind === 'stop' || kind === 'cancel' ? stop(integrationId) : start(integrationId, kind === 'test-again'))
   }
 
-  return { connected, mayRunCommands, facts, starting, errors, start, stop, run, statusOf }
+  /** Whether a server on the host's loopback does not run now; false while unknown. */
+  const isNotRunning = (integration: Integration): boolean => facts.get(integration.id)?.reachable === 'not-running'
+
+  return { connected, mayRunCommands, facts, starting, errors, start, stop, run, statusOf, isNotRunning }
+}
+
+/** A command's row shows its process state, and a server on the host's loopback whether it runs. */
+function showsFactsOnRow(integration: Integration): boolean {
+  return integration.kind === 'stdio' || (integration.kind === 'mcp' && loopbackServerPort(integration.url) !== null)
 }

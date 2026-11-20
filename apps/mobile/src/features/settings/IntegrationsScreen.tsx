@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolSummary } from "@solus/contracts/integration-types";
 import { resourceAllows } from "@solus/contracts/permissions";
 import { CLI_SKIP_NOTE, cliSkipLines } from "@solus/client-core/mcp-cli-skips";
-import { projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
+import { NOT_RUNNING_LABEL, notRunningText, projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { T3_CODE_BRAND_MARK_SOURCE } from "../../components/brandAssets";
@@ -287,7 +287,8 @@ function InstalledRow(props: {
   const canEdit = resourceAllows(integration, "edit");
   const editable = busy === null && canEdit;
   const process = props.processes.statusOf(integration, connection);
-  const line = installedRowLine(status, process);
+  const isNotRunning = props.processes.isNotRunning(integration);
+  const line = installedRowLine(status, process, isNotRunning);
   const connect = () => {
     integrations.expand(integration.id);
     void flows.connect(integration);
@@ -297,7 +298,7 @@ function InstalledRow(props: {
       <View className="flex-row items-center gap-3 pr-4">
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={[integration.name, integration.projectName ? projectOnlyLabel(integration.projectName) : null, host, status.text].filter(Boolean).join(", ")}
+          accessibilityLabel={[integration.name, integration.projectName ? projectOnlyLabel(integration.projectName) : null, host, status.text, isNotRunning ? NOT_RUNNING_LABEL : null].filter(Boolean).join(", ")}
           accessibilityState={{ expanded }}
           onPress={() => integrations.toggle(integration.id)}
           className="min-w-0 flex-1 flex-row items-center gap-4 py-4 pl-4 active:opacity-70"
@@ -367,20 +368,16 @@ function InstalledRow(props: {
               />
             </View>
           ) : null}
-          {installed.mayLoadTools(connections) ? (
-            <IntegrationTools
-              integration={integration}
-              tools={integrations.tools.get(integration.id)}
-              enabled={integrations.connected && editable}
-              onToggle={(toolName, isOn) => {
-                integrations.setToolEnabled(integration, toolName, isOn).catch((cause: unknown) => Alert.alert("Not saved", errorMessage(cause)));
-              }}
-            />
-          ) : (
-            <View className="px-4 pb-3 pl-[58px]">
-              <SettingsNote>Connect to see its tools.</SettingsNote>
-            </View>
-          )}
+          <InstalledTools
+            integration={integration}
+            mayLoad={installed.mayLoadTools(connections)}
+            isNotRunning={isNotRunning}
+            tools={integrations.tools.get(integration.id)}
+            enabled={integrations.connected && editable}
+            onToggle={(toolName, isOn) => {
+              integrations.setToolEnabled(integration, toolName, isOn).catch((cause: unknown) => Alert.alert("Not saved", errorMessage(cause)));
+            }}
+          />
           <IntegrationExtraAccounts
             integration={integration}
             first={connection}
@@ -425,6 +422,25 @@ function OwnerOnlyNote(props: { readonly hidden: boolean }) {
       <SettingsNote>Only its owner can change this server.</SettingsNote>
     </View>
   );
+}
+
+/** The tools, or why the row shows none: no sign-in yet, or a loopback server that does not run (mcp-first-class.md §9.3). */
+function InstalledTools(props: {
+  readonly integration: Integration;
+  readonly mayLoad: boolean;
+  readonly isNotRunning: boolean;
+  readonly tools: IntegrationToolsState | undefined;
+  readonly enabled: boolean;
+  readonly onToggle: (toolName: string, isOn: boolean) => void;
+}) {
+  if (!props.mayLoad || props.isNotRunning) {
+    return (
+      <View className="px-4 pb-3 pl-[58px]">
+        <SettingsNote>{props.mayLoad ? notRunningText(props.integration.name) : "Connect to see its tools."}</SettingsNote>
+      </View>
+    );
+  }
+  return <IntegrationTools integration={props.integration} tools={props.tools} enabled={props.enabled} onToggle={props.onToggle} />;
 }
 
 /** The server's tools, each with a switch that keeps it on or turns it off for agents on this host. */

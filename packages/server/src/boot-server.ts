@@ -124,6 +124,7 @@ import { IntegrationCatalog } from './integrations/catalog'
 import { installConnectIntegrationTool } from './integrations/connect-integration-tool'
 import { createIntegration } from './integrations/integration-create'
 import { FoundServers } from './integrations/found-servers'
+import { LocalMcpServers } from './integrations/local-servers'
 import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationGateway } from './integrations/gateway'
 import { ServerFactsStore } from './integrations/server-facts-store'
@@ -1084,6 +1085,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     catalog: integrationCatalog,
     create: (principal, owner, request) => createIntegration({ store: integrations, events, profile: integrationProfile }, principal, owner, request),
   })
+  // The MCP servers on this host's loopback follow the running-servers list once it exists (mcp-first-class.md §9).
+  const localMcpServers = new LocalMcpServers({
+    integrations: () => integrations.listAnyOwner(ANY_ORGANIZATION),
+    gateway: integrationGateway,
+    factsChanged: (integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) },
+  })
   registerIntegrationHandlers(server, {
     store: integrations,
     catalog: integrationCatalog,
@@ -1103,7 +1110,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       connections: integrationConnections,
       // Codex reads its own files, with its rule for a trusted project (mcp-first-class.md §8.1).
       codexLayers: codexBackend ? async (cwd) => (await getCodexAppServerClient().request('config/read', { includeLayers: true, cwd })).layers ?? [] : undefined,
+      local: localMcpServers,
     }),
+    local: localMcpServers,
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   const guides = new ReviewGuideJobs((event) => publishGuideStatus(events, event), { pr: prGuideSource, local: localGuideSource })
@@ -1298,6 +1307,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) }, withHostScope)
   const serverTunnels = registerRunningServerHandlers(server, serverRegistry)
+  localMcpServers.follow(serverRegistry)
   const resourceTelemetry = new ResourceTelemetry({
     resolvePath: resolveResourceMonitorPath,
     createMonitor: (options) => new ResourceMonitor(options),

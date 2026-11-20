@@ -137,6 +137,11 @@ export class IntegrationStore {
     return all(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} ORDER BY name, id`).map(integrationFromRow)
   }
 
+  /** Every record in `scope`, whoever owns it: for host work that follows a fact of the host, such as a loopback port (mcp-first-class.md §9.3). */
+  listAnyOwner(scope: RecordScope): Integration[] {
+    return all(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} ORDER BY name, id`).map(integrationFromRow)
+  }
+
   /** Any record by id in `scope`, whoever owns it: for the gateway and the flows, which act on a record a person already reached. */
   get(id: string, scope: RecordScope): Integration | null {
     const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND id = ${id}`)

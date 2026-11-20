@@ -8,12 +8,14 @@
    * process state instead of an address, its process actions, its values in
    * place of an account, and Edit for its line, folder, and names. Only a
    * person with `host.admin` edits or starts one; the row says why to others.
+   * A server on the host's loopback says Not running when nothing listens on
+   * its port (§9.3), in a neutral color, and lists its tools when it runs again.
    */
   import { ChevronRight, Ellipsis, LoaderCircle } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import type { Integration } from "@solus/contracts/integration-types";
   import { COMMAND_ADMIN_ONLY, commandLineText, commandProcessStatus } from "@solus/contracts/integrations/command-server";
-  import { projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
+  import { NOT_RUNNING_LABEL, notRunningText, projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -65,6 +67,7 @@
   const offersOAuthClientSetup = $derived(integration.auth.kind === "oauth");
   const disabledTools = $derived(new Set(integration.disabledTools));
   const cliSkips = $derived(hostState?.facts.get(integration.id)?.cliSkips ?? []);
+  const isNotRunning = $derived(hostState?.facts.get(integration.id)?.reachable === "not-running");
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
   const canEdit = $derived(hosts.get(serverId)?.me.may("edit", { kind: "integration", id: integration.id, role: integration.role }) ?? true);
   const isCommand = $derived(integration.kind === "stdio");
@@ -76,10 +79,12 @@
     mayRunCommands,
     needsValues: integration.auth.kind === "env" && connection?.status !== "connected",
   }) : null);
-  /** The row's short state: a command's process, else the sign-in. */
+  /** The row's short state: a command's process, or that a loopback server does not run, else the sign-in. */
   const rowStatus = $derived(processStatus && (status.tone === "ready" || !status.canConnect)
     ? { text: processStatus.label, isError: processStatus.tone === "error" }
-    : { text: status.text, isError: status.tone === "error" });
+    : isNotRunning && (status.tone === "ready" || !status.canConnect)
+      ? { text: NOT_RUNNING_LABEL, isError: false }
+      : { text: status.text, isError: status.tone === "error" });
   const subtitle = $derived(integration.launch ? commandLineText(integration.launch) : urlHost(integration.url));
 
   function setTool(toolName: string, isOn: boolean) {
@@ -90,9 +95,9 @@
     void integrationsStore.update(serverId, { id: integration.id, disabledTools: [...next] });
   }
 
-  // Tools load once the row is open and the host can list them; never for a server the person has not connected.
+  // Tools load once the row is open and the host can list them; never for a server the person has not connected, or one that does not run.
   $effect(() => {
-    if (isOpen && toolsListable && !hostState?.tools.has(integration.id) && !hostState?.toolErrors.has(integration.id)) {
+    if (isOpen && toolsListable && !isNotRunning && !hostState?.tools.has(integration.id) && !hostState?.toolErrors.has(integration.id)) {
       void integrationsStore.loadTools(serverId, integration.id);
     }
   });
@@ -195,6 +200,8 @@
   {@const toolError = hostState?.toolErrors.get(integration.id)}
   {#if !toolsListable}
     <p class="text-workspace-chrome text-muted-foreground">{integration.auth.kind === "env" ? "Enter the values to see its tools." : "Connect to see its tools."}</p>
+  {:else if isNotRunning}
+    <p class="text-workspace-chrome text-muted-foreground">{notRunningText(integration.name, hostLabel)}</p>
   {:else if toolError}
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{toolError}</p>
@@ -218,7 +225,7 @@
       type="button"
       class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11"
       aria-expanded={isOpen}
-      aria-label="{integration.name}{integration.projectName ? `, ${projectOnlyLabel(integration.projectName)}` : ''}, {status.text}"
+      aria-label="{integration.name}{integration.projectName ? `, ${projectOnlyLabel(integration.projectName)}` : ''}, {status.text}{isNotRunning ? `, ${NOT_RUNNING_LABEL}` : ''}"
       onclick={onToggle}
     >
       <McpServerIcon name={integration.name} url={integration.url} />

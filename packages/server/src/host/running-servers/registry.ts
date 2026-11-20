@@ -4,8 +4,11 @@ import { ServerDiscovery } from './discovery'
 const REFRESH_MS = 3000
 const LEASE_MS = 20_000
 
+/** One finished scan, for a reader on the host that follows the registry's refresh (mcp-first-class.md §9). */
+export type RunningServerScan = { at: number; servers: RunningServer[]; listeningPorts: ReadonlySet<number> } | { at: number; error: string }
+
 export interface RunningServerRegistryDeps {
-  discovery: Pick<ServerDiscovery, 'discover' | 'identityMatches' | 'stopJob' | 'checkoutRoots'>
+  discovery: Pick<ServerDiscovery, 'discover' | 'identityMatches' | 'stopJob' | 'checkoutRoots'> & Partial<Pick<ServerDiscovery, 'listeningPorts'>>
   publish: (clientIds: string[], servers: RunningServer[], error: string | null) => void
   now: () => number
   schedule: (tick: () => Promise<void>, delayMs: number) => () => void
@@ -20,6 +23,7 @@ export class RunningServerRegistry {
   private timer: (() => void) | null = null
   private scannedAt = -Infinity
   private generation = 0
+  private readonly scanObservers = new Set<(scan: RunningServerScan) => void>()
 
   constructor(private readonly deps: RunningServerRegistryDeps) {}
 
@@ -31,6 +35,7 @@ export class RunningServerRegistry {
       if (generation !== this.generation) return servers
       this.scannedAt = this.deps.now()
       this.servers = servers
+      this.observed({ at: this.scannedAt, servers, listeningPorts: this.deps.discovery.listeningPorts?.() ?? new Set(servers.flatMap((server) => server.endpoints.map((endpoint) => endpoint.port))) })
       const signature = JSON.stringify(servers)
       if (signature !== this.signature) {
         this.signature = signature
@@ -80,6 +85,16 @@ export class RunningServerRegistry {
     return result
   }
 
+  /** Each scan, and each failed scan, as it ends. It starts none: a reader follows the clients' leases. */
+  observeScans(observer: (scan: RunningServerScan) => void): () => void {
+    this.scanObservers.add(observer)
+    return () => { this.scanObservers.delete(observer) }
+  }
+
+  private observed(scan: RunningServerScan): void {
+    for (const observer of this.scanObservers) observer(scan)
+  }
+
   checkoutRoots(paths: string[]) { return this.deps.discovery.checkoutRoots(paths) }
 
   identityMatches(server: RunningServer): Promise<boolean> { return this.deps.discovery.identityMatches(server) }
@@ -97,6 +112,7 @@ export class RunningServerRegistry {
     if (!this.subscribers.size) return
     try { await this.list(true) } catch (error) {
       this.signature = ''
+      this.observed({ at: this.deps.now(), error: error instanceof Error ? error.message : 'Cannot scan running servers.' })
       this.deps.publish([...this.subscribers.keys()], [], error instanceof Error ? error.message : 'Cannot scan running servers.')
     } finally { this.schedule() }
   }
@@ -111,6 +127,7 @@ export function initRunningServers(publish: RunningServerRegistryDeps['publish']
     discovery: {
       discover: (paths) => runAsHost(() => discovery.discover(paths)),
       checkoutRoots: (paths) => runAsHost(() => discovery.checkoutRoots(paths)),
+      listeningPorts: () => discovery.listeningPorts(),
       identityMatches: (server) => runAsHost(() => discovery.identityMatches(server)),
       stopJob: (server) => runAsHost(() => discovery.stopJob(server)),
     }, publish,

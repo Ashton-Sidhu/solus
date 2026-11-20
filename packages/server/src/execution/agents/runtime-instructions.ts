@@ -118,12 +118,16 @@ const APP_INSTRUCTIONS = `## Apps
 
 When the user asks for an app, a tool, a tracker, a browser for their data, or something that runs on a schedule or on a webhook, and names no codebase for it, build an app that lives in Solus: load the create-app skill, start from its starter app, save the project with save_app, and deploy it with deploy_app. An app has a backend on this host with its own SQLite data, and a UI that opens on desktop, web, and mobile. Its operations are also tools for agents. Check its UI with preview_app before you save it. To change an app, get its source with checkout_app. To repair one, read its call log with inspect_app. Scaffold a web project only when the user wants a codebase to deploy.`
 
+/** The offer of a local MCP server goes with `connect_integration`, so it works with no client watching the host (mcp-first-class.md §9.4). */
+const LOCAL_MCP_SERVER_INSTRUCTION = 'To test an MCP server that you started on this host, call connect_integration with custom: true and its localhost URL. The user adds it, and its tools join your next turn.'
+
 /** Blocks that need only their group's entry tool, in prompt order. */
 const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [
   ['device_list', DEVICE_INSTRUCTIONS],
   ['create_automation', AUTOMATION_INSTRUCTIONS],
   ['request_secret', SECRET_REF_INSTRUCTIONS],
   ['deploy_app', APP_INSTRUCTIONS],
+  ['connect_integration', LOCAL_MCP_SERVER_INSTRUCTION],
 ]
 
 function singleLine(value: string): string {
@@ -135,7 +139,8 @@ function singleLine(value: string): string {
  *  (with the lead rule when `become_lead` is there too),
  *  `move_to_worktree` for worktrees, `render_artifact` for visuals,
  *  `device_list` for Devices, `create_automation` for Automations,
- *  `request_secret` for the secretRef rule, `deploy_app` for Apps. */
+ *  `request_secret` for the secretRef rule, `deploy_app` for Apps,
+ *  `connect_integration` for the offer of a local MCP server. */
 export function runtimeInstructions(runtime: AgentRuntime, tools: readonly AgentTool[], integrationInstructions: readonly { name: string; slug: string; text: string }[] = []): string {
   const runtimeInfo = `<runtime_info>In case you are asked: you are running in Solus through the ${runtime.harness} harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.
 

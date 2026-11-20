@@ -1,10 +1,10 @@
-import type { FoundFile, FoundServer, IntegrationFoundAddResult } from '@solus/contracts/integration-types'
+import type { FoundFile, FoundServer, FoundServerList, IntegrationFoundAddResult } from '@solus/contracts/integration-types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { isUnsupportedHostError } from '../integrations.store.svelte'
 
 /**
- * The MCP servers in the config files of one host (docs/plans/mcp-first-class.md
- * §8.6): the list, Refresh, and the add. The host reads the files; this client
+ * The MCP servers in the config files of one host, and those that run on its
+ * loopback (docs/plans/mcp-first-class.md §8.6, §9.2): the list, Refresh, and the add. The host reads the files; this client
  * never sees a value of them. It reads again when an integration changes, so a
  * row turns `added` or `new` with the installed list, and when the host
  * reconnects. Ephemeral: it lives as long as the MCP page.
@@ -12,6 +12,8 @@ import { isUnsupportedHostError } from '../integrations.store.svelte'
 export class McpFound {
   servers = $state<FoundServer[]>([])
   files = $state<FoundFile[]>([])
+  /** Whether the host could look for servers on its loopback; absent from a host before phase D. */
+  portScan = $state<FoundServerList['portScan']>()
   /** No answer has arrived yet. */
   loading = $state(true)
   /** A Refresh runs; the rows stay. */
@@ -49,6 +51,7 @@ export class McpFound {
       if (sequence !== this.sequence) return
       this.servers = list.servers
       this.files = list.files
+      this.portScan = list.portScan
       this.error = ''
     } catch (cause) {
       if (sequence !== this.sequence) return

@@ -30,6 +30,7 @@ import { jsonServers, parseJsonConfig, serverTableOf, type JsonConfig } from './
 import type { IntegrationGateway } from './gateway'
 import { createIntegration, createStdioIntegration, probeForWrite, updateCommand, type IntegrationCreateDeps } from './integration-create'
 import type { IntegrationStore } from './integration-store'
+import { sameLocalAddress, type LocalMcpServers, type RunningMcpServer } from './local-servers'
 import { stdioServerAddress } from './stdio-process'
 import { isChat } from '@solus/contracts/chat'
 import { sameServerAddress } from './cli-skips'
@@ -52,6 +53,8 @@ export interface FoundServersDeps {
   connections: Pick<IntegrationConnections, 'removeAllFor' | 'submitEnvironment' | 'submitKey' | 'environmentFor'>
   /** The Codex config layers for a folder (`config/read`), from the host's own app-server; absent where the host runs no Codex. */
   codexLayers?: (cwd: string | null) => Promise<unknown[]>
+  /** The MCP servers that run on this host's loopback (§9); absent where the host does not look for them. */
+  local?: Pick<LocalMcpServers, 'runningNow'>
   /** The home folder of the Solus server's OS user and its environment. Tests give their own. */
   home?: string
   env?: NodeJS.ProcessEnv
@@ -104,8 +107,47 @@ export class FoundServers {
 
   async list(principal: Principal, ownerKey: string | null, request: IntegrationFoundListRequest): Promise<FoundServerList> {
     const where = this.whereFor(principal, request.projectPath)
-    const read = await this.cachedRead(where, request.refresh === true)
-    return { servers: this.foundServers(read.entries, principal, ownerKey, where).map(({ server }) => server), files: read.files }
+    const [read, local] = await Promise.all([this.cachedRead(where, request.refresh === true), this.deps.local?.runningNow()])
+    const servers = this.foundServers(read.entries, principal, ownerKey, where).map(({ server }) => server)
+    if (!local) return { servers, files: read.files }
+    return { servers: this.withRunning(servers, local.servers, principal, ownerKey), files: read.files, portScan: local.portScan }
+  }
+
+  /**
+   * The servers of the files with the ones that run on the loopback (§9.2). A
+   * file's entry with the same local address gains the port; any other running
+   * server is its own row. Sorted by name, as the file rows are.
+   */
+  private withRunning(servers: FoundServer[], running: RunningMcpServer[], principal: Principal, ownerKey: string | null): FoundServer[] {
+    const integrations = this.deps.store.list(recordScopeOf(principal), ownerKey)
+    const rows = [...servers]
+    for (const entry of running) {
+      const port = portServer(entry, integrations)
+      const inFile = rows.find((server) => server.transport?.kind === 'http' && sameLocalAddress(server.transport.url, entry.url))
+      if (!inFile) {
+        rows.push(port)
+        continue
+      }
+      inFile.foundIn = [...inFile.foundIn, entry.place]
+      if (inFile.state === 'new' && port.state === 'added') Object.assign(inFile, { state: 'added', integrationId: port.integrationId })
+    }
+    return rows.sort((a, b) => a.name.localeCompare(b.name) || a.foundId.localeCompare(b.foundId))
+  }
+
+  /**
+   * Adds a server that runs on the loopback (§9.2) through the probe and
+   * `createIntegration`, exactly as a typed loopback URL. Another process on
+   * the port, or another answer, adds nothing: the person approves what they saw.
+   */
+  private async addRunning(principal: Principal, ownerKey: string, request: IntegrationFoundAddRequest): Promise<IntegrationFoundAddResult> {
+    const running = (await this.deps.local?.runningNow())?.servers ?? []
+    const integrations = this.deps.store.list(recordScopeOf(principal), ownerKey)
+    const server = running.map((entry) => portServer(entry, integrations)).find((candidate) => candidate.foundId === request.foundId)
+    if (!server || server.fingerprint !== request.fingerprint || server.transport?.kind !== 'http') return { kind: 'found-changed' }
+    if (server.state === 'added') throw new Error(`${server.name} is already added.`)
+    const integration = await createIntegration(this.deps, principal, ownerKey, { name: server.name, url: server.transport.url })
+    log.info('integration_found_added', { integrationId: integration.id, files: [], port: true, project: false, changed: false, copiedValues: 0 })
+    return { kind: 'saved', integration }
   }
 
   /**
@@ -118,7 +160,8 @@ export class FoundServers {
     const read = await this.readFiles(where)
     this.cache.delete(where.cacheKey)
     const found = this.foundServers(read.entries, principal, ownerKey, where).find(({ server }) => server.foundId === request.foundId)
-    if (!found || found.server.fingerprint !== request.fingerprint) return { kind: 'found-changed' }
+    if (!found) return this.addRunning(principal, ownerKey, request)
+    if (found.server.fingerprint !== request.fingerprint) return { kind: 'found-changed' }
     const { server, merged } = found
     if (server.state === 'added') throw new Error(`${server.name} is already added.`)
     if (server.unsupported === 'not-allowed') throw new Error(COMMAND_CHANGE_REFUSAL)
@@ -130,7 +173,7 @@ export class FoundServers {
       : await this.saveUrl(principal, ownerKey, server, server.transport.kind === 'http' ? server.transport.url : '', existing, projectPath)
     const copied = request.useFileValues ? await this.copyValues(integration, ownerKey, merged.secrets) : 0
     // Names and counts only: a command, an argument, or a value can hold a secret.
-    log.info('integration_found_added', { integrationId: integration.id, files: server.foundIn.map((place) => place.file), project: server.projectOnly, changed: existing !== null, copiedValues: copied })
+    log.info('integration_found_added', { integrationId: integration.id, files: server.foundIn.map((place) => place.kind === 'file' ? place.file : 'port'), project: server.projectOnly, changed: existing !== null, copiedValues: copied })
     const needsValues = integration.auth.kind === 'env' && integration.auth.names.length > 0 && this.deps.connections.environmentFor(integration.id, ownerKey) === null
     return needsValues ? { kind: 'saved', integration, needsValues } : { kind: 'saved', integration }
   }
@@ -367,6 +410,24 @@ export class FoundServers {
   private now(): number {
     return this.deps.now?.() ?? Date.now()
   }
+}
+
+/** A server that runs on the loopback as a found server of the caller: `added` when they have an integration at the same local address. */
+function portServer(entry: RunningMcpServer, integrations: Integration[]): FoundServer {
+  const info = entry.place.serverInfo
+  const server: FoundServer = {
+    foundId: hash(JSON.stringify(['port', entry.place.runningServerId, entry.place.endpointId])),
+    // Another answer from the same process (another path or name) is another approval.
+    fingerprint: hash(JSON.stringify([entry.url, info ?? null])),
+    name: (info?.title ?? info?.name ?? entry.place.processName).slice(0, 200) || `Port ${entry.place.port}`,
+    foundIn: [entry.place],
+    transport: { kind: 'http', url: entry.url, headerNames: [] },
+    state: 'new',
+    projectOnly: false,
+    valuesInFile: [],
+  }
+  const added = integrations.find((integration) => integration.kind === 'mcp' && sameLocalAddress(integration.url, entry.url))
+  return added ? { ...server, state: 'added', integrationId: added.id } : server
 }
 
 /** The address that names a found server, as an integration's `url` would. */

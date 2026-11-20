@@ -17,6 +17,7 @@ import {
   type IntegrationAuth,
   integrationFoundAddRequestSchema,
   integrationFoundListRequestSchema,
+  type IntegrationFacts,
   type IntegrationResourceLists,
   type IntegrationOAuthClientInput,
 } from '@solus/contracts/integration-types'
@@ -36,6 +37,7 @@ import { createIntegration, createStdioIntegration, probeAddress, probeForWrite,
 import { integrationPromptList, integrationPromptText } from '../../integrations/integration-prompts'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
 import type { FoundServers } from '../../integrations/found-servers'
+import type { LocalMcpServers } from '../../integrations/local-servers'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { cliSkipLog } from '../../integrations/cli-skips'
 import { attachResource } from '../../integrations/resource-attach'
@@ -102,6 +104,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   getServerInfo(): { host: string; port: number }
   /** The MCP servers in this host's config files (docs/plans/mcp-first-class.md §8). */
   found: FoundServers
+  /** Whether a server on this host's loopback runs (§9.3). Absent where the host does not follow its running servers. */
+  local?: Pick<LocalMcpServers, 'reachable'>
   /**
    * The caller's agent profile (plans/020-agent-profile.md): signed in, the
    * caller's own servers are part of it, so a change here goes to their account
@@ -199,10 +203,19 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
 
   server.register('integrationFacts', async (args, ctx) => {
     const { id } = integrationIdRequestSchema.parse(args[0])
-    requireIntegration(id, ctx.actor)
-    const facts = await gateway.facts(id)
+    const integration = requireIntegration(id, ctx.actor)
+    const reachable = deps.local?.reachable(integration)
+    let facts: IntegrationFacts
+    try {
+      facts = await gateway.facts(id)
+    } catch (error) {
+      // Nothing listens on its port: the row says Not running, not the refused connection (§9.3).
+      if (reachable !== 'not-running') throw error
+      facts = { era: null, instructions: null, capabilities: { prompts: false, resources: false, resourceSubscribe: false, tasks: false } }
+    }
     const cliSkips = cliSkipLog.for(id, currentPersonKey())
-    return cliSkips.length ? { ...facts, cliSkips } : facts
+    if (cliSkips.length) facts = { ...facts, cliSkips }
+    return reachable ? { ...facts, reachable } : facts
   })
 
   server.register('integrationProcessStart', async (args, ctx) => {
