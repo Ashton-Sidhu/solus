@@ -36,6 +36,8 @@ export function projectSessionEvent(event: NormalizedEvent): WireNormalizedEvent
     if (event.parentToolUseId) projected.parentToolUseId = event.parentToolUseId
     if (event.isError) projected.errorHead = utf8Head(event.content)
     if (event.toolImages) projected.toolImages = event.toolImages
+    if (event.toolAudio) projected.toolAudio = event.toolAudio
+    if (event.toolLeftOut) projected.toolLeftOut = event.toolLeftOut
     const secretOutcomes = event.isError ? undefined : secretOutcomesFromResult(event.content)
     if (secretOutcomes) projected.secretOutcomes = secretOutcomes
     return projected

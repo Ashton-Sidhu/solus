@@ -8,6 +8,7 @@ import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-
 import { codexToolContentItems } from '@solus/server/execution/agents/codex/codex-tool-adapter'
 import { codexItemToMessage } from '@solus/server/execution/agents/codex/codex-utils'
 import { agentToolImage } from '@solus/server/execution/agents/tools/agent-tool'
+import { agentResultOf } from '@solus/server/integrations/result-content'
 import { writeAssetBytes } from '@solus/server/data/assets/assets'
 import { storedAssetPath } from '@solus/server/data/assets/asset-paths'
 import { MAX_TOOL_RESULT_IMAGES, storePromptImages, storeToolResultImages } from '@solus/server/data/assets/transcript-images'
@@ -112,17 +113,42 @@ describe('device_screenshot', () => {
     const text = `Screenshot. Saved as asset ${stored.id}.`
     const before = assetCount()
 
-    const claude = new ClaudeTurnNormalizer().push(claudeToolResult(claudeToolResponse({ ok: true, text, image }).content))
+    const claude = new ClaudeTurnNormalizer().push(claudeToolResult(claudeToolResponse({ ok: true, text, images: [image] }).content))
     const claudeResult = claude.find((event) => event.type === 'tool_result')
     expect(claudeResult?.type === 'tool_result' && claudeResult.toolImages).toEqual([{ assetId: stored.id, mimeType: 'image/png', width: 390, height: 844 }])
 
     const codex = new CodexTurnNormalizer({ planMode: false }).push({ method: 'item/completed', params: { item: {
       type: 'dynamicToolCall', id: 'dyn-1', namespace: 'solus', tool: 'device_screenshot', status: 'completed', arguments: {},
-      contentItems: codexToolContentItems(text, image), success: true,
+      contentItems: codexToolContentItems(text, [image]), success: true,
     } } })
     const codexUpdate = codex.find((event) => event.type === 'tool_call_update')
     expect(codexUpdate?.type === 'tool_call_update' && codexUpdate.toolImages?.[0].assetId).toBe(stored.id)
     expect(assetCount()).toBe(before)
+  })
+})
+
+// WHY: an MCP result's images and audio reach the person for either provider,
+// live and on a reload (docs/plans/mcp-first-class.md §6).
+describe('MCP result media through the Codex path', () => {
+  test('every image, the audio player, and the left-out note come back from the dynamic tool result', async () => {
+    const pictures = [png(4, 4, 20), png(4, 4, 21), png(4, 4, 22)]
+    const result = await agentResultOf({ content: [
+      ...pictures.map((bytes) => ({ type: 'image' as const, data: bytes.toString('base64'), mimeType: 'image/png' })),
+      { type: 'audio', data: Buffer.concat([Buffer.from('ID3'), Buffer.from(`codex-${Math.random()}`)]).toString('base64'), mimeType: 'audio/mpeg' },
+      { type: 'image', data: Buffer.from('not a png').toString('base64'), mimeType: 'image/png' },
+    ] }, { tool: 'search' })
+    const item = {
+      type: 'dynamicToolCall', id: 'dyn-media', namespace: 'solus', tool: 'linear__search', status: 'completed', arguments: {},
+      contentItems: codexToolContentItems(result.text, result.images), success: true,
+    }
+    const update = new CodexTurnNormalizer({ planMode: false }).push({ method: 'item/completed', params: { item } })
+      .find((event) => event.type === 'tool_call_update')
+    expect(update?.type === 'tool_call_update' && update.toolImages?.length).toBe(3)
+    expect(update?.type === 'tool_call_update' && update.toolAudio?.[0].mimeType).toBe('audio/mpeg')
+    expect(update?.type === 'tool_call_update' && update.toolLeftOut).toEqual(['image 4 (image/png). Its bytes are not that image type.'])
+    const reloaded = codexItemToMessage(item, 0)
+    expect(reloaded?.toolAudio).toEqual(update?.type === 'tool_call_update' ? update.toolAudio : undefined)
+    expect(reloaded?.toolLeftOut).toEqual(update?.type === 'tool_call_update' ? update.toolLeftOut : undefined)
   })
 })
 

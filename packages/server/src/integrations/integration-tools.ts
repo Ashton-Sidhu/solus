@@ -1,16 +1,17 @@
 import { z } from 'zod'
 import { mcpAppToolMetadataSchema } from '@solus/contracts/mcp-apps'
-import type { CallToolResult } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ownerKeyOf, type Actor } from '../admission/actor'
 import { recordScopeOf } from '../admission/principal'
 import { createLogger } from '../logger'
-import { agentToolImage, type AgentTool, type AgentToolResult } from '../execution/agents/tools/agent-tool'
+import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
 
 const log = createLogger('integrations', 'integration-tools.ts')
 
 const DESCRIPTION_MAX_LENGTH = 1000
+/** The longest "Returns JSON" line a description gains (docs/plans/mcp-first-class.md §6). */
+const RETURNS_LINE_MAX_LENGTH = 500
 
 let gateway: IntegrationGateway | null = null
 
@@ -104,7 +105,7 @@ export function upstreamToolToAgentTool(
     : {}
   const agentTool: AgentTool = {
     name: integrationToolName(integration.slug, upstream.name),
-    description: `${integration.name}: ${upstream.description ?? upstream.title ?? upstream.name}`.slice(0, DESCRIPTION_MAX_LENGTH),
+    description: descriptionOf(integration.name, upstream),
     inputFields: { ...(fields ?? {}), ...accountField },
     alwaysLoad: false,
     requiresApproval: toolSummary(upstream).destructive,
@@ -112,6 +113,15 @@ export function upstreamToolToAgentTool(
   }
   if (!fields) agentTool.passthroughInput = true
   return agentTool
+}
+
+/** The server's description under the integration's name, and the shape of the data it returns when that is short. */
+function descriptionOf(integrationName: string, upstream: UpstreamTool): string {
+  const description = `${integrationName}: ${upstream.description ?? upstream.title ?? upstream.name}`
+  const { $schema: _dialect, ...outputSchema } = upstream.outputSchema ?? {}
+  const returns = upstream.outputSchema ? `Returns JSON: \`${JSON.stringify(outputSchema)}\`` : ''
+  if (!returns || returns.length > RETURNS_LINE_MAX_LENGTH) return description.slice(0, DESCRIPTION_MAX_LENGTH)
+  return `${description.slice(0, DESCRIPTION_MAX_LENGTH - returns.length - 1)}\n${returns}`
 }
 
 /** The Zod fields of an object JSON Schema, or null when it does not convert or is not an object. */
@@ -136,27 +146,4 @@ export function toolSummary(tool: UpstreamTool): IntegrationToolSummary {
   }
   if (tool.title) summary.title = tool.title
   return summary
-}
-
-/**
- * An MCP tool result as a Solus one: text parts joined with blank lines, the first
- * PNG image as the result image, `structuredContent` as JSON when there is no text.
- */
-export function mapCallResult(result: CallToolResult | { toolResult: unknown }): AgentToolResult {
-  if (!('content' in result)) return { ok: true, text: JSON.stringify(result.toolResult, null, 2) ?? '' }
-  const texts: string[] = []
-  let image: AgentToolResult['image']
-  for (const part of result.content) {
-    if (part.type === 'text') texts.push(part.text)
-    else if (part.type === 'image') {
-      const converted = !image && part.mimeType === 'image/png' ? agentToolImage(Buffer.from(part.data, 'base64')) : null
-      if (converted) image = converted
-      else texts.push(`[${part.mimeType} image not shown]`)
-    } else if (part.type === 'resource_link') texts.push(`${part.name}: ${part.uri}`)
-    else if (part.type === 'resource' && 'text' in part.resource) texts.push(part.resource.text)
-  }
-  if (!texts.length && result.structuredContent !== undefined) texts.push(JSON.stringify(result.structuredContent, null, 2))
-  const mapped: AgentToolResult = { ok: result.isError !== true, text: texts.join('\n\n') }
-  if (image) mapped.image = image
-  return mapped
 }

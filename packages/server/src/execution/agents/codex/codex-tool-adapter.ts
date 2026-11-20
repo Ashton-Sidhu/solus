@@ -54,10 +54,10 @@ export class CodexToolDispatcher {
   }
 }
 
-/** A neutral tool result as Codex dynamic-tool content: text, then any image as a data URL. */
-export function codexToolContentItems(text: string, image?: AgentToolImage): DynamicToolCallOutputContentItem[] {
+/** A neutral tool result as Codex dynamic-tool content: text, then every image in order as a data URL. */
+export function codexToolContentItems(text: string, images: AgentToolImage[] = []): DynamicToolCallOutputContentItem[] {
   return [
     { type: 'inputText', text },
-    ...(image ? [{ type: 'inputImage' as const, imageUrl: `data:${image.mimeType};base64,${image.data}` }] : []),
+    ...images.map((image) => ({ type: 'inputImage' as const, imageUrl: `data:${image.mimeType};base64,${image.data}` })),
   ]
 }

@@ -39,12 +39,12 @@ function callerFields(fields: AgentTool['inputFields']): AgentTool['inputFields'
   }))
 }
 
-/** A neutral tool result as an MCP response: text first, then any image. */
+/** A neutral tool result as an MCP response: text first, then every image in order. */
 export function claudeToolResponse(result: AgentToolResult): ClaudeToolResponse {
   const response: ClaudeToolResponse = {
     content: [{ type: 'text' as const, text: result.text }],
   }
-  if (result.image) response.content.push({ type: 'image', data: result.image.data, mimeType: result.image.mimeType })
+  for (const image of result.images ?? []) response.content.push({ type: 'image', data: image.data, mimeType: image.mimeType })
   if (!result.ok) response.isError = true
   return response
 }

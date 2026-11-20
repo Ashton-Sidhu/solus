@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport, SdkHttpError } from '@modelcontextprotoc
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import type { Transport } from '@modelcontextprotocol/client'
 import {
+  ProtocolError,
   SdkError,
   SdkErrorCode,
   type CallToolRequest,
@@ -24,7 +25,8 @@ import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest
 import { answerToolQuestionWith } from '../execution/sessions/input-requests'
 import type { IntegrationCredentials } from './connections'
 import type { IntegrationStore } from './integration-store'
-import { mapCallResult, toolSummary } from './integration-tools'
+import { toolSummary } from './integration-tools'
+import { agentResultOf, mergedAccountResults, outputSchemaRefusal } from './result-content'
 import { cancellableFetch } from './cancellable-fetch'
 
 const log = createLogger('integrations', 'gateway.ts')
@@ -234,10 +236,7 @@ export class IntegrationGateway {
     }
     // A read spans every account; each part names the account it came from.
     const results = await Promise.all(accounts.map((candidate) => this.callAs(integration, tool, args, context, candidate.accountId)))
-    return {
-      ok: results.some((result) => result.ok),
-      text: results.map((result, index) => `## ${labels[index]}\n${result.text}`).join('\n\n'),
-    }
+    return mergedAccountResults(results.map((result, index) => ({ label: labels[index], result })))
   }
 
   /** The person's accounts on an integration that are connected now, the first first. */
@@ -269,7 +268,7 @@ export class IntegrationGateway {
         { signal: AbortSignal.any([context.abortSignal, timeout.signal]), timeout: SDK_TIMEOUT_OFF_MS },
       )
       if (this.captureApp && !('isError' in result && result.isError)) await this.saveApp(this.captureApp, { integration, tool, input, result, context })
-      const mapped = mapCallResult(result)
+      const mapped = await agentResultOf(result, { tool, outputSchema: this.anyCachedTools(integrationId)?.find((candidate) => candidate.name === tool)?.outputSchema })
       // Some servers take a revoked token when the session opens and refuse it only in
       // the call: read the header again, not from a copy, and try once more.
       if (refusedInFirstCall(session, mapped, retried)) {
@@ -290,6 +289,8 @@ export class IntegrationGateway {
       }
       if (context.abortSignal.aborted) return { ok: false, text: `The ${integration.name} call was stopped.` }
       if (timeout.signal.aborted) return { ok: false, text: `${integration.name} did not answer within ${CALL_TIMEOUT_MS / 1000} seconds.` }
+      const refusal = error instanceof ProtocolError ? outputSchemaRefusal(tool, error) : null
+      if (refusal) return refusal
       log.warn('integration_call_failed', { integrationId, tool, error: errorText(error) })
       if (session?.client.getProtocolEra() === 'modern' && isLostResponse(error)) {
         void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))

@@ -8,14 +8,17 @@ import { compactToolSchema } from './compact-tool-schema'
 export interface AgentToolResult {
   ok: boolean
   text: string
-  /** One image the agent sees directly, not as a host file path. PNG only and
-   *  bounded (`MAX_AGENT_TOOL_IMAGE_BYTES`); both provider adapters send it. */
-  image?: AgentToolImage
+  /** Images the agent sees directly, not as host file paths, in order. Each is
+   *  bounded (`MAX_AGENT_TOOL_IMAGE_BYTES`); both provider adapters send them all. */
+  images?: AgentToolImage[]
 }
 
+/** The image types both providers take in a tool result. */
+export type AgentToolImageType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+
 export interface AgentToolImage {
-  mimeType: 'image/png'
-  /** Base64 of the PNG bytes. */
+  mimeType: AgentToolImageType
+  /** Base64 of the image bytes. */
   data: string
 }
 

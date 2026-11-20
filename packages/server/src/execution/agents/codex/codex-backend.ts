@@ -1516,8 +1516,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         ?? optionalString(params?.name)
         ?? optionalString(params?.toolName)
         ?? ''
-      const respondWithToolText = (text: string, success: boolean, image?: AgentToolImage) => {
-        client.respond(msg.id, { success, contentItems: codexToolContentItems(text, image) })
+      const respondWithToolText = (text: string, success: boolean, images?: AgentToolImage[]) => {
+        client.respond(msg.id, { success, contentItems: codexToolContentItems(text, images) })
       }
       let args = params?.arguments ?? params?.input ?? params?.args ?? {}
       const serializedArgs = optionalString(args)
@@ -1536,7 +1536,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         }
         const parentToolUseId = optionalString(params?.callId) || String(msg.id)
         const result = await handle.toolDispatcher.execute(toolName, args, parentToolUseId)
-        respondWithToolText(result.text, result.ok, result.image)
+        respondWithToolText(result.text, result.ok, result.images)
       }
       if (!selectedTool.requiresApproval) { void respondWithResult(true); return }
       if (handle.permissionMode === 'plan') {

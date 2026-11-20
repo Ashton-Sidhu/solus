@@ -130,7 +130,7 @@ async function previewReport(title: string, preview: HtmlPreview): Promise<Agent
     lines.push(`missing images (not found, or over 8 MB): ${preview.missingImages.join(', ')}`)
   }
   const report: AgentToolResult = { ok: true, text: lines.join('\n') }
-  if (image) report.image = image
+  if (image) report.images = [image]
   return report
 }
 
