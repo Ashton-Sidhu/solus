@@ -173,7 +173,8 @@ A request outside a turn, such as a Settings read, carries no trace context.
 **Result content.** A tool's whole result reaches the agent, on Claude and Codex alike: its text,
 its structured data as JSON, and up to eight images (PNG, JPEG, WebP, or GIF).
 No provider model takes audio in a tool result, so Solus saves audio on the
-host and gives the agent its path; you get a player in the tool call. A part
+host and gives the agent its path; you get a player in the tool call (play
+and pause, the time, and a seek bar that the arrow keys move). A part
 that a limit or a check leaves out is saved for the agent when it can be, and
 the agent and the tool call both get a note that names the limit. Data that
 does not match the tool's output schema fails the call with that reason
@@ -236,7 +237,7 @@ first become one start, and one watch starts the agent at most once in 30
 seconds. A change while a turn runs waits for the end of that turn; when you
 press Stop, the change that waited does not start the agent. A watch ends after
 24 hours, after it started the agent 20 times, when the agent sends
-`watching: false`, when you press **Stop** on its row, and when you archive or
+`watching: false`, when you press the stop button on its row, and when you archive or
 delete the session. A session has at most 10 live watches, you have at most 20
 on a host, and a host keeps at most 100.
 
@@ -544,10 +545,11 @@ the extension on each request.
   notice, and the agent answers it in a new turn. A failure and an expiry
   send their reason. Both providers get the same text.
 - The session's background work shows each MCP task: the server and the
-  tool, its state, the time since the start, and **Cancel**. A question of
+  tool, its state, the time since the start, and the stop button ("Stop
+  <tool>"). A question of
   the server shows **Answer**, which opens the question card. While an MCP
   task is live, the session's status is `background`.
-- Cancel asks the server to stop. The row says "Cancelling…" until the
+- The stop button asks the server to cancel the MCP task. The row says "Cancelling…" until the
   server reports the end, at most 2 minutes. A cancelled MCP task sends no
   message. Stop of the turn in the first 30 seconds cancels the MCP task;
   later it does not touch it.
