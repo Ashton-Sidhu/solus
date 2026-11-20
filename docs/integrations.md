@@ -90,6 +90,40 @@ server. Solus asks first unless the server marks the tool as read-only. In a
 Claude session, Claude's permission rules also apply: a deny rule refuses the
 call, and an ask rule makes Solus ask first.
 
+## MCP prompts
+
+A server can publish prompts: prepared instructions with a name and
+arguments. Solus shows them as slash commands, `/<slug>:<prompt>`
+(`docs/plans/mcp-first-class.md` §10).
+
+- Desktop and web: type `/`. The menu lists the MCP prompts under **MCP**,
+  after the Solus and agent commands, with each prompt's description and its
+  arguments (`<required> [optional]`). A server you are not connected to shows
+  one row, "Sign in to <server> to use its prompts"; in a conversation it opens
+  the connect card, and from a draft it opens Settings → MCP.
+- A prompt with no argument sends at once. A prompt with one argument takes
+  the rest of the line: `/github:triage bug`. A prompt with more arguments, or
+  one whose required argument is empty, opens the argument form in the input
+  bar: Tab moves between fields, Enter sends, Escape closes. The focus goes
+  back to the input bar after each.
+- Mobile: the + menu has **MCP Prompt…**. It opens a sheet that lists and
+  searches the prompts, then asks for the arguments.
+- The host gets the prompt from the server with your connection and makes one
+  text from its messages. That text is your message: both Claude and Codex get
+  it, and the conversation shows it whole. A part from the assistant is marked
+  "Assistant:". An image is attached to the message. The text is at most
+  100,000 characters (`MAX_MCP_PROMPT_TEXT_CHARS`); a `[Left out: …]` line
+  names the limit when text is cut. A prompt never runs a tool by itself.
+- A Solus or agent command with the same name wins; the prompt is not listed.
+  Two servers with the same command: the first wins.
+- The list is read when you open `/` for the first time in a project, and
+  again when a server says its list changed, an integration changes, a
+  sign-in changes, or the host reconnects. Typing reads nothing. A command
+  (stdio) server that is not running lists the prompts it saved when it last
+  ran, and starts only when you send one of its prompts.
+- A server that asks for input while it expands a prompt is declined: Solus
+  can ask for input only during a turn.
+
 ## What the agent sees
 
 Every tool of every integration is a Solus tool named `<slug>__<tool>`, with

@@ -2,7 +2,8 @@
 
 Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, and H1 are built
 (`mcp-b1-handoff.md` has the B1 contract; `mcp-wave3-handoff.md` records the
-merge of A2, A3, B1, and H1). This plan continues
+merge of A2, A3, B1, and H1). E is built on its own branch
+(`mcp-e-handoff.md`). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -1018,16 +1019,30 @@ command as the example. The agent never lists or calls a prompt.
 `integrations/prompt-content.ts` turns the messages of `prompts/get` into
 prompt text and attachments, with `result-content.ts` (§6).
 
-**Contracts.**
+**Contracts** (`packages/contracts/src/integrations/prompts.ts`; built in E).
 
-- `integrationPromptList({ projectPath? })` answers `IntegrationPrompt[]`:
-  `{ integrationId, command, name, title?, description?, arguments: { name, description?, required }[] }`.
-  It covers the caller's integrations for that project (§8.4). A server that
-  does not answer in 10 seconds is left out, as for tools. A stopped `stdio`
-  integration answers from its saved facts.
-- `integrationPromptGet({ integrationId, name, arguments: { name, value }[] })`
-  answers `{ text, attachments: Attachment[] }`.
+- `integrationPromptList({ projectPath? })` answers
+  `{ prompts: IntegrationPrompt[], signIn: IntegrationPromptSignIn[] }`.
+  `IntegrationPrompt` is
+  `{ integrationId, integrationName, command, name, title?, description?, arguments: { name, description?, required }[] }`
+  (a prompt argument has no title in the SDK). `signIn` names each of the
+  caller's servers that needs their sign-in or values first
+  (`{ integrationId, integrationName, slug, needs: 'sign-in' | 'environment' }`),
+  so the menu can offer the sign-in. It covers the integrations that would
+  join the caller's run in that project (`integrationsForRun`, §8.4). A server
+  that does not answer in 10 seconds is left out, as for tools. A stopped
+  `stdio` integration answers from its saved facts. At most 200 prompts for
+  one server (`MAX_MCP_PROMPTS_PER_SERVER`).
+- `integrationPromptGet({ integrationId, name, arguments: { name, value }[], sessionId?, draftId? })`
+  answers `{ kind: 'text', text, attachments: Attachment[] }` or
+  `{ kind: 'connection-required', integrationId, integrationName, needs }`.
+  A missing connection is an answer, not an error. `sessionId` or `draftId`
+  names the attachment folder of the images and the conversation whose
+  connect card shows. A required argument that is missing is refused before
+  the server is asked.
 - `integration.changed` with `change: 'facts'` tells a client to list again.
+  The gateway sends it on `prompts/list_changed` and when a new list has other
+  names.
 
 **The command name** is `/<slug>:<prompt>`, in the colon form of
 `/review:pr`. A character outside `[A-Za-z0-9._-]` in the prompt name becomes
@@ -1046,16 +1061,22 @@ one user input for a turn, so the host makes one text:
 
 The client sends the result with the normal `prompt` RPC. The text is the
 person's message, and the transcript shows it whole. `prompt-dispatch.ts`
-does not change.
+does not change. The text is at most 100,000 characters
+(`MAX_MCP_PROMPT_TEXT_CHARS`, less than the 200,000 of a tool result, because
+it is one message); a `[Left out: …]` line names the limit when text is cut.
 
 **What the agent sees.** A normal user message, the same for Claude and
 Codex.
 
 **Surfaces.**
 
-- Desktop and web: `CategorizedSlashCommands` gains `mcp`.
-  `UnifiedAutocompleteMenu.svelte` lists the category "MCP" with the command,
-  the description, and an argument hint. Enter on a prompt with no argument
+- Desktop and web: the `/` menu is one ranked list, not categories, so the
+  prompts are a band after the commands under the label "MCP"
+  (`unified-autocomplete/mcp-prompt-items.ts`, `rows.ts`), with the command,
+  the description, and an argument hint. A server in `signIn` adds one row
+  that opens the connect card in a conversation and Settings → MCP from a
+  draft. A prompt whose command a Solus or provider command has is left out:
+  the command wins. Enter on a prompt with no argument
   sends it. A prompt with one argument takes the rest of the line. A prompt
   with more opens the **argument form** above the input bar
   (`components/input/PromptArgumentForm.svelte`): one field for each
@@ -1064,14 +1085,20 @@ Codex.
 - Mobile has no slash menu (§1, item 10). The + menu of `ThreadComposer.tsx`
   gains **MCP prompt**: a sheet that lists and searches the prompts, then an
   argument sheet, then send. Hook: `use-integration-prompts.ts`.
-- The lists load with the conversation, where `getPluginCommands` loads
-  today (`workspace-lifecycle.store.svelte.ts`, `draft-preflight.svelte.ts`).
+- The lists are kept per host and project in
+  `components/input/lib/integration-prompts.store.svelte.ts`. A list is read
+  the first time a composer opens `/` in that project, not with every
+  conversation: most conversations never open the menu. The kept list shows at
+  once after that, and `integration.changed`, `integration.connectionChanged`,
+  and a reconnect read it again. A keystroke reads nothing. The composer's
+  prompt logic (`mcp-prompt-composer.svelte.ts`) and the form load after the
+  first screen.
 
 | State | What shows |
 |---|---|
 | Loading | The other categories show; "MCP" appears when its list arrives |
 | Empty | No category |
-| Error on send | A system message with the reason; the draft stays |
+| Error on send | A system message with the reason; the draft stays. From the argument form, the reason shows in the form and the values stay |
 | No connection | `integrationPromptGet` answers `CONNECTION_REQUIRED`; the conversation shows the connect card; a draft opens the server's row in Settings → MCP |
 | Stale | A list-changed notification drops the list; the client lists again on the event |
 
