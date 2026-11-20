@@ -258,11 +258,17 @@ export class IntegrationConnections implements IntegrationCredentials {
     return removed || token !== null
   }
 
-  /** The integration was removed: every person's row and credential here, and the host's client for it. */
+  /**
+   * The integration was removed, or a command got new environment names: every
+   * person's row and credential here, and the host's client for it. Each person
+   * gets `integration.connectionChanged` with no connection.
+   */
   removeAllFor(integration: Integration): void {
     for (const { personKey, accountId } of this.deps.store.removeAllFor(integration.id)) {
       this.deps.vault.remove(personKey, mcpCredentialRef(integration, accountId))
       this.deps.vault.removeEnvironment(personKey, mcpCredentialRef(integration, accountId))
+      // New environment names keep the record: each person's open clients drop the connection now, as at a disconnect.
+      this.deps.events.connectionChanged(personKey, { integrationId: integration.id, accountId, connection: null })
     }
     this.deps.clients.removeClient(integration.id)
   }

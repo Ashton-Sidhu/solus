@@ -670,7 +670,9 @@ cannot age it. Facts are saved for the account that lists, the first one.
   needs `host.admin` and the owner.
 - As built: `integrationConnectSubmitRequestSchema` takes `value` or
   `values`, not both; `values` needs `id`. `integrationUpdate` with `launch`
-  or `envNames` needs `host.admin`; new names remove every person's values.
+  or `envNames` needs `host.admin`; new names remove every person's values,
+  and each of those persons gets `integration.connectionChanged` with
+  `connection: null` (wave 3; B1 sent no event), as at a disconnect.
 - `integration.changed` with `change: 'facts'` follows each start and stop.
 
 ### 7.7 Surfaces

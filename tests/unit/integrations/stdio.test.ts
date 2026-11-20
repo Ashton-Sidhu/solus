@@ -373,6 +373,37 @@ describe('who may add a command (§7.2)', () => {
   })
 })
 
+describe('new environment names (§7.6)', () => {
+  test('every person who gave values gets a connection change with no connection, and the values are gone', async () => {
+    // WHY: an open Settings page must not show a person as connected with values the host no longer has.
+    installTestIdentities()
+    const { integration } = command({ auth: { kind: 'env', names: ['API_TOKEN'] } })
+    const changes: Array<{ personKey: string; integrationId: string; accountId?: string; connection: unknown }> = []
+    const connections = new IntegrationConnections({
+      store: new IntegrationConnectionStore(), integrations: store, vault: new Vault({ secrets: memorySecretStore() }), clients: memoryClients(), oauth: {} as never,
+      events: { connectionChanged: (personKey, event) => changes.push({ personKey, ...event }), authFinished: () => undefined },
+    })
+    connections.submitEnvironment(integration, OWNER, [{ name: 'API_TOKEN', value: SECRET }])
+    changes.length = 0
+    const server = new SolusServer()
+    registerIntegrationHandlers(server, {
+      store,
+      catalog: {} as never,
+      gateway: gateway(),
+      events: { broadcast: () => 1 } as never,
+      connectionStore: {} as never,
+      connections,
+      oauth: {} as never,
+      clients: memoryClients(),
+      getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
+    })
+
+    await server.handle('integrationUpdate', [{ id: integration.id, envNames: ['API_KEY'] }], TEST_HANDLER_CTX)
+    expect(changes).toEqual([{ personKey: OWNER, integrationId: integration.id, accountId: 'default', connection: null }])
+    expect(connections.environmentFor(integration.id, OWNER)).toBeNull()
+  })
+})
+
 describe('who may start a command (§7.2, §7.8)', () => {
   // The owner's own record, but a principal without `host.admin`: only the admin rule refuses it.
   const member: Principal = { kind: 'org-member', userId: 'member-1', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Member', deviceId: 'member-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 }
