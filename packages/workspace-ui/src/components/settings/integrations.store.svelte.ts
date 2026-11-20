@@ -1,4 +1,5 @@
 import { connectionNeedsAttention, isFirstIntegrationAccount } from '@solus/contracts/integration-types'
+import { loopbackServerPort } from '@solus/contracts/integrations/local-servers'
 import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationCreateRequest, IntegrationEnvValue, IntegrationFacts, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from '@solus/contracts/integration-types'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -90,6 +91,11 @@ export type ProbeAttempt = { result: IntegrationProbeResult } | { error: string 
 export function isUnsupportedHostError(cause: unknown): boolean {
   const message = cause instanceof Error ? cause.message : String(cause)
   return /no handler for|unknown method|unknown rpc|not registered|not a function/i.test(message)
+}
+
+/** A command's row shows its process state, and a server on the host's loopback whether it runs (mcp-first-class.md §9.3). */
+function showsFactsOnRow(integration: Integration | undefined): boolean {
+  return integration?.kind === 'stdio' || (integration?.kind === 'mcp' && loopbackServerPort(integration.url) !== null)
 }
 
 function errorText(cause: unknown, fallback: string): string {
@@ -260,8 +266,8 @@ class IntegrationsStore {
       for (const id of current.tools.keys()) {
         if (!integrations.some((integration) => integration.id === id)) { current.tools.delete(id); current.facts.delete(id) }
       }
-      // A command's row shows its process state, so its facts load with the list.
-      for (const integration of integrations) if (integration.kind === 'stdio') void this.loadFacts(serverId, integration.id)
+      // A command's row shows its process state, and a loopback server's row whether it runs, so their facts load with the list.
+      for (const integration of integrations) if (showsFactsOnRow(integration)) void this.loadFacts(serverId, integration.id)
     } catch (cause) {
       const current = this.states.get(serverId)
       if (current?.revision !== revision) return
@@ -301,7 +307,11 @@ class IntegrationsStore {
     const read = this.nextFactsRead(serverId, integrationId)
     try {
       const facts = await serverConnections.apiFor(serverId).integrationFacts({ id: integrationId })
-      if (this.factsReads.get(this.flowKey(serverId, integrationId)) === read) this.states.get(serverId)?.facts.set(integrationId, facts)
+      if (this.factsReads.get(this.flowKey(serverId, integrationId)) !== read) return
+      const state = this.states.get(serverId)
+      state?.facts.set(integrationId, facts)
+      // A loopback server that runs again lists its tools in an open row, not the error of when it stopped (§9.3).
+      if (facts.reachable === 'running') state?.toolErrors.delete(integrationId)
     } catch {
       // The row keeps the last state it read; the next event or reconnect reads again.
     }
@@ -710,8 +720,8 @@ class IntegrationsStore {
     if (!state) return
     if (change === 'tools' || change === 'facts') {
       if (state.tools.has(integrationId)) void this.loadTools(serverId, integrationId)
-      // A command's process state shows on its row, open or not.
-      else if (state.integrations?.find((item) => item.id === integrationId)?.kind === 'stdio') void this.loadFacts(serverId, integrationId)
+      // A command's process state, and whether a loopback server runs, show on its row, open or not.
+      else if (showsFactsOnRow(state.integrations?.find((item) => item.id === integrationId))) void this.loadFacts(serverId, integrationId)
       return
     }
     // A list read in flight, or none yet: read the whole list again instead.

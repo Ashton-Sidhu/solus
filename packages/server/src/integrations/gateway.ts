@@ -3,7 +3,9 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { ProtocolError, SdkError, SdkErrorCode, type GetPromptResult, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationStopReason, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
+import { loopbackServerPort } from '@solus/contracts/integrations/local-servers'
 import { createLogger } from '../logger'
+import { hostDisplayName } from '../platform/host-display-name'
 import { currentPersonKey } from '../vault/acting-scope'
 import type { AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import type { IntegrationCredentials } from './connections'
@@ -479,7 +481,7 @@ export class IntegrationGateway {
       }
       // A transport failure drops the session so the next call opens a new one; a server error keeps it.
       if (session && !(error instanceof SdkError)) void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
-      return { ok: false, text: `${integration.name} could not run ${tool}: ${errorText(error)}` }
+      return { ok: false, text: callFailureText(integration, tool, error) }
     } finally {
       limits.pause()
       progress.end()
@@ -729,7 +731,7 @@ export class IntegrationGateway {
         this.credentials?.markNeedsSignIn(integrationId, personKey, refusedMessage(integration, error))
         throw new ConnectionRequiredError()
       }
-      throw new Error(`connection failed (${errorText(error)})`)
+      throw new Error(`connection failed (${errorText(error)})`, { cause: error })
     }
     log.info('integration_session_opened', { integrationId, personKey, authorized: session.authorized })
     this.touch(key)
@@ -1004,4 +1006,22 @@ export class IntegrationGateway {
   private notify(integrationId: string): void {
     for (const listener of this.listeners) listener(integrationId)
   }
+}
+
+/**
+ * Why a call failed, for the agent. Nothing listens on the port of a server on
+ * this host's loopback: it is not running, which the socket error does not say
+ * (mcp-first-class.md §9.3). The connection is not marked as an error.
+ */
+function callFailureText(integration: Pick<Integration, 'name' | 'url'>, tool: string, cause: unknown): string {
+  if (loopbackServerPort(integration.url) !== null && cause instanceof Error && isConnectionRefused(cause)) return `${integration.name} is not running on ${hostDisplayName()}. Start it, then try again.`
+  return `${integration.name} could not run ${tool}: ${errorText(cause)}`
+}
+
+/** A connection that nothing listened for, in the error or in an error it wraps. */
+function isConnectionRefused(error: Error): boolean {
+  for (let cause: Error | null = error, depth = 0; cause && depth < 6; cause = cause.cause instanceof Error ? cause.cause : null, depth++) {
+    if (('code' in cause && (cause.code === 'ECONNREFUSED' || cause.code === 'ConnectionRefused')) || /ECONNREFUSED/.test(cause.message)) return true
+  }
+  return false
 }

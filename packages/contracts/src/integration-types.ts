@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import { resourceRoleSchema } from './sharing'
 import { firstPartyClientIdSchema } from './first-party-clients'
+import type { FoundPortPlace, FoundPortScan, IntegrationReachable } from './integrations/local-servers'
 
 const noAuthSchema = z.object({
   kind: z.literal('none'),
@@ -234,6 +235,7 @@ export interface IntegrationFacts {
   process?: IntegrationProcessFacts
   /** The CLI copies the caller's runs left out (§8.5). Absent when none did, and from a host before C2. */
   cliSkips?: IntegrationCliSkip[]
+  reachable?: IntegrationReachable
 }
 
 /** One resource an MCP server lists (`resources/list`, mcp-first-class.md §11.1). The server's text is data. */
@@ -363,7 +365,7 @@ export type IntegrationProbeResult = z.infer<typeof integrationProbeResultSchema
 export type IntegrationProbeUndeterminedReason = Extract<IntegrationProbeResult, { outcome: 'undetermined' }>['reason']
 
 /** A loopback host name: `localhost`, a `.localhost` name, `127.x.x.x`, or `[::1]`. */
-function isLoopbackHostname(hostname: string): boolean {
+export function isLoopbackHostname(hostname: string): boolean {
   return hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '[::1]' || /^127\.\d+\.\d+\.\d+$/.test(hostname)
 }
 
@@ -509,7 +511,7 @@ export interface FoundServer {
   /** A hash of the transport and the scope as the host read them. An add with another fingerprint is refused (§8.3). */
   fingerprint: string
   name: string
-  foundIn: FoundPlace[]
+  foundIn: Array<FoundPlace | FoundPortPlace>
   /** Null only for an `invalid` entry, which names no command or URL Solus can read. */
   transport: FoundTransport | null
   state: 'new' | 'added' | 'changed' | 'unsupported'
@@ -536,6 +538,7 @@ export interface FoundFile {
 export interface FoundServerList {
   servers: FoundServer[]
   files: FoundFile[]
+  portScan?: FoundPortScan
 }
 
 /** `projectPath`: also read that project's files. `refresh`: read the files again, not the answer of the last 10 seconds. */

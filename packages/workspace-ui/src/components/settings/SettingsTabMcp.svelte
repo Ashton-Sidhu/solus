@@ -7,17 +7,20 @@
    * adds the server, signs the person in, and asks which tools agents may use.
    * Add command opens the same dialog on a command's form
    * (docs/plans/mcp-first-class.md §7.7), as does the palette's "Add an MCP
-   * server command".
+   * server command". While the page is open it holds the host's running-servers
+   * lease, so the host looks for MCP servers on its loopback and follows the
+   * loopback servers it has (§9.1); no page, no scan.
    */
   import { onDestroy, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { Check, FileSearch, LayoutGrid, LoaderCircle, Plus, RefreshCw, Search, TriangleAlert, X } from "@lucide/svelte";
   import { CATALOG_CATEGORIES, type CatalogCategoryId, type CatalogEntry, type FoundServer, type Integration } from "@solus/contracts/integration-types";
-  import { NO_FOUND_SERVERS_TEXT, configFileLabel } from "@solus/contracts/integrations/found-server-labels";
+  import { NO_FOUND_SERVERS_TEXT, configFileLabel, portScanUnavailableText } from "@solus/contracts/integrations/found-server-labels";
   import { hostPathBaseName } from "@solus/contracts/host-path";
   import { projectScopeOf } from "@solus/contracts/types";
   import { isChat } from "@solus/contracts/chat";
   import { getWorkspaceContext } from "../../contexts";
+  import { runningServers } from "../../contexts/running-servers/running-servers.store.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import SettingsSection from "./SettingsSection.svelte";
@@ -62,6 +65,7 @@
   const projectName = $derived(projectPath ? hostPathBaseName(projectPath) || projectPath : null);
 
   const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostServers = $derived(runningServers.forHost(serverId));
   const installed = $derived(hostState?.integrations ?? []);
   const installedByUrl = $derived(new Map(installed.map((integration) => [integration.url, integration])));
   const visibleInstalled = $derived(
@@ -89,6 +93,11 @@
   // A catalog read that failed while the host was away is read again when it returns.
   $effect(() => {
     if (!isOffline) untrack(() => { if (catalog.error) void catalog.load(); });
+  });
+  // Reading the list holds the lease while the page is open. A changed list can start or stop an MCP server on the loopback: the found view reads again.
+  $effect(() => {
+    void hostServers.servers;
+    untrack(() => { if (found && !found.loading) void found.load(); });
   });
   // The command palette asks for the found servers ("Find MCP servers on this host").
   $effect(() => {
@@ -300,7 +309,7 @@
 {/snippet}
 
 {#snippet foundSection()}
-  <SettingsSection {...settingsDefinitions["mcp.section-found"]} description="MCP servers in the config files of Claude Code, Codex, Cursor, VS Code, and Claude Desktop on {hostLabel}{projectName ? `, and in ${projectName}` : ''}. Nothing is added until you add it.">
+  <SettingsSection {...settingsDefinitions["mcp.section-found"]} description="MCP servers in the config files of Claude Code, Codex, Cursor, VS Code, and Claude Desktop on {hostLabel}{projectName ? `, and in ${projectName}` : ''}, and MCP servers that run on it. Nothing is added until you add it.">
     {#snippet action()}
       <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !found || found.loading || found.refreshing} onclick={() => found?.load(true)}>
         <RefreshCw size={14} class={found?.refreshing ? "animate-spin motion-reduce:animate-none" : ""} />Refresh
@@ -320,8 +329,13 @@
         <p class="p-6 text-center text-workspace-chrome text-muted-foreground">{NO_FOUND_SERVERS_TEXT}</p>
       {/if}
       {#each found.servers as server (server.foundId)}
-        <McpFoundRow {server} {projectName} {isOffline} isAdding={found.adding === server.foundId} onReview={(next) => { addError = ""; reviewing = next; }} />
+        <McpFoundRow {server} {projectName} {hostLabel} {isOffline} isAdding={found.adding === server.foundId} onReview={(next) => { addError = ""; reviewing = next; }} />
       {/each}
+      {#if found.portScan?.state === "unavailable"}
+        <p class="flex items-start gap-2 px-4 py-3 text-chrome-dense text-(--solus-text-secondary)">
+          <TriangleAlert size={14} class="mt-0.5 shrink-0" aria-hidden="true" />{portScanUnavailableText(found.portScan.reason)}
+        </p>
+      {/if}
       {#each found.problems as file (file.path)}
         <p class="flex items-start gap-2 px-4 py-3 text-chrome-dense text-(--solus-text-secondary)">
           <TriangleAlert size={14} class="mt-0.5 shrink-0" aria-hidden="true" />{configFileLabel(file.file)} ({file.path}) was not read. {file.problem}
@@ -464,7 +478,7 @@
 
 {#if reviewing && found}
   {#key reviewing.foundId}
-    <McpFoundDialog server={reviewing} current={installed.find((integration) => integration.id === reviewing?.integrationId) ?? null} {projectName}
+    <McpFoundDialog server={reviewing} current={installed.find((integration) => integration.id === reviewing?.integrationId) ?? null} {projectName} {hostLabel}
       isAdding={found.adding === reviewing.foundId} error={addError} onConfirm={confirmFound} onClose={foundDialogClosed} />
   {/key}
 {/if}

@@ -14,6 +14,7 @@ import type {
 } from '@solus/contracts/integration-types'
 import type { VaultConnectResult } from '@solus/contracts/vault'
 import { commandLineText, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
+import { NOT_RUNNING_LABEL } from '@solus/contracts/integrations/found-server-labels'
 
 /**
  * The MCP servers of one host (docs/plans/mcp-integrations.md §7), as the
@@ -340,9 +341,11 @@ export interface InstalledRowLine {
   actionLabel: 'Connect' | 'Reconnect' | 'Enter values'
 }
 
-export function installedRowLine(status: InstalledStatus, process: Pick<CommandProcessStatus, 'label' | 'tone'> | null): InstalledRowLine {
+export function installedRowLine(status: InstalledStatus, process: Pick<CommandProcessStatus, 'label' | 'tone'> | null, isNotRunning = false): InstalledRowLine {
   const actionLabel = process ? 'Enter values' : status.action === 'reconnect' ? 'Reconnect' : 'Connect'
   if (process && !status.action) return { text: process.label, tone: process.tone === 'error' ? 'danger' : 'muted', actionLabel }
+  // A server on the host's loopback that does not run: neutral, never an error (mcp-first-class.md §9.3).
+  if (isNotRunning && !status.action) return { text: NOT_RUNNING_LABEL, tone: 'muted', actionLabel }
   return { text: status.text, tone: status.tone, actionLabel }
 }
 

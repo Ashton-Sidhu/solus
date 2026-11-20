@@ -5,12 +5,14 @@
    * `changed` server the one in use beside the one in the file. The host reads
    * the file again at the add and refuses another entry, so the person approves
    * what they read here. The shell follows `McpConnectDialog`, with no outline
-   * border: the shadow and the backdrop set it apart from the page.
+   * border: the shadow and the backdrop set it apart from the page. A server
+   * that runs on the host's loopback (§9.2) shows its port, its process, and
+   * what it said about itself; the add probes it as a typed URL.
    */
   import { Dialog } from "bits-ui";
   import { TriangleAlert, X } from "@lucide/svelte";
   import type { FoundServer, Integration } from "@solus/contracts/integration-types";
-  import { commandLineText, fileValuesText, foundPlacesText, foundTargetText, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
+  import { commandLineText, fileValuesText, foundPlacesText, foundPortOf, foundTargetText, portIdentityText, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import { Checkbox } from "../ui/checkbox";
   import McpServerIcon from "./McpServerIcon.svelte";
@@ -20,12 +22,14 @@
     /** The integration a `changed` server would update. */
     current: Integration | null;
     projectName: string | null;
+    /** The host whose loopback a running server is on. */
+    hostLabel: string;
     isAdding: boolean;
     error: string;
     onConfirm: (useFileValues: boolean) => void;
     onClose: () => void;
   }
-  let { server, current, projectName, isAdding, error, onConfirm, onClose }: Props = $props();
+  let { server, current, projectName, hostLabel, isAdding, error, onConfirm, onClose }: Props = $props();
 
   let open = $state(true);
   let useFileValues = $state(true);
@@ -34,6 +38,7 @@
   const url = $derived(server.transport && server.transport.kind !== "stdio" ? server.transport.url : "");
   const currentText = $derived(current?.launch ? commandLineText({ kind: "stdio", command: current.launch.command, args: current.launch.args, envNames: [] }) : current?.url ?? "");
   const checkboxId = $props.id();
+  const port = $derived(foundPortOf(server));
 </script>
 
 {#snippet targetBlock(label: string, text: string)}
@@ -60,7 +65,7 @@
         <McpServerIcon name={server.name} {url} />
         <div class="flex min-w-0 flex-col">
           <Dialog.Title class="truncate font-medium text-foreground">{isChange ? `Review the change to ${server.name}` : `Add ${server.name}`}</Dialog.Title>
-          <Dialog.Description class="text-chrome-dense text-(--solus-text-secondary)">{foundPlacesText(server)}</Dialog.Description>
+          <Dialog.Description class="text-chrome-dense text-(--solus-text-secondary)">{foundPlacesText(server, hostLabel)}</Dialog.Description>
         </div>
       </div>
 
@@ -71,6 +76,12 @@
         {@render targetBlock(server.transport?.kind === "stdio" ? "Command" : "Address", foundTargetText(server))}
       {/if}
 
+      {#if port}
+        <p class="flex items-start gap-1.5 text-(--solus-status-permission)">
+          <TriangleAlert size={16} class="mt-0.5 shrink-0" aria-hidden="true" />{portIdentityText(port)}
+        </p>
+        <p class="text-pretty text-(--solus-text-secondary)">Solus checks the address again before it adds it. Agents on {hostLabel} then get its tools while it runs.</p>
+      {/if}
       {#if server.transport?.kind === "stdio"}
         <p class="text-pretty text-(--solus-text-secondary)">
           {isChange ? "The new command does not start until you start it." : "It runs on this host as the Solus server's user. It does not start until you start it."}

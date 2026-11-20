@@ -39,6 +39,8 @@ export class ServerDiscovery {
   private readonly known = new Map<number, KnownProcess>()
   private readonly responses = new Map<string, { at: number; verdict: ProbeResult }>()
   private readonly deps: DiscoveryDeps
+  /** The loopback and wildcard ports of the last scan, owned or not. Read by other host modules; nothing is sent to them. */
+  private ports: ReadonlySet<number> = new Set()
 
   constructor(deps: Partial<DiscoveryDeps> = {}) {
     this.deps = { listeners: listListeningSockets, processes: processFacts, tags: readProcessTags, directories: workingDirectories, configured: configuredUrls, probe: probeServerUrl, locate: attributeToWorktree, now: Date.now, beforeStop: (_server, members, table) => notifyCommandStop(members, table), ...deps }
@@ -46,6 +48,7 @@ export class ServerDiscovery {
 
   async discover(paths: string[] = []): Promise<RunningServer[]> {
     const [listeners, facts, configured] = await Promise.all([this.deps.listeners(), this.deps.processes(), this.deps.configured(paths)])
+    this.ports = new Set(listeners.map((listener) => listener.port))
     const pids = [...new Set(listeners.map((listener) => listener.pid))]
     const relevant = new Set(pids)
     for (const pid of pids) {
@@ -124,6 +127,8 @@ export class ServerDiscovery {
     }))
     return [...servers.values()].sort((a, b) => a.process.pid - b.process.pid)
   }
+
+  listeningPorts(): ReadonlySet<number> { return this.ports }
 
   private createServer(listener: Listener, fact: ProcessFacts | undefined, directories: Map<number, string>, explicit?: ConfiguredUrl): RunningServer {
     const identity = fact?.identity ?? ''

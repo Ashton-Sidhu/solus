@@ -4,10 +4,12 @@
    * command or URL as the host read it, the files it is in, and Add, Review
    * change, or why it cannot be added. Follows the installed row
    * (`McpServerRow`): the same padding, icon, name, and supporting text.
+   * A server that runs on the host's loopback (§9.2) names its port and
+   * process, and what it said about itself, which Solus did not verify.
    */
   import { Check, TriangleAlert } from "@lucide/svelte";
   import type { FoundServer } from "@solus/contracts/integration-types";
-  import { foundPlacesText, foundStateText, foundTargetText, foundUnsupportedText, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
+  import { foundPlacesText, foundPortOf, foundStateText, foundTargetText, foundUnsupportedText, portIdentityText, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import McpServerIcon from "./McpServerIcon.svelte";
 
@@ -15,14 +17,17 @@
     server: FoundServer;
     /** The name of the project whose files were read, for the warning on a project row. */
     projectName: string | null;
+    /** The host whose loopback a running server is on. */
+    hostLabel: string;
     isOffline: boolean;
     isAdding: boolean;
     onReview: (server: FoundServer) => void;
   }
-  let { server, projectName, isOffline, isAdding, onReview }: Props = $props();
+  let { server, projectName, hostLabel, isOffline, isAdding, onReview }: Props = $props();
 
   const target = $derived(foundTargetText(server));
   const url = $derived(server.transport && server.transport.kind !== "stdio" ? server.transport.url : "");
+  const port = $derived(foundPortOf(server));
 </script>
 
 <div class="flex flex-col gap-2 px-4 py-3" data-testid="mcp-found-row" data-found-id={server.foundId}>
@@ -32,7 +37,7 @@
       <span class="truncate text-workspace-chrome leading-5 font-medium text-foreground" title={server.name}>{server.name}</span>
       <!-- The full command: the person reads exactly what would run before they add it. -->
       {#if target}<code class="font-mono text-chrome-dense leading-5 break-all text-(--solus-text-secondary)">{target}</code>{/if}
-      <span class="text-chrome-dense leading-5 text-(--solus-text-tertiary)">{foundPlacesText(server)}</span>
+      <span class="text-chrome-dense leading-5 text-(--solus-text-tertiary)">{foundPlacesText(server, hostLabel)}</span>
     </div>
     {#if server.state === "new"}
       <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline || isAdding}
@@ -55,6 +60,9 @@
       <p class="flex items-start gap-1.5 pl-11 text-chrome-dense text-(--solus-status-permission)">
         <TriangleAlert size={14} class="mt-0.5 shrink-0" aria-hidden="true" />{projectCommandWarning(projectName)}
       </p>
+    {/if}
+    {#if port}
+      <p class="pl-11 text-chrome-dense text-(--solus-text-secondary)">{portIdentityText(port)}</p>
     {/if}
     {#if server.commandMissing}
       <p class="pl-11 text-chrome-dense text-(--solus-text-secondary)">This host does not have the program {server.transport?.kind === "stdio" ? server.transport.command : ""}. Install it before you start the server.</p>

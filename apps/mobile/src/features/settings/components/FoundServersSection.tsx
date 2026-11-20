@@ -6,9 +6,12 @@ import {
   configFileLabel,
   fileValuesText,
   foundPlacesText,
+  foundPortOf,
   foundStateText,
   foundTargetText,
   foundUnsupportedText,
+  portIdentityText,
+  portScanUnavailableText,
 } from "@solus/contracts/integrations/found-server-labels";
 import { AppText as Text } from "../../../components/AppText";
 import { cn } from "../../../lib/cn";
@@ -21,7 +24,9 @@ import { SettingsSection } from "./SettingsSection";
  * Found on this host (docs/plans/mcp-first-class.md §8.6): the MCP servers in
  * the config files of the host, with Add, Review change, or why one cannot be
  * added. The rows follow the catalog's `AddRow`; the approval is the native
- * alert, which shows the full command the host would run.
+ * alert, which shows the full command the host would run. A server that runs
+ * on the host's loopback (§9.2) names its port and process, and what it said
+ * about itself, which Solus did not verify.
  */
 export function FoundServersSection(props: {
   readonly hostId: string;
@@ -33,9 +38,11 @@ export function FoundServersSection(props: {
 
   const review = (server: FoundServer) => {
     const isChange = server.state === "changed";
+    const port = foundPortOf(server);
     const lines = [
       foundTargetText(server),
       foundPlacesText(server),
+      port ? portIdentityText(port) : "",
       server.transport?.kind === "stdio" ? "It runs on this host as the Solus server's user. It does not start until you start it." : "",
     ].filter(Boolean);
     const confirm = (useFileValues: boolean) => {
@@ -77,6 +84,9 @@ export function FoundServersSection(props: {
           {list.servers.map((server, index) => (
             <FoundRow key={server.foundId} server={server} first={index === 0} isAdding={found.adding === server.foundId} canAdd={found.connected && found.adding === null} onReview={review} />
           ))}
+          {list.portScan?.state === "unavailable" ? (
+            <View className="border-t border-border-subtle p-4"><SettingsNote>{portScanUnavailableText(list.portScan.reason)}</SettingsNote></View>
+          ) : null}
           {list.files.filter((file) => file.problem).map((file) => (
             <View key={file.path} className="border-t border-border-subtle p-4">
               <SettingsNote>{`${configFileLabel(file.file)} (${file.path}) was not read. ${file.problem ?? ""}`}</SettingsNote>
@@ -92,6 +102,7 @@ function FoundRow(props: { readonly server: FoundServer; readonly first: boolean
   const { server } = props;
   const url = server.transport && server.transport.kind !== "stdio" ? server.transport.url : "";
   const canReview = server.state === "new" || server.state === "changed";
+  const port = foundPortOf(server);
   return (
     <View className={cn("gap-1 p-4", !props.first && "border-t border-border-subtle")}>
       <View className="flex-row items-center gap-3">
@@ -119,6 +130,7 @@ function FoundRow(props: { readonly server: FoundServer; readonly first: boolean
         )}
       </View>
       {server.state === "unsupported" && server.unsupported ? <SettingsNote>{foundUnsupportedText(server.unsupported)}</SettingsNote> : null}
+      {port && server.state !== "added" ? <SettingsNote>{portIdentityText(port)}</SettingsNote> : null}
     </View>
   );
 }
