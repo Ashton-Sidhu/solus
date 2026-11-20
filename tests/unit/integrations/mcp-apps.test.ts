@@ -231,3 +231,50 @@ test('a context over the size limit is refused before it reaches the host', () =
   expect(mcpAppModelContextRequestSchema.safeParse({ ...request, text: 'x'.repeat(MCP_APP_MAX_MODEL_CONTEXT_CHARS) }).success).toBe(true)
   expect(mcpAppModelContextRequestSchema.safeParse({ ...request, text: 'x'.repeat(MCP_APP_MAX_MODEL_CONTEXT_CHARS + 1) }).success).toBe(false)
 })
+
+// WHY: a live app card shows the app while its call runs (docs/plans/mcp-first-class.md §14.1).
+// The host decides which tool has one, and only the person whose integration runs the call gets it.
+const chartTool = { name: 'chart', title: 'Chart', inputSchema: { type: 'object' as const }, _meta: { ui: { resourceUri: 'ui://chart' } } }
+
+test('a capture names the tool call, so a live card can take the saved app', async () => {
+  const s = setup()
+  await s.apps.capture({ ...s.capture, context: { ...s.capture.context, parentToolUseId: () => 'toolu_live' } })
+  expect(s.recorded[0]).toMatchObject({ kind: 'mcp_app', app: { toolUseId: 'toolu_live' } })
+})
+
+test('the owner gets the live document of a tool with an app, read once for several calls', async () => {
+  const s = setup()
+  s.tools.mockResolvedValue([chartTool])
+  const document = await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)
+  expect(document).toEqual({ title: 'Charts · Chart', html: '<button>Filter</button>', csp: {}, permissions: undefined, prefersBorder: undefined })
+  await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)
+  expect(s.read).toHaveBeenCalledTimes(1)
+})
+
+test('a tool with no app, a turned-off tool, and an unknown integration have no live card', async () => {
+  const s = setup()
+  s.tools.mockResolvedValue([chartTool, { name: 'echo', inputSchema: { type: 'object' } }])
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__echo' }, ctx)).toBeNull()
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'maps__chart' }, ctx)).toBeNull()
+  s.integration.disabledTools.push('chart')
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)).toBeNull()
+  expect(s.read).not.toHaveBeenCalled()
+})
+
+test('a person who watches another person’s session gets no live card', async () => {
+  const s = setup()
+  s.tools.mockResolvedValue([chartTool])
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, other)).toBeNull()
+  s.runtime.actorOfSession = () => other.actor
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)).toBeNull()
+  expect(s.read).not.toHaveBeenCalled()
+})
+
+test('a failed live read is not kept, so the next call reads again', async () => {
+  const s = setup()
+  s.tools.mockResolvedValue([chartTool])
+  s.read.mockRejectedValueOnce(new Error('Offline'))
+  await expect(s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)).rejects.toThrow('Offline')
+  expect(await s.apps.liveRead({ sessionId: s.sessionId, toolName: 'charts__chart' }, ctx)).toMatchObject({ html: '<button>Filter</button>' })
+  expect(s.read).toHaveBeenCalledTimes(2)
+})

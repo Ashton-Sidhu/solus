@@ -2004,7 +2004,10 @@ export type NormalizedEvent =
    *  `text` is the span's reasoning, on `stop` only, when the provider sent any. */
   | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string; text?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
-  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string; toolImages?: ToolResultImage[] }
+  /** `inputPartial`: `toolInput` is the input so far of a call whose input still
+   *  streams (a live app card's, docs/plans/mcp-first-class.md §14.1). The next
+   *  one carries all of it again, so the turn log does not keep it. */
+  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string; toolImages?: ToolResultImage[]; inputPartial?: true }
   /** With an outcome or completedAtMs, the tool execution completed. Without
    *  either field, Claude only finished streaming the tool input; tool_result
    *  is the later execution boundary. */

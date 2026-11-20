@@ -82,6 +82,21 @@ describe('native conversation card state', () => {
     expect(model.order).toEqual(['activity:a'])
     // The app is read through the session its activity belongs to, not the one showing it.
     expect(model.items.get('activity:a')).toMatchObject({ sessionId: 'earlier-session' })
-    expect(deriveThreadFeedPresentation({ entries: [{ id: 'activity:a', kind: 'mcp_app' }], turnActive: false, working: false, expandedTurnIds: new Set(), expandedWorkGroupIds: new Set() }).filter((row) => row.type !== 'turn-artifacts')).toEqual([{ type: 'mcp-app', id: 'activity:a' }])
+    expect(deriveThreadFeedPresentation({ entries: [{ id: 'activity:a', kind: 'mcp_app' }], turnActive: false, working: false, expandedTurnIds: new Set(), expandedWorkGroupIds: new Set() }).filter((row) => row.type !== 'turn-artifacts')).toEqual([{ type: 'mcp-app', id: 'activity:a', itemId: 'activity:a' }])
+  })
+
+  test('a Solus integration tool of the running turn has a live app row after its work row, above its saved app', () => {
+    // WHY: the live app card shows the app while the call runs (docs/plans/mcp-first-class.md §14.1).
+    // A finished turn folds its tools, and its saved card shows the app.
+    const entries = [
+      { id: 'u', kind: 'user' as const },
+      { id: 't1', kind: 'tool' as const, canShowLiveApp: true },
+      { id: 't2', kind: 'tool' as const },
+      { id: 'activity:a', kind: 'mcp_app' as const },
+    ]
+    const presentation = (turnActive: boolean) => deriveThreadFeedPresentation({ entries, turnActive, working: turnActive, expandedTurnIds: new Set(), expandedWorkGroupIds: new Set() })
+      .flatMap((row) => (row.type === 'work-toggle' ? ['work'] : row.type === 'mcp-app' ? [row.itemId] : []))
+    expect(presentation(true)).toEqual(['work', 't1', 'activity:a'])
+    expect(presentation(false)).toEqual(['activity:a'])
   })
 })

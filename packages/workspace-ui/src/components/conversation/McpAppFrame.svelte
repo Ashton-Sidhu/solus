@@ -3,9 +3,10 @@
   import { Bot, ChevronDown, ChevronRight, Maximize, Minimize, Shield, X } from "@lucide/svelte";
   import type { HostApi } from "@solus/client-core/host-api";
   import { localApi } from "@solus/client-core/local-api";
-  import type { McpAppHost } from "@solus/client-core/mcp-app-host";
+  import type { McpAppConfirmFormat, McpAppHost, McpAppLiveCall } from "@solus/client-core/mcp-app-host";
   import { mcpAppAllowAttribute, mcpAppPermissionLabel, mcpAppPermissionPrompt, mcpAppPermissionRequest } from "@solus/client-core/mcp-app-permissions";
-  import { mcpAppDocument, type McpAppPermission, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
+  import { mcpAppDocument, type McpAppCancelReason, type McpAppLiveDocument, type McpAppPermission, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
+  import { Button } from "../ui/button";
   import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { connectMcpAppFrame, mcpAppContext, mcpAppSupportedPermissions } from "./lib/mcp-app-frame";
@@ -17,12 +18,18 @@
    * what it gave the agent.
    */
   interface Props {
-    snapshot: McpAppSnapshot;
+    /** A saved app, or the document of a live card whose call has not ended. */
+    snapshot: McpAppSnapshot | McpAppLiveDocument;
+    /** A live card's call as the transcript shows it now; null while its hidden conversation runs it. */
+    call?: McpAppLiveCall | null;
+    /** A live card's saved app, once its call ended. */
+    savedCall?: Pick<McpAppSnapshot, "toolInputJson" | "toolResultJson">;
     api: HostApi;
     request: McpAppRequest;
     title: string;
     onSend: (text: string) => boolean;
-    onClose: () => void;
+    /** With a reason when a live card's call gave no result. */
+    onClose: (cancelled?: McpAppCancelReason) => void;
     initialHeight?: number;
     onHeight: (height: number) => void;
     /** The context this app gave the agent; undefined when it gave none. */
@@ -33,7 +40,7 @@
     onPermissions: (granted: McpAppPermission[]) => void;
   }
 
-  let { snapshot, api, request, title, onSend, onClose, initialHeight = 320, onHeight, modelContext, onModelContext, permissions, onPermissions }: Props = $props();
+  let { snapshot, call, savedCall, api, request, title, onSend, onClose, initialHeight = 320, onHeight, modelContext, onModelContext, permissions, onPermissions }: Props = $props();
 
   const settings = getSettingsContext();
   const srcdoc = $derived(mcpAppDocument(snapshot.html, snapshot.csp));
@@ -46,14 +53,14 @@
   let isFullscreen = $state(false);
   let failed = $state(false);
   let height = $state(untrack(() => initialHeight));
-  let confirmation = $state<{ title: string; detail: string; resolve: (allowed: boolean) => void } | null>(null);
-  let host: McpAppHost | null = null;
+  let confirmation = $state<{ title: string; detail: string; format: McpAppConfirmFormat; resolve: (allowed: boolean) => void } | null>(null);
+  let host = $state.raw<McpAppHost | null>(null);
 
   /** One approval at a time: a request while another waits is refused. */
-  function confirm(title: string, detail: string): Promise<boolean> {
+  function confirm(title: string, detail: string, format: McpAppConfirmFormat): Promise<boolean> {
     if (confirmation) return Promise.resolve(false);
     return new Promise((resolve) => {
-      confirmation = { title, detail, resolve };
+      confirmation = { title, detail, format, resolve };
       confirmDialog?.showModal();
     });
   }
@@ -78,8 +85,8 @@
     host?.updateContext();
   }
 
-  function close() {
-    onClose();
+  function close(cancelled?: McpAppCancelReason) {
+    onClose(cancelled);
     requestInputFocus();
   }
 
@@ -87,7 +94,7 @@
   async function grantPermissions() {
     const requested = requestedPermissions;
     const prompt = mcpAppPermissionPrompt(title, requested);
-    if (await confirm(prompt.title, prompt.detail)) onPermissions([...permissions, ...requested]);
+    if (await confirm(prompt.title, prompt.detail, "text")) onPermissions([...permissions, ...requested]);
     requestInputFocus();
   }
 
@@ -131,7 +138,16 @@
 
   $effect(() => {
     void settings.isDark;
-    host?.updateContext();
+    untrack(() => host)?.updateContext();
+  });
+
+  // A live card follows its call. The bridge heals and limits partial input.
+  $effect(() => {
+    if (host && call) host.followCall(call);
+  });
+
+  $effect(() => {
+    if (host && savedCall) host.toolResult(savedCall);
   });
 </script>
 
@@ -156,7 +172,7 @@
   {#if failed}
     <div role="alert" class="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
       <span>This app could not be displayed.</span>
-      <button type="button" class="min-h-11 px-4 text-foreground" onclick={() => (failed = false)}>Try again</button>
+      <Button variant="ghost" class="pointer-coarse:h-11" onclick={() => (failed = false)}>Try again</Button>
     </div>
   {:else}
     {#key allow}
@@ -164,22 +180,24 @@
     {/key}
   {/if}
   <div class="absolute top-1.5 right-1.5 flex gap-1">
-    <button
-      type="button"
+    <Button
+      variant="outline"
+      size="icon"
       aria-label={isFullscreen ? "Exit full screen" : "Open app full screen"}
-      class="flex size-8 items-center justify-center rounded-full border border-border bg-card/80 text-muted-foreground hover:text-foreground pointer-coarse:tap-area"
+      class="rounded-full bg-card/80 text-muted-foreground pointer-coarse:tap-area"
       onclick={() => setFullscreen(!isFullscreen)}
     >
       {#if isFullscreen}<Minimize size={13} />{:else}<Maximize size={13} />{/if}
-    </button>
-    <button
-      type="button"
+    </Button>
+    <Button
+      variant="outline"
+      size="icon"
       aria-label="Close app"
-      class="flex size-8 items-center justify-center rounded-full border border-border bg-card/80 text-muted-foreground hover:text-foreground pointer-coarse:tap-area"
-      onclick={() => (host ? host.close() : close())}
+      class="rounded-full bg-card/80 text-muted-foreground pointer-coarse:tap-area"
+      onclick={() => (host ? void host.close() : close())}
     >
       <X size={13} />
-    </button>
+    </Button>
   </div>
 </dialog>
 
@@ -187,7 +205,7 @@
   <div class="mb-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
     <Shield size={16} class="shrink-0" />
     <span class="min-w-0 flex-1 truncate">This app asks for {mcpAppPermissionLabel(requestedPermissions)}</span>
-    <button type="button" class="min-h-11 shrink-0 px-3 text-foreground hover:opacity-70" onclick={grantPermissions}>Review…</button>
+    <Button variant="ghost" class="shrink-0 pointer-coarse:h-11" onclick={grantPermissions}>Review…</Button>
   </div>
 {/if}
 {#if modelContext}
@@ -216,10 +234,14 @@
 >
   {#if confirmation}
     <h2 class="text-base font-semibold">{confirmation.title}</h2>
-    <pre class="my-4 max-h-80 overflow-auto whitespace-pre-wrap font-mono text-xs">{confirmation.detail}</pre>
+    {#if confirmation.format === "arguments"}
+      <pre class="my-4 max-h-80 overflow-auto rounded-lg border border-border p-3 font-mono text-xs whitespace-pre-wrap break-words">{confirmation.detail}</pre>
+    {:else}
+      <p class="my-4 max-h-80 overflow-auto text-sm whitespace-pre-wrap break-words">{confirmation.detail}</p>
+    {/if}
     <div class="flex justify-end gap-2">
-      <button type="button" class="min-h-11 rounded-full border border-border px-4 text-workspace-chrome" onclick={() => decide(false)}>Cancel</button>
-      <button type="button" class="min-h-11 rounded-full bg-primary px-4 text-workspace-chrome text-primary-foreground" onclick={() => decide(true)}>Allow</button>
+      <Button variant="outline" class="pointer-coarse:h-11" onclick={() => decide(false)}>Cancel</Button>
+      <Button class="pointer-coarse:h-11" onclick={() => decide(true)}>Allow</Button>
     </div>
   {/if}
 </dialog>

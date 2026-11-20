@@ -30,7 +30,7 @@ import type { NotificationCount, NotificationHubCapability, NotificationListRequ
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserDialogAnswer, BrowserPageDialog, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { DeviceActionRequest, DeviceHostConfig, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
-import type { McpAppCallRequest, McpAppModelContextRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
+import type { McpAppCallRequest, McpAppLiveDocument, McpAppLiveRequest, McpAppModelContextRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
 import type {
   AppAgentAccessRequest, AppUpdateRequest, AppBuildLog, AppConfigSetRequest, AppCallDetail, AppCallReadRequest, AppCallStats, AppCallStatsRequest, AppCallRequest, AppCallsRequest, AppCallView, AppDeployReceipt, AppDeployRequest,
   AppFileRequest, AppFileView, AppMetrics, AppRequest, AppRevisionDiff, AppRevisionRequest, AppRevisionView, AppStepSource, AppStepSourceRequest, AppRunDetail, AppRunRequest, AppRunsRequest, AppRunView,
@@ -534,6 +534,8 @@ export interface SolusAPI {
   integrationProbe(request: IntegrationProbeRequest): Promise<IntegrationProbeResult>
   /** An MCP App card's saved document and tool data (docs/plans/conversation-card-parity.md). */
   mcpAppRead(request: McpAppRequest): Promise<McpAppSnapshot>
+  /** The app of a tool call that has not ended, for the caller's own integration; null when the tool has no app or the caller is not its owner. */
+  mcpAppLiveRead(request: McpAppLiveRequest): Promise<McpAppLiveDocument | null>
   /** Whether the app may call a tool now, and whether that tool only reads. */
   mcpAppToolInfo(request: McpAppToolRequest): Promise<McpAppToolInfo>
   /** Calls a tool of the app's integration with the caller's connection; a write needs `approved`. Returns the result as JSON. */

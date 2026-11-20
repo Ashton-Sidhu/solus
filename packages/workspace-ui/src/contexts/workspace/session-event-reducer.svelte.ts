@@ -26,6 +26,7 @@ import { restoredModelConfig } from './model-options'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 import { canDriveSession } from '../sharing/resource-roles'
 import { adoptGit, checkoutGit, checkoutPlace, landClone, pendingClone, projectHome, projectRoot, runHost, workingPlace } from './run-location'
+import { mcpAppLiveToolName } from '@solus/contracts/mcp-apps'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
 
@@ -479,8 +480,9 @@ export class SessionEventReducer {
             // minutes yet. Its card settles on the agent's own result instead.
             // Claude ends the input stream before a file tool's result arrives.
             // Keep that call live so its new path appears beside the live verb.
+            // A Solus integration tool stays live too: its live app card waits for the result.
             if (!m.subMessages && (
-              !['Read', 'NotebookRead', 'Edit', 'NotebookEdit', 'Write'].includes(m.toolName || '') ||
+              !(['Read', 'NotebookRead', 'Edit', 'NotebookEdit', 'Write'].includes(m.toolName || '') || mcpAppLiveToolName(m.toolName)) ||
               event.outcome || event.completedAtMs !== undefined
             )) {
               m.toolStatus = 'completed'

@@ -850,6 +850,8 @@ export class SessionRuntime extends EventEmitter {
    *  level with the clients that were already here. Cleared when the turn settles,
    *  after which durable history on disk is the source. */
   private _recordTurnEvent(sessionId: string, event: NormalizedEvent): void {
+    // The input so far of a streaming call comes again whole with the next one.
+    if (event.type === 'tool_call_update' && event.inputPartial) return
     const turnEvents = this.turnLog.get(sessionId)
     if (!turnEvents) {
       this.turnLog.set(sessionId, [event])
