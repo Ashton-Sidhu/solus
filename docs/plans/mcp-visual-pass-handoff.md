@@ -24,4 +24,21 @@ pushed. No pull request was opened. Status: in progress.
 
 ## Part 2: the visual pass
 
-(In progress. Each group is recorded here when its commit is made.)
+Committed so far (groups 1 to 4 and their mobile parts):
+
+- `4352dc055` the MCP App card and its approval dialog.
+- `41f6be2de` MCP tool names (defect a) and the Solus audio player.
+- `fd5b3945e` the stop icon on MCP task and resource watch rows (the
+  maintainer's feedback).
+- `428a68f95` the close icon of the MCP prompt form.
+
+Still to do: group 5 (Settings → MCP, uncommitted edits in the working tree:
+the dialog surface, the Found row buttons, the command value, the
+instructions text; mobile: the two disclosures), its screenshots, the
+first-screen bytes, and this document's final form.
+
+Screenshot harness (not committed): `.tmp/vp/` in this worktree, a Vite
+server on 127.0.0.1:5291 with `vite.config.mts`, `harness.html`, and
+`Harness.svelte`; `shot.ts` and `compose.ts` drive system Chrome. Vite does
+not watch this worktree (its path has `/.git/`), so restart it after an edit
+(`.tmp/vp/restart.sh`, which stops only its own PID).
