@@ -155,3 +155,24 @@ test('a refresh updates the same RunningServers object, and a removed identity c
   expect(stop).not.toHaveBeenCalled()
   release()
 })
+
+test('opening a local host endpoint in the system browser skips the forward', async () => {
+  const s = setup()
+  s.source.api.runningServersWatch = async () => [runningServer()]
+  const start = mock(async (request: import('@solus/contracts/running-servers').NativeServerForwardRequest) => ({ forwardId: 'forward', endpointKey: request.endpointKey, localPort: 1234, url: 'http://127.0.0.1:1234/' }))
+  const openExternal = mock(async (_url: string) => true)
+  const store = new RunningServersController(() => s.source, () => () => {}, { keyPrefix: 'host', origin: () => 'https://host.test', start, stop: async () => {}, list: async () => [], openExternal })
+  const ready = whenReady(store)
+  const release = store.retain()
+  await ready
+  const server = store.servers[0]
+  const endpoint = server.endpoints[0]
+  await server.openExternal(endpoint, { isLocalHost: true })
+  expect(start).not.toHaveBeenCalled()
+  expect(openExternal).toHaveBeenLastCalledWith(endpoint.url)
+  await server.openExternal(endpoint)
+  expect(start).toHaveBeenCalled()
+  expect(openExternal).toHaveBeenLastCalledWith('http://127.0.0.1:1234/')
+  await server.stopForward('forward')
+  release()
+})

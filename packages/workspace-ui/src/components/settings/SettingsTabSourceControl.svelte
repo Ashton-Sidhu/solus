@@ -160,20 +160,18 @@
   </SettingsSection>
 {:else}
 
-{#if isVisible("github")}
-{#if cloudConnectionsUrl}
-  <SettingsSection {...settingsDefinitions["source-control.section-source-control-providers"]}>
+<SettingsSection {...settingsDefinitions["source-control.section-source-control-providers"]} visible={isVisible("github")}>
+  {#if cloudConnectionsUrl}
     <AccountConnectionRow
       url={cloudConnectionsUrl}
       {...settingsDefinitions["source-control.github"]}
       status={accountVaultStore.providerStatus("github")}
       testId="source-control-row-github-account"
     />
-  </SettingsSection>
-{:else}
-  <GitHubConnect {serverId} />
-{/if}
-{/if}
+  {:else}
+    <GitHubConnect {serverId} />
+  {/if}
+</SettingsSection>
 
 <SettingsSection {...settingsDefinitions["source-control.section-commits-pull-requests"]} visible={["writing", "templates", "writer-model"].some(isVisible)}>
   <SettingsRow

@@ -434,6 +434,8 @@
     cardPrs.find((card) => card.key === chosenPrKey) ?? cardPrs[0] ?? null,
   );
   const otherPrs = $derived(cardPrs.filter((card) => card !== shownPr));
+  // The other pull requests stay folded until a person asks for them.
+  let otherPrsExpanded = $state(false);
   // The session's watch on the shown pull request, when it has one: the group
   // offers the way to stop it.
   const shownPrWatch = $derived(
@@ -812,30 +814,32 @@
       onAgentDraft={openAgentDraft}
     />
   {/if}
-  <!-- The session's other open pull requests, one row each. A row brings its
-       pull request into the group. -->
+  <!-- The session's other open pull requests, folded behind "Show N more",
+       one row each. A row brings its pull request into the group. -->
   {#if otherPrRows.length && isPanelItemShown(hiddenItems, "git.otherPullRequests")}
-    <div
-      class="mx-2 mt-1.5 mb-1 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
-      aria-hidden="true"
-    ></div>
-    <div class="flex min-h-6 items-center justify-between gap-2 px-1.5 text-chrome-shelf">
-      <span class="min-w-0 truncate font-medium text-(--solus-text-tertiary) uppercase"
-        >Also linked</span
-      >
-      <span class="shrink-0 font-normal tabular-nums text-(--solus-text-tertiary)"
-        >{otherPrRows.length}</span
-      >
-    </div>
-    {#each otherPrs as card, index (card.key)}
-      <MenuRow
-        item={otherPrRows[index]!}
-        onActivate={() => {
-          chosenPrKey = card.key;
+    {#if otherPrsExpanded}
+      {#each otherPrs as card, index (card.key)}
+        <MenuRow
+          item={otherPrRows[index]!}
+          onActivate={() => {
+            chosenPrKey = card.key;
+            requestInputFocus();
+          }}
+        />
+      {/each}
+    {/if}
+    <div class="flex items-center px-1.5 pt-0.5 text-chrome-dense text-(--solus-text-tertiary)">
+      <button
+        type="button"
+        class="cursor-pointer rounded py-1 hover:text-(--solus-text-primary) focus-visible:outline-2"
+        aria-expanded={otherPrsExpanded}
+        onclick={() => {
+          otherPrsExpanded = !otherPrsExpanded;
           requestInputFocus();
         }}
-      />
-    {/each}
+        >{otherPrsExpanded ? "Show less" : `Show ${otherPrRows.length} more`}</button
+      >
+    </div>
   {/if}
 </div>
 <DropdownMenu.Root bind:open={rowMenuOpen}>

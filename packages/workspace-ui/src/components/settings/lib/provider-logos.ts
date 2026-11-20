@@ -15,6 +15,7 @@ export const PROVIDER_LOGOS = {
   google: 'logos:google-drive',
   confluence: 'logos:confluence',
   atlassian: 'logos:atlassian',
+  linear: 'simple-icons:linear',
 } as const
 
 /** Registered in the build-time Iconify subset so these render offline. */

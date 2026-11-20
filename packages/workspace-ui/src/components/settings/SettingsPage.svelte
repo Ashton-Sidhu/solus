@@ -292,7 +292,7 @@
     organization: organizationSearch,
     policy: policySearch,
     voice: ["dictation", "dictionary", "custom words", "vocabulary", "aliases", "spelling", "transcription"],
-    integrations: ["integration", "google", "drive", "atlassian", "jira", "confluence", "linear", "account", "accounts"],
+    integrations: ["integration", "github", "google", "drive", "atlassian", "jira", "confluence", "linear", "account", "accounts"],
     mcp: mcpSearch,
     providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli", "default", "default model", "model options", "model", "reasoning", "context", "fast", "instructions", "project", "projects", "override"],
     telemetry: analyticsSearch,

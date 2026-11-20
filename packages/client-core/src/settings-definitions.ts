@@ -379,6 +379,7 @@ export const settingsDefinitions = {
   "integrations.section-connections": {
     label: "Connections",
   },
+  "integrations.github": githubSetting,
   "integrations.google-drive": {
     label: "Google Drive",
   },

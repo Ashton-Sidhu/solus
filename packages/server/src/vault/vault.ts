@@ -313,6 +313,7 @@ export class Vault {
    * did not take stays, unread, until the next try (the next delegation) or the unlink.
    */
   async settleLinked(personKey: string): Promise<void> {
+    // SAFETY: PROVIDER_HOST_KEYS satisfies Record<VaultProvider, string>, so its keys are VaultProvider.
     for (const provider of Object.keys(PROVIDER_HOST_KEYS) as VaultProvider[])
       if (provider !== 'linear') this.removeHost(PROVIDER_HOST_KEYS[provider])
     for (const ref of [TYPESAFE_REF, LINEAR_REF]) {

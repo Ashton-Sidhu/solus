@@ -293,16 +293,23 @@ A refused check leaves the prompt available for Retry.
 Add repository task sources from task source setup on the Tasks page.
 Removing a source does not change a project or delete provider issues.
 
-### Linear connection
+### Connections
 
-Add a Linear team in task source setup. A signed-in person selects **Open account
-connections**, then adds a personal Linear API key on the Solus account website.
-The account vault checks the key, seals it, and gives the acting host the key
-through its existing delegated credential read. The key is never saved in task
-sources or personal settings. Tasks does not accept API keys or manage provider
-connections. Use the shared account vault to save or disconnect a credential.
-Existing credentials in a host vault remain readable; Tasks has no host-local
-key setup RPC.
+Connect GitHub, Atlassian (Jira), and Linear in **Settings › Integrations**. GitHub
+is also in **Settings › Source Control**. On mobile, open the host's settings and
+select **Integrations**. The footer of task source setup opens the same page.
+
+Linear connects with a personal API key (Linear Settings › Security & access):
+
+- Signed out, the host checks the key with Linear and keeps it in its own vault.
+  Only a host administrator (`host.admin.connections`) can save it.
+- Signed in, the client saves the key in your Solus account vault, which checks
+  and seals it. Every host you use reads it through its delegated credential read.
+- When you sign in, the host moves a key that it keeps into your account. A key
+  that your account has already wins. When Solus Cloud cannot be reached, the
+  host keeps the key and tries again at the next delegation.
+
+The key is never saved in task sources or personal settings.
 
 Linear supports reads, creation, title and description changes, labels, one
 assignee, priority, due date, workflow transitions, comments and reactions.

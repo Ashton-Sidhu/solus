@@ -107,10 +107,11 @@ export class RunningServers {
       if (!this.#attempts.has(endpointId)) this.#tokens.delete(endpointId)
     }
   }
-  async openExternal(endpoint: ServerEndpoint): Promise<void> {
+  /** A host on this computer needs no forward: its endpoint URL already reaches the port. */
+  async openExternal(endpoint: ServerEndpoint, { isLocalHost = false }: { isLocalHost?: boolean } = {}): Promise<void> {
     if (!this.commands.forwarding) throw new Error('Use the host browser, or the desktop app to forward this port.')
-    const forward = await this.forward(endpoint)
-    if (!await this.commands.forwarding.openExternal(forward.url)) throw new Error('Cannot open the system browser.')
+    const url = isLocalHost ? endpoint.url : (await this.forward(endpoint)).url
+    if (!await this.commands.forwarding.openExternal(url)) throw new Error('Cannot open the system browser.')
   }
   async renewForwards(): Promise<void> {
     for (const [endpointId, forward] of this.#forwards) {

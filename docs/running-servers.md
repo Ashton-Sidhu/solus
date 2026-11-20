@@ -1,9 +1,10 @@
 # Running servers
 
 The Running servers card sits below Git in the desktop and web project panel.
-It lists the selected checkout's servers. The **Checkout | Host** switch in the
-card header selects the scope. **Host** includes other checkouts and unassigned
-servers. The card has its own collapse and visibility
+It lists the selected checkout's servers. When other checkouts on the host have
+servers, a link under the list shows how many (**2 in other checkouts**). It
+adds those servers and unassigned servers, and each row then names its checkout after its title.
+**Only this checkout** goes back. The card has its own collapse and visibility
 controls. It is visible only when the selected scope has server rows. Loading, disconnected,
 and failed scans with no rows do not show a card. Discovery stays subscribed, so
 the card returns when a server appears. The mobile server screen keeps its status
@@ -13,7 +14,7 @@ red on hover. On a touch screen, the buttons always show.
 
 Native mobile exposes the same list and Stop action from the session header's
 server button. Both clients start with four endpoint rows and offer **Show more**.
-Each row shows Agent, Terminal, or Configured as its source. The starting session
+Each row shows Agent, Terminal, or Configured as its source. On desktop and web, a row is one line: its icon shows the source (the Claude or Codex mark of the agent's session, a terminal, or a globe for a configured URL), and its tooltip names it. The starting session
 is separate from the server's checkout. Solus resolves the active checkout root
 on the host. A session in a subfolder sees that checkout's servers, without
 including a main checkout or a nested or sibling worktree.
@@ -62,9 +63,11 @@ Open uses the Browser pane on the selected host, including for APIs. Copy host
 URL copies that host's address: `127.0.0.1` refers to the host.
 
 The desktop shell can forward an endpoint to an unused loopback TCP port on this
-computer. The card shows the local port and a control to stop forwarding. Copy
+computer. The forward control shows only for a host on another machine: the
+desktop's own local server is already on this computer. The card shows the local port and a control to stop forwarding. Copy
 then uses the forwarded URL. A modified or middle click forwards the endpoint
-and opens it in the system browser. HTTP paths and WebSockets work through the
+and opens it in the system browser. For the desktop's own local server, it opens
+the endpoint URL without a forward. HTTP paths and WebSockets work through the
 same TCP channel. HTTPS keeps its scheme and certificate behavior.
 
 The host issues a short-lived capability for one listed endpoint. The WebSocket

@@ -32,7 +32,7 @@ export const PROJECT_PANEL_SECTIONS = [
       { id: "git.discard", label: "Discard changes" },
       { id: "git.conflicts", label: "Merge conflicts" },
       { id: "git.pullRequest", label: "Linked pull request" },
-      { id: "git.otherPullRequests", label: "Also linked" },
+      { id: "git.otherPullRequests", label: "Other linked pull requests" },
       { id: "git.setup", label: "Repository setup" },
     ],
   },

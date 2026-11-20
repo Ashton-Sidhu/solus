@@ -146,6 +146,13 @@ export function TaskSourcesScreen({ route, navigation }: ScreenProps<'TaskSource
             Connect GitHub
           </TaskAction>
         ) : null}
+        {state.options?.linear && !state.options.linear.connected ? (
+          <TaskAction
+            onPress={() => navigation.navigate('LinearConnection', { hostId: route.params.hostId })}
+          >
+            Connect Linear
+          </TaskAction>
+        ) : null}
         {state.options && !state.options.jira.connected ? (
           <Text className="text-sm text-foreground-muted">
             Connect Atlassian to list Jira projects and boards.
