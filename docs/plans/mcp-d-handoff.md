@@ -25,6 +25,21 @@ host and raises the session card with no Server URL. The rule is in
 did not start still gets nothing: the person pastes its `http://localhost`
 address in Settings → MCP.
 
+Tests: 8 new in `tests/unit/integrations/local-servers.test.ts` (fake
+registry and fake probe, and a small loopback MCP server and a non-HTTP TCP
+server owned by the test): one request in a life of 20 scans, none before
+the 2-second wait, a terminal's listener checked and another process's and a
+LAN address's not, a listener that goes before the wait waits again, "not
+MCP" kept and a new process checked again, no second check after a Server
+URL answer, the found row and the agent's card, no `setTimeout` or
+`setInterval` from the owner, and a real non-HTTP service gets one connection
+only. Each guard was removed once to see its test fail.
+`bun test tests/unit/integrations/` 409 pass, 0 fail; `running-servers-*`
+40 pass. `tsc` of `packages/server`: 134 messages before and after, the same
+by message; no other package changed. `oxlint` on the two files: clean. No UI
+text changed, so no screenshots. Not run: a real agent turn, Electron,
+mobile, Linux, Windows.
+
 ## What was built
 
 ### Host
