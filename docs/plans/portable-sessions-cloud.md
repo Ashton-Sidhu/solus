@@ -1174,3 +1174,108 @@ that flow is not changed.
   person chooses **Show it**; an older host that cannot prepare does not load
   it by itself.
 - No person checked the screens; the rules have unit tests only.
+
+### Phase 5B (mobile) as implemented (2026-11-19)
+
+Mobile (`apps/mobile/`) and one new client-core file. No server, contract, or
+Svelte change. The phone uses the Phase 5A reader as it is.
+
+#### What the phone does
+
+- **When the copy applies.** A started session, with no rows that a host gave,
+  whose run host is away, failed its history read, or answered that it has no
+  copy. The thread opens in the usual thread screen. The rows go into the
+  conversation's `TranscriptModel`, so the usual feed draws them.
+- **The reader.** `CloudHistory` (`features/threads/cloud-history.ts`,
+  `app.cloudHistory`) reads `loadSessionPage` on the Solus API connection that
+  `CloudSessions` follows, with `turnLimit: 1`, newest turn first. The first
+  turn index is `syncedTurn - 1`, and each older page is one less. A page with
+  `availability: 'not-available'` and no rows is counted and skipped: a read
+  goes on to older turns until a page has rows, at most five pages. A model
+  that `CloudHistory` made is a copy (`isCopy`). The controller reads older
+  turns of a copy from the cloud (`loadOlder`), with no host.
+- **The controller.** `ConversationController.readCloudCopy` reads the copy
+  and shows it while no host rows show. The run host's history replaces it in
+  `load` (`hasHostHistory`). A host that has no copy keeps the copy on screen.
+  A host that comes back after a failed read loads at once (`onAccepted`). A
+  copy carried to another host by a pick reads its older turns from the cloud
+  too. The meta has `cloudRead`, `showsHostConversation`, and `hostHasNoCopy`.
+- **The state rule.** `sessionCloudCopyState` (client-core) gives one of
+  `not-signed-in`, `sync-off`, `not-in-cloud`, `empty`, `loading`, `error`, or
+  `ready` with `stale` (`host-online` or `head-changed`). `useCloudCopy`
+  (`features/threads/use-cloud-copy.ts`) reads the facts, starts the read once
+  (`shouldReadSessionCloudCopy`), and gives `cloudCopyView`
+  (`features/threads/lib/cloud-copy-view.ts`).
+- **What shows.** A state with no rows takes the conversation's place (the
+  feed placeholder shows also while the asleep card shows). With rows, a note
+  shows above the composer, or above the asleep card: "Read-only copy from
+  Solus Cloud. Tool output is not included." and the count of turns that are
+  not in the cloud. Stale: "<host> is online. This copy can be behind." with
+  **Open on <host>** (the existing `followHost`), or "Newer turns are in Solus
+  Cloud." with **Show newer turns** (a new read). An error has **Try again**.
+- **The composer.** It stays while another host can take the prompt
+  (`withRunHostChoice`). The person picks a run host and sends, as in phase 4B.
+  The send says "Choose a host in Run on" while the run host is not ready. On a
+  connected host with no copy, a prompt goes to that host with the cloud head,
+  and the host's history replaces the copy when its sync ends.
+- **The diff of a turn.** A turn of a copy has **Changes** under it
+  (`CloudTurnChanges.tsx`, beside the turn's artifact chips). It opens the
+  route `ThreadTurnDiff { sessionId, turnIndex }` (`CloudTurnDiffScreen.tsx`)
+  on the native diff surface that pull requests use, read-only. `too-large`
+  shows the counts, `not-available` says the cloud has no changes for the
+  turn, and an empty patch says the turn changed no files. A turn's answer is
+  kept until the Solus API connection changes. A build with no diff surface,
+  or a patch the parser cannot split, shows the patch text.
+
+#### Client-core for desktop and web
+
+`packages/client-core/src/session-cloud-copy.ts` (new):
+
+- `SessionCloudCopyRead`, `SessionCloudCopyState`, `SessionCloudCopyStale`,
+  `SessionCloudCopyInput`.
+- `sessionCloudCopyState(input)`, `shouldReadSessionCloudCopy(input)`.
+- `sessionCloudCopyPlaceholder(state, hostLabel)`,
+  `sessionCloudCopyNote(state, hostLabel)`.
+- `sessionTurnDiffPath(sessionId, turnIndex)`,
+  `readSessionTurnDiff(api, sessionId, turnIndex)`. The shared
+  `SolusApiClient` fills only the first path parameter, so this file names the
+  path and sends it through `solusApiRequest`. A 404 (an older Solus API) is
+  `not-available`.
+
+`CloudSessions` on the phone has two new answers: `connection` and
+`listState` (`none`, `loading`, `listed`; a failed list read counts as
+listed).
+
+#### Decisions
+
+1. **A host that holds the session and connects is not followed by itself.**
+   The thread's own host replaces the copy at once. Another host makes the
+   copy stale, and **Open on <host>** moves the thread there. A move without
+   the person's action would change the run host.
+2. **A new head makes the copy stale; it does not read again by itself.** A
+   new read resets the scroll.
+3. **"Sync off" shows only when the run host's settings were read and say
+   off.** Else the words are "not in Solus Cloud", because the phone cannot
+   tell why the cloud does not list the session.
+4. **The turn index comes from the page count.** The first page is turn
+   `syncedTurn - 1`, as `session_storage.turn_count` is the manifest's turn
+   count. The client does not parse the page cursor.
+5. **Turns with no rows are counted in the note**, not drawn as an empty turn
+   or a synthetic row.
+
+#### Limits
+
+- The copy needs the Solus API connection of Part E (mobile): no organization,
+  or an organization the directory does not list, gives `not-in-cloud`.
+- Published organization sessions are not in `listMySessions`, so the phone
+  shows no copy of them.
+- A head change while the copy shows can make the turn index of an older page
+  wrong until the person reads again; the stale note says so.
+- The controller (1406 lines; 1342 before) and `ThreadDetailScreen.tsx` (749
+  lines; 741 before) were over the size limits already. The complexity lint
+  of `ThreadDetailScreen` was over its limit before (60) and is 66 now.
+- The mobile compiler coverage baseline is out of date on the base branch (252
+  lines of changes). The new components and hooks compile; the baseline was
+  not written again.
+- No person checked the screens on a phone. The rules and the store are
+  covered by unit tests only.

@@ -44,6 +44,8 @@ import { loweredPermissionMode, workPolicy } from '../policy/lib/policy-view'
 import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
 import { SESSION_DIVERGED } from '@solus/contracts/session-repositories'
 import type { SessionRunHosts } from '../threads/session-run-hosts'
+import type { CloudHistory } from '../threads/cloud-history'
+import type { SessionCloudCopyRead } from '@solus/client-core/session-cloud-copy'
 
 /**
  * One open conversation on one host (plan 017 stage 3). It owns the watch,
@@ -103,6 +105,8 @@ export interface ConversationDeps {
   /** What each host holds of the session's repository: the prompt carries the
    *  newest head, and an open asks a host that is behind to sync. */
   runHosts?: Pick<SessionRunHosts, 'noteMeta' | 'noteTurnSettled' | 'promptFields' | 'opened' | 'prepareNewerCopy'>
+  /** The session's read-only copy from Solus Cloud, while no host that holds it shows it. */
+  cloudHistory?: Pick<CloudHistory, 'read' | 'isCopy' | 'readOlder'>
   onChange(changes: { items: string[]; order: boolean; meta: boolean }): void
 }
 
@@ -187,6 +191,10 @@ export class ConversationController {
   private reloadsWhenCurrent = false
   /** The host refused a prompt because another host continued the session (`SESSION_DIVERGED`). */
   isSessionDiverged = false
+  /** The read of the session's copy from Solus Cloud (docs/plans/portable-sessions-cloud.md, Phase 5B). */
+  cloudRead: SessionCloudCopyRead = { kind: 'idle' }
+  /** The run host's own history shows: a copy from the cloud gives way to it. */
+  private hasHostHistory = false
   /** Turns this conversation saw end, so a replayed event counts a turn once. */
   private readonly settledTurnIds = new Set<string>()
   /** Saved artifact reads in flight, per transcript: a rebuilt transcript reads again. */
@@ -243,6 +251,8 @@ export class ConversationController {
     this.threadProvider = target.record?.provider ?? null
     this.carried = target.record ? target.carriedTranscript ?? null : null
     this.model = this.carried ?? new TranscriptModel(this.run.sessionId)
+    // A copy from the cloud that the person carried to this host by a pick.
+    if (this.carried && deps.cloudHistory?.isCopy(this.carried)) this.cloudRead = { kind: 'ready' }
     const { connection } = deps
     this.auth = new AgentAuthFlow({ connection, notice: (text, tone) => {
       this.model.addNotice(text, tone)
@@ -308,7 +318,11 @@ export class ConversationController {
       void this.loadKeyStatus()
     }))
     this.cleanups.push(connection.onReset(() => { void this.load() }))
-    this.cleanups.push(connection.onAccepted(() => { void this.drainOutbox() }))
+    this.cleanups.push(connection.onAccepted(() => {
+      // The host is back after its read failed while the cloud copy showed: its history replaces the copy.
+      if (this.phase.kind === 'error' && this.cloudRead.kind !== 'idle') void this.load()
+      void this.drainOutbox()
+    }))
   }
 
   dismissConnectNeeded(): void {
@@ -329,6 +343,16 @@ export class ConversationController {
 
   get hostId(): string {
     return this.target.hostId
+  }
+
+  /** A host gave the rows that show: this host's history, or a transcript carried from another host. */
+  get showsHostConversation(): boolean {
+    return this.hasHostHistory || (this.carried !== null && !this.deps.cloudHistory?.isCopy(this.carried))
+  }
+
+  /** The run host answered that it has no copy of the session. */
+  get hostHasNoCopy(): boolean {
+    return this.awaitsHostCopy
   }
 
   /**
@@ -393,12 +417,13 @@ export class ConversationController {
       this.runOptionsLoaded = this.loadRunOptions(generation)
       const model = await this.readHistory(generation)
       if (!model) return
-      // Prompts not yet confirmed stay visible across the rebuild.
-      for (const record of this.deps.outbox.entriesFor(this.outboxKey)) {
-        model.addOptimisticUser(record.clientPromptId, record.text, record.lastError ? 'failed' : 'queued', queuedMessageAttachments(record.payload))
-        if (record.lastError) model.markDelivery(record.clientPromptId, 'failed', record.lastError)
-      }
+      this.keepUnsentPrompts(model)
       this.model = model
+      // The host's own history replaces a copy from the cloud.
+      if (!this.awaitsHostCopy && model !== this.carried) {
+        this.hasHostHistory = true
+        this.cloudRead = { kind: 'idle' }
+      }
       const held = this.held ?? []
       this.held = null
       for (const event of held) this.receive(event)
@@ -524,7 +549,8 @@ export class ConversationController {
       this.followThread(lineage.active.provider)
     }
     if (this.carried) return this.carried
-    if (this.awaitsHostCopy) return new TranscriptModel(this.run.sessionId)
+    // A copy from the cloud stays until the host has its own.
+    if (this.awaitsHostCopy) return this.deps.cloudHistory?.isCopy(this.model) ? this.model : new TranscriptModel(this.run.sessionId)
     const page = await api.loadSessionPage({ ...this.historySource, turnLimit: INITIAL_HISTORY_TURNS })
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
@@ -562,23 +588,61 @@ export class ConversationController {
 
   async loadOlder(): Promise<void> {
     const cursor = this.model.olderCursor
-    if (!cursor || this.loadingOlder || this.phase.kind !== 'ready') return
+    // A copy from the cloud reads its older turns there, with no host.
+    const isCloudCopy = this.deps.cloudHistory?.isCopy(this.model) === true
+    if (!cursor || this.loadingOlder || (this.phase.kind !== 'ready' && !isCloudCopy)) return
     const generation = this.loadGeneration
     const model = this.model
     this.loadingOlder = true
     this.flush(true)
     try {
-      const page = await this.deps.connection.api.loadSessionPage({
-        ...this.historySource,
-        turnLimit: OLDER_HISTORY_TURNS,
-        before: cursor,
-      })
-      if (generation === this.loadGeneration && model === this.model) model.prependHistory(page)
+      if (isCloudCopy) {
+        await this.deps.cloudHistory?.readOlder(model)
+      } else {
+        const page = await this.deps.connection.api.loadSessionPage({
+          ...this.historySource,
+          turnLimit: OLDER_HISTORY_TURNS,
+          before: cursor,
+        })
+        if (generation === this.loadGeneration && model === this.model) model.prependHistory(page)
+      }
     } catch {
       // The reader can scroll up again; a failed older page changes nothing shown.
     } finally {
       this.loadingOlder = false
       this.flush(true)
+    }
+  }
+
+  /**
+   * No host that holds the session shows it: the conversation shows the
+   * session's read-only copy from Solus Cloud, read again on each call
+   * (docs/plans/portable-sessions-cloud.md, Phase 5B). The run host's history
+   * replaces it when it loads; a prompt still goes to the run host.
+   */
+  async readCloudCopy(): Promise<void> {
+    const history = this.deps.cloudHistory
+    if (!history || !this.started || this.showsHostConversation || this.cloudRead.kind === 'loading' || this.closed) return
+    this.cloudRead = { kind: 'loading' }
+    this.flush(true)
+    try {
+      const model = await history.read(this.run.sessionId, this.threadProvider ?? this.run.provider)
+      if (this.closed || this.showsHostConversation) return
+      this.keepUnsentPrompts(model)
+      this.model = model
+      this.cloudRead = { kind: 'ready' }
+    } catch (error) {
+      if (this.closed || this.showsHostConversation) return
+      this.cloudRead = { kind: 'error', message: error instanceof Error ? error.message : String(error) }
+    }
+    this.flush(true)
+  }
+
+  /** Prompts not yet confirmed stay visible in a new model: a rebuild, or a copy from the cloud. */
+  private keepUnsentPrompts(model: TranscriptModel): void {
+    for (const record of this.deps.outbox.entriesFor(this.outboxKey)) {
+      model.addOptimisticUser(record.clientPromptId, record.text, record.lastError ? 'failed' : 'queued', queuedMessageAttachments(record.payload))
+      if (record.lastError) model.markDelivery(record.clientPromptId, 'failed', record.lastError)
     }
   }
 

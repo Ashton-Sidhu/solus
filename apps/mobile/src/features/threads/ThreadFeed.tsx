@@ -71,7 +71,7 @@ import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
 import { LeadPromotionDivider, CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionStarterFromHost } from "@solus/contracts/types";
-import { TurnArtifactChips } from "./AgentArtifactChips";
+import { TurnFooter } from "./CloudTurnChanges";
 import { ThreadImage } from "./ThreadImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
@@ -472,7 +472,7 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   }
 
   if (row.type === "turn-artifacts") {
-    return <TurnArtifactChips store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} replyId={row.replyId} imageIds={row.imageIds} />;
+    return <TurnFooter store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} replyId={row.replyId} imageIds={row.imageIds} />;
   }
 
   if (row.type === "image") {

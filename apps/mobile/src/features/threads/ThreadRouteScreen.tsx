@@ -24,6 +24,8 @@ import { threadProjectPath } from "./threadListV2";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import type { ThreadContentPresentation, ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
+import { useCloudCopy } from "./use-cloud-copy";
+import type { CloudCopyView } from "./lib/cloud-copy-view";
 
 type ConversationRecord = NonNullable<LastRoute["record"]>;
 
@@ -224,8 +226,11 @@ function useAwaitsHost(store: ConversationStore, meta: ConversationMeta, hasRows
   return useListened(app.cloudSessions.changes, read);
 }
 
-/** What the thread shows in place of its messages, if anything. */
-function threadContentPresentation(phase: ConversationMeta["phase"], hasRows: boolean, awaitsHost: boolean): ThreadContentPresentation {
+/** What the thread shows in place of its messages, if anything. A copy from Solus Cloud comes first: it stands for the host. */
+function threadContentPresentation(phase: ConversationMeta["phase"], hasRows: boolean, awaitsHost: boolean, cloudCopy: CloudCopyView | null): ThreadContentPresentation {
+  if (cloudCopy?.placeholder) return { kind: "unavailable", ...cloudCopy.placeholder };
+  if (cloudCopy?.isLoading && !hasRows) return { kind: "loading" };
+  if (cloudCopy) return { kind: "ready" };
   if (awaitsHost) return AWAITS_HOST;
   if (phase.kind === "error" && !hasRows) return { kind: "unavailable", title: "The conversation could not be opened", detail: phase.message };
   return phase.kind === "loading" && !hasRows ? { kind: "loading" } : { kind: "ready" };
@@ -281,8 +286,10 @@ function ThreadRouteContent(props: {
   );
 
   const awaitsHost = useAwaitsHost(store, meta, hasRows, hostReadiness.away);
+  // No host that holds the session is online: its read-only copy from Solus Cloud (Phase 5B).
+  const cloudCopy = useCloudCopy({ store, meta, hostReadiness, hostLabel: props.hostLabel, onFollowHost: props.onFollowHost });
 
-  const contentPresentation = threadContentPresentation(meta.phase, hasRows, awaitsHost);
+  const contentPresentation = threadContentPresentation(meta.phase, hasRows, awaitsHost, cloudCopy?.view ?? null);
 
   return (
     <>
@@ -318,7 +325,7 @@ function ThreadRouteContent(props: {
             actionLabel="Try again"
             onAction={() => void store.controller.load()}
           />
-        ) : meta.phase.kind === "error" && !hasRows ? (
+        ) : meta.phase.kind === "error" && !hasRows && !cloudCopy ? (
           <ThreadUnavailableScreen
             detail={`This conversation could not be opened: ${meta.phase.message}`}
             actionLabel="Try again"
@@ -339,6 +346,7 @@ function ThreadRouteContent(props: {
             usesAutomaticContentInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
             onChooseHost={props.onChooseHost}
             onFollowHost={props.onFollowHost}
+            cloudCopy={cloudCopy}
           />
         )}
       </View>

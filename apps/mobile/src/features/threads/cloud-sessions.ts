@@ -42,12 +42,25 @@ export class CloudSessions {
   /** Bumps on each `follow`, so a list answer from an older connection is dropped. */
   private generation = 0
   private loading: Promise<void> | null = null
+  /** The followed connection answered a list read. */
+  private hasListed = false
 
   constructor(private readonly deps: CloudSessionsDeps) {}
 
   /** The Solus API connection that gave the cloud facts now; null when none. */
   get connectionId(): string | null {
     return this.followed?.hostId ?? null
+  }
+
+  /** The Solus API connection followed now: the cloud's history and diffs are read through it. */
+  get connection(): HostConnection | null {
+    return this.followed
+  }
+
+  /** `none` with no Solus API connection, `loading` until its first list read answers. */
+  get listState(): 'none' | 'loading' | 'listed' {
+    if (!this.followed) return 'none'
+    return this.hasListed ? 'listed' : 'loading'
   }
 
   /** How many sessions the cloud lists. */
@@ -117,6 +130,7 @@ export class CloudSessions {
     this.generation += 1
     this.loading = null
     this.followed = connection
+    this.hasListed = false
     if (this.records.size > 0) {
       this.records.clear()
       this.changes.notify()
@@ -141,13 +155,22 @@ export class CloudSessions {
     const generation = this.generation
     // An older Solus API has no such route; that is "no cloud entries", not an error.
     const items = await Promise.resolve().then(() => connection.api.sessionCloudList()).catch(() => null)
-    if (!items || generation !== this.generation) return
+    if (generation !== this.generation) return
+    if (!items) {
+      // A failed read still answers: what the cloud lists stays as it was.
+      if (!this.hasListed) {
+        this.hasListed = true
+        this.changes.notify()
+      }
+      return
+    }
     const answered = new Set<string>()
     for (const item of items) {
       answered.add(item.sessionId)
       this.writeEntry(item)
     }
     for (const sessionId of this.records.keys()) if (!answered.has(sessionId)) this.records.delete(sessionId)
+    this.hasListed = true
     this.changes.notify()
   }
 

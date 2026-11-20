@@ -128,6 +128,8 @@ export type RootStackParamList = {
   File: { hostId: string; projectPath: string; path: string }
   /** What a session produced or linked: pull requests, works, apps, files, images, and automations. */
   ThreadArtifacts: { hostId: string; sessionId: string }
+  /** The changes of one turn of a session's copy from Solus Cloud, on the native diff surface. `turnIndex` counts from 0. */
+  ThreadTurnDiff: { sessionId: string; turnIndex: number }
 }
 
 export type ScreenProps<Name extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, Name>

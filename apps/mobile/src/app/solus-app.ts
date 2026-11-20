@@ -22,6 +22,7 @@ import { previewHost, type HostPreview, type PreviewResult } from '../features/h
 import { ThreadDirectory } from '../features/threads/thread-directory'
 import { SessionRunHosts } from '../features/threads/session-run-hosts'
 import { CloudSessions } from '../features/threads/cloud-sessions'
+import { CloudHistory } from '../features/threads/cloud-history'
 import { ThreadListState } from '../features/threads/thread-list-state'
 import { NativeNotificationHub } from '../features/notifications/notification-hub'
 import { DiffFilterPreference } from '../features/review/diff-filter-preference'
@@ -119,6 +120,8 @@ export class SolusApp {
   readonly runHosts: SessionRunHosts
   /** What the cloud knows of this person's sessions, from the Solus API (docs/plans/portable-sessions-cloud.md §5.5). */
   readonly cloudSessions: CloudSessions
+  /** A session's read-only copy from Solus Cloud, and its turn diffs, while no host that holds it is online (Phase 5B). */
+  readonly cloudHistory: CloudHistory
   /** Each host's shelf (settled, snoozed), live status, and PR links, as T3 Code's list shows them. */
   readonly threadList: ThreadListState
   /** Whether this device shows agent work as a Live Activity (iOS). */
@@ -209,6 +212,7 @@ export class SolusApp {
       isReady: (hostId) => this.connections.state(hostId)?.readiness === 'ready',
       hostIds: () => this.registry.hosts().map((host) => host.id),
     })
+    this.cloudHistory = new CloudHistory(this.cloudSessions)
     // A host that connects or drops changes which cloud rows show and who runs a turn.
     this.connections.changes.subscribe(() => { if (this.cloudSessions.recordCount > 0) this.cloudSessions.changes.notify() })
     this.runHosts = new SessionRunHosts({
@@ -372,6 +376,7 @@ export class SolusApp {
       uuid: this.platform.uuid,
       attachmentIo: this.platform.attachmentIo,
       runHosts: this.runHosts,
+      cloudHistory: this.cloudHistory,
     })
     this.conversations.set(key, store)
     void store.controller.load()
