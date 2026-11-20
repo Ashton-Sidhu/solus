@@ -128,7 +128,7 @@ describe('the end of a turn and the session repository', () => {
     expect(await endedTurn('solus-archive-turn')).toEqual({
       model: 'claude-opus-5', reasoningEffort: 'medium', permissionMode: 'supervised',
       sessionId: 'solus-archive-turn', organizationId: 'local', provider: 'claude-code', threadId: 'thread-of-solus-archive-turn',
-      projectPath: process.cwd(), workTree: process.cwd(), partial: false,
+      projectPath: process.cwd(), workTree: process.cwd(), partial: false, endedAt: expect.any(Number),
     })
   })
 
