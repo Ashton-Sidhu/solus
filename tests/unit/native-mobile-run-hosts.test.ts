@@ -263,7 +263,7 @@ describe('mobile session list with portable sessions', () => {
 describe('mobile sync card', () => {
   const reasons = [
     'provider-unavailable', 'seat-required', 'model-unavailable', 'provider-too-old',
-    'source-offline', 'no-repository', 'no-project-checkout', 'diverged',
+    'source-offline', 'no-repository', 'not-signed-in', 'commit-failed', 'no-project-checkout', 'diverged',
     'code-restore', 'thread-conflict', 'interrupted', 'failed',
   ] as const satisfies readonly SessionSyncFailure[]
   // A new reason that this list misses fails to compile here.

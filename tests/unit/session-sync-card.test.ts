@@ -16,7 +16,7 @@ const names = { sourceHost: 'Studio', runHost: 'Laptop', provider: 'Claude Code'
 /** Every reason the contract names. The record type makes a new reason fail to compile here. */
 const REASONS: Record<SessionSyncFailure, true> = {
   'provider-unavailable': true, 'seat-required': true, 'model-unavailable': true, 'provider-too-old': true,
-  'source-offline': true, 'no-repository': true, 'no-project-checkout': true, diverged: true,
+  'source-offline': true, 'no-repository': true, 'not-signed-in': true, 'commit-failed': true, 'no-project-checkout': true, diverged: true,
   'code-restore': true, 'thread-conflict': true, interrupted: true, failed: true,
 }
 
@@ -46,6 +46,8 @@ describe('a failed sync', () => {
     expect(sessionSyncFailureText('seat-required', names).action).toBe('connect-seat')
     expect(sessionSyncFailureText('source-offline', names)).toEqual({ message: expect.stringContaining('Studio is offline'), action: 'choose-host' })
     expect(sessionSyncFailureText('no-project-checkout', names).message).toContain('Laptop has no copy of this project')
+    expect(sessionSyncFailureText('not-signed-in', names).message).toContain('Sign in on Laptop')
+    expect(sessionSyncFailureText('commit-failed', names).message).toContain('last turn on Studio was not saved')
   })
 })
 
