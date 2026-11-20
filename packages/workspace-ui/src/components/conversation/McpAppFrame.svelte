@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { Bot, ChevronDown, ChevronRight, Maximize, Minimize, Shield, X } from "@lucide/svelte";
   import type { HostApi } from "@solus/client-core/host-api";
   import { localApi } from "@solus/client-core/local-api";
   import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
   import type { McpAppConfirmFormat, McpAppHost, McpAppLiveCall } from "@solus/client-core/mcp-app-host";
-  import { mcpAppAllowAttribute, mcpAppPermissionLabel, mcpAppPermissionPrompt, mcpAppPermissionRequest } from "@solus/client-core/mcp-app-permissions";
+  import { mcpAppAllowAttribute, mcpAppPermissionAction, mcpAppPermissionPrompt, mcpAppPermissionRequest } from "@solus/client-core/mcp-app-permissions";
   import { mcpAppDocument, type McpAppCancelReason, type McpAppLiveDocument, type McpAppPermission, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
   import { Button } from "../ui/button";
   import { getSettingsContext } from "../../contexts";
@@ -51,6 +51,7 @@
   let frame = $state<HTMLIFrameElement | null>(null);
   let appDialog = $state<HTMLDialogElement | null>(null);
   let confirmDialog = $state<HTMLDialogElement | null>(null);
+  let cancelButton = $state<HTMLButtonElement | null>(null);
   let isFullscreen = $state(false);
   let failed = $state(false);
   let height = $state(untrack(() => initialHeight));
@@ -62,7 +63,11 @@
     if (confirmation) return Promise.resolve(false);
     return new Promise((resolve) => {
       confirmation = { title, detail, format, resolve };
-      confirmDialog?.showModal();
+      // Open once the buttons render: a dialog with no control yet takes the focus and its ring itself.
+      void tick().then(() => {
+        confirmDialog?.showModal();
+        cancelButton?.focus();
+      });
     });
   }
 
@@ -205,7 +210,7 @@
 {#if requestedPermissions.length}
   <div class="mb-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
     <Shield size={16} class="shrink-0" />
-    <span class="min-w-0 flex-1 truncate">This app asks for {mcpAppPermissionLabel(requestedPermissions)}</span>
+    <span class="min-w-0 flex-1 truncate">This app asks to {mcpAppPermissionAction(requestedPermissions)}</span>
     <Button variant="ghost" class="shrink-0 pointer-coarse:h-11" onclick={grantPermissions}>Review…</Button>
   </div>
 {/if}
@@ -231,7 +236,7 @@
 <dialog
   bind:this={confirmDialog}
   oncancel={() => decide(false)}
-  class="m-auto max-h-[80dvh] w-full max-w-120 rounded-2xl border border-border bg-popover p-5 text-popover-foreground shadow-xl backdrop:modal-backdrop"
+  class="m-auto max-h-[80dvh] w-full max-w-120 rounded-2xl border border-border bg-popover p-5 text-popover-foreground shadow-xl outline-none backdrop:modal-backdrop"
 >
   {#if confirmation}
     <h2 class="text-base font-semibold">{confirmation.title}</h2>
@@ -241,7 +246,7 @@
       <p class="my-4 max-h-80 overflow-auto text-sm whitespace-pre-wrap break-words">{confirmation.detail}</p>
     {/if}
     <div class="flex justify-end gap-2">
-      <Button variant="outline" class="pointer-coarse:h-11" onclick={() => decide(false)}>Cancel</Button>
+      <Button bind:ref={cancelButton} variant="outline" class="pointer-coarse:h-11" onclick={() => decide(false)}>Cancel</Button>
       <Button class="pointer-coarse:h-11" onclick={() => decide(true)}>Allow</Button>
     </div>
   {/if}

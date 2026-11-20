@@ -2,7 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { z } from 'zod'
 import { MCP_APP_MAX_HEIGHT, mcpAppContainerDimensions, mcpAppHostContext, type McpAppHostContext, type McpAppPalette } from '@solus/client-core/mcp-app-context'
 import { createMcpAppHost, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
-import { mcpAppAllowAttribute, mcpAppPermissionRequest } from '@solus/client-core/mcp-app-permissions'
+import { mcpAppAllowAttribute, mcpAppPermissionAction, mcpAppPermissionPrompt, mcpAppPermissionRequest } from '@solus/client-core/mcp-app-permissions'
 import { mcpAppFrameHeight, nativeMcpAppDocument } from '@solus/client-core/mcp-app-document'
 import { McpAppStore } from '@solus/client-core/mcp-app-store'
 import { MCP_APP_MAX_MODEL_CONTEXT_CHARS, mcpAppDocument, mcpAppCspSchema, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
@@ -222,6 +222,17 @@ describe('MCP App permissions', () => {
     expect(mcpAppPermissionRequest({ camera: {}, clipboardWrite: {} }, ['microphone', 'clipboardWrite'])).toEqual(['clipboardWrite'])
     expect(mcpAppPermissionRequest(undefined, ['camera'])).toEqual([])
     expect(mcpAppAllowAttribute(['microphone', 'clipboardWrite'])).toBe('microphone; clipboard-write')
+  })
+
+  test('the approval reads as one English sentence for each permission alone and in a list', () => {
+    // WHY: the title was "Allow X to use writing to the clipboard?"; each feature needs its own verb.
+    expect(mcpAppPermissionPrompt('Pipeline · Chart by region', ['clipboardWrite']).title).toBe('Allow Pipeline · Chart by region to write to the clipboard?')
+    expect(mcpAppPermissionPrompt('Map', ['camera']).title).toBe('Allow Map to use the camera?')
+    expect(mcpAppPermissionPrompt('Map', ['microphone']).title).toBe('Allow Map to use the microphone?')
+    expect(mcpAppPermissionPrompt('Map', ['geolocation']).title).toBe('Allow Map to use your location?')
+    expect(mcpAppPermissionAction(['camera', 'microphone'])).toBe('use the camera and the microphone')
+    expect(mcpAppPermissionAction(['microphone', 'clipboardWrite'])).toBe('use the microphone and write to the clipboard')
+    expect(mcpAppPermissionAction(['camera', 'microphone', 'geolocation', 'clipboardWrite'])).toBe('use the camera, the microphone and your location, and write to the clipboard')
   })
 
   test('the app is told only the permissions the person granted', async () => {
