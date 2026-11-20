@@ -10,7 +10,7 @@ import type { ShareManager } from '@solus/server/sharing/share-manager'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 let database: Db
 let shares: ShareManager
-let sessionRepositoryName: typeof import('@solus/server/data/sessions/session-repositories').sessionRepositoryName
+let cloudSessionRepositoryName: typeof import('@solus/server/data/sessions/session-repositories').cloudSessionRepositoryName
 let sessionRemoteProvider: typeof import('@solus/server/sync/sessions/session-remote-provider').sessionRemoteProvider
 const base = { iss: 'https://issuer.test', aud: 'urn:solus:api', sub: 'alice', jti: 'token', iat: 1, exp: 9999999999, grant_id: 'grant', hostKind: 'personal' } as const
 const personal: AccessTokenClaims = { ...base, access: 'owner', act: { host_id: 'host-a' } }
@@ -26,7 +26,7 @@ beforeAll(async () => {
   ])
   database = getDatabase()
   shares = new ShareManager({ db: database })
-  sessionRepositoryName = repository.sessionRepositoryName
+  cloudSessionRepositoryName = repository.cloudSessionRepositoryName
   sessionRemoteProvider = provider.sessionRemoteProvider
   registerSessionRepositoryRoutes(app, {
   isApiMode: true, database, shares,
@@ -60,7 +60,7 @@ test('a host gets only its own delegated repository', async () => {
   const issued = await post(tokenPath, 'personal', request)
   expect(issued.status).toBe(200)
   const body = await issued.json()
-  expect(body.repository).toBe(sessionRepositoryName('person:alice', 'private-a'))
+  expect(body.repository).toBe(cloudSessionRepositoryName('person:alice', 'private-a'))
   expect(body.storageScope).toBe('test/sessions')
   expect(calls.at(-1)).toEqual({ repo: body.repository, scope: 'write' })
   expect((await post(tokenPath, 'personal', { ...request, access: 'read' })).status).toBe(200)
@@ -79,7 +79,7 @@ test('organization admission needs publication and edit standing', async () => {
   expect((await post(tokenPath, 'bob', { ...request, sessionId: 'private-chat' })).status).toBe(403)
   const issued = await post(tokenPath, 'organization', { ...request, sessionId: 'org-session' })
   expect(issued.status).toBe(200)
-  expect((await issued.json()).repository).toBe(sessionRepositoryName('organization:org-a', 'org-session'))
+  expect((await issued.json()).repository).toBe(cloudSessionRepositoryName('organization:org-a', 'org-session'))
 })
 
 test('head reports advance once and emit only accepted changes', async () => {
@@ -126,7 +126,7 @@ test('Artifacts receives the requested token scope through injected fetch', asyn
     return Response.json(String(url).endsWith('/tokens') ? { success: true, result: { plaintext: 'secret' } } : { success: true, result: { remote: 'https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.artifacts.cloudflare.net/repo' } })
   }
   const provider = await sessionRemoteProvider(database, { SOLUS_SESSION_STORAGE: 'cloudflare-artifacts', SOLUS_ARTIFACTS_ACCOUNT_ID: 'a'.repeat(32), SOLUS_SESSION_ARTIFACTS_NAMESPACE: 'sessions', SOLUS_ARTIFACTS_API_TOKEN: 'server-secret' }, fake as typeof fetch)
-  const result = await provider!.remote(sessionRepositoryName('person:alice', 'fixture'), 'read')
+  const result = await provider!.remote(cloudSessionRepositoryName('person:alice', 'fixture'), 'read')
   expect(result.token).toBe('secret')
   expect(JSON.parse(String(requests.at(-1)?.init.body))).toMatchObject({ scope: 'read', ttl: 900 })
 })
@@ -140,7 +140,7 @@ test('Artifacts file reads use the requested head and a byte cap', async () => {
     return new Response('12345')
   }
   const cloud = new CloudflareWorkRepositories('a'.repeat(32), 'sessions', 'server-secret', undefined, fake as typeof fetch)
-  const repository = sessionRepositoryName('person:alice', 'fixture')
+  const repository = cloudSessionRepositoryName('person:alice', 'fixture')
   expect(await cloud.readFile(repository, head, 'rows/0.jsonl', 5)).toBe('12345')
   expect(new URL(urls[0]!).searchParams.get('ref')).toBe(head)
   expect(new URL(urls[0]!).searchParams.get('path')).toBe('rows/0.jsonl')

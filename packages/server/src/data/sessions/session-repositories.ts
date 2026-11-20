@@ -11,7 +11,8 @@ export interface SessionRepositoryRow {
   repository_key: string | null; branch: string | null; last_activity_at: number
 }
 
-export function sessionRepositoryName(scope: SessionCloudScope, sessionId: string): string {
+/** The name of a session repository in cloud storage. A host names its local copy with `sessionRepositoryName` (`sync/sessions/session-repository.ts`); the two names differ. */
+export function cloudSessionRepositoryName(scope: SessionCloudScope, sessionId: string): string {
   return `session-${createHash('sha256').update(JSON.stringify([scope, sessionId])).digest('hex').slice(0, 48)}`
 }
 
@@ -20,7 +21,7 @@ export async function readSessionRepository(db: Db, scope: SessionCloudScope, se
 }
 
 export async function createSessionRepository(db: Db, scope: SessionCloudScope, sessionId: string, ownerUserId: string, storageScope: string): Promise<SessionRepositoryRow> {
-  const repository = sessionRepositoryName(scope, sessionId)
+  const repository = cloudSessionRepositoryName(scope, sessionId)
   await db.run(sql`INSERT INTO ${sessionRepositories} (cloud_scope, session_id, owner_user_id, repository, storage_scope)
     VALUES (${scope}, ${sessionId}, ${ownerUserId}, ${repository}, ${storageScope}) ON CONFLICT (cloud_scope, session_id) DO NOTHING`)
   return (await readSessionRepository(db, scope, sessionId))!
