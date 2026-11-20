@@ -31,20 +31,21 @@ const integrationRowSchema = z.object({
   disabled_tools: z.string(),
   launch: z.string().nullable(),
   project_key: z.string().nullable(),
+  project_name: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 })
 
 type IntegrationRow = z.infer<typeof integrationRowSchema>
 
-const INTEGRATION_COLUMNS = sql.raw('id, organization_id, created_by, kind, slug, name, url, auth, disabled_tools, launch, project_key, created_at, updated_at')
+const INTEGRATION_COLUMNS = sql.raw('id, organization_id, created_by, kind, slug, name, url, auth, disabled_tools, launch, project_key, project_name, created_at, updated_at')
 
 const dialect = new SQLiteSyncDialect()
 
 /**
  * `slug` is the wanted slug; the store adds a suffix when the owner already has
  * it. `launch` goes with a `stdio:` address (docs/plans/mcp-first-class.md §7.1),
- * `projectKey` with an integration that joins one project's runs (§8.4).
+ * `projectKey` and `projectName` with an integration that joins one project's runs (§8.4).
  */
 export interface IntegrationCreateInput {
   name: string
@@ -53,6 +54,7 @@ export interface IntegrationCreateInput {
   auth: IntegrationAuth
   launch?: IntegrationLaunch
   projectKey?: string
+  projectName?: string
 }
 
 /** A `stdio` integration's new `launch` comes with its new address. */
@@ -92,6 +94,7 @@ function integrationFromRow(row: IntegrationRow): Integration {
   }
   if (row.launch !== null) integration.launch = integrationLaunchSchema.parse(JSON.parse(row.launch))
   if (row.project_key !== null) integration.projectKey = row.project_key
+  if (row.project_name !== null) integration.projectName = row.project_name
   return integration
 }
 
@@ -171,8 +174,8 @@ export class IntegrationStore {
         const taken = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE organization_id = ${organizationId} AND ${ownerClause(ownerKey)} AND slug = ${slug}`)
         if (taken) continue
         run(sql`
-          INSERT INTO integration (id, organization_id, created_by, kind, slug, name, url, auth, launch, project_key, created_at, updated_at)
-          VALUES (${id}, ${organizationId}, ${ownerKey}, ${kind}, ${slug}, ${input.name}, ${input.url}, ${auth}, ${launch}, ${input.projectKey ?? null}, ${now}, ${now})
+          INSERT INTO integration (id, organization_id, created_by, kind, slug, name, url, auth, launch, project_key, project_name, created_at, updated_at)
+          VALUES (${id}, ${organizationId}, ${ownerKey}, ${kind}, ${slug}, ${input.name}, ${input.url}, ${auth}, ${launch}, ${input.projectKey ?? null}, ${input.projectName ?? null}, ${now}, ${now})
         `)
         return
       }

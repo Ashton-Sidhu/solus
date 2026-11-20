@@ -61,6 +61,11 @@ export function foundStateText(server: Pick<FoundServer, 'state' | 'unsupported'
   }
 }
 
+/** The label of an installed server that joins only one project's runs (§8.4), on every client's row. */
+export function projectOnlyLabel(projectName: string): string {
+  return `Only in ${projectName}`
+}
+
 /** The warning on a server that only a repository's files hold (§8.6). */
 export function projectCommandWarning(projectName: string): string {
   return `This command comes from a file in the repository ${projectName}. Read it before you add it.`

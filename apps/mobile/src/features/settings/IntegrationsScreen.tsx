@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolSummary } from "@solus/contracts/integration-types";
 import { resourceAllows } from "@solus/contracts/permissions";
 import { CLI_SKIP_NOTE, cliSkipLines } from "@solus/client-core/mcp-cli-skips";
+import { projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { T3_CODE_BRAND_MARK_SOURCE } from "../../components/brandAssets";
@@ -296,14 +297,18 @@ function InstalledRow(props: {
       <View className="flex-row items-center gap-3 pr-4">
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${integration.name}, ${host}, ${status.text}`}
+          accessibilityLabel={[integration.name, integration.projectName ? projectOnlyLabel(integration.projectName) : null, host, status.text].filter(Boolean).join(", ")}
           accessibilityState={{ expanded }}
           onPress={() => integrations.toggle(integration.id)}
           className="min-w-0 flex-1 flex-row items-center gap-4 py-4 pl-4 active:opacity-70"
         >
           <ServerIcon url={integration.url} name={integration.name} />
           <View className="min-w-0 flex-1 gap-0.5">
-            <Text className="text-lg text-foreground" numberOfLines={1}>{integration.name}</Text>
+            <View className="min-w-0 flex-row items-center gap-2">
+              <Text className="shrink text-lg text-foreground" numberOfLines={1}>{integration.name}</Text>
+              {/* A server from a project's file joins only that project's runs (mcp-first-class.md §8.4). */}
+              {integration.projectName ? <Badge label={projectOnlyLabel(integration.projectName)} tone="muted" /> : null}
+            </View>
             <Text className={cn("text-sm text-foreground-muted", process && "font-mono")} numberOfLines={1} ellipsizeMode="middle">{host}</Text>
             <Text className={cn("text-sm", line.tone === "danger" ? "text-danger-foreground" : "text-foreground-muted")} numberOfLines={1}>{line.text}</Text>
           </View>

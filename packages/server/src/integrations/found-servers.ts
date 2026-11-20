@@ -147,7 +147,7 @@ export class FoundServers {
   }
 
   private async saveUrl(principal: Principal, ownerKey: string, server: FoundServer, url: string, existing: Integration | null, projectPath: string | undefined): Promise<Integration> {
-    if (!existing) return createIntegration(this.deps, principal, ownerKey, { name: server.name, url }, projectPath ? resolveProjectKey(projectPath) : undefined)
+    if (!existing) return createIntegration(this.deps, principal, ownerKey, { name: server.name, url }, projectPath)
     const probe = await probeForWrite(url)
     const integration = this.deps.store.update(existing.id, { url, auth: probe.auth }, recordScopeOf(principal))
     if (!integration) throw new Error('That integration is no longer on this host.')

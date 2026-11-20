@@ -1,0 +1,1 @@
+ALTER TABLE `integration` ADD `project_name` text;

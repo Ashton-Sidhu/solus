@@ -305,6 +305,8 @@ export const integration = defineTable('integration', {
   launch: json(),
   /** The project an integration joins the runs of (§8.4); null joins every run of its owner. */
   project_key: text(),
+  /** The folder name of that project when the integration was added, for the row's "Only in <project>" (§8.4). */
+  project_name: text(),
   created_at: text({ notNull: true }),
   updated_at: text({ notNull: true }),
 }, {

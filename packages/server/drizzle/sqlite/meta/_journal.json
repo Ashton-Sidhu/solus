@@ -71,6 +71,13 @@
       "when": 1795188768845,
       "tag": "0009_mcp_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795193726569,
+      "tag": "0010_integration_project_name",
+      "breakpoints": true
     }
   ]
 }

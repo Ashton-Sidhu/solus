@@ -189,6 +189,8 @@ describe('adding (§8.3, §8.4)', () => {
     if (result.kind !== 'saved') throw new Error('not saved')
     expect(result.integration.kind).toBe('stdio')
     expect(result.integration.projectKey).toBe(resolveProjectKey(project))
+    // The row says "Only in project" (§8.4); the key alone is a hash.
+    expect(result.integration.projectName).toBe('project')
     expect(result.integration.url).toBe(stdioServerAddress({ command: NODE, args: ['repo.js'] }))
     expect(submitted).toEqual([{ integrationId: result.integration.id, values: [{ name: 'API_KEY', value: SECRET }] }])
     // The file gave every value: nothing more to ask.

@@ -1,4 +1,5 @@
 import { integrationSlug, solusServerIdOf, type Integration, type IntegrationAuth, type IntegrationCommandCreateRequest, type IntegrationLaunch, type IntegrationProbeResult, type IntegrationProbeUndeterminedReason, type IntegrationUpdateRequest, type IntegrationUrlCreateRequest } from '@solus/contracts/integration-types'
+import { basename } from 'node:path'
 import { splitCommandLine } from '@solus/contracts/integrations/command-line'
 import { organizationForNew, recordScopeOf, type Principal } from '../admission/principal'
 import { createLogger } from '../logger'
@@ -66,16 +67,21 @@ export interface IntegrationCreateDeps {
  * path for Settings (`integrationCreate`) and the agent (`connect_integration`,
  * §13.2), so the two cannot create different records.
  */
-export async function createIntegration(deps: IntegrationCreateDeps, principal: Principal, owner: string, request: IntegrationUrlCreateRequest, projectKey?: string): Promise<Integration> {
+export async function createIntegration(deps: IntegrationCreateDeps, principal: Principal, owner: string, request: IntegrationUrlCreateRequest, projectRoot?: string): Promise<Integration> {
   const probe = await probeForWrite(request.url)
   const input: IntegrationCreateInput = { name: request.name, url: request.url, slug: integrationSlug(request.slug ?? request.name), auth: probe.auth }
   // A server from a project file joins only that project's runs (mcp-first-class.md §8.4).
-  if (projectKey) input.projectKey = projectKey
+  if (projectRoot) Object.assign(input, projectOf(projectRoot))
   const integration = deps.store.create(input, organizationForNew(principal), owner)
   void deps.events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
   // The project's file is in the repository, so each host finds it again: it is no profile entry.
-  if (!projectKey) void deps.profile?.saved(principal, integration)
+  if (!projectRoot) void deps.profile?.saved(principal, integration)
   return integration
+}
+
+/** The project an integration from a project's file joins (§8.4): its key, and its folder name for the row. */
+function projectOf(projectRoot: string): Pick<IntegrationCreateInput, 'projectKey' | 'projectName'> {
+  return { projectKey: resolveProjectKey(projectRoot), projectName: basename(projectRoot) || projectRoot }
 }
 
 /** The program and arguments of a command request: the host splits a typed line by the one rule (§7.4). Throws the reason. */
@@ -105,7 +111,7 @@ export function createStdioIntegration(deps: Pick<IntegrationCreateDeps, 'store'
   launch.cwd ??= projectRoot ?? undefined
   if (launch.cwd === undefined) delete launch.cwd
   const input: IntegrationCreateInput = { name: request.name, url: stdioServerAddress(launch), slug: integrationSlug(request.slug ?? request.name), auth: commandAuth(request.envNames), launch }
-  if (projectRoot) input.projectKey = resolveProjectKey(projectRoot)
+  if (projectRoot) Object.assign(input, projectOf(projectRoot))
   const integration = deps.store.create(input, organizationForNew(principal), owner)
   // Neither the command nor its arguments are logged: an argument can hold a secret.
   log.info('integration_command_added', { integrationId: integration.id, envNames: request.envNames.length, project: projectRoot !== null })

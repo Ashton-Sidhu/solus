@@ -13,6 +13,7 @@
   import type { Snippet } from "svelte";
   import type { Integration } from "@solus/contracts/integration-types";
   import { COMMAND_ADMIN_ONLY, commandLineText, commandProcessStatus } from "@solus/contracts/integrations/command-server";
+  import { projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -217,12 +218,18 @@
       type="button"
       class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11"
       aria-expanded={isOpen}
-      aria-label="{integration.name}, {status.text}"
+      aria-label="{integration.name}{integration.projectName ? `, ${projectOnlyLabel(integration.projectName)}` : ''}, {status.text}"
       onclick={onToggle}
     >
       <McpServerIcon name={integration.name} url={integration.url} />
       <span class="flex min-w-0 flex-1 flex-col">
-        <span class="truncate text-workspace-chrome font-medium text-foreground">{integration.name}</span>
+        <span class="flex min-w-0 items-center gap-2">
+          <span class="truncate text-workspace-chrome font-medium text-foreground">{integration.name}</span>
+          {#if integration.projectName}
+            <!-- A server from a project's file joins only that project's runs (mcp-first-class.md §8.4). -->
+            <span class="max-w-[45%] shrink-0 truncate rounded-md bg-muted px-1.5 py-0.5 text-chrome-dense text-(--solus-text-secondary)">{projectOnlyLabel(integration.projectName)}</span>
+          {/if}
+        </span>
         <span class="truncate text-chrome-dense text-(--solus-text-tertiary) {isCommand ? 'font-mono' : ''}">{subtitle}</span>
       </span>
       {#if !showConnect && !isOpen}

@@ -133,6 +133,8 @@ export const integrationSchema = z.object({
    * it joins every run of its owner.
    */
   projectKey: z.string().min(1).optional(),
+  /** The folder name of that project when the integration was added: the row says "Only in <projectName>" (§8.4). */
+  projectName: z.string().min(1).optional(),
   /**
    * The upstream tools the owner turned off: agents do not see them and the
    * gateway refuses a call to one. A tool the server adds later is on.
