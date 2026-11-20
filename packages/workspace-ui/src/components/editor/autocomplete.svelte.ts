@@ -60,6 +60,7 @@ import type { McpPromptChoice } from "../input/lib/mcp-prompt-composer.svelte";
 import { mcpPromptItems } from "./unified-autocomplete/mcp-prompt-items";
 import type { IntegrationResource, IntegrationResourceTemplate } from "@solus/contracts/integration-types";
 import { templateArgumentFields } from "@solus/client-core/integration-prompts";
+import { atMenuFooter } from "./unified-autocomplete/footer";
 import { integrationResources } from "../settings/integration-resources.store.svelte";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
@@ -408,9 +409,10 @@ export class UnifiedAutocompleteController {
     if (trigger.char === "/")
       return `${this.selectableRows.length} commands`;
     if (trigger.char === "@")
-      return this.#fileTotal === null
-        ? ""
-        : `${this.#fileTotal.toLocaleString("en-US")} files`;
+      return atMenuFooter(
+        this.#fileTotal,
+        this.selectableRows.filter((row) => row.type === "item" && row.item.resource).length,
+      );
     const total = KINDS.reduce(
       (sum, kind) => sum + this.#byKind[kind.key].length,
       0,
