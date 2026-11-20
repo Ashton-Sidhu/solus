@@ -162,6 +162,17 @@ export interface TailscaleServeStatus {
   error: string | null
 }
 
+/** A device this host paired (plans/033 §4.4), as the Access tab lists it whether it is connected or not. */
+export interface PairedDevice {
+  deviceId: string
+  deviceLabel: string
+  pairedAt: number
+  /** When the host last admitted its token; it expires thirty days after this. */
+  lastSeenAt: number
+  /** Set once the owner revoked it. A revoked device pairs again as a new device. */
+  revokedAt: number | null
+}
+
 export interface ConnectionsServerInfo {
   /** Account-owned integration settings; absent for signed-out local access. */
   accountConnectionsUrl?: string
@@ -454,7 +465,9 @@ export interface SolusAPI {
   hostListPut(listing: HostListing): Promise<void>
   /** Removes a host from the list. */
   hostListRemove(id: string): Promise<void>
-  connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
+  /** The devices this host paired, offline and revoked ones included (plans/033 §4.4): the ones with access first, then the most recently seen. Owner only. */
+  connectionsListDevices(): Promise<PairedDevice[]>
+  connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean }>
   connectionsSetRemoteAccess(args: { remoteAccess: RemoteAccessMode }): Promise<{ remoteAccess: RemoteAccessMode; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsGetTailscaleServe(): Promise<TailscaleServeStatus>
   connectionsEnableTailscaleServe(args: { port: number }): Promise<TailscaleServeStatus>

@@ -1,6 +1,10 @@
-import { expect, test } from 'bun:test'
+import { expect, test, mock } from 'bun:test'
 import type { NetworkInterfaceInfo } from 'os'
-import { statusWhileAddressHeld } from '@solus/server/transport/endpoints'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; this code reaches the database through the host's installation id (admission/auth.ts).
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { statusWhileAddressHeld } = await import('@solus/server/transport/endpoints')
 
 const lastRead = { Self: { TailscaleIPs: ['100.87.157.17', 'fd7a:115c:a1e0::9a01:a8e1'] } }
 

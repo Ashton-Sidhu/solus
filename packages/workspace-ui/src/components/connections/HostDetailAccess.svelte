@@ -24,6 +24,7 @@
   import { hostLock, pairingLock } from "../settings/policy/managed-setting.svelte";
   import type { RemoteAccessMode } from "@solus/contracts/host-api";
   import { tailscaleServePreview, tailscaleServeStateText } from './lib/tailscale-serve';
+  import { pairedDeviceDetail } from './lib/paired-devices';
 
   interface Props {
     serverId: string;
@@ -45,6 +46,9 @@
   // Pairing does not exist on a managed host or the workspace service: Solus cloud owns how they are reached.
   const hasPairing = $derived(info?.hostKind === "personal");
   const canChangeNetwork = $derived(info?.principal === "local-owner");
+  // Only the host's owner may read and revoke its pairings (plans/033 §4.4).
+  const showsPairedDevices = $derived(hasPairing && (info?.principal === "local-owner" || info?.principal === "remote-owner"));
+  const connectedDeviceIds = $derived(new Set(connections.sessions.map((session) => session.deviceId)));
   const networkDescription = $derived(
     info
       ? `Listening on ${info.host}:${info.port} · ${info.allowLan ? "reachable on your network" : "this computer only"}${canChangeNetwork ? "" : ". Change these from the host itself or from a paired device."}`
@@ -245,3 +249,42 @@
   {/if}
 </SettingsSection>
 
+{#if showsPairedDevices}
+  <SettingsSection label="Paired devices" description="Every device that paired with this host, connected or not. Revoke one to end its access.">
+    {#if connections.pairedDevicesError}
+      <p role="alert" class="px-4 py-3.5 text-workspace-chrome text-(--solus-status-error)">{connections.pairedDevicesError}</p>
+    {:else if !connections.pairedDevicesLoaded}
+      <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary)">Reading paired devices…</p>
+    {:else if connections.pairedDevices.length === 0}
+      <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary)">
+        No devices are paired with this host.
+      </p>
+    {:else}
+      {#each connections.pairedDevices as device (device.deviceId)}
+        <div class="group flex items-center gap-3 px-4 py-2.5">
+          <MonitorIcon size={16} class={["shrink-0", device.revokedAt === null ? "text-foreground" : "text-(--solus-text-tertiary)"]} />
+          <div class="min-w-0 flex-1">
+            <p class={["truncate text-workspace-chrome font-medium", device.revokedAt === null ? "text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"]}>
+              {device.deviceLabel}
+            </p>
+            <p class="truncate text-[0.875em] text-(--solus-text-tertiary)">
+              {pairedDeviceDetail(device, connectedDeviceIds.has(device.deviceId))}
+            </p>
+          </div>
+          {#if device.revokedAt === null}
+            <Button
+              variant="ghost"
+              size="sm"
+              onclick={() => void connections.revokeDevice(serverId, device.deviceId)}
+              aria-label={`Revoke ${device.deviceLabel}`}
+              class="text-(--solus-text-tertiary) opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 hover:text-(--solus-status-error)"
+            >
+              <TrashIcon size={13} />
+              Revoke
+            </Button>
+          {/if}
+        </div>
+      {/each}
+    {/if}
+  </SettingsSection>
+{/if}

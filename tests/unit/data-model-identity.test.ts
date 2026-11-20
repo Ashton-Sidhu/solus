@@ -43,6 +43,7 @@ const NO_CREATOR: Record<string, string> = {
   // `__drizzle_migrations` is the migrator's own bookkeeping, made at runtime, so the baselines never declare it.
   kv: 'host key-value settings',
   host_list: "the hosts the host's owner connected to themselves (plans/031 D7); the owner is the host's user",
+  host_device: "the devices this host paired or the owner revoked (plans/033 §4.4); the owner is the host's user",
   projects: "the host's manifest of the folders on this machine",
   outbox_ops: 'queue of record operations awaiting delivery',
   delivery_queue: 'queue to the Solus API; the delivering person is `user_id`',

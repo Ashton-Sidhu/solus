@@ -301,6 +301,7 @@ export const RPC_INVOKE_METHODS = [
   'hostListRead',
   'hostListPut',
   'hostListRemove',
+  'connectionsListDevices',
   'connectionsRevokeDevice',
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',

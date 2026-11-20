@@ -213,6 +213,7 @@ export const RPC_PLANES = {
   hostListPut: 'collaboration',
   hostListRemove: 'collaboration',
   hostsLinkForwarded: 'collaboration',
+  connectionsListDevices: 'collaboration',
   connectionsRevokeDevice: 'collaboration',
   connectionsGetServerInfo: 'collaboration',
   connectionsSetRemoteAccess: 'collaboration',

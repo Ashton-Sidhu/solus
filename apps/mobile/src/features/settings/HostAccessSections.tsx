@@ -20,7 +20,7 @@ import { SettingsNote } from "./components/SettingsNote";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
-import { canChangeAccess, networkNote, type HostAccessSnapshot } from "./host-access";
+import { canChangeAccess, networkNote, pairedDeviceDetail, type HostAccessSnapshot } from "./host-access";
 import type { HostPolicies } from "@solus/contracts/host-policies";
 import { hostLockMessage, pairingLockMessage } from "../policy/lib/policy-view";
 import { PolicyLockNote } from "../policy/PolicyLockNote";
@@ -270,6 +270,50 @@ export function HostDevicesSection(props: {
             />
           );
         })
+      )}
+    </SettingsSection>
+  );
+}
+
+/** Every device that paired with this host, connected or not, with Revoke. */
+export function HostPairedDevicesSection(props: {
+  readonly access: HostAccessSnapshot;
+  readonly onRevoke: (deviceId: string) => void;
+}) {
+  const { pairedDevices, pairedDevicesError, devices, busy } = props.access;
+  const connected = new Set(devices.map((device) => device.deviceId));
+  return (
+    <SettingsSection title="Paired devices">
+      {pairedDevicesError ? (
+        <SettingsNote tone="danger">{`Paired devices could not be read: ${pairedDevicesError}`}</SettingsNote>
+      ) : pairedDevices.length === 0 ? (
+        <SettingsValueRow icon="desktopcomputer" label="No paired devices" value="" detail="No devices are paired with this host." />
+      ) : (
+        pairedDevices.map((device) => (
+          <ListRowLayout
+            key={device.deviceId}
+            icon="desktopcomputer"
+            label={device.deviceLabel}
+            description={pairedDeviceDetail(device, connected.has(device.deviceId))}
+            accessory={
+              device.revokedAt === null ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Revoke ${device.deviceLabel}`}
+                  disabled={busy !== null}
+                  onPress={() => props.onRevoke(device.deviceId)}
+                  className="min-w-20 items-center rounded-full bg-subtle px-3 py-2 active:opacity-70 disabled:opacity-40"
+                >
+                  {busy === `revoke:${device.deviceId}` ? (
+                    <ActivityIndicator colorClassName="accent-danger-foreground" />
+                  ) : (
+                    <Text className="text-sm font-t3-medium text-danger-foreground">Revoke</Text>
+                  )}
+                </Pressable>
+              ) : null
+            }
+          />
+        ))
       )}
     </SettingsSection>
   );

@@ -7,12 +7,13 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { ScreenScrollView } from "../../components/ScreenScrollView";
 import type { ScreenProps } from "../../navigation/routes";
 import { SettingsScreen } from "./components/SettingsScreen";
-import { canChangeAccess, hasPairing } from "./host-access";
+import { canChangeAccess, hasPairing, showsPairedDevices } from "./host-access";
 import { HostCloudLinkSection } from "./HostCloudLinkSection";
 import {
   HostDevicesSection,
   HostNetworkSection,
   HostOrganizationsSection,
+  HostPairedDevicesSection,
   HostPairingSection,
 } from "./HostAccessSections";
 import { useHostAccess } from "./use-host-access";
@@ -58,6 +59,9 @@ export function HostAccessScreen({ navigation, route }: ScreenProps<"HostAccess"
               <HostPairingSection access={state} policy={policy} onGenerate={access.generatePairCode} />
             ) : null}
             <HostDevicesSection access={state} onRevoke={access.revokeDevice} />
+            {showsPairedDevices(state.info) ? (
+              <HostPairedDevicesSection access={state} onRevoke={access.revokeDevice} />
+            ) : null}
           </>
         ) : state.kind === "error" ? (
           <View className="gap-3">
