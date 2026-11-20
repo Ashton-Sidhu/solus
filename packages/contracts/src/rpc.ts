@@ -345,6 +345,8 @@ export const RPC_INVOKE_METHODS = [
   'integrationFacts',
   'integrationProcessStart',
   'integrationProcessStop',
+  'integrationPromptList',
+  'integrationPromptGet',
   'integrationConnectionList',
   'integrationConnectStart',
   'integrationConnectSubmit',

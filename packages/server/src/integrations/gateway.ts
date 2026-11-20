@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
-import { ProtocolError, SdkError, SdkErrorCode, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
+import { ProtocolError, SdkError, SdkErrorCode, type GetPromptResult, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { MAX_MCP_PROMPTS_PER_SERVER } from '@solus/contracts/integrations/prompts'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
 import { currentPersonKey } from '../vault/acting-scope'
@@ -22,6 +23,7 @@ import {
   errorText,
   isAuthFailure,
   isLostResponse,
+  promptNames,
   refusedInFirstCall,
   refusedMessage,
   sessionKey,
@@ -33,11 +35,12 @@ import {
   type IntegrationAppCapture,
   type ServerFacts,
   type ToolArguments,
+  type UpstreamPrompt,
   type UpstreamSession,
   type UpstreamTool,
 } from './upstream-session'
 
-export type { IntegrationAppCapture, ToolArguments, UpstreamTool } from './upstream-session'
+export type { IntegrationAppCapture, ToolArguments, UpstreamPrompt, UpstreamTool } from './upstream-session'
 
 const log = createLogger('integrations', 'gateway.ts')
 
@@ -73,6 +76,7 @@ export class IntegrationGateway {
   private readonly serverFacts = new Map<string, ServerFacts>()
   private readonly revisions = new Map<string, { prior: PriorDiscovery; checkedAt: number }>()
   private readonly listing = new Map<string, Promise<UpstreamTool[]>>()
+  private readonly promptListing = new Map<string, Promise<UpstreamPrompt[]>>()
   private readonly listeners: Array<(integrationId: string) => void> = []
   private readonly factsListeners: Array<(integrationId: string) => void> = []
   private readonly connectNeededListeners: Array<(request: IntegrationConnectNeeded) => void> = []
@@ -201,6 +205,49 @@ export class IntegrationGateway {
     const keys = [...this.sessions].filter(([, session]) => session.integrationId === integrationId && session.personKey === personKey).map(([key]) => key)
     await Promise.all(keys.map((key) => this.closeSession(key)))
     return keys.length > 0
+  }
+
+  /**
+   * One person's MCP prompts of an integration (docs/plans/mcp-first-class.md
+   * §10), listed with that person's connection after the tools, and cached as
+   * the tools are: `prompts/list_changed` drops the list, and a list is not used
+   * after its `ttlMs`. A command that is not running answers from its saved
+   * facts, so a read starts nothing. Throws `ConnectionRequiredError` when the
+   * person has no connection: a prompt is the person's, never anonymous.
+   */
+  async promptsFor(integrationId: string, personKey: string | null): Promise<UpstreamPrompt[]> {
+    const key = sessionKey(integrationId, personKey)
+    if (!this.sessions.has(key) && this.store.get(integrationId, ANY_ORGANIZATION)?.kind === 'stdio') return this.savedFacts(integrationId, personKey)?.prompts?.prompts ?? []
+    await this.upstreamTools(integrationId, personKey)
+    const facts = this.serverFacts.get(key)
+    if (!facts?.capabilities.prompts) return []
+    const listed = facts.prompts
+    if (listed && !facts.stale && (listed.expiresAt === null || Date.now() < listed.expiresAt)) return listed.prompts
+    let listing = this.promptListing.get(key)
+    if (!listing) {
+      listing = this.listPrompts(integrationId, personKey).finally(() => this.promptListing.delete(key))
+      this.promptListing.set(key, listing)
+    }
+    return listing
+  }
+
+  /**
+   * Expands one MCP prompt as the current person (§10). `starter` is who asked:
+   * a command's process starts only for them (`commandStartRefusal`). Throws
+   * `ConnectionRequiredError` when the person has no usable connection.
+   */
+  async getPrompt(integrationId: string, name: string, args: Record<string, string>, starter: CommandStarter): Promise<GetPromptResult> {
+    const session = await this.session(integrationId, currentPersonKey(), false, DEFAULT_INTEGRATION_ACCOUNT, starter)
+    try {
+      return await session.client.getPrompt({ name, arguments: args }, { timeout: CALL_TIMEOUT_MS })
+    } catch (error) {
+      const integration = this.store.get(integrationId, ANY_ORGANIZATION)
+      if (!session.authorized || !isAuthFailure(error) || !integration) throw error
+      this.signInRefused(session, integration, error)
+      throw new ConnectionRequiredError()
+    } finally {
+      this.touch(sessionKey(integrationId, session.personKey, session.accountId))
+    }
   }
 
   /**
@@ -487,7 +534,8 @@ export class IntegrationGateway {
     const capabilities = session.client.getServerCapabilities()
     const instructions = session.client.getInstructions() ?? null
     this.serverFacts.set(key, {
-      integrationId, tools, stale: false, expiresAt,
+      // A list from before a closed session may be old: the next prompt read lists again.
+      integrationId, tools, stale: false, expiresAt, prompts: previous && !previous.stale ? previous.prompts : null,
       era: session.client.getProtocolEra() ?? null, instructions,
       capabilities: {
         prompts: !!capabilities?.prompts,
@@ -505,6 +553,46 @@ export class IntegrationGateway {
     log.info('integration_tools_listed', { integrationId, count: tools.length })
     if (previous && toolNames(previous.tools) !== toolNames(tools)) this.notify(integrationId)
     return tools
+  }
+
+  private async listPrompts(integrationId: string, personKey: string | null, retried = false): Promise<UpstreamPrompt[]> {
+    const session = await this.session(integrationId, personKey)
+    const key = sessionKey(integrationId, personKey)
+    const prompts: UpstreamPrompt[] = []
+    let cursor: string | undefined
+    let expiresAt: number | null = null
+    do {
+      let page: Awaited<ReturnType<Client['listPrompts']>>
+      try {
+        // The gateway's own cache decides when to list; the SDK's must not answer for it.
+        page = await session.client.listPrompts(cursor ? { cursor } : undefined, { cacheMode: 'refresh', timeout: CALL_TIMEOUT_MS })
+      } catch (error) {
+        if (!session.authorized || !isAuthFailure(error)) throw error
+        if (!retried) {
+          this.readHeaderAgain(session)
+          return this.listPrompts(integrationId, personKey, true)
+        }
+        const integration = this.store.get(integrationId, ANY_ORGANIZATION)
+        if (integration) this.signInRefused(session, integration, error)
+        throw new ConnectionRequiredError()
+      }
+      const ttl = z.number().safeParse(page.ttlMs)
+      if (ttl.success) {
+        const pageExpiry = Date.now() + Math.max(0, ttl.data)
+        expiresAt = expiresAt === null ? pageExpiry : Math.min(expiresAt, pageExpiry)
+      }
+      for (const prompt of page.prompts) prompts.push({ name: prompt.name, title: prompt.title, description: prompt.description, arguments: prompt.arguments })
+      cursor = prompts.length < MAX_MCP_PROMPTS_PER_SERVER ? page.nextCursor : undefined
+    } while (cursor)
+    prompts.splice(MAX_MCP_PROMPTS_PER_SERVER)
+    const facts = this.serverFacts.get(key)
+    const previous = facts?.prompts?.prompts
+    if (facts) facts.prompts = { prompts, expiresAt }
+    this.saveListed(session, key)
+    this.touch(key)
+    log.info('integration_prompts_listed', { integrationId, count: prompts.length })
+    if (previous && promptNames(previous) !== promptNames(prompts)) this.factsChanged(integrationId)
+    return prompts
   }
 
   /**
@@ -586,11 +674,20 @@ export class IntegrationGateway {
     const client = new Client({ name: 'solus', version: '1.0.0' }, {
       versionNegotiation: { mode: 'auto' },
       capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } },
-      listChanged: { tools: { autoRefresh: false, onChanged: () => {
-        if (this.sessions.get(key) !== session) return
-        this.serverFacts.delete(key)
-        this.notify(integrationId)
-      } } },
+      listChanged: {
+        tools: { autoRefresh: false, onChanged: () => {
+          if (this.sessions.get(key) !== session) return
+          this.serverFacts.delete(key)
+          this.notify(integrationId)
+        } },
+        // The next read lists the prompts again; clients read again on the facts event (§10).
+        prompts: { autoRefresh: false, onChanged: () => {
+          if (this.sessions.get(key) !== session) return
+          const facts = this.serverFacts.get(key)
+          if (facts) facts.prompts = null
+          this.factsChanged(integrationId)
+        } },
+      },
     })
     const session: UpstreamSession = {
       integrationId, personKey, accountId, client, connected: Promise.resolve(), idleTimer: null, calls: [],
@@ -711,7 +808,8 @@ export class IntegrationGateway {
     if (personKey === null) return null
     const saved = this.options.savedFacts?.get({ integrationId, personKey, accountId: DEFAULT_INTEGRATION_ACCOUNT })?.facts
     if (!saved) return null
-    const facts: ServerFacts = { integrationId, ...saved, stale: true, expiresAt: null }
+    const { prompts, ...rest } = saved
+    const facts: ServerFacts = { integrationId, ...rest, prompts: prompts ? { prompts, expiresAt: null } : null, stale: true, expiresAt: null }
     this.serverFacts.set(key, facts)
     return facts
   }
@@ -721,7 +819,10 @@ export class IntegrationGateway {
     const facts = this.serverFacts.get(key)
     if (!session.stdio || session.personKey === null || !facts) return
     const { tools, era, instructions, capabilities } = facts
-    this.options.savedFacts?.saveFacts({ integrationId: session.integrationId, personKey: session.personKey, accountId: session.accountId }, { tools, era, instructions, capabilities }, this.clock.now())
+    const factsKey: ServerFactsKey = { integrationId: session.integrationId, personKey: session.personKey, accountId: session.accountId }
+    // A new tool list keeps the prompts saved before, until the prompts are listed again.
+    const prompts = facts.prompts?.prompts ?? this.options.savedFacts?.get(factsKey)?.facts?.prompts
+    this.options.savedFacts?.saveFacts(factsKey, { tools, era, instructions, capabilities, ...(prompts ? { prompts } : {}) }, this.clock.now())
   }
 
   private factsChanged(integrationId: string): void {

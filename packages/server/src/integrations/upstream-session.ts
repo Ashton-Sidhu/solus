@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/client'
 import { StreamableHTTPClientTransport, SdkHttpError } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import type { Transport } from '@modelcontextprotocol/client'
-import { SdkError, SdkErrorCode, type CallToolRequest, type Tool } from '@modelcontextprotocol/client'
+import { SdkError, SdkErrorCode, type CallToolRequest, type Prompt, type Tool } from '@modelcontextprotocol/client'
 import { DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationEnvValue, type IntegrationFacts } from '@solus/contracts/integration-types'
 import { solusServerFor } from './solus-servers'
 import { solusMcpServer } from './solus-servers/solus-server'
@@ -26,6 +26,15 @@ export class ConnectionRequiredError extends Error {
 
 /** One upstream tool as `tools/list` reported it, kept whole: the tool bridge needs its input schema. */
 export type UpstreamTool = Pick<Tool, 'name' | 'title' | 'description' | 'inputSchema' | 'outputSchema' | 'annotations' | '_meta'>
+
+/** One MCP prompt as `prompts/list` reported it (docs/plans/mcp-first-class.md §10). */
+export type UpstreamPrompt = Pick<Prompt, 'name' | 'title' | 'description' | 'arguments'>
+
+/** A server's prompt list and when its `ttlMs` ends; null when it gave none. */
+export interface ListedPrompts {
+  prompts: UpstreamPrompt[]
+  expiresAt: number | null
+}
 
 /** A `tools/call` result as the SDK returns it. */
 export type AppToolResult = Awaited<ReturnType<Client['callTool']>>
@@ -79,6 +88,8 @@ export interface ServerFacts {
   era: IntegrationFacts['era']
   instructions: string | null
   capabilities: IntegrationFacts['capabilities']
+  /** The MCP prompts, listed on the first read after the tools; null until then, and after `prompts/list_changed`. */
+  prompts: ListedPrompts | null
   /** The session closed, so `tools/list_changed` could not reach it: list again on the next read. */
   stale: boolean
   expiresAt: number | null
@@ -151,6 +162,10 @@ export function refusedMessage(integration: Pick<Integration, 'name'>, error: Sd
 
 export function toolNames(tools: UpstreamTool[]): string {
   return tools.map((tool) => tool.name).join('\u0000')
+}
+
+export function promptNames(prompts: UpstreamPrompt[]): string {
+  return prompts.map((prompt) => prompt.name).join('\u0000')
 }
 
 /** An error as one short line. A URL in it keeps no query string. */

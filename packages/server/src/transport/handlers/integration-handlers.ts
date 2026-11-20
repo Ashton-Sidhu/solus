@@ -17,6 +17,7 @@ import {
   type IntegrationUpdateRequest,
 } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { integrationPromptGetRequestSchema, integrationPromptListRequestSchema } from '@solus/contracts/integrations/prompts'
 import { OAuthClientRequiredError } from '@solus/contracts/integrations/oauth-protocol'
 import { roleOf } from '../../admission/access'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
@@ -29,6 +30,7 @@ import type { IntegrationPatch, IntegrationStore } from '../../integrations/inte
 import type { IntegrationOAuth } from '../../integrations/oauth'
 import { commandAuth, createIntegration, createStdioIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
 import { stdioServerAddress } from '../../integrations/stdio-process'
+import { integrationPromptList, integrationPromptText } from '../../integrations/integration-prompts'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
 import { createLogger } from '../../logger'
 import { currentPersonKey, requirePersonKey } from '../../vault/acting-scope'
@@ -214,6 +216,17 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const { id } = integrationIdRequestSchema.parse(args[0])
     requireStdio(requireIntegration(id, ctx.actor))
     return { stopped: await gateway.stopProcess(id) }
+  })
+
+  // MCP prompts as slash commands (mcp-first-class.md §10): the caller's own servers, with the caller's connection.
+  server.register('integrationPromptList', (args, ctx) => {
+    const { projectPath } = integrationPromptListRequestSchema.parse(args[0] ?? {})
+    return integrationPromptList(gateway, ctx.actor, projectPath)
+  })
+
+  server.register('integrationPromptGet', (args, ctx) => {
+    const request = integrationPromptGetRequestSchema.parse(args[0])
+    return integrationPromptText(gateway, ctx.actor, requireIntegration(request.integrationId, ctx.actor), request)
   })
 
   server.register('integrationConnectionList', () => {

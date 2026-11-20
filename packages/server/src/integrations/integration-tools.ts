@@ -68,15 +68,23 @@ function joinsRun(integration: Integration, actor: Actor, projectKey: () => stri
   return integration.projectKey === undefined || integration.projectKey === projectKey()
 }
 
+/**
+ * The actor's integrations that join a run in `projectPath`, the run's working
+ * directory: the toolbox lists their tools, the slash menu their MCP prompts.
+ */
+export function integrationsForRun(source: Pick<IntegrationGateway, 'store'>, actor: Actor, projectPath?: string | null): Integration[] {
+  // The key asks git for the project root, so it is read only when a project integration needs it.
+  let projectKey: string | null | undefined
+  const runProjectKey = () => (projectKey ??= projectPath ? resolveProjectKey(resolveHomePath(projectPath)) : null)
+  return source.store.list(recordScopeOf(actor.principal), ownerKeyOf(actor)).filter((integration) => joinsRun(integration, actor, runProjectKey))
+}
+
 /** `projectPath`: the run's working directory, whose project key a project integration must match. */
 export async function integrationToolbox(actor: Actor, projectPath?: string | null): Promise<{ tools: AgentTool[]; instructions: IntegrationInstruction[] }> {
   const current = gateway
   if (!current) return { tools: [], instructions: [] }
   const personKey = ownerKeyOf(actor)
-  // The key asks git for the project root, so it is read only when a project integration needs it.
-  let projectKey: string | null | undefined
-  const runProjectKey = () => (projectKey ??= projectPath ? resolveProjectKey(resolveHomePath(projectPath)) : null)
-  const integrations = current.store.list(recordScopeOf(actor.principal), personKey).filter((integration) => joinsRun(integration, actor, runProjectKey))
+  const integrations = integrationsForRun(current, actor, projectPath)
   const listed = await Promise.all(integrations.map((integration) => toolsForRun(current, integration, personKey)))
   const tools: AgentTool[] = []
   const included = new Set<string>()
