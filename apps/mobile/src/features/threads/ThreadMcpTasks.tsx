@@ -88,7 +88,7 @@ function McpTaskRow(props: {
           <ActivityIndicator size="small" color={props.iconSubtleColor} />
         ) : (
           <SymbolView
-            name={item.state === "ended" ? "checkmark" : "exclamationmark.circle"}
+            name={item.state === "ended" ? "checkmark" : item.state === "stopped" ? "minus" : "exclamationmark.circle"}
             size={14}
             weight="medium"
             {...(item.state === "failed" ? { tintColorClassName: "accent-danger-foreground" } : { tintColor: props.iconSubtleColor })}

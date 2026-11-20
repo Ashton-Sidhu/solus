@@ -20,7 +20,8 @@ export function mcpTaskItem(task: McpTask): BackgroundItem {
 
 function mcpTaskState(task: McpTask): BackgroundItem['state'] {
   if (task.status === 'failed') return 'failed'
-  if (task.status === 'completed' || task.status === 'cancelled') return 'ended'
+  if (task.status === 'completed') return 'ended'
+  if (task.status === 'cancelled') return 'stopped'
   if (task.input?.length || task.problem) return 'attention'
   return 'running'
 }

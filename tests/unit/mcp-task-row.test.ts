@@ -25,6 +25,7 @@ describe('MCP task row', () => {
     for (const status of ['completed', 'failed', 'cancelled'] as const) {
       expect(mcpTaskItem({ ...base, status })).toMatchObject({ actions: [], startedAt: null })
     }
+    expect(mcpTaskItem({ ...base, status: 'cancelled' })).toMatchObject({ state: 'stopped', detail: 'Cancelled' })
     expect(mcpTaskItem({ ...base, status: 'failed', statusMessage: 'The host restarted and the server stopped.' })).toMatchObject({ state: 'failed', detail: 'The host restarted and the server stopped.' })
   })
 

@@ -3,8 +3,8 @@
 // (docs/plans/mcp-first-class.md §11.5, §12.5). The row reads only this shape,
 // so a new kind adds a mapping, not a layout. Desktop, web, and mobile share it.
 
-/** `running` spins; `attention` asks the person; `ended` and `failed` are past tense. */
-export type BackgroundItemState = 'running' | 'attention' | 'ended' | 'failed'
+/** `running` spins; `attention` asks the person; `ended`, `stopped`, and `failed` are past tense. */
+export type BackgroundItemState = 'running' | 'attention' | 'ended' | 'stopped' | 'failed'
 
 export interface BackgroundItemAction {
   /** What the caller does when the person presses it. */

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon } from "@lucide/svelte";
+  import { Ban as StoppedIcon, Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon } from "@lucide/svelte";
   import type { BackgroundItem } from "@solus/client-core/background-item";
   import ActivityRow from "./ActivityRow.svelte";
   import { Button } from "../ui/button";
@@ -80,6 +80,8 @@
       <AlertIcon aria-hidden="true" />
     {:else if item.state === "failed"}
       <FailedIcon aria-hidden="true" />
+    {:else if item.state === "stopped"}
+      <StoppedIcon aria-hidden="true" />
     {:else}
       <CheckIcon aria-hidden="true" />
     {/if}
