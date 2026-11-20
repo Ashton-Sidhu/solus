@@ -1,156 +1,147 @@
-import { z } from 'zod'
-import { type DirectoryHost } from '@solus/contracts/uplink'
-import { hostRouteSchema, listedRoutes, mergeRoutes, routeForUrl, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
-import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
-import type { AdvertisedHost } from '@solus/client-core/host-link'
-import { withoutRoute, withRouteMoved, withUserRoute } from '@solus/client-core/host-route-control'
+import { mergeRoutes, routeForUrl } from '@solus/contracts/host-routes'
 import type { DiscoveredServer, HostOperatingSystem } from '@solus/contracts/types'
-import type { SavedServerUplink } from '@solus/client-core/server-registry'
-import { forwardCompatibleArray } from '@solus/client-core/forward-compat'
-import { savedServerFromDirectory } from '@solus/client-core/uplink-session'
+import type { AdvertisedHost } from '@solus/client-core/host-link'
+import { HostCatalog, type AnswerState, type HostDirectoryReader, type PairOutcome } from '@solus/client-core/host-catalog'
+import { decodeCredentials, encodeCredentials, type HostCredential, type HostCredentialStorage } from '@solus/client-core/host-credentials'
+import type { HostListSource } from '@solus/client-core/host-list-source'
+import type { KnownHost } from '@solus/client-core/known-host'
+import type { KnownWorkspace } from '@solus/client-core/workspace-registry'
+import { withoutRoute, withRouteMoved, withUserRoute } from '@solus/client-core/host-route-control'
 import { Listeners } from '../../lib/listeners'
 import type { KeyValueStore, SecretStore } from '../../platform/ports'
-import type { HostListing } from '@solus/contracts/host-list'
 
 /**
- * The hosts this device knows (plan 017 stage 1). Metadata is kept in plain
- * storage; each paired host's session token is kept in the keychain under its
- * own key. A host from the Solus Cloud directory has no stored credential: each
- * dial mints its own short grant.
- *
- * A paired host and a cloud host can be one machine. Pairing it never removes
- * another host, and signing out of the cloud never removes a host the user
- * paired directly — it only drops what the directory said about it.
+ * The hosts this phone knows (plans/033 §4.3). The phone keeps only its
+ * credentials: each paired host's session token in the keychain, and how this
+ * phone dials the host (its own routes, their order, the identity key) in plain
+ * storage. The client-core host catalog joins them with the person's host list
+ * and the account directory; this store gives the catalog to the native screens.
  */
 
-export interface NativeHost {
-  /** The host's installation id: the identity a dial is verified against. */
-  id: string
-  label: string
-  /** The user typed the label; the host's advertised name then does not replace it. */
-  hasUserLabel?: boolean
-  routes: HostRoute[]
-  /** Route URLs in the order the person chose on this device (docs/plans/host-routes.md §12). Absent is the default order. */
-  routeOrder?: string[]
-  /** The session token was paired over HTTPS, so it stays off routes that carry it in clear. */
-  tokenPairedOverHttps?: boolean
-  os?: HostOperatingSystem
-  lastConnected: number
-  /** True when the device holds a session token from `/pair` for this host. */
-  paired: boolean
-  /** Present while the signed-in account's directory lists the host. */
-  uplink?: SavedServerUplink
-  /** The account whose directory listed the host. Cloud state is forgotten by it. */
-  accountUserId?: string
-  /** The host's identity key (docs/plans/host-routes.md D3): an `http:` route is dialed only after the host proves it. */
-  identityKey?: string
+const CREDENTIALS_KEY = 'solus.mobile.hostCredentials'
+/** Before plan 033 the phone kept whole hosts here. It is deleted, not read (§2 rule 5). */
+const RETIRED_HOSTS_KEY = 'solus.mobile.hosts.v1'
+const tokenKey = (hostId: string) => `solus.mobile.hostToken.${hostId}`
+
+/**
+ * The catalog's credential port on the phone. A token goes to its own keychain
+ * item, which stays small; the other fields are not secret and go to plain storage.
+ * A token is written before its record and removed after it.
+ */
+export function keychainCredentials(storage: KeyValueStore, secrets: SecretStore): HostCredentialStorage {
+  const readRecords = (): Map<string, HostCredential> => {
+    const raw = storage.getItem(CREDENTIALS_KEY)
+    if (!raw) return new Map()
+    const decoded = decodeCredentials(raw)
+    if (decoded) return decoded
+    storage.removeItem(CREDENTIALS_KEY)
+    return new Map()
+  }
+  const writeRecords = (records: ReadonlyMap<string, HostCredential>): void => {
+    if (records.size === 0) storage.removeItem(CREDENTIALS_KEY)
+    else storage.setItem(CREDENTIALS_KEY, encodeCredentials(records))
+  }
+  return {
+    read: async () => {
+      storage.removeItem(RETIRED_HOSTS_KEY)
+      const credentials = readRecords()
+      await Promise.all([...credentials].map(async ([hostId, credential]) => {
+        credential.token = (await secrets.get(tokenKey(hostId))) ?? ''
+      }))
+      return credentials
+    },
+    write: async (hostId, credential) => {
+      if (credential.token) await secrets.set(tokenKey(hostId), credential.token)
+      else await secrets.delete(tokenKey(hostId))
+      const records = readRecords()
+      records.set(hostId, { ...credential, token: '' })
+      writeRecords(records)
+    },
+    remove: async (hostId) => {
+      const records = readRecords()
+      if (records.delete(hostId)) writeRecords(records)
+      await secrets.delete(tokenKey(hostId))
+    },
+  }
 }
 
-const HOSTS_KEY = 'solus.mobile.hosts.v1'
-const tokenKey = (hostId: string) => `solus.mobile.host.${hostId}.token`
-
-const uplinkSchema = z.looseObject({
-  hostId: z.string().min(1),
-  directoryUrl: z.string().min(1),
-  organizationIds: z.array(z.string().min(1)).optional().catch(undefined),
-  category: z.enum(['personal', 'self-hosted', 'managed']).optional().catch(undefined),
-  ownerName: z.string().optional().catch(undefined),
-  ownerUserId: z.string().optional().catch(undefined),
-  kind: z.enum(['personal', 'managed']).optional().catch(undefined),
-  managedState: z.enum(['provisioning', 'starting', 'ready', 'stopping', 'stopped', 'failed', 'deleting']).optional().catch(undefined),
-})
-
-const hostSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().catch(''),
-  hasUserLabel: z.boolean().optional().catch(undefined),
-  routes: forwardCompatibleArray(hostRouteSchema).catch([]),
-  routeOrder: z.array(z.string()).optional().catch(undefined),
-  tokenPairedOverHttps: z.boolean().optional().catch(undefined),
-  os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
-  lastConnected: z.number().catch(0),
-  paired: z.boolean().catch(false),
-  uplink: uplinkSchema.optional().catch(undefined),
-  accountUserId: z.string().optional().catch(undefined),
-  identityKey: hostIdentityKeySchema.optional().catch(undefined),
-})
-const hostsSchema = forwardCompatibleArray(hostSchema)
-
-/** Called with the id of every host that leaves the registry, so its
- *  connection, queued sends, drafts, and caches leave with it. */
+/** Called with the id of every host that leaves, so its connection, queued sends, drafts, and caches leave with it. */
 export type HostRemovedListener = (hostId: string) => void
 
-/** A host the person paired or forgot on this device, for the account host list (plans/031 D7). */
-export type HostListingChange = { kind: 'put'; listing: HostListing } | { kind: 'remove'; hostId: string }
-
-/** A host the person paired on this device, as the account host list holds it: never its token. */
-export function listingOfHost(host: NativeHost): HostListing | null {
-  if (!host.paired || host.uplink?.kind === 'managed') return null
-  const listing: HostListing = { id: host.id, label: host.label, installationId: host.id, routes: listedRoutes(host.routes), lastConnected: host.lastConnected }
-  if (host.hasUserLabel) listing.hasUserLabel = true
-  if (host.os) listing.os = host.os
-  if (host.identityKey) listing.identityKey = host.identityKey
-  return listing
+/** What the person pairs on this phone: the host's answer to `/pair` and the address they paired it at. */
+export interface PairedHostInput {
+  id: string
+  label: string
+  hasUserLabel?: boolean
+  url: string
+  os?: HostOperatingSystem
+  identityKey?: string
+  onTailnet?: boolean
 }
 
 export class HostRegistry {
-  private list: readonly NativeHost[] = []
-  /** The account's listed hosts this device does not keep (plans/031 D7); held in memory only. */
-  private listed: readonly NativeHost[] = []
-  private readonly tokens = new Map<string, string>()
-  private readonly removedListeners = new Set<HostRemovedListener>()
-  private readonly listingListeners = new Set<(change: HostListingChange) => void>()
-  private loaded: Promise<void> | null = null
+  private readonly catalog: HostCatalog
+  /** Every change of the hosts or of a read's state; the native screens subscribe to it. */
   readonly changes = new Listeners()
+  private readonly removedListeners = new Set<HostRemovedListener>()
+  /** The ids `hosts()` answered at the last change. */
+  private shownIds = new Set<string>()
 
-  constructor(
-    private readonly storage: KeyValueStore,
-    private readonly secrets: SecretStore,
-  ) {}
+  constructor(storage: KeyValueStore, secrets: SecretStore, directory: () => HostDirectoryReader | null) {
+    // The phone dials from no page: every route is open to it.
+    this.catalog = new HostCatalog({ credentials: keychainCredentials(storage, secrets), directory, clientOrigin: () => '' })
+    // A host forgotten here, or whose credential went because no list names it (§3 Q1).
+    this.catalog.onForgotten((host) => {
+      this.shownIds.delete(host.id)
+      this.announceRemoved(host.id)
+    })
+    this.catalog.onChange(() => {
+      // A host can also leave without a credential: the account's list or directory no longer names it.
+      const shown = new Set(this.catalog.hosts().map((host) => host.id))
+      for (const hostId of this.shownIds) if (!shown.has(hostId)) this.announceRemoved(hostId)
+      this.shownIds = shown
+      this.changes.notify()
+    })
+  }
 
-  /** The load barrier: nothing restores a route or dials before it settles. */
+  /** The load barrier: the credentials are read before any host is dialed. */
   load(): Promise<void> {
-    this.loaded ??= this.readStorage()
-    return this.loaded
+    return this.catalog.load()
   }
 
-  private async readStorage(): Promise<void> {
-    let hosts: NativeHost[] = []
-    try {
-      const raw = this.storage.getItem(HOSTS_KEY)
-      const decoded = raw ? hostsSchema.safeParse(JSON.parse(raw)) : null
-      if (decoded?.success) hosts = decoded.data
-      else if (raw) this.storage.removeItem(HOSTS_KEY)
-    } catch {
-      this.storage.removeItem(HOSTS_KEY)
-    }
-    const kept: NativeHost[] = []
-    for (const host of hosts) {
-      if (!host.paired) { kept.push(host); continue }
-      const token = await this.secrets.get(tokenKey(host.id))
-      // A paired host whose token is gone (a restored backup, a cleared keychain)
-      // stays only if the directory can still reach it.
-      if (token) {
-        this.tokens.set(host.id, token)
-        kept.push(host)
-      } else if (host.uplink) {
-        kept.push({ ...host, paired: false })
-      }
-    }
-    this.list = kept
-    if (kept.length !== hosts.length || kept.some((host, index) => host !== hosts[index])) this.write()
-    this.changes.notify()
-  }
+  hosts = (): readonly KnownHost[] => this.catalog.hosts()
 
-  hosts = (): readonly NativeHost[] => this.listed.length ? [...this.list, ...this.listed.filter((listed) => !this.list.some((host) => host.id === listed.id))] : this.list
-
-  host(hostId: string): NativeHost | undefined {
-    return this.list.find((host) => host.id === hostId) ?? this.listed.find((host) => host.id === hostId)
+  host(hostId: string): KnownHost | undefined {
+    return this.catalog.find(hostId)
   }
 
   /** The session token for a paired host; empty for a host dialed with a grant. */
   credential(hostId: string): string {
-    return this.tokens.get(hostId) ?? ''
+    return this.catalog.find(hostId)?.sessionToken ?? ''
+  }
+
+  /** The person's host list: `loading` before its first read, `failed` while no read succeeded (§3 Q2). */
+  listState = (): AnswerState => this.catalog.listState()
+
+  /** The account directory, in the same states. Signed out it is `ready` with no hosts. */
+  directoryState = (): AnswerState => this.catalog.directoryState()
+
+  /** The organizations' workspace services, as the directory last listed them. */
+  workspaces(): readonly KnownWorkspace[] {
+    return this.catalog.workspaces()
+  }
+
+  /** Signing in or out changes where the list is read (plans/031 D7). The credentials stay. */
+  useListSource(source: HostListSource | null): Promise<void> {
+    return this.catalog.useListSource(source)
+  }
+
+  refreshList(): Promise<void> {
+    return this.catalog.refreshList()
+  }
+
+  refreshDirectory(): Promise<void> {
+    return this.catalog.refreshDirectory()
   }
 
   onHostRemoved(listener: HostRemovedListener): () => void {
@@ -158,207 +149,74 @@ export class HostRegistry {
     return () => { this.removedListeners.delete(listener) }
   }
 
-  /** Hears each host the person pairs or forgets here, for the account host list. */
-  onListingChange(listener: (change: HostListingChange) => void): () => void {
-    this.listingListeners.add(listener)
-    return () => { this.listingListeners.delete(listener) }
-  }
-
   /**
-   * The account's host list, as its last read answered (plans/031 D7): each listed
-   * host this device does not keep shows beside its own, unpaired. Nothing is
-   * written to the device; signing out clears it.
+   * Keeps a host paired on this phone: its credential first, then its listing on
+   * the person's list. A listing the list refused is sent again at the next read;
+   * `listError` says why.
    */
-  setListedHosts(listings: readonly HostListing[]): void {
-    const own = new Set(this.list.map((host) => host.id))
-    const gone = this.listed.filter((host) => !listings.some((listing) => listing.id === host.id)).map((host) => host.id)
-    this.listed = listings.filter((listing) => !own.has(listing.id)).map((listing): NativeHost => (
-      { id: listing.id, label: listing.label, hasUserLabel: listing.hasUserLabel, routes: listing.routes, os: listing.os, lastConnected: listing.lastConnected, paired: false, identityKey: listing.identityKey }
-    ))
-    for (const hostId of gone) if (!this.host(hostId)) this.cleanUp(hostId)
-    this.changes.notify()
-  }
-
-  private announceListing(change: HostListingChange): void {
-    for (const listener of Array.from(this.listingListeners)) listener(change)
-  }
-
-  /** Saves a host paired on this device. Other hosts are kept. */
-  async savePaired(input: { id: string; label: string; hasUserLabel?: boolean; url: string; os?: HostOperatingSystem; identityKey?: string; onTailnet?: boolean }, sessionToken: string): Promise<NativeHost> {
-    await this.secrets.set(tokenKey(input.id), sessionToken)
-    this.tokens.set(input.id, sessionToken)
-    const existing = this.host(input.id)
-    const routes = mergeRoutes(existing?.routes ?? [], [routeForUrl(input.url, input.onTailnet)], 'pairing', Date.now())
-    const host: NativeHost = {
-      ...existing,
+  savePaired(input: PairedHostInput, sessionToken: string): Promise<PairOutcome> {
+    const now = Date.now()
+    const host: KnownHost = {
       id: input.id,
-      label: existing?.hasUserLabel && !input.hasUserLabel ? existing.label : input.label,
-      hasUserLabel: input.hasUserLabel || existing?.hasUserLabel,
-      routes,
-      os: input.os ?? existing?.os,
-      identityKey: input.identityKey ?? existing?.identityKey,
-      tokenPairedOverHttps: input.url.startsWith('https:') || undefined,
-      lastConnected: Date.now(),
-      paired: true,
+      label: input.label,
+      sessionToken,
+      installationId: input.id,
+      routes: mergeRoutes([], [routeForUrl(input.url, input.onTailnet)], 'pairing', now),
+      lastConnected: now,
     }
-    this.replace(host)
-    const listing = listingOfHost(host)
-    if (listing) this.announceListing({ kind: 'put', listing })
-    return host
+    if (input.hasUserLabel) host.hasUserLabel = true
+    if (input.os) host.os = input.os
+    if (input.identityKey) host.identityKey = input.identityKey
+    if (input.url.startsWith('https:')) host.tokenPairedOverHttps = true
+    return this.catalog.pair(host)
   }
 
   /** A refreshed session token from the host's `/auth/refresh`. */
-  async updateCredential(hostId: string, sessionToken: string): Promise<void> {
-    if (!this.host(hostId)?.paired) return
-    this.tokens.set(hostId, sessionToken)
-    await this.secrets.set(tokenKey(hostId), sessionToken)
+  updateCredential(hostId: string, sessionToken: string): Promise<void> {
+    return this.catalog.renewToken(hostId, sessionToken)
   }
 
-  touch(hostId: string, facts: { os?: HostOperatingSystem; reportedName?: string } = {}): void {
-    const host = this.host(hostId)
-    if (!host) return
-    const label = !host.hasUserLabel && facts.reportedName ? facts.reportedName : host.label
-    this.replace({ ...host, lastConnected: Date.now(), os: facts.os ?? host.os, label })
+  /** This phone connected to the host now; `os` is what its `/health` said. */
+  touch(hostId: string, os?: HostOperatingSystem): void {
+    this.catalog.touchLastConnected(hostId)
+    if (os) this.catalog.stampOperatingSystem(hostId, os)
   }
 
-  /**
-   * Replaces what one account's directory says. Hosts it no longer lists lose
-   * their cloud metadata; a host known only from the directory leaves.
-   */
-  applyDirectory(accountUserId: string, directoryUrl: string, listed: readonly DirectoryHost[]): void {
-    const byId = new Map(listed.map((host) => [host.installationId, host]))
-    const next: NativeHost[] = []
-    const removed: string[] = []
-    for (const host of this.list) {
-      const entry = byId.get(host.id)
-      if (entry) {
-        byId.delete(host.id)
-        next.push(this.fromDirectory(entry, directoryUrl, accountUserId, host))
-      } else if (host.accountUserId === accountUserId || (host.uplink && host.accountUserId === undefined)) {
-        if (host.paired) next.push(withoutCloud(host))
-        else removed.push(host.id)
-      } else {
-        next.push(host)
-      }
-    }
-    for (const entry of byId.values()) next.push(this.fromDirectory(entry, directoryUrl, accountUserId))
-    this.list = next
-    this.write()
-    for (const hostId of removed) this.cleanUp(hostId)
-    this.changes.notify()
-  }
-
-  /** A scan of this device's network found saved hosts: each gets the address it answered at (`withReadRoutes`). */
+  /** A scan of this phone's network: each known host it found gets the address it answered at. */
   applyNearby(discovered: readonly DiscoveredServer[]): void {
-    const nearby = new Map(discovered.map((server) => [server.installationId, server]))
-    const now = Date.now()
-    let changed = false
-    const next = this.list.map((host) => {
-      const found = nearby.get(host.id)
-      const routes = found ? withReadRoutes(host.routes, [routeForUrl(`http://${found.host}:${found.port}`, found.source === 'tailnet')], 'discovery', now) : null
-      if (!routes) return host
-      changed = true
-      return { ...host, routes }
-    })
-    if (!changed) return
-    this.list = next
-    this.write()
-    this.changes.notify()
+    this.catalog.applyDiscovered(discovered)
   }
 
-  /**
-   * What a connected host says about itself (docs/plans/host-routes.md D2): its routes
-   * replace its earlier `host` routes, and its identity key is kept when this device
-   * has none yet. The connection that carried it already passed the identity check.
-   */
+  /** What a connected host says about itself (docs/plans/host-routes.md D2). */
   applyAdvertised(hostId: string, advertised: AdvertisedHost): void {
-    const host = this.host(hostId)
-    if (!host) return
-    const routes = withReadRoutes(host.routes, advertised.routes, 'host', Date.now())
-    const identityKey = host.identityKey ?? advertised.identityKey
-    if (!routes && identityKey === host.identityKey) return
-    this.replace({ ...host, routes: routes ?? host.routes, identityKey })
+    this.catalog.applyAdvertised(hostId, advertised)
   }
 
-  /** A route the person added and this device checked (`checkRouteToAdd`). It stays on this device. */
-  addRoute(hostId: string, url: string): void {
-    const host = this.host(hostId)
-    if (host) this.replace(withUserRoute(host, url, Date.now()))
+  /** A route the person added and this phone checked (`checkRouteToAdd`). It stays on this phone. */
+  async addRoute(hostId: string, url: string): Promise<void> {
+    await this.catalog.changeRoutes(hostId, (holder) => withUserRoute(holder, url, Date.now()))
   }
 
-  /** One place earlier (-1) or later (1) in this device's order. */
-  moveRoute(hostId: string, url: string, step: -1 | 1): void {
-    const host = this.host(hostId)
-    if (host) this.replace(withRouteMoved(host, url, step))
+  /** One place earlier (-1) or later (1) in this phone's order. */
+  async moveRoute(hostId: string, url: string, step: -1 | 1): Promise<void> {
+    await this.catalog.changeRoutes(hostId, (holder) => withRouteMoved(holder, url, step))
   }
 
   /** A route the person removed. A pairing route is in the host's listing, so the listing changes with it. */
-  removeRoute(hostId: string, url: string): void {
-    const host = this.host(hostId)
-    if (!host) return
-    const changed = withoutRoute(host, url)
-    this.replace(changed)
-    const listing = listingOfHost(changed)
-    if (listing) this.announceListing({ kind: 'put', listing })
+  async removeRoute(hostId: string, url: string): Promise<void> {
+    await this.catalog.changeRoutes(hostId, (holder) => withoutRoute(holder, url))
   }
 
-  /** Cloud sign-out: cloud-derived hosts leave, the account's listed hosts among them; directly paired hosts stay. */
-  forgetAccount(accountUserId: string): void {
-    this.setListedHosts([])
-    this.applyDirectory(accountUserId, '', [])
+  /**
+   * Forgets a host: its listing leaves the person's list, then its credential leaves
+   * this phone (§4.1), and its connection, queued work, drafts, and caches with it.
+   * Throws, and forgets nothing, when the list does not answer.
+   */
+  forget(hostId: string): Promise<void> {
+    return this.catalog.forget(hostId)
   }
 
-  /** Forget a host: its credential, queued work, drafts, caches, and connection. */
-  async forget(hostId: string): Promise<void> {
-    const host = this.host(hostId)
-    if (!host) return
-    // A host this device paired, or one only the account's list names: either way it leaves the list.
-    const isListedOnly = !this.list.some((candidate) => candidate.id === hostId)
-    if (listingOfHost(host) || isListedOnly) this.announceListing({ kind: 'remove', hostId })
-    this.listed = this.listed.filter((candidate) => candidate.id !== hostId)
-    this.list = this.list.filter((candidate) => candidate.id !== hostId)
-    this.write()
-    this.tokens.delete(hostId)
-    await this.secrets.delete(tokenKey(hostId))
-    this.cleanUp(hostId)
-    this.changes.notify()
-  }
-
-  private fromDirectory(entry: DirectoryHost, directoryUrl: string, accountUserId: string, existing?: NativeHost): NativeHost {
-    const saved = savedServerFromDirectory(entry, directoryUrl, Date.now())
-    return {
-      ...existing,
-      id: entry.installationId,
-      label: existing?.hasUserLabel ? existing.label : saved.label,
-      hasUserLabel: existing?.hasUserLabel,
-      routes: mergeRoutes(existing?.routes ?? [], entry.routes, 'directory', saved.lastConnected),
-      os: saved.os ?? existing?.os,
-      lastConnected: existing?.lastConnected ?? 0,
-      paired: existing?.paired ?? false,
-      uplink: saved.uplink,
-      accountUserId,
-    }
-  }
-
-  private replace(host: NativeHost): void {
-    const index = this.list.findIndex((candidate) => candidate.id === host.id)
-    this.list = index >= 0
-      ? this.list.map((candidate, at) => (at === index ? host : candidate))
-      : [...this.list, host]
-    this.write()
-    this.changes.notify()
-  }
-
-  private cleanUp(hostId: string): void {
+  private announceRemoved(hostId: string): void {
     for (const listener of Array.from(this.removedListeners)) listener(hostId)
   }
-
-  private write(): void {
-    this.storage.setItem(HOSTS_KEY, JSON.stringify(this.list))
-  }
-}
-
-function withoutCloud(host: NativeHost): NativeHost {
-  const { uplink: _uplink, accountUserId: _account, ...rest } = host
-  return { ...rest, routes: mergeRoutes(host.routes, [], 'directory', Date.now()) }
 }

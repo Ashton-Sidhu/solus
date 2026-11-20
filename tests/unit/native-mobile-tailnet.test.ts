@@ -150,7 +150,7 @@ describe('the phone finds tailnet hosts through the hosts it is connected to (D3
 
   test('pairing a host found on the tailnet saves its address as a tailnet route (D8)', async () => {
     const app = await connectedApp(async () => [], [])
-    const host = await app.pair({ url: 'http://100.64.0.3:3000', onTailnet: true }, '123456')
+    const { host } = await app.pair({ url: 'http://100.64.0.3:3000', onTailnet: true }, '123456')
     expect(host.routes.map((route) => route.kind)).toEqual(['tailnet'])
   })
 })

@@ -136,7 +136,7 @@ describe('native client against a disposable host', () => {
     const preview = await app.preview(url)
     expect(preview).toMatchObject({ kind: 'found', preview: { name: 'Disposable host', installationId: INSTALLATION_ID } })
     await expect(app.pair({ url }, 'WRONG')).rejects.toThrow('Invalid or expired pair token')
-    const host = await app.pair({ url, name: 'Disposable host' }, PAIR_CODE)
+    const { host } = await app.pair({ url, name: 'Disposable host' }, PAIR_CODE)
     expect(host.id).toBe(INSTALLATION_ID)
     expect(pairedLabels).toEqual(['Solus for iPhone'])
 

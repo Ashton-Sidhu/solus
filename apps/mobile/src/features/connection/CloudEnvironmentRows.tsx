@@ -8,7 +8,7 @@ import { AppText as Text } from "../../components/AppText";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { cn } from "../../lib/cn";
 import { hostReadinessCopy } from "@solus/client-core/host-readiness";
-import type { NativeHost } from "../hosts/host-registry";
+import type { KnownHost } from "@solus/client-core/known-host";
 import { ConnectionStatusDot, isHostReadinessFailure } from "./ConnectionStatusDot";
 import { hostMachineKind } from "./lib/host-machine";
 import { hostStallLine } from "./lib/host-stall-line";
@@ -20,8 +20,8 @@ import { hostStallLine } from "./lib/host-stall-line";
  * rows. A stopped managed host offers Start where T3 offers a connect switch.
  */
 export function CloudEnvironmentRows(props: {
-  readonly hosts: ReadonlyArray<NativeHost>;
-  readonly onOpenHost?: (host: NativeHost) => void;
+  readonly hosts: ReadonlyArray<KnownHost>;
+  readonly onOpenHost?: (host: KnownHost) => void;
   /** No directory host yet: the way to set one up. */
   readonly emptyAction?: ReactNode;
   /** Hide the "Solus Cloud" section title when the host provides its own header. */
@@ -92,7 +92,7 @@ export function CloudEnvironmentRows(props: {
 }
 
 function CloudEnvironmentRow(props: {
-  readonly host: NativeHost;
+  readonly host: KnownHost;
   readonly onOpen: (() => void) | undefined;
 }) {
   const app = useApp();

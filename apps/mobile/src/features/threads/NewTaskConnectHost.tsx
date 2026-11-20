@@ -25,7 +25,7 @@ import {
 import { ConnectPanel } from "../connection/ConnectPanel";
 import { isHostReadinessFailure } from "../connection/ConnectionStatusDot";
 import { hostMachineKind } from "../connection/lib/host-machine";
-import type { NativeHost } from "../hosts/host-registry";
+import type { KnownHost } from "@solus/client-core/known-host";
 import { newTaskHostGate, type NewTaskHostGate } from "./lib/new-task-host-gate";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -104,7 +104,7 @@ export function NewTaskConnectHost(props: {
     setHasSeenDialing(false);
     setConnectingHostId(hostId);
   };
-  const runAction = (host: NativeHost, action: HostReadinessAction | null) => {
+  const runAction = (host: KnownHost, action: HostReadinessAction | null) => {
     if (action === "retry") {
       waitOn(host.id);
       app.connections.retry(host.id);
@@ -221,7 +221,7 @@ export function NewTaskConnectHost(props: {
 }
 
 function ConnectHostCard(props: {
-  readonly host: NativeHost;
+  readonly host: KnownHost;
   readonly hasFailed: boolean;
   /** The person asked this host to connect, so the card waits on it. */
   readonly isConnecting?: boolean;

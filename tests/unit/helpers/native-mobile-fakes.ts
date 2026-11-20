@@ -8,6 +8,8 @@ import type { HostEventMap } from '@solus/contracts/host-events'
 import type { WireNormalizedEvent } from '@solus/contracts/types'
 import { HostConnections, type HostTransport } from '../../../apps/mobile/src/features/hosts/host-connections'
 import { HostRegistry } from '../../../apps/mobile/src/features/hosts/host-registry'
+import { deviceHostListSource } from '@solus/client-core/host-list-source'
+import type { DirectoryHost, UplinkDirectory } from '@solus/contracts/uplink'
 import { ACCOUNT_GRANT_KEY } from '../../../apps/mobile/src/features/account/keychain-token-store'
 import { memoryKeyValueStore, memorySecretStore, type SecretStore } from '../../../apps/mobile/src/platform/ports'
 import { healthBase, signedHealth } from './signing-host'
@@ -138,7 +140,16 @@ export function healthFetch(installationIds: Record<string, string>): typeof fet
 export function createHostWorld(options: { fetch?: typeof fetch; api?: () => FakeApi } = {}) {
   const storage = memoryKeyValueStore()
   const secrets = memorySecretStore()
-  const registry = new HostRegistry(storage, secrets)
+  // The account directory the catalog reads; null is signed out. The person's host
+  // list is in device storage, as on a signed-out phone (plans/033 §2).
+  let directory: UplinkDirectory | null = null
+  const registry = new HostRegistry(storage, secrets, () => ({ listDirectory: async () => directory, isSignedOut: () => directory === null }))
+  void registry.useListSource(deviceHostListSource(storage))
+  /** The account directory lists these hosts (null: signed out), and the catalog reads it. */
+  const answerDirectory = async (hosts: DirectoryHost[] | null): Promise<void> => {
+    directory = hosts ? { directoryUrl: 'https://app.solus.sh', hosts, workspaces: [] } : null
+    await registry.refreshDirectory()
+  }
   const timers = new ManualTimers()
   const transports: FakeTransport[] = []
   const grants: string[] = []
@@ -165,7 +176,7 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
     setTimeoutFn: timers.setTimeoutFn,
     clearTimeoutFn: timers.clearTimeoutFn,
   })
-  return { storage, secrets, registry, connections, transports, timers, grants, grantOptions }
+  return { storage, secrets, registry, answerDirectory, connections, transports, timers, grants, grantOptions }
 }
 
 export async function flushPromises(): Promise<void> {

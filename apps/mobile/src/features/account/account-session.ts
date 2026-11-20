@@ -6,13 +6,14 @@ import { ACTIVE_ORGANIZATION_KEY, OrganizationSelection } from '@solus/client-co
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import type { SyncAccount } from '@solus/client-core/document-sync'
-import { managedHostNeedsStart } from '@solus/client-core/server-registry'
-import { hostListAccountSource, type HostListSource } from '@solus/client-core/host-list-source'
+import { managedHostNeedsStart, type KnownHost } from '@solus/client-core/known-host'
+import type { HostDirectoryReader } from '@solus/client-core/host-catalog'
+import { hostListSourceFor } from '@solus/client-core/host-list-source'
 import { organizationIdFor } from '@solus/client-core/uplink-session'
-import type { AccountOrganization, DirectoryWorkspace, UplinkEnrollmentTicket } from '@solus/contracts/uplink'
+import type { AccountOrganization, DirectoryWorkspace, UplinkDirectory, UplinkEnrollmentTicket } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
 import type { KeyValueStore, SecretStore } from '../../platform/ports'
-import type { HostRegistry, NativeHost } from '../hosts/host-registry'
+import type { HostRegistry } from '../hosts/host-registry'
 import { AccountUnauthorizedError, CloudAccountClient } from './account-client'
 import { KeychainTokenStore } from './keychain-token-store'
 
@@ -25,6 +26,10 @@ import { KeychainTokenStore } from './keychain-token-store'
  * sign-out or a new sign-in makes an older answer stale, and a stale answer is dropped
  * instead of applied. The directory does not depend on the selected organization: a
  * token caller has no active organization, and this device chooses it.
+ *
+ * It is the host catalog's directory reader, and it chooses where the catalog reads
+ * the person's host list (plans/033 §4.3): the account while signed in; device
+ * storage while signed out, because a phone has no host of its own.
  */
 
 export type AccountView =
@@ -56,7 +61,7 @@ export interface AccountSessionDeps {
   scanLocalNetwork?: () => Promise<DiscoveredServer[]>
 }
 
-export class AccountSession {
+export class AccountSession implements HostDirectoryReader {
   view: AccountView = { kind: 'loading' }
   directory: DirectoryView = { kind: 'idle' }
   readonly changes = new Listeners()
@@ -69,8 +74,12 @@ export class AccountSession {
   /** Moves when the account on this device changes. */
   private generation = 0
   private loaded: Promise<void> | null = null
-  /** The account's host list while signed in (plans/031 D7); null while signed out. */
-  private hostList: HostListSource | null = null
+  /** The account whose host list the catalog reads; null is the list on this device, undefined is none chosen yet. */
+  private hostListAccount: string | null | undefined = undefined
+  /** Why the last directory read failed; null when it did not. */
+  private directoryError: string | null = null
+  /** The first read of the host list that the last sign-in or sign-out started. A start waits for it to know whether there are hosts. */
+  hostListRead: Promise<void> = Promise.resolve()
 
   constructor(private readonly deps: AccountSessionDeps) {
     this.client = new CloudAccountClient(deps.cloudOrigin, deps.fetch)
@@ -95,21 +104,6 @@ export class AccountSession {
     // A phone has one window: the device choice is the selection.
     this.organizations = new OrganizationSelection(() => ({ window: null, device }))
     this.organizations.subscribe(() => this.changes.notify())
-    // A host paired or forgotten here while signed in goes to the account's list (plans/031 D7).
-    deps.registry.onListingChange((change) => {
-      const source = this.hostList
-      if (!source) return
-      const write = change.kind === 'put' ? source.put(change.listing) : source.remove(change.hostId)
-      void write.catch(() => {})
-    })
-  }
-
-  /** Reads the account's host list (plans/031 D7). Signed out, the phone shows its own hosts alone. */
-  private async readHostList(generation: number): Promise<void> {
-    const source = hostListAccountSource(this.client.accountDocuments(() => this.oauth.accessToken({ kind: 'account' }), () => this.recheckGrant()))
-    this.hostList = source
-    const listings = await source.read()
-    if (listings && generation === this.generation) this.deps.registry.setListedHosts(listings)
   }
 
   /** The load barrier for the account. Routes wait for it before restoring. */
@@ -171,47 +165,67 @@ export class AccountSession {
 
   /**
    * Reads organizations and hosts. The two reads are apart: hosts apply even when the
-   * account read fails, and then the organizations shown before stay. A result from
-   * before a switch or a sign-out is dropped.
+   * account read fails, and then the organizations shown before stay. The host catalog
+   * reads the directory (`listDirectory`) and keeps its hosts and workspace services.
+   * A result from before a switch or a sign-out is dropped.
    */
   async refreshDirectory(): Promise<void> {
-    const identity = this.identity
-    if (!identity) return
+    if (!this.identity) return
     const generation = this.generation
     const previous = this.directory
     this.setDirectory({ kind: 'loading' })
-    const token = await this.oauth.accessToken({ kind: 'account' })
+    const [account] = await Promise.allSettled([this.readAccount(), this.deps.registry.refreshDirectory()])
     if (generation !== this.generation) return
-    if (!token) {
-      this.setDirectory({ kind: 'error', message: 'Solus Cloud did not answer. Check your connection and try again.' })
+    if (account.status === 'rejected' && account.reason instanceof AccountUnauthorizedError) this.recheckGrant()
+    if (this.directoryError) {
+      this.setDirectory({ kind: 'error', message: this.directoryError })
       return
     }
-    const startup = this.oauth.takeStartupAccount()
-    const startupDirectory = this.oauth.takeStartupDirectory()
-    const [account, directory] = await Promise.allSettled([
-      startup ? Promise.resolve(startup) : this.client.account(token),
-      startupDirectory ? Promise.resolve({ directoryUrl: this.client.origin, ...startupDirectory }) : this.client.directory(token),
-    ])
-    if (generation !== this.generation) return
-    if (account.status === 'rejected' && account.reason instanceof AccountUnauthorizedError
-      || directory.status === 'rejected' && directory.reason instanceof AccountUnauthorizedError) {
-      this.recheckGrant()
-    }
-    if (directory.status === 'rejected') {
-      this.setDirectory({ kind: 'error', message: errorText(directory.reason) })
-      return
-    }
-    this.deps.registry.applyDirectory(identity.sub, directory.value.directoryUrl, directory.value.hosts)
-    void this.readHostList(generation)
     // A registered host that is not linked has no route: look for it on the local network (ADR 0001 §2.2 rule 9).
-    if (this.deps.scanLocalNetwork && directory.value.hosts.some((host) => host.routes.length === 0)) {
+    if (this.deps.scanLocalNetwork && this.deps.registry.hosts().some((host) => host.uplink && host.routes.length === 0)) {
       void this.deps.scanLocalNetwork().then((found) => this.deps.registry.applyNearby(found)).catch(() => {})
     }
-    this.organizations.reconcile(directory.value.workspaces)
+    const workspaces = [...this.deps.registry.workspaces()]
+    this.organizations.reconcile(workspaces)
     const organizations = account.status === 'fulfilled'
       ? account.value.organizations
       : previous.kind === 'loaded' ? previous.organizations : []
-    this.setDirectory({ kind: 'loaded', organizations, workspaces: directory.value.workspaces })
+    this.setDirectory({ kind: 'loaded', organizations, workspaces })
+  }
+
+  /**
+   * The account's directory, for the host catalog. A read that a sign-out or another
+   * account overtook is read again for the account on this device now, so the catalog
+   * never keeps another account's hosts. Null when signed out or the read failed.
+   */
+  async listDirectory(): Promise<UplinkDirectory | null> {
+    for (;;) {
+      const generation = this.generation
+      this.directoryError = null
+      if (!this.identity) return null
+      try {
+        const directory = await this.readDirectory()
+        if (generation === this.generation) return directory
+      } catch (error) {
+        if (generation !== this.generation) continue
+        if (error instanceof AccountUnauthorizedError) this.recheckGrant()
+        this.directoryError = errorText(error)
+        return null
+      }
+    }
+  }
+
+  private async readDirectory(): Promise<UplinkDirectory> {
+    const token = await this.oauth.accessToken({ kind: 'account' })
+    if (!token) throw new Error('Solus Cloud did not answer. Check your connection and try again.')
+    const startup = this.oauth.takeStartupDirectory()
+    return startup ? { directoryUrl: this.client.origin, ...startup } : this.client.directory(token)
+  }
+
+  private async readAccount() {
+    const token = await this.oauth.accessToken({ kind: 'account' })
+    if (!token) throw new Error('Solus Cloud did not answer. Check your connection and try again.')
+    return this.oauth.takeStartupAccount() ?? this.client.account(token)
   }
 
   selectOrganization(organizationId: string): void {
@@ -219,7 +233,7 @@ export class AccountSession {
   }
 
   /** An access token for one directory host; `refused` names a kept one the host refused. */
-  hostAccessToken(host: NativeHost, options?: { refused?: string }): Promise<string | null> {
+  hostAccessToken(host: KnownHost, options?: { refused?: string }): Promise<string | null> {
     if (!this.identity || !host.uplink) return Promise.resolve(null)
     return this.oauth.accessToken({ kind: 'host', hostId: host.uplink.hostId }, options)
   }
@@ -232,8 +246,7 @@ export class AccountSession {
 
   /** The routes the directory lists for an organization's Solus API; empty when it lists none. */
   solusApiRoutes(organizationId: string): DirectoryWorkspace['routes'] {
-    if (this.directory.kind !== 'loaded') return []
-    return this.directory.workspaces.find((workspace) => workspace.organizationId === organizationId)?.routes ?? []
+    return this.deps.registry.workspaces().find((workspace) => workspace.organizationId === organizationId)?.routes ?? []
   }
 
   /** True when the phone holds no sign-in: it ended or was never made. */
@@ -245,12 +258,12 @@ export class AccountSession {
    * The organization a dial to this host works in (ADR 0001 §6.4): the selected one when
    * the host is shared with it, else the host's first share, else none (the owner).
    */
-  dialOrganizationId(host: NativeHost): string | null {
+  dialOrganizationId(host: KnownHost): string | null {
     return organizationIdFor(null, host.uplink, this.organizationId)
   }
 
   /** Starts a stopped managed host through its existing authorized operation. */
-  async startManagedHost(host: NativeHost): Promise<boolean> {
+  async startManagedHost(host: KnownHost): Promise<boolean> {
     if (!this.identity || !host.uplink || !managedHostNeedsStart(host.uplink.managedState)) return false
     const token = await this.oauth.accessToken({ kind: 'account' })
     if (!token) return false
@@ -265,7 +278,7 @@ export class AccountSession {
   }
 
   /** Removes a host this account owns from the account, on every device. False when signed out or refused. */
-  async removeHost(host: NativeHost): Promise<boolean> {
+  async removeHost(host: KnownHost): Promise<boolean> {
     if (!this.identity || !host.uplink) return false
     const token = await this.oauth.accessToken({ kind: 'account' })
     if (!token) return false
@@ -305,6 +318,11 @@ export class AccountSession {
   }
 
   private follow(state: AccountState): void {
+    this.followState(state)
+    this.followHostList()
+  }
+
+  private followState(state: AccountState): void {
     switch (state.kind) {
       case 'signed-in':
         if (this.identity?.sub !== state.identity.sub) {
@@ -336,13 +354,28 @@ export class AccountSession {
     }
   }
 
-  /** The account's hosts, organization choice, and directory leave this device. */
+  /**
+   * The catalog reads the account's host list while signed in, and the list on this
+   * device while signed out (plans/033 §2). The credentials stay either way, and the
+   * catalog moves the hosts this phone paired to the new list. Signed out, the
+   * directory answers no hosts, so the account's hosts leave.
+   */
+  private followHostList(): void {
+    const account = this.identity?.sub ?? null
+    if (account === this.hostListAccount) return
+    this.hostListAccount = account
+    const accountDocuments = this.identity
+      ? this.client.accountDocuments(() => this.oauth.accessToken({ kind: 'account' }), () => this.recheckGrant())
+      : null
+    this.hostListRead = this.deps.registry.useListSource(hostListSourceFor({ accountDocuments, deviceHost: null, deviceStorage: this.deps.storage }))
+    // A directory read in flight is shared, and it may answer for the account that left: read again after it.
+    if (!account) void this.deps.registry.refreshDirectory().then(() => this.deps.registry.refreshDirectory())
+  }
+
+  /** The account's organization choice and directory leave this device; the catalog drops its hosts (`followHostList`). */
   private endAccount(): void {
-    const identity = this.identity
     this.generation += 1
     this.identity = null
-    this.hostList = null
-    if (identity) this.deps.registry.forgetAccount(identity.sub)
     // No workspaces: the selection empties, and the device seed goes with the account.
     this.organizations.reconcile([])
     this.deps.storage.removeItem(ACTIVE_ORGANIZATION_KEY)

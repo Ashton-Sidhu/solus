@@ -56,7 +56,7 @@ describe('native app composition', () => {
     const { app } = createApp()
     await app.load()
     await app.registry.savePaired({ id: 'inst-other', label: 'Other', url: 'http://o:1' }, 'o')
-    const host = await app.pair({ url: 'http://10.0.0.8:3000', name: 'Studio Mac' }, 'ABC123')
+    const { host } = await app.pair({ url: 'http://10.0.0.8:3000', name: 'Studio Mac' }, 'ABC123')
     expect(host.id).toBe('inst-a')
     expect(host.label).toBe('Studio Mac')
     expect(app.registry.hosts().map((entry) => entry.id)).toEqual(['inst-other', 'inst-a'])

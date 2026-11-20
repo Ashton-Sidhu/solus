@@ -24,6 +24,7 @@ export function HostsScreen({ navigation }: ScreenProps<"Hosts">) {
   const app = useApp();
   const insets = useSafeAreaInsets();
   const hosts = useListened(app.registry.changes, app.registry.hosts);
+  const listState = useListened(app.registry.changes, app.registry.listState);
   const account = useListened(app.account.changes, () => app.account.view);
   const directory = useListened(app.account.changes, () => app.account.directory);
   const headerIconColor = useUniwindTheme()["--color-icon"];
@@ -66,7 +67,10 @@ export function HostsScreen({ navigation }: ScreenProps<"Hosts">) {
           signedIn ? (
             <RefreshControl
               refreshing={directory.kind === "loading"}
-              onRefresh={() => void app.account.refreshDirectory()}
+              onRefresh={() => {
+                void app.registry.refreshList();
+                void app.account.refreshDirectory();
+              }}
             />
           ) : undefined
         }
@@ -78,6 +82,8 @@ export function HostsScreen({ navigation }: ScreenProps<"Hosts">) {
         ) : null}
         <LocalEnvironmentList
           hosts={localHosts}
+          listState={listState}
+          onRetry={() => void app.registry.refreshList()}
           onAdd={() => navigation.navigate("PairHost")}
           expandedId={null}
           onToggle={(hostId) => navigation.navigate("HostSettings", { hostId })}
@@ -86,8 +92,7 @@ export function HostsScreen({ navigation }: ScreenProps<"Hosts">) {
           onRemove={(host) => confirmForgetHost(app, host)}
         />
 
-        {/* Hosts the directory listed stay visible even after sign-out until
-            the registry drops them; only the directory read needs an account. */}
+        {/* Signed out, the directory lists no host, so the section leaves with the account. */}
         {signedIn || cloudHosts.length > 0 ? (
           <CloudEnvironmentRows
             hosts={cloudHosts}
