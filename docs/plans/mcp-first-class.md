@@ -1,6 +1,6 @@
 # MCP as a first-class feature
 
-Status: phased plan, written 2026-11-18. P0 and A1 are built. This plan continues
+Status: phased plan, written 2026-11-18. P0, A1, and A3 are built. This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -69,10 +69,13 @@ some of them. This plan follows the sources.
    never checks.
 7. **The SDK gateway guide covers only the saved verdict.** It says nothing
    about tool names, progress, cancellation, `_meta`, or trace context.
-8. **No provider model takes audio in a tool result.** A Claude tool result
-   takes text, images, and documents. A Codex dynamic tool result takes
-   `inputText` and `inputImage` only
-   (`generated/v2/DynamicToolCallOutputContentItem.ts`). §6 gives the audio to
+8. **No provider model takes audio in a tool result that Solus can rely on.**
+   A Claude tool result takes text, images, and documents. The Codex protocol
+   has an `inputAudio` item beside `inputText` and `inputImage`
+   (`generated/v2/DynamicToolCallOutputContentItem.ts`, and Codex CLI 0.167),
+   but Claude has no equal, and nothing shows that the Codex models accept it
+   (the CLI has the error "Invalid audio input."). Solus does not send
+   `inputAudio`, so both providers get the same content. §6 gives the audio to
    the person and a file path to the agent.
 9. **The tool result loses more than the brief says.** `mapCallResult` also
    drops each image that is not PNG, each embedded resource that is a blob, and
@@ -106,6 +109,15 @@ some of them. This plan follows the sources.
 18. **`mcp-integrations.md` §2 names the page "Integrations".** The code and
     §7 of the same plan name it Settings → MCP, and the UI says "MCP server".
     This plan follows the code (§2).
+19. **A client never receives a tool result's text** (A3). The host sends
+    `contentBytes` and `errorHead` only (`result-projection.ts`). So the
+    person cannot read "the same line" as the agent. §6 adds `toolLeftOut`:
+    the notes for the parts that a limit or a check left out.
+20. **The SDK checks `structuredContent` itself** (A3). Version 2 of the SDK
+    validates it against the `outputSchema` in `callTool` when its session
+    listed the tool, and throws `ProtocolError`. It also throws when such a
+    tool returns no structured content. §6 maps both errors to the gateway's
+    own error result and keeps the session open.
 
 ## 2. Vocabulary
 
@@ -171,9 +183,9 @@ The UI says **MCP server**, as Settings → MCP does today.
 | Server instructions | In the system prompt append | In the thread developer instructions |
 | Progress | The person sees it. The agent does not. | The same |
 | All images | Every image block | Every `inputImage` item |
-| Audio | A file path in text | The same |
-| Resource links, embedded resources | Text and the read tool | The same |
-| `structuredContent` | JSON text | The same |
+| Audio | A file path in text. `inputAudio` is not used (§1, item 8). | The same |
+| Resource links, embedded resources | Text; the read tool from F1 | The same |
+| `structuredContent` | JSON text, beside the text parts | The same |
 | `stdio` integrations, found servers | The same integration tools | The same |
 | CLI skip | `deniedMcpServers` in the run's flag settings | `mcp_servers.<name>.enabled = false` in the thread config |
 | MCP prompts | The prompt text is the person's message | The same |
@@ -288,73 +300,140 @@ give at most four events. An elicitation stops both timers.
 
 ## 6. Full tool result content
 
-**Owner.** A new pure module `integrations/result-content.ts`. Its function
-`agentResultOf(content, options)` maps MCP content to an `AgentToolResult`.
-It replaces `mapCallResult`. Tool results, resource reads (§11), prompt
-messages (§10), and MCP task results (§12) all use it.
+Built in A3.
+
+**Owner.** The module `integrations/result-content.ts`. Its function
+`agentResultOf(result, options)` maps an MCP tool result to an
+`AgentToolResult`. It replaces `mapCallResult`. Tool results use it now.
+Resource reads (§11), prompt messages (§10), and MCP task results (§12) use it
+when their phases come. `options` is `{ tool, outputSchema?, assetsDir? }`.
+The data module `data/assets/tool-result-media.ts` owns the two lines that the
+mapper writes and the host reads back (below).
 
 **Contracts.** In `agent-tool.ts`:
 
 ```ts
-interface AgentToolResult { ok: boolean; text: string; images?: AgentToolImage[]; audio?: AgentToolAudio[] }
+interface AgentToolResult { ok: boolean; text: string; images?: AgentToolImage[] }
 interface AgentToolImage { mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'; data: string }
-interface AgentToolAudio { assetId: string; mimeType: string; hostPath: string }
 ```
 
-`image` becomes `images`; the compiler finds each tool that sets it. The
-`tool_result` event gains `toolAudio?: { assetId: string; mimeType: string }[]`
-beside `toolImages`.
+`image` became `images`. There is no `audio` member and no
+`AgentToolAudio`: the person's player does not come from the
+`AgentToolResult`. Each provider normalizer builds the `tool_result` event
+from the provider's own transcript, so the host reads the saved file's line
+back from the result text, live and on a history reload.
+
+In `packages/contracts/src/types.ts` and `session-history.ts`:
+
+```ts
+interface ToolResultAudio { assetId: string; mimeType: string }
+```
+
+`tool_result` (Claude), `tool_call_update` (Codex), the wire `tool_result`,
+`Message`, and the history row gain `toolAudio?: ToolResultAudio[]` and
+`toolLeftOut?: string[]` beside `toolImages`.
 
 **The mapping.**
 
 | Content | The agent gets | The person gets |
 |---|---|---|
-| `text` | The text | As today |
-| `image` | The image. At most 8 for one result, each at most `MAX_AGENT_TOOL_IMAGE_BYTES`. A PNG is scaled down to `MAX_AGENT_TOOL_IMAGE_EDGE`. An image past a limit becomes one text line that says so. | Each image in the tool row (`toolImages`) |
-| `audio` | One text line: the type, the size, and the host path of the saved file | A player in the tool row (`toolAudio`) |
-| `resource_link` | One text line: name, URI, type, and "Read it with `read_integration_resource`, server `<slug>`." | The same line |
-| `resource` with `text` | The text, under a line with its URI | As today |
-| `resource` with `blob` | An image or audio by its type, as above. Any other type: the host path of the saved file. | The same |
+| `text` | The text | As today (no text in the tool row) |
+| `image` | The image, when its type is PNG, JPEG, WebP, or GIF and its bytes are that type. A PNG is scaled down to `MAX_AGENT_TOOL_IMAGE_EDGE`. An image past a limit is saved, and a `[Left out: …]` line names the limit and the path. | Each image sent, in the tool row (`toolImages`); a note for each one left out |
+| `audio` | `[Audio: <type>, <size>, saved at <host path>]` | A player in the tool row (`toolAudio`) |
+| `resource_link` | `Resource link: <title or name> <<uri>> (<type>)` | Nothing until F1 |
+| `resource` with `text` | `Resource <uri>:` and the text | As today |
+| `resource` with `blob` | An image or audio by its type, as above. Any other type: `Resource <uri> (<type>, <size>) saved at <host path>`. | The same as for an image or audio |
+| An unknown content type | A `[Left out: …]` line with the type | A note |
 
-A saved file goes to the host's attachment store
-(`data/assets/attachment-store.ts`), at most 10 MB. The agent runs on the host, so a host path works for it in a shell
-command. A client never gets the path; it gets the asset id.
+A `[Left out: <part> (<type>, <size>). <reason or limit>. Saved at <path>]`
+line names each part that a limit or a check left out. The person gets the
+note without the host path. Nothing is dropped without a line.
+
+Before F1, the resource link line does not name `read_integration_resource`:
+the agent cannot call a tool that does not exist. F1 adds the sentence
+"Read it with `read_integration_resource`, server `<slug>`." to the line when
+it adds the tool.
+
+**Limits.**
+
+| Limit | Value | Name in code |
+|---|---|---|
+| Images sent for one result | 8 | `MAX_TOOL_RESULT_IMAGES` |
+| One image sent | 5 MB, after the PNG scale | `MAX_AGENT_TOOL_IMAGE_BYTES` |
+| All images sent for one result | 10 MB | `MAX_RESULT_IMAGE_TOTAL_BYTES` |
+| One saved file (audio, a blob, an image left out) | 10 MB | `MAX_RESULT_FILE_BYTES` |
+| Saved files for one result | 8 | `MAX_RESULT_FILES` |
+| All saved files for one result | 25 MB | `MAX_RESULT_FILE_TOTAL_BYTES` |
+| Text for one result | 200,000 characters | `MAX_RESULT_TEXT_CHARS` |
+| Players and notes in one tool row | 8 each | `MAX_TOOL_RESULT_AUDIO`, `MAX_TOOL_RESULT_LEFT_OUT` |
+
+A read across several accounts (`mcp-integrations.md` §13.3) merges the
+images of all accounts within the same image limits
+(`mergedAccountResults`).
+
+**Saved files.** A saved file goes to the host's asset store
+(`writeAssetBytes` in `data/assets/assets.ts`), under the SHA-256 of its bytes
+and an extension from its checked type. The attachment store has no asset
+ids; `agentReadablePath` from `attachment-store.ts` gives the agent a path it
+can read on a host with member isolation. The agent runs on the host, so a
+host path works for it in a shell command. A client never gets the path; it
+gets the asset id. A stored audio asset plays in place with its audio type
+(`audioAssetMime`); every other saved file downloads.
 
 **`outputSchema` and `structuredContent`.**
 
-- `UpstreamTool` keeps `outputSchema`.
-- A tool with an `outputSchema`: the gateway checks `structuredContent`
-  against it (the specification says a client SHOULD). A value that fails is
-  an error result: "`<tool>` returned data that does not match its output
-  schema." The agent gets the JSON of `structuredContent` and not the text
-  parts, because the schema makes the structured form the contract.
-- A tool without one: the text parts win. `structuredContent` is used only
-  when there is no text, as today.
-- The tool description gains one line, "Returns JSON: `<compact schema>`",
-  when that line is at most 500 characters.
+- `UpstreamTool` keeps `outputSchema`. The gateway reads it from the cached
+  tool list.
+- A tool with an `outputSchema`, and a result that is not an error: the
+  gateway checks `structuredContent` with the SDK's validator
+  (`fromJsonSchema`). A value that fails, or no value, is an error result:
+  "`<tool>` returned data that does not match its output schema: <detail>".
+  The SDK makes the same check when its session listed the tool (§1, item
+  20); `outputSchemaRefusal` gives its error the same text, and the session
+  stays open.
+- The agent gets the text parts and the JSON of `structuredContent`, with or
+  without a schema. A text part that is the same JSON (the specification asks
+  a server to send it) is not repeated.
+- The tool description gains one line, "Returns JSON: `<schema>`", when that
+  line is at most 500 characters.
 - An MCP App is not changed: its snapshot holds the raw result.
 
-**What the agent sees.** `claudeToolResponse` adds each image.
-`codexToolContentItems` adds each image as `inputImage`. Both get the same
-text.
+**What the agent sees.** `claudeToolResponse` adds each image as an MCP image
+block; the Claude CLI gives it to the model as an image block. The model
+takes PNG, JPEG, WebP, and GIF. `codexToolContentItems` adds each image as an
+`inputImage` data URL. Both get the same text. Neither gets audio as audio.
+The Claude CLI has its own size limit for an MCP result
+(`MAX_MCP_OUTPUT_TOKENS`); A3 did not measure how it counts images.
 
-**Surfaces.** The tool row shows each image and an audio player, on desktop,
-web, and mobile. Loading: the media loads by asset id when the row is near
-the viewport. Error: "This file is no longer available." There is no action
-beyond play, so no reverse action.
+**Surfaces.** The open tool row shows each image, an audio player for each
+`toolAudio`, and the notes of `toolLeftOut`, on desktop and web
+(`ToolGroupItem.svelte`, `ToolAudioPlayer.svelte`, `lib/tool-row-media.ts`)
+and on mobile (`thread-work-log.tsx`, `ThreadToolAudio.tsx`). Loading: the
+media loads by asset id when the row opens; the player says "Loading audio…".
+Error: "This file is no longer available." after one new signed URL. There is
+no action beyond play, so no reverse action.
 
 **Remote.** Media reaches a client by asset id through the existing asset
 read. No data URL of audio goes in an event.
 
-**Security.** Limits as above. A file name comes from the asset id, never
-from the server's text. The type of a blob is the declared `mimeType`; an
-image is sent to a provider only when its bytes decode as that type.
+**Security.** Limits as above. A file name is the asset id, never the
+server's text. A declared type is checked against the bytes: an image is sent
+to a provider only when its bytes are that type, and audio is stored as audio
+only when its first bytes are that audio type. Other audio is saved as `.bin`.
+A server can write an `[Audio: …]` or `[Left out: …]` line in its own text.
+The host makes a player only for a stored asset id with an audio extension, so
+a server can point only at bytes it already has. A note is shown as plain
+text (§3, rule 3).
 
-**Tests** (`tests/unit/integrations/result-content.test.ts`): three images
-reach both adapters in order; a ninth image becomes a line; a JPEG is sent;
-audio becomes an asset, a line, and `toolAudio`; a resource link names the
-read tool; a blob resource of each kind; a value that breaks its
-`outputSchema` is an error; text wins without a schema.
+**Tests** (`tests/unit/integrations/result-content.test.ts`, and the Codex path
+in `tests/unit/transcript-images.test.ts`): three images reach both adapters
+in order; a ninth image becomes a line; an image past the size of one image
+or past the total names that limit; a JPEG and a WebP are sent; bytes that are
+not the declared type are refused; audio becomes an asset, a line, and
+`toolAudio`; a resource link names no read tool before F1; a blob resource of
+each kind; a value that breaks its `outputSchema` is an error; a result with
+text and `structuredContent` keeps both; the text limit is named; a stored
+audio asset plays in place.
 
 ## 7. Stdio transport
 
@@ -1355,7 +1434,8 @@ Changed: `integrationCreate`, `integrationUpdate`, `integrationConnectStart`,
 
 Events: `integration.changed` gains `change: 'facts'`;
 `integration.resourceWatchChanged`; `mcpTask.changed`. The normalized event
-`tool_progress`. `tool_result` gains `toolAudio`.
+`tool_progress`. `tool_result` and `tool_call_update` gain `toolAudio` and
+`toolLeftOut` (§6).
 
 ```ts
 interface IntegrationFacts {
