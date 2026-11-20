@@ -1,6 +1,6 @@
 # 033 The client keeps only its credentials
 
-Status: IMPLEMENTED, 2026-11-20, on branch `solus/c95050b0` (S1–S5 merged; not
+Status: IMPLEMENTED, 2026-11-20, on branch `solus/integrate-host-credential-catalog` (S1–S5 merged; not
 pushed). Decisions signed off (§3). Amends [031](031-host-owns-its-data.md) D7. The
 choices the stages made are in §7.
 
@@ -272,7 +272,7 @@ S1 and S2 can run at the same time. S3 and S4 can run at the same time after S2.
 
 ## 7. Record (2026-11-20)
 
-The stages were built in parallel child sessions and merged on `solus/c95050b0`.
+The stages were built in parallel child sessions and merged on `solus/integrate-host-credential-catalog`.
 Choices the stages made:
 
 - **S1. A refresh keeps the same token.** `refreshSessionToken` updates
