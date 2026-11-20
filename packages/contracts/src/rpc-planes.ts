@@ -293,6 +293,10 @@ export const RPC_PLANES = {
   // The host reads an MCP resource as the person and keeps it in its attachment store (mcp-first-class.md §11)
   integrationResourceList: 'execution',
   integrationResourceAttach: 'execution',
+  // The host polls a session's MCP tasks and answers for them (mcp-first-class.md §12)
+  mcpTaskList: 'execution',
+  mcpTaskCancel: 'execution',
+  mcpTaskAnswer: 'execution',
   // The host runs the sign-in and keeps the token (mcp-integrations.md §4.2)
   integrationConnectionList: 'execution',
   integrationConnectStart: 'execution',

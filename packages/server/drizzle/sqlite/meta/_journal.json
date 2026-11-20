@@ -22,6 +22,13 @@
       "when": 1795148330105,
       "tag": "0002_stdio_integrations",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795188768845,
+      "tag": "0003_mcp_tasks",
+      "breakpoints": true
     }
   ]
 }

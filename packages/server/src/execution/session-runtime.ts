@@ -209,6 +209,8 @@ export class SessionRuntime extends EventEmitter {
   readonly usageLimits = new UsageLimitsStore()
   /** Owns every exchange between sessions; wired once the host boots. */
   orchestration: OrchestrationHooks | null = null
+  /** Whether a live MCP task holds the session in 'background' (docs/plans/mcp-first-class.md §12.5); the MCP task owner answers. */
+  mcpTaskHolds: ((sessionId: string) => boolean) | null = null
   /** Server-side per-session needs-attention state; outlives connected clients
    *  and persists across restarts. Fed by `setStatus` transitions; read by the
    *  `listAttention` RPC and broadcast on the `attention-changed` topic. */
@@ -372,6 +374,10 @@ export class SessionRuntime extends EventEmitter {
   }
 
   /** Hands every exchange between sessions to the orchestrator. */
+  useMcpTaskHolds(holds: (sessionId: string) => boolean): void {
+    this.mcpTaskHolds = holds
+  }
+
   useOrchestration(orchestration: OrchestrationHooks): void {
     this.orchestration = orchestration
   }

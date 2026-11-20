@@ -329,6 +329,33 @@ export const integrationServerFacts = defineTable('integration_server_facts', {
   stored_at: bigint({ notNull: true }),
 }, { primaryKey: ['integration_id', 'user_id', 'account_id'] })
 
+/**
+ * One tool call that a server runs as an MCP task (docs/plans/mcp-first-class.md
+ * §12.2). The host polls it as `user_id`, the person who made the call, and
+ * gives its end to `session_id` once: `delivered_at` is set in the same write
+ * that claims the delivery. `upstream_task_id` can act as a bearer token, so it
+ * never leaves the host.
+ */
+export const mcpTask = defineTable('mcp_task', {
+  id: text({ primaryKey: true }),
+  organization_id: text({ notNull: true }),
+  session_id: text({ notNull: true }),
+  integration_id: text({ notNull: true }),
+  user_id: text({ notNull: true }),
+  account_id: text({ notNull: true }),
+  tool: text({ notNull: true }),
+  upstream_task_id: text({ notNull: true }),
+  status: text({ notNull: true }),
+  status_message: text(),
+  traceparent: text(),
+  created_at: bigint({ notNull: true }),
+  updated_at: bigint({ notNull: true }),
+  expires_at: bigint({ notNull: true }),
+  delivered_at: bigint(),
+}, {
+  indexes: [{ name: 'mcp_task_by_session', columns: ['session_id', 'created_at'] }],
+})
+
 export const integrationConnection = defineTable('integration_connection', {
   integration_id: text({ notNull: true }),
   user_id: text(),
@@ -381,5 +408,5 @@ export const HOST_TABLES = [
   runs, runQueue, runExchanges, asyncQuestions,
   outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, memberFolder, automations, automationRuns, browserProfiles,
-  integration, integrationConnection, integrationServerFacts, notificationPrObservations, savedMetricsQueries, turnFlags,
+  integration, integrationConnection, integrationServerFacts, mcpTask, notificationPrObservations, savedMetricsQueries, turnFlags,
 ] as const

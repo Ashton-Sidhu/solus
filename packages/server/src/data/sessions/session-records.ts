@@ -624,12 +624,14 @@ export function markSessionPublished(sessionId: string): Promise<void> {
 /**
  * The host tables that name a session cannot reference the ported row (on the
  * Postgres engine it is in another database): the session's execution ledger,
- * its open questions, and its mirror cursors go with it here.
+ * its open questions, its mirror cursors, and its MCP tasks go with it here.
+ * The MCP task owner finds a row gone at its next status request and cancels
+ * that MCP task on its server.
  */
 function deleteHostRowsOfSession(sessionId: string): void {
   withTx(() => {
     const db = getDb()
-    for (const table of ['runs', 'run_queue', 'async_questions', 'transcript_mirror_rows', 'activity_mirror_rows']) {
+    for (const table of ['runs', 'run_queue', 'async_questions', 'transcript_mirror_rows', 'activity_mirror_rows', 'mcp_task']) {
       db.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId)
     }
     db.prepare('DELETE FROM run_exchanges WHERE sender_session_id = ? OR target_session_id = ?').run(sessionId, sessionId)

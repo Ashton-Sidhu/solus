@@ -95,6 +95,7 @@ import type { SessionActionLeaf } from './permissions'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
+import type { McpTask, McpTaskAnswerRequest, McpTaskIdRequest, McpTaskListRequest } from './integrations/mcp-task'
 import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundListRequest, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptListRequest, IntegrationPromptText } from './integrations/prompts'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
@@ -678,6 +679,12 @@ export interface SolusAPI {
   integrationResourceList(request: IntegrationResourceListRequest): Promise<IntegrationResourceLists>
   /** Reads one MCP resource as the caller and keeps its contents in the conversation's attachment store: one attachment for each content item. */
   integrationResourceAttach(ctx: IpcContext, request: IntegrationResourceAttachRequest): Promise<Attachment[]>
+  /** A session's MCP tasks that are live or ended in the last day (mcp-first-class.md §12.5). Changes arrive as `mcpTask.changed`. */
+  mcpTaskList(request: McpTaskListRequest): Promise<McpTask[]>
+  /** Asks the server to cancel one MCP task. Cooperative: the row says "Cancelling…" until the server reports an end. False when it is not live. */
+  mcpTaskCancel(request: McpTaskIdRequest): Promise<boolean>
+  /** Answers one question of an MCP task that needs input. False when the question is no longer open. */
+  mcpTaskAnswer(request: McpTaskAnswerRequest): Promise<boolean>
   /** The caller's own connections (§4). Changes arrive as `integration.connectionChanged`. */
   integrationConnectionList(): Promise<IntegrationConnection[]>
   /** Starts the caller's sign-in to one integration. The end of a `waiting` flow arrives as `host.integrationAuthFinished`. */

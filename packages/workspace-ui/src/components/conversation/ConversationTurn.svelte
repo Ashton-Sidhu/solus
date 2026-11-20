@@ -10,6 +10,11 @@
   import { type Turn, type GroupedItem, itemKey, needsLiveRow, shouldAnimateTurnEntry, visibleTurnBody } from "./lib/turns";
   import { describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
   import BackgroundWorkRow from "./BackgroundWorkRow.svelte";
+  import McpTaskRows from "./McpTaskRows.svelte";
+  import { mcpTasksStore } from "../../contexts/sessions/mcp-tasks.store.svelte";
+  import { mcpTaskIsLive } from "@solus/contracts/integrations/mcp-task";
+  import { shownMcpTasks } from "@solus/client-core/mcp-task-row";
+  import { runHost } from "../../contexts/workspace/run-location";
   import TurnActivityRow from "./TurnActivityRow.svelte";
   import StatusCard from "./StatusCard.svelte";
   import TurnBody from "./TurnBody.svelte";
@@ -52,6 +57,16 @@
     turn.live ? null : turnReplyCards(turn, sessionArtifactsStore.artifactsFor(session.sessionFor(tabId)?.id)?.own ?? [], nextStartedAt),
   );
   const NO_PLACED_PULL_REQUESTS: ReadonlySet<string> = new Set();
+  // The session's MCP tasks show on its last turn: the live ones, and those that ended during it.
+  const ownSessionId = $derived(session.sessionFor(tabId)?.id);
+  const ownServerId = $derived(runHost(session.sessionFor(tabId)?.run));
+  $effect(() => {
+    if (index === total - 1 && ownSessionId && ownServerId) mcpTasksStore.ensure(ownServerId, ownSessionId);
+  });
+  const mcpTasks = $derived(index === total - 1 ? shownMcpTasks(mcpTasksStore.tasksFor(ownSessionId), turn.startedAt) : []);
+  // A live MCP task holds the session in `background`. The row of the agent's own
+  // background work then says nothing the MCP task rows do not, unless the turn waits on more.
+  const backgroundWorkIsMcpTasks = $derived(mcpTasks.some(mcpTaskIsLive) && describeBackgroundWait(turn.body) === null);
 </script>
 
 {#if turn}
@@ -159,8 +174,11 @@
 <!-- Background work is the session's state, not this turn's: the last
    turn states it, where the live row would be, even when an earlier turn
    launched the task. -->
-{#if hasBackgroundWork && isLastTurn && !live}
+{#if hasBackgroundWork && isLastTurn && !live && !backgroundWorkIsMcpTasks}
   <BackgroundWorkRow wait={settledBackgroundWait(turn.body)} onStop={onStopBackgroundWork} />
+{/if}
+{#if mcpTasks.length}
+  <McpTaskRows {tabId} tasks={mcpTasks} />
 {/if}
 <!-- Only when nothing else is reporting the run: a tool group at
    the tail already carries the spinner. -->

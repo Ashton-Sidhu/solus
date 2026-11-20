@@ -1959,6 +1959,13 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/threads/ThreadHostNotice.tsx": {
+      "compiled": [
+        "HostNoticeRow",
+        "UserTurnRow"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/threads/ThreadHostLines.tsx": {
       "compiled": [
         "HostGraceWhisper"
@@ -2012,6 +2019,13 @@
           ]
         }
       ]
+    },
+    "apps/mobile/src/features/threads/ThreadMcpTasks.tsx": {
+      "compiled": [
+        "McpTaskRow",
+        "ThreadMcpTasks"
+      ],
+      "skipped": []
     },
     "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx": {
       "compiled": [
@@ -2122,6 +2136,12 @@
       "compiled": [
         "useDelegatedArtifacts",
         "useEnvironmentMenu"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/use-mcp-tasks.ts": {
+      "compiled": [
+        "useMcpTasks"
       ],
       "skipped": []
     },

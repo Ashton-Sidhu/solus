@@ -114,6 +114,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'session.statusChanged':
     case 'session.presenceChanged':
     case 'device.surfaceRequested':
+    case 'mcpTask.changed':
       return { kind: 'session', id: event.payload.sessionId }
     case 'works.changed':
       return { kind: 'work', id: event.payload.workId }
