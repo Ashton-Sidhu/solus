@@ -209,12 +209,28 @@ mobile `conversation-controller.ts` (1,535 at `main`).
 
 ## Tests and checks
 
-- `bun test tests/unit/integrations/`: 375 pass with the related files
-  (`conversation-turn-identity`, `startup-import-graph` but its two budget
-  cases, below).
+- `bun test tests/unit/integrations/ tests/unit/conversation-turn-identity.test.ts
+  tests/unit/startup-import-graph.test.ts`: 375 pass, 2 fail (the two budget
+  cases, below, which fail on `main`).
 - Every test file of `tests/unit/` (1,743), each in its own process, on this
   branch and on `main` (`b6b1b66e4`, checked out detached in this worktree,
-  then back): the numbers follow when the last run ends.
+  then back), six at a time:
+
+  | | Files | Pass | Fail | Time-out |
+  |---|---|---|---|---|
+  | `main` | 1,721 | 1,584 | 136 | 1 |
+  | This branch | 1,743 | 1,605 | 137 | 1 |
+
+  The 22 more files are the program's tests. Every file that fails here fails
+  on `main` too, except `device-feature`, which passes alone (three runs) and
+  failed only under the load of the parallel run; `main` passes it in its run.
+  `session-runtime-rate-limit-park` had one more failing case in the parallel
+  run; alone it fails the same two cases as on `main`. No test file fails
+  because of the program. The failures of `main` that a program file shows
+  are the same assertions: `native-mobile-integrations` (one label),
+  `data-model-identity` (`session_repositories.owner_user_id`, a column of
+  `main`), `access-policy` (`sessionRepositoryBundleChunk`, a method of
+  `main`), `startup-import-graph` (the budget, below).
 - Type checks (`tsc --noEmit`), `main` → this branch: server 135 → 134 (the one
   less is `parentToolUseId` in `codex-backend.ts`, fixed in wave 3), workspace-ui
   40 → 40, client-core 2 → 2, contracts 0 → 0, mobile 0 → 0, `apps/client`
