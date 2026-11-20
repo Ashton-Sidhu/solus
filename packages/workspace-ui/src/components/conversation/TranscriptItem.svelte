@@ -17,6 +17,7 @@
   import PullRequestWatchRow from "./PullRequestWatchRow.svelte";
   import BackgroundCommandRow from "./BackgroundCommandRow.svelte";
   import McpTaskNoticeRow from "./McpTaskNoticeRow.svelte";
+  import ResourceWatchNoticeRow from "./ResourceWatchNoticeRow.svelte";
   import { hostNoticeKind } from "./lib/host-notice";
   import SubagentGroup from "./SubagentGroup.svelte";
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
@@ -178,6 +179,8 @@
     <BackgroundCommandRow message={item.message} {skipMotion} />
   {:else if notice === "mcp-task"}
     <McpTaskNoticeRow message={item.message} {skipMotion} />
+  {:else if notice === "resource-watch"}
+    <ResourceWatchNoticeRow message={item.message} {skipMotion} />
   {:else}
     <UserMessageBubble message={item.message} {skipMotion} {burst} {tabId} />
   {/if}
