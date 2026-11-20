@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
-import { formatSessionCloudScope, type SessionCloudScope, type SessionRepositoryCard } from '@solus/contracts/session-repositories'
+import { type SessionCloudScope, type SessionRepositoryCard } from '@solus/contracts/session-repositories'
 import { ANY_ORGANIZATION } from '../../admission/principal'
-import { getSessionRecord, isOrganizationWork } from '../../data/sessions/session-records'
+import { getSessionRecord } from '../../data/sessions/session-records'
 import { getDb } from '../../db'
 import { sessionCloudSyncDecision } from '../../host/policy/host-policy-store'
 import { cloudAccountOf } from '../../host/host-user'
@@ -11,6 +11,7 @@ import { DelegationError } from '../delegations'
 import { sessionManifestSchema } from './session-manifest'
 import type { SessionRemoteAccess } from './session-remote-access'
 import type { SessionRepositories } from './session-repository'
+import { sessionCloudScope } from './session-cloud-scope'
 
 const log = createLogger('SessionPush', 'session-push.ts')
 const refusedRowSchema = z.object({ push_refused_head: z.string().nullable() })
@@ -66,8 +67,7 @@ export class SessionPusher {
       if (!(this.deps.decision ?? sessionCloudSyncDecision)(record.organizationId, accountId ? { accountId } : null).allowed || !accountId) return
       const hostId = this.deps.hostId()
       if (!hostId) return
-      const cloudScope = isOrganizationWork(record)
-        ? formatSessionCloudScope('organization', record.organizationId) : formatSessionCloudScope('person', accountId)
+      const cloudScope = sessionCloudScope(record, accountId)
       await this.deps.access.report({ hostId, sessionId, event: 'running' }, cloudScope, accountId)
     })().catch(() => { log.warn('session_running_report_failed', { sessionId }) })
   }
@@ -120,16 +120,11 @@ export class SessionPusher {
     if (!decision.allowed || !accountId) return
     const hostId = this.deps.hostId()
     if (!hostId) return
-    const cloudScope = this.scopeOf(record, accountId)
+    const cloudScope = sessionCloudScope(record, accountId)
     this.database().prepare('UPDATE session_storage SET cloud_scope = ? WHERE session_id = ?').run(cloudScope, sessionId)
     if (row.head !== row.pushed_head && !await this.pushHead(row, cloudScope, accountId, sessionId)) return
     if (!await this.reportHead(row, cloudScope, accountId, hostId, sessionId, record.provider)) return
     if (this.row(sessionId)?.head !== row.head) this.enqueue(sessionId)
-  }
-
-  private scopeOf(record: NonNullable<Awaited<ReturnType<typeof getSessionRecord>>>, accountId: string): SessionCloudScope {
-    return isOrganizationWork(record)
-      ? formatSessionCloudScope('organization', record.organizationId) : formatSessionCloudScope('person', accountId)
   }
 
   private async reportHead(row: Row, cloudScope: SessionCloudScope, accountId: string, hostId: string, sessionId: string, provider: SessionRepositoryCard['provider']): Promise<boolean> {

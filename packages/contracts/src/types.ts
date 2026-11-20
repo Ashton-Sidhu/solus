@@ -2590,6 +2590,7 @@ export interface SessionMeta {
   /** Local session repository facts from one row, with no Git read. */
   head?: string | null
   syncedTurn?: number
+  pushRefused?: boolean
   /** Host that ran the latest pushed turn. */
   lastRunHostId?: string | null
   /** Host with an active turn, when known. */
