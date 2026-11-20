@@ -142,8 +142,11 @@ There is no other continuous motion.
 
 ### D6. Data: existing endpoints, no new metrics endpoint
 
-- **Presence** for every host comes from what the client already has: saved hosts,
-  the account directory (`GET /v1/hosts`), and `host-readiness`.
+- **Presence** for every host comes from what the client already has: the host
+  catalog (the person's host list, the account directory `GET /v1/hosts`, and this
+  device's credentials, joined in memory; plan 033) and `host-readiness`. The client
+  keeps no copy of the list or the directory, so until each first read the map shows
+  a loading row for it, and a failed read shows an error row with Retry (033 §3 Q2).
 - **Load** comes from each host's `hostResources()` through `HostResourceWatch`.
   The fleet view holds one watch for each connected host only while the map is on
   screen, and sampling is staggered.
@@ -271,7 +274,7 @@ sign-in, or a check of its health (product decision, 2026-11-13).
 - The context menu of a host also has Open host, New session, and the one fix
   its state has: Retry, Start, or Update. It opens with the secondary click and
   with the menu key on a host that has the focus.
-- Saved remote hosts also have Remove in this menu, including when unreachable.
+- Known remote hosts also have Remove in this menu, including when unreachable.
   Remove hides the host and shows the standard Undo toast. The existing host
   removal command runs only when the Undo period ends. Undo restores the row;
   a failed removal restores it too. Toasts stay inside Settings' focus boundary
