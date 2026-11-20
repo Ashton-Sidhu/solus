@@ -226,6 +226,34 @@ host fills in the template and reads that one resource into a chip. Solus
 fills in only `{name}` and `{+name}`; a template with another form is not
 offered.
 
+**Resource watches.** When a server of the session sends changes of its
+resources (`resources.subscribe`), the agent also gets
+`watch_integration_resource`. With `watching: true` the host keeps a
+subscription to one resource for that session, as you, with your connection.
+When the resource changes, the host reads it and starts the agent again with
+its contents, as data from that server. Changes in the 5 seconds after the
+first become one start, and one watch starts the agent at most once in 30
+seconds. A change while a turn runs waits for the end of that turn; when you
+press Stop, the change that waited does not start the agent. A watch ends after
+24 hours, after it started the agent 20 times, when the agent sends
+`watching: false`, when you press **Stop** on its row, and when you archive or
+delete the session. A session has at most 10 live watches, you have at most 20
+on a host, and a host keeps at most 100.
+
+The watch shows where the session's background work shows, beside MCP tasks:
+under the last turn on desktop and web, above the composer on mobile. Its row
+says what it does: starting, watching, changed (the agent starts soon or after
+the running turn), sign in again, server not reachable, or why it ended. The
+change that starts the agent is a "Resource watch" row in the conversation; it
+opens on the contents as plain text.
+
+A watch of a command server (stdio) keeps its process from the idle stop of 10
+minutes while the watch lives, at most 24 hours. When the process stops (Stop
+in Settings, an end by itself, or a restart of the host), the watch ends: a
+watch never starts a command again. After a restart of the host, a watch of a
+server at a URL opens again, and nothing is sent for the time the host was
+down (`plans/mcp-first-class.md` §11.5).
+
 When you ask the agent to use a service that has no tools in the session, it
 can call `connect_integration` with the service's name. The tool uses your
 server for that service if you have one. Otherwise it adds the one catalog
@@ -508,6 +536,5 @@ the host owner and an organization owner included (docs/plans/access-model.md
 ## Not in this release
 
 A per-tool ask rule (only on and off exist), OpenAPI documents, renaming an
-account, and several API keys for one server are later phases of the plan. Watching a
-resource for changes is a later phase too. The tools you turned off are part of your agent profile, so they
+account, and several API keys for one server are later phases of the plan. The tools you turned off are part of your agent profile, so they
 follow a personal server to every host.

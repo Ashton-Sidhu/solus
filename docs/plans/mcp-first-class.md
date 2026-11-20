@@ -4,7 +4,8 @@ Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, C1, C2, E,
 F1, G, H1, H2, and the Client ID Metadata Document are built and merged on one
 branch with `main` (`mcp-wave5-handoff.md` records that merge and the items
 between the phases; `mcp-wave3-handoff.md` the earlier one; each phase has its
-own handoff). F2, the watch of resources, is not built. This plan continues
+own handoff). F2, the watch of resources, is built on its own branch from
+`main` (`mcp-f2-handoff.md`; §11.6 has what differs). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -207,6 +208,16 @@ some of them. This plan follows the sources.
     `projects["<path>"].mcpServers` neither loads nor starts; with `local`
     added it does; with `local` and the deny list of §8.5 it does not start.
     So the skip covers that scope too, should Solus ever pass `local`.
+38. **The SDK has no fallback between the two kinds of subscription** (F2).
+    Version 2.4.0 of `@modelcontextprotocol/client` throws
+    `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` for `listen()` on a 2025
+    connection and for `subscribeResource()` on a 2026-07-28 connection. So
+    Solus chooses by the era; on both, the change arrives at the client's one
+    handler for `notifications/resources/updated` (§11.6).
+39. **A change gives the agent the contents** (F2). §11.5 said the message
+    names the read tool. The F2 brief asked for the contents, mapped by §6
+    with its limits, as an MCP task gives its result; the read tool is named
+    only when the read fails.
 
 ## 2. Vocabulary
 
@@ -1373,6 +1384,64 @@ expands and `{?q}` is refused; an update makes one queued prompt and a
 second within 30 seconds makes none; a watch on a legacy server uses
 `resources/subscribe`; a restart opens watches again and sends nothing.
 
+### 11.6 As built (F2)
+
+Where the code differs from §11.5, the code is right.
+
+- **The SDK seam.** `integrations/resource-subscriptions.ts`:
+  `openResourceSubscription` opens `listen({ resourceSubscriptions: [uri] })`
+  on a modern connection, and refuses the watch when the server's
+  acknowledgement does not honor the URI; on a legacy connection it sends
+  `resources/subscribe`, and Stop sends `resources/unsubscribe` unless another
+  live watch of the same person, account, and URI shares it. A legacy
+  subscription has no stream: `TaskAwareClient.connectionEnded` says when its
+  connection ends. The gateway installs one handler for
+  `notifications/resources/updated` on each client.
+- **The owner.** `integrations/resource-watches.ts` (`ResourceWatches`). The
+  gateway knows it as `ResourceWatchCalls` (`useResourceWatches`);
+  `subscribeResource` and `withBackgroundSession` run as the watch's person.
+  `boot-server.ts` wires the owner, the event, the handlers
+  (`transport/handlers/resource-watch-handlers.ts`), the session status
+  (`session-status`), the deletion (`onSessionRecordDeleted`, new in
+  `data/sessions/session-records.ts`), and the archive (`onSessionViewChanged`).
+- **The table** is `integration_resource_watch` (migration
+  `0011_integration_resource_watches`). The person column is `user_id`, not
+  `person_key`. It adds `name`, `status` (`live` or `ended`), `end_reason`,
+  `status_message`, `wakes`, `last_wake_at`, and `updated_at`, so the limits
+  and an ended row hold across a restart.
+- **The message.** `promptSession(sessionId, text, 'queue', { via:
+  'resource-watch', imageAttachmentRefs })`, with no `actor`. The first line is
+  `A watched MCP resource changed: <server> · <resource name>`
+  (`resourceWatchWakeHeader`). The contents are read at the start, as the
+  person, and mapped by `agentResultOf` (§1, item 39).
+- **Limits.** 10 live watches for a session, 20 for a person, 100 on a host;
+  changes in 5 seconds become one start; 30 seconds between two starts of one
+  watch; 20 starts, the last says so and ends the watch; 24 hours. A change
+  during a busy turn (`isSessionBusyStatus`) waits for the turn's end; an end
+  by Stop (`interrupted`) drops it. A live watch does not hold the session in
+  `background`: it waits for news.
+- **Archive.** Archive is a person's own view state, so a watch ends when its
+  own person archives the session.
+- **A stdio server.** A live watch keeps its process from the idle stop and
+  from the eviction of §7.3, for at most the watch's 24 hours. When the
+  process stops, the watch ends (`server-stopped`); a watch never starts a
+  command again. A server at a URL whose stream ends opens again: after 1
+  second, then after 5 seconds doubling to 5 minutes, as `starting`,
+  `needs-sign-in` (the connect card shows once), or `unreachable`.
+- **A restart.** A watch of a server at a URL opens again, one each 500 ms
+  after the first second (not four at one time); a command's watch ends with
+  `host-restarted`. Nothing is sent for the time the host was down.
+- **Contracts.** `contracts/src/integrations/resource-watch.ts`.
+  `integrationResourceWatchStop({ sessionId, id })` names the session, as
+  `mcpTaskCancel` does. The event is `integration.resourceWatchChanged`.
+- **The row** is `resourceWatchItem` in `client-core/resource-watch-row.ts`
+  on `BackgroundItemRow`, which gains the state `waiting` (a still eye glyph,
+  no clock). Desktop and web: `ResourceWatchRows.svelte` under the last turn,
+  `ResourceWatchNoticeRow.svelte` for the change. Mobile:
+  `ThreadResourceWatches.tsx` above the composer (the row of
+  `ThreadMcpTasks.tsx`, now exported as `BackgroundItemRow`) and the notice in
+  `ThreadHostNotice.tsx`.
+
 ## 12. MCP tasks
 
 A server that supports the extension `io.modelcontextprotocol/tasks` can
@@ -1503,7 +1572,8 @@ Where the code differs from §12.1 to §12.5, the code is right.
   capabilities, which the SDK puts on each request of the modern revision.
 - **The owner.** `integrations/mcp-tasks.ts` (`McpTasks`) holds the call,
   polls, delivers, cancels, and answers. The gateway knows it as
-  `McpTaskCalls` (`useMcpTasks`) and adds `withTaskSession`, which runs a
+  `McpTaskCalls` (`useMcpTasks`) and adds `withTaskSession` (F2 renamed it
+  `withBackgroundSession`: resource watches use it too), which runs a
   request as the task's person, does not start a stdio process, and moves a
   refused sign-in to "needs sign-in". `boot-server.ts` wires the owner, the
   event, and the handlers (`transport/handlers/mcp-task-handlers.ts`).
@@ -1820,7 +1890,7 @@ access in `permissions.ts`, and the desktop preload in
 | `integrationFoundList`, `integrationFoundAdd` | §8, §9 | `host.use`; a command needs `host.admin` |
 | `integrationPromptList`, `integrationPromptGet` | §10 | `host.use`, owner |
 | `integrationResourceList`, `integrationResourceAttach` | §11 | `host.use`, owner |
-| `integrationResourceWatchList`, `integrationResourceWatchStop` | §11.5 | `read.transcript`; `drive.prompt` |
+| `integrationResourceWatchList`, `integrationResourceWatchStop` | §11.5, §11.6 | `read.transcript`; `drive.prompt` |
 | `mcpTaskList`, `mcpTaskCancel`, `mcpTaskAnswer` | §12 | `read.transcript`; `drive.prompt` |
 | `mcpAppLiveRead` | §14 | `read.transcript`, owner |
 

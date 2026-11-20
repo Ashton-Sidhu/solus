@@ -26,6 +26,12 @@ person's turn gets a refusal and can open Insights to see their own turns.
 `connect_integration` adds a server only to the calling person's own servers,
 and only from an exact catalog match. For any other address it opens a card
 where the person enters and adds the server (docs/integrations.md).
+`list_integration_resources`, `read_integration_resource`, and
+`watch_integration_resource` join a run only when one of that person's servers
+in the run has resources (the watch tool: one that sends changes). They are
+deferred, reach only those servers by slug, and read as the person. A watch
+starts the agent again in its session when the resource changes, within the
+limits that docs/integrations.md lists.
 
 These switches control Solus tools only. Provider-native tools and external MCP
 servers keep their own settings. The internal `submit_review_guide` output tool
