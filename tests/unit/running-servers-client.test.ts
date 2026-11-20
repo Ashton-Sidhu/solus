@@ -96,3 +96,43 @@ test('an equal host update keeps object identity and does not invalidate readers
   unsubscribe()
   release()
 })
+
+function whenReady(store: RunningServers): Promise<void> {
+  if (store.current.status === 'ready') return Promise.resolve()
+  return new Promise((resolve) => {
+    const unsubscribe = store.subscribe(() => { if (store.current.status === 'ready') { unsubscribe(); resolve() } })
+  })
+}
+
+test('checkout filtering uses the host root instead of a subfolder prefix', async () => {
+  const s = setup()
+  const main = runningServer('main')
+  main.location.worktreePath = '/project'
+  s.source.api.runningServersWatch = async () => [main, runningServer('worktree')]
+  s.source.api.runningServersCheckoutRoots = async (paths) => paths.map((path) => ({ path, root: '/project/worktree' }))
+  const ready = whenReady(s.store)
+  const release = s.store.retainCheckout('/project/worktree/api')
+  await ready
+  expect(s.store.inCheckout('/project/worktree/api').map((server) => server.serverId)).toEqual(['worktree'])
+  release()
+})
+
+test('forwarding keeps discovery retained and Stop forwarding closes its last lease', async () => {
+  const s = setup()
+  s.source.api.runningServersWatch = async () => [runningServer()]
+  const stop = mock(async (_forwardId: string) => {})
+  const start = mock(async (request: import('@solus/contracts/running-servers').NativeServerForwardRequest) => ({ forwardId: 'forward', endpointKey: request.endpointKey, localPort: 1234, url: 'http://127.0.0.1:1234/' }))
+  const store = new RunningServers(() => s.source, () => () => {}, { keyPrefix: 'host', origin: () => 'https://host.test', start, stop, list: async () => [], openExternal: async () => true })
+  const ready = whenReady(store)
+  const release = store.retain()
+  await ready
+  await store.forward(runningServer(), runningServer().endpoints[0])
+  expect(start.mock.calls[0][0].tunnelUrl).toBe('wss://host.test/tunnel')
+  release()
+  expect(s.unwatch).not.toHaveBeenCalled()
+  expect(store.forwarded).toHaveLength(1)
+  await store.stopForward('forward')
+  expect(store.forwarded).toEqual([])
+  expect(stop).toHaveBeenCalledWith('forward')
+  expect(s.unwatch).toHaveBeenCalledTimes(1)
+})

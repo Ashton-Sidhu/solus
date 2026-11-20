@@ -9,7 +9,7 @@ import type { SessionRecord } from '@solus/contracts/types'
 import { notificationDestination } from '@solus/workspace-ui/components/notifications/lib/notification-actions'
 import { buildSidebarListItems } from '@solus/workspace-ui/components/session/lib/sidebar-list-items'
 import { sidebarSectionOf, sortSharedRows, type SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
-import { SessionListStore, type ListedSession } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
+import { SessionListStore, sessionListStore, type ListedSession } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import {
   isUnopenedShare,
@@ -281,4 +281,38 @@ describe('a session that does not open', () => {
     const notification = { resource: { kind: 'session', sessionId: 's1' }, summary: { title: 'Fix login' } } as HubNotification
     expect(notificationDestination(notification, 'host:laptop').route).toEqual({ kind: 'session', sessionId: 's1', serverId: 'host:laptop' })
   })
+})
+
+test('a completed or archived pin moves with the optimistic list state and returns if refused', async () => {
+  const pending = Promise.withResolvers<{ view: typeof EMPTY_SESSION_VIEW }>()
+  const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({ sessionUpdate: () => pending.promise }))
+  const events = spyOn(serverConnections, 'eventsFor').mockReturnValue(new HostEventSubscriber())
+  const list = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] })
+  const state = spyOn(sessionListStore, 'stateFor').mockImplementation((sessionId) => list.stateFor(sessionId))
+  // SAFETY: isPinned reads only pinnedSessions and the list's state.
+  const sidebar = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore
+  sidebar.pinnedSessions = [{ sessionId: 'pin', serverId: 'host', provider: 'codex', title: 'Pin', cwd: '/repo', pinnedAt: 1 }]
+  const target = { sessionId: 'pin', serverId: 'host' }
+  try {
+    expect(sidebar.isPinned('pin', 'host')).toBe(true)
+    const completing = list.setSettled(target, true)
+    expect(sidebar.isPinned('pin', 'host')).toBe(false)
+    expect(list.stateFor('pin')?.settledAt).not.toBeNull()
+    pending.reject(new Error('refused'))
+    await expect(completing).rejects.toThrow('refused')
+    expect(sidebar.isPinned('pin', 'host')).toBe(true)
+
+    const archived = Promise.withResolvers<{ view: typeof EMPTY_SESSION_VIEW }>()
+    api.mockReturnValue(asHostApi({ sessionUpdate: () => archived.promise }))
+    const archiving = list.setArchived(target, true)
+    expect(sidebar.isPinned('pin', 'host')).toBe(false)
+    expect(list.stateFor('pin')?.archivedAt).not.toBeNull()
+    archived.reject(new Error('refused'))
+    await expect(archiving).rejects.toThrow('refused')
+    expect(sidebar.isPinned('pin', 'host')).toBe(true)
+  } finally {
+    state.mockRestore()
+    api.mockRestore()
+    events.mockRestore()
+  }
 })

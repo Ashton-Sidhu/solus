@@ -15,3 +15,7 @@ test('native forwarding accepts only scoped tunnel capabilities, never arbitrary
   expect(serverForwardRequestSchema.safeParse({ ...base, tunnelUrl: 'ws://example.com/admin' }).success).toBe(false)
   expect(serverForwardRequestSchema.safeParse({ ...base, tunnelUrl: `ws://example.com/api/running-servers/tunnel/${'a'.repeat(43)}` }).success).toBe(true)
 })
+
+test('Node resolves checkout subfolders and nested repositories and reads project URLs from the root', async () => {
+  await promisify(execFile)('node', ['--import', 'tsx', fileURLToPath(new URL('./helpers/running-server-checkouts.mts', import.meta.url))], { timeout: 10_000 })
+}, 15_000)

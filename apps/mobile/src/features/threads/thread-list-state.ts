@@ -183,9 +183,20 @@ export class ThreadListState {
   async setArchived(hostId: string, sessionId: string, archived: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    const { view } = await connection.api.sessionUpdate(sessionId, { archived });
-    if (archived) this.removePin(hostId, sessionId);
-    this.write(this.views, hostId, connection, sessionId, view ?? null);
+    const key = threadKey(hostId, sessionId);
+    const previousView = this.views.get(key);
+    this.views.set(key, { ...(previousView ?? EMPTY_SESSION_VIEW), archivedAt: archived ? Date.now() : null });
+    this.publish();
+    try {
+      const { view } = await connection.api.sessionUpdate(sessionId, { archived });
+      if (archived) this.removePin(hostId, sessionId);
+      this.write(this.views, hostId, connection, sessionId, view ?? null);
+    } catch (error) {
+      if (previousView) this.views.set(key, previousView);
+      else this.views.delete(key);
+      this.publish();
+      throw error;
+    }
   }
 
   /** A read boundary belongs to one session on one host. Watch before writing

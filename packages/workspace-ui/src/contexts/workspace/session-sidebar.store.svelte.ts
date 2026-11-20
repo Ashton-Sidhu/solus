@@ -594,7 +594,7 @@ export class SessionSidebarStore {
       const pin = this.pinFor(this.sessionIdOfRow(row), row.serverId)
       if (pin) rowByPin.set(pin, row)
     }
-    return this.pinnedSessions.toSorted((a, b) => b.pinnedAt - a.pinnedAt).map((pin) => ({ pin, row: rowByPin.get(pin) ?? null }))
+    return this.pinnedSessions.filter((pin) => this.isPinned(pin.sessionId, pin.serverId)).toSorted((a, b) => b.pinnedAt - a.pinnedAt).map((pin) => ({ pin, row: rowByPin.get(pin) ?? null }))
   })
 
   /** The pinned rows at the top of the list, in pin order. */
@@ -602,7 +602,7 @@ export class SessionSidebarStore {
 
   /** The one section a row is in (`sidebarSectionOf`). */
   private sectionOf(row: SidebarTask): SidebarSection {
-    return sidebarSectionOf(row, this.pinFor(this.sessionIdOfRow(row), row.serverId) !== null)
+    return sidebarSectionOf(row, this.isPinned(this.sessionIdOfRow(row), row.serverId))
   }
 
   /** The filter's own choices, over every project the column knows about. */
@@ -992,7 +992,9 @@ export class SessionSidebarStore {
   }
 
   isPinned(sessionId: string | null | undefined, serverId?: string | null): boolean {
-    return this.pinFor(sessionId, serverId) !== null
+    if (!sessionId || this.pinFor(sessionId, serverId) === null) return false
+    const state = sessionListStore.stateFor(sessionId)
+    return state?.settledAt == null && state?.archivedAt == null
   }
 
   /** The pin of a session on its host, or null when it has none. */
