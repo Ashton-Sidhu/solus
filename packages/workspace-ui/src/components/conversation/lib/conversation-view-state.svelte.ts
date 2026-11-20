@@ -21,9 +21,45 @@ export class ConversationViewState {
   readonly mcpAppContexts = new SvelteMap<string, string>()
   /** The browser features the person granted each app: by activity, or by tool-use id for a live card. */
   readonly mcpAppPermissions = new SvelteMap<string, McpAppPermission[]>()
+  /**
+   * The one app frame in picture-in-picture over this conversation
+   * (docs/plans/mcp-first-class.md §14.2): its card by activity, or by tool-use
+   * id for a live card, and the turn that holds the card. The virtualizer keeps
+   * that turn mounted, so the frame stays.
+   */
+  mcpAppPip = $state<{ appKey: string; turnKey: string } | null>(null)
+  /** The lower corner of the conversation the frame sits in. */
+  mcpAppPipSide = $state<'end' | 'start'>('end')
   /** The row and offset the reader was at; null while they follow the end. */
   position: TranscriptPosition | null = null
-  readonly virtualizer = new TranscriptVirtualizer(() => this.position === null)
+  readonly virtualizer = new TranscriptVirtualizer(
+    () => this.position === null,
+    () => (this.mcpAppPip ? [this.mcpAppPip.turnKey] : []),
+  )
+
+  isMcpAppPip(appKey: string): boolean {
+    return this.mcpAppPip?.appKey === appKey
+  }
+
+  /** Puts one app in picture-in-picture; the app there before goes back to its card. */
+  showMcpAppPip(appKey: string, turnKey: string): void {
+    this.mcpAppPip = { appKey, turnKey }
+  }
+
+  /** Puts the app back in its card, when it is the one in picture-in-picture. */
+  returnMcpAppPip(appKey: string): void {
+    if (this.isMcpAppPip(appKey)) this.mcpAppPip = null
+  }
+
+  /** Moves the frame to the other lower corner. */
+  moveMcpAppPip(): void {
+    this.mcpAppPipSide = this.mcpAppPipSide === 'end' ? 'start' : 'end'
+  }
+
+  /** A live card took its saved app: the app keeps its mode under its activity id. */
+  renameMcpAppPip(fromKey: string, toKey: string): void {
+    if (this.mcpAppPip?.appKey === fromKey) this.mcpAppPip.appKey = toKey
+  }
 }
 
 interface ViewStateOwner {

@@ -2,13 +2,36 @@
 
 export const MCP_APP_MAX_HEIGHT = 2000
 
-export type McpAppDisplayMode = 'inline' | 'fullscreen'
+export const MCP_APP_DISPLAY_MODES = ['inline', 'fullscreen', 'pip'] as const
+export type McpAppDisplayMode = (typeof MCP_APP_DISPLAY_MODES)[number]
 
-/** An inline frame follows the height the app reports, up to `maxHeight`. A full-screen frame is a fixed box the app must fit. */
+/**
+ * The app area of a frame in picture-in-picture on desktop and web, in CSS
+ * pixels (docs/plans/mcp-first-class.md §14.2). Mobile docks it at the full
+ * width instead (`MCP_APP_DOCKED_HEIGHT`).
+ */
+export const MCP_APP_PIP_SIZE = { width: 384, height: 256 }
+/** A conversation narrower than this gets no picture-in-picture: the frame and its margins would not fit. */
+export const MCP_APP_PIP_MIN_CONVERSATION_WIDTH = 480
+/** The height of the app area docked above the mobile composer, in points. */
+export const MCP_APP_DOCKED_HEIGHT = 200
+
+/** An inline frame follows the height the app reports, up to `maxHeight`. A full-screen or picture-in-picture frame is a fixed box the app must fit. */
 export type McpAppContainerDimensions = { width: number; maxHeight: number } | { width: number; height: number }
 
-export function mcpAppContainerDimensions(size: { width: number; height: number }, isFullscreen: boolean): McpAppContainerDimensions {
-  return isFullscreen ? size : { width: size.width, maxHeight: MCP_APP_MAX_HEIGHT }
+export function mcpAppContainerDimensions(size: { width: number; height: number }, displayMode: McpAppDisplayMode): McpAppContainerDimensions {
+  return displayMode === 'inline' ? { width: size.width, maxHeight: MCP_APP_MAX_HEIGHT } : size
+}
+
+/**
+ * The modes a client can give a frame now. Desktop and web float the frame
+ * over its conversation, so they offer `pip` only while the conversation is
+ * wide enough (`conversationWidth`). Mobile docks a new frame from the saved
+ * app, so it offers `pip` only once the app is saved (`isSaved`).
+ */
+export function mcpAppAvailableDisplayModes(place: { conversationWidth: number } | { isSaved: boolean }): McpAppDisplayMode[] {
+  const canPip = 'conversationWidth' in place ? place.conversationWidth >= MCP_APP_PIP_MIN_CONVERSATION_WIDTH : place.isSaved
+  return canPip ? ['inline', 'fullscreen', 'pip'] : ['inline', 'fullscreen']
 }
 
 /**
@@ -147,7 +170,9 @@ export interface McpAppHostContext {
 /** What a client knows about the frame it shows an app in. */
 export interface McpAppView {
   theme: 'light' | 'dark'
-  isFullscreen: boolean
+  displayMode: McpAppDisplayMode
+  /** What the client can give this frame now (`mcpAppAvailableDisplayModes`). */
+  availableDisplayModes: McpAppDisplayMode[]
   size: { width: number; height: number }
   platform: McpAppHostContext['platform']
   touch: boolean
@@ -162,9 +187,9 @@ export function mcpAppHostContext(view: McpAppView): McpAppHostContext {
   const { locale, timeZone } = Intl.DateTimeFormat().resolvedOptions()
   const context: McpAppHostContext = {
     theme: view.theme,
-    displayMode: view.isFullscreen ? 'fullscreen' : 'inline',
-    availableDisplayModes: ['inline', 'fullscreen'],
-    containerDimensions: mcpAppContainerDimensions(view.size, view.isFullscreen),
+    displayMode: view.displayMode,
+    availableDisplayModes: view.availableDisplayModes,
+    containerDimensions: mcpAppContainerDimensions(view.size, view.displayMode),
     platform: view.platform,
     locale,
     timeZone,

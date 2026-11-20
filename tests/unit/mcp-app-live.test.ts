@@ -11,7 +11,7 @@ import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument } 
 // tokens, and must never act for the host before the call has a result.
 
 const palette = { background: '#111', raised: '#222', strong: '#333', text: '#eee', textSecondary: '#aaa', textTertiary: '#888', border: '#444', accent: '#d97757', info: '#7cc0ea', danger: '#e3645e', success: '#5a9e6f', warning: '#fbbf24', fontSans: 'system-ui', fontMono: 'monospace' } satisfies McpAppPalette
-const context = mcpAppHostContext({ theme: 'dark', isFullscreen: false, size: { width: 640, height: 320 }, platform: 'web', touch: false, hover: true, palette })
+const context = mcpAppHostContext({ theme: 'dark', displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], size: { width: 640, height: 320 }, platform: 'web', touch: false, hover: true, palette })
 const liveDocument: McpAppLiveDocument = { title: 'Charts · chart', html: '<div id="chart"></div>', csp: {} }
 const saved = { toolInputJson: '{"region":"west"}', toolResultJson: '{"content":[{"type":"text","text":"42"}]}' }
 const jsonParams = z.json()
@@ -48,7 +48,7 @@ function live(overrides: Partial<McpAppHostOptions> = {}) {
     snapshot: liveDocument, title: 'Charts', clock, context: () => context, permissions: () => [], post: (json) => posted.push(json),
     toolInfo: async (name) => ({ callable: true, readOnly: true, title: name }), callTool: async () => '{"content":[]}', readResource: async () => '{"contents":[]}',
     confirm: async () => true, sendMessage: async () => {}, updateModelContext: async () => {}, openLink: async () => {},
-    displayMode: () => {}, resize: () => {}, close: (reason) => { closed.push(reason) }, ...overrides,
+    displayMode: (mode) => mode, resize: () => {}, close: (reason) => { closed.push(reason) }, ...overrides,
   })
   const notifications = () => posted.map((json) => JSON.parse(json)).filter((message) => !('id' in message) || message.method === 'ui/resource-teardown')
   const ready = async () => {

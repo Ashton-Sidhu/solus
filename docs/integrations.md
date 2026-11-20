@@ -90,6 +90,21 @@ server. Solus asks first unless the server marks the tool as read-only. In a
 Claude session, Claude's permission rules also apply: a deny rule refuses the
 call, and an ask rule makes Solus ask first.
 
+**Display modes.** An app shows in its card, full screen, or in
+picture-in-picture. Picture-in-picture keeps the app in view while you scroll
+and type. Ask for it with **Keep in view** beside the full-screen control, or
+the app asks for it itself (only an app that declares the mode gets it). On
+desktop and web the same frame floats in a lower corner of its conversation,
+above the input bar, so the app keeps its state. Its title bar moves it to the
+other corner, returns it to its card (or press Escape there), opens it full
+screen, or closes it. Its card shows a line with **Return to card**. One app
+floats in a conversation; a second one sends the first back to its card. A
+conversation narrower than 480 pixels does not offer the mode, and a frame in
+it goes back to its card. On mobile a saved app docks above the composer, at
+the full width, in a new frame; while the keyboard is open it shows only its
+title bar. A live app card on mobile offers the mode once its call has ended
+(`plans/mcp-first-class.md` §14.2).
+
 ## What the agent sees
 
 Every tool of every integration is a Solus tool named `<slug>__<tool>`, with

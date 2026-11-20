@@ -1,7 +1,16 @@
 import { localApi } from '@solus/client-core/local-api'
-import { mcpAppContainerDimensions, mcpAppHostContext, type McpAppHostContext } from '@solus/client-core/mcp-app-context'
+import { mcpAppAvailableDisplayModes, mcpAppContainerDimensions, mcpAppHostContext, type McpAppDisplayMode, type McpAppHostContext } from '@solus/client-core/mcp-app-context'
 import { createMcpAppHost, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
 import { MCP_APP_PERMISSIONS, type McpAppPermission } from '@solus/contracts/mcp-apps'
+
+/** What the frame's component tells the connection, and hears from it. */
+export interface McpAppFrameView {
+  /** A second load of the frame: a navigation. */
+  onNavigated(): void
+  displayMode(): McpAppDisplayMode
+  /** The width of the conversation the frame is in, each time it changes. A hidden conversation reports nothing. */
+  onConversationWidth(width: number): void
+}
 
 /**
  * Connects an app iframe to its bridge. Only the frame's own messages reach the
@@ -11,8 +20,7 @@ import { MCP_APP_PERMISSIONS, type McpAppPermission } from '@solus/contracts/mcp
 export function connectMcpAppFrame(
   frame: HTMLIFrameElement,
   options: Omit<McpAppHostOptions, 'post'>,
-  onNavigated: () => void,
-  isFullscreen: () => boolean,
+  view: McpAppFrameView,
 ) {
   const host = createMcpAppHost({ ...options, post: (json) => frame.contentWindow?.postMessage(JSON.parse(json), '*') })
   const receive = (event: MessageEvent) => {
@@ -30,7 +38,7 @@ export function connectMcpAppFrame(
     loads++
     if (loads > 1) {
       host.dispose()
-      onNavigated()
+      view.onNavigated()
     }
   }
   frame.addEventListener('load', loaded)
@@ -40,16 +48,23 @@ export function connectMcpAppFrame(
   const resizes = new ResizeObserver(() => {
     // A hidden conversation has no box. It keeps the size it last sent.
     if (!frame.clientWidth) return
-    const dimensions = JSON.stringify(mcpAppFrameDimensions(frame, isFullscreen()))
+    const dimensions = JSON.stringify(mcpAppFrameDimensions(frame, view.displayMode()))
     if (dimensions === sentDimensions) return
     sentDimensions = dimensions
     host.updateContext()
   })
   resizes.observe(frame)
+  // Picture-in-picture fits only a wide enough conversation, so the frame follows its width.
+  const conversation = frame.closest(CONVERSATION_SELECTOR)
+  const conversationResizes = new ResizeObserver(() => {
+    if (conversation?.clientWidth) view.onConversationWidth(conversation.clientWidth)
+  })
+  if (conversation) conversationResizes.observe(conversation)
   return {
     host,
     disconnect: () => {
       resizes.disconnect()
+      conversationResizes.disconnect()
       frame.removeEventListener('load', loaded)
       window.removeEventListener('message', receive)
       host.dispose()
@@ -57,8 +72,16 @@ export function connectMcpAppFrame(
   }
 }
 
-function mcpAppFrameDimensions(frame: Pick<HTMLIFrameElement, 'clientWidth' | 'clientHeight'>, isFullscreen: boolean) {
-  return mcpAppContainerDimensions({ width: frame.clientWidth, height: frame.clientHeight }, isFullscreen)
+/** The conversation a frame floats over in picture-in-picture (`ConversationView`). */
+const CONVERSATION_SELECTOR = '[data-slot="conversation"]'
+
+function mcpAppFrameDimensions(frame: Pick<HTMLIFrameElement, 'clientWidth' | 'clientHeight'>, displayMode: McpAppDisplayMode) {
+  return mcpAppContainerDimensions({ width: frame.clientWidth, height: frame.clientHeight }, displayMode)
+}
+
+/** The transcript turn a card renders in; the virtualizer keeps it mounted while its frame is in picture-in-picture. */
+export function mcpAppTurnKey(element: Element): string | undefined {
+  return element.closest<HTMLElement>('[data-transcript-turn-id]')?.dataset.transcriptTurnId
 }
 
 /** The desktop app runs Electron; the web client reports itself as `web`. */
@@ -76,13 +99,23 @@ export function mcpAppSupportedPermissions(): McpAppPermission[] {
   return mcpAppPlatform() === 'desktop' ? ['microphone', 'clipboardWrite'] : [...MCP_APP_PERMISSIONS]
 }
 
-/** The theme and size an app is given. It reads the live palette, so call it only at initialize and on a change. */
-export function mcpAppContext(frame: Pick<HTMLIFrameElement, 'clientWidth' | 'clientHeight'>, isDark: boolean, isFullscreen: boolean): McpAppHostContext {
+/**
+ * The theme, mode, and size an app is given. `conversationWidth` decides if
+ * `pip` is offered. It reads the live palette, so call it only at initialize
+ * and on a change.
+ */
+export function mcpAppContext(
+  frame: Pick<HTMLIFrameElement, 'clientWidth' | 'clientHeight'>,
+  isDark: boolean,
+  displayMode: McpAppDisplayMode,
+  conversationWidth: number,
+): McpAppHostContext {
   const style = getComputedStyle(document.documentElement)
   const read = (name: string) => style.getPropertyValue(name).trim()
   return mcpAppHostContext({
     theme: isDark ? 'dark' : 'light',
-    isFullscreen,
+    displayMode,
+    availableDisplayModes: mcpAppAvailableDisplayModes({ conversationWidth }),
     size: { width: frame.clientWidth, height: frame.clientHeight },
     platform: mcpAppPlatform(),
     touch: globalThis.matchMedia?.('(pointer: coarse)').matches ?? false,

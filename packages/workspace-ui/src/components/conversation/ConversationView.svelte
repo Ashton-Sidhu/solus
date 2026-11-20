@@ -674,10 +674,12 @@
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- The anchor an MCP App frame in picture-in-picture floats against
+       (McpAppFrame): scoped, so each visible conversation holds its own. -->
   <div
     onmouseenter={() => (hovered = true)}
     onmouseleave={() => (hovered = false)}
-    class="flex h-full min-h-0 flex-col"
+    class="flex h-full min-h-0 flex-col [anchor-name:--solus-conversation] [anchor-scope:--solus-conversation]"
     data-slot="conversation"
     aria-busy={waitingForHistory || arrival.pending}
   >
@@ -812,7 +814,10 @@
           {/snippet}
 
           <!-- Every card below asks the host for something. While the host is
-               away none of them can work, so the host panel stands alone. -->
+               away none of them can work, so the host panel stands alone.
+               They paint over an MCP App frame in picture-in-picture (z-6):
+               a decision is never under the app. -->
+          <div class="relative z-[7]">
           {#if !isHostAway}
           <!-- A finished setup card belongs to the turn its send started, so the
                last turn draws it; this slot is for setup that runs or failed. -->
@@ -879,6 +884,7 @@
             <AgentAuthCard />
           {/if}
           {/if}
+          </div>
           <QueuedPromptGroup tabId={tab.id} />
           <SuggestionGroup tabId={tab.id} />
           <!-- Someone else's prompt is on its way: it lands here, so the notice does too. -->

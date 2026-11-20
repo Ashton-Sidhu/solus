@@ -54,6 +54,7 @@ import { backgroundFloatingStatus, type FloatingWorkingStatus } from "./floating
 import { showsBackgroundWork } from "@solus/client-core/background-work";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
+import { ThreadMcpPipDock } from "./ThreadMcpPipDock";
 import { useTurnAnnouncements } from "./use-turn-announcements";
 import {
   COMPOSER_COLLAPSED_CHROME,
@@ -599,6 +600,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 navigation.navigate("ThreadAgents", { hostId: store.controller.hostId, conversationId: conversationIdOf(store) });
               }}
             />
+            {/* An MCP App in picture-in-picture rides above the composer and every request card. */}
+            <ThreadMcpPipDock store={store} isKeyboardVisible={isKeyboardVisible} />
             <View className="w-full self-center">
               {queuedEdit !== null ? (
                 <Animated.View className="shrink-0" entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)}>

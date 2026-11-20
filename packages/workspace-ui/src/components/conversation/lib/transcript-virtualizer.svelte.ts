@@ -55,8 +55,13 @@ export class TranscriptVirtualizer {
   private isOpeningAtEnd = false
 
   /** `opensAtEnd`: the view has no saved place and shows the end of the
-   *  conversation, as a session open does. */
-  constructor(private readonly opensAtEnd: () => boolean = () => false) {}
+   *  conversation, as a session open does. `keptRows`: rows that stay
+   *  mounted wherever the reader is, such as the turn of an app frame in
+   *  picture-in-picture. */
+  constructor(
+    private readonly opensAtEnd: () => boolean = () => false,
+    private readonly keptRows: () => readonly string[] = () => [],
+  ) {}
 
   connect(scroll: HTMLElement, content: HTMLElement): () => void {
     this.scroll = scroll
@@ -266,7 +271,8 @@ export class TranscriptVirtualizer {
       const element = node instanceof HTMLElement ? node : node?.parentElement
       return element?.closest<HTMLElement>('[data-transcript-turn-id]')?.dataset.transcriptTurnId
     }
-    const pins = new Set<string>()
+    // A kept row, such as the turn of an MCP App frame in picture-in-picture, stays wherever the reader is.
+    const pins = new Set<string>(this.keptRows().filter((key) => this.geometry.top(key) !== undefined))
     if (this.content.contains(document.activeElement)) {
       const key = keyFor(document.activeElement)
       if (key) pins.add(key)
