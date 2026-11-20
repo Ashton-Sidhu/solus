@@ -67,6 +67,108 @@ progress). No `package.json` or lockfile changed, so no install ran.
 - **Not done:** the full suite, `svelte-check`, the lints, and the screenshots
   were not run again after this merge.
 
+## Three approved changes
+
+After the merge of `main` at `09f769306` the maintainer approved three more
+changes. Each is its own commit.
+
+### 1. No focus ring on a dialog container (`17b35e770`)
+
+The maintainer: "remove the orange border when selected from the root
+component not the actual border".
+
+- **Where the ring came from.** No Solus rule draws it. When a dialog's
+  container takes the focus (a dialog with no control to focus yet, or one
+  that focuses its container on purpose), the browser draws its own
+  `:focus-visible` outline, `outline: auto`. Electron on macOS paints that
+  outline in the system accent colour, so it can be orange; headless Chrome
+  paints it blue. Many dialog containers had no `outline-none` (bits-ui
+  `Dialog.Content`, `role="dialog"` divs, native `<dialog>`). The app has no
+  shared dialog primitive in `components/ui/`, so the root is the stylesheet.
+- **The fix.** One rule in `@layer base` of `workspace.css`:
+  `:where(dialog, [role="dialog"], [role="alertdialog"]):is(:focus,
+  :focus-visible) { outline: none; }`. It is layered, so any utility on a
+  dialog still wins (`packages/workspace-ui/CLAUDE.md`, unlayered CSS); it sets
+  only `outline`, so a dialog's border (a `border` utility) and its shadow
+  stay; the controls inside keep their own focus ring (a `ring`/`box-shadow`,
+  not an outline). The MCP approval dialog's own `outline-none` is removed as
+  redundant; its `tick()` stays, so its Cancel button takes the focus.
+- **First focus.** Measured in the web demo with the keyboard: Settings
+  focuses its page region (it had `outline-none` already, so nothing changed);
+  Keyboard shortcuts, Open project, and the command palette focus their search
+  field; a found server's add dialog focuses a control; the MCP approval
+  dialog focuses Cancel. No dialog's first focus was changed. One exception
+  was examined and left: the "cloning" step of `OpenProjectDialog` focuses its
+  container on purpose so Escape reaches it, and its only control is Back;
+  focusing Back would let Enter step out of a clone in flight. It now shows no
+  ring while it clones.
+- **Mobile:** modals are native sheets; React Native draws no focus ring on
+  them. Nothing to change.
+- Test: `tests/unit/dialog-focus-ring.test.ts`.
+
+### 2. An MCP App frame follows dark mode (`ae0c8176d`)
+
+`mcpAppDocument` (contracts) now puts `<meta name="color-scheme" content="light
+dark">` after the content security policy, and the mobile web view's page
+(`nativeMcpAppDocument`) declares the same. A frame then takes the colour
+scheme of its owner element, which follows the client's theme (desktop and
+web: `applyTheme` sets `color-scheme` on the root; mobile: the web view follows
+the native appearance that `Appearance.setColorScheme` sets). It changes live,
+with no reload of the app. An app's own `color-scheme` (later in its document)
+or its own colours win. The opaque sandbox origin and the policy do not
+change. Test: `mcp-app-host.test.ts`. Note: an app that sets dark text but no
+background now draws that text on the dark card in dark mode, where before it
+had a white backdrop.
+
+### 3. The `@` menu counts what it shows (`db773d02e`)
+
+`unified-autocomplete/footer.ts` (`atMenuFooter`): the files the search found,
+then the resources that match: "2 resources", "12 files · 3 resources", "1
+file"; nothing when there is nothing to count. Mobile's + menu and resource
+sheet show no count, so there was no defect there. Test:
+`tests/unit/at-menu-footer.test.ts`.
+
+### Screenshots
+
+In `/Users/sidhu/solus-screenshots/mcp/11-visual-pass/`, light and dark:
+
+- `compare-6-dialogs-{light,dark}.png`: Settings, Keyboard shortcuts, and a
+  found server's add dialog just after they open from the keyboard, before
+  and after; `6-dialog-*-{before,after}-*.png`. The Settings dialog keeps its
+  border.
+- `compare-6-dialog-button-focus-{light,dark}.png`: keyboard focus on Cancel;
+  the button keeps its ring.
+- `compare-7-app-no-color-scheme-{light,dark}.png`; `7-app-no-color-scheme-*`.
+- `compare-8-at-menu-{light,dark}.png`; `8-at-menu-resources-only-*`.
+
+How: the web demo for the dialogs, and a temporary page that mounts the real
+`McpAppFrame` and the real `UnifiedAutocompleteMenu` (rows from `buildRows`)
+for 2 and 3, in the ignored `.tmp/vp/`, served by Vite and stopped by its PID,
+then deleted. The "before" images use the same page with the old state: the
+new base rule deleted from the loaded stylesheet; the app with
+`:root{color-scheme:light}` (as a document with no colour scheme); the old
+footer expression. The demo now starts with "Connect a host to start" (work in
+progress of `main`), so its composer was not used.
+
+### Checks
+
+- Focused tests: `dialog-focus-ring` (3), `at-menu-footer` (3),
+  `mcp-app-host`, `mcp-app-pip`, `mcp-app-frame`, `claude-mcp-apps`,
+  `mcp-app-live`, `activity-summary`, `portalled-surface-no-drag`: each file
+  passes alone. Run in one process, `mcp-app-frame` then `activity-summary`
+  gives one unhandled error: a window stub left by the first breaks
+  `client-core/wake-signals.ts` when the second loads. These commits do not
+  change those files; the pair passed together before the merge of `main`.
+- Type checks, compared by message with `main` at `09f769306`: contracts 0,
+  client-core 2, mobile 0, server 134, workspace-ui 40; no new message.
+- `svelte-check`: 314 errors and 19 warnings. The difference from the count
+  before the merge of `main` is in files of `main` only
+  (`settings/LinearConnection.svelte`, new; `QuestionCard.svelte`, one fewer);
+  none is in a file these commits change.
+- `lint:layout`: the same 4 failures, in files of `main`. `lint:surfaces`: one
+  failure, `tasks/sources/TaskSourceAdd.svelte:41`, a file changed by `main`
+  at `09f769306`, not by this branch.
+
 ## Part 2: the visual pass
 
 The maintainer asked: "improve the look of the added ui elements to match the
@@ -216,15 +318,16 @@ The app has no shared dialog primitive in `components/ui/`.
 
 ### Visual problems that need a behavior change (not made)
 
-- An MCP App that does not set `color-scheme` from the host theme gets an
-  opaque light frame in dark mode (Chromium paints it). Fixing it from the host
-  side changes how the app's document renders.
+- An MCP App that does not set `color-scheme` from the host theme got an
+  opaque light frame in dark mode. Fixed later, with approval: see "Three
+  approved changes" below.
 - MCP tool rows name the server by its slug; its display name needs a store
   lookup from the transcript row.
 - The resource watch row has no time on its rail (the watch can last a day,
   by design in F2), so its stop button and the MCP task's stop button line up
   at the right edge but the MCP task row also shows its time before it.
-- The `@` menu's footer says "0 files" when only MCP resources match.
+- The `@` menu's footer said "0 files" when only MCP resources matched.
+  Fixed later, with approval: see "Three approved changes" below.
 
 ### Screenshots
 
