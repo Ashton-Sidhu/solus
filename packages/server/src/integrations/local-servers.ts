@@ -21,6 +21,12 @@ const MAX_PROBES = 4
  * client renews its lease each 8 seconds.
  */
 const FRESH_MS = 10_000
+/**
+ * A TCP listener of a process that Solus started is checked only when the list
+ * has shown it this long, so a process that is still starting gets no request.
+ * The registry scans each 3 seconds, so it is the next scan that sees it.
+ */
+const SETTLE_MS = 2000
 /** The two loopback addresses the running-servers list gives a listener; a wildcard listener is reached on these. */
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1'])
 /** The body of the one request: `server/discover` of revision 2026-07-28, with no credential. */
@@ -46,13 +52,15 @@ export interface RunningMcpServer {
   place: FoundPortPlace
 }
 
-/** One HTTP endpoint of a running server that may be checked, and the paths that may get a request. */
+/** One endpoint of a running server that may be checked, and the paths that may get a request. */
 interface Candidate {
   key: string
   server: RunningServer
   endpoint: ServerEndpoint
   origin: string
   paths: string[]
+  /** The list knows it only as TCP: a process that Solus started, not yet known as HTTP. */
+  isTcp: boolean
 }
 
 type Verdict =
@@ -86,11 +94,14 @@ export interface LocalMcpServersDeps {
  * own: a scan runs only while a client holds a running-servers lease, or when a
  * person reads Found on this host. The registry learns nothing about MCP.
  *
- * Do no harm to other processes. A request goes only to an endpoint the list
- * already knows as HTTP (a Server URL that answered), on 127.0.0.1 or ::1. Each
- * endpoint of one process gets at most two `server/discover` requests in its
- * life: `POST /mcp`, and `POST /` only when its `GET /` did not answer with
- * HTML; an endpoint with a path gets one, to that path. No `initialize`
+ * Do no harm to other processes. A request goes only to 127.0.0.1 or ::1, and
+ * only to an endpoint the list knows as HTTP (a Server URL that answered), or
+ * to a TCP listener of a process that Solus started (an agent's or a terminal's,
+ * as the registry attributes it) once the list has shown it for two seconds.
+ * An endpoint known as HTTP gets at most two `server/discover` requests in the
+ * life of its process: `POST /mcp`, and `POST /` only when its `GET /` did not
+ * answer with HTML; an endpoint with a path gets one, to that path. A TCP
+ * listener gets one, `POST /mcp`, for each process and port. No `initialize`
  * follows: a server of revision 2025 answers `server/discover` with a JSON-RPC
  * error, and that already says MCP. No credential, no redirect, 1.5 seconds,
  * 16 KB, and four requests at one time. The answer, "not MCP" and a timeout
@@ -99,6 +110,8 @@ export interface LocalMcpServersDeps {
  */
 export class LocalMcpServers {
   private readonly verdicts = new Map<string, Verdict>()
+  /** When the list first showed each TCP listener of a Solus process that is not checked yet. */
+  private tcpFirstSeen = new Map<string, number>()
   private scan: Scan | null = null
   private running = 0
   private readonly queue: Array<() => void> = []
@@ -148,6 +161,7 @@ export class LocalMcpServers {
   stop(): void {
     this.stopObserving()
     this.verdicts.clear()
+    this.tcpFirstSeen.clear()
   }
 
   private scanned(scan: RunningServerScan): void {
@@ -160,9 +174,22 @@ export class LocalMcpServers {
         const holder = holders.get(verdict.port)
         if (!scan.listeningPorts.has(verdict.port) || (holder && holder !== verdict.serverId)) this.verdicts.delete(key)
       }
+      const firstSeen = new Map<string, number>()
       for (const candidate of candidatesOf(scan.servers)) {
-        if (!this.verdicts.has(candidate.key)) this.check(candidate)
+        if (this.verdicts.has(candidate.key)) continue
+        if (candidate.isTcp) {
+          // One check for each process and port: an answer of its Server URL counts too.
+          if ([...this.verdicts.values()].some((verdict) => verdict.serverId === candidate.server.serverId && verdict.port === candidate.endpoint.port)) continue
+          const since = this.tcpFirstSeen.get(candidate.key) ?? scan.at
+          if (scan.at - since < SETTLE_MS) {
+            firstSeen.set(candidate.key, since)
+            continue
+          }
+        }
+        this.check(candidate)
       }
+      // A listener that went before it settled is forgotten with its process.
+      this.tcpFirstSeen = firstSeen
     }
     this.followIntegrations(before)
   }
@@ -221,7 +248,7 @@ export class LocalMcpServers {
       // The process let go of its port while it was checked.
       if (this.verdicts.get(candidate.key) !== entry) return
       this.verdicts.set(candidate.key, verdict)
-      log.info('integration_local_server_checked', { port: candidate.endpoint.port, isMcp: verdict.state === 'mcp' })
+      log.info('integration_local_server_checked', { port: candidate.endpoint.port, isMcp: verdict.state === 'mcp', isTcp: candidate.isTcp })
       if (verdict.state === 'mcp') this.offerToSession(candidate, verdict.url, verdict.serverInfo)
     })
   }
@@ -276,21 +303,25 @@ export function sameLocalAddress(a: string, b: string): boolean {
   return path(a) === path(b)
 }
 
-/** The endpoints a request may go to: known as HTTP by the list, on a loopback address. */
+/**
+ * The endpoints a request may go to, on a loopback address: known as HTTP by
+ * the list, or a TCP listener of a process that an agent or a terminal of
+ * Solus started.
+ */
 function candidatesOf(servers: RunningServer[]): Candidate[] {
   return servers.flatMap((server) => server.endpoints.flatMap((endpoint): Candidate[] => {
-    if (endpoint.response?.protocol !== 'http' || !LOOPBACK_ADDRESSES.has(endpoint.address) || !URL.canParse(endpoint.url)) return []
+    if (!LOOPBACK_ADDRESSES.has(endpoint.address) || !URL.canParse(endpoint.url)) return []
+    const host = endpoint.address.includes(':') ? `[${endpoint.address}]` : endpoint.address
+    const at = { key: keyOf(server, endpoint), server, endpoint, origin: `http://${host}:${endpoint.port}` }
+    if (endpoint.response === null) {
+      const startedBySolus = server.startedBy.kind === 'agent' || server.startedBy.kind === 'terminal'
+      return startedBySolus ? [{ ...at, paths: ['/mcp'], isTcp: true }] : []
+    }
+    if (endpoint.response.protocol !== 'http') return []
     const named = new URL(endpoint.url)
     const path = `${named.pathname}${named.search}`
     const isPage = endpoint.response.contentType?.toLowerCase().includes('text/html') ?? false
-    const host = endpoint.address.includes(':') ? `[${endpoint.address}]` : endpoint.address
-    return [{
-      key: keyOf(server, endpoint),
-      server,
-      endpoint,
-      origin: `http://${host}:${endpoint.port}`,
-      paths: path !== '/' ? [path] : isPage ? ['/mcp'] : ['/mcp', '/'],
-    }]
+    return [{ ...at, paths: path !== '/' ? [path] : isPage ? ['/mcp'] : ['/mcp', '/'], isTcp: false }]
   }))
 }
 

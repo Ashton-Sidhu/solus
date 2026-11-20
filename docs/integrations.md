@@ -494,20 +494,31 @@ Found on this host also lists MCP servers that run on the host's own loopback
 (`docs/plans/mcp-first-class.md` §9). The host finds them through its list of
 running servers (`docs/running-servers.md`).
 
-- **Which listeners get a request.** Only an endpoint that the running-servers
-  list already knows as HTTP: a Server URL of a project that answered its
-  check. Automatic discovery sends no bytes to an unknown service, so a
-  listener that the list shows as TCP gets no request, and does not show
-  here. To find a server that an agent or a terminal started, add its address
-  to **Server URLs** in the project panel.
-- **What it gets.** One `POST` of `server/discover` to `/mcp`, and one to `/`
-  only when its `GET /` did not answer with HTML. An address with a path gets
-  one request, to that path. No `initialize` follows: an older server answers
+- **Which listeners get a request.** Only a listener on 127.0.0.1 or ::1 (a
+  wildcard listener is reached there) of one of these two kinds:
+  - an endpoint that the running-servers list knows as HTTP: a Server URL of
+    a project that answered its check;
+  - a TCP listener of a process that Solus started: a process of an agent run
+    or of a terminal in a Solus session, as the running-servers list
+    attributes it. It gets its request only when the list has shown it for 2
+    seconds, so a process that is still starting is not disturbed.
+
+  A listener of a process that Solus did not start gets no request and does
+  not show here. To add such a server, paste its `http://localhost` address
+  in the search at the top of Settings → MCP, or add the address to **Server
+  URLs** in the project panel.
+- **What it gets.** A TCP listener gets one `POST` of `server/discover` to
+  `/mcp`. A Server URL at `/` gets one to `/mcp`, and one to `/` only when its
+  `GET /` did not answer with HTML; a Server URL with a path gets one request,
+  to that path. One process and port gets no second check when the list
+  shows it in another form. An MCP server at another path of a TCP listener
+  is not found; type its address. No `initialize` follows: an older server answers
   `server/discover` with a JSON-RPC error, and that is enough. The request
   goes to 127.0.0.1 or ::1 only, with no credential, follows no redirect,
   waits at most 1.5 seconds, and reads at most 16 KB. At most four run at one
-  time. The answer, also "not MCP", is kept until the process lets go of its
-  port, so a refresh sends nothing again.
+  time. The answer, also "not MCP" (a database or a debugger that does not
+  speak HTTP), is kept until the process lets go of its port, so a refresh
+  sends nothing again. A new process on the port is checked again.
 - **When.** Only while Settings → MCP is open on a client (it holds the
   host's running-servers lease), or when a person reads this view. No client,
   no scan.
