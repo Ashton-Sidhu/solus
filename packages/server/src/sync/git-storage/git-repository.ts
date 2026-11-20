@@ -9,8 +9,8 @@ import { GitProcessError, runGit, type GitPolicy } from '../../git/git-process'
 
 /**
  * The Git storage layer (docs/adr/0004-shared-git-storage.md): the bare
- * repositories that keep the history of works and of sessions. Only Solus
- * reads them, always with `--git-dir` (ADR 0002), and never with a checkout.
+ * repositories that keep the history of works, of sessions, and of apps. Solus
+ * reads them always with `--git-dir` (ADR 0002), and never with a checkout.
  * This file owns the storage policy of the Git process runner
  * (docs/adr/0005-one-git-process-runner.md), and no other file uses it.
  */
@@ -32,21 +32,24 @@ export interface GitRepositoryOptions {
   env?: NodeJS.ProcessEnv
   /** Names the repository in the error of a failed Git process, for example `session repository`. */
   subject?: string
+  /** The email of the author and the committer of each commit. The default is `storage@solus.invalid`. */
+  author?: string
+  /** `plain` (the default): each path segment has only letters, digits, `.`, `_`, and `-`. `any`: each name that Git can hold, for files that a person names. */
+  fileNames?: 'plain' | 'any'
 }
 
 /** What one Git process reads and where its output goes; with no `output`, the output is the answer. */
 export interface GitIo {
-  text?: string
-  stream?: Readable
+  input?: string | Buffer | Readable
   output?: Writable
   env?: NodeJS.ProcessEnv
   /** The limit of a file read. More output gives `RepositoryFileTooLargeError`. */
   maxBytes?: number
 }
 
-/** New content of one file: text, a whole file on disk, or the bytes `[from, to)` of a file on disk. */
+/** New content of one file: text or bytes, a whole file on disk, or the bytes `[from, to)` of a file on disk. */
 export type GitFileContent =
-  | { content: string }
+  | { content: string | Buffer }
   | { file: string; from?: number; to?: number }
 
 /** One file of a commit. A `blob` entry names an object that can be in the remote only. */
@@ -111,17 +114,22 @@ export class GitRepository {
     this.policy = storagePolicy(path, options)
   }
 
-  /** Run one Git command in this repository and answer its output. A failure is a `GitProcessError`. */
-  git(args: string[], io: GitIo = {}): Promise<string> {
+  /** Run one Git command in this repository and answer its output as text. A failure is a `GitProcessError`. */
+  async git(args: string[], io: GitIo = {}): Promise<string> {
+    return (await this.gitBytes(args, io)).toString('utf8')
+  }
+
+  /** `git` for output that is not text. */
+  gitBytes(args: string[], io: GitIo = {}): Promise<Buffer> {
     const { signal, deadline } = this.options
     return runGit(this.policy, args, {
       env: io.env,
       signal: signal && deadline ? AbortSignal.any([signal, deadline]) : signal ?? deadline,
       timeout: this.options.timeoutMs,
       outputLimit: io.maxBytes ?? this.options.outputLimitBytes ?? MAX_TEXT_BYTES,
-      input: io.stream ?? io.text,
+      input: io.input,
       output: io.output,
-    }).then((output) => output.toString('utf8'), (error: Error) => {
+    }).catch((error: Error) => {
       throw io.maxBytes !== undefined && error instanceof GitProcessError && error.reason === 'output-limit' ? new RepositoryFileTooLargeError() : error
     })
   }
@@ -158,15 +166,20 @@ export class GitRepository {
   }
 
   /** The content of one file at `commit`. More than `maxBytes` gives `RepositoryFileTooLargeError`. */
+  async readBytes(commit: string, path: string, maxBytes?: number): Promise<Buffer> {
+    return this.gitBytes(['cat-file', 'blob', this.blobAt(commit, path)], { maxBytes })
+  }
+
+  /** `readBytes` for a text file. */
   async readText(commit: string, path: string, maxBytes?: number): Promise<string> {
-    return this.git(['cat-file', 'blob', blobAt(commit, path)], { maxBytes })
+    return (await this.readBytes(commit, path, maxBytes)).toString('utf8')
   }
 
   /** Append the content of each path at `commit`, in order, to `outFile`. */
   async appendFiles(commit: string, paths: string[], outFile: string): Promise<void> {
     const output = createWriteStream(outFile, { flags: 'a' })
     try {
-      for (const path of paths) await this.git(['cat-file', 'blob', blobAt(commit, path)], { output })
+      for (const path of paths) await this.git(['cat-file', 'blob', this.blobAt(commit, path)], { output })
     } finally {
       await new Promise<void>((resolve) => output.end(resolve))
     }
@@ -174,49 +187,53 @@ export class GitRepository {
 
   /** Write one blob and answer its id. A file goes to Git as a stream, so a large file is never held in memory. */
   async writeBlob(source: GitFileContent): Promise<string> {
-    const io: GitIo = 'content' in source ? { text: source.content }
+    const input = 'content' in source ? source.content
       // A stream cannot read an empty range.
-      : source.to !== undefined && source.to <= (source.from ?? 0) ? { text: '' }
+      : source.to !== undefined && source.to <= (source.from ?? 0) ? ''
         // A stream's `end` is the last byte it reads.
-        : { stream: createReadStream(source.file, { start: source.from ?? 0, end: source.to === undefined ? Infinity : source.to - 1 }) }
-    return (await this.git(['hash-object', '-w', '--stdin'], io)).trim()
+        : createReadStream(source.file, { start: source.from ?? 0, end: source.to === undefined ? Infinity : source.to - 1 })
+    return (await this.git(['hash-object', '-w', '--stdin'], { input })).trim()
   }
 
   /** Write one commit from Git objects, with no checkout, and answer its id. It moves no ref. */
   async writeCommit(commit: GitCommit): Promise<string> {
     const index = join(this.path, `solus-index-${randomUUID()}`)
     const env = { GIT_INDEX_FILE: index }
+    const author = this.options.author ?? 'storage@solus.invalid'
     try {
       await this.git(commit.parent && commit.keepParentFiles ? ['read-tree', commit.parent] : ['read-tree', '--empty'], { env })
       const lines: string[] = []
       for (const entry of commit.entries) {
-        lines.push(`100644 ${'blob' in entry ? entry.blob : await this.writeBlob(entry)}\t${checkedPath(entry.path)}\n`)
+        lines.push(`100644 ${'blob' in entry ? entry.blob : await this.writeBlob(entry)}\t${this.checkedPath(entry.path)}\0`)
       }
-      await this.git(['update-index', '--index-info'], { env, text: lines.join('') })
+      // `-z`: a name that a person gave can have each character but NUL.
+      await this.git(['update-index', '-z', '--index-info'], { env, input: lines.join('') })
       // Git cannot check a blob that only the remote has.
       const namesBlob = commit.entries.some((entry) => 'blob' in entry)
       const tree = (await this.git(['write-tree', ...(namesBlob ? ['--missing-ok'] : [])], { env })).trim()
       return (await this.git(['commit-tree', tree, ...(commit.parent ? ['-p', commit.parent] : []), '-m', commit.message], {
         env: {
-          GIT_AUTHOR_NAME: 'Solus', GIT_AUTHOR_EMAIL: 'storage@solus.invalid', GIT_AUTHOR_DATE: commit.date,
-          GIT_COMMITTER_NAME: 'Solus', GIT_COMMITTER_EMAIL: 'storage@solus.invalid', GIT_COMMITTER_DATE: commit.date,
+          GIT_AUTHOR_NAME: 'Solus', GIT_AUTHOR_EMAIL: author, GIT_AUTHOR_DATE: commit.date,
+          GIT_COMMITTER_NAME: 'Solus', GIT_COMMITTER_EMAIL: author, GIT_COMMITTER_DATE: commit.date,
         },
       })).trim()
     } finally {
       await rm(index, { force: true })
     }
   }
-}
 
-function blobAt(commit: string, path: string): string {
-  if (!COMMIT.test(commit)) throw new Error('Invalid repository commit.')
-  return `${commit}:${checkedPath(path)}`
-}
-
-/** A path inside a storage repository: plain segments only, so no entry can leave its folder. */
-function checkedPath(path: string): string {
-  if (!/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(path) || path.split('/').some((segment) => segment === '.' || segment === '..')) {
-    throw new Error('Invalid repository path.')
+  private blobAt(commit: string, path: string): string {
+    if (!COMMIT.test(commit)) throw new Error('Invalid repository commit.')
+    return `${commit}:${this.checkedPath(path)}`
   }
-  return path
+
+  /** A path inside this repository. No rule lets an entry leave its folder: a path is relative and has no empty, `.`, or `..` segment. */
+  private checkedPath(path: string): string {
+    const segments = path.split('/')
+    const isSafe = this.options.fileNames === 'any'
+      ? !path.includes('\0') && segments.every((segment) => segment !== '')
+      : /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(path)
+    if (!isSafe || segments.some((segment) => segment === '.' || segment === '..')) throw new Error('Invalid repository path.')
+    return path
+  }
 }

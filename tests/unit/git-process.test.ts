@@ -41,15 +41,15 @@ const endlessInput = () => new PassThrough()
 // give it the code 1 of a Git answer, and the storage words must give the
 // same number in each caller, not `null` (docs/adr/0005).
 test('a process that Solus stops gives a typed reason, no exit code, and the number 1 in the storage words', async () => {
-  const timed = await failureOf(new GitRepository(storage.path, { timeoutMs: 100 }).git(['hash-object', '--stdin'], { stream: endlessInput() }))
+  const timed = await failureOf(new GitRepository(storage.path, { timeoutMs: 100 }).git(['hash-object', '--stdin'], { input: endlessInput() }))
   expect(timed).toMatchObject({ reason: 'timeout', code: null, message: 'The Git hash-object operation failed (1).' })
 
   const controller = new AbortController()
-  const stopped = failureOf(new GitRepository(storage.path, { signal: controller.signal }).git(['hash-object', '--stdin'], { stream: endlessInput() }))
+  const stopped = failureOf(new GitRepository(storage.path, { signal: controller.signal }).git(['hash-object', '--stdin'], { input: endlessInput() }))
   setTimeout(() => controller.abort(), 100)
   expect(await stopped).toMatchObject({ reason: 'stopped', code: null, message: 'The Git hash-object operation failed (1).' })
 
-  const large = await failureOf(new GitRepository(storage.path, { outputLimitBytes: 8 }).git(['hash-object', '--stdin'], { text: 'content' }))
+  const large = await failureOf(new GitRepository(storage.path, { outputLimitBytes: 8 }).git(['hash-object', '--stdin'], { input: 'content' }))
   expect(large).toMatchObject({ reason: 'output-limit', code: null, message: 'The Git hash-object operation failed (1).' })
 
   expect(await failureOf(runAsync('git', ['rev-parse', 'HEAD'], checkout, { signal: AbortSignal.abort() }))).toMatchObject({ reason: 'stopped', code: null })
@@ -99,7 +99,7 @@ test('a storage command reads a stream and writes its output to a stream', async
   const input = new PassThrough()
   const blob = storage.writeBlob({ content: 'one two' })
   input.end('one two')
-  expect((await storage.git(['hash-object', '-w', '--stdin'], { stream: input })).trim()).toBe(await blob)
+  expect((await storage.git(['hash-object', '-w', '--stdin'], { input })).trim()).toBe(await blob)
   const commit = await storage.writeCommit({ parent: null, message: 'first', keepParentFiles: false, entries: [{ path: 'file', content: 'one two' }] })
   const outFile = join(root, 'out')
   await storage.appendFiles(commit, ['file', 'file'], outFile)
