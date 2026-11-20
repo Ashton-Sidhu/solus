@@ -154,8 +154,10 @@ export function useIntegrations(hostId: string) {
       setTools((previous) => new Map(previous).set(integrationId, next))
     }
     setTools((previous) => (previous.get(integrationId)?.kind === 'loaded' ? previous : new Map(previous).set(integrationId, { kind: 'loading' })))
-    Promise.all([current.api.integrationTools({ id: integrationId }), current.api.integrationFacts({ id: integrationId })]).then(
-      ([summaries, facts]) => put({ kind: 'loaded', tools: summaries, instructions: facts.instructions }),
+    // The facts only add the instructions: a facts read that fails, or an older host without it, keeps the tools.
+    const instructions = current.api.integrationFacts({ id: integrationId }).then((facts) => facts.instructions, () => null)
+    Promise.all([current.api.integrationTools({ id: integrationId }), instructions]).then(
+      ([summaries, text]) => put({ kind: 'loaded', tools: summaries, instructions: text }),
       (cause: unknown) => put({ kind: 'error', message: errorMessage(cause) }),
     )
   }, [connection])

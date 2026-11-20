@@ -217,9 +217,11 @@
       {/if}
       {@render field("Tools", tools)}
       {#if hostState?.facts.get(integration.id)?.instructions}
-        <details class="py-3 text-workspace-chrome">
-          <summary class="cursor-pointer text-(--solus-text-secondary)">Instructions for the agent</summary>
-          <p class="mt-2 whitespace-pre-wrap break-words text-foreground" data-testid="integration-instructions">{hostState.facts.get(integration.id)?.instructions}</p>
+        <details class="group py-3 text-workspace-chrome">
+          <summary class="-ml-1 flex min-h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-md px-1 text-(--solus-text-secondary) outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+            <ChevronRight size={16} class="shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none" />Instructions for the agent
+          </summary>
+          <p class="mt-1 whitespace-pre-wrap break-words pl-6 text-foreground" data-testid="integration-instructions">{hostState.facts.get(integration.id)?.instructions}</p>
         </details>
       {/if}
     </div>
