@@ -72,6 +72,7 @@ function found() {
         submitted.push({ integrationId: integration.id, values })
         return {} as never
       },
+      environmentFor: (integrationId) => submitted.find((entry) => entry.integrationId === integrationId)?.values ?? null,
       submitKey: async () => ({}) as never,
     },
     codexLayers: async () => codexLayers,
@@ -190,7 +191,27 @@ describe('adding (§8.3, §8.4)', () => {
     expect(result.integration.projectKey).toBe(resolveProjectKey(project))
     expect(result.integration.url).toBe(stdioServerAddress({ command: NODE, args: ['repo.js'] }))
     expect(submitted).toEqual([{ integrationId: result.integration.id, values: [{ name: 'API_KEY', value: SECRET }] }])
+    // The file gave every value: nothing more to ask.
+    expect(result.needsValues).toBeUndefined()
     expect(byName((await finder.list(ADMIN, OWNER, { projectPath: project })).servers, 'repo')).toMatchObject({ state: 'added', integrationId: result.integration.id })
+  })
+
+  test('a command added without all its values asks for them, so the client opens the values form', async () => {
+    // WHY: a found command with environment names cannot start until the person
+    // gives the values (§7.6). The add says so; the client then opens the form
+    // in the new row instead of leaving a row that only fails to start.
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: {
+      named: { command: NODE, args: ['named.js'], env: { API_KEY: SECRET } },
+      plain: { command: NODE, args: ['plain.js'] },
+    } })
+    const finder = found()
+    const servers = (await finder.list(ADMIN, OWNER, {})).servers
+    // The person chose not to copy the file's value.
+    const named = await finder.add(ADMIN, OWNER, { foundId: byName(servers, 'named').foundId, fingerprint: byName(servers, 'named').fingerprint })
+    expect(named).toMatchObject({ kind: 'saved', needsValues: true })
+    expect(submitted).toEqual([])
+    const plain = await finder.add(ADMIN, OWNER, { foundId: byName(servers, 'plain').foundId, fingerprint: byName(servers, 'plain').fingerprint })
+    expect(plain.kind === 'saved' && plain.needsValues).toBeFalsy()
   })
 
   test('a file that changed after the person saw it adds nothing', async () => {

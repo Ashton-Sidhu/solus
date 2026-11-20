@@ -541,7 +541,12 @@ export type IntegrationFoundAddRequest = z.infer<typeof integrationFoundAddReque
 
 /** `found-changed`: the file changed after the person saw it, so nothing was saved; read the list again. */
 export type IntegrationFoundAddResult =
-  | { kind: 'saved'; integration: Integration }
+  /**
+   * `needsValues`: a command whose environment values the person must still
+   * give (the file gave none for some name, or they chose not to copy them).
+   * The client opens the values form of the new row (§7.7, §8.3 step 4).
+   */
+  | { kind: 'saved'; integration: Integration; needsValues?: boolean }
   | { kind: 'found-changed' }
 
 /**

@@ -135,7 +135,15 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
             />
             <CommandAddSection integrations={integrations} processes={processes} />
             <InstalledSection integrations={integrations} processes={processes} installed={list.integrations} query={query} />
-            {query.trim() ? null : <FoundServersSection hostId={hostId} />}
+            {query.trim() ? null : (
+              <FoundServersSection
+                hostId={hostId}
+                onNeedsValues={(integration) => {
+                  integrations.expand(integration.id);
+                  void integrations.flows.connect(integration);
+                }}
+              />
+            )}
             {looksLikeUrl(query) ? (
               <CustomAddressSection integrations={integrations} installed={list.integrations} address={query.trim()} onAdd={add} />
             ) : (

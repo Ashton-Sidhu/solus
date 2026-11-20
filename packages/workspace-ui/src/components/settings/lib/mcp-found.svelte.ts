@@ -1,4 +1,4 @@
-import type { FoundFile, FoundServer, Integration } from '@solus/contracts/integration-types'
+import type { FoundFile, FoundServer, IntegrationFoundAddResult } from '@solus/contracts/integration-types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { isUnsupportedHostError } from '../integrations.store.svelte'
 
@@ -64,7 +64,7 @@ export class McpFound {
    * list is read again and the answer says so: the person reads the new entry
    * before an add.
    */
-  async add(server: FoundServer, useFileValues: boolean): Promise<{ kind: 'saved'; integration: Integration } | { kind: 'found-changed' } | { kind: 'failed'; message: string }> {
+  async add(server: FoundServer, useFileValues: boolean): Promise<IntegrationFoundAddResult | { kind: 'failed'; message: string }> {
     this.adding = server.foundId
     try {
       const result = await serverConnections.apiFor(this.serverId).integrationFoundAdd({

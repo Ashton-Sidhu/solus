@@ -119,6 +119,15 @@
       toasts.error(`${server.name} changed in its file. Read it again before you add it.`);
       return;
     }
+    if (result.needsValues) {
+      // A command cannot start without its values: its row opens the values form (§7.6).
+      toasts.success(`${server.name} added. Enter its values to start it.`);
+      showView("installed");
+      expanded.add(result.integration.id);
+      await integrationsStore.connect(serverId, result.integration.id);
+      await revealRow(result.integration, false);
+      return;
+    }
     toasts.success(server.transport?.kind === "stdio" ? `${server.name} added. Start it from Installed.` : `${server.name} added`);
   }
 
@@ -151,12 +160,12 @@
     searchEl?.focus();
   }
 
-  /** The connected row shows where the person can see it, and takes focus. */
-  async function revealRow(integration: Integration) {
+  /** The row shows where the person can see it, and takes focus unless a form in it holds the focus already. */
+  async function revealRow(integration: Integration, takesFocus = true) {
     await tick();
     const row = rootEl?.querySelector<HTMLElement>(`[data-integration-id="${CSS.escape(integration.id)}"]`);
     row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    row?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    if (takesFocus) row?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
   }
 
   /** Loads the next entries as the end of the list comes near, before the person reaches it. */

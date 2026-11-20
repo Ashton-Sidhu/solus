@@ -227,7 +227,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const owner = ownerKeyOf(ctx.actor)
     if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
     const result = await deps.found.add(ctx.principal, owner, request)
-    return result.kind === 'saved' ? { kind: 'saved' as const, integration: forReader(ctx.actor, result.integration) } : result
+    return result.kind === 'saved' ? { ...result, integration: forReader(ctx.actor, result.integration) } : result
   })
 
   // MCP prompts as slash commands (mcp-first-class.md §10): the caller's own servers, with the caller's connection.

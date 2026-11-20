@@ -48,7 +48,7 @@ export interface FoundServersDeps {
   events: IntegrationCreateDeps['events']
   profile?: IntegrationCreateDeps['profile']
   gateway: Pick<IntegrationGateway, 'forget' | 'invalidate'>
-  connections: Pick<IntegrationConnections, 'removeAllFor' | 'submitEnvironment' | 'submitKey'>
+  connections: Pick<IntegrationConnections, 'removeAllFor' | 'submitEnvironment' | 'submitKey' | 'environmentFor'>
   /** The Codex config layers for a folder (`config/read`), from the host's own app-server; absent where the host runs no Codex. */
   codexLayers?: (cwd: string | null) => Promise<unknown[]>
   /** The home folder of the Solus server's OS user and its environment. Tests give their own. */
@@ -130,7 +130,8 @@ export class FoundServers {
     const copied = request.useFileValues ? await this.copyValues(integration, ownerKey, merged.secrets) : 0
     // Names and counts only: a command, an argument, or a value can hold a secret.
     log.info('integration_found_added', { integrationId: integration.id, files: server.foundIn.map((place) => place.file), project: server.projectOnly, changed: existing !== null, copiedValues: copied })
-    return { kind: 'saved', integration }
+    const needsValues = integration.auth.kind === 'env' && integration.auth.names.length > 0 && this.deps.connections.environmentFor(integration.id, ownerKey) === null
+    return needsValues ? { kind: 'saved', integration, needsValues } : { kind: 'saved', integration }
   }
 
   private saveCommand(principal: Principal, ownerKey: string, server: FoundServer, transport: Extract<FoundTransport, { kind: 'stdio' }>, existing: Integration | null, projectPath: string | undefined): Integration {

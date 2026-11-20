@@ -1,6 +1,6 @@
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 
-import type { FoundServer } from "@solus/contracts/integration-types";
+import type { FoundServer, Integration } from "@solus/contracts/integration-types";
 import {
   NO_FOUND_SERVERS_TEXT,
   configFileLabel,
@@ -23,7 +23,11 @@ import { SettingsSection } from "./SettingsSection";
  * added. The rows follow the catalog's `AddRow`; the approval is the native
  * alert, which shows the full command the host would run.
  */
-export function FoundServersSection(props: { readonly hostId: string }) {
+export function FoundServersSection(props: {
+  readonly hostId: string;
+  /** A command added without all its values: the screen opens its values panel (§7.6). */
+  readonly onNeedsValues: (integration: Integration) => void;
+}) {
   const found = useFoundServers(props.hostId);
   const { list } = found;
 
@@ -38,6 +42,7 @@ export function FoundServersSection(props: { readonly hostId: string }) {
       void found.add(server, useFileValues).then((result) => {
         if (result.kind === "found-changed") Alert.alert(`${server.name} changed`, "It changed in its file. Read it again before you add it.");
         else if (result.kind === "failed") Alert.alert(`${server.name} was not added`, result.message);
+        else if (result.needsValues) props.onNeedsValues(result.integration);
       });
     };
     const valuesText = fileValuesText(server);
