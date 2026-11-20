@@ -94,7 +94,7 @@ describe('the add form of a command', () => {
   })
 
   test('saved values are named only by count; no value is ever read back', () => {
-    expect(commandValuesText(['A', 'B'], { status: 'connected' })).toEqual({ text: '2 values saved on this host', action: 'Change values', hasValues: true })
-    expect(commandValuesText(['TOKEN'], null)).toEqual({ text: 'No values yet. The command needs TOKEN.', action: 'Enter values', hasValues: false })
+    expect(commandValuesText(['A', 'B'], { status: 'connected' })).toEqual({ text: '2 values saved on this host', detail: null, action: 'Change values', hasValues: true })
+    expect(commandValuesText(['TOKEN'], null)).toEqual({ text: 'No values yet', detail: 'The command needs TOKEN.', action: 'Enter values', hasValues: false })
   })
 })

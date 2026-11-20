@@ -1,18 +1,18 @@
 import { useState } from 'react'
 import { View } from 'react-native'
 import type { Integration, IntegrationLaunch } from '@solus/contracts/integration-types'
-import { COMMAND_ADMIN_ONLY, commandLineText, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
+import { commandLineText, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
 import { AppText as Text } from '../../../components/AppText'
 import type { useCommandProcesses } from '../use-command-processes'
 import { CommandProcessPanel } from './CommandProcessPanel'
 import { CommandServerForm } from './CommandServerForm'
 import { SettingsActionRow } from './SettingsActionRow'
-import { SettingsNote } from './SettingsNote'
 
 /**
  * The open row of a command (docs/plans/mcp-first-class.md §7.7): its line and
  * folder, or the form that changes them, its process state with its actions,
- * and Edit command. A person without `host.admin` sees why it cannot change.
+ * and Edit command. A person without `host.admin` sees why it cannot change
+ * in the process panel, once.
  */
 export function CommandServerDetails(props: {
   readonly integration: Integration
@@ -53,7 +53,6 @@ export function CommandServerDetails(props: {
           enabled={props.isConnected}
           onAction={(kind) => processes.run(integration.id, kind)}
         />
-        {processes.mayRunCommands ? null : <SettingsNote>{COMMAND_ADMIN_ONLY}</SettingsNote>}
       </View>
       {isEditing ? null : (
         <SettingsActionRow icon="terminal" label="Edit command" loading={props.isSaving} disabled={!props.isEditable || !processes.mayRunCommands} onPress={() => setEditing(true)} />

@@ -170,12 +170,10 @@
         <p class="break-all font-mono text-workspace-chrome text-foreground">{subtitle}</p>
         <p class="text-chrome-dense text-(--solus-text-secondary)">In <span class="font-mono">{integration.launch?.cwd ?? "~"}</span> on {hostLabel}</p>
       </div>
+      <!-- The process field below says why it is off, once. -->
       <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={!mayRunCommands || !canEdit || isBusy || isOffline}
-        aria-describedby={!mayRunCommands ? `command-admin-${integration.id}` : undefined} onclick={editCommand}>Edit</Button>
+        aria-label={mayRunCommands ? "Edit the command" : `Edit the command. ${COMMAND_ADMIN_ONLY}`} onclick={editCommand}>Edit</Button>
     </div>
-    {#if !mayRunCommands}
-      <p id="command-admin-{integration.id}" class="mt-1 text-chrome-dense text-(--solus-text-secondary)">{COMMAND_ADMIN_ONLY}</p>
-    {/if}
   {/if}
 {/snippet}
 
@@ -187,7 +185,7 @@
   {@const list = hostState?.tools.get(integration.id)}
   {@const toolError = hostState?.toolErrors.get(integration.id)}
   {#if !toolsListable}
-    <p class="text-workspace-chrome text-muted-foreground">Connect to see its tools.</p>
+    <p class="text-workspace-chrome text-muted-foreground">{integration.auth.kind === "env" ? "Enter the values to see its tools." : "Connect to see its tools."}</p>
   {:else if toolError}
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{toolError}</p>

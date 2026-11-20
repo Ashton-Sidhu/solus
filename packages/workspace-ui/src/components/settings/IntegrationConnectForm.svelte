@@ -46,7 +46,7 @@
   const integration = $derived(hostState?.integrations?.find((item) => item.id === integrationId) ?? null);
   const valuesText = $derived(integration?.auth.kind === "env" ? commandValuesText(integration.auth.names, connection) : null);
   const status = $derived(valuesText
-    ? { text: valuesText.text, detail: null, action: valuesText.hasValues ? "Disconnect" as const : "Connect" as const }
+    ? { text: valuesText.text, detail: valuesText.detail, action: valuesText.hasValues ? "Disconnect" as const : "Connect" as const }
     : connectionStatusText(connection));
   /** A command takes values, not a sign-in. */
   const actionLabel = $derived(status.action === "Connect" && valuesText ? valuesText.action : status.action);
