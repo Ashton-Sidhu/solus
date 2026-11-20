@@ -130,7 +130,7 @@ test('a projectless session sync imports its thread and record at the same id', 
     } }),
   } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositories: new SessionRepositories(join(root), 'destination'),
+    repositories: new SessionRepositories(join(root, 'destination')),
     providerInstalled: async () => true,
     fetchBundle: async ({ outFile }) => {
       await source.named(repository).bundleSince(null, outFile)
@@ -217,7 +217,7 @@ test('a project sync restores the exact tree and binds the same session id', asy
     sessionCheckouts: { getGitContext: () => undefined, setSessionGitEnvironment: (_id: string, path: string) => { checkoutPath = path } },
   } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositories: new SessionRepositories(join(root), 'destination-project'),
+    repositories: new SessionRepositories(join(root, 'destination-project')),
     providerInstalled: async () => true,
     fetchBundle: async ({ outFile }) => {
       await source.named(repository).bundleSince(null, outFile)
@@ -309,7 +309,7 @@ test('code restore reports its typed failure without a worktree', async () => {
     backendFor: () => ({ importThread: async () => ({ files: [], bytesWritten: 0 }) }),
     sessionCheckouts: { getGitContext: () => undefined } } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositories: new SessionRepositories(join(root), 'code-failure-destination'), providerInstalled: async () => true,
+    repositories: new SessionRepositories(join(root, 'code-failure-destination')), providerInstalled: async () => true,
     fetchBundle: async ({ outFile }) => { await source.named(repository).bundleSince(null, outFile); return { state: 'ready', repositoryPath: outFile, head } },
     prepareCheckout: async () => checkout,
   })
@@ -342,7 +342,7 @@ test('Stop interrupts every sync step before the local head advances', async () 
       backendFor: () => ({ importThread: async () => ({ files: [], bytesWritten: 0 }) }),
     } as SessionRuntime
     sync = new SessionSync(runtime, {
-      repositories: new SessionRepositories(join(root), 'stop-destination'), providerInstalled: async () => true,
+      repositories: new SessionRepositories(join(root, 'stop-destination')), providerInstalled: async () => true,
       fetchBundle: async ({ outFile }) => { await source.named(repository).bundleSince(null, outFile); return { state: 'ready', repositoryPath: outFile, head } },
       prepareCheckout: async () => { throw new Error('No checkout expected') },
     })
@@ -377,7 +377,7 @@ test('a full projectless sync can fetch a file remote', async () => {
     } }),
   } as SessionRuntime
   const sync = new SessionSync(runtime, {
-    repositories: new SessionRepositories(join(root), 'destination-cloud-chat'), providerInstalled: async () => true,
+    repositories: new SessionRepositories(join(root, 'destination-cloud-chat')), providerInstalled: async () => true,
     fetchBundle: request => fetchSessionArtifacts(async () => ({
       repository, remote: pathToFileURL(source.named(repository).path).href, token: '',
       expiresAt: new Date(Date.now() + 60_000).toISOString(), storageScope: 'test',
