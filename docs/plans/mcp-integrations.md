@@ -762,6 +762,16 @@ loopback client, with or without the document. The document takes effect when
 the maintainer deploys `apps/site`; until then every host reads a 404 and
 registers dynamically.
 
+A server that reads documents but has no registration endpoint refuses the
+sign-in while the document is not confirmed, and `integrationConnectStart`
+marks the record `client-required`. That mark now carries
+`awaitsClientDocument: true`. When a person lists their servers, the host reads
+the document (its own cache limits the reads) and, once it is confirmed, sets
+the record back to `metadata-document` and sends `integration.changed`, so
+every client shows Connect again with no step of the person. A refusal while
+the document is confirmed (a callback it does not name) is a mark that stays
+(wave 5, `mcp-wave5-handoff.md`).
+
 Status on 2026-10-23: steps 1 to 3 below work, and first-party clients for
 GitHub and Google work on the host path (`connect-with-less-setup.md`, step 6).
 

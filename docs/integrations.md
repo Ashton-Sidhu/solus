@@ -219,6 +219,13 @@ host reads it; if the read fails, the chip says why, with Retry and Remove.
 The agent gets what the resource held when you attached it. A command server
 (stdio) that is not running shows no resources in the menu until it runs.
 
+A server can also list resource templates, such as `docs://pages/{+path}`.
+The `@` menu shows them after the resources, and the mobile sheet under their
+server. Pick one and the argument form of MCP prompts asks for each value; the
+host fills in the template and reads that one resource into a chip. Solus
+fills in only `{name}` and `{+name}`; a template with another form is not
+offered.
+
 When you ask the agent to use a service that has no tools in the session, it
 can call `connect_integration` with the service's name. The tool uses your
 server for that service if you have one. Otherwise it adds the one catalog
@@ -384,8 +391,9 @@ Settings → MCP shows a command on desktop, web, and mobile.
   before the end removes the command it added. The command palette has
   "Add an MCP server command".
 - The row shows the command line in place of an address, and the state of
-  your process: **Not started**, **Running**, **Stopped** (after 10 minutes
-  with no use, at Stop, or when the host stopped), **Stopped by itself**,
+  your process: **Not started**, **Running**, **Stopped** (with the reason:
+  after 10 minutes with no use, at Stop, to make room at the limit of 16, or
+  when the host stopped), **Stopped by itself**,
   **Failed**, **Not installed**, or **Cannot run**, with what the host said
   and the last standard error. The actions are **Start and test**, **Stop**,
   **Start again**, and **Test again** (it checks the protocol revision
@@ -418,18 +426,25 @@ It lists the MCP servers in the config files of other tools on the host:
 | `~/.codex/config.toml` and the project's `.codex/config.toml`, through Codex (`config/read`) | the same; Codex leaves out a project it does not trust |
 
 On desktop and web, the project is the one of the open session when it is on
-that host. Mobile reads the user files only.
+that host; a chat has no project, so only the user files are read for it.
+Mobile reads the user files only.
 
 - **Nothing is added by itself.** A command in a cloned repository is code
   that would run on the host. **Add** shows the full command or URL. The host
   reads the file again and refuses an entry that changed after you saw it.
 - A command needs `host.admin` and does not start when you add it. Start it
-  from Installed.
+  from Installed. When it needs environment values that you did not copy from
+  the file, Installed opens with its row and the values form.
+- A row shows **Added** for a server you already run: the same command and
+  arguments, or the same URL (the case of the host, the default port, and a
+  slash at the end do not count), the rule by which each run leaves out the
+  CLI's copy.
 - The same command or URL in two files is one row that names both files.
 - Only names leave the host. A plain value in `env`, or a fixed
   `Authorization` header, is copied into your connection on the host when you
   choose to use the file's values.
 - A server that only a project file holds joins only that project's runs.
+  Its row in Installed says **Only in `<project>`**.
 - **Review change** shows a server whose command or URL changed in its file
   since you added it. **Update** takes the new one.
 - Not supported: the deprecated HTTP+SSE transport, and `${…}` in a command,
@@ -438,8 +453,11 @@ that host. Mobile reads the user files only.
   link out of its folder is listed with the reason, and the others still read.
 - The host keeps a list for 10 seconds. **Refresh** reads the files again.
 
-The provider CLI still loads a server you added from its own file. Phase C2 of
-the plan makes each run leave out that copy.
+Each run that Solus starts leaves out the provider CLI's own copy of a server
+you added (see "A server that a CLI also has"). A server in the local scope of
+Claude Code (`projects["<path>"].mcpServers`, the default of `claude mcp add`)
+never loads in a Solus run: Solus starts Claude Code without the `local`
+setting source.
 
 ## Long tool calls (MCP tasks)
 

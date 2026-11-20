@@ -1,10 +1,10 @@
 # MCP as a first-class feature
 
-Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, H1, and F1 are built
-(`mcp-b1-handoff.md` has the B1 contract; `mcp-wave3-handoff.md` records the
-merge of A2, A3, B1, and H1; `mcp-f1-handoff.md` has the F1 contract and what
-F1 left for E and F2). C2, E, G, and H2 are built on their own branches
-(`mcp-c2-handoff.md`, `mcp-e-handoff.md`, `mcp-g-handoff.md`, `mcp-h2-handoff.md`). This plan continues
+Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, C1, C2, E,
+F1, G, H1, H2, and the Client ID Metadata Document are built and merged on one
+branch with `main` (`mcp-wave5-handoff.md` records that merge and the items
+between the phases; `mcp-wave3-handoff.md` the earlier one; each phase has its
+own handoff). F2, the watch of resources, is not built. This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -184,6 +184,29 @@ some of them. This plan follows the sources.
 32. **"Resizing or moving the pip frame" is left out (§20), but the H2 brief
     asks for a move.** H2 builds the smallest move: the frame goes between the
     two lower corners of its conversation (§14.2).
+33. **A chat has no project** (found at the wave 5 merge). `main` added chats
+    with no project, whose folder is `solus:new-chat` or a folder of the
+    host's own. Found on this host (§8.6) took the open session's folder as the
+    project; it now reads only the user files for a chat, on the client and on
+    the host.
+34. **A stopped process says why** (wave 5). The B1 handoff gave `stopped` a
+    message after an idle close or Stop; the host set none, and B2's row
+    guessed from the saved verdict. `IntegrationProcessFacts.stopReason`
+    (`idle`, `stop`, `limit`) now says it; `message` stays for an end by
+    itself (§7.3, §7.7).
+35. **The project label needs the project's name** (wave 5). §8.4's "Only in
+    `<project name>`" could not be built from `project_key`, a hash of the
+    project root. The record keeps `project_name` beside it (migration
+    `0010_integration_project_name`).
+36. **A found server is added by the CLI skip's address rule** (wave 5). C1
+    compared URLs exactly; C2's `sameServerAddress` does not count the case of
+    the host, the default port, or a slash at the end. C1 now uses it, so a row
+    says Added exactly when each run leaves out the CLI's copy.
+37. **Claude's local scope, confirmed again** (wave 5). With Solus's
+    `settingSources: ['user', 'project']` a server in
+    `projects["<path>"].mcpServers` neither loads nor starts; with `local`
+    added it does; with `local` and the deny list of §8.5 it does not start.
+    So the skip covers that scope too, should Solus ever pass `local`.
 
 ## 2. Vocabulary
 
@@ -1282,7 +1305,11 @@ and raises the connect card.
   action.
 - Selecting a template opens the argument form (§10) for its variables. The
   host expands the template. It supports `{name}` and `{+name}` of RFC 6570
-  and refuses other operators with the reason.
+  and refuses other operators with the reason. As built in wave 5: the
+  clients offer only a template whose variables are all `{name}` or
+  `{+name}` (`templateArgumentFields` in client-core), each one a required
+  field; the form's button and Enter hint say Attach, and the chip reads the
+  one resource (`resourceAttachRequest` in contracts).
 - Mobile: the + menu gains **MCP resource**: a sheet with the servers, their
   resources, a search field, and the argument sheet for a template. Hook:
   `use-integration-resources.ts`.
