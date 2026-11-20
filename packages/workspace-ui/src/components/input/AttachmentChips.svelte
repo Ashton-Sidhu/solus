@@ -19,6 +19,7 @@
   import type { HostMediaRequest } from '../../lib/host-media-url.svelte'
   import { attachmentUploads } from './lib/attachment-uploads.svelte'
   import { uploadProgressPercent } from './lib/attachment-upload'
+  import { integrationResources } from '../settings/integration-resources.store.svelte'
   import type { Attachment } from '@solus/contracts/types'
 
   interface Props {
@@ -65,6 +66,7 @@
       {@const isVideo = !!host && isVideoAttachment(a)}
       {@const upload = attachmentUploads.stateFor(a.id)}
       {@const marks = isAnnotation ? browserMarkChips(a) : []}
+      {@const resourceIcon = integrationResources.chipIcon(a.id)}
       <!-- One animated root per item (Svelte requires the `animate:` element to
            be the each's only child); the branch lives inside. A browser
            annotation is not one chip: it is one chip per mark, in pin order,
@@ -146,15 +148,20 @@
               {/if}
             {:else}
               <span class="flex-shrink-0 {upload?.status === 'failed' ? 'text-(--destructive)' : 'text-(--solus-text-tertiary)'}">
-                {#if upload?.status === 'failed'}<RotateCwIcon size={14} />{:else}<FileIcon path={a.name} size={14} />{/if}
+                {#if upload?.status === 'failed'}<RotateCwIcon size={14} />
+                {:else if resourceIcon}<img src={resourceIcon.src} alt={resourceIcon.serverName} title={resourceIcon.serverName} loading="lazy" referrerpolicy="no-referrer" class="size-3.5 rounded-[0.1875rem] bg-white object-contain" />
+                {:else}<FileIcon path={a.name} size={14} />{/if}
               </span>
               <span class="min-w-0 flex-1 truncate font-normal">
                 {label}
               </span>
-              {#if upload?.status === 'uploading'}
+              {#if upload?.status === 'uploading' && upload.totalBytes > 0}
                 <span class="flex-shrink-0 tabular-nums text-(--solus-text-tertiary)">
                   {uploadProgressPercent(upload.loadedBytes, upload.totalBytes)}%
                 </span>
+              {:else if upload?.status === 'uploading'}
+                <!-- The host reads it (an MCP resource): no byte count to show. -->
+                <LoaderCircleIcon size={12} class="flex-shrink-0 text-(--solus-text-tertiary) motion-safe:animate-spin" />
               {/if}
             {/if}
           </button>

@@ -8,6 +8,7 @@
  * however typed, can produce an empty popover.
  */
 import type { User } from "@solus/contracts/user";
+import type { IntegrationResource } from "@solus/contracts/integration-types";
 import type { SlashCommand } from "../../input/slash-commands";
 import type { ReferenceToken } from "../reference-tokens";
 import type { CodeHostAccount } from "../../mentions/lib/code-host-mentions";
@@ -40,6 +41,9 @@ export interface MenuItem {
   /** Present for `#` rows so the metadata pass can match the noun. */
   kindNoun?: string;
   refKind?: RefKind;
+  /** An MCP resource row: accepting it attaches the resource, so `token` is
+   *  never inserted (docs/plans/mcp-first-class.md §11.3). */
+  resource?: { entry: IntegrationResource; serverSlug: string };
   /** Extra context shown only for the selected row. Kept out of the compact
    *  result geometry so large indexes remain quick to scan. */
   preview?: string;
@@ -99,6 +103,8 @@ export interface RowInput {
   worktreeFiles: MenuItem[];
   /** Total files searchable, for the band's count hint. */
   worktreeFileCount: number | null;
+  /** The caller's MCP resources, matched here; no request runs for a keystroke. */
+  mcpResources?: MenuItem[];
   /** `#` channel, per category, each already in recency order. */
   byKind: Record<RefKind, MenuItem[]>;
   /** What the current conversation's task is linked to, newest link first. */
@@ -122,6 +128,7 @@ const MAX_BEST = 8;
 const MAX_DRILLED = 8;
 const MAX_RECENT = 4;
 const MAX_LINKED = 5;
+const MAX_RESOURCES = 5;
 
 function formatCount(n: number): string {
   return n.toLocaleString("en-US");
@@ -203,8 +210,54 @@ function fileRankQuery(query: string): string {
   return slash >= 0 ? query.slice(slash + 1) : query;
 }
 
+/** An MCP resource as an `@` row: its name, and its server and URI to match on. */
+export function resourceMenuItem(entry: IntegrationResource, server: { name: string; slug: string }): MenuItem {
+  const title = entry.title ?? entry.name;
+  return {
+    id: `resource:${entry.integrationId}:${entry.uri}`,
+    title,
+    meta: `${server.name} · ${entry.uri}`,
+    when: "",
+    icon: GLYPH.resource,
+    mono: false,
+    monoMeta: true,
+    token: { kind: "file", path: entry.uri, name: title },
+    resource: { entry, serverSlug: server.slug },
+  };
+}
+
+/** `@<slug>:<query>` names one server: only its resources show. */
+function resourceScope(query: string, resources: MenuItem[]): { slug: string; query: string } | null {
+  const match = /^([a-z0-9][a-z0-9-]*):(.*)$/.exec(query);
+  if (!match || !resources.some((item) => item.resource?.serverSlug === match[1])) return null;
+  return { slug: match[1], query: match[2] };
+}
+
+function resourceRows(resources: MenuItem[], query: string, cap: number): MenuRow[] {
+  const matches = rank(resources, query);
+  if (matches.length === 0) return [];
+  return [
+    { type: "label", key: "resources", label: "MCP resources", hint: bandHint(matches.length, cap) },
+    ...matches.slice(0, cap).map((match) => itemRow(match, false, "resource")),
+  ];
+}
+
 function fileRows(input: RowInput): MenuRow[] {
   const { query } = input.trigger;
+  const resources = input.mcpResources ?? [];
+  const scope = resourceScope(query, resources);
+  if (scope) {
+    const scoped = resources.filter((item) => item.resource?.serverSlug === scope.slug);
+    const rows = resourceRows(scoped, scope.query, MAX_DRILLED);
+    return rows.length > 0 ? rows : [{
+      type: "deadEnd",
+      key: "no-resource",
+      title: `No resource of ${scope.slug} matches ${scope.query}`,
+      meta: "keep typing as plain text",
+      icon: GLYPH.resource,
+      action: "clear",
+    }];
+  }
   const rankQuery = fileRankQuery(query);
   const open = rank(input.openFiles, rankQuery);
   // searchFiles already returns the complete page in match-score order. Keep
@@ -236,6 +289,7 @@ function fileRows(input: RowInput): MenuRow[] {
       ...worktree.map((match) => itemRow(match, false, "worktree")),
     );
   }
+  rows.push(...resourceRows(resources, query, MAX_RESOURCES));
   if (rows.length === 0)
     rows.push({
       type: "deadEnd",

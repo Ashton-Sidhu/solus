@@ -11,6 +11,7 @@
   } from "@solus/contracts/types";
   import UnifiedAutocompleteMenu from "../input/UnifiedAutocompleteMenu.svelte";
   import type { SlashCommand } from "../input/slash-commands";
+  import type { IntegrationResource } from "@solus/contracts/integration-types";
   import PlainTextEditor from "./plain-text-editor/plain-text-editor.svelte";
   import { UnifiedAutocompleteController } from "../editor/autocomplete.svelte";
   import { fleetStore } from "../fleet/fleet.store.svelte";
@@ -49,6 +50,8 @@
      *  whether to execute it or insert text. Only fires when
      *  `includeSolusCommands` is true. */
     onSolusCommand?: (cmd: SlashCommand) => void;
+    /** Attaches an MCP resource picked under `@`; without it `@` lists files only. */
+    onResource?: (resource: IntegrationResource) => void;
     /** Forwarded keydown — only fires when no autocomplete menu consumed it. */
     onKeyDown?: (e: KeyboardEvent) => void;
     /** When true, plain Enter inserts a newline instead of being swallowed for a
@@ -99,6 +102,7 @@
     onEmptyChange,
     includeSolusCommands = false,
     onSolusCommand,
+    onResource,
     onKeyDown,
     enterInsertsNewline = false,
     onPaste,
@@ -169,6 +173,7 @@
     includeSolusCommands: () => includeSolusCommands,
     pluginCommands: () => pluginCommands,
     onSolusCommand: () => onSolusCommand,
+    onResource: () => onResource,
     onRefsChange: () => onRefsChange,
     session,
     pullRequests: pullRequests.projects,
