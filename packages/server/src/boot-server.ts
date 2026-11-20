@@ -1378,7 +1378,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
           }
           throw error
         }
-      })
+      }, wantedHead, signal)
     },
     prepareCheckout: setup.prepareDispatchCheckout,
     claimSession: (sessionId, principal, isProject) => shares.claimSession(sessionId, principal, { shareWithOrganization: isProject }),

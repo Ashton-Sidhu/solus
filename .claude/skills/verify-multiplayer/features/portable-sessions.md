@@ -19,6 +19,7 @@ From this checkout, run `bun lab build`. Then run `SOLUS_REPO="$PWD" SOLUS_CLOUD
 
 ## Gotchas
 
-- The Lab cloud registration gives hosts a stub tunnel route. Host to host fallback cannot dial that route, even while the source is online. See the Part L result table.
+- The Lab cloud registration gives hosts a loopback stub route labelled `tunnel`. The host now treats its local URL as local for a host-to-host dial. The Lab rerun is pending because the read-only sibling cloud checkout fails startup with `TSCONFIG_ERROR: Failed to load tsconfig 'expo/tsconfig.base'`.
+- When a cloud push is still pending and the last host is offline, source choice retries the cloud for at most 15 seconds. Stop cancels this wait.
 - The prompt context puts `forked` on the session. `forkSourceSessionId` and the source head go on the prompt options.
 - The refused push and organization read-standing cases need a separate Lab fixture and are not covered by the current scenario.

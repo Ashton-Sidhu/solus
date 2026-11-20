@@ -84,7 +84,7 @@ const NO_REACH = 'This host reaches no other host for you. Link both hosts to yo
 
 /** LAN HTTP remains supported for hosts on one private network. */
 export function safeHostDialRoute(route: HostRoute): boolean {
-  return route.kind === 'lan' || !carriesTokenInClear(route)
+  return route.kind === 'lan' || routeForUrl(route.url).kind === 'lan' || !carriesTokenInClear(route)
 }
 
 interface Connection {

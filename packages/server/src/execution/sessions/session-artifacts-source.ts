@@ -7,17 +7,37 @@ import { GitRemote } from '../../sync/git-remote'
 import { SessionSyncError, type SourceBundle } from './session-sync'
 
 export type SessionReadAccess = (sessionId: string, actor: Actor, signal: AbortSignal) => Promise<SessionRepositoryTokenResponse | null>
+const CLOUD_CATCH_UP_MS = 15_000
 
 /** Prefer the cloud copy; a missing wanted turn comes from the last run host. */
 export async function chooseSessionRepositorySource(
   cloud: (() => Promise<SourceBundle>) | null,
   host: () => Promise<SourceBundle>,
+  wantedHead: string | null,
+  signal: AbortSignal,
 ): Promise<SourceBundle> {
   if (cloud) {
     const result = await cloud().catch(() => ({ state: 'no-repository' as const }))
     if (result.state !== 'no-repository') return result
   }
-  return host()
+  try {
+    return await host()
+  } catch (error) {
+    if (!cloud || !wantedHead || !(error instanceof SessionSyncError) || error.reason !== 'source-offline') throw error
+    const deadline = Date.now() + CLOUD_CATCH_UP_MS
+    while (Date.now() < deadline) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve() }, Math.min(500, deadline - Date.now()))
+        const onAbort = () => { clearTimeout(timer); reject(signal.reason) }
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
+      })
+      signal.throwIfAborted()
+      const result = await cloud().catch(() => ({ state: 'no-repository' as const }))
+      if (result.state !== 'no-repository') return result
+    }
+    throw error
+  }
 }
 
 /** Fetch a cloud copy into a disposable bare repository. The caller removes its parent directory. */

@@ -57,6 +57,8 @@ test('host-to-host tokens use only encrypted, local, forwarded, or LAN routes', 
     { kind: 'tailnet', url: 'http://100.64.0.2:3000' },
     { kind: 'forwarded', url: 'http://127.0.0.1:3000' },
     { kind: 'public', url: 'http://127.0.0.1:3000' },
+    // WHY: the Lab cloud lists its loopback stub as a tunnel, but hosts must still reach its local listener.
+    { kind: 'tunnel', url: 'http://127.0.0.1:3000' },
     { kind: 'public', url: 'https://example.com' },
   ] as const) expect(safeHostDialRoute(route)).toBe(true)
 })

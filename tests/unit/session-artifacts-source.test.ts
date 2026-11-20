@@ -97,7 +97,41 @@ test('a cloud copy behind the wanted head uses the host path', async () => {
   const result = await chooseSessionRepositorySource(
     () => fetchSessionArtifacts(async () => ({ ...await access(), remote: pathToFileURL(join(root, 'older.git')).href }), null, 'cloud-test', HOST_ACTOR, null, second, join(root, 'fallback'), signal),
     async () => { hostCalls++; return { state: 'ready', repositoryPath: remotePath, head: second, source: 'host' } },
+    second, signal,
   )
   expect(result).toMatchObject({ state: 'ready', source: 'host', head: second })
   expect(hostCalls).toBe(1)
+})
+
+// WHY: A background push can finish after the next host asks for a turn; an offline source must not lose that turn.
+test('cloud catches up after the source host is offline', async () => {
+  const { chooseSessionRepositorySource } = await import('@solus/server/execution/sessions/session-artifacts-source')
+  const { SessionSyncError } = await import('@solus/server/execution/sessions/session-sync')
+  const { execFileSync } = await import('node:child_process')
+  const delayedPath = join(root, 'delayed.git')
+  execFileSync('git', ['clone', '--bare', remotePath, delayedPath])
+  execFileSync('git', ['--git-dir', delayedPath, 'update-ref', 'refs/heads/main', head])
+  const push = setTimeout(() => execFileSync('git', ['--git-dir', remotePath, 'push', delayedPath, `${second}:refs/heads/main`]), 650)
+  try {
+    const result = await chooseSessionRepositorySource(
+      () => fetchSessionArtifacts(async () => ({ ...await access(), remote: pathToFileURL(delayedPath).href }), null, 'cloud-test', HOST_ACTOR, null, second, join(root, `delayed-${Math.random()}`), signal),
+      async () => { throw new SessionSyncError('source-offline', 'Host A is offline.') },
+      second, signal,
+    )
+    expect(result).toMatchObject({ state: 'ready', head: second, source: 'cloud' })
+  } finally { clearTimeout(push) }
+})
+
+// WHY: Stop must end a fetch wait even when a cloud push never arrives.
+test('stop cancels the cloud catch-up wait', async () => {
+  const { chooseSessionRepositorySource } = await import('@solus/server/execution/sessions/session-artifacts-source')
+  const { SessionSyncError } = await import('@solus/server/execution/sessions/session-sync')
+  const controller = new AbortController()
+  const pending = chooseSessionRepositorySource(
+    async () => ({ state: 'no-repository' }),
+    async () => { throw new SessionSyncError('source-offline', 'Host A is offline.') },
+    second, controller.signal,
+  )
+  setTimeout(() => controller.abort(new Error('Stopped')), 50)
+  await expect(pending).rejects.toThrow('Stopped')
 })
