@@ -1,0 +1,223 @@
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { DatabaseSync } from '../helpers/bun-sqlite'
+import { resetTestDatabase } from '../helpers/test-db'
+import { TEST_HANDLER_CTX } from '../helpers/handler-ctx'
+import type { FoundServer, IntegrationEnvValue } from '@solus/contracts/integration-types'
+import type { Principal } from '@solus/server/admission/principal'
+
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+
+const { FoundServers } = await import('@solus/server/integrations/found-servers')
+const { IntegrationStore } = await import('@solus/server/integrations/integration-store')
+const { stdioServerAddress } = await import('@solus/server/integrations/stdio-process')
+const { ownerKeyOf } = await import('@solus/server/admission/actor')
+const { recordScopeOf } = await import('@solus/server/admission/principal')
+const { resolveProjectKey } = await import('@solus/server/project-config/project-config')
+const { closeDb } = await import('@solus/server/db')
+
+/**
+ * Found servers (docs/plans/mcp-first-class.md §8): the host reads the config
+ * files of other tools, in a home folder and a project this test owns, and
+ * adds nothing until the person adds it.
+ */
+
+const OWNER = ownerKeyOf(TEST_HANDLER_CTX.actor)!
+/** The local owner holds `host.admin`. */
+const ADMIN: Principal = TEST_HANDLER_CTX.principal
+const MEMBER: Principal = { kind: 'org-member', userId: 'member-1', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Member', deviceId: 'member-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 }
+const SECRET = 's3cret-value-7f1c'
+const NODE = process.execPath
+
+const store = new IntegrationStore()
+let root: string
+let home: string
+let project: string
+let submitted: Array<{ integrationId: string; values: IntegrationEnvValue[] }>
+let codexLayers: unknown[]
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), 'solus-found-'))
+  home = join(root, 'home')
+  project = join(root, 'project')
+  mkdirSync(home, { recursive: true })
+  mkdirSync(project, { recursive: true })
+  submitted = []
+  codexLayers = []
+})
+
+afterEach(async () => {
+  rmSync(root, { recursive: true, force: true })
+  await resetTestDatabase()
+  for (const suffix of ['', '-wal', '-shm']) rmSync(join(process.env.SOLUS_DATA_DIR!, `solus.db${suffix}`), { force: true })
+})
+
+afterAll(() => closeDb())
+
+function write(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, typeof value === 'string' ? value : JSON.stringify(value))
+}
+
+function found() {
+  return new FoundServers({
+    store,
+    events: { broadcast: () => 1 } as never,
+    gateway: { forget: () => undefined, invalidate: () => undefined },
+    connections: {
+      removeAllFor: () => undefined,
+      submitEnvironment: (integration, _person, values) => {
+        submitted.push({ integrationId: integration.id, values })
+        return {} as never
+      },
+      submitKey: async () => ({}) as never,
+    },
+    codexLayers: async () => codexLayers,
+    home,
+    env: { NODE_ENV: 'test' },
+    platform: 'linux',
+  })
+}
+
+function byName(servers: FoundServer[], name: string): FoundServer {
+  const server = servers.find((each) => each.name === name)
+  if (!server) throw new Error(`no found server ${name}`)
+  return server
+}
+
+describe('reading the files (§8.1)', () => {
+  test('each file kind gives its servers, with the file it is in', async () => {
+    write(join(project, '.mcp.json'), { mcpServers: { repo: { command: NODE, args: ['repo.js'] } } })
+    write(join(project, '.cursor', 'mcp.json'), { mcpServers: { cursorProject: { command: NODE, args: ['cursor-project.js'] } } })
+    write(join(project, '.vscode', 'mcp.json'), { servers: { vscodeProject: { type: 'stdio', command: NODE, args: ['vscode.js'] } } })
+    write(join(home, '.claude.json'), { mcpServers: { claudeUser: { type: 'http', url: 'https://claude-user.example/mcp' } }, projects: { [project]: { mcpServers: { claudeLocal: { command: NODE, args: ['local.js'] } } } } })
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: { cursorUser: { url: 'https://cursor.example/mcp' } } })
+    write(join(home, '.config', 'Code', 'User', 'mcp.json'), { servers: { vscodeUser: { type: 'http', url: 'https://vscode.example/mcp' } } })
+    write(join(home, '.config', 'Claude', 'claude_desktop_config.json'), { mcpServers: { desktop: { command: NODE, args: ['desktop.js'] } } })
+    codexLayers = [{ name: { type: 'user', file: join(home, '.codex', 'config.toml'), profile: null }, config: { mcp_servers: { codexUser: { url: 'https://codex.example/mcp' } } }, disabledReason: null }]
+
+    const list = await found().list(ADMIN, OWNER, { projectPath: project })
+    const files = Object.fromEntries(list.servers.map((server) => [server.name, server.foundIn.map((place) => `${place.file}:${place.scope}`)]))
+    expect(files).toEqual({
+      claudeLocal: ['claude-json:project'],
+      claudeUser: ['claude-json:user'],
+      codexUser: ['codex-config:user'],
+      cursorProject: ['cursor:project'],
+      cursorUser: ['cursor:user'],
+      desktop: ['claude-desktop:user'],
+      repo: ['mcp-json:project'],
+      vscodeProject: ['vscode:project'],
+      vscodeUser: ['vscode:user'],
+    })
+    expect(byName(list.servers, 'claudeLocal').projectOnly).toBe(true)
+    expect(list.servers.every((server) => server.state === 'new')).toBe(true)
+    // A path as the person reads it, with `~` for the host's home folder.
+    expect(byName(list.servers, 'desktop').foundIn[0]!.path).toBe('~/.config/Claude/claude_desktop_config.json')
+  })
+
+  test('the same command in two files is one found server that names both files', async () => {
+    write(join(project, '.mcp.json'), { mcpServers: { github: { command: NODE, args: ['gh.js'], env: { TOKEN: '${TOKEN}' } } } })
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: { gh: { command: NODE, args: ['gh.js'], env: { OTHER: 'x' } } } })
+    const { servers } = await found().list(ADMIN, OWNER, { projectPath: project })
+    expect(servers).toHaveLength(1)
+    expect(servers[0]!.foundIn.map((place) => place.file)).toEqual(['mcp-json', 'cursor'])
+    expect(servers[0]!.projectOnly).toBe(false)
+    expect(servers[0]!.transport).toEqual({ kind: 'stdio', command: NODE, args: ['gh.js'], envNames: ['TOKEN', 'OTHER'] })
+  })
+
+  test('no value of the files is in an answer', async () => {
+    // WHY: a config file holds tokens; only names may leave the host (§8.2).
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: {
+      cmd: { command: NODE, args: ['a.js'], env: { API_KEY: SECRET } },
+      web: { url: 'https://web.example/mcp', headers: { Authorization: `Bearer ${SECRET}` } },
+    } })
+    const list = await found().list(ADMIN, OWNER, {})
+    expect(JSON.stringify(list)).not.toContain(SECRET)
+    expect(byName(list.servers, 'cmd').valuesInFile).toEqual(['API_KEY'])
+    expect(byName(list.servers, 'web').valuesInFile).toEqual(['Authorization'])
+  })
+
+  test('an sse entry, an entry with ${…}, and an entry Solus cannot read are unsupported', async () => {
+    write(join(home, '.claude.json'), { mcpServers: {
+      old: { type: 'sse', url: 'https://old.example/sse' },
+      expanded: { command: '${HOME}/bin/server' },
+      broken: { command: 42 },
+    } })
+    const { servers } = await found().list(ADMIN, OWNER, {})
+    expect(servers.map((server) => [server.name, server.state, server.unsupported])).toEqual([
+      ['broken', 'unsupported', 'invalid'],
+      ['expanded', 'unsupported', 'expansion'],
+      ['old', 'unsupported', 'sse'],
+    ])
+  })
+
+  test('a file that is not JSON, or a link out of its folder, is listed with why and read no further', async () => {
+    write(join(project, '.mcp.json'), '{ not json')
+    const outside = join(root, 'outside.json')
+    write(outside, { mcpServers: { escaped: { command: NODE } } })
+    mkdirSync(join(project, '.cursor'), { recursive: true })
+    symlinkSync(outside, join(project, '.cursor', 'mcp.json'))
+    const list = await found().list(ADMIN, OWNER, { projectPath: project })
+    expect(list.servers).toEqual([])
+    expect(list.files.map((file) => [file.file, file.problem])).toEqual([
+      ['mcp-json', 'It is not valid JSON.'],
+      ['cursor', 'It is a link to a file outside its folder.'],
+    ])
+  })
+
+  test('a member sees the project files only, and a command there is for an administrator', async () => {
+    // WHY: the user files are the host OS user's; a member never reads them (§8.1, §8.6).
+    write(join(home, '.claude.json'), { mcpServers: { ownerOnly: { command: NODE, args: ['owner.js'] } } })
+    write(join(project, '.mcp.json'), { mcpServers: { repo: { command: NODE, args: ['repo.js'] } } })
+    const list = await found().list(MEMBER, 'member-1', { projectPath: project })
+    expect(list.servers.map((server) => [server.name, server.state, server.unsupported])).toEqual([['repo', 'unsupported', 'not-allowed']])
+    expect(list.files.map((file) => file.scope)).toEqual(['project'])
+    const repo = list.servers[0]!
+    await expect(found().add(MEMBER, 'member-1', { foundId: repo.foundId, fingerprint: repo.fingerprint, projectPath: project })).rejects.toThrow('Only an administrator of this host can add or change a command.')
+  })
+})
+
+describe('adding (§8.3, §8.4)', () => {
+  test('a project command becomes a stdio integration of that project, with the file values copied on the host', async () => {
+    write(join(project, '.mcp.json'), { mcpServers: { repo: { command: NODE, args: ['repo.js'], env: { API_KEY: SECRET } } } })
+    const finder = found()
+    const repo = byName((await finder.list(ADMIN, OWNER, { projectPath: project })).servers, 'repo')
+    const result = await finder.add(ADMIN, OWNER, { foundId: repo.foundId, fingerprint: repo.fingerprint, projectPath: project, useFileValues: true })
+    if (result.kind !== 'saved') throw new Error('not saved')
+    expect(result.integration.kind).toBe('stdio')
+    expect(result.integration.projectKey).toBe(resolveProjectKey(project))
+    expect(result.integration.url).toBe(stdioServerAddress({ command: NODE, args: ['repo.js'] }))
+    expect(submitted).toEqual([{ integrationId: result.integration.id, values: [{ name: 'API_KEY', value: SECRET }] }])
+    expect(byName((await finder.list(ADMIN, OWNER, { projectPath: project })).servers, 'repo')).toMatchObject({ state: 'added', integrationId: result.integration.id })
+  })
+
+  test('a file that changed after the person saw it adds nothing', async () => {
+    // WHY: the person approves exactly the command they read, never a newer one (§8.3 step 1).
+    const file = join(home, '.cursor', 'mcp.json')
+    write(file, { mcpServers: { tool: { command: NODE, args: ['tool.js'] } } })
+    const finder = found()
+    const seen = byName((await finder.list(ADMIN, OWNER, {})).servers, 'tool')
+    write(file, { mcpServers: { tool: { command: NODE, args: ['tool.js', '--evil'] } } })
+    expect(await finder.add(ADMIN, OWNER, { foundId: seen.foundId, fingerprint: seen.fingerprint })).toEqual({ kind: 'found-changed' })
+    expect(store.list(recordScopeOf(ADMIN), OWNER)).toEqual([])
+  })
+
+  test('a command that changed in the file shows as changed, and the add takes the new command', async () => {
+    const file = join(home, '.cursor', 'mcp.json')
+    write(file, { mcpServers: { tool: { command: NODE, args: ['v1.js'] } } })
+    const finder = found()
+    const first = byName((await finder.list(ADMIN, OWNER, {})).servers, 'tool')
+    const added = await finder.add(ADMIN, OWNER, { foundId: first.foundId, fingerprint: first.fingerprint })
+    if (added.kind !== 'saved') throw new Error('not saved')
+
+    write(file, { mcpServers: { tool: { command: NODE, args: ['v2.js'] } } })
+    const changed = byName((await finder.list(ADMIN, OWNER, { refresh: true })).servers, 'tool')
+    expect(changed).toMatchObject({ state: 'changed', integrationId: added.integration.id })
+    const updated = await finder.add(ADMIN, OWNER, { foundId: changed.foundId, fingerprint: changed.fingerprint })
+    if (updated.kind !== 'saved') throw new Error('not saved')
+    expect(updated.integration.id).toBe(added.integration.id)
+    expect(updated.integration.launch).toEqual({ command: NODE, args: ['v2.js'] })
+  })
+})

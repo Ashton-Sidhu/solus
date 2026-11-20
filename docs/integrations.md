@@ -314,6 +314,44 @@ Settings → MCP shows a command on desktop, web, and mobile.
   it, disconnect, and remove it. Add, Edit, and the starts are off, with
   "Only an administrator of this host can add or change a command."
 
+## Found on this host
+
+Settings → MCP has the view **Found on this host**, after Installed in the
+rail (`docs/plans/mcp-first-class.md` §8). On mobile it is the section under
+Installed. The command palette opens it with "Find MCP servers on this host".
+It lists the MCP servers in the config files of other tools on the host:
+
+| File | Read for |
+|---|---|
+| `<project>/.mcp.json`, `<project>/.cursor/mcp.json`, `<project>/.vscode/mcp.json` | a person who may use the project |
+| `~/.claude.json` (`mcpServers`, and `projects["<path>"].mcpServers`) | a person with `host.admin` |
+| `~/.cursor/mcp.json`, the VS Code user `mcp.json`, Claude Desktop's `claude_desktop_config.json` | a person with `host.admin` |
+| `~/.codex/config.toml` and the project's `.codex/config.toml`, through Codex (`config/read`) | the same; Codex leaves out a project it does not trust |
+
+On desktop and web, the project is the one of the open session when it is on
+that host. Mobile reads the user files only.
+
+- **Nothing is added by itself.** A command in a cloned repository is code
+  that would run on the host. **Add** shows the full command or URL. The host
+  reads the file again and refuses an entry that changed after you saw it.
+- A command needs `host.admin` and does not start when you add it. Start it
+  from Installed.
+- The same command or URL in two files is one row that names both files.
+- Only names leave the host. A plain value in `env`, or a fixed
+  `Authorization` header, is copied into your connection on the host when you
+  choose to use the file's values.
+- A server that only a project file holds joins only that project's runs.
+- **Review change** shows a server whose command or URL changed in its file
+  since you added it. **Update** takes the new one.
+- Not supported: the deprecated HTTP+SSE transport, and `${…}` in a command,
+  its arguments, its folder, or a URL. Solus expands nothing.
+- A file that is not JSON, larger than 1 MB (8 MB for `~/.claude.json`), or a
+  link out of its folder is listed with the reason, and the others still read.
+- The host keeps a list for 10 seconds. **Refresh** reads the files again.
+
+The provider CLI still loads a server you added from its own file. Phase C2 of
+the plan makes each run leave out that copy.
+
 ## Who may change what
 
 Every person adds, renames, and removes their own servers, sets their OAuth

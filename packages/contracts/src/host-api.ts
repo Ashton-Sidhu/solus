@@ -95,7 +95,7 @@ import type { SessionActionLeaf } from './permissions'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
-import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
+import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundListRequest, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
@@ -665,6 +665,10 @@ export interface SolusAPI {
   integrationProcessStart(request: IntegrationProcessStartRequest): Promise<IntegrationFacts>
   /** Owner: closes the caller's sessions of a `stdio` integration, which stops their processes. The next use starts one again. */
   integrationProcessStop(request: IntegrationIdRequest): Promise<{ stopped: boolean }>
+  /** The MCP servers in this host's config files, names only; the user files only for a host administrator. */
+  integrationFoundList(request: IntegrationFoundListRequest): Promise<FoundServerList>
+  /** Reads the file again and adds the found server the person saw; a command needs a host administrator and starts nothing. */
+  integrationFoundAdd(request: IntegrationFoundAddRequest): Promise<IntegrationFoundAddResult>
   /** The caller's own connections (§4). Changes arrive as `integration.connectionChanged`. */
   integrationConnectionList(): Promise<IntegrationConnection[]>
   /** Starts the caller's sign-in to one integration. The end of a `waiting` flow arrives as `host.integrationAuthFinished`. */
