@@ -2961,6 +2961,12 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
+        },
+        "pinned_at": {
+          "name": "pinned_at",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

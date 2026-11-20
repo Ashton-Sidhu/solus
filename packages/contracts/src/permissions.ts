@@ -263,7 +263,7 @@ const PERMISSION_OF_METHOD = {
   // A task is GitHub's or Jira's, not a Solus resource: who may read or change
   // one is decided by the caller's own provider connection, so every task
   // method is the ordinary use of the host (docs/plans/provider-owned-tasks.md).
-  tasksLoadMore: HOST_USE, tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksConnectLinear: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
+  tasksLoadMore: HOST_USE, tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
   tasksInspect: HOST_USE, tasksReact: HOST_USE, tasksTemplates: HOST_USE, tasksResolve: HOST_USE,
   tasksAttachments: HOST_USE, tasksCreate: HOST_USE, tasksUpdate: HOST_USE, tasksMove: HOST_USE,
   tasksDelete: HOST_USE, tasksMarkRead: HOST_USE, tasksSnooze: HOST_USE,

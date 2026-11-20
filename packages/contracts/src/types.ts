@@ -1262,7 +1262,7 @@ export interface PinnedSessionManifest {
 export interface PinnedSession {
   /** Agent session id — the key used to dedupe and resume. */
   sessionId: string
-  /** Host holding the session. Missing only on pins saved before scoped refs. */
+  /** Host holding the pin and the session. The client sets it from the host that answered. */
   serverId?: string
   provider: AgentId
   /** Resolved model from the session index, when available. */

@@ -348,6 +348,7 @@ CREATE TABLE `personal_resource_state` (
 	`snoozed_until` integer,
 	`snooze_note` text,
 	`viewed_at` integer,
+	`pinned_at` integer,
 	PRIMARY KEY(`organization_id`, `resource_kind`, `resource_id`, `created_by`)
 );
 --> statement-breakpoint
@@ -836,16 +837,6 @@ CREATE TABLE `outbox_ops` (
 );
 --> statement-breakpoint
 CREATE INDEX `outbox_ops_by_resource` ON `outbox_ops` (`domain`,`resource_id`,`id`);--> statement-breakpoint
-CREATE TABLE `pinned_sessions` (
-	`session_id` text NOT NULL,
-	`server_id` text DEFAULT '' NOT NULL,
-	`provider` text,
-	`title` text,
-	`cwd` text,
-	`pinned_at` integer,
-	PRIMARY KEY(`session_id`, `server_id`)
-);
---> statement-breakpoint
 CREATE TABLE `projects` (
 	`key` text PRIMARY KEY NOT NULL,
 	`path` text,

@@ -15,7 +15,7 @@ function setup() {
   const signal = mock(async (_server: RunningServer) => { servers = []; return { status: 'stopped' as const } })
   const scan = mock(async () => { if (failure) throw failure; return structuredClone(servers) })
   const registry = new RunningServerRegistry({
-    scanner: { scan, identityMatches: async () => sameIdentity, stopJob: signal },
+    discovery: { discover: scan, checkoutRoots: async () => [], identityMatches: async () => sameIdentity, stopJob: signal },
     publish, now: () => now,
     schedule: (tick) => { ticks.push(tick); return () => { const index = ticks.indexOf(tick); if (index >= 0) ticks.splice(index, 1) } },
   })

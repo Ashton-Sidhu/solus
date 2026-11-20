@@ -3,29 +3,32 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
+import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-type DbModule = typeof import('@solus/server/db')
-type PinnedSessionsModule = typeof import('@solus/server/data/sessions/pinned-sessions')
+const ALICE = 'user:alice'
+const BOB = 'user:bob'
 
 let dataDir: string
-let db: DbModule
-let pinnedSessions: PinnedSessionsModule
+let db: typeof import('@solus/server/db')
+let pins: typeof import('@solus/server/data/sessions/pinned-sessions')
+let records: typeof import('@solus/server/data/sessions/session-records')
+let states: typeof import('@solus/server/data/sessions/session-states')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-pinned-sessions-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  pinnedSessions = await import('@solus/server/data/sessions/pinned-sessions')
+  pins = await import('@solus/server/data/sessions/pinned-sessions')
+  records = await import('@solus/server/data/sessions/session-records')
+  states = await import('@solus/server/data/sessions/session-states')
 })
 
-afterEach(() => {
-  db.closeDb()
-  for (const suffix of ['', '-wal', '-shm']) {
-    rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
-  }
+afterEach(async () => {
+  await resetTestDatabase()
+  for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 
 afterAll(() => {
@@ -35,45 +38,55 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-describe('pinned session manifest', () => {
-  test('reads the pinned session host and indexed model', async () => {
-    const pin = {
-      sessionId: 'session-1',
-      serverId: 'studio',
-      provider: 'codex' as const,
-      title: 'Scoped session',
-      cwd: '/repo',
-      pinnedAt: 42,
-    }
-    db.getDb().prepare(`
-      INSERT INTO transcript_index(session_id, provider, model)
-      VALUES (?, ?, ?)
-    `).run(pin.sessionId, pin.provider, 'gpt-5.6-sol')
-    const indexedPin = { ...pin, model: 'gpt-5.6-sol' }
+async function recorded(sessionId: string, title = sessionId) {
+  await records.upsertSessionRecord('local', {
+    sessionId, provider: 'codex', projectPath: '-repo', cwd: '/repo', title, model: 'gpt-5.6-sol', lastActivityAt: 1,
+  }, { organizationId: 'local', ownerKey: ALICE })
+}
 
-    expect(await pinnedSessions.togglePinnedSession(pin)).toEqual([indexedPin])
-    expect(await pinnedSessions.readManifest()).toEqual([indexedPin])
+const pinnedIds = async (personKey: string) => (await pins.readPinnedSessions(personKey)).map((pin) => pin.sessionId)
+
+describe('pinned sessions', () => {
+  test('a pin shows what the session record says now', async () => {
+    // WHY: a pin that copied its label kept the old name after a rename.
+    await recorded('session-1', 'First name')
+    expect(await pins.togglePinnedSession(ALICE, { sessionId: 'session-1', pinnedAt: 42 })).toEqual([
+      { sessionId: 'session-1', provider: 'codex', model: 'gpt-5.6-sol', title: 'First name', cwd: '/repo', pinnedAt: 42 },
+    ])
+    await records.setSessionRecordGeneratedTitle('session-1', 'Second name')
+    expect((await pins.readPinnedSessions(ALICE))[0]?.title).toBe('Second name')
   })
 
-  test('keeps equal provider session ids distinct across hosts', async () => {
-    const studio = {
-      sessionId: 'shared-id',
-      serverId: 'studio',
-      provider: 'codex' as const,
-      title: 'Studio copy',
-      cwd: '/studio/repo',
-      pinnedAt: 1,
-    }
-    const laptop = {
-      ...studio,
-      serverId: 'laptop',
-      title: 'Laptop copy',
-      cwd: '/laptop/repo',
-      pinnedAt: 2,
-    }
+  test("pins are each person's own, and an undo returns a pin to its place", async () => {
+    for (const sessionId of ['older', 'newer']) await recorded(sessionId)
+    await pins.togglePinnedSession(ALICE, { sessionId: 'older', pinnedAt: 1 })
+    await pins.togglePinnedSession(ALICE, { sessionId: 'newer', pinnedAt: 2 })
+    expect(await pinnedIds(ALICE)).toEqual(['newer', 'older'])
+    expect(await pinnedIds(BOB)).toEqual([])
 
-    await pinnedSessions.togglePinnedSession(studio)
-    expect(await pinnedSessions.togglePinnedSession(laptop)).toEqual([laptop, studio])
-    expect(await pinnedSessions.togglePinnedSession(studio)).toEqual([laptop])
+    expect((await pins.togglePinnedSession(ALICE, { sessionId: 'older', pinnedAt: 99 })).map((pin) => pin.sessionId)).toEqual(['newer'])
+    await pins.togglePinnedSession(ALICE, { sessionId: 'older', pinnedAt: 1 })
+    expect(await pinnedIds(ALICE)).toEqual(['newer', 'older'])
+  })
+
+  test("a person's settle or archive ends their pin; a snooze or another person's settle keeps it", async () => {
+    for (const sessionId of ['settled', 'archived', 'snoozed', 'settled-by-bob']) {
+      await recorded(sessionId)
+      await pins.togglePinnedSession(ALICE, { sessionId, pinnedAt: 1 })
+    }
+    await new states.SessionViewer('settled', ALICE).settle()
+    await new states.SessionViewer('archived', ALICE).archive()
+    await new states.SessionViewer('snoozed', ALICE).snooze(Date.now() + 60_000)
+    await new states.SessionViewer('settled-by-bob', BOB).settle()
+    expect((await pinnedIds(ALICE)).sort()).toEqual(['settled-by-bob', 'snoozed'])
+
+    // A return to the list does not restore the pin.
+    await new states.SessionViewer('archived', ALICE).returnToList()
+    expect((await pinnedIds(ALICE)).sort()).toEqual(['settled-by-bob', 'snoozed'])
+  })
+
+  test('a session with no started record is not listed', async () => {
+    await pins.togglePinnedSession(ALICE, { sessionId: 'unknown', pinnedAt: 1 })
+    expect(await pinnedIds(ALICE)).toEqual([])
   })
 })

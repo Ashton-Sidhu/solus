@@ -17,7 +17,6 @@ import { getSessionRecord, organizationOfSession, upsertSessionRecord } from '..
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { readTranscript, readTranscriptPage, readTranscriptMessageWindow } from '../../data/sessions/transcript-reads'
 import { isApiMode } from '../../host/api-mode'
-import { renamePinnedSession } from '../../data/sessions/pinned-sessions'
 import { projectsVisibleTo } from './setup-handlers'
 import { generateSessionMetadata } from '../../execution/sessions/session-title'
 import { ensureBackgroundSessionTitle } from '../../execution/sessions/background-session-title'
@@ -297,10 +296,6 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     } catch (error) {
       log.warn('task_session_metadata_update_failed', { sessionId, error: String(error) })
     }
-    // A pin carries its own label, so it has to be told: the custom name when
-    // there is one, otherwise back to what the session derives its title from.
-    const pinLabel = trimmed || getIndexedSession(sessionId)?.firstMessage?.replace(/\s+/g, ' ').slice(0, 80)
-    if (pinLabel) renamePinnedSession(sessionId, pinLabel)
     if (publishEvent) {
       const event: SessionTitleChangedEvent = {
         sessionId,

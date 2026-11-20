@@ -3,9 +3,10 @@
 The Running servers card sits below Git in the desktop and web project panel.
 It lists the selected checkout's servers. **All on host** includes other
 checkouts and unassigned servers. The card has its own collapse and visibility
-controls. It hides when discovery confirms that the selected scope is empty.
-Discovery stays subscribed, so the card returns when a server appears. Loading,
-disconnected, and error states stay visible. Stop is red.
+controls. It is visible only when the selected scope has server rows. Loading, disconnected,
+and failed scans with no rows do not show a card. Discovery stays subscribed, so
+the card returns when a server appears. The mobile server screen keeps its status
+and retry controls available. Stop is red.
 
 Native mobile exposes the same list and Stop action from the session header's
 server button. Both clients start with four endpoint rows and offer **Show more**.
@@ -77,11 +78,30 @@ the host's address.
 
 ## State and Stop
 
-`host.runningServers` is the reactive Svelte interface. Plain TypeScript in
-`client-core` owns the shared state, lease, stale-answer guards, URL commands,
-and forwarding state. Native mobile binds to the same owner with React. No
-component loads the domain list directly.
+The running-server feature owns its collection stores. `runningServers.forHost(hostId)`
+returns the desktop/web Svelte store. Its registry uses `SvelteMap`, and each
+store exposes `servers`, `status`, `error`, and checkout rows. Neither `Host` nor
+`SolusApp` owns this collection. Native mobile has a feature-owned registry scoped
+to its host connections and uses the same framework-neutral collection owner.
 
+Each entry is a stable `Server` instance. It owns its process identity, endpoint
+labels, checkout matching, Stop, forwarded ports, renewal, and system-browser
+opening. Removing a server disposes its forwards and invalidates commands held
+by old callers. A refresh updates the same instance when its identity is unchanged.
+The collection owns subscriptions, reconnect guards, configured URLs, and checkout
+roots. It sends its change notifications through a small Svelte adapter on
+desktop/web and React's external-store interface on mobile.
+
+On the host, `ServerDiscovery.discover(paths)` returns serializable server records.
+It encapsulates operating-system reads, ownership rules, configured probes, caches,
+and identity checks. Private operating-system adapters and stateless parsers stay
+separate implementation details. Records cross the typed RPC transport; client
+class instances and Svelte state do not cross that transport.
+
+`RunningServerRegistry` on the host owns scan sharing and connection leases. It
+is a Node owner, separate from the reactive client registry. It does not depend on
+Svelte. Its discovery operations run in the host's acting scope, including tunnel
+upgrades that start outside an RPC.
 The host scans every three seconds while a client holds a lease. Clients renew
 every eight seconds. Readers and active forwards retain that lease. The last
 holder releases it, disconnection removes it, and an abandoned lease expires

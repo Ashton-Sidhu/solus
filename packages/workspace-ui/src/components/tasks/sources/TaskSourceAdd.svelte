@@ -2,7 +2,7 @@
   import { ChevronDown as CaretDownIcon, Plus as PlusIcon } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { taskSourceKey, taskSourceProvider } from "@solus/contracts/task-sources";
-  import { getSettingsContext, taskSourcesStore } from "../../../contexts";
+  import { getSettingsContext, taskSourcesStore, accountStore } from "../../../contexts";
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import * as Popover from "../../ui/popover";
   import * as Command from "../../ui/command";
@@ -40,16 +40,7 @@
 
   let open = $state(false);
   let query = $state("");
-  let linearKey = $state("");
-  let connectingLinear = $state(false);
-  let linearError = $state<string | null>(null);
-  async function connectLinear(key: string | null) {
-    connectingLinear = true;
-    linearError = null;
-    try { await taskSourcesStore.connectLinear(key); linearKey = ""; }
-    catch (error) { linearError = error instanceof Error ? error.message : String(error); }
-    finally { connectingLinear = false; }
-  }
+  const connectionsUrl = $derived(accountStore.state.kind === 'signed-in' ? new URL('/connections', accountStore.state.consoleUrl).toString() : null);
 
   const config = $derived({ taskSources: settings.taskSources });
   const configured = $derived(config.taskSources);
@@ -90,8 +81,10 @@
     <span class="flex w-[15px] shrink-0 items-center justify-center">
       <SourceLogo source={taskSourceProvider(choice.source)} />
     </span>
-    <span class="min-w-0 shrink truncate">{choice.label}</span>
-    <span class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary)">{choice.detail ?? ""}</span>
+    <span class="min-w-0 flex-1 truncate">{choice.label}</span>
+    {#if choice.detail}
+      <span class="max-w-[45%] shrink-0 truncate text-xs text-(--solus-text-tertiary)">{choice.detail}</span>
+    {/if}
     <PlusIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
   </Command.Item>
 {/snippet}
@@ -106,11 +99,12 @@
           {...props}
           type="button"
           class="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent px-2.5 font-medium text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors duration-150 hover:bg-[var(--wash-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:min-h-10"
-          title="Add a GitHub repository, a GitHub Project, a Jira project or a Jira board."
+          title="Add a GitHub repository or Project, a Jira project or board, or a Linear team."
         >
           <span class="flex shrink-0 items-center gap-1" aria-hidden="true">
             <SourceLogo source="github" />
             <SourceLogo source="jira" />
+            <SourceLogo source="linear" />
           </span>
           <span class="truncate">Add a task source</span>
           <CaretDownIcon size={9} class="shrink-0 opacity-70" />
@@ -123,7 +117,7 @@
           type="button"
           class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent px-2 text-workspace-chrome text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-9"
           aria-label="Add a task source"
-          title="Add a GitHub repository, a GitHub Project, a Jira project or a Jira board."
+          title="Add a GitHub repository or Project, a Jira project or board, or a Linear team."
         >
           <PlusIcon size={16} class="shrink-0" aria-hidden="true" />
           <span class="truncate @max-[30rem]/pane:hidden">Add source</span>
@@ -137,7 +131,7 @@
     align={look === "invite" ? "center" : "start"}
     sideOffset={6}
     collisionPadding={8}
-    class="menu-surface z-[10002] w-[min(21rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0"
+    class="menu-surface z-[10002] w-[min(24rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0"
   >
     <Command.Root shouldFilter={false}>
       <MenuSearch bind:value={query} placeholder="Search, or paste a GitHub URL" />
@@ -157,9 +151,6 @@
           {#each offered as choice (choice.sourceKey)}
             {@render choiceRow(choice)}
           {/each}
-          {#each connectionNotes as note (note)}
-            <p class="m-0 px-2.5 py-1.5 text-xs text-(--solus-text-tertiary)">{note}</p>
-          {/each}
           {#if !typedChoice && offered.length === 0}
             <p class="m-0 px-2.5 py-2 text-xs text-(--solus-text-tertiary)">
               {#if alreadyConfigured}
@@ -167,29 +158,41 @@
               {:else if query.trim()}
                 Nothing matches. Type owner/repo, or paste the URL of a GitHub repository or Project.
               {:else if connectionNotes.length === 0}
-                Each source GitHub and Jira offer is added. Paste a GitHub URL to add another.
+                You have every source your connections offer. Paste a GitHub URL to add another.
               {/if}
             </p>
           {/if}
         {/if}
       </Command.List>
     </Command.Root>
-    {#if options?.linear?.location === 'account'}
-      <div class="grid gap-2 border-t border-border p-4">
-        <p class="text-workspace-chrome">Manage Linear in your Solus account.</p>
-        {#if options.linear.accountConnectionsUrl}<a href={options.linear.accountConnectionsUrl} target="_blank" rel="noreferrer" class="text-workspace-chrome underline">Open account connections</a>{/if}
-        <button type="button" class="rounded-md px-3 py-2 hover:bg-muted" onclick={() => void taskSourcesStore.loadOptions()}>Refresh connections</button>
+    <!-- What keeps a source out of the list, and where to fix it. -->
+    <div
+      class="grid gap-1.5 rounded-b-[inherit] border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-3 py-2 text-xs text-(--solus-text-tertiary)"
+    >
+      {#each connectionNotes as note (note)}
+        <p class="m-0">{note}</p>
+      {/each}
+      <div class="-mx-1.5 flex items-center gap-1">
+        {#if connectionsUrl}
+          <a
+            href={connectionsUrl}
+            target="_blank"
+            rel="noreferrer"
+            class="rounded-md px-1.5 py-1 font-medium text-(--solus-text-secondary) no-underline transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
+          >Manage connections</a>
+        {:else if accountStore.isAvailable}
+          <button
+            type="button"
+            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
+            onclick={() => void accountStore.signIn()}
+          >Sign in to manage connections</button>
+        {/if}
+        <button
+          type="button"
+          class="ml-auto cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
+          onclick={() => void taskSourcesStore.loadOptions()}
+        >Refresh</button>
       </div>
-    {:else if options?.linear?.location === 'host'}
-    <form class="grid gap-2 border-t border-border p-4" onsubmit={(event) => { event.preventDefault(); void connectLinear(linearKey); }}>
-      <label for="linear-task-key" class="text-sm">Linear {options?.linear?.account ? `· ${options.linear.account}` : ''}</label>
-      <input id="linear-task-key" name="linear-api-key" type="password" autocomplete="off" maxlength={4096} disabled={connectingLinear} bind:value={linearKey} placeholder="Personal API key" class="min-w-0 rounded-md border border-input bg-transparent p-2" />
-      {#if linearError}<p class="text-sm text-destructive" role="alert">{linearError}</p>{/if}
-      <div class="flex gap-2">
-        <button type="submit" class="rounded-md px-3 py-2 hover:bg-muted" disabled={connectingLinear || !linearKey.trim()}>{connectingLinear ? 'Checking…' : 'Connect Linear'}</button>
-        {#if options?.linear?.connected}<button type="button" class="rounded-md px-3 py-2 hover:bg-muted" disabled={connectingLinear} onclick={() => void connectLinear(null)}>Disconnect</button>{/if}
-      </div>
-    </form>
-    {/if}
+    </div>
   </Popover.Content>
 </Popover.Root>

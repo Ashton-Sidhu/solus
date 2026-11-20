@@ -3,7 +3,6 @@ import type { HandlerCtx, SolusServer } from '../server'
 import { z } from 'zod'
 import { resolveHomePath } from '../../platform/paths'
 import { RunningServerTunnels } from '../../host/running-servers/tunnel'
-import { runningServerCheckoutRoots } from '../../host/running-servers/scanner'
 
 export function registerRunningServerHandlers(server: SolusServer, registry: RunningServerRegistry): RunningServerTunnels {
   const tunnels = new RunningServerTunnels(registry)
@@ -14,7 +13,7 @@ export function registerRunningServerHandlers(server: SolusServer, registry: Run
   }
   server.register('runningServersList', async () => registry.list())
   server.register('runningServersWatch', async ([paths], ctx) => registry.watch(clientId(ctx), pathsSchema.parse(paths ?? []).map(resolveHomePath)))
-  server.register('runningServersCheckoutRoots', async ([paths]) => runningServerCheckoutRoots(pathsSchema.parse(paths)))
+  server.register('runningServersCheckoutRoots', async ([paths]) => registry.checkoutRoots(pathsSchema.parse(paths)))
   server.register('runningServersUnwatch', async (_args, ctx) => registry.unwatch(clientId(ctx)))
   server.register('runningServerStop', async ([serverId]) => registry.stopServer(serverId))
   server.register('runningServerTunnel', async ([serverId, endpointId], ctx) => tunnels.issue(clientId(ctx), serverId, endpointId))

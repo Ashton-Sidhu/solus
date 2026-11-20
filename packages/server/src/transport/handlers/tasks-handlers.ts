@@ -1,4 +1,3 @@
-import { setLinearKey } from '../../data/tasks/providers/linear-api'
 import { inspectTask, reactToTask, taskTemplates, resolveTaskUrl } from '../../data/tasks/task-inspection'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
@@ -105,7 +104,6 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
 
   server.register('tasksLoadMore', ([source], ctx) => loadMoreTaskSource(taskSourceSchema.parse(source), readerOf(ctx).personKey))
   server.register('tasksSourceOptions', () => taskSourceOptions())
-  server.register('tasksConnectLinear', ([key]) => setLinearKey(z.string().max(4096).nullable().parse(key)))
   server.register('tasksInspect', ([id, cursor]) => inspectTask(id, cursor))
   server.register('tasksReact', ([id, targetId, content, add]) => reactToTask(id, targetId, content, add))
   server.register('tasksTemplates', ([source]) => taskTemplates(taskSourceSchema.parse(source)))

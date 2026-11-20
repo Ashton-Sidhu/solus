@@ -309,17 +309,16 @@ describe("a person's session list", () => {
     }
     await recorded('kept', Date.now())
     await recorded('put-away', Date.now())
-    for (const sessionId of ['kept', 'put-away', 'unknown']) {
-      await pins.togglePinnedSession({ sessionId, serverId: 'this-mac', provider: 'codex', title: sessionId, cwd: '/repo', pinnedAt: 1 })
-    }
+    const pinnedIds = async () => (await pins.readPinnedSessions(hostUserKey())).map((pin) => pin.sessionId)
+    for (const sessionId of ['kept', 'put-away']) await pins.togglePinnedSession(hostUserKey(), { sessionId, pinnedAt: 1 })
     await operations.update(context, 'put-away', { archived: true })
-    expect((await pins.readManifest()).map((pin) => pin.sessionId).sort()).toEqual(['kept', 'unknown'])
+    expect(await pinnedIds()).toEqual(['kept'])
     await operations.update(context, 'kept', { snoozedUntil: Date.now() + MINUTE, snoozeNote: 'later' })
     // A change to a session the home does not keep writes no view for it.
     await expect(operations.update(context, 'unknown', { archived: true })).rejects.toThrow('Resource not found.')
     expect((await viewer('unknown', hostUserKey()).view()).archivedAt).toBeNull()
-    // A refused archive keeps its pin; snooze keeps the other session pinned.
-    expect((await pins.readManifest()).map((pin) => pin.sessionId).sort()).toEqual(['kept', 'unknown'])
+    // Snooze keeps the session pinned.
+    expect(await pinnedIds()).toEqual(['kept'])
 
     await recorded('started-by-kept', Date.now(), 'kept')
     // The default is the caller's list, top-level sessions only.
@@ -337,7 +336,7 @@ describe("a person's session list", () => {
 
     const settled = await operations.update(context, 'kept', { settled: true })
     expect(settled.view?.settledAt).toEqual(expect.any(Number))
-    expect((await pins.readManifest()).map((pin) => pin.sessionId)).toEqual(['unknown'])
+    expect(await pinnedIds()).toEqual([])
     expect(settled.state).toBeUndefined()
     expect(await stateOf('kept')).toBeNull()
 
@@ -350,6 +349,6 @@ describe("a person's session list", () => {
     expect(await stateOf('kept')).toBeNull()
     expect((await viewer('kept', hostUserKey()).view()).settledAt).toBeNull()
     // A new turn reopens the session without restoring a completed pin.
-    expect((await pins.readManifest()).map((pin) => pin.sessionId)).toEqual(['unknown'])
+    expect(await pinnedIds()).toEqual([])
   })
 })

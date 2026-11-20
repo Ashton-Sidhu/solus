@@ -64,3 +64,17 @@ have explicit continuation controls.
 No interactive app, browser or device verification was run. Package-wide checks
 still report unrelated errors in the existing checkout. No migration was applied
 to live data, no build was run, and no changes were deployed.
+
+## Connection interface cleanup
+
+Task source setup uses the shared account vault connection flow on desktop,
+web and mobile. The Linear-specific task connection RPC, key forms and store
+commands were removed. Tasks reads provider credentials through the vault;
+existing host vault credentials are not changed. Task screens do not provide
+host-local credential management.
+
+Provider inspection remains a separate paged read. `tasksGet` returns task
+content, comments and Solus attachments; `tasksInspect` returns provider history,
+reactions and related PR facts. Keeping the paged read separate avoids fetching
+and sending task content again for each older history page, and keeps provider
+inspection failures from preventing the base task from loading.

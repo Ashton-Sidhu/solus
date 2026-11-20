@@ -497,7 +497,7 @@ export interface TaskSourceState {
 
 /** What a person can choose as a task source: what their GitHub and Jira connections list. */
 export interface TaskSourceOptions {
-  linear?: { location?: 'host' | 'account' | 'none'; accountConnectionsUrl?: string; connected: boolean; account?: string; workspaceId?: string; teams: Array<{ id: string; key: string; name: string }>; error?: string }
+  linear?: { connected: boolean; account?: string; workspaceId?: string; teams: Array<{ id: string; key: string; name: string }>; error?: string }
   github: {
     connected: boolean
     login?: string

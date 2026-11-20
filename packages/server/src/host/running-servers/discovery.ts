@@ -9,14 +9,10 @@ import { processFacts, readProcessTags, workingDirectories, type ProcessFacts } 
 import { probeServerUrl, type ProbeResult } from './probe'
 import { defaultJobStop, type JobStopDeps } from './stop-job'
 import { notifyCommandStop } from './command-stops'
-export { windowsListeners } from './listeners'
-export { parseProcessFacts } from './processes'
-export { probeHttpServer } from './probe'
-export type { ProbeResult } from './probe'
 
 interface KnownProcess { identity: string; serverId: string }
 interface ConfiguredUrl { cwd: string; url: string }
-export interface ScannerDeps {
+export interface DiscoveryDeps {
   listeners: () => Promise<Listener[]>
   processes: () => Promise<Map<number, ProcessFacts>>
   tags: (facts: Map<number, ProcessFacts>, pids: number[]) => Promise<void>
@@ -38,17 +34,17 @@ async function configuredUrls(paths: string[]): Promise<ConfiguredUrl[]> {
 }
 
 /** One scan per host. Socket discovery sends no bytes to an unknown service. */
-export class RunningServerScanner {
+export class ServerDiscovery {
   private readonly locations = new Map<string, { at: number; location: RunningServer['location'] }>()
   private readonly known = new Map<number, KnownProcess>()
   private readonly responses = new Map<string, { at: number; verdict: ProbeResult }>()
-  private readonly deps: ScannerDeps
+  private readonly deps: DiscoveryDeps
 
-  constructor(deps: Partial<ScannerDeps> = {}) {
+  constructor(deps: Partial<DiscoveryDeps> = {}) {
     this.deps = { listeners: listListeningSockets, processes: processFacts, tags: readProcessTags, directories: workingDirectories, configured: configuredUrls, probe: probeServerUrl, locate: attributeToWorktree, now: Date.now, beforeStop: (_server, members, table) => notifyCommandStop(members, table), ...deps }
   }
 
-  async scan(paths: string[] = []): Promise<RunningServer[]> {
+  async discover(paths: string[] = []): Promise<RunningServer[]> {
     const [listeners, facts, configured] = await Promise.all([this.deps.listeners(), this.deps.processes(), this.deps.configured(paths)])
     const pids = [...new Set(listeners.map((listener) => listener.pid))]
     const relevant = new Set(pids)
@@ -146,6 +142,15 @@ export class RunningServerScanner {
     }
   }
 
+  /** Resolve on the host: a session can start in a subfolder or a nested worktree. */
+  async checkoutRoots(paths: string[]): Promise<{ path: string; root: string | null }[]> {
+    return Promise.all(paths.map(async (path) => {
+      const cwd = resolveHomePath(path)
+      const top = await runAsync('git', ['rev-parse', '--show-toplevel'], cwd, { timeout: 5000 }).catch(() => null)
+      return { path, root: top ? gitOutputPath(cwd, top) : null }
+    }))
+  }
+
   async identityMatches(server: RunningServer): Promise<boolean> {
     const known = this.known.get(server.process.pid)
     if (!known?.identity || known.serverId !== server.serverId) return false
@@ -177,14 +182,6 @@ async function attributeToWorktree(server: RunningServer): Promise<void> {
   } catch { /* A server outside a repository still appears at host level. */ }
 }
 
-/** Resolve on the host: a session can start in a subfolder or a nested worktree. */
-export async function runningServerCheckoutRoots(paths: string[]): Promise<{ path: string; root: string | null }[]> {
-  return Promise.all(paths.map(async (path) => {
-    const cwd = resolveHomePath(path)
-    const top = await runAsync('git', ['rev-parse', '--show-toplevel'], cwd, { timeout: 5000 }).catch(() => null)
-    return { path, root: top ? gitOutputPath(cwd, top) : null }
-  }))
-}
 
 function serverOwner(fact: ProcessFacts | undefined): RunningServer['startedBy'] {
   if (fact?.terminalId) return { kind: 'terminal', terminalId: fact.terminalId, sessionId: fact.sessionId }

@@ -102,16 +102,6 @@ export const sessionThreadAliases = defineTable('session_thread_aliases', {
   session_id: text({ notNull: true }),
 }, { primaryKey: ['provider_session_id', 'provider'] })
 
-/** A session a person pinned on this host. */
-export const pinnedSessions = defineTable('pinned_sessions', {
-  session_id: text({ notNull: true }),
-  server_id: text({ notNull: true, default: '' }),
-  provider: text(),
-  title: text(),
-  cwd: text(),
-  pinned_at: bigint(),
-}, { primaryKey: ['session_id', 'server_id'] })
-
 // --- Execution ledger -------------------------------------------------------
 
 export const runs = defineTable('runs', {
@@ -444,7 +434,7 @@ export const sessionStorageTurns = defineTable('session_storage_turns', {
 
 /** Every host table, in declaration order. */
 export const HOST_TABLES = [
-  transcriptIndex, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases, pinnedSessions,
+  transcriptIndex, sessionMessages, sessionFiles, sessionKeys, sessionLineageMembers, sessionThreadAliases,
   runs, runQueue, runExchanges, asyncQuestions,
   outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, memberFolder, automations, automationRuns, browserProfiles,

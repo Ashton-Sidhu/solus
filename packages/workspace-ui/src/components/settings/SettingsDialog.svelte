@@ -6,6 +6,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import SettingsPageSkeleton from "./SettingsPageSkeleton.svelte";
+  import { toastSurface } from "../ui/sonner/toast-surface.svelte";
 
   const session = getWorkspaceContext();
   const page = import("./SettingsPage.svelte");
@@ -27,6 +28,7 @@
     <Dialog.Overlay class="fixed inset-0 z-[10000] modal-backdrop" />
     <Dialog.Content
       bind:ref={content}
+      {@attach (element) => toastSurface.attach(element)}
       aria-label="Settings"
       data-solus-ui
       data-settings-dialog

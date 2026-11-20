@@ -23,7 +23,14 @@ mock.module('@solus/workspace-ui/contexts/projects/projects.store.svelte', () =>
 }))
 mock.module('@solus/workspace-ui/components/review/review-guide.store.svelte', () => ({ reviewGuideStore: {}, sessionGuideIdentity: () => null }))
 mock.module('@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte', () => ({ sessionPullRequestsStore: {}, sessionPrLink: () => null }))
-mock.module('@solus/workspace-ui/contexts/workspace/session-list.store.svelte', () => ({ sessionListStore: { onRecordsRead: () => () => {} } }))
+const sessionListStore = {
+  onRecordsRead: () => () => {},
+  homeFor: (target: { serverId: string; sessionId: string }) => target.serverId,
+  setSettled: async () => {},
+  setArchived: async () => {},
+}
+mock.module('@solus/workspace-ui/contexts/workspace/session-list.store.svelte', () => ({ sessionListStore }))
+mock.module('@solus/workspace-ui/lib/toasts', () => ({ toasts: { error: () => {}, undo: () => {} } }))
 let SessionSidebarStore: typeof SidebarStore
 beforeAll(async () => {
   ;({ SessionSidebarStore } = await import('@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'))
@@ -166,5 +173,30 @@ test('completion and archive announcements remove host-scoped pins and invalidat
     expect(store.pinnedSessions).toEqual([])
   } finally {
     stop()
+  }
+})
+
+test('archiving a pinned session ends its pin, on its own host when the Solus API is its home', async () => {
+  // WHY: an organization session's home is its Solus API, which holds no pins.
+  // Unless the host that holds the pin removes it, the next manifest read puts
+  // the archived session back in Pinned.
+  const pin: PinnedSession = { sessionId: 'org-session', serverId: 'local', provider: 'codex', title: 'Pinned', cwd: '/repo', pinnedAt: 1 }
+  const localPin: PinnedSession = { ...pin, sessionId: 'local-session' }
+  const toggled: PinnedSession[] = []
+  connections.registerPrimary('local', { togglePinnedSession: async (session: PinnedSession) => { toggled.push(session); return [] } })
+  const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
+  Object.defineProperty(store, 'pinRequests', { value: new Map<string, number>() })
+  store.pinnedSessions = [pin, localPin]
+  const homeFor = sessionListStore.homeFor
+  sessionListStore.homeFor = (target) => target.sessionId === 'org-session' ? 'solus-api:org' : target.serverId
+  try {
+    const archive = (store as unknown as { archiveOnHost(targets: { serverId: string; sessionId: string }[]): Promise<void> }).archiveOnHost
+    await archive.call(store, [{ serverId: 'local', sessionId: 'org-session' }, { serverId: 'local', sessionId: 'local-session' }])
+    await Promise.resolve()
+    expect(store.pinnedSessions).toEqual([])
+    // The local home removes its own pin; a toggle there would put it back.
+    expect(toggled.map((session) => session.sessionId)).toEqual(['org-session'])
+  } finally {
+    sessionListStore.homeFor = homeFor
   }
 })

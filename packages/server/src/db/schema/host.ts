@@ -10,7 +10,6 @@ export const session_files = host.sessionFiles.sqlite
 export const session_keys = host.sessionKeys.sqlite
 export const session_lineage_members = host.sessionLineageMembers.sqlite
 export const session_thread_aliases = host.sessionThreadAliases.sqlite
-export const pinned_sessions = host.pinnedSessions.sqlite
 export const runs = host.runs.sqlite
 export const run_queue = host.runQueue.sqlite
 export const run_exchanges = host.runExchanges.sqlite

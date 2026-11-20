@@ -5,7 +5,6 @@ import type { Actor } from '../../admission/actor'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { getIndexedSession, setSessionGeneratedTitle } from '../../db/session-indexer'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
-import { renamePinnedSession } from '../../data/sessions/pinned-sessions'
 import { createLogger } from '../../logger'
 import type { SessionRuntime } from '../session-runtime'
 import { generateSessionMetadata } from './session-title'
@@ -24,7 +23,6 @@ export interface BackgroundSessionTitlePorts {
   save(sessionId: string, title: string): Promise<boolean>
   generate(runtime: SessionRuntime, prompt: string, cwd: string, request: BackgroundSessionTitleRequest): Promise<SessionGeneratedMetadata | null>
   refresh(sessionId: string): Promise<void>
-  renamePin(sessionId: string, title: string): void
 }
 
 const defaultPorts: BackgroundSessionTitlePorts = {
@@ -35,7 +33,6 @@ const defaultPorts: BackgroundSessionTitlePorts = {
     executionPreferences: request.preferences,
   }, (provider) => runtime.seatForTurn(request.actor, provider), await organizationOfSession(request.sessionId)),
   refresh: (sessionId) => emitSessionTasksChanged(ANY_ORGANIZATION, sessionId),
-  renamePin: renamePinnedSession,
 }
 
 export interface BackgroundSessionTitleRequest {
@@ -92,7 +89,6 @@ async function nameSession(
   if (!await ports.save(request.sessionId, metadata.title)) {
     return ports.read(request.sessionId)?.customTitle ?? null
   }
-  ports.renamePin(request.sessionId, metadata.title)
   await ports.refresh(request.sessionId).catch((error) => {
     log.warn('background_session_task_refresh_failed', { sessionId: request.sessionId, error: String(error) })
   })
