@@ -515,6 +515,12 @@ the same URL is present in the init event (`InitEvent.mcp_servers`, which
 Solus reads today but does not forward). `docs/solus-tools.md` changes its
 sentence on external MCP servers to say which servers are whose.
 
+Superseded by the CLI skip (`mcp-first-class.md` §8.5, built in C2): a run
+that Solus starts leaves out the CLI's copy of a server with the same address,
+so the agent does not see a tool twice. The note is the row's **CLI copy**
+field, which shows what the person's runs left out. The init event does not
+name a denied server, so the note does not read it.
+
 ## 9. Phases
 
 The first release is phases 1 to 4. Decision of 2026-10-08: OpenAPI is in
