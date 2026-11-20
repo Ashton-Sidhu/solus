@@ -1,7 +1,8 @@
 # MCP as a first-class feature
 
-Status: phased plan, written 2026-11-18. P0, A1, A2, A3, and B1 are built
-(`mcp-b1-handoff.md` has the B1 contract). This plan continues
+Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, and H1 are built
+(`mcp-b1-handoff.md` has the B1 contract; `mcp-wave3-handoff.md` records the
+merge of A2, A3, B1, and H1). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -118,7 +119,9 @@ some of them. This plan follows the sources.
     and web reducer marks a Claude tool `completed` at `content_block_stop`,
     before the call runs. A `tool_progress` event marks the card running
     again until its `tool_result` (§5). Mobile keeps the card running until
-    the result, as before.
+    the result, as before. Since H1, a Solus integration tool's card is not
+    settled at the input end: it stays running until its result (§14.1), so
+    the progress rule now only matters for a card that settled another way.
 21. **A client never receives a tool result's text** (A3). The host sends
     `contentBytes` and `errorHead` only (`result-projection.ts`). So the
     person cannot read "the same line" as the agent. §6 adds `toolLeftOut`:
@@ -128,6 +131,10 @@ some of them. This plan follows the sources.
     listed the tool, and throws `ProtocolError`. It also throws when such a
     tool returns no structured content. §6 maps both errors to the gateway's
     own error result and keeps the session open.
+23. **Claude's normalizer did not stream a tool's input** (found in H1). It
+    kept each `input_json_delta` and sent the input whole on
+    `tool_call_complete`. H1 adds the partial input for Solus integration
+    tools only (§14.1, step 4).
 
 ## 2. Vocabulary
 
@@ -1362,54 +1369,89 @@ during a call.
 
 1. A tool call starts in the transcript (`tool_call`). The client sees a
    Solus tool whose name has the form `<slug>__<tool>`
-   (`integrationToolName`). That is an integration tool or an operation of an
-   app (`app-tools.ts` uses the same form). The host decides which, in
-   step 2.
+   (`integrationToolName`; `mcpAppLiveToolName` reads it from Claude's
+   `mcp__solus__<name>` and Codex's `solus.<name>`). That is an integration
+   tool or an operation of an app (`app-tools.ts` uses the same form). The
+   host decides which, in step 2.
 2. The client asks `mcpAppLiveRead({ sessionId, toolName })`. The host finds
    the caller's own integration and the tool in server facts. When the tool
    declares `_meta.ui.resourceUri`, the host reads that resource as the
-   caller and answers `{ html, csp, title }`; else `null`. The host keeps the
-   last 16 documents for 5 minutes. The client keeps each `null`, so one tool
-   name costs one request.
-3. The client mounts the live app card in place of the plain tool row and
-   runs `ui/initialize`.
-4. While the input streams, each `tool_call_update` gives the partial JSON
-   text. The bridge heals it (it closes each open string, array, and object,
-   and drops a key with no value) and sends
-   `ui/notifications/tool-input-partial`. At most 10 a second for one card.
-   A healed value equal to the last one is not sent.
+   caller and answers `McpAppLiveDocument` (`title`, `html`, `csp`, and the
+   `permissions` and `prefersBorder` that the frame needs); else `null`. The
+   host keeps the last 16 documents for 5 minutes. The client keeps each
+   answer, `null` too, for each session and tool name, so one tool name costs
+   one request.
+3. The client mounts the live app card below the call's activity row, where
+   the saved card shows later, and runs `ui/initialize`. The plain tool row
+   stays in the activity row, as it does beside a saved card. A row that
+   mounts after its call ended mounts no live card.
+4. While the input streams, Claude's normalizer sends the input so far as
+   `tool_call_update` with `inputPartial: true`, for a main-thread Solus
+   integration tool only, at most 10 a second, and only while the input is
+   64 KiB or less. Each update carries all of the input, so the host's turn
+   log keeps none: a client that joins gets the next one. The bridge heals
+   the text (it closes each open string, array, and object, and drops a key
+   with no value, a cut escape, and a cut number or literal) and sends
+   `ui/notifications/tool-input-partial`. At most 10 a second for one card,
+   the newest last. A healed value equal to the last one is not sent. A
+   conversation that is mounted but hidden gives its card no partial input;
+   the newest arrives when it shows again.
 5. When the input is complete (`tool_call_complete`), the bridge sends
    `ui/notifications/tool-input` once. It sends no partial after that.
 6. The capture saves the app as today. `McpAppReference` gains
-   `toolUseId`, from the call's context. When the `mcp_app` activity with
-   that id arrives, the live card becomes the saved card in the same frame:
-   the bridge sends `ui/notifications/tool-result` with the snapshot's
-   result, and the card takes the activity id for its later requests.
+   `toolUseId`, from the call's context (`parentToolUseId()`, which is the
+   call's own tool-use id). When the `mcp_app` activity with that id arrives,
+   the live card becomes the saved card in the same frame: the saved card
+   stays empty while a live card holds its call and hands it the activity
+   (`McpAppLiveCards` in `client-core/mcp-app-live.ts`); the bridge sends
+   `ui/notifications/tool-result` with the snapshot's result, and the card
+   takes the activity id for its later requests. A live card that unmounts
+   (the pool, the virtualizer) releases the call, and the saved card shows.
 7. When the call does not give a result, the bridge sends
    `ui/notifications/tool-cancelled` with a reason: `stopped` (the session's
    Stop), `denied` (a permission answer), `timeout`, or `failed` (an error
    result, or no capture within 15 seconds of the end). The bridge then
-   sends `ui/resource-teardown`, and the card becomes the plain tool row.
+   sends `ui/resource-teardown`, and the card goes; the plain tool row
+   stays. The transcript of a client does not tell a denial or a timeout
+   from another error result, so the clients send `failed` for both. The
+   contract keeps all four reasons.
 
 **Rules.**
 
-- Before step 6 the app's own `tools/call` and `resources/read` requests are
-  answered with the error "The tool call has not ended."
+- Before step 6 the app's own `tools/call`, `resources/read`, and
+  `ui/update-model-context` requests are answered with the error "The tool
+  call has not ended." Each one names a saved app, which does not exist yet.
+- A Solus integration tool's row stays running until its result. Claude ends
+  the input stream before the call runs, and the desktop and web transcript
+  marked the row done there; mobile already waited for the result.
+- The person can close a live card. It keeps its call, so the saved card of
+  the call stays closed too, and "Show app" opens it again.
 - Only the integration's owner gets a live card. Another person who watches
   the session sees the plain row until the capture arrives.
 - A call inside a subagent has no card, as today. A server of Claude's own
   (`claude-mcp-apps.ts`) has no live card (§20).
 
 **Providers.** Claude streams the input of a tool as `input_json_delta`, and
-the normalizer already sends it as `tool_call_update`. Codex sends the input
+the normalizer sends it as `tool_call_update` (step 4). Codex sends the input
 whole, so on Codex the card mounts at the start of the call, gets
 `tool-input` at once, and gets no partial (§1, item 13). `tool-cancelled`
-works for both.
+works for both. On Codex the capture names the call by the `callId` of
+`item/tool/call`, and the transcript row by the item id. H1 takes them as one
+id; a real Codex run has not confirmed it. If they differ, the live card gets
+no saved app, ends as `failed` 15 seconds after the call, and the saved card
+starts a new frame.
 
 **Owner.** The bridge `packages/client-core/src/mcp-app-host.ts` gains the
-live mode and the pure function `healPartialJson`. The server gains
-`IntegrationApps.liveRead` and the handler in `mcp-app-handlers.ts`.
-`McpAppCard.svelte`, `McpAppFrame.svelte`, and `ThreadMcpApp.tsx` mount it.
+live mode (`followCall`, `toolResult`) and the pure function
+`healPartialJson`. `client-core/mcp-app-live.ts` holds the answers of the
+host, the hand-over between a live card and the saved card, and
+`mcpAppLiveCall`, the one rule that turns a transcript row into the call a
+card follows. The server gains `IntegrationApps.liveRead`, the handler in
+`mcp-app-handlers.ts`, and `claude-partial-input.ts`. Desktop and web mount
+`McpAppLiveCard.svelte` below each tool group; mobile mounts
+`ThreadMcpLiveApp.tsx` from an `mcp-app` feed row after the work row of an
+active turn. A finished turn on mobile folds its tools, so there the saved
+card starts a new frame when the turn ends.
 
 **Contracts.** `mcpAppLiveRead({ sessionId, toolName })` answers
 `McpAppLiveDocument | null`. It needs the session's `read.transcript`, and

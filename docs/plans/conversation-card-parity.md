@@ -157,9 +157,19 @@ A frame that unmounts with its conversation gets no teardown, because the
 client cannot wait there. App log messages (`notifications/message`) go to the
 client's debug output only: 2,000 characters each, and 100 for each frame.
 
-Not built: streamed tool input (`tool-input-partial`) and `tool-cancelled` need
-the agent's partial tool arguments and the cancel of a gateway call, which the
-gateway does not give the card yet. Picture-in-picture needs a pane that keeps
+A Solus integration tool's app also shows while its call runs: the live app
+card (`docs/plans/mcp-first-class.md` §14.1). The host says which tool has an
+app, and only for the person whose integration runs the call
+(`mcpAppLiveRead`). The card gets the input as it streams, healed and at most
+ten times a second (`tool-input-partial`), then `tool-input`, then the result
+of the saved app in the same frame, or `tool-cancelled` when the call is
+stopped or fails. Claude streams the input. Codex gives the input of a Solus
+tool whole, so a Codex card gets `tool-input` when the call starts and no
+partial input. A server of Claude's own and a call inside a subagent have no
+live card. Until the call has a result, the app cannot call a tool, read a
+resource, or give the agent context.
+
+Not built: Picture-in-picture needs a pane that keeps
 one live frame above the conversation while the card scrolls or unmounts, with
 a way back to inline, on every client. A stable `domain` origin needs a served
 origin per app (a host-served subdomain or a sandbox domain), so the frame stops

@@ -50,6 +50,8 @@ const appReferenceFields = {
   tool: z.string().max(256),
   resourceUri: appResourceUri,
   assetId: z.string().min(1),
+  /** The tool call that showed the app. A live app card takes the saved app by it. Absent in an app saved before Solus kept it. */
+  toolUseId: z.string().min(1).max(256).optional(),
 }
 
 /**
@@ -101,6 +103,31 @@ export type McpAppResourceRequest = z.infer<typeof mcpAppResourceRequestSchema>
 /** The app's latest context for the agent. Empty text clears it. */
 export const mcpAppModelContextRequestSchema = mcpAppRequestSchema.extend({ text: z.string().max(MCP_APP_MAX_MODEL_CONTEXT_CHARS) })
 export type McpAppModelContextRequest = z.infer<typeof mcpAppModelContextRequestSchema>
+
+/** The app of a tool call that has not ended (docs/plans/mcp-first-class.md §14.1). `toolName` is the Solus tool name `<slug>__<tool>`. */
+export const mcpAppLiveRequestSchema = z.object({ sessionId: z.string().min(1), toolName: z.string().min(1).max(256) })
+export type McpAppLiveRequest = z.infer<typeof mcpAppLiveRequestSchema>
+
+/** The document of a live app card: the app's HTML and policy, without the call's data. */
+export interface McpAppLiveDocument extends Omit<McpAppSnapshot, 'toolInputJson' | 'toolResultJson'> {
+  title: string
+}
+
+/** Why a tool call gave its live app card no result (`ui/notifications/tool-cancelled`). */
+export const MCP_APP_CANCEL_REASONS = ['stopped', 'denied', 'timeout', 'failed'] as const
+export type McpAppCancelReason = (typeof MCP_APP_CANCEL_REASONS)[number]
+
+/**
+ * The Solus tool name `<slug>__<tool>` of a transcript tool call that can have
+ * a live app card, or null. Claude names a Solus tool `mcp__solus__<name>`,
+ * Codex `solus.<name>`. The host decides if the tool has an app.
+ */
+export function mcpAppLiveToolName(transcriptToolName: string | undefined): string | null {
+  const name = transcriptToolName?.startsWith('mcp__solus__')
+    ? transcriptToolName.slice('mcp__solus__'.length)
+    : transcriptToolName?.startsWith('solus.') ? transcriptToolName.slice('solus.'.length) : null
+  return name && name.indexOf('__') > 0 && name.length <= 256 ? name : null
+}
 
 export interface McpAppToolInfo {
   callable: boolean

@@ -13,11 +13,13 @@ import { TranscriptVirtualizer, type TranscriptPosition } from './transcript-vir
 export class ConversationViewState {
   readonly disclosure = new TranscriptDisclosure()
   readonly turnExpansion = new SvelteMap<string, boolean>()
+  /** The app cards the person closed: by activity, or by tool-use id for a live card. */
   readonly closedMcpApps = new SvelteSet<string>()
+  /** The frame heights of app cards: by activity, or by tool-use id for a live card. */
   readonly mcpAppHeights = new SvelteMap<string, number>()
   /** The context each app gave the agent, as the person can read it, by activity. */
   readonly mcpAppContexts = new SvelteMap<string, string>()
-  /** The browser features the person granted each app, by activity. */
+  /** The browser features the person granted each app: by activity, or by tool-use id for a live card. */
   readonly mcpAppPermissions = new SvelteMap<string, McpAppPermission[]>()
   /** The row and offset the reader was at; null while they follow the end. */
   position: TranscriptPosition | null = null

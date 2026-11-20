@@ -114,6 +114,22 @@ describe('MCP App bridge', () => {
   })
 })
 
+describe('MCP App approval', () => {
+  test('tool arguments reach the approval as arguments to show as code; a message and a link as text to read', async () => {
+    // WHY: the dialog showed a sentence in the monospace block made for tool arguments.
+    const asked: Array<{ title: string; detail: string; format: string }> = []
+    const { host } = setup({ confirm: async (title, detail, format) => { asked.push({ title, detail, format }); return false } })
+    await host.receive(request('tools/call', { name: 'save', arguments: { region: 'west' } }, 1))
+    await host.receive(request('ui/message', { role: 'user', content: [{ type: 'text', text: 'Ship the west report.' }] }, 2))
+    await host.receive(request('ui/open-link', { url: 'https://example.com/report' }, 3))
+    expect(asked).toEqual([
+      { title: 'Allow save?', detail: '{\n  "region": "west"\n}', format: 'arguments' },
+      { title: 'Send this message?', detail: 'Ship the west report.', format: 'text' },
+      { title: 'Open this link?', detail: 'https://example.com/report', format: 'text' },
+    ])
+  })
+})
+
 describe('MCP App documents and cache', () => {
   test('the native app is inside an opaque-origin frame, with an authenticated bridge', () => {
     const html = nativeMcpAppDocument({ ...snapshot, html: '<script>parent.secret</script><p title="x">Test</p>' }, 'nonce-1')

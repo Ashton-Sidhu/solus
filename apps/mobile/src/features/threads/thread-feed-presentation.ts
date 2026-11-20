@@ -23,6 +23,8 @@ export interface FeedSourceEntry {
    *  command), drawn as a notice row. It is not a person's message, so it
    *  never joins a burst. */
   readonly hostNotice?: boolean
+  /** Tools only: a Solus integration tool, whose call can show its MCP App while it runs. */
+  readonly canShowLiveApp?: boolean
 }
 
 export type ThreadFeedRow =
@@ -55,7 +57,8 @@ export type ThreadFeedRow =
   | { readonly type: 'plan'; readonly id: string }
   | { readonly type: 'worktree-offer'; readonly id: string }
   | { readonly type: 'setup'; readonly id: string }
-  | { readonly type: 'mcp-app'; readonly id: string }
+  /** An MCP App. `itemId` is the activity that saved it, or the Solus integration tool whose call shows it while it runs. */
+  | { readonly type: 'mcp-app'; readonly id: string; readonly itemId: string }
   /** The host handed the thread to another provider. */
   | { readonly type: 'handoff'; readonly id: string }
   | { readonly type: 'lead-promotion'; readonly id: string }
@@ -219,6 +222,12 @@ function appendTurnRows(
       continuesWorkLog: false,
     })
     if (expanded) rows.push({ type: 'work-details', id: `work-details:${groupId}`, groupId, toolIds, continuesWorkLog: false })
+    // A tool of an active turn can show its app while its call runs; the row decides when it mounts.
+    if (active) {
+      for (const entry of group) {
+        if (entry.canShowLiveApp) rows.push({ type: 'mcp-app', id: `mcp-app-live:${entry.id}`, itemId: entry.id })
+      }
+    }
     group = []
   }
   const entries = turn.entries
@@ -258,7 +267,7 @@ function appendTurnRows(
     } else if (entry.kind === 'setup') {
       rows.push({ type: 'setup', id: entry.id })
     } else if (entry.kind === 'mcp_app') {
-      rows.push({ type: 'mcp-app', id: entry.id })
+      rows.push({ type: 'mcp-app', id: entry.id, itemId: entry.id })
     } else if (entry.kind === 'lead_promotion') {
       rows.push({ type: 'lead-promotion', id: entry.id })
     } else if (entry.kind === 'handoff') {

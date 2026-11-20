@@ -11,6 +11,8 @@ import {
   mcpAppSnapshotSchema,
   mcpAppToolMetadataSchema,
   type McpAppCallRequest,
+  type McpAppLiveDocument,
+  type McpAppLiveRequest,
   type McpAppModelContextRequest,
   type McpAppReference,
   type McpAppRequest,
@@ -29,12 +31,15 @@ import { storedAssetPath } from '../data/assets/asset-paths'
 import { getSessionRecord } from '../data/sessions/session-records'
 import { claudeSeatOf } from '../execution/agents/claude/claude-backend'
 import { claudeIntegrationToolName, deniedByClaude, type ClaudeAppPlace, type ClaudeAppProcesses, type ClaudeMcpApp } from '../execution/agents/claude/claude-mcp-apps'
-import type { IntegrationAppCapture, IntegrationGateway } from './gateway'
+import type { IntegrationAppCapture, IntegrationGateway, UpstreamTool } from './gateway'
 
 const APP_MIME_TYPE = 'text/html;profile=mcp-app'
 const APP_UNAVAILABLE = 'This app is no longer available.'
 /** The agent waits for its tool result while the app is saved, so a capture waits less than a call. */
 const CAPTURE_TIMEOUT_MS = 15_000
+/** Live documents read for live app cards: a call of the same tool soon after reads none again. */
+const LIVE_DOCUMENTS_KEPT = 16
+const LIVE_DOCUMENT_TTL_MS = 5 * 60_000
 
 const resourceMetadataSchema = z.object({
   ui: z.object({
@@ -63,10 +68,14 @@ type AppResult = ReadResourceResult | ClaudeMcpApp['resource'] | ClaudeMcpApp['r
  * app of a server Claude itself is set up with runs through a Claude process.
  */
 export class IntegrationApps {
+  /** The newest last; a key names the integration, the person, and the app's resource. */
+  private readonly liveDocuments = new Map<string, { document: Promise<McpAppLiveDocument | null>; readAt: number }>()
+
   constructor(
     private readonly gateway: IntegrationGateway,
     private readonly runtime: Pick<SessionRuntime, 'recordActivity' | 'actorOfSession' | 'seatForTurn' | 'appModelContexts'>,
     private readonly claude: Pick<ClaudeAppProcesses, 'toolInfo' | 'access' | 'callTool' | 'readResource'>,
+    private readonly now: () => number = Date.now,
   ) {}
 
   async capture(call: IntegrationAppCapture): Promise<void> {
@@ -81,12 +90,56 @@ export class IntegrationApps {
     if (signal.aborted) return
     const snapshot = appSnapshot(resource, resourceUri, call)
     if (!snapshot) return
-    await this.save(sessionId, actor, snapshot, {
+    const reference: DistributiveOmit<McpAppReference, 'assetId'> = {
       integrationId: call.integration.id,
-      title: `${call.integration.name} · ${call.tool.title ?? call.tool.name}`.slice(0, 256),
+      title: appTitle(call.integration, call.tool),
       tool: call.tool.name,
       resourceUri,
+    }
+    const toolUseId = call.context.parentToolUseId()
+    if (toolUseId) reference.toolUseId = toolUseId
+    await this.save(sessionId, actor, snapshot, reference)
+  }
+
+  /**
+   * The app of a tool call that has not ended, so its card can show while the
+   * call runs (docs/plans/mcp-first-class.md §14.1). Only the person whose
+   * integration the call runs on gets it: the session's own person, with
+   * their own integration. Null when the tool declares no app.
+   */
+  async liveRead({ sessionId, toolName }: McpAppLiveRequest, ctx: HandlerCtx): Promise<McpAppLiveDocument | null> {
+    const ownerKey = ownerKeyOf(ctx.actor)
+    const sessionActor = this.runtime.actorOfSession(sessionId)
+    if (!sessionActor || ownerKeyOf(sessionActor) !== ownerKey) return null
+    // A slug has no `__`, but the longest match is right even if one had.
+    const integration = this.gateway.store.list(recordScopeOf(ctx.principal), ownerKey)
+      .filter((entry) => entry.ownerKey === ownerKey && toolName.startsWith(`${entry.slug}__`))
+      .sort((a, b) => b.slug.length - a.slug.length)[0]
+    if (!integration || integration.disabledTools.some((name) => integrationToolName(integration.slug, name) === toolName)) return null
+    const tool = (await this.gateway.toolsFor(integration.id, ownerKey)).find((entry) => integrationToolName(integration.slug, entry.name) === toolName)
+    const metadata = mcpAppToolMetadataSchema.safeParse(tool?._meta)
+    const resourceUri = metadata.success ? metadata.data.ui?.resourceUri ?? metadata.data['ui/resourceUri'] : undefined
+    if (!tool || !resourceUri) return null
+    const key = `${integration.id}\0${ownerKey}\0${resourceUri}`
+    const kept = this.liveDocuments.get(key)
+    if (kept && this.now() - kept.readAt < LIVE_DOCUMENT_TTL_MS) return kept.document
+    const title = appTitle(integration, tool)
+    const document = this.gateway.readAppResource(integration.id, resourceUri, { timeout: CAPTURE_TIMEOUT_MS })
+      .then((resource) => {
+        const parts = appDocument(resource, resourceUri)
+        return parts ? { ...parts, title } : null
+      })
+    this.liveDocuments.delete(key)
+    this.liveDocuments.set(key, { document, readAt: this.now() })
+    for (const oldest of this.liveDocuments.keys()) {
+      if (this.liveDocuments.size <= LIVE_DOCUMENTS_KEPT) break
+      this.liveDocuments.delete(oldest)
+    }
+    // A failed read is not kept: the next call reads again.
+    document.catch(() => {
+      if (this.liveDocuments.get(key)?.document === document) this.liveDocuments.delete(key)
     })
+    return document
   }
 
   /** The app of a tool call that a server of Claude's own answered. */
@@ -199,20 +252,31 @@ export class IntegrationApps {
   }
 }
 
+function appTitle(integration: Pick<Integration, 'name'>, tool: Pick<UpstreamTool, 'name' | 'title'>): string {
+  return `${integration.name} · ${tool.title ?? tool.name}`.slice(0, 256)
+}
+
 /** The app document of a resource read, with the call's data; null when it is not an MCP App or is too large. */
 function appSnapshot(resource: ReadResourceResult, resourceUri: string, call: { input: unknown; result: unknown }): McpAppSnapshot | null {
+  const document = appDocument(resource, resourceUri)
+  if (!document) return null
+  const toolInputJson = JSON.stringify(call.input)
+  const toolResultJson = JSON.stringify(call.result)
+  if (Buffer.byteLength(toolInputJson) > MCP_APP_MAX_DATA_BYTES || Buffer.byteLength(toolResultJson) > MCP_APP_MAX_DATA_BYTES) return null
+  return mcpAppSnapshotSchema.parse({ ...document, toolInputJson, toolResultJson })
+}
+
+/** The app's HTML and policy from a resource read; null when it is not an MCP App or is too large. */
+function appDocument(resource: ReadResourceResult, resourceUri: string): Omit<McpAppSnapshot, 'toolInputJson' | 'toolResultJson'> | null {
   const document = resource.contents.find((entry) => entry.uri === resourceUri && entry.mimeType?.replace(/\s/g, '').toLowerCase() === APP_MIME_TYPE)
   if (!document) return null
   // Base64 is 4/3 of its bytes: refuse a large blob before it is decoded.
   if ('blob' in document && document.blob.length > Math.ceil(MCP_APP_MAX_HTML_BYTES / 3) * 4) return null
   const html = 'text' in document ? document.text : Buffer.from(document.blob, 'base64').toString('utf8')
   if (!html.trim() || Buffer.byteLength(html) > MCP_APP_MAX_HTML_BYTES) return null
-  const toolInputJson = JSON.stringify(call.input)
-  const toolResultJson = JSON.stringify(call.result)
-  if (Buffer.byteLength(toolInputJson) > MCP_APP_MAX_DATA_BYTES || Buffer.byteLength(toolResultJson) > MCP_APP_MAX_DATA_BYTES) return null
   const metadata = resourceMetadataSchema.safeParse(document._meta)
   const ui = metadata.success ? metadata.data.ui : undefined
-  return mcpAppSnapshotSchema.parse({ html, toolInputJson, toolResultJson, csp: ui?.csp ?? {}, permissions: ui?.permissions, prefersBorder: ui?.prefersBorder })
+  return { html, csp: ui?.csp ?? {}, permissions: ui?.permissions, prefersBorder: ui?.prefersBorder }
 }
 
 /** A host result as JSON for the app, refused over the data limit. */

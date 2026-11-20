@@ -172,6 +172,7 @@ export const RPC_INVOKE_METHODS = [
   'loadSessionPage',
   'loadSessionToolInputs',
   'mcpAppRead',
+  'mcpAppLiveRead',
   'mcpAppToolInfo',
   'mcpAppCallTool',
   'mcpAppReadResource',

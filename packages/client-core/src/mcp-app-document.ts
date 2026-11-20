@@ -6,7 +6,7 @@ import { mcpAppDocument, type McpAppSnapshot } from '@solus/contracts/mcp-apps'
  * page relays only its frame's messages, signed with `secret`, which the frame
  * cannot read. A second load of the frame is a navigation: the relay stops.
  */
-export function nativeMcpAppDocument(snapshot: McpAppSnapshot, secret: string): string {
+export function nativeMcpAppDocument(snapshot: Pick<McpAppSnapshot, 'html' | 'csp'>, secret: string): string {
   const appDocument = mcpAppDocument(snapshot.html, snapshot.csp).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
   return `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">

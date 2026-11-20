@@ -94,6 +94,7 @@ export const RESOURCE_LOCATORS = {
   loadSessionPage: sessionFieldAt(0, 'sessionId'),
   loadSessionToolInputs: sessionFieldAt(0, 'sessionId'),
   mcpAppRead: sessionFieldAt(0, 'sessionId'),
+  mcpAppLiveRead: sessionFieldAt(0, 'sessionId'),
   mcpAppToolInfo: sessionFieldAt(0, 'sessionId'),
   mcpAppCallTool: sessionFieldAt(0, 'sessionId'),
   mcpAppReadResource: sessionFieldAt(0, 'sessionId'),

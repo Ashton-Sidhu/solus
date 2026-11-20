@@ -75,7 +75,7 @@ import { TurnArtifactChips } from "./AgentArtifactChips";
 import { ThreadImage } from "./ThreadImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
-import { ThreadMcpApp } from "./ThreadMcpApp";
+import { canShowLiveApp, ThreadMcpApp } from "./ThreadMcpApp";
 import {
   pullRequestWatchWake,
   pullRequestWatchWakeMarks,
@@ -379,7 +379,7 @@ const WorktreeOfferRow = memo(function WorktreeOfferRow(props: { readonly store:
 });
 
 function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
-  if (row.type === "mcp-app") return <ThreadMcpApp store={context.store} id={row.id} />;
+  if (row.type === "mcp-app") return <ThreadMcpApp store={context.store} id={row.itemId} />;
   if (row.type === "setup") return <WorktreeSetupCard store={context.store} id={row.id} />;
   if (row.type === "run-fold") {
     return (
@@ -601,7 +601,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const order = useListened(store.order, store.orderSnapshot);
   const entries = useMemo<FeedSourceEntry[]>(
     () =>
-      order.flatMap((id) => {
+      order.flatMap<FeedSourceEntry>((id) => {
         const item = store.item(id);
         if (!item) return [];
         const kind = item.kind === "tool" && item.subagent ? "agent" : item.kind;
@@ -610,7 +610,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         if (item.kind === "user" && item.delivery === "sent" && (pullRequestWatchWake(item.text) || backgroundCommandWake(item.text))) {
           return [{ id, kind, hostNotice: true }];
         }
-        return [{ id, kind }];
+        return [{ id, kind, canShowLiveApp: canShowLiveApp(item) }];
       }),
     [order, store],
   );
