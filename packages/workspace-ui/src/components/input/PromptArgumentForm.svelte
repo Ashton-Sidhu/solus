@@ -56,7 +56,8 @@
   /** Required marks turn red only after a send was tried. */
   let hasTriedSend = $state(false);
   const missing = $derived(missingArguments(fields, values));
-  let inputs = $state<(HTMLInputElement | null)[]>([]);
+  // One slot for each field from the start: the Input primitive refuses `bind:ref` to an undefined slot.
+  let inputs = $state<(HTMLInputElement | null)[]>(untrack(() => fields.map(() => null)));
 
   /** Typing goes to the first empty field when the form opens. */
   onMount(() => {
