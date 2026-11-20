@@ -919,3 +919,35 @@ turn. If its first row is not a user turn, the writer omits the rows rather
 than saving an incomplete turn. This phase does not yet add the API reader,
 read-only history fallback, turn-diff RPC, or client contract. Those remain
 open before a client can read an offline session.
+
+### Part L as implemented (2026-11-19)
+
+The Lab now has a bare Git project origin and one clone for each host. Its mock
+backend writes a small provider thread file at each turn, exports and imports
+that file, and records whether the next run starts, resumes, or forks a thread.
+`packages/lab/scenarios/cloud/portable-sessions.ts` drives two signed-in
+personal hosts through the real local cloud and Solus API. The API uses
+`SOLUS_SESSION_STORAGE=local-git`. The latest run wrote evidence to
+`.solus-local/lab-cloud/evidence/run-2026-11-20T04-08-32-750Z/`.
+
+| Step | Result | Evidence |
+|---|---|---|
+| Host A commits turn 1 and pushes it | PASS | API row has `synced_turn=1` and A's `last_run_host_id`. |
+| Host B prepares while A is stopped, then runs turn 2 | PASS | Same session id; API has two turns and B's host id. Both repositories have the same turn 1 tree. B has the same imported thread file and its mock run records `resume`. |
+| Host A restarts, syncs, and runs turn 3 | PASS | API has three turns and A's host id. |
+| Host B forks from A's newest turn | FAIL | B logged `session_sync_failed`, `reason=source-offline`: the cloud source said it was behind the requested head. The Lab's stub host route could not supply the fallback. |
+| Cloud sync off, host B transfers from A while A is online | FAIL | B logged `session_sync_failed`, `reason=source-offline`: its cloud directory route points at the Lab's stub tunnel hostname, so it cannot dial A. |
+| Cloud sync off, A stopped | PASS | B's client received a status card with `syncFailureReason=source-offline`. |
+| Refused push and divergence recovery | NOT RUN | The scenario has no test-only API outage seam yet. |
+| Organization read-standing refusals | NOT RUN | The scenario has no organization variant yet. |
+
+The host fallback failures expose a Lab topology limit, not a proven product
+defect: the Lab cloud uses a stub tunnel URL and provides no dialable route
+between its two spawned hosts. The fork failure needs a separate check after
+the Lab can dial the source. No feature code was changed. The first fork run
+also showed a scenario error: `forked` belongs in `SessionCtx`, not prompt
+options; the scenario now sends it there. The first B resume run showed the
+same kind of input error: `agentSessionId` must name the imported provider
+thread. The scenario now sends it. The final run has 16 passing and two
+failing checks. Focused unit tests passed 16/16 in three files; one new test
+checks that the project origin gives independent clones with the same tree.
