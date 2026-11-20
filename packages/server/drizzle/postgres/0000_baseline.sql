@@ -304,6 +304,7 @@ CREATE TABLE "personal_resource_state" (
 	"snoozed_until" bigint,
 	"snooze_note" text,
 	"viewed_at" bigint,
+	"pinned_at" bigint,
 	CONSTRAINT "personal_resource_state_organization_id_resource_kind_resource_id_created_by_pk" PRIMARY KEY("organization_id","resource_kind","resource_id","created_by")
 );
 --> statement-breakpoint

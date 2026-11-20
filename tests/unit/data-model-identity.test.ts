@@ -55,7 +55,6 @@ const NO_CREATOR: Record<string, string> = {
   session_keys: 'a short number per session for the keyboard',
   session_lineage_members: 'the provider threads a session ran as',
   session_thread_aliases: 'a provider thread id that names a session',
-  pinned_sessions: 'a pin on this host, keyed by session and server; personal ownership is a deferred decision (plan 029)',
   runs: 'the execution ledger of a session; the session row owns it',
   run_queue: 'queued prompts of a session; the session row owns them',
   run_exchanges: 'exchanges between two sessions; the session rows own them',

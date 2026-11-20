@@ -705,11 +705,11 @@
             {/snippet}
           </PageEmpty>
         {:else if hasNoSource && tasks.length === 0}
-          <!-- GitHub and Jira own every task, so a person with no task source
-               has no tasks. The empty state is the source setup. -->
+          <!-- GitHub, Jira and Linear own every task, so a person with no task
+               source has no tasks. The empty state is the source setup. -->
           <PageEmpty icon={TaskIcon} title="No task source.">
-            Tasks come from GitHub and Jira. Add a GitHub repository, a GitHub
-            Project, a Jira project or a Jira board.
+            Tasks come from GitHub, Jira and Linear. Add a repository, a
+            Project, a Jira board or a Linear team.
             {#snippet actions()}
               <TaskSourceAdd look="invite" onChanged={() => void store.load()} />
             {/snippet}

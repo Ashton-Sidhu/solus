@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { linearDeliverySchema, type ProviderRef } from '@solus/contracts/vault'
 import { currentPersonKey } from '../../../vault/acting-scope'
-import { credentialLocationOf, vault } from '../../../vault/vault'
+import { vault } from '../../../vault/vault'
 import { TaskProviderError } from './types'
 
 const LINEAR_REF: ProviderRef = { kind: 'provider', provider: 'linear' }
@@ -103,27 +103,12 @@ const connectionSchema = z.object({
     nodes: z.array(z.object({ id: z.string(), key: z.string(), name: z.string() }))
   })
 })
-export async function linearConnection(key?: string) {
+export async function linearConnection() {
   return linearRequest(
     'query { viewer { name } organization { id urlKey } teams(first: 100) { nodes { id key name } } }',
     {},
-    connectionSchema,
-    key
+    connectionSchema
   )
-}
-export async function setLinearKey(key: string | null): Promise<void> {
-  const personKey = currentPersonKey()
-  if (credentialLocationOf(personKey).kind !== 'host')
-    throw new Error(
-      'Manage your Linear connection in the account vault. This host cannot store an account credential.'
-    )
-  if (key === null) {
-    vault().remove(personKey, LINEAR_REF)
-    return
-  }
-  const trimmed = z.string().trim().min(1).max(4096).parse(key)
-  await linearConnection(trimmed)
-  vault().save(personKey, LINEAR_REF, { key: trimmed })
 }
 export function linearCategory(type: string): 'open' | 'active' | 'done' {
   return ['completed', 'canceled'].includes(type) ? 'done' : type === 'started' ? 'active' : 'open'

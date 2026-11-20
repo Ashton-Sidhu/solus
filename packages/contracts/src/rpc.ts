@@ -570,7 +570,6 @@ export const RPC_INVOKE_METHODS = [
   'tasksSources',
   'tasksLoadMore',
   'tasksSourceOptions',
-  'tasksConnectLinear',
   'tasksSearch',
   'tasksSidebarSnapshot',
   'tasksSearchComments',

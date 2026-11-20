@@ -1071,7 +1071,6 @@ export interface SolusAPI {
   /** What the caller can choose as a task source. */
   tasksLoadMore(source: TaskSource): Promise<void>
   tasksSourceOptions(): Promise<TaskSourceOptions>
-  tasksConnectLinear(key: string | null): Promise<void>
   /** Ask the provider for the tasks of these sources that match `query`.
    *  The only way to reach a task that a truncated source did not list. */
   tasksSearch(sources: TaskSource[], query: string, involvement?: TaskInvolvement): Promise<TaskSummary[]>

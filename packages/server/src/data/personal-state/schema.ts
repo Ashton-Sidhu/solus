@@ -28,6 +28,8 @@ export const personalResourceState = defineTable('personal_resource_state', {
   snooze_note: text(),
   /** When this person last read the session; null when unread for them. */
   viewed_at: bigint(),
+  /** When this person pinned the session; their settle or archive ends it. */
+  pinned_at: bigint(),
 }, {
   primaryKey: ['organization_id', 'resource_kind', 'resource_id', 'created_by'],
   indexes: [

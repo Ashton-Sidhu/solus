@@ -1,4 +1,3 @@
-import { RunningServers } from '@solus/client-core/running-servers'
 import { z } from 'zod'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, urlHost } from '@solus/client-core/pairing'
@@ -112,19 +111,6 @@ const lastRouteSchema = z.object({
 })
 
 export class SolusApp {
-  private readonly serverStores = new Map<string, RunningServers>()
-  runningServers(hostId: string): RunningServers {
-    let store = this.serverStores.get(hostId)
-    if (!store) {
-      store = new RunningServers(() => {
-        const connection = this.connections.connection(hostId)
-        return connection ? { api: connection.api, events: connection.events, ready: connection.state.readiness === 'ready' } : null
-      }, (changed) => this.connections.changes.subscribe(changed))
-      this.serverStores.set(hostId, store)
-    }
-    return store
-  }
-
   readonly registry: HostRegistry
   readonly connections: HostConnections
   readonly account: AccountSession

@@ -235,6 +235,7 @@
         onRetry={() => fleetStore.retryHosts([menuMachine.serverId])}
         onStart={() => fleetStore.startHosts([menuMachine.serverId])}
         onUpdate={() => fleetStore.updateHosts([menuMachine.serverId])}
+        onRemove={() => serversStore.removeWithUndo(menuMachine.serverId)}
         onClose={() => (hostMenu = null)}
       />
     {/if}

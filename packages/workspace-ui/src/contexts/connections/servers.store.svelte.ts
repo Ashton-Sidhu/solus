@@ -22,7 +22,7 @@ import { mergeDirectoryIntoSaved, withDiscoveredRoutes } from '@solus/client-cor
 import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
 import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
 import { organizationSelection } from './organization-selection.store.svelte'
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
   getActiveServerId,
   loadServers,
@@ -100,6 +100,8 @@ export interface OrganizationChoice {
 type OrganizationListener = (organizationId: string | null) => void
 
 class ServersStore {
+  /** Hide a host during its Undo window without dropping access or connections. */
+  private readonly pendingRemovals = new SvelteSet<string>()
   local = $state<LocalConnectionInfoLike | null>(null)
   /** What the local server calls itself — its hostname, from /health. Null
    *  until the probe answers; the row falls back to a generic label. The row
@@ -215,7 +217,7 @@ class ServersStore {
         routes: target.routes ?? [routeForUrl(target.url)],
       })
     }
-    return rows
+    return rows.filter((server) => !this.pendingRemovals.has(server.id))
   }
 
   /**
@@ -708,6 +710,20 @@ class ServersStore {
       requestInputFocus()
       return false
     }
+  }
+
+  removeWithUndo(serverId: string): void {
+    const server = this.servers.find((candidate) => candidate.id === serverId)
+    if (!server || server.local || this.pendingRemovals.has(serverId)) return
+    this.pendingRemovals.add(serverId)
+    toasts.undo(`${server.label} removed`, () => this.pendingRemovals.delete(serverId), {
+      onDismiss: () => {
+        void this.remove(serverId)
+          .catch((error) => toasts.error(error instanceof Error ? error.message : String(error)))
+          .finally(() => this.pendingRemovals.delete(serverId))
+      },
+    })
+    requestInputFocus()
   }
 
   /**

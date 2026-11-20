@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Dialog } from 'bits-ui';
-  import { hosts } from '../../contexts';
+  import { runningServers } from '../../contexts/running-servers/running-servers.store.svelte';
   import { serverUrlsFromText } from '@solus/contracts/running-servers';
   import { requestInputFocus } from '../../lib/inputFocus';
   import { useScope } from '../../lib/keybindings/use-keybinding.svelte';
@@ -8,7 +8,7 @@
   import { Button } from '../ui/button';
 
   let { hostId, checkoutPath, onClose }: { hostId: string; checkoutPath: string; onClose: () => void } = $props();
-  const store = $derived(hosts.get(hostId).runningServers);
+  const store = $derived(runningServers.forHost(hostId));
   let value = $state('');
   let loading = $state(true);
   let saving = $state(false);

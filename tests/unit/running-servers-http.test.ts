@@ -1,10 +1,9 @@
 import { describe, expect, mock, test } from 'bun:test'
 import { createServer, type RequestListener } from 'node:http'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { runningServer } from './running-server-fixtures'
-import { runningServerGroups, serversForCheckout, serverEndpointLabel } from '@solus/contracts/running-servers'
+import { runningServer, serverModel } from './running-server-fixtures'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
-const { probeHttpServer } = await import('@solus/server/host/running-servers/scanner')
+const { probeHttpServer } = await import('@solus/server/host/running-servers/probe')
 
 async function withServer(handler: RequestListener, check: (port: number) => Promise<void>): Promise<void> {
   const server = createServer(handler)
@@ -64,9 +63,9 @@ test('checkout grouping does not confuse the starting session with location', ()
   second.startedBy = { kind: 'agent', sessionId: 'other-session' }
   const other = runningServer('other-checkout')
   other.location.worktreePath = '/project/worktree-two'
-  expect(serversForCheckout([first, second, other], '/project/worktree/')).toEqual([first, second])
-  expect(runningServerGroups([first, second, other])).toHaveLength(2)
-  expect(serverEndpointLabel(first.endpoints[0])).toBe(':3001 · JSON')
+  expect([first, second, other].filter((data) => serverModel(data).matchesCheckout('/project/worktree/'))).toEqual([first, second])
+  expect(new Set([first, second, other].map((data) => serverModel(data).checkoutPath)).size).toBe(2)
+  expect(serverModel(first).endpointLabel(first.endpoints[0])).toBe(':3001 · JSON')
 })
 
 test('a session subfolder selects its checkout and excludes sibling and nested worktrees', () => {
@@ -76,8 +75,8 @@ test('a session subfolder selects its checkout and excludes sibling and nested w
   nested.location.worktreePath = '/project/.worktrees/feature'
   const sibling = runningServer('sibling')
   sibling.location.worktreePath = '/project/.worktrees/feature-two'
-  expect(serversForCheckout([main, nested, sibling], '/project/.worktrees/feature/api', '/project/.worktrees/feature')).toEqual([nested])
-  expect(serversForCheckout([main, nested, sibling], '/project/api', '/project')).toEqual([main])
+  expect([main, nested, sibling].filter((data) => serverModel(data).matchesCheckout('/project/.worktrees/feature/api', '/project/.worktrees/feature'))).toEqual([nested])
+  expect([main, nested, sibling].filter((data) => serverModel(data).matchesCheckout('/project/api', '/project'))).toEqual([main])
   nested.location.worktreePath = 'C:\\Project\\feature'
-  expect(serversForCheckout([nested], 'c:/project/feature/api', 'C:/Project/feature')).toEqual([nested])
+  expect([nested].filter((data) => serverModel(data).matchesCheckout('c:/project/feature/api', 'C:/Project/feature'))).toEqual([nested])
 })

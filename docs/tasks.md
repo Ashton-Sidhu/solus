@@ -297,8 +297,10 @@ Add a Linear team in task source setup. A signed-in person selects **Open accoun
 connections**, then adds a personal Linear API key on the Solus account website.
 The account vault checks the key, seals it, and gives the acting host the key
 through its existing delegated credential read. The key is never saved in task
-sources or personal settings. A host that is not linked to an account can keep
-the host owner's key in its secure store. A guest cannot save a connection.
+sources or personal settings. Tasks does not accept API keys or manage provider
+connections. Use the shared account vault to save or disconnect a credential.
+Existing credentials in a host vault remain readable; Tasks has no host-local
+key setup RPC.
 
 Linear supports reads, creation, title and description changes, labels, one
 assignee, priority, due date, workflow transitions, comments and reactions.

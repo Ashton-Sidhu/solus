@@ -1,10 +1,21 @@
+import { sql } from 'drizzle-orm'
 import type { PinnedSession } from '@solus/contracts/types'
-import { getDb, withTx } from '../../db'
+import { getDatabase } from '../../db/database'
+import { personalResourceState } from '../personal-state/schema'
+import { session } from './schema'
+import { organizationOfSession } from './session-records'
 import { z } from 'zod'
+
+/**
+ * A person's pins are `pinned_at` on their own `personal_resource_state` row
+ * of a session, beside their settle and archive, which end it (`SessionViewer`).
+ * The label, folder, and model are read from the session record, so a rename
+ * reaches the pin with no write of its own. A session with no started record
+ * has nothing to show, so its pin is not listed.
+ */
 
 const pinnedSessionRowsSchema = z.array(z.object({
   session_id: z.string(),
-  server_id: z.string(),
   provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
   model: z.string().nullable(),
   title: z.string(),
@@ -12,72 +23,50 @@ const pinnedSessionRowsSchema = z.array(z.object({
   pinned_at: z.number(),
 }))
 
-/** Pinned sessions, most-recently-pinned first. A pin names its session id; the
- *  model is read from the index row of the session's active thread. */
-export async function readManifest(): Promise<PinnedSession[]> {
-  const rows = pinnedSessionRowsSchema.parse(getDb().prepare(`
+/** One person's pinned sessions, most-recently-pinned first. The client stamps the host that answered. */
+export async function readPinnedSessions(personKey: string): Promise<PinnedSession[]> {
+  const rows = pinnedSessionRowsSchema.parse(await getDatabase().all(sql`
     SELECT
-      pinned_sessions.session_id,
-      pinned_sessions.server_id,
-      pinned_sessions.provider,
-      transcript_index.model,
-      pinned_sessions.title,
-      pinned_sessions.cwd,
-      pinned_sessions.pinned_at
-    FROM pinned_sessions
-    LEFT JOIN transcript_index ON transcript_index.session_id = COALESCE((
-      SELECT provider_session_id FROM session_lineage_members
-      WHERE session_lineage_members.session_id = pinned_sessions.session_id
-      ORDER BY position DESC LIMIT 1
-    ), pinned_sessions.session_id)
-    ORDER BY pinned_sessions.pinned_at DESC
-  `).all())
+      session_records.session_id,
+      session_records.provider,
+      session_records.model,
+      COALESCE(session_records.custom_title, session_records.title, session_records.slug, '') AS title,
+      COALESCE(session_records.cwd, session_records.project_path) AS cwd,
+      personal_resource_state.pinned_at
+    FROM ${personalResourceState}
+    JOIN ${session} ON session_records.session_id = personal_resource_state.resource_id
+    WHERE personal_resource_state.created_by = ${personKey} AND personal_resource_state.resource_kind = 'session'
+      AND personal_resource_state.pinned_at IS NOT NULL AND session_records.started_at IS NOT NULL
+    ORDER BY personal_resource_state.pinned_at DESC
+  `))
   return rows.map((row) => {
-    const session: PinnedSession = {
+    const pin: PinnedSession = {
       sessionId: row.session_id,
-      serverId: row.server_id || undefined,
       provider: row.provider,
       title: row.title,
       cwd: row.cwd,
       pinnedAt: row.pinned_at,
     }
-    if (row.model !== null) session.model = row.model
-    return session
+    if (row.model !== null) pin.model = row.model
+    return pin
   })
 }
 
-/** Keep a pin's label in step with the session it points at. The pin stores its
- *  own title (it must render without the session index), so a rename has to
- *  reach in here too or the pinned row keeps the old name forever. */
-export function renamePinnedSession(sessionId: string, title: string): void {
-  getDb().prepare('UPDATE pinned_sessions SET title = ? WHERE session_id = ?').run(title, sessionId)
-}
-
-/** Completion and archive end the host owner's pin of this session. */
-export function removePinnedSession(sessionId: string): void {
-  getDb().prepare('DELETE FROM pinned_sessions WHERE session_id = ?').run(sessionId)
-}
-
-export async function togglePinnedSession(session: PinnedSession): Promise<PinnedSession[]> {
-  withTx(() => {
-    const db = getDb()
-    const serverId = session.serverId ?? ''
-    const deleted = db.prepare(
-      'DELETE FROM pinned_sessions WHERE session_id = ? AND server_id = ?',
-    ).run(session.sessionId, serverId)
-    if (deleted.changes === 0) {
-      db.prepare(`
-        INSERT INTO pinned_sessions (session_id, server_id, provider, title, cwd, pinned_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        session.sessionId,
-        serverId,
-        session.provider,
-        session.title,
-        session.cwd,
-        session.pinnedAt,
-      )
-    }
-  })
-  return readManifest()
+/** Pin the session for this person, or unpin it when it is pinned. An undo
+ *  sends the pin's old time, so the row returns to its own place. */
+export async function togglePinnedSession(personKey: string, pin: Pick<PinnedSession, 'sessionId' | 'pinnedAt'>): Promise<PinnedSession[]> {
+  const database = getDatabase()
+  const unpinned = (await database.run(sql`
+    UPDATE ${personalResourceState} SET pinned_at = NULL
+    WHERE resource_kind = 'session' AND resource_id = ${pin.sessionId} AND created_by = ${personKey} AND pinned_at IS NOT NULL
+  `)).changes > 0
+  if (!unpinned) {
+    const organizationId = await organizationOfSession(pin.sessionId)
+    await database.run(sql`
+      INSERT INTO ${personalResourceState} (organization_id, resource_kind, resource_id, created_by, pinned_at)
+      VALUES (${organizationId}, 'session', ${pin.sessionId}, ${personKey}, ${pin.pinnedAt})
+      ON CONFLICT (organization_id, resource_kind, resource_id, created_by) DO UPDATE SET pinned_at = excluded.pinned_at
+    `)
+  }
+  return readPinnedSessions(personKey)
 }

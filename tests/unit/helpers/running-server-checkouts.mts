@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { actAsHostForTests } from '../../../packages/server/src/execution/seats/acting-identity'
-import { runningServerCheckoutRoots } from '../../../packages/server/src/host/running-servers/scanner'
+import { ServerDiscovery } from '../../../packages/server/src/host/running-servers/discovery'
 import { loadProjectConfig, saveProjectConfig } from '../../../packages/server/src/project-config/project-config'
 
 actAsHostForTests()
@@ -16,7 +16,7 @@ try {
   execFileSync('git', ['init', '-q', '.'], { cwd: repo })
   execFileSync('git', ['init', '-q', '.'], { cwd: nested })
   const paths = [join(repo, 'api'), join(nested, 'api')]
-  assert.deepEqual(await runningServerCheckoutRoots(paths), [{ path: paths[0], root: repo }, { path: paths[1], root: nested }])
+  assert.deepEqual(await new ServerDiscovery().checkoutRoots(paths), [{ path: paths[0], root: repo }, { path: paths[1], root: nested }])
   const serverUrls = ['https://localhost:3000/admin?api=v1#health']
   await saveProjectConfig(paths[0], { version: 1, serverUrls })
   assert.deepEqual((await loadProjectConfig(repo))?.serverUrls, serverUrls)

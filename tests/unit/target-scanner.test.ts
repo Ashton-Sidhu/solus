@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { processFact } from './running-server-fixtures'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
-const { RunningServerScanner } = await import('@solus/server/host/running-servers/scanner')
+const { ServerDiscovery } = await import('@solus/server/host/running-servers/discovery')
 const { windowsListeners, parseLsofListeners, procSocketListeners } = await import('@solus/server/host/running-servers/listeners')
 const { parseProcessFacts, parseWindowsProcesses } = await import('@solus/server/host/running-servers/processes')
 
@@ -47,7 +47,7 @@ function scannerSetup() {
   let configured: { cwd: string; url: string }[] = []
   let succeeds = false
   const probe = mock(async (_url: URL) => succeeds ? { kind: 'http' as const, protocol: 'https' as const, response: { protocol: 'https' as const, statusCode: 401, contentType: 'application/json', pageTitle: null } } : { kind: 'other' as const })
-  const scanner = new RunningServerScanner({
+  const scanner = new ServerDiscovery({
     listeners: async () => [{ pid: 100, port: 3000, command: 'node' }, { pid: 200, port: 4000, command: 'unrelated' }, { pid: 300, port: 5000, command: 'codex' }, { pid: 100, port: 6000, command: 'node' }, { pid: 400, port: 6000, command: 'other' }],
     processes: async () => new Map([processFact(100), processFact(200, { sessionId: null }), processFact(300, { protected: true }), processFact(400)].map((fact) => [fact.pid, fact])),
     directories: async () => new Map([[100, '/project/api']]), tags: async () => {},
@@ -58,7 +58,7 @@ function scannerSetup() {
 
 test('discovery lists an owned API before HTTP starts and sends zero probes to any listener', async () => {
   const s = scannerSetup()
-  const servers = await s.scanner.scan()
+  const servers = await s.scanner.discover()
   expect(servers).toHaveLength(1)
   expect(servers[0].process.pid).toBe(100)
   expect(servers[0].endpoints.map((endpoint) => endpoint.port)).toEqual([3000])
@@ -70,14 +70,14 @@ test('an explicit HTTPS API URL retains path, query and fragment, and a failed s
   const s = scannerSetup()
   const url = 'https://localhost:3000/admin?api=v1#health'
   s.configure(url)
-  await s.scanner.scan()
+  await s.scanner.discover()
   expect(s.probe).toHaveBeenCalledTimes(1)
   s.start()
   s.setTime(14_999)
-  await s.scanner.scan()
+  await s.scanner.discover()
   expect(s.probe).toHaveBeenCalledTimes(1)
   s.setTime(15_000)
-  const [server] = await s.scanner.scan()
+  const [server] = await s.scanner.discover()
   expect(s.probe).toHaveBeenCalledTimes(2)
   expect(s.probe.mock.calls[0][0].href).toBe(url)
   expect(server.endpoints[0].url).toBe(url)

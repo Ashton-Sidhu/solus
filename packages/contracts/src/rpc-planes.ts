@@ -487,7 +487,6 @@ export const RPC_PLANES = {
   tasksSources: 'execution',
   tasksLoadMore: 'execution',
   tasksSourceOptions: 'execution',
-  tasksConnectLinear: 'execution',
   tasksSearch: 'execution',
   tasksSidebarSnapshot: 'collaboration',
   tasksSearchComments: 'collaboration',

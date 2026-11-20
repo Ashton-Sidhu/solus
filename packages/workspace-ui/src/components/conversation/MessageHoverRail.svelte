@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
   import { runtime } from "../../contexts";
-  import { formatRailTime, formatRailTitle } from "./lib/hover-rail";
+  import { railTimeLines, formatRailTitle } from "./lib/hover-rail";
   import { messageTimestampClock } from "../../lib/shared-clock";
   import { conversationIsVisible } from "./lib/conversation-visibility";
 
@@ -35,9 +35,7 @@
     return messageTimestampClock.subscribe((value) => { now = value; });
   });
 
-  const label = $derived(
-    timestamp ? formatRailTime(timestamp, now) : "",
-  );
+  const timeLines = $derived(timestamp ? railTimeLines(timestamp, now) : []);
   const title = $derived(timestamp ? formatRailTitle(timestamp) : "");
 
   async function copy() {
@@ -55,8 +53,13 @@
   class:is-right={side === "right"}
   class:is-touch={runtime.isTouchDevice}
 >
-  {#if label}
-    <span class="hover-rail-time text-conversation-gutter" {title}>{label}</span>
+  {#if timeLines.length > 0}
+    <span
+      class="hover-rail-time flex flex-col gap-0.5 text-conversation-gutter {side === 'right' ? 'items-start' : 'items-end'}"
+      {title}
+    >
+      {#each timeLines as line, i (i)}<span>{line}</span>{/each}
+    </span>
   {/if}
   {#if text || onCopy}
     <button

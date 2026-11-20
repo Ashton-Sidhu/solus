@@ -243,11 +243,7 @@ export class TasksStore {
       })
     return this.#pageRead
   }
-  async connectLinear(key: string | null): Promise<void> {
-    const identity = this.#identity
-    await this.api().tasksConnectLinear(key)
-    if (identity === this.#identity) await this.loadOptions()
-  }
+
   async loadTemplates(source: TaskSource): Promise<void> {
     try {
       const read = this.templates.load(this.api(), source)

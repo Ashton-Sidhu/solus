@@ -1,6 +1,3 @@
-import { currentPersonKey } from '../../vault/acting-scope'
-import { credentialLocationOf } from '../../vault/vault'
-import { accountConnectionsUrl } from '../../vault/account-reads'
 import { linearConnection } from './providers/linear-api'
 import { z } from 'zod'
 import type { TaskSourceOptions } from '@solus/contracts/task-types'
@@ -190,10 +187,6 @@ async function linearOptions(read: typeof linearConnection): Promise<NonNullable
   } catch (error) {
     options = { connected: false, teams: [], error: error instanceof Error ? error.message : String(error) }
   }
-  const location = credentialLocationOf(currentPersonKey()).kind
-  options.location = location
-  const url = location === 'account' ? accountConnectionsUrl() : null
-  if (url) options.accountConnectionsUrl = url
   return options
 }
 
