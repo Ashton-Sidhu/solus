@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { ActivityIndicator, Text, View } from 'react-native'
 import { usePalette } from '../../../theme/theme'
 import { space, type } from '../../../theme/tokens'
+import type { IntegrationEnvValue } from '@solus/contracts/integration-types'
 import { Banner, Button, Field } from '../../../ui/primitives'
 import type { ConnectFlowState } from '../integrations'
+import { CommandValueFields } from './CommandValueFields'
 
 /**
  * One integration sign-in in progress (docs/plans/mcp-integrations.md §4.3),
@@ -11,22 +13,26 @@ import type { ConnectFlowState } from '../integrations'
  * waiting flow opens its page only when the person taps Open sign-in; a phone's
  * browser usually cannot reach the host, so the host asks for the address the
  * browser ended on. A key flow takes the key in a masked field. A flow run at
- * Solus Cloud (plans/020 §5.3) says so, and needs no address pasted.
+ * Solus Cloud (plans/020 §5.3) says so, and needs no address pasted. A
+ * command takes its environment values (docs/plans/mcp-first-class.md §7.7):
+ * one masked field for each name, cleared when Save sends them.
  */
 export function IntegrationConnectPanel(props: {
   readonly flow: ConnectFlowState
   readonly connected: boolean
   readonly onOpen: () => void
   readonly onSubmit: (value: string) => void
+  readonly onSubmitValues: (values: IntegrationEnvValue[]) => void
   readonly onCancel: () => void
   readonly onDone: () => void
 }) {
   const { flow, connected } = props
   const palette = usePalette()
   const [value, setValue] = useState('')
+  const [values, setValues] = useState<ReadonlyMap<string, string>>(new Map())
   const submit = () => props.onSubmit(value)
   const note = (text: string) => <Text style={{ color: palette.textSecondary, fontSize: type.chrome }}>{text}</Text>
-  const error = (flow.step === 'waiting' || flow.step === 'token') && flow.error
+  const error = (flow.step === 'waiting' || flow.step === 'token' || flow.step === 'values') && flow.error
     ? <Text accessibilityRole="alert" style={{ color: palette.danger, fontSize: type.chrome }}>{flow.error}</Text>
     : null
 
@@ -43,6 +49,23 @@ export function IntegrationConnectPanel(props: {
       <View style={{ gap: space.sm }}>
         <Banner tone={flow.ok ? 'info' : 'error'} message={flow.message} />
         <Button tone="primary" label="Done" onPress={props.onDone} />
+      </View>
+    )
+  }
+  if (flow.step === 'values') {
+    const saveValues = () => {
+      const typed = flow.names.map((name) => ({ name, value: values.get(name) ?? '' }))
+      // The values leave this panel in the call that saves them.
+      setValues(new Map())
+      props.onSubmitValues(typed)
+    }
+    return (
+      <View style={{ gap: space.sm }}>
+        <CommandValueFields names={flow.names} values={values} onChange={setValues} editable={!flow.busy} autoFocus />
+        <Text style={{ color: palette.textTertiary, fontSize: type.dense }}>The values stay on this host for you alone. Agents never see them, and Solus never shows them again.</Text>
+        {error}
+        <Button tone="primary" label="Save values" busy={flow.busy} disabled={!connected} onPress={saveValues} />
+        <Button label="Cancel" disabled={flow.busy} onPress={props.onCancel} />
       </View>
     )
   }

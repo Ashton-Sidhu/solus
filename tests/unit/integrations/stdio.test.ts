@@ -265,7 +265,10 @@ describe('the process (§7.3)', () => {
     const integration = store.create({ name: 'Missing', url: stdioServerAddress(launch), slug: 'missing', auth: { kind: 'none' }, launch }, 'local', OWNER)
     const shared = gateway()
     await expect(asOwner(() => shared.startProcess(integration.id, ADMIN))).rejects.toThrow('`solus-no-such-mcp-command` is not installed on this host')
-    expect((await asOwner(() => shared.facts(integration.id))).process?.state).toBe('failed')
+    const process = (await asOwner(() => shared.facts(integration.id))).process
+    expect(process?.state).toBe('failed')
+    // Settings words it "Not installed", not a crash: a retry helps only once the program is there.
+    expect(process?.startFailure).toBe('not-installed')
   })
 
   test('`~` as the working directory is the home folder', async () => {

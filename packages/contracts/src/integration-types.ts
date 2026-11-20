@@ -183,11 +183,14 @@ export type IntegrationToolSummary = z.infer<typeof integrationToolSummarySchema
  * or a change of the record starts it again. `message` says why it stopped or
  * failed. `stderrTail` is the last 4 KB its standard error wrote; it can hold
  * a secret the server printed, so only the owner gets it. No PID crosses.
+ * `startFailure` says why a `failed` process never started: `spawn` found no
+ * program (or no working directory), or found one it may not run.
  */
 export interface IntegrationProcessFacts {
   state: 'stopped' | 'running' | 'failed'
   message?: string
   stderrTail?: string
+  startFailure?: 'not-installed' | 'not-runnable'
 }
 
 /** What the gateway read from one MCP server for the caller. No credential enters this reply. */

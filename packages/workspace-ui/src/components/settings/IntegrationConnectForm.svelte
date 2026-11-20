@@ -6,16 +6,22 @@
    * flow lives in `integrationsStore`, and only the typed value lives here.
    *
    * A pasted API key stays in this field for one call and is cleared after it.
+   * A command's connection is the person's environment values
+   * (docs/plans/mcp-first-class.md §7.7): one masked field for each name,
+   * cleared when they go to the host, and never read back.
    *
    * `compact` is the connect card's form: the card's own buttons, and no
    * "Not connected" line under a card titled "Connect …". Text stays left and
    * every action sits at the right end of its row, the main action last.
    */
   import { tick, untrack } from "svelte";
+  import { SvelteMap } from "svelte/reactivity";
+  import { commandValuesText } from "@solus/contracts/integrations/command-server";
   import { ExternalLink, LoaderCircle } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
+  import McpCommandValues from "./McpCommandValues.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
   import { connectionStatusText, IntegrationLabels } from "./lib/integration-labels";
 
@@ -29,14 +35,21 @@
   let { serverId, integrationId, integrationName, compact = false }: Props = $props();
 
   let value = $state("");
+  /** The environment values typed in this form, until Save hands them over. */
+  const valueDrafts = new SvelteMap<string, string>();
   let rootEl = $state<HTMLDivElement | null>(null);
 
   const hostState = $derived(integrationsStore.states.get(serverId));
   const connection = $derived(hostState?.connections.get(integrationId) ?? null);
   const flow = $derived(hostState?.connectFlows.get(integrationId) ?? null);
-  const status = $derived(connectionStatusText(connection));
   const isOffline = $derived(!!hostState?.isDisconnected);
   const integration = $derived(hostState?.integrations?.find((item) => item.id === integrationId) ?? null);
+  const valuesText = $derived(integration?.auth.kind === "env" ? commandValuesText(integration.auth.names, connection) : null);
+  const status = $derived(valuesText
+    ? { text: valuesText.text, detail: null, action: valuesText.hasValues ? "Disconnect" as const : "Connect" as const }
+    : connectionStatusText(connection));
+  /** A command takes values, not a sign-in. */
+  const actionLabel = $derived(status.action === "Connect" && valuesText ? valuesText.action : status.action);
   const clientText = $derived(integration ? new IntegrationLabels(integration).clientText : null);
   /** A server with no dynamic registration cannot start a sign-in until an administrator enters its client. */
   const connectHint = $derived(status.action !== "Disconnect" && clientText?.state === "missing" ? clientText.connectHint : null);
@@ -68,8 +81,18 @@
     await focusNextControl();
   }
 
+  /** The values leave this form in the call that saves them. */
+  async function submitValues(event: SubmitEvent, names: string[]) {
+    event.preventDefault();
+    const values = names.map((name) => ({ name, value: valueDrafts.get(name) ?? "" }));
+    valueDrafts.clear();
+    await integrationsStore.submitValues(serverId, integrationId, values);
+    await focusNextControl();
+  }
+
   function cancel() {
     value = "";
+    valueDrafts.clear();
     void integrationsStore.cancel(serverId, integrationId);
     void focusNextControl();
   }
@@ -142,12 +165,18 @@
     {#if compact && hostState?.connectionsStatus === "error"}
       <TranscriptCardAction disabled={isOffline} onclick={() => integrationsStore.loadConnections(serverId)}>Retry</TranscriptCardAction>
     {:else if showAction && compact && status.action !== "Disconnect"}
-      <TranscriptCardAction kind="filled" disabled={isOffline || !!connectHint} onclick={runAction}>{status.action}</TranscriptCardAction>
+      <TranscriptCardAction kind="filled" disabled={isOffline || !!connectHint} onclick={runAction}>{actionLabel}</TranscriptCardAction>
     {:else if showAction}
-      <Button variant={status.action === "Disconnect" ? "ghost" : "outline"} size="sm"
-        class="text-workspace-chrome pointer-coarse:min-h-11 {status.action === 'Disconnect' ? 'text-muted-foreground hover:text-destructive' : ''}"
-        aria-label="{status.action} {integrationName}" aria-describedby={connectHint ? `integration-connect-hint-${integrationId}` : undefined}
-        disabled={isOffline || !!connectHint} onclick={runAction}>{status.action}</Button>
+      <div class="flex flex-wrap items-center gap-2">
+        {#if valuesText?.hasValues}
+          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" aria-label="Change the values of {integrationName}"
+            disabled={isOffline} onclick={() => integrationsStore.connect(serverId, integrationId).then(focusNextControl)}>Change values</Button>
+        {/if}
+        <Button variant={status.action === "Disconnect" ? "ghost" : "outline"} size="sm"
+          class="text-workspace-chrome pointer-coarse:min-h-11 {status.action === 'Disconnect' ? 'text-muted-foreground hover:text-destructive' : ''}"
+          aria-label="{actionLabel} {integrationName}" aria-describedby={connectHint ? `integration-connect-hint-${integrationId}` : undefined}
+          disabled={isOffline || !!connectHint} onclick={runAction}>{actionLabel}</Button>
+      </div>
     {/if}
   </div>
   {#if showAction && connectHint}
@@ -174,6 +203,24 @@
     {/if}
   {:else if flow?.kind === "token"}
     {@render fieldForm("API key", `integration-key-${integrationId}`, "password", flow.error)}
+  {:else if flow?.kind === "values"}
+    {@const names = flow.names}
+    <form class="flex flex-col gap-2.5" onsubmit={(event) => submitValues(event, names)} onkeydown={onFieldKeydown}>
+      <McpCommandValues {names} values={valueDrafts} hasSaved={!!valuesText?.hasValues} idPrefix="integration-values-{integrationId}" disabled={isOffline} autofocus />
+      <p class="text-chrome-dense text-(--solus-text-secondary)">The values stay on this host for you alone. Agents never see them, and Solus never shows them again.</p>
+      <div class="flex flex-wrap items-center gap-2 {compact ? 'justify-end' : ''}">
+        {#if compact}
+          {@render ghostAction("Cancel", cancel)}
+          <TranscriptCardAction kind="filled" type="submit" disabled={isOffline}>Save values</TranscriptCardAction>
+        {:else}
+          <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline}>Save values</Button>
+          {@render ghostAction("Cancel", cancel)}
+        {/if}
+      </div>
+      {#if flow.error}
+        <p role="alert" class="break-words text-chrome-dense text-(--solus-status-error)">{flow.error}</p>
+      {/if}
+    </form>
   {:else if flow?.kind === "submitting"}
     <div class="flex flex-wrap items-center gap-2">
       <div class="min-w-0 flex-1">{@render pending("Finishing sign-in…")}</div>

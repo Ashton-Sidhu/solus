@@ -5,6 +5,7 @@ import { SvelteSet } from 'svelte/reactivity'
 import { integrationsStore } from '../integrations.store.svelte'
 import { IntegrationLabels, type ConnectStep } from './integration-labels'
 import type { McpCatalog } from './mcp-catalog.svelte'
+import { envNamesOf, McpCommandForm } from './mcp-command.svelte'
 
 /** What the connect dialog opens for: a server on the host, or a catalog entry to add first. */
 export interface ConnectRequest {
@@ -14,6 +15,11 @@ export interface ConnectRequest {
   integrationId?: string
   /** The vendor's setup page, from a Solus catalog entry (§13.5). */
   authHelp?: string
+  /**
+   * Add a command (docs/plans/mcp-first-class.md §7.7): the first step is
+   * its form and Start and test, in place of the sign-in. `name` and `url` are empty.
+   */
+  isCommand?: boolean
 }
 
 /**
@@ -30,14 +36,20 @@ export class McpConnect {
   isDone = $state(false)
   isSaving = $state(false)
   saveError = $state('')
+  /** The form of a command; null for a server at an address. */
+  readonly command: McpCommandForm | null
+  /** The command started and listed its tools: the dialog goes on to them. */
+  isCommandStarted = $state(false)
   private addedHere = false
 
   constructor(
     private readonly serverId: string,
     readonly request: ConnectRequest,
     private readonly catalog: McpCatalog,
+    mayRunCommands: () => boolean = () => true,
   ) {
     this.integrationId = request.integrationId ?? null
+    this.command = request.isCommand ? new McpCommandForm(serverId, mayRunCommands) : null
     if (this.integration) this.seedDraft(this.integration)
   }
 
@@ -47,6 +59,7 @@ export class McpConnect {
   }
 
   get step(): ConnectStep {
+    if (this.command && !this.isCommandStarted) return 'command'
     const integration = this.integration
     return integration ? new IntegrationLabels(integration).connectStep(integrationsStore.connection(this.serverId, integration.id)) : 'adding'
   }
@@ -96,9 +109,59 @@ export class McpConnect {
     return !this.integrationId && !!state && state.kind !== 'failed'
   }
 
+  /** A save, the values, or the start of the command runs. */
+  get isStartingCommand(): boolean {
+    const id = this.integrationId
+    return !!this.command?.isSaving || this.isSendingValues || (!!id && !!integrationsStore.states.get(this.serverId)?.processStarts.has(id))
+  }
+
+  private isSendingValues = $state(false)
+
+  /**
+   * Start and test (§7.7): add the command, or save its changes, hand over the
+   * values the person typed, then start it and list its tools. A step that
+   * fails leaves the form open with the reason; the record stays until the
+   * dialog closes, and the next try changes it.
+   */
+  async startCommand(): Promise<void> {
+    const form = this.command
+    if (!form || this.isStartingCommand) return
+    const integration = await form.save(this.integration)
+    if (!integration) return
+    if (!this.integrationId) {
+      this.addedHere = true
+      this.integrationId = integration.id
+    }
+    const values = form.takeValues()
+    const hasValues = integrationsStore.connection(this.serverId, integration.id)?.status === 'connected'
+    if (values) {
+      this.isSendingValues = true
+      const saved = await integrationsStore.submitValues(this.serverId, integration.id, values)
+      this.isSendingValues = false
+      if (!saved) {
+        const flow = integrationsStore.connectFlow(this.serverId, integration.id)
+        form.problem = { field: 'envNames', reason: flow?.kind === 'values' && flow.error ? flow.error : 'The host did not save the values.' }
+        await integrationsStore.cancel(this.serverId, integration.id)
+        return
+      }
+    } else if (envNamesOf(integration).length > 0 && !hasValues) {
+      form.problem = { field: 'envNames', reason: 'Enter a value for each environment variable.' }
+      return
+    }
+    if (await integrationsStore.startProcess(this.serverId, integration.id)) {
+      this.isCommandStarted = true
+      this.seedDraft(integration)
+    }
+  }
+
+  /** Cancel of a start that runs: the host stops the process (§7.7). */
+  async cancelCommandStart(): Promise<void> {
+    if (this.integrationId) await integrationsStore.stopProcess(this.serverId, this.integrationId)
+  }
+
   /** Adds the server when the dialog opened for a catalog entry. */
   async start(): Promise<void> {
-    if (this.integrationId) return
+    if (this.integrationId || this.command) return
     const integration = await this.catalog.install(this.request.name, this.request.url)
     if (!integration) return
     this.addedHere = true
@@ -133,9 +196,11 @@ export class McpConnect {
     if (this.isDone) return
     const id = this.integrationId
     if (!id) {
-      this.catalog.dismiss(this.request.url)
+      if (!this.command) this.catalog.dismiss(this.request.url)
       return
     }
+    // Remove stops the process too; a command kept stops only a start that runs.
+    if (this.command && !this.addedHere && integrationsStore.states.get(this.serverId)?.processStarts.has(id)) await integrationsStore.stopProcess(this.serverId, id)
     const flow = integrationsStore.connectFlow(this.serverId, id)
     if (flow && flow.kind !== 'failed') await integrationsStore.cancel(this.serverId, id)
     if (this.addedHere) await integrationsStore.remove(this.serverId, id)
