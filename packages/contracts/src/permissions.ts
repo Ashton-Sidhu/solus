@@ -72,6 +72,7 @@ const PERMISSION_OF_METHOD = {
   uplinkUnlink: 'host.local.reach',
   uplinkDetachOrganization: 'host.local.reach',
   // Administers the machine: credentials, updates, host config.
+  connectionsListDevices: 'host.admin',
   connectionsRevokeDevice: 'host.admin',
   // Introductions give one host a token for another: a local owner's, never on a managed host (host-reach.md §4).
   hostIntroductionsList: 'host.local.reach',

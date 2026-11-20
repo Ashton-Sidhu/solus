@@ -1,7 +1,8 @@
 import type { HostApi } from '@solus/client-core/host-api'
-import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { Listeners } from '../../lib/listeners'
+import { relativeTime } from '../../lib/time'
 import type { HostConnection } from '../hosts/host-connections'
 
 /**
@@ -24,6 +25,10 @@ export interface HostAccessSnapshot {
   info: ConnectionsServerInfo
   endpoints: HostEndpoint[]
   devices: HostDevice[]
+  /** The devices this host paired, connected or not. Only the host's owner may read them. */
+  pairedDevices: PairedDevice[]
+  /** Why the paired devices could not be read; the rest of the screen still shows. */
+  pairedDevicesError: string | null
   organizations: HostOrganizationsStatus | null
   /** Why the organizations could not be read; the rest of the screen still shows. */
   organizationsError: string | null
@@ -59,10 +64,11 @@ export class HostAccess {
     const current = this.stateOf(hostId)
     if (current.kind !== 'loaded') this.set(hostId, { kind: 'loading' })
     try {
-      const [info, endpoints, devices, organizations] = await Promise.all([
+      const [info, endpoints, devices, paired, organizations] = await Promise.all([
         connection.api.connectionsGetServerInfo(),
         connection.api.connectionsListEndpoints(),
         connection.api.connectionsListSessions(),
+        readPairedDevices(connection.api),
         readOrganizations(connection.api),
       ])
       if (this.connectionFor(hostId) !== connection) return
@@ -72,6 +78,8 @@ export class HostAccess {
         info,
         endpoints,
         devices,
+        pairedDevices: paired.devices,
+        pairedDevicesError: paired.error,
         organizations: organizations.status,
         organizationsError: organizations.error,
         // A code handed out before the reload stays on screen until it expires.
@@ -114,7 +122,8 @@ export class HostAccess {
   async revokeDevice(hostId: string, deviceId: string): Promise<void> {
     await this.change(hostId, `revoke:${deviceId}`, async (api) => {
       await api.connectionsRevokeDevice({ deviceId })
-      return { devices: await api.connectionsListSessions() }
+      const [devices, paired] = await Promise.all([api.connectionsListSessions(), readPairedDevices(api)])
+      return { devices, pairedDevices: paired.devices, pairedDevicesError: paired.error }
     })
   }
 
@@ -176,6 +185,15 @@ export class HostAccess {
   }
 }
 
+/** A host that refuses its paired devices (to anyone but its owner) says why; the rest of the screen still shows. */
+async function readPairedDevices(api: HostApi): Promise<{ devices: PairedDevice[]; error: string | null }> {
+  try {
+    return { devices: await api.connectionsListDevices(), error: null }
+  } catch (error) {
+    return { devices: [], error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 /** A host that cannot read its organizations says why; the rest of the screen still shows. */
 async function readOrganizations(api: HostApi): Promise<{ status: HostOrganizationsStatus | null; error: string | null }> {
   try {
@@ -200,4 +218,17 @@ export function networkNote(info: Pick<ConnectionsServerInfo, 'principal' | 'hos
   const reach = info.allowLan ? 'reachable on your network' : 'this computer only'
   const change = canChangeAccess(info) ? '' : ' Change these from the host itself or from a paired device.'
   return `Listening on ${info.host}:${info.port} · ${reach}.${change}`
+}
+
+/** Only the host's owner may read and revoke its pairings (plans/033 §4.4); pairing exists on a personal host only. */
+export function showsPairedDevices(info: ConnectionsServerInfo): boolean {
+  return hasPairing(info) && (info.principal === 'local-owner' || info.principal === 'remote-owner')
+}
+
+/** The line under a paired device: revoked, connected now, or when the host last saw it. */
+export function pairedDeviceDetail(device: PairedDevice, isConnected: boolean, now = Date.now()): string {
+  const ago = (at: number) => `${relativeTime(new Date(at).toISOString(), now)} ago`
+  if (device.revokedAt !== null) return `Revoked ${ago(device.revokedAt)}`
+  const seen = isConnected ? 'Connected now' : `Last seen ${ago(device.lastSeenAt)}`
+  return `${seen} · paired ${ago(device.pairedAt)}`
 }

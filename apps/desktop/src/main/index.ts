@@ -561,9 +561,10 @@ function getLocalSessionToken(): string {
     legacyFile: join(app.getPath('userData'), 'local-session-token.json'),
     cipher: safeStorage,
     issue: () => issueSessionToken(LOCAL_DEVICE_LABEL).token,
+    // The host renews a pairing token each time it admits it (plans/033 §4.4), so its last use stands in for its issue time.
     issuedAt: (token) => {
       const session = verifySessionToken(token)
-      return session?.deviceLabel === LOCAL_DEVICE_LABEL ? session.issuedAt : null
+      return session?.deviceLabel === LOCAL_DEVICE_LABEL ? session.lastSeenAt : null
     },
     refresh: refreshSessionToken,
     now: () => Date.now(),

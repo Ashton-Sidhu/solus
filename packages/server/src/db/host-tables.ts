@@ -218,6 +218,23 @@ export const hostList = defineTable('host_list', {
   last_connected: bigint({ notNull: true }),
 })
 
+/**
+ * The devices this host admits by its own decision (plans/033 §4.4): each
+ * device it paired (`paired`, with the SHA-256 hash of its token, never the
+ * token), and each account grant (`grant`) or acting host (`host`) the owner
+ * revoked. `admission/auth.ts` reads it on every pairing token; the Access tab
+ * lists the paired rows. A revoked row stays: pairing again makes a new device.
+ */
+export const hostDevice = defineTable('host_device', {
+  device_id: text({ primaryKey: true }),
+  kind: text({ notNull: true }),
+  label: text({ notNull: true, default: '' }),
+  token_hash: text({ unique: true }),
+  paired_at: bigint(),
+  last_seen_at: bigint(),
+  revoked_at: bigint(),
+})
+
 export const projects = defineTable('projects', {
   key: text({ primaryKey: true }),
   path: text(),

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { bestPairEndpoint, pairLink, parsePairLink } from '@solus/client-core/pairing'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
-import { HostAccess, networkNote, type HostEndpoint } from '../../apps/mobile/src/features/settings/host-access'
+import { HostAccess, networkNote, pairedDeviceDetail, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/src/features/settings/host-access'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 
@@ -25,6 +25,7 @@ function hostApi(): FakeApi {
     .on('connectionsGetServerInfo', () => INFO)
     .on('connectionsListEndpoints', () => [LOOPBACK])
     .on('connectionsListSessions', () => [])
+    .on('connectionsListDevices', () => [])
     .on('hostOrganizations', () => ORGANIZATIONS)
 }
 
@@ -72,12 +73,40 @@ describe('a host’s Access screen on the phone', () => {
 
   test('a revoked device leaves the list', async () => {
     const device = { id: 'c1', deviceLabel: 'Laptop', deviceId: 'd1', connectedAt: 0, connectionCount: 1, connectionIds: ['c1'] }
-    const api = hostApi().on('connectionsListSessions', () => [device]).on('connectionsRevokeDevice', () => ({ ok: true, revoked: ['c1'] }))
+    const api = hostApi().on('connectionsListSessions', () => [device]).on('connectionsRevokeDevice', () => ({ ok: true }))
     const { access } = await phoneWith(api)
     api.on('connectionsListSessions', () => [])
     await access.revokeDevice('inst-a', 'd1')
     expect(api.callsOf('connectionsRevokeDevice')).toEqual([[{ deviceId: 'd1' }]])
     expect(loaded(access).devices).toEqual([])
+  })
+
+  test('a paired device that is not connected is listed, and Revoke reads the pairings again', async () => {
+    const tablet = { deviceId: 'd2', deviceLabel: 'Tablet', pairedAt: 0, lastSeenAt: 0, revokedAt: null }
+    const api = hostApi().on('connectionsListDevices', () => [tablet]).on('connectionsRevokeDevice', () => ({ ok: true }))
+    const { access } = await phoneWith(api)
+    expect(loaded(access).pairedDevices).toEqual([tablet])
+    api.on('connectionsListDevices', () => [{ ...tablet, revokedAt: 5 }])
+    await access.revokeDevice('inst-a', 'd2')
+    expect(loaded(access).pairedDevices[0]?.revokedAt).toBe(5)
+  })
+
+  test('a host that refuses its pairings says why and still shows the rest', async () => {
+    const api = hostApi().on('connectionsListDevices', () => { throw new Error('only the host administrator') })
+    const { access } = await phoneWith(api)
+    expect(loaded(access).pairedDevicesError).toBe('only the host administrator')
+    expect(loaded(access).info.port).toBe(4810)
+  })
+
+  test('only the owner of a personal host sees its pairings, each as connected, last seen, or revoked', () => {
+    expect(showsPairedDevices(INFO)).toBe(true)
+    expect(showsPairedDevices({ ...INFO, principal: 'org-member' })).toBe(false)
+    expect(showsPairedDevices({ ...INFO, hostKind: 'managed' })).toBe(false)
+    const now = Date.parse('2026-11-20T12:00:00Z')
+    const device = { deviceId: 'd1', deviceLabel: 'Phone', pairedAt: now - 3 * 86_400_000, lastSeenAt: now - 2 * 3_600_000, revokedAt: null }
+    expect(pairedDeviceDetail(device, true, now)).toBe('Connected now · paired 3d ago')
+    expect(pairedDeviceDetail(device, false, now)).toBe('Last seen 2h ago · paired 3d ago')
+    expect(pairedDeviceDetail({ ...device, revokedAt: now - 60_000 }, false, now)).toBe('Revoked 1m ago')
   })
 
   test('an organization change made elsewhere shows without a reload', async () => {

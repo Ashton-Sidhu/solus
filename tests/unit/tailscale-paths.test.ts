@@ -1,5 +1,9 @@
-import { expect, test } from 'bun:test'
-import { tailscaleInstallPaths } from '@solus/server/transport/endpoints'
+import { expect, test, mock } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; this code reaches the database through the host's installation id (admission/auth.ts).
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { tailscaleInstallPaths } = await import('@solus/server/transport/endpoints')
 
 test('Windows looks for tailscale.exe under Program Files', () => {
   // WHY: Tailscale for Windows installs its CLI in Program Files, and none of

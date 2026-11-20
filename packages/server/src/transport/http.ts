@@ -18,7 +18,7 @@ import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, isAbsolute } from 'path'
 import { tmpdir } from 'os'
 import { z } from 'zod'
-import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, issueSessionToken, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken } from '../admission/auth'
+import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, issueSessionToken, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken } from '../admission/auth'
 import { createDoors, type Doors } from '../admission/doors'
 import { listReachableEndpoints } from './endpoints'
 import type { TokenVerdict } from '../admission/access-tokens'
@@ -547,7 +547,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     const body = await readJson(c, revokeRequestSchema)
     if (!body) return c.json({ error: 'deviceId required' }, 400)
     revokeDevice(body.deviceId)
-    return c.json({ ok: true, revoked: listRevokedDevices() })
+    return c.json({ ok: true })
   })
 
   // Static fallback for the bundled client. serveStatic streams the requested

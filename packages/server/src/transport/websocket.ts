@@ -82,6 +82,8 @@ interface ClientSession {
   deviceId: string | null
   deviceLabel: string
   principal: Principal
+  /** The device is a host that presented a person's token for them (`act`); Revoke records it as a host. */
+  isActingHost: boolean
   connectedAt: number
   /** Ends this socket from the host's side. */
   end: (reason: string) => void
@@ -326,25 +328,25 @@ export function attachWebSocketTransport(
     const admitted = await admissionOf(hello, connection.facts)
     if (connection.state !== 'admitting') return
     // A host's delegated token opens the runner HTTP routes, never a socket.
-    if (!admitted || admitted.kind === 'runner') {
+    if (!admitted || admitted.principal.kind === 'runner') {
       refuse(connection, 'UNAUTHORIZED', 'unauthorized')
       return
     }
     // Each socket reads and renews its own copy of the principal.
-    const principal = principalSchema.safeParse(admitted)
+    const principal = principalSchema.safeParse(admitted.principal)
     if (!principal.success) {
       refuse(connection, 'UNAUTHORIZED', 'unauthorized')
       return
     }
-    admit(connection, principal.data, hello.clientInstanceId ?? randomBytes(16).toString('hex'), hello.resume)
+    admit(connection, principal.data, admitted.actingHostId !== undefined, hello.clientInstanceId ?? randomBytes(16).toString('hex'), hello.resume)
   }
 
   /** The principal the hello admits, or null for a refusal. The rules apply in this order. */
-  async function admissionOf(hello: HelloFrame, facts: UpgradeFacts): Promise<Principal | null> {
+  async function admissionOf(hello: HelloFrame, facts: UpgradeFacts): Promise<{ principal: Principal; actingHostId?: string } | null> {
     // The one credential the handshake presents is the whole admission (plan §3 rule 4).
     if (hello.credential) {
       const admission = opts.doors ? await opts.doors.admitCredential(hello.credential).catch(() => null) : null
-      if (admission?.ok) return admission.principal
+      if (admission?.ok) return admission
       log.info('ws_credential_refused', { credential: hello.credential.kind, reason: admission ? admission.reason : 'no-door' })
       return null
     }
@@ -354,15 +356,15 @@ export function attachWebSocketTransport(
     // A page on another site, or a DNS-rebound name, may open a socket to loopback
     // too; network position and an open bind policy admit only what no page could forge.
     if (facts.couldBeForgedByWebPage) return null
-    if (!requireAuth()) return CREDENTIAL_FREE_PRINCIPAL
+    if (!requireAuth()) return { principal: CREDENTIAL_FREE_PRINCIPAL }
     // The bind policy relaxes for trusted requesters — the same relaxation
     // /health advertises to them, so a client told it may connect tokenless
     // must actually be admitted here.
     const trusted = await Promise.resolve(opts.isTrustedRequester?.(facts.address) ?? false).catch(() => false)
-    return trusted ? CREDENTIAL_FREE_PRINCIPAL : null
+    return trusted ? { principal: CREDENTIAL_FREE_PRINCIPAL } : null
   }
 
-  function admit(connection: Connection, principal: Principal, instanceId: string, resume: EventResume | undefined): void {
+  function admit(connection: Connection, principal: Principal, isActingHost: boolean, instanceId: string, resume: EventResume | undefined): void {
     if (principal.kind === 'runner') return
     const deviceId = principal.kind === 'system' ? null : principal.deviceId
     const deviceLabel = principal.kind === 'system' ? 'Web' : principal.deviceLabel
@@ -373,7 +375,7 @@ export function attachWebSocketTransport(
 
     const id = randomBytes(8).toString('hex')
     const end = (reason: string): void => ws.close(HOST_SOCKET_CLOSE.ended, reason)
-    const session: ClientSession = { id, clientId, socket: ws, deviceId, deviceLabel, principal, connectedAt: connection.connectedAt, end }
+    const session: ClientSession = { id, clientId, socket: ws, deviceId, deviceLabel, principal, isActingHost, connectedAt: connection.connectedAt, end }
     sessions.set(id, session)
     const lifetime = grantLifetime(principal, opts.verifyAccessToken, end, { id, clientId })
     connection.ctx = { clientId, principal, deviceLabel, deviceId: deviceId ?? undefined, renewAccess: lifetime.renewAccess }

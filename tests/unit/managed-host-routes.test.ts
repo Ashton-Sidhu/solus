@@ -1,9 +1,13 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, mock, test } from 'bun:test'
 import { routesForMachine, type HostRoute } from '@solus/contracts/host-routes'
 import { preferredRouteUrl, savedServerTarget } from '@solus/client-core/server-connection'
 import type { SavedServer } from '@solus/client-core/server-registry'
-import { advertisedRoutes } from '@solus/server/transport/endpoints'
 import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; the endpoints reach the database through the host's paired devices.
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { advertisedRoutes } = await import('@solus/server/transport/endpoints')
 
 const internal: HostRoute = { kind: 'lan', url: 'http://10.0.0.1:3000', source: 'host' }
 const tunnel: HostRoute = { kind: 'tunnel', url: 'https://managed.example.test', source: 'directory' }

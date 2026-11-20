@@ -165,8 +165,8 @@ export function createDoors(options: DoorOptions): Doors {
     },
     admitBearer: async (bearer, organizationId) => {
       if (!bearer || bearer.length > 16_384) return { ok: false, reason: 'not-accepted' }
-      // A pairing session token has two segments (`signed-token.ts`); anything else is read as an access token.
-      return !options.pairingDisabled && bearer.split('.').length === 2 ? pairedPrincipalFor(bearer) : accessToken(bearer, organizationId, false)
+      // A pairing session token is one base64url secret with no dot (`auth.ts`); an access token is a JWT, so it has dots.
+      return !options.pairingDisabled && !bearer.includes('.') ? pairedPrincipalFor(bearer) : accessToken(bearer, organizationId, false)
     },
   }
 }
