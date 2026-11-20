@@ -252,6 +252,27 @@ desktop, web, and mobile. Tests: `tests/unit/integrations/first-party-clients.te
 Not done: Atlassian, the new vendors, and first-party sign-in through the
 cloud for signed-in people, which needs solus-cloud.
 
+### Step 6a: Solus's Client ID Metadata Document (2026-11-20)
+
+Solus's client ID is `https://solus.sh/oauth/client-metadata.json`, served by
+`apps/site` from `packages/contracts/src/integrations/solus-client-metadata.json`.
+The host chain is now: the owner's client, the first-party client, the
+document, a saved or new dynamic registration, refusal. The host uses the
+document only when the server advertises it, the host confirmed the published
+copy names its own URL, and the document lists the exact callback
+(`mcp-integrations.md` §13.1).
+
+- Desktop app on its own host, default port 3001: served.
+- Standalone host on loopback, default port 3000: served. On its own origin
+  (LAN, tailnet, public, tunnel): dynamic registration.
+- Sign-in that starts at Solus Cloud: not served; the cloud needs its own
+  document for `https://app.solus.sh/oauth/vault/callback`.
+
+The one step left: the maintainer deploys `apps/site`. Until then the host
+reads a 404 and registers dynamically, as before. Tests:
+`tests/unit/integrations/client-metadata.test.ts`, `oauth.test.ts`,
+`first-party-clients.test.ts`.
+
 ## End-to-end check (2026-10-23)
 
 An isolated host (the standalone server bundled with esbuild into
