@@ -304,3 +304,44 @@ seeds a light theme; the dark captures set the classes `applyTheme(true)` sets.
 - `main`'s own failing tests (`data-model-identity`: `session_repositories.
   owner_user_id`; `access-policy`: `sessionRepositoryBundleChunk`; and the
   others in the table above) were not fixed here.
+
+## Merge of `main` at `7c483410a`
+
+`7c483410a` ("chore: commit pending work on main before the MCP merge", 84
+files: running servers, tasks, the session sidebar, toasts, the database
+baseline) is merged in the commit after `a72182ad2`.
+
+- **Conflicts:** none. Git merged all nine shared files by itself
+  (`host-api.ts`, `permissions.ts`, `rpc-planes.ts`, `rpc.ts`, `types.ts`,
+  `host-tables.ts`, `schema/host.ts`, `data-model-baseline.test.ts`,
+  `data-model-identity.test.ts`); every change of `main` is kept as it was.
+- **Migrations.** `main` changed `0000_baseline.sql` in place (the table
+  `pinned_sessions` is gone; `personal_resource_state` has `pinned_at`) and
+  the snapshots `0000`–`0007` (SQLite) and `0000`–`0004` (Postgres). No table
+  or column of the new baseline is one this program's migrations add, so the
+  SQL of `0008_stdio_integrations`, `0009_mcp_tasks`, and
+  `0010_integration_project_name` is unchanged. Their snapshots still held the
+  old shape; `3d61d52b9` builds each on `main`'s new `0007` snapshot with this
+  program's tables (`integration`, `integration_server_facts`, `mcp_task`),
+  with the same ids. `drizzle-kit generate`: no change, for SQLite and
+  Postgres. `drizzle-kit check`: clean, for both.
+- **Type checks**, `main` at `7c483410a` (read in the main checkout, which was
+  at that commit with no change) → this branch, compared by message:
+  contracts 0 → 0, server 135 → 134 (the one less is `parentToolUseId` in
+  `codex-backend.ts`, fixed in wave 3). No new message.
+- **Tests:** `tests/unit/integrations/` 361 pass, 0 fail.
+  `data-model-baseline` 5/0, `rpc-planes` 6/0, `running-servers-client`
+  10/0, `running-servers-http` 9/0, `running-servers-registry` 9/0,
+  `pinned-sessions` 4/0, `session-states` 13/0. The program's tests:
+  `integrations-store-commands` 9/0, `mcp-app-frame` 8/0, `mcp-app-host`
+  34/0, `mcp-app-live` 18/0, `mcp-app-pip` 2/0, `mcp-prompt-composer` 13/0,
+  `mcp-resource-menu` 6/0, `mcp-task-row` 5/0,
+  `native-mobile-resource-attachments` 5/0, `conversation-turn-identity` 2/0.
+- **Failures that are `main`'s**, the same assertions as before this merge:
+  `data-model-identity` 2 (`session_repositories.owner_user_id` is not in its
+  list of person columns), `access-policy` 1 (`sessionRepositoryBundleChunk`
+  has no resource action), `native-mobile-integrations` 1 (the known label),
+  `startup-import-graph` 2 (the budget; this branch: web 4,871,762 bytes,
+  desktop 4,987,188). None is fixed here.
+- **Not run for this step:** the full suite, `svelte-check`, the type checks of
+  workspace-ui, client-core, mobile, and `apps/client`, and the screenshots.
