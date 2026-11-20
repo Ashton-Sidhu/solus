@@ -1089,9 +1089,11 @@ from its own reads instead.
 
 ## 22. Primitives (2026-11-20)
 
-This is the public surface of portable sessions after the primitives refactor.
-The sections "as implemented" above keep the names of their date; the table at
-the end of this section gives each name that changed.
+This is the public surface of portable sessions after the primitives refactor
+and after the move to the Git storage layer that works also use
+([ADR 0004](../adr/0004-shared-git-storage.md)). The sections "as implemented"
+above keep the names of their date; the table at the end of this section gives
+each name that changed.
 
 The rule: a function that takes the same handle or the same set of facts as
 its neighbours is a method of the object that holds them, or takes one named
@@ -1145,12 +1147,32 @@ type. A pure rule of one input object stays a function.
 
 ### Server sync (`packages/server/src/sync`)
 
+- The Git storage layer (`sync/git-storage`, ADR 0004): the Git commands, the
+  Cloudflare Artifacts calls, and the local Git remote. Works use the same
+  layer. A session gives only its repository names, its file layout, and its
+  admission rules.
+  - `GitRepository` (`GitRepositoryOptions`, `GitIo`): one bare repository on
+    disk and the one Git process runner. `git`, `init`, `head`, `setHead`,
+    `isAncestor`, `fetchMain`, `borrowObjects`, `readText`, `appendFiles`,
+    `writeBlob`, `writeCommit` (`GitCommit`, `GitCommitEntry`, `GitFileEntry`),
+    and `path`. `repositoryPath(root, kind, name)` gives the path of a named
+    repository in a folder.
+  - `GitRemote` (`GitRemoteOptions`, `CheckedPushResult`): the remote of one
+    `GitRepository`, with a token. `repository`, `remoteHead`, `checkedPush`,
+    and `close`.
+  - `RepositoryProvider`: the place that holds the cloud copies. `remote`,
+    `readFile`, `remove`, and `storageScope`. Its adapters are
+    `ArtifactsRepositoryProvider` (Cloudflare Artifacts) and
+    `LocalGitRepositoryProvider` (a folder of bare repositories).
+    `RepositoryFileTooLargeError` is the answer for a file over the read limit.
+  - `storageRepositoryName(kind, owner, id)` and `isStorageRepositoryName`
+    (`data/storage-repository-name.ts`): the one name rule.
 - `SessionRepositories`: the folder of local copies. `named(name, signal?)`
   gives a `SessionRepository`. It alone knows the path of a copy.
-- `SessionRepository`: one local copy. `head`, `readText`, `readManifest`,
-  `appendFiles`, `writeThreadFile`, `commit`, `bundleSince`, `fetchBundle`,
-  `push`, and `path`. `sessionRepositoryName` gives the local name.
-  `TurnCommit` and `TurnCommitEntry` are the input of `commit`.
+- `SessionRepository`: one local copy. It extends `GitRepository` with the
+  session rules: `readManifest`, `writeThreadFile`, `commit`, `bundleSince`,
+  `fetchBundle`, and `push`. `sessionRepositoryName` gives the local name.
+  `TurnCommit` is the input of `commit`; its entries are `GitFileEntry`.
   `SessionHeadMovedError` and `SessionBundleDivergedError` are its two refusals.
 - `SessionManifest` (`sessionManifestSchema`, `emptySessionManifest`): the
   `manifest.json` of each turn commit.
@@ -1166,12 +1188,10 @@ type. A pure rule of one input object stays a function.
   `sessionCloudIdentity(record, accountId)` gives it.
 - `SessionBundleTransfers`: the source side of a host-to-host bundle in bounded
   RPC parts.
-- On the Solus API: `SessionRemoteProvider` (`sessionRemoteProvider()`, with a
-  Cloudflare Artifacts adapter and a local Git adapter) and
-  `SessionCloudReader` (`page`, `preview`, `diff`), which reads rows and patches
-  at the recorded head.
-- `GitRemote` (`GitRemoteOptions`, `CheckedPushResult`): the Git transport with
-  a token. Sessions and works use it.
+- On the Solus API: `sessionRemoteProvider()`, which gives the
+  `RepositoryProvider` that `SOLUS_SESSION_STORAGE` names and refuses a storage
+  scope that differs from the saved rows, and `SessionCloudReader` (`page`,
+  `preview`, `diff`), which reads rows and patches at the recorded head.
 
 ### Server Git (`packages/server/src/git`)
 
@@ -1289,3 +1309,11 @@ type. A pure rule of one input object stays a function.
 | `sessionRepositoryName(scope, sessionId)` in `data/sessions` | `cloudSessionRepositoryName(scope, sessionId)` |
 | `withSessionHostTurn`, `afterTurnSettled`, `newestSessionHost`, `sessionSyncSource`, `listedSessionHost`, `sessionSyncOrigin`, `newestSessionServer` | Methods of `SessionHostTurns`: `with`, `afterTurnSettled`, `newestHost`, `syncSource`, `listedHost`, `syncOrigin`, `newestServer` |
 | `CloudSessions.listed(sessionId, isListedByHost)` and `.listedRows(isListedByHost)` (web) | The predicate is a constructor dependency |
+| The private `git` runner of `SessionRepository`, and its own `init`, `head`, `readText`, and `appendFiles` | `GitRepository` (`sync/git-storage/git-repository.ts`); `SessionRepository` extends it |
+| The commit builder inside `SessionRepository.commit` | `GitRepository.writeCommit` and `setHead`; `commit` keeps the rule that the head must not move |
+| `TurnCommitEntry` | `GitFileEntry` |
+| `sync/git-remote.ts`; `GitRemote.git(args, input)`; `GitRemoteOptions.authorDate` | `sync/git-storage/git-remote.ts`; `GitRemote.repository.git(args, io)`; `GitCommit.date` |
+| `CloudflareWorkRepositories` (`sync/works/cloudflare-work-repositories.ts`) | `ArtifactsRepositoryProvider` (`sync/git-storage/artifacts-repository-provider.ts`) |
+| The interface `SessionRemoteProvider`, and the local Git adapter inside `sessionRemoteProvider()` | `RepositoryProvider`, and `LocalGitRepositoryProvider` with the kind `session` |
+| The error message `SESSION_FILE_TOO_LARGE` from each adapter | `RepositoryFileTooLargeError`; `SessionCloudReader` gives a client the same code as before |
+| The name hash in `sessionRepositoryName` and in `cloudSessionRepositoryName` | Each calls `storageRepositoryName('session', …)`; the names are the same |

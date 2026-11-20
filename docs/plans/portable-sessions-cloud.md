@@ -577,6 +577,12 @@ The four plain optional fields are on `WorkspaceSession`, `SessionRecord`, and `
 
 ### Part A as implemented (2026-11-18)
 
+Since 2026-11-20 these owners are in the Git storage layer,
+`sync/git-storage/` ([ADR 0004](../adr/0004-shared-git-storage.md)):
+`git-remote.ts` is there, `GitRemote.repository` (a `GitRepository`) runs each
+command, and `CloudflareWorkRepositories` is `ArtifactsRepositoryProvider`. The
+text below keeps the names of its date.
+
 `sync/git-remote.ts` exports `GitRemote`, `GitRemoteOptions`, and
 `CheckedPushResult`. `GitRemote.open({ gitDir, remote, token?, signal?,
 timeoutMs, outputLimitBytes?, authorDate? })` validates an HTTPS or file remote,

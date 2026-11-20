@@ -303,11 +303,21 @@ writer is possible but needs separate resource measurements for Solus workloads.
 `git-work-storage.ts` captures durable pending bodies and reads immutable
 archived bodies with hash checks. `sync/works/work-archive-writer.ts` handles
 batching, leases, frozen operations and response-loss reconciliation.
-`git-work-transport.ts` constructs and pushes Git objects without a checkout.
-`cloudflare-work-repositories.ts` implements real scoped repository access.
-`local-work-repositories.ts` provides the same operations on bare repositories
-under `<dataDir>/works/history/work-<hash>.git`. `dataDir()` honors the desktop
-data path and `SOLUS_DATA_DIR`; the default standalone path is `~/.solus`.
+`git-work-transport.ts` owns the layout of a work archive (`manifest.json`,
+`bodies/<content hash>`, `content.<extension>`) and the rules of an archive
+push.
+
+The Git commands, the Cloudflare Artifacts calls, and the local Git remote are
+in the Git storage layer, `sync/git-storage/`, which portable sessions also use
+([ADR 0004](../adr/0004-shared-git-storage.md)). `GitRepository` runs each Git
+process and writes a commit from Git objects without a checkout. `GitRemote`
+pushes with a checked remote head. `ArtifactsRepositoryProvider` implements
+real scoped repository access. `LocalGitRepositoryProvider` provides the same
+operations on bare repositories under
+`<dataDir>/works/history/work-<hash>.git`. `storageRepositoryName` in
+`data/storage-repository-name.ts` gives the repository name. `dataDir()` honors
+the desktop data path and `SOLUS_DATA_DIR`; the default standalone path is
+`~/.solus`.
 
 Work creation, body writes, checkpoints, revision reads, restore, duplication,
 export and deletion now use this storage path. Metadata mutations schedule an
