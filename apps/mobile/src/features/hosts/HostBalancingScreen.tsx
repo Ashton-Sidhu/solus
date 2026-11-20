@@ -11,7 +11,7 @@ import { SettingsNote } from "../settings/components/SettingsNote";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
-import type { NativeHost } from "./host-registry";
+import type { KnownHost } from "@solus/client-core/known-host";
 
 /**
  * Auto balance, as Settings → Hosts has it on desktop and web. The choices are
@@ -22,7 +22,7 @@ export function HostBalancingScreen(_props: ScreenProps<"HostBalancing">) {
   const insets = useSafeAreaInsets();
   const hosts = useListened(app.registry.changes, app.registry.hosts);
   const balancing = useListened(app.personal.changes, () => app.personal.current().hostBalancing);
-  const setPreference = (host: NativeHost, preference: HostBalancePreference) => {
+  const setPreference = (host: KnownHost, preference: HostBalancePreference) => {
     // A host's id on this client is its installation id, so desktop and web read the same key.
     app.personal.set({ hostBalancing: withHostBalancePreference(balancing, host, preference) });
   };

@@ -12,7 +12,7 @@ import { ACCOUNT_GRANT_KEY, KeychainTokenStore } from '../../apps/mobile/src/fea
 import { HostRegistry } from '../../apps/mobile/src/features/hosts/host-registry'
 import { memoryKeyValueStore, memorySecretStore, type SecretStore } from '../../apps/mobile/src/platform/ports'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
-import { HOST_LIST_PATH } from '@solus/contracts/host-list'
+import { HOST_LIST_PATH, HOST_LIST_SCHEMA_VERSION, type HostListing } from '@solus/contracts/host-list'
 
 // The mobile account (ADR 0001 stage 1c): one OAuthSession as `solus-mobile`, the system
 // authentication session with the claimed `solus://` redirect, the refresh token in the
@@ -39,14 +39,25 @@ interface CloudScript {
   startupDirectory?: DirectoryResponse
 }
 
-function world(script: CloudScript = { hosts: [] }, shared?: { secrets: SecretStore & { values: Map<string, string> }; storage: ReturnType<typeof memoryKeyValueStore>; plane: ReturnType<typeof fakeAccountPlane> }) {
+function world(script: CloudScript = { hosts: [] }, shared?: { secrets: SecretStore & { values: Map<string, string> }; storage: ReturnType<typeof memoryKeyValueStore>; plane: ReturnType<typeof fakeAccountPlane>; hostList?: { revision: number | null; hosts: Record<string, HostListing> } }) {
   const plane = shared?.plane ?? fakeAccountPlane({ clientId: SOLUS_CLIENT_IDS.mobile, identity: { sub: 'user-1', email: 'ada@example.test', email_verified: true, name: 'Ada', picture: 'https://example.test/ada.png' }, startupAccount: { userId: 'user-1', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [ORGANIZATION] }, startupDirectory: script.startupDirectory })
   const apiCalls: Array<{ path: string; authorization: string | null }> = []
   const json = (status: number, body: object) => new Response(JSON.stringify(body), { status })
+  // The account's host list (plans/031 D7), kept as the website keeps it, for every device of the account.
+  const hostList = shared?.hostList ?? { revision: null as number | null, hosts: {} as Record<string, HostListing> }
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     if (!url.pathname.startsWith('/v1/')) return plane.fetch(String(input), init)
     apiCalls.push({ path: url.pathname, authorization: new Headers(init?.headers).get('authorization') })
+    if (url.pathname === HOST_LIST_PATH) {
+      if (init?.method === 'PATCH') {
+        const patch = JSON.parse(String(init.body)) as { set: Record<string, HostListing>; reset: string[] }
+        Object.assign(hostList.hosts, patch.set)
+        for (const id of patch.reset) delete hostList.hosts[id]
+        hostList.revision = (hostList.revision ?? 0) + 1
+      }
+      return json(200, { schemaVersion: HOST_LIST_SCHEMA_VERSION, generation: 0, updatedAt: null, ...hostList })
+    }
     switch (url.pathname) {
       case '/v1/account':
         if (script.accountStatus) return json(script.accountStatus, { error: 'unavailable' })
@@ -63,7 +74,8 @@ function world(script: CloudScript = { hosts: [] }, shared?: { secrets: SecretSt
   }) as typeof fetch
   const secrets = shared?.secrets ?? memorySecretStore()
   const storage = shared?.storage ?? memoryKeyValueStore()
-  const registry = new HostRegistry(storage, secrets)
+  // The account reads the directory for the host catalog, as `SolusApp` wires it.
+  const registry: HostRegistry = new HostRegistry(storage, secrets, () => session)
   const browser = { opened: [] as URL[], answer: 'approve' as 'approve' | 'deny' | 'close' }
   const authorizer = authSessionAuthorizer({
     async openAuthSession(url): Promise<AuthSessionResult> {
@@ -80,7 +92,7 @@ function world(script: CloudScript = { hosts: [] }, shared?: { secrets: SecretSt
     dismissAuthSession() {},
   })
   const session = new AccountSession({ cloudOrigin: ISSUER, registry, secrets, storage, fetch: fetchImpl, now: plane.now, authorizer })
-  return { plane, apiCalls, secrets, storage, registry, session, browser }
+  return { plane, apiCalls, secrets, storage, registry, session, browser, hostList }
 }
 
 async function signedIn(script?: CloudScript) {
@@ -244,13 +256,16 @@ describe('native Solus account', () => {
 
     // A new process reads the same keychain and storage; the website renamed the person.
     first.plane.renameInUserinfo('Ada Lovelace')
-    const restarted = world({ hosts: [host('inst-1')] }, { secrets: first.secrets, storage: first.storage, plane: first.plane })
+    const restarted = world({ hosts: [host('inst-1')] }, { secrets: first.secrets, storage: first.storage, plane: first.plane, hostList: first.hostList })
     await restarted.registry.load()
     await restarted.session.load()
     expect(restarted.session.view).toMatchObject({ kind: 'signed-in', identity: { name: 'Ada' } })
     await restarted.session.refreshIdentity()
     expect(restarted.session.view).toMatchObject({ kind: 'signed-in', identity: { name: 'Ada Lovelace' } })
-    expect(restarted.registry.hosts()).toHaveLength(2)
+    // Nothing of the hosts is kept on the phone (plans/033 §3 Q2): they come from the account's list and directory.
+    await Promise.all([restarted.session.hostListRead, restarted.session.refreshDirectory()])
+    expect(restarted.registry.hosts().map((entry) => entry.id).sort()).toEqual(['inst-1', 'inst-paired'])
+    expect(restarted.registry.credential('inst-paired')).toBe('t')
 
     // The grant ends elsewhere (the Devices page): the next refresh is refused.
     for (const token of first.plane.liveTokens()) await first.plane.fetch(`${ISSUER}/api/auth/oauth2/revoke`, { method: 'POST', body: new URLSearchParams({ token }).toString() })

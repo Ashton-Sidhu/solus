@@ -160,7 +160,8 @@ export function createSolusConnection(
     organizationId: activeOrganizationId,
   })
   const api = asHostApi(withBrowserCapabilities(transport.buildSolusApi(), transport, {
-    useHostFileDialog: target.local && !!globalThis.window?.solusNative,
+    // SAFETY: `solusNative` is what the desktop preload exposes (apps/desktop/src/renderer/env.d.ts).
+    useHostFileDialog: target.local && !!(globalThis as { window?: { solusNative?: object } }).window?.solusNative,
   }))
   return { transport, api, events: transport.events }
 }

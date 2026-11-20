@@ -76,7 +76,9 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
       setStep("pairing");
       setError(null);
       try {
-        await app.pair(next.preview, next.pairToken ?? undefined, name);
+        const { listError } = await app.pair(next.preview, next.pairToken ?? undefined, name);
+        // The host is paired here; its listing is sent again at the next read of the list.
+        if (listError) Alert.alert("Paired on this device", `It is not on your host list yet. Solus adds it again soon.\n\n${listError.message}`);
       } catch (failure) {
         setStep("failed");
         setError(pairFailureMessage(failure instanceof Error ? failure : new Error(String(failure))));
