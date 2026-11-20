@@ -951,3 +951,35 @@ same kind of input error: `agentSessionId` must name the imported provider
 thread. The scenario now sends it. The final run has 16 passing and two
 failing checks. Focused unit tests passed 16/16 in three files; one new test
 checks that the project origin gives independent clones with the same tree.
+
+#### Verification continuation (2026-11-19)
+
+The cloud's development directory gives each host its real loopback port, but
+labels the route `tunnel`. `RemoteHosts.safeHostDialRoute` rejected that cleartext
+route by its label. It now accepts a route whose URL is local, using the same
+local route rule as a paired host. A focused test covers the Lab's exact route.
+The two failed Lab steps still need a new run; the cloud could not start in this
+checkout. Vite reported `TSCONFIG_ERROR: Failed to load tsconfig
+'expo/tsconfig.base'`. The sibling cloud checkout is read only for this work.
+
+The source choice also failed immediately when the cloud was behind and the
+source host was offline. It now retries the cloud for up to 15 seconds after
+that host error. Stop aborts the retry. Real Git tests prove a delayed push
+becomes the fetched head and Stop ends the wait. The sync stays on `fetch`
+because the source choice does not return before the retry ends.
+
+| Step | Result in this continuation | Evidence |
+|---|---|---|
+| Host A commits turn 1 and pushes it | NOT RUN | Cloud startup stopped before a scenario could start. |
+| Host B prepares while A is stopped, then runs turn 2 | NOT RUN | Same startup block. |
+| Host A restarts, syncs, and runs turn 3 | NOT RUN | Same startup block. |
+| Host B forks from A's newest turn | NOT RUN | Same startup block; route and delayed-push fixes have unit proof only. |
+| Cloud sync off, host B transfers from A | NOT RUN | Same startup block; loopback route has unit proof only. |
+| Cloud sync off, A stopped | NOT RUN | Same startup block. |
+| Refused push and divergence recovery | NOT RUN | Same startup block; no test-only API outage seam was added. |
+| Organization read-standing refusals | NOT RUN | Same startup block; no organization variant was added. |
+
+Evidence: `.solus-local/lab-cloud/evidence/2026-11-20T04-21-22-553Z/cloud.log`.
+The Lab startup command was `SOLUS_CLOUD_DIR=/Users/sidhu/solus-cloud
+SOLUS_SESSION_STORAGE=local-git bun lab up --cloud`. Its owned child processes
+were stopped by the Lab's error cleanup.
