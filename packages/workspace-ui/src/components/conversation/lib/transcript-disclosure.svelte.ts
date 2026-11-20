@@ -2,7 +2,6 @@ import { getContext, setContext } from 'svelte'
 
 interface Disclosure {
   expanded: boolean
-  selectedToolId: string | null
   openedByUser: boolean | null
   showAllRows: boolean
   pickedId: string | null
@@ -18,7 +17,7 @@ export class TranscriptDisclosure {
   forKey(key: string): Disclosure {
     let value = this.entries.get(key)
     if (!value) {
-      const created: Disclosure = $state({ expanded: false, selectedToolId: null, openedByUser: null, showAllRows: false, pickedId: null, draft: '' })
+      const created: Disclosure = $state({ expanded: false, openedByUser: null, showAllRows: false, pickedId: null, draft: '' })
       value = created
       this.entries.set(key, value)
     }

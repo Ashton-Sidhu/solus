@@ -1,6 +1,7 @@
 <script lang="ts">
   import { cutText } from "@solus/contracts/text-cut";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
+  import { openToolLines, toolGroupKey } from "./lib/open-tool-lines";
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { toolRowsCopyText } from "./lib/tool-row-copy";
   import { toolProgressView } from "@solus/contracts/tool-progress";
@@ -14,6 +15,9 @@
   import ActivityRow from "./ActivityRow.svelte";
   import MarkdownImage from "./MarkdownImage.svelte";
   import ToolAudioPlayer from "./ToolAudioPlayer.svelte";
+  import ToolOutputStrip from "./ToolOutputStrip.svelte";
+  import { toolStripChips } from "@solus/client-core/tool-outputs";
+  import { focusToolLine } from "./lib/tool-output-strip";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
@@ -72,7 +76,8 @@
 
   const disclosure = getTranscriptDisclosure();
   const imageContext = getMarkdownImageContext();
-  const view = $derived(disclosure.forKey(`tools:${tools[0]?.id}`));
+  const view = $derived(disclosure.forKey(toolGroupKey(tools[0]?.id)));
+  const openLines = $derived(openToolLines(disclosure, toolGroupKey(tools[0]?.id)));
 
   const runningTool = $derived(tools.find((t) => t.toolStatus === "running"));
   // A failure only owns the row while it is the last thing that happened. Once
@@ -175,14 +180,25 @@
     });
   }
 
+  // Only a folded row shows its strip, so an open one reads no outputs.
+  const stripChips = $derived(view.expanded ? [] : toolStripChips(tools));
+
+  function openToolOutput(toolId: string, chip: HTMLElement): void {
+    view.expanded = true;
+    openLines.add(toolId);
+    void history?.load(tools);
+    void focusToolLine(chip, toolId);
+  }
+
   function toggleToolExpanded(toolId: string): void {
-    view.selectedToolId = view.selectedToolId === toolId ? null : toolId;
+    if (!openLines.delete(toolId)) openLines.add(toolId);
   }
 </script>
 
 {#snippet targetText()}{namedTarget}{/snippet}
 {#snippet thoughtText()}{thought}{/snippet}
 {#snippet progressText()}{progress?.message}{/snippet}
+{#snippet outputStrip()}<ToolOutputStrip chips={stripChips} onOpen={openToolOutput} />{/snippet}
 
 <!-- No chassis at all: no fill, no hairline, no tint. This is the least
      important thing in the turn — it says how the answer was produced — so once
@@ -199,6 +215,7 @@
     expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
+    strip={stripChips.length > 0 ? outputStrip : undefined}
     target={!isLive && namedTarget
       ? targetText
       : progress?.message
@@ -289,7 +306,7 @@
           {@const endMs = toolEndMs(step)}
           {@const Glyph = KIND_ICONS[activityKind(step.toolName)]}
           {@const failed = step.toolStatus === "error"}
-          {@const open = view.selectedToolId === step.id}
+          {@const open = openLines.has(step.id)}
           <!-- An open call shows its input as code, parsed only while open. A
                history row waits for its full input; a running one has none yet. -->
           {@const code = open && step.toolStatus !== "running" && !step.historyToolInput
@@ -309,6 +326,7 @@
               class:is-expanded={wraps}
               class="tool-step-text text-tool-step font-mono"
               aria-expanded={open}
+              data-tool-call-id={step.id}
               onclick={(e) => {
                 // An expanded row wraps its full command or path, which is the
                 // text worth copying. Releasing that drag must not collapse it.
@@ -363,7 +381,7 @@
           {/if}
           <!-- What the host left out of the result, as the agent read it. Text
                only, so it needs no host behind the transcript. -->
-          {#if view.selectedToolId === step.id}
+          {#if open}
             {@const leftOut = toolRowLeftOut(step)}
             {#if leftOut.length > 0}
               <ul class="m-0 list-none space-y-0.5 pb-1 ps-8 text-transcript-meta text-muted-foreground" aria-label="Left out of this result">

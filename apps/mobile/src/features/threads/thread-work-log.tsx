@@ -31,6 +31,7 @@ import { toolProgressView } from "@solus/contracts/tool-progress";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { ThreadToolImages } from "./ThreadImages";
 import { ThreadToolAudio } from "./ThreadToolAudio";
+import { ThreadToolOutputStrip } from "./ThreadToolOutputStrip";
 import { ToolCallDetail } from "./ToolCallDetail";
 import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
 import {
@@ -598,6 +599,8 @@ export function ThreadWorkGroupToggle(props: {
   readonly live: boolean;
   readonly iconSubtleColor: ColorValue;
   readonly onToggle: () => void;
+  /** A chip of the folded group's outputs strip: opens the group and the call's row. */
+  readonly onOpenTool: (toolId: string) => void;
 }) {
   const items = useTranscriptItems(props.store, props.toolIds);
   const tools = items.filter((item): item is ToolTranscriptItem => item.kind === "tool");
@@ -650,6 +653,7 @@ export function ThreadWorkGroupToggle(props: {
       </WorkLogPressable>
       {/* Open, the call's own row shows it instead. */}
       {props.live && !props.expanded && latest?.status === "running" ? <ToolProgressLine progress={latest.progress} /> : null}
+      {props.expanded ? null : <ThreadToolOutputStrip store={props.store} toolIds={props.toolIds} onOpenTool={props.onOpenTool} className="pl-8" />}
     </WorkLogBlock>
   );
 }
