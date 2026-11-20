@@ -9,23 +9,28 @@ import {
   integrationAccountRequestSchema,
   integrationIdRequestSchema,
   integrationProbeRequestSchema,
+  integrationProcessStartRequestSchema,
   integrationUpdateRequestSchema,
   type Integration,
   type IntegrationAuth,
   type IntegrationOAuthClientInput,
+  type IntegrationUpdateRequest,
 } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { OAuthClientRequiredError } from '@solus/contracts/integrations/oauth-protocol'
+import { permissionsAllow } from '@solus/contracts/permissions'
 import { roleOf } from '../../admission/access'
+import { permissionsFor } from '../../admission/access-policy'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import { recordScopeOf, type Principal } from '../../admission/principal'
 import type { IntegrationCatalog } from '../../integrations/catalog'
 import type { IntegrationClients, IntegrationConnectionStore } from '../../integrations/connection-store'
 import type { IntegrationConnections } from '../../integrations/connections'
 import type { IntegrationGateway } from '../../integrations/gateway'
-import type { IntegrationStore } from '../../integrations/integration-store'
+import type { IntegrationPatch, IntegrationStore } from '../../integrations/integration-store'
 import type { IntegrationOAuth } from '../../integrations/oauth'
-import { createIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
+import { commandAuth, createIntegration, createStdioIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
+import { stdioServerAddress } from '../../integrations/stdio-process'
 import { createLogger } from '../../logger'
 import { currentPersonKey, requirePersonKey } from '../../vault/acting-scope'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -50,6 +55,19 @@ function withOAuthClient(auth: IntegrationAuth, input: IntegrationOAuthClientInp
  */
 function forReader(actor: Actor, integration: Integration): Integration {
   return { ...integration, role: roleOf(actor, { kind: 'integration', id: integration.id, organizationId: integration.organizationId, ownerKey: integration.ownerKey, acl: [] }) }
+}
+
+/**
+ * A command runs as code on the host, as the OS user of the Solus server: only
+ * a person with `host.admin` adds one, changes its command or names, or starts
+ * it (docs/plans/mcp-first-class.md §7.2).
+ */
+function requireHostAdmin(principal: Principal): void {
+  if (!permissionsAllow(permissionsFor(principal), 'host.admin')) throw new Error('Only an administrator of this host can add or change a command.')
+}
+
+function requireStdio(integration: Integration): void {
+  if (integration.kind !== 'stdio') throw new Error(`${integration.name} is not a command.`)
 }
 
 /**
@@ -87,6 +105,27 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     return integration
   }
 
+  /**
+   * A new command or new names for a `stdio` integration (§7.6): `host.admin`
+   * only. The verdict and the facts belonged to the old command (§7.5), so they
+   * go and the process stops; every person gives values for new names again.
+   */
+  function updateCommand(existing: Integration, request: IntegrationUpdateRequest, principal: Principal): Integration {
+    requireHostAdmin(principal)
+    const patch: IntegrationPatch = { name: request.name, disabledTools: request.disabledTools }
+    if (request.launch) {
+      patch.launch = request.launch
+      patch.url = stdioServerAddress(request.launch)
+    }
+    if (request.envNames) patch.auth = commandAuth(request.envNames)
+    const integration = store.update(existing.id, patch, recordScopeOf(principal))
+    if (!integration) throw new Error('That integration is no longer on this host.')
+    gateway.forget(existing.id)
+    if (request.envNames) connections.removeAllFor(existing)
+    void events.broadcast('integration.changed', { integrationId: existing.id, change: 'updated' })
+    return integration
+  }
+
   server.register('integrationCatalogList', (args) => catalog.list(integrationCatalogListRequestSchema.parse(args[0] ?? {})))
 
   server.register('integrationProbe', (args) => probeAddress(integrationProbeRequestSchema.parse(args[0]).url))
@@ -103,14 +142,20 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     // A server is its creator's own, on every host (D3); the host's own work adds none.
     const owner = ownerKeyOf(ctx.actor)
     if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
-    return forReader(ctx.actor, await createIntegration({ store, events, profile: deps.profile }, ctx.principal, owner, request))
+    if ('url' in request) return forReader(ctx.actor, await createIntegration({ store, events, profile: deps.profile }, ctx.principal, owner, request))
+    requireHostAdmin(ctx.principal)
+    return forReader(ctx.actor, createStdioIntegration({ store, events }, ctx.principal, owner, request))
   })
 
   server.register('integrationUpdate', async (args, ctx) => {
-    const { id, name, url, oauthClient, disabledTools } = integrationUpdateRequestSchema.parse(args[0])
+    const request = integrationUpdateRequestSchema.parse(args[0])
+    const { id, name, url, oauthClient, disabledTools } = request
     const scope = recordScopeOf(ctx.principal)
     const existing = requireIntegration(id, ctx.actor)
-    let auth = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
+    const commandChanged = request.launch !== undefined || request.envNames !== undefined
+    if (existing.kind === 'stdio' ? url !== undefined || oauthClient !== undefined : commandChanged) throw new Error(`${existing.name} cannot take that change: a command has a launch and names, a server an address.`)
+    if (commandChanged) return forReader(ctx.actor, updateCommand(existing, request, ctx.principal))
+    let auth: IntegrationAuth | undefined = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
     if (oauthClient !== undefined) {
       auth = withOAuthClient(auth ?? existing.auth, oauthClient)
       if (oauthClient === null) clients.removeClient(id)
@@ -138,7 +183,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     if (!integration) return { removed: false }
     // It leaves the caller's profile first, so no host's next pull brings it back.
     await deps.profile?.removing(ctx.principal, integration)
-    gateway.invalidate(id)
+    // A command's process stops, and its saved facts go (§7.7).
+    gateway.forget(id)
     const removed = store.remove(id, scope)
     if (removed) connections.removeAllFor(integration)
     if (removed) void events.broadcast('integration.changed', { integrationId: id, change: 'removed' })
@@ -155,6 +201,20 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const { id } = integrationIdRequestSchema.parse(args[0])
     requireIntegration(id, ctx.actor)
     return gateway.facts(id)
+  })
+
+  server.register('integrationProcessStart', async (args, ctx) => {
+    const { id, recheck } = integrationProcessStartRequestSchema.parse(args[0])
+    const integration = requireIntegration(id, ctx.actor)
+    requireStdio(integration)
+    requireHostAdmin(ctx.principal)
+    return gateway.startProcess(id, recheck)
+  })
+
+  server.register('integrationProcessStop', async (args, ctx) => {
+    const { id } = integrationIdRequestSchema.parse(args[0])
+    requireStdio(requireIntegration(id, ctx.actor))
+    return { stopped: await gateway.stopProcess(id) }
   })
 
   server.register('integrationConnectionList', () => {
@@ -187,6 +247,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
         return { kind: 'connected' as const, connection: connections.connectAnonymous(integration, user) }
       case 'bearer':
         return { kind: 'token' as const, integrationId: integration.id, accountId }
+      case 'env':
+        return { kind: 'env' as const, integrationId: integration.id, accountId, names: integration.auth.names }
       case 'oauth': {
         // The person's Solus GitHub connection is the credential: no sign-in here (§13.1).
         if (new IntegrationSignIn(integration).usesSolusGithub) {
@@ -208,9 +270,12 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   server.register('integrationConnectSubmit', async (args, ctx) => {
     const request = integrationConnectSubmitRequestSchema.parse(args[0])
     if (request.flowId !== undefined) {
+      if (request.value === undefined) throw new Error('Give the address the browser ended on.')
       await oauth.submitRedirect(request.flowId, request.value)
     } else if (request.id !== undefined) {
-      await connections.submitKey(requireIntegration(request.id, ctx.actor), requirePersonKey(), request.value, request.accountId)
+      const integration = requireIntegration(request.id, ctx.actor)
+      if (request.values !== undefined) connections.submitEnvironment(integration, requirePersonKey(), request.values, request.accountId)
+      else if (request.value !== undefined) await connections.submitKey(integration, requirePersonKey(), request.value, request.accountId)
     }
     return { submitted: true as const }
   })

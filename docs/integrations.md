@@ -220,6 +220,47 @@ server whose OAuth client its owner saved on the host (`client-required`). The c
 host's sign-in returns to the address the client reached the host on, so it
 also works through a host's tunnel URL.
 
+## Commands on the host (stdio servers)
+
+Most local MCP servers are a command, such as
+`npx -y @modelcontextprotocol/server-filesystem /data`
+(`docs/plans/mcp-first-class.md` §7). Solus can add one as an MCP server of
+kind `stdio`. The host starts the command and talks to it on standard input
+and output. The command runs on the host that holds the record, as the OS
+user of the Solus server, with no sandbox. Thus:
+
+- Only a person with `host.admin` adds a command, changes it, or starts it.
+  On your own machine that is you. A run of a person who is not an
+  administrator does not get the tools of a command.
+- Solus starts the program with no shell. A line with `|`, `&`, `;`, `<`,
+  `>`, a backquote, or a `$` expansion is refused with the reason. Quotes keep
+  spaces. `~` is expanded only in the working directory.
+- The record holds the names of environment variables, never their values.
+  Each person gives the values as their connection. The host keeps them in
+  its own secret store. They go into that command's process and into no
+  record, log, answer to a client, or agent process.
+- The process gets `HOME`, `LOGNAME`, `PATH` (the login shell's), `SHELL`,
+  `TERM`, `USER`, and your values. No other variable of the Solus server
+  reaches it.
+- The first start checks the server's protocol revision, which starts the
+  command twice. Solus saves the answer and the tool list, so the next start
+  is one process, and the start of a run starts nothing: it reads the saved
+  list. A run of a command that never started gets no tools of it.
+- A process stops after 10 minutes with no use, at **Stop**, and when the host
+  stops. A process that ends by itself fails the call in flight ("`<name>`
+  stopped while it ran `<tool>`.") and starts again on the next use. Three
+  ends soon after a start in 5 minutes, or a command that is not installed,
+  set the state **failed**. Then only **Start again** starts it.
+- At most 16 commands run on one host. A new one stops the idle one used least
+  recently.
+- A command is not part of your agent profile. It stays on the host you added
+  it on.
+
+The Settings screens for commands are not in this release (phase B2 of the
+plan). The host has the whole capability: `integrationCreate` with a command
+line, `integrationProcessStart`, `integrationProcessStop`, and the values
+through `integrationConnectSubmit`.
+
 ## Who may change what
 
 Every person adds, renames, and removes their own servers, sets their OAuth
@@ -230,6 +271,6 @@ the host owner and an organization owner included (docs/plans/access-model.md
 ## Not in this release
 
 A per-tool ask rule (only on and off exist), OpenAPI documents, renaming an
-account, several API keys for one server, and stdio servers are later phases
-of the plan. The tools you turned off are part of your agent profile, so they
+account, several API keys for one server, and the Settings screens for stdio
+servers are later phases of the plan. The tools you turned off are part of your agent profile, so they
 follow a personal server to every host.

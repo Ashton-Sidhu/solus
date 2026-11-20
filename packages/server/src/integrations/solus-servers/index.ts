@@ -1,4 +1,4 @@
-import { solusServerAddress, solusServerIdOf, type CatalogEntry, type IntegrationAuth, type IntegrationProbeResult } from '@solus/contracts/integration-types'
+import { solusServerAddress, solusServerIdOf, type CatalogEntry, type IntegrationProbeResult, type RemoteIntegrationAuth } from '@solus/contracts/integration-types'
 import { gmailServer } from './gmail'
 import { googleCalendarServer } from './google-calendar'
 import { googleContactsServer } from './google-contacts'
@@ -59,8 +59,8 @@ export function solusServerFor(address: string): SolusServerDefinition | null {
  * registers clients on request, so the person's own client is needed until
  * Solus's client for that vendor exists (§13.1).
  */
-export function solusServerAuth(server: SolusServerDefinition): IntegrationAuth {
-  const auth: IntegrationAuth = { kind: 'oauth', discover: server.auth.discover, registration: 'client-required' }
+export function solusServerAuth(server: SolusServerDefinition): RemoteIntegrationAuth {
+  const auth: RemoteIntegrationAuth = { kind: 'oauth', discover: server.auth.discover, registration: 'client-required' }
   if (server.auth.firstParty && hasFirstPartyClient(server.auth.firstParty)) auth.firstParty = server.auth.firstParty
   return auth
 }

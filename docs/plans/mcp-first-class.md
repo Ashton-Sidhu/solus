@@ -1,6 +1,7 @@
 # MCP as a first-class feature
 
-Status: phased plan, written 2026-11-18. P0 and A1 are built. This plan continues
+Status: phased plan, written 2026-11-18. P0, A1, and B1 are built
+(`mcp-b1-handoff.md` has the B1 contract). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -378,6 +379,15 @@ const integrationLaunchSchema = z.object({
 z.object({ kind: z.literal('env'), names: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).min(1).max(64) })
 ```
 
+As built (B1): `integration` is a host table, so the two columns are a
+migration of `solus.db` only (`drizzle/sqlite/0002_stdio_integrations.sql`).
+Postgres holds no host table, so it has no migration. `Integration` gains
+`launch?` and `projectKey?`. The auth kinds of a server at a URL are
+`remoteIntegrationAuthSchema`; the agent profile entry and the probe result
+use it, so neither can carry `env`. The address is computed on the host
+(`stdioServerAddress` in `integrations/stdio-process.ts`), because the
+contracts package runs in browsers.
+
 - `url` of a `stdio` integration is the address `stdio:<launch id>`, as a
   `solus` integration has `solus:<server id>`. The launch id is the first 16
   hexadecimal characters of SHA-256 over `JSON.stringify([command, ...args])`.
@@ -413,20 +423,28 @@ new StdioClientTransport({ command, args, env: valuesOfThisPerson, cwd: resolveH
 ```
 
 - **Start on first use.** A process starts when the gateway opens the
-  upstream session: a tool call, a read of Settings that asks for the server,
-  an MCP prompt, or a resource read. A run that only lists tools does not
-  start it (§7.5).
+  upstream session: a tool call, an MCP App call, Start and test
+  (`integrationProcessStart`), an MCP prompt, or a resource read. A run that
+  only lists tools does not start it (§7.5). As built: `integrationTools` and
+  `integrationFacts` read the saved facts too and start nothing, so Settings
+  starts a command only through `integrationProcessStart`.
 - **No shell.** The SDK starts the program with `shell: false`. Nothing
   expands `~`, `$VAR`, or a glob in an argument. On Windows the phase
   confirms that a `.cmd` shim such as `npx.cmd` starts this way, and records
   the result in `docs/plans/windows.md`.
 - **The environment** is the SDK's default set (`HOME`, `LOGNAME`, `PATH`,
-  `SHELL`, `TERM`, `USER` from the server's process, which holds the login
-  shell's `PATH` through `cli-env.ts`) plus the person's values. No other
-  variable of the Solus server reaches it.
+  `SHELL`, `TERM`, `USER` from the server's process) plus the person's
+  values. No other variable of the Solus server reaches it. As built: the
+  server's `process.env.PATH` is not the login shell's (`cli-env.ts` keeps
+  that one in `getCliPath()` and does not write it back), so the gateway
+  passes `PATH: getCliPath()` explicitly.
 - **The working directory** is `resolveHomePath(launch.cwd ?? '~')`. A
   project server (§8.4) with no `cwd` gets the project root. The lint rule
-  `solus/require-resolved-cwd` covers the call.
+  `solus/require-resolved-cwd` covers the call. As built: the rule guarded
+  only `execution/agents/`; B1 adds `integrations/stdio-process.ts`, the one
+  module that builds the transport. A project server's root is resolved when
+  the record is made and saved as its `launch.cwd`, because `project_key` is
+  a hash and does not give the path back.
 - **Stop when idle.** The gateway's idle close (`IDLE_CLOSE_MS`, 10 minutes)
   calls `client.close()`. The SDK closes standard input, waits 2 seconds,
   sends SIGTERM to the child it started, waits 2 seconds, and sends SIGKILL to
@@ -443,7 +461,9 @@ new StdioClientTransport({ command, args, env: valuesOfThisPerson, cwd: resolveH
   fail with "`<name>` stopped while it ran `<tool>`.", and the next use starts
   it again. Three ends within 10 seconds of a start, in 5 minutes, set the
   process state `failed`. It then starts again only on **Start again** or a
-  change of the record.
+  change of the record. As built: a start that fails (no MCP answer in 30
+  seconds, or an end before the answer) counts as one such end, and a
+  command that `spawn` cannot find sets `failed` at once.
 - **Standard error** is kept in memory, the last 4 KB for each session. Only
   the owner sees it, in the row's error. It is never logged; the log has its
   size only.
@@ -456,7 +476,11 @@ new StdioClientTransport({ command, args, env: valuesOfThisPerson, cwd: resolveH
 The person types one line, such as
 `npx -y @modelcontextprotocol/server-filesystem /data`. The host splits it
 with a strict rule: quotes are honoured; a line with `|`, `&`, `;`, `<`, `>`,
-`` ` ``, or `$(` is refused with the reason. The dialog shows the result as
+`` ` ``, or `$(` is refused with the reason. As built: the rule is
+`splitCommandLine` in `contracts/src/integrations/command-line.ts`, so the
+dialog and the host read one line the same way. It also refuses `${` and
+`$NAME` outside single quotes, because Solus expands nothing and a person
+who types `$HOME` expects a value. The dialog shows the result as
 a program and its arguments before the first start. An entry from a config
 file is already split.
 
@@ -465,9 +489,15 @@ file is already split.
 Table `integration_server_facts`:
 
 ```
-integration_id, person_key, account_id, verdict (json), facts (json), stored_at
-PRIMARY KEY (integration_id, person_key, account_id)
+integration_id, user_id, account_id, verdict (json), verdict_at, facts (json), stored_at
+PRIMARY KEY (integration_id, user_id, account_id)
 ```
+
+As built: the person column is `user_id`, because the data-model rule
+(`tests/unit/data-model-identity.test.ts`) allows only `created_by` and
+`user_id` for a person. `verdict_at` is the time a revision check made the
+verdict: a connect with a saved verdict does not check again, so `stored_at`
+cannot age it. Facts are saved for the account that lists, the first one.
 
 - `verdict` is the SDK's `PriorDiscovery`. The gateway passes it to
   `connect(transport, { prior })`, so the command starts once. Without a
@@ -504,6 +534,14 @@ PRIMARY KEY (integration_id, person_key, account_id)
   client.
 - `integrationProcessStop({ id })` closes the caller's sessions of that
   integration.
+- As built, added: `integrationProcessStart({ id, recheck? })` answers
+  `IntegrationFacts`. It is Start and test and Start again (it clears
+  `failed`); with `recheck` it is Test again (it drops the verdict and stops
+  the process first). The plan named the three buttons but no method. It
+  needs `host.admin` and the owner.
+- As built: `integrationConnectSubmitRequestSchema` takes `value` or
+  `values`, not both; `values` needs `id`. `integrationUpdate` with `launch`
+  or `envNames` needs `host.admin`; new names remove every person's values.
 - `integration.changed` with `change: 'facts'` follows each start and stop.
 
 ### 7.7 Surfaces
@@ -659,7 +697,10 @@ a project file joins only the runs of that project.
   (`project-config.ts`). A worktree of the project has the same key.
 - `integrationToolbox(actor, projectKey)` takes the integrations with a null
   key and those with the run's key. `run-launcher.ts` gives the key of the
-  run's working directory. A chat (no project) gets only null keys.
+  run's working directory. A chat (no project) gets only null keys. As built
+  in B1, because `integrationCreate` takes `projectPath`: the toolbox takes
+  the run's working directory (`projectPath`) and computes the key only when
+  an integration has one, so `run-launcher.ts` gains no import.
 - The lists for a client (`integrationPromptList`,
   `integrationResourceList`) take `projectPath` and use the same rule.
 - A project integration is not an agent profile entry. The file is in the
@@ -1342,6 +1383,7 @@ access in `permissions.ts`, and the desktop preload in
 | Method | Section | Access |
 |---|---|---|
 | `integrationFacts` | §4, §7, §9 | `host.use`, owner |
+| `integrationProcessStart` | §7 | `host.use`; the handler needs `host.admin` and the owner |
 | `integrationProcessStop` | §7 | `host.use`, owner |
 | `integrationFoundList`, `integrationFoundAdd` | §8, §9 | `host.use`; a command needs `host.admin` |
 | `integrationPromptList`, `integrationPromptGet` | §10 | `host.use`, owner |

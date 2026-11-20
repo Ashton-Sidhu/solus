@@ -158,8 +158,13 @@ interface IntegrationApplyOutcome {
   skipped: AgentProfileSkip[]
 }
 
-/** A host record as the profile names it: the record, never its connection. */
-function integrationEntryOf(integration: Integration): AgentProfileIntegrationEntry {
+/**
+ * A host record as the profile names it: the record, never its connection.
+ * Null for a `stdio` integration: it belongs to the host it was added on, so a
+ * read, a push, and an adoption leave it out (docs/plans/mcp-first-class.md §7.8).
+ */
+function integrationEntryOf(integration: Integration): AgentProfileIntegrationEntry | null {
+  if (integration.kind === 'stdio' || integration.auth.kind === 'env') return null
   return { kind: 'integration', slug: integration.slug, name: integration.name, url: integration.url, auth: integration.auth, disabledTools: integration.disabledTools }
 }
 
@@ -202,7 +207,8 @@ export class AgentProfileManager {
     const { files, skipped } = readProfileFiles(this.deps.sourceHomes, registrySkills)
     entries.push(...files)
     for (const integration of this.deps.integrations.list(this.deps.integrationOwnerFor({ kind: 'owner' }))) {
-      entries.push(integrationEntryOf(integration))
+      const entry = integrationEntryOf(integration)
+      if (entry) entries.push(entry)
     }
     return { profile: agentProfileFrom(entries), skipped }
   }
@@ -362,8 +368,9 @@ export class AgentProfileManager {
    * target's own, or a host that is not linked, changes nothing here.
    */
   async integrationSaved(target: AgentProfileTarget, integration: Integration): Promise<void> {
-    if (!this.isOwnRecord(target, integration)) return
-    await this.writeEntries(target, agentProfileFrom([integrationEntryOf(integration)]), [])
+    const entry = integrationEntryOf(integration)
+    if (!entry || !this.isOwnRecord(target, integration)) return
+    await this.writeEntries(target, agentProfileFrom([entry]), [])
     await this.pullQuietly(target)
   }
 
@@ -374,9 +381,10 @@ export class AgentProfileManager {
    * restore the server. Not signed in, the removal is this host's alone.
    */
   async integrationRemoving(target: AgentProfileTarget, integration: Integration): Promise<void> {
-    if (!this.isOwnRecord(target, integration)) return
+    const entry = integrationEntryOf(integration)
+    if (!entry || !this.isOwnRecord(target, integration)) return
     try {
-      await this.writeEntries(target, {}, [agentProfileKeyOf(integrationEntryOf(integration))])
+      await this.writeEntries(target, {}, [agentProfileKeyOf(entry)])
     } catch (error) {
       if (error instanceof AgentProfileRefused && (error.code === 'NOT_LINKED' || error.code === 'NO_TOKEN')) return
       throw error
@@ -389,7 +397,7 @@ export class AgentProfileManager {
     const pulled = new Set(owned)
     return this.deps.integrations.list(this.deps.integrationOwnerFor(target))
       .filter((integration) => !named.has(integration.url) && !pulled.has(integration.id))
-      .map(integrationEntryOf)
+      .flatMap((integration) => integrationEntryOf(integration) ?? [])
   }
 
   private isOwnRecord(target: AgentProfileTarget, integration: Integration): boolean {

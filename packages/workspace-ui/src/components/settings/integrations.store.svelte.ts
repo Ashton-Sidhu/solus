@@ -421,6 +421,9 @@ class IntegrationsStore {
         this.clearFlow(serverId, integrationId)
       } else if (result.kind === 'token') {
         this.setFlow(serverId, integrationId, { kind: 'token' })
+      } else if (result.kind === 'env') {
+        // The values form of a command is phase B2 of docs/plans/mcp-first-class.md (§7.7).
+        this.setFlow(serverId, integrationId, { kind: 'failed', message: 'This server is a command on the host. This version of Solus cannot take its environment values yet.' })
       } else {
         this.setFlow(serverId, integrationId, { kind: 'waiting', flowId: result.flowId, url: result.url, input: result.input, expiresAt: result.expiresAt })
         this.scheduleExpiry(serverId, integrationId, result.flowId, result.expiresAt)

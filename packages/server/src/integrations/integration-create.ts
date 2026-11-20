@@ -1,9 +1,16 @@
-import { integrationSlug, solusServerIdOf, type Integration, type IntegrationCreateRequest, type IntegrationProbeResult, type IntegrationProbeUndeterminedReason } from '@solus/contracts/integration-types'
+import { integrationSlug, solusServerIdOf, type Integration, type IntegrationAuth, type IntegrationCommandCreateRequest, type IntegrationLaunch, type IntegrationProbeResult, type IntegrationProbeUndeterminedReason, type IntegrationUrlCreateRequest } from '@solus/contracts/integration-types'
+import { splitCommandLine } from '@solus/contracts/integrations/command-line'
 import { organizationForNew, type Principal } from '../admission/principal'
+import { createLogger } from '../logger'
+import { resolveHomePath } from '../platform/paths'
+import { resolveProjectKey, resolveProjectRoot } from '../project-config/project-config'
 import type { HostEventPublisher } from '../transport/events/host-event-publisher'
-import type { IntegrationStore } from './integration-store'
+import type { IntegrationCreateInput, IntegrationStore } from './integration-store'
 import { probeMcpServer } from './probe'
 import { probeSolusServer } from './solus-servers'
+import { stdioServerAddress } from './stdio-process'
+
+const log = createLogger('integrations', 'integration-create.ts')
 
 /** Why a probe decided nothing, as the person reads it. */
 const UNDETERMINED_MESSAGES = {
@@ -55,7 +62,7 @@ export interface IntegrationCreateDeps {
  * path for Settings (`integrationCreate`) and the agent (`connect_integration`,
  * §13.2), so the two cannot create different records.
  */
-export async function createIntegration(deps: IntegrationCreateDeps, principal: Principal, owner: string, request: IntegrationCreateRequest): Promise<Integration> {
+export async function createIntegration(deps: IntegrationCreateDeps, principal: Principal, owner: string, request: IntegrationUrlCreateRequest): Promise<Integration> {
   const probe = await probeForWrite(request.url)
   const integration = deps.store.create(
     { name: request.name, url: request.url, slug: integrationSlug(request.slug ?? request.name), auth: probe.auth },
@@ -64,5 +71,40 @@ export async function createIntegration(deps: IntegrationCreateDeps, principal: 
   )
   void deps.events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
   void deps.profile?.saved(principal, integration)
+  return integration
+}
+
+/** The program and arguments of a command request: the host splits a typed line by the one rule (§7.4). Throws the reason. */
+export function launchOfRequest(request: Pick<IntegrationCommandCreateRequest, 'commandLine' | 'launch'>): IntegrationLaunch {
+  if (request.launch) return request.launch
+  const split = splitCommandLine(request.commandLine ?? '')
+  if (!split.ok) throw new Error(split.reason)
+  return split.launch
+}
+
+/** `env` with the names, or `none` for a command that needs no variable (§7.1). */
+export function commandAuth(envNames: string[]): IntegrationAuth {
+  return envNames.length ? { kind: 'env', names: envNames } : { kind: 'none' }
+}
+
+/**
+ * Write a new `stdio` integration (docs/plans/mcp-first-class.md §7). It
+ * starts nothing: the person starts it from Settings, after they saw the
+ * command. The caller checks `host.admin` (§7.2). A command is not an agent
+ * profile entry, so the profile does not hear of it (§7.8). With
+ * `projectPath` it joins only that project's runs, and runs in the project's
+ * root when it names no folder (§8.4).
+ */
+export function createStdioIntegration(deps: Pick<IntegrationCreateDeps, 'store' | 'events'>, principal: Principal, owner: string, request: IntegrationCommandCreateRequest): Integration {
+  const launch: IntegrationLaunch = { ...launchOfRequest(request) }
+  const projectRoot = request.projectPath ? resolveProjectRoot(resolveHomePath(request.projectPath)) : null
+  launch.cwd ??= projectRoot ?? undefined
+  if (launch.cwd === undefined) delete launch.cwd
+  const input: IntegrationCreateInput = { name: request.name, url: stdioServerAddress(launch), slug: integrationSlug(request.slug ?? request.name), auth: commandAuth(request.envNames), launch }
+  if (projectRoot) input.projectKey = resolveProjectKey(projectRoot)
+  const integration = deps.store.create(input, organizationForNew(principal), owner)
+  // Neither the command nor its arguments are logged: an argument can hold a secret.
+  log.info('integration_command_added', { integrationId: integration.id, envNames: request.envNames.length, project: projectRoot !== null })
+  void deps.events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
   return integration
 }
