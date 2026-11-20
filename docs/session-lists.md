@@ -194,8 +194,8 @@ A session can run its turns on more than one host
 synced it, lists it under the same session id. The list, the picker, and search
 show it once, from the host with the higher `syncedTurn` (the head facts that
 `getSessionInfos` gives). When the list sees one session on two homes, it reads
-each home's session info once to learn them; the rule is `listedSessionHost` in
-`client-core/session-heads.ts`.
+each home's session info once to learn them; the rule is
+`SessionHostTurns.listedHost` in `client-core/session-heads.ts`.
 
 ### The cloud entries
 

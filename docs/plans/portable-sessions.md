@@ -1086,3 +1086,203 @@ from its own reads instead.
 - The changed `conversation-controller.ts` (1292 lines; 1229 before) and
   `ThreadDetailScreen.tsx` (730 lines; 720 before) were already over the size
   limits; this change adds only small wiring there.
+
+## 22. Primitives (2026-11-20)
+
+This is the public surface of portable sessions after the primitives refactor.
+The sections "as implemented" above keep the names of their date; the table at
+the end of this section gives each name that changed.
+
+The rule: a function that takes the same handle or the same set of facts as
+its neighbours is a method of the object that holds them, or takes one named
+type. A pure rule of one input object stays a function.
+
+### Contracts (`packages/contracts/src`)
+
+- `SessionCloudScope` (`person:<id>` or `organization:<id>`), with
+  `formatSessionCloudScope` and `parseSessionCloudScope`: where a session
+  repository is in the cloud. Hosts, the Solus API routes, and the readers use it.
+- `SessionRepositoryFacts`: `head`, `syncedTurn`, `lastRunHostId`,
+  `runningHostId`. Each Solus API answer, `session.headChanged`, and each
+  client use these four facts.
+- `SessionRepositoryCard`: the list card that a host reports with a pushed head.
+- The token route: `SessionRepositoryTokenRequest`, `…TokenResponse`,
+  `…TokenRefusal`, `SESSION_REPOSITORY_TOKEN_PATH`.
+- The head route: `SessionRepositoryHeadRequest` (`pushed`, `running`, or
+  `idle`), `…HeadResponse`, `…HeadRefusal`, `SESSION_REPOSITORY_HEAD_PATH`.
+- Solus API operations: `listMySessions` (`ListMySessionsResponse`) and
+  `sessionTurnDiff` (`SessionTurnDiff`).
+- Event topic: `session.headChanged` (`SessionHeadChanged`).
+- RPC methods between hosts and from clients: `sessionPrepare`
+  (`SessionPrepareRequest`, `SessionPrepareResult`), `sessionRepositoryBundle`,
+  and `sessionRepositoryBundleChunk`. `SessionSyncFailure` names each reason
+  that a sync fails.
+- `HostApi` methods that only a Solus API connection answers:
+  `sessionCloudList()` and `sessionTurnDiff(sessionId, turnIndex)`.
+- Fields on older types: `PromptOptions.knownHead`, `.sourceHostId`,
+  `.forkSourceSessionId`; `SessionMeta.head`, `.syncedTurn`, `.pushRefused`;
+  the four facts on `SessionRecord`; `StatusCardState.syncFailureReason`;
+  `SessionHistoryPage.availability`, `.unavailableTurns`, `.turnIndex`; the
+  prompt refusal code `SESSION_DIVERGED`.
+- The host setting and the policy limit `sessionCloudSync`, and
+  `sessionCloudSyncSwitchState` for the switch.
+
+### Server data (`packages/server/src/data/sessions`, `db`)
+
+- Host table `session_storage`: one row for each local copy (repository name,
+  head, turn count, last commit error, and the push state). `readSessionStorage`
+  (`SessionStorageRow`) is its one read; the archive writer, the pusher, and
+  the sync write it.
+- Host table `session_storage_turns`: the turns that ended and have no commit.
+  Only the archive writer uses it.
+- Solus API table `session_repositories`: the key (cloud scope, session id),
+  the repository name, the four facts, and the card. `session-repositories.ts`
+  owns it: `SessionRepositoryRow`, `readSessionRepository`,
+  `createSessionRepository`, `listPersonalSessionRepositories`,
+  `sessionRepositoryFacts`, `cloudSessionRepositoryName`.
+- `ensureImportedSessionLineage`, `hasTranscript`, and `messageSchema`: used by
+  the sync and by the cloud read.
+
+### Server sync (`packages/server/src/sync`)
+
+- `SessionRepositories`: the folder of local copies. `named(name, signal?)`
+  gives a `SessionRepository`. It alone knows the path of a copy.
+- `SessionRepository`: one local copy. `head`, `readText`, `readManifest`,
+  `appendFiles`, `writeThreadFile`, `commit`, `bundleSince`, `fetchBundle`,
+  `push`, and `path`. `sessionRepositoryName` gives the local name.
+  `TurnCommit` and `TurnCommitEntry` are the input of `commit`.
+  `SessionHeadMovedError` and `SessionBundleDivergedError` are its two refusals.
+- `SessionManifest` (`sessionManifestSchema`, `emptySessionManifest`): the
+  `manifest.json` of each turn commit.
+- `SessionArchiveWriter`: writes each ended turn (`TurnEnd`) as a turn commit.
+  `SessionRuntime` calls `turnEnded`; boot calls `resume`. `ThreadFile` is one
+  provider file. `loadSettledTurnRows` reads the rows of the ended turn.
+- `SessionPusher`: the host-wide push queue. Boot connects it: a turn commit
+  calls `committed`, a running session calls `running`, sign-in and sign-out
+  call `established` and `signedOut`, and prompt admission reads `refusedHead`.
+- `SessionRemoteAccess` (adapter `DelegatedSessionRemoteAccess`): the two Solus
+  API requests of a host, `remote` and `report`. `SessionCloudIdentity` is the
+  cloud scope and the acting person that each request names;
+  `sessionCloudIdentity(record, accountId)` gives it.
+- `SessionBundleTransfers`: the source side of a host-to-host bundle in bounded
+  RPC parts.
+- On the Solus API: `SessionRemoteProvider` (`sessionRemoteProvider()`, with a
+  Cloudflare Artifacts adapter and a local Git adapter) and
+  `SessionCloudReader` (`page`, `preview`, `diff`), which reads rows and patches
+  at the recorded head.
+- `GitRemote` (`GitRemoteOptions`, `CheckedPushResult`): the Git transport with
+  a token. Sessions and works use it.
+
+### Server Git (`packages/server/src/git`)
+
+- `writeTurnCodeBundle` (`TurnCodeState`, `TurnCodeBundle`, `bundleRef`) and
+  `writeTurnDiffPatch`: the code state and the diff of a turn. The archive
+  writer uses them.
+- `restoreSessionCode` (`RestoreSessionCodeInput`, `RestoredSessionCode`,
+  `CodeRestoreError`): the checkout of a synced session. `SessionSync` uses it.
+- `getSessionPaths`, `snapshotLiveTree`, `writeRestoredSessionSnapshots`, and
+  `createRestoredSessionWorktree`: the parts of the snapshot and worktree
+  owners that the two functions above need.
+
+### Server execution (`packages/server/src/execution`)
+
+- `SessionSync`: makes one host current for a session (`prepare`, `wait`,
+  `stop`, `localHead`). `SessionSyncDeps` is its input; `SessionSyncError` and
+  `SessionSyncResult` are its answers.
+- `SessionSourceRequest`: what the sync asks a source for. `SessionSource` is
+  the seam; `SourceBundle` is the answer. The two adapters are
+  `fetchSessionArtifacts` (the cloud copy) and `fetchSessionBundle` (the last
+  run host). `chooseSessionRepositorySource` chooses between them.
+- `AgentBackend.threadFiles` and `AgentBackend.importThread`
+  (`ThreadImportRequest`, `ThreadImportResult`), with one adapter for Claude and
+  one for Codex. `importThreadFiles` and `safeThreadPath` are their common part.
+- `PromptDispatch.refusedHead` and `assertSessionCurrent`: a host with a
+  refused push admits no prompt.
+- `sessionCloudSyncDecision` (`SessionCloudSyncDecision`): the one answer to
+  "may this session go to the cloud now".
+- `portableSessionPathNote`: the first-turn note after the project root changed.
+
+### Server transport (`packages/server/src/transport`)
+
+- `registerSessionRepositoryHandlers`: the three RPC methods.
+- `queuePromptAfterSessionSync`: accepts a prompt on a host that is behind and
+  sends it after the sync.
+- `registerSessionRepositoryRoutes`: `POST /runner/session-repositories/token`
+  and `POST /runner/session-repositories/head`.
+- Solus API router: `GET /v1/me/sessions` and
+  `GET /v1/sessions/:sessionId/turns/:turnIndex/diff`. `loadSessionPage`, the
+  preview, and the tool inputs read from `SessionCloudReader` when the
+  transcript mirror has no rows.
+
+### Client core (`packages/client-core/src`)
+
+- `SessionHostTurn`: what one host holds of one session. `sessionHostTurnOf`
+  makes it from session info.
+- `SessionHostTurns`: the turns of every host that answered, as one value.
+  `of`, `newestTurn`, `with`, `without`, `afterTurnSettled`, `newestHost`,
+  `syncSource`, `listedHost`, `syncOrigin`, `newestServer`. The web session
+  list store and the mobile `SessionRunHosts` keep one for each session.
+- `SessionCloudHead`, `SessionSyncSource`, `SessionSyncOrigin`: the cloud facts
+  as a client names them, and where a run host syncs from.
+- `sessionCloudState` (`SessionCloudState`), `sessionCloudStateText`,
+  `conversationAwaitsMachine`: the cloud state of a session on its run host.
+- `sessionCloudReadSource`, `sessionCloudReadView`, `readSessionCloudPage`,
+  `readSessionTurnDiff`, with `sessionCloudReadText` and `sessionTurnDiffText`:
+  the read-only open from the Solus API.
+- `isSessionSyncCard`, `sessionSyncCardView`, `sessionSyncFailureText`,
+  `sessionSyncFailureAction`, `sessionSyncStepLabel` (`SessionSyncCardNames`):
+  the sync card in the words of a client.
+- `onSessionMetaRead`: gives each session info read to the store that keeps
+  the host turns.
+
+### Workspace UI (`packages/workspace-ui/src`)
+
+- `CloudSessions` (`cloud-sessions.svelte.ts`): the cloud facts and the
+  cloud-only rows. The session list store owns it.
+- `SessionListStore`: `hostTurnsFor`, `newestHostFor`, `cloudStateFor`,
+  `noteSessionMeta`, `noteTurnSettled`, `notePushRefused`.
+- `RunHostChanges`: the change of the run host of a started tab, the prepare,
+  and the fields of a prompt.
+- `CloudTranscriptStore`: the read-only conversation and the turn diffs.
+- Pure view rules: `input/lib/run-host-row.ts`,
+  `conversation/lib/session-sync-view.ts`, `conversation/lib/cloud-turn-diff.ts`,
+  `turnSnapshotFor`, `isRunOnHostLocked`, `syncRepository`.
+- Components: `RunHostRow`, `SessionStatusCard`, `SessionCloudRead`,
+  `CloudTurnDiff`, `PushRefusedCard`, `TurnChangesSummary`,
+  `SessionCloudSyncSetting`.
+
+### Mobile (`apps/mobile/src/features/threads`)
+
+- `SessionRunHosts`: the host turns of each session, the fields of a prompt,
+  and the prepare.
+- `CloudSessions`: the cloud facts and the cloud-only sessions.
+- `CloudHistory` and `useCloudRead`: the read-only conversation and the turn
+  diffs.
+- Pure view rules: `lib/run-host-row.ts`, `lib/cloud-read-view.ts`,
+  `lib/cloud-turn-diff-view.ts`.
+- Components and hooks: `ThreadRunHostRow`, `useRunHostRow`,
+  `useRunningHostSend`, `CloudReadNote`, `CloudTurnChanges`,
+  `CloudTurnDiffScreen` (route `ThreadTurnDiff`), `SessionPushRefusedCard`.
+
+### Lab (`packages/lab`)
+
+- `projectFixture()` (`ProjectFixture`): one bare origin and a clone for each
+  Lab host.
+- Scenario `scenarios/cloud/portable-sessions.ts`: two hosts use one cloud
+  history.
+
+### Names that changed
+
+| Before | Now |
+| --- | --- |
+| `SessionRepositories.head(repository)`, `.readText(repository, commit, path)`, and each other method with a repository name | `SessionRepositories.named(repository)` gives a `SessionRepository`; the methods take no name |
+| `SessionRepositories.remoteHead` | Removed; it had no caller |
+| `SessionSyncDeps.repositoryRoot` | `SessionSyncDeps.repositories` |
+| `fetchBundle(sessionId, have, wantedHead, sourceHostId, outFile, signal, actor)`, and the same facts in `fetchSessionBundle` and `fetchSessionArtifacts` | One `SessionSourceRequest`; the function type is `SessionSource` |
+| `chooseSessionRepositorySource(cloud, host, wantedHead, signal)` | `chooseSessionRepositorySource(cloud, host, request)` |
+| `SessionRemoteAccess.remote(sessionId, cloudScope, actorUserId, access)` and `.report(request, cloudScope, actorUserId)` | `remote(sessionId, identity, access)` and `report(request, identity)` with `SessionCloudIdentity` |
+| `sessionCloudScope(record, accountId)` in `session-cloud-scope.ts` | `sessionCloudIdentity(record, accountId)` in `session-cloud-identity.ts` |
+| Each inline read of `session_storage` | `readSessionStorage(sessionId)` |
+| `sessionRepositoryName(scope, sessionId)` in `data/sessions` | `cloudSessionRepositoryName(scope, sessionId)` |
+| `withSessionHostTurn`, `afterTurnSettled`, `newestSessionHost`, `sessionSyncSource`, `listedSessionHost`, `sessionSyncOrigin`, `newestSessionServer` | Methods of `SessionHostTurns`: `with`, `afterTurnSettled`, `newestHost`, `syncSource`, `listedHost`, `syncOrigin`, `newestServer` |
+| `CloudSessions.listed(sessionId, isListedByHost)` and `.listedRows(isListedByHost)` (web) | The predicate is a constructor dependency |

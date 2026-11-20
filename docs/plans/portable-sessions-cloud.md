@@ -689,7 +689,7 @@ No Cloudflare credential, deployment, or live service was used for this part.
 
 ### Part F as implemented (2026-11-18)
 
-`session-cloud-scope.ts` owns the cloud scope rule for push and read. A host with
+`session-cloud-identity.ts` owns the cloud scope rule for push and read. A host with
 no local session record reads in the acting person's scope. The boot composition
 uses `DelegatedSessionRemoteAccess` for reads; test injection remains available.
 
