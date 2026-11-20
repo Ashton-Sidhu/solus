@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { checkRouteToAdd, newRouteRefusalText, routeInUse, routeRows, routeUrlFromInput, withoutRoute, withRouteMoved, withUserRoute, type NewRouteInput, type RouteHolder } from '@solus/client-core/host-route-control'
-import { listingOf } from '@solus/client-core/host-catalog'
+import { listingOf } from '@solus/client-core/host-join'
 import type { KnownHost } from '@solus/client-core/known-host'
 import { catalogOf, fakeDirectory, fakeList, listingFor, memoryCredentials } from './helpers/host-catalog-world'
 import { dialableRoutes, dialChoicesOf, type HostRoute } from '@solus/contracts/host-routes'
