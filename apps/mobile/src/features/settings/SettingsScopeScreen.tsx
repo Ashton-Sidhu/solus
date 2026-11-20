@@ -11,6 +11,7 @@ import { EnvironmentMachineSymbol } from '../../components/EnvironmentMachineSym
 import { ProjectFavicon } from '../../components/ProjectFavicon'
 import { AppTextInput } from '../../components/AppText'
 import { SettingsActionRow } from './components/SettingsActionRow'
+import { UnreadHostsNotice } from '../hosts/UnreadHostsNotice'
 
 export function SettingsScopeScreen({ route, navigation }: ScreenProps<'SettingsScope'>) {
   const app = useApp()
@@ -33,6 +34,7 @@ export function SettingsScopeScreen({ route, navigation }: ScreenProps<'Settings
           icon={<EnvironmentMachineSymbol kind={hostMachineKind(host.os)} size={18} tintColorClassName="accent-icon-muted" />}
           onPress={() => navigation.popTo("ProviderInstances", { hostId: host.id, projectPath: host.id === hostId ? projectPath : undefined })} />)}
       </SettingsSection>
+      <UnreadHostsNotice />
     </ScreenScrollView>
   </SettingsScreen>
   return <SettingsScreen title="Apply settings for">

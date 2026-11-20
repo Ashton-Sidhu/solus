@@ -29,6 +29,7 @@ import { useNewTaskBalanceCandidates } from "./new-task-balance";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { branchBadge, selectedBranchName, worktreeBaseChoices } from "./lib/worktree-branches";
 import { useWorktreeBranches } from "./use-worktree-branches";
+import { UnreadHostsNotice } from "../hosts/UnreadHostsNotice";
 
 /** The glyph a Solus host wears: T3's machine kinds by operating system. */
 export function hostMachineKind(os: HostOperatingSystem | undefined): EnvironmentMachineKind {
@@ -248,6 +249,9 @@ export function NewTaskEnvironmentPickerRouteScreen({ route, navigation }: Scree
               />
             ))}
           </PickerSurface>
+          <View className="mt-3">
+            <UnreadHostsNotice />
+          </View>
         </ScrollView>
       </MaterialScreenContent>
     </View>

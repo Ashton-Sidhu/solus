@@ -16,6 +16,7 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { policyScreenModel, type PolicyRuleRow } from "./lib/policy-view";
 import { useHostPolicy } from "./use-host-policy";
+import { UnreadHostsNotice } from "../hosts/UnreadHostsNotice";
 
 /**
  * The effective policy of work on one host (plans/030 §7): the MDM policy of
@@ -85,6 +86,7 @@ export function PolicyScreen({ route }: ScreenProps<"Policy">) {
             ))}
           </SettingsSection>
         ) : null}
+        <UnreadHostsNotice />
 
         {organizations.length > 1 ? (
           <View className="gap-3">
