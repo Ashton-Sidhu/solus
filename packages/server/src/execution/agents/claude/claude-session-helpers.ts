@@ -8,6 +8,7 @@ import { encodePathAsFolder, stripInjectedContext } from '../utils'
 import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { claudeToolResultText, parseClaudeTaskNotification } from './claude-subagent-protocol'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
+import { toolResultMedia } from '../../../data/assets/tool-result-media'
 
 const HEAD_BYTES = 4096
 export const MAX_SESSION_HEAD_BYTES = 4 * 1024 * 1024
@@ -225,12 +226,14 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
         // exactly as the live reducer does, so reload doesn't rebuild the card with
         // launch metadata standing in for the agent's report.
         if (obj.toolUseResult?.isAsync === true || obj.toolUseResult?.status === 'async_launched') return null
+        const text = claudeToolResultText(result.content)
         return {
           role: 'tool_result',
-          content: claudeToolResultText(result.content),
+          content: text,
           toolResultForId: result.tool_use_id,
           toolResultIsError: result.is_error,
           toolImages: storeToolResultImages(result.content),
+          ...toolResultMedia(text),
           parentToolUseId,
           timestamp: new Date(obj.timestamp).getTime(),
         }

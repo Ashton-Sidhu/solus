@@ -6,6 +6,7 @@ import { isAuthFailureMessage } from '../auth-failure'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
 import { claudeToolResultText } from './claude-subagent-protocol'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
+import { toolResultMedia } from '../../../data/assets/tool-result-media'
 import { catalogClaudeModelId } from './claude-models'
 import { z } from 'zod'
 
@@ -612,6 +613,7 @@ function normalizeUser(event: UserEvent): NormalizedEvent[] {
     if (isAsyncLaunch) result.isAsyncLaunch = true
     const toolImages = storeToolResultImages(block.content)
     if (toolImages) result.toolImages = toolImages
+    Object.assign(result, toolResultMedia(result.content))
     events.push(result)
   }
   return events

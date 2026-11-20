@@ -46,6 +46,34 @@ export function rasterImageMimeOf(bytes: Buffer): string | null {
   return null
 }
 
+/**
+ * The audio types a stored asset may hold, by extension, with the first bytes
+ * of each. A tool result's audio is stored only when its bytes are the type it
+ * claims, and a stored asset with one of these extensions plays in place.
+ */
+const AUDIO_TYPES: ReadonlyArray<{ extension: string; mime: string; aliases: string[]; matches: (head: Buffer) => boolean }> = [
+  { extension: 'mp3', mime: 'audio/mpeg', aliases: ['audio/mp3'], matches: (head) => head.subarray(0, 3).toString('ascii') === 'ID3' || (head[0] === 0xff && (head[1] & 0xe0) === 0xe0) },
+  { extension: 'wav', mime: 'audio/wav', aliases: ['audio/x-wav', 'audio/wave'], matches: (head) => head.subarray(0, 4).toString('ascii') === 'RIFF' && head.subarray(8, 12).toString('ascii') === 'WAVE' },
+  { extension: 'ogg', mime: 'audio/ogg', aliases: ['audio/opus'], matches: (head) => head.subarray(0, 4).toString('ascii') === 'OggS' },
+  { extension: 'flac', mime: 'audio/flac', aliases: ['audio/x-flac'], matches: (head) => head.subarray(0, 4).toString('ascii') === 'fLaC' },
+  { extension: 'm4a', mime: 'audio/mp4', aliases: ['audio/x-m4a', 'audio/m4a', 'audio/aac-mp4'], matches: (head) => head.subarray(4, 8).toString('ascii') === 'ftyp' },
+  { extension: 'aac', mime: 'audio/aac', aliases: ['audio/x-aac'], matches: (head) => head[0] === 0xff && (head[1] & 0xf6) === 0xf0 },
+  { extension: 'weba', mime: 'audio/webm', aliases: [], matches: (head) => head.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) },
+]
+
+/** The extension to store audio of a declared type under, or null when its type is not one Solus plays or its bytes are not that type. */
+export function audioAssetExtension(mime: string, bytes: Buffer): string | null {
+  const type = mime.toLowerCase().split(';', 1)[0].trim()
+  const audio = AUDIO_TYPES.find((candidate) => candidate.mime === type || candidate.aliases.includes(type))
+  return audio?.matches(bytes) ? audio.extension : null
+}
+
+/** The audio type of a stored asset, by its extension, or null. */
+export function audioAssetMime(assetId: string): string | null {
+  const extension = extname(assetId).slice(1)
+  return AUDIO_TYPES.find((candidate) => candidate.extension === extension)?.mime ?? null
+}
+
 /** The raster image type of a host file whose name has no media extension.
  *  An agent often saves a download without one (`/tmp/shots/pr_4`). */
 async function sniffRasterImageMime(path: string): Promise<string | null> {
@@ -271,12 +299,13 @@ export async function serveAssetToken(
   if (!fileStat.isFile()) return new Response('Not found', { status: 404 })
   const isStoredAsset = ASSET_ID.test(basename(payload.path))
   const mediaType = mediaTypeFor(payload.path)
-  const knownMime = mediaType?.mime ?? payload.mime
+  const audioMime = isStoredAsset ? audioAssetMime(basename(payload.path)) : null
+  const knownMime = mediaType?.mime ?? payload.mime ?? audioMime ?? undefined
   const mime = knownMime ?? 'application/octet-stream'
   if (!isStoredAsset && !knownMime) return new Response('Unsupported type', { status: 415 })
-  // A stored video plays in place like a stored image shows. Every other stored
-  // asset downloads, because its bytes were never checked against its type.
-  const isInline = isStoredAsset && (isRasterImage(payload.path) || mediaType?.kind === 'video')
+  // A stored video or audio plays in place like a stored image shows. Every
+  // other stored asset downloads, because its bytes were never checked against its type.
+  const isInline = isStoredAsset && (isRasterImage(payload.path) || mediaType?.kind === 'video' || audioMime !== null)
 
   const range = parseByteRange(request.range, fileStat.size)
   if (request.range && !range) {

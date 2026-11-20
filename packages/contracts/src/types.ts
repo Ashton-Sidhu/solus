@@ -1523,6 +1523,11 @@ export interface Message {
   browserSnapshot?: BrowserSnapshotRef
   /** Images this tool call returned, shown under its step. */
   toolImages?: ToolResultImage[]
+  /** Audio this tool call returned, played under its step. */
+  toolAudio?: ToolResultAudio[]
+  /** What the host left out of this tool call's result, and the limit that
+   *  left it out: the agent got the same lines (docs/plans/mcp-first-class.md §6). */
+  toolLeftOut?: string[]
   /** A recording the agent made of a browser page, rendered as a player. */
   browserRecording?: BrowserRecordingRef
   /** Agent-conversation card for another agent this thread is driving
@@ -2004,6 +2009,16 @@ export interface ToolResultImage {
   height?: number
 }
 
+/**
+ * Audio a tool returned (an MCP audio block). No provider model takes audio in
+ * a tool result, so the agent gets the saved file's host path as text and the
+ * person gets a player that loads this asset through a signed URL.
+ */
+export interface ToolResultAudio {
+  assetId: string
+  mimeType: string
+}
+
 export type NormalizedEvent =
   | { type: 'model_routed'; provider: AgentId; modelConfig: ModelConfig; usedFallback: boolean }
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
@@ -2014,12 +2029,12 @@ export type NormalizedEvent =
    *  `text` is the span's reasoning, on `stop` only, when the provider sent any. */
   | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string; text?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
-  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string; toolImages?: ToolResultImage[] }
+  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string; toolImages?: ToolResultImage[]; toolAudio?: ToolResultAudio[]; toolLeftOut?: string[] }
   /** With an outcome or completedAtMs, the tool execution completed. Without
    *  either field, Claude only finished streaming the tool input; tool_result
    *  is the later execution boundary. */
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
-  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean; toolImages?: ToolResultImage[] }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean; toolImages?: ToolResultImage[]; toolAudio?: ToolResultAudio[]; toolLeftOut?: string[] }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
   | { type: 'subagent_running'; toolUseId: string }
   /** What a running MCP tool call reported of its own progress, for the person
@@ -2125,7 +2140,7 @@ export type WireNormalizedEvent =
   | (AssistantMessageEvent & { textStreamed?: true })
   | Omit<ToolCallEvent, 'content'>
   | Omit<ToolCallUpdateEvent, 'content'>
-  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[]; secretOutcomes?: SecretOutcomeRecord[] }
+  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[]; toolAudio?: ToolResultAudio[]; toolLeftOut?: string[]; secretOutcomes?: SecretOutcomeRecord[] }
 
 // ─── Prompt Options ───
 

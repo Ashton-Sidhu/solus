@@ -64,7 +64,7 @@ describe('the fields Claude validates a call against', () => {
 describe('tool results with an image', () => {
   test('Claude receives the text and then the PNG as an image block', async () => {
     const { claudeToolResponse } = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
-    const response = claudeToolResponse({ ok: true, text: 'Screenshot', image: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } })
+    const response = claudeToolResponse({ ok: true, text: 'Screenshot', images: [{ mimeType: 'image/png', data: 'iVBORw0KGgo=' }] })
     expect(response.content).toEqual([
       { type: 'text', text: 'Screenshot' },
       { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' },

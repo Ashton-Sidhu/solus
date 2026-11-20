@@ -7,10 +7,12 @@
   import { toolProgressView } from "@solus/contracts/tool-progress";
   import { getMarkdownImageContext } from "./lib/markdown-image";
   import { toolRowImages } from "./lib/turn-images";
+  import { toolRowAudio, toolRowLeftOut } from "./lib/tool-row-media";
   import { toasts } from "../../lib/toasts";
   import CopyButton from "../ui/CopyButton.svelte";
   import ActivityRow from "./ActivityRow.svelte";
   import MarkdownImage from "./MarkdownImage.svelte";
+  import ToolAudioPlayer from "./ToolAudioPlayer.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
@@ -346,6 +348,26 @@
                   <MarkdownImage href={image.href} text={image.label} expandable />
                 {/each}
               </div>
+            {/if}
+            {@const audio = toolRowAudio(step)}
+            {#if audio.length > 0}
+              <div class="flex flex-col gap-2 pb-1 ps-8">
+                {#each audio as clip (clip.audio.assetId)}
+                  <ToolAudioPlayer audio={clip.audio} label={clip.label} />
+                {/each}
+              </div>
+            {/if}
+          {/if}
+          <!-- What the host left out of the result, as the agent read it. Text
+               only, so it needs no host behind the transcript. -->
+          {#if view.selectedToolId === step.id}
+            {@const leftOut = toolRowLeftOut(step)}
+            {#if leftOut.length > 0}
+              <ul class="m-0 list-none space-y-0.5 pb-1 ps-8 text-chrome-dense text-muted-foreground" aria-label="Left out of this result">
+                {#each leftOut as note, index (index)}
+                  <li class="break-words">Left out: {note}</li>
+                {/each}
+              </ul>
             {/if}
           {/if}
         {/if}

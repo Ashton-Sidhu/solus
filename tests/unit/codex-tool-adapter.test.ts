@@ -66,7 +66,7 @@ describe('the schema Codex reads', () => {
 describe('Codex tool results with an image', () => {
   test('the PNG travels as an inputImage data URL after the text', async () => {
     const { codexToolContentItems } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
-    expect(codexToolContentItems('Screenshot', { mimeType: 'image/png', data: 'iVBORw0KGgo=' })).toEqual([
+    expect(codexToolContentItems('Screenshot', [{ mimeType: 'image/png', data: 'iVBORw0KGgo=' }])).toEqual([
       { type: 'inputText', text: 'Screenshot' },
       { type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw0KGgo=' },
     ])

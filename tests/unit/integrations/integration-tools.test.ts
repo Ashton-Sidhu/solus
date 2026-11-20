@@ -5,7 +5,7 @@ import { adaptCodexTools } from '@solus/server/execution/agents/codex/codex-tool
 import { adaptClaudeTools } from '@solus/server/execution/agents/claude/claude-tool-adapter'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
-import { mapCallResult, upstreamToolToAgentTool } from '@solus/server/integrations/integration-tools'
+import { upstreamToolToAgentTool } from '@solus/server/integrations/integration-tools'
 import type { UpstreamTool } from '@solus/server/integrations/gateway'
 
 /**
@@ -128,32 +128,5 @@ describe('integration tool bridge', () => {
       inputSchema: { type: 'object', anyOf: [{ required: ['a'] }, { required: ['b'] }] },
     }, recordingCalls().gateway)
     expect(tool.passthroughInput).toBe(true)
-  })
-})
-
-describe('integration call results', () => {
-  const png = Buffer.from('89504e470d0a1a0a', 'hex').toString('base64')
-
-  test('text parts are joined with blank lines', () => {
-    expect(mapCallResult({ content: [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }] })).toEqual({ ok: true, text: 'one\n\ntwo' })
-  })
-
-  test('the first PNG image is the result image', () => {
-    const result = mapCallResult({ content: [{ type: 'text', text: 'see' }, { type: 'image', data: png, mimeType: 'image/png' }, { type: 'image', data: png, mimeType: 'image/png' }] })
-    expect(result.image).toEqual({ mimeType: 'image/png', data: png })
-    expect(result.text).toBe('see\n\n[image/png image not shown]')
-  })
-
-  test('structured content is the text when there is no text', () => {
-    expect(mapCallResult({ content: [], structuredContent: { count: 2 } }).text).toBe('{\n  "count": 2\n}')
-    // WHY: modern servers can return any JSON value, including null and a number.
-    expect(mapCallResult({ content: [], structuredContent: null }).text).toBe('null')
-    expect(mapCallResult({ content: [], structuredContent: 7 }).text).toBe('7')
-    expect(mapCallResult({ content: [{ type: 'text', text: 'two' }], structuredContent: { count: 2 } }).text).toBe('two')
-  })
-
-  test('a result the server marks an error fails the tool', () => {
-    // WHY: the provider's own error handling depends on the failure reaching it.
-    expect(mapCallResult({ content: [{ type: 'text', text: 'nope' }], isError: true })).toEqual({ ok: false, text: 'nope' })
   })
 })

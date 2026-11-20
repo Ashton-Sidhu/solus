@@ -121,6 +121,15 @@ Insights, under the tool call of the turn. The request carries the W3C
 collector joins the turn's trace. Solus never sends `tracestate` or `baggage`.
 A request outside a turn, such as a Settings read, carries no trace context.
 
+**Result content.** A tool's whole result reaches the agent, on Claude and Codex alike: its text,
+its structured data as JSON, and up to eight images (PNG, JPEG, WebP, or GIF).
+No provider model takes audio in a tool result, so Solus saves audio on the
+host and gives the agent its path; you get a player in the tool call. A part
+that a limit or a check leaves out is saved for the agent when it can be, and
+the agent and the tool call both get a note that names the limit. Data that
+does not match the tool's output schema fails the call with that reason
+(`plans/mcp-first-class.md` §6).
+
 When you ask the agent to use a service that has no tools in the session, it
 can call `connect_integration` with the service's name. The tool uses your
 server for that service if you have one. Otherwise it adds the one catalog

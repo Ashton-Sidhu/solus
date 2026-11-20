@@ -127,7 +127,7 @@ async function previewReport(name: string, preview: HtmlPreview): Promise<AgentT
     logged.length ? `console (${preview.console.length}):\n${logged.join('\n')}` : 'console: nothing logged.',
   ]
   const report: AgentToolResult = { ok: true, text: lines.join('\n') }
-  if (image) report.image = image
+  if (image) report.images = [image]
   return report
 }
 
