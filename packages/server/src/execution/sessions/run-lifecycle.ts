@@ -258,6 +258,7 @@ function archiveTurn(rt: SessionRuntime, request: SessionRunRequest, run: Sessio
   const sessionArchive = rt.sessionArchive
   if (!sessionArchive || handle.persistence !== 'session' || !threadId) return
   const sessionId = request.sessionId
+  const endedAt = Date.now()
   const workTree = rt.sessionCheckouts.getGitContext(sessionId)?.worktreePath ?? run.input.gitContext?.worktreePath ?? run.input.workingDirectory
   // The provider files of a member's thread are in that member's home, so the read acts as them.
   void withActorScope(request.actor ?? HOST_ACTOR, async () => sessionArchive.turnEnded({
@@ -268,6 +269,7 @@ function archiveTurn(rt: SessionRuntime, request: SessionRunRequest, run: Sessio
     projectPath: workTree,
     workTree,
     partial: status !== 'completed',
+    endedAt,
     model: run.input.model,
     reasoningEffort: run.input.reasoningEffort,
     permissionMode: run.input.permissionMode,

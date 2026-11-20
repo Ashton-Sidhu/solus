@@ -54,6 +54,8 @@ export interface TurnEnd {
   /** The session's checkout on this host; absent for a session with no folder. */
   workTree?: string
   partial: boolean
+  /** Wall time at turn settlement, before asynchronous capture can run. */
+  endedAt?: number
   model?: string
   reasoningEffort?: ReasoningEffort
   permissionMode?: PermissionMode
@@ -97,7 +99,7 @@ export interface SessionArchiveDeps {
   /** The provider files of a thread on this host; empty for a provider that keeps none. */
   threadFiles(provider: AgentId, threadId: string, projectPath: string | undefined): Promise<ThreadFile[]>
   /** Reads the newest settled user turn with the same projection as the mirror. */
-  turnRows?: (provider: AgentId, sessionId: string, projectPath: string | undefined) => Promise<WireSessionLoadMessage[] | null>
+  turnRows?: (provider: AgentId, sessionId: string, projectPath: string | undefined, endedAt: number) => Promise<WireSessionLoadMessage[] | null>
   database?: () => DatabaseSync
   now?: () => number
   /** The wait before a failed turn commit is tried again; it doubles up to `MAX_RETRY_MS`. */
@@ -125,6 +127,7 @@ export class SessionArchiveWriter {
 
   /** Record that a turn ended. The turn commit is written in the background. Never rejects: the turn is over. */
   async turnEnded(turn: TurnEnd): Promise<void> {
+    turn = { ...turn, endedAt: turn.endedAt ?? this.now() }
     const previous = this.sessionJobs.get(turn.sessionId)
     const work = (async () => {
       if (previous) await previous
@@ -143,7 +146,7 @@ export class SessionArchiveWriter {
 
   private async record(turn: TurnEnd): Promise<void> {
     const pending = await this.capture(turn)
-    if (!pending.files.length && !pending.checkout) return
+    if (!pending.files.length && !pending.checkout && !pending.rows) return
     withTx(() => {
       const db = this.database()
       db.prepare('INSERT INTO session_storage (session_id, repository) VALUES (?, ?) ON CONFLICT(session_id) DO NOTHING')
@@ -195,6 +198,7 @@ export class SessionArchiveWriter {
   }
 
   private async capture(turn: TurnEnd): Promise<PendingTurn> {
+    const endedAt = turn.endedAt ?? this.now()
     const record = await getSessionRecord(ANY_ORGANIZATION, turn.sessionId).catch(() => null)
     const files: PendingTurn['files'] = []
     for (const file of await this.deps.threadFiles(turn.provider, turn.threadId, turn.projectPath).catch(() => [])) {
@@ -204,9 +208,9 @@ export class SessionArchiveWriter {
     }
     const checkout = await this.checkoutOf(turn).catch(() => null)
     // Capture before the Git queue runs. A later turn can start before this commit.
-    const rows = await this.captureRows(turn)
+    const rows = await this.captureRows(turn, endedAt)
     return {
-      organizationId: turn.organizationId, provider: turn.provider, threadId: turn.threadId, partial: turn.partial, endedAt: this.now(), files,
+      organizationId: turn.organizationId, provider: turn.provider, threadId: turn.threadId, partial: turn.partial, endedAt, files,
       title: record?.customTitle ?? record?.title ?? null,
       model: turn.model, reasoningEffort: turn.reasoningEffort, permissionMode: turn.permissionMode,
       startedBy: record?.startedBy ?? null, parentSessionId: record?.parentSessionId ?? null, rootSessionId: record?.rootSessionId ?? null,
@@ -218,8 +222,8 @@ export class SessionArchiveWriter {
     }
   }
 
-  private async captureRows(turn: TurnEnd): Promise<WireSessionLoadMessage[] | null> {
-    const rows = await this.deps.turnRows?.(turn.provider, turn.sessionId, turn.projectPath).catch(() => null) ?? null
+  private async captureRows(turn: TurnEnd, endedAt: number): Promise<WireSessionLoadMessage[] | null> {
+    const rows = await this.deps.turnRows?.(turn.provider, turn.sessionId, turn.projectPath, endedAt).catch(() => null) ?? null
     if (!rows) return null
     return Buffer.byteLength(rows.map(row => JSON.stringify(row) + '\n').join('')) <= 4 * 1024 * 1024 ? rows : null
   }

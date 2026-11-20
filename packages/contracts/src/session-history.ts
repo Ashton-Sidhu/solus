@@ -65,6 +65,9 @@ export interface SessionSubagentRequest {
 export interface SessionHistoryPage {
   messages: WireSessionLoadMessage[]
   before: string | null
+  /** The cloud repository has no rows for this turn or session. */
+  availability?: 'available' | 'not-available'
+  unavailableTurns?: number[]
 }
 
 export interface ProviderHistoryPage {

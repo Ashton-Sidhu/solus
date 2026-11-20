@@ -951,3 +951,52 @@ same kind of input error: `agentSessionId` must name the imported provider
 thread. The scenario now sends it. The final run has 16 passing and two
 failing checks. Focused unit tests passed 16/16 in three files; one new test
 checks that the project origin gives independent clones with the same tree.
+
+### Phase 5A as implemented (API reader, 2026-11-19)
+
+The host records the wall time when a turn settles. The archive history reader
+uses one provider history page at a time, starting with the newest. If a later
+turn is present, it follows the page cursor until it finds the user turn that
+started before the saved settlement time. It saves the projected rows in the
+pending database row before Git starts. A restart uses those saved rows. The
+normal cost is one provider page per ended turn; a late capture reads one extra
+page for each later turn. It never parses the whole transcript for each commit.
+A provider page cut inside a long turn gives `hasRows: false`.
+
+The API reads `manifest.json`, `rows/<index>.jsonl`, and
+`diff/<index>.patch` only at `session_repositories.head`. A repository commit
+that the API has not accepted is not visible. The API uses the injected
+Cloudflare Artifacts REST file read or `git --git-dir` for local Git. It sends
+only projected `WireSessionLoadMessage` rows or patch text. The row file has
+one JSON object per line, in provider history order. The API parses the named
+wire fields and projects again if a tool row has a body.
+
+The existing `loadSessionPage` RPC uses repository rows when no mirrored rows
+exist. Its `before` cursor is the next older turn index as a string. A call
+returns one whole turn, even if `turnLimit` is greater than one. The optional
+`availability` is `available` or `not-available`; the latter has
+`unavailableTurns: [index]` for an old or omitted row file. A session with no
+repository has empty messages, a null cursor, and `not-available`. The
+existing `loadSession`, `loadSessionPreview`, and `loadSessionToolInputs` also
+use the repository fallback. Preview reads the first and last available turn
+and uses the manifest's cumulative `rowCount` for its total. Mirrored rows win when they
+can include a running turn. The repository fallback is read only.
+
+The new Solus API operation is `sessionTurnDiff`: `GET
+/v1/sessions/:sessionId/turns/:turnIndex/diff`, with `sessions:read` scope and
+no query or body. It answers `{status:"available",patch:string}`,
+`{status:"too-large",filesChanged:number,additions:number,deletions:number}`,
+or `{status:"not-available"}`. A missing repository, turn, or patch answers
+`not-available`. The counts of a large patch are sums of the turn snapshots.
+No repository remote, token, thread file, or code bundle reaches a reader.
+
+Caps: one manifest read is at most 1 MiB; one row file and RPC history page is
+at most 4 MiB; one patch response is at most 2 MiB. Both storage providers
+stop reading after the file cap. The writer already caps one pending row file
+at 4 MiB. The API keeps no manifest cache, so a history or diff request holds
+only its bounded files. Preview reads two row files in sequence. A personal repository requires the caller's user id to equal
+its owner id. An organization repository requires a published session and the
+same `read.transcript` standing as the mirror. The diff uses that standing too:
+the patch can contain code, and a person who can read the transcript
+can also see the turn's code changes. These are Phase 5A choices that the plan
+left open.

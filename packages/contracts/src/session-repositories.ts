@@ -4,6 +4,7 @@ export const SESSION_REPOSITORY_TOKEN_PATH = '/runner/session-repositories/token
 export const SESSION_REPOSITORY_HEAD_PATH = '/runner/session-repositories/head'
 export const LIST_MY_SESSIONS_OPERATION_PATH = '/me/sessions'
 export const LIST_MY_SESSIONS_PATH = `/v1${LIST_MY_SESSIONS_OPERATION_PATH}`
+export const SESSION_TURN_DIFF_OPERATION_PATH = '/sessions/:sessionId/turns/:turnIndex/diff'
 
 export const sessionCloudScopeSchema = z.templateLiteral([
   z.enum(['person', 'organization']), ':', z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
@@ -65,6 +66,12 @@ export const sessionHeadChangedSchema = sessionRepositoryFactsSchema.extend({ se
 export type SessionHeadChanged = z.infer<typeof sessionHeadChangedSchema>
 export const listMySessionsResponseSchema = z.strictObject({ items: z.array(z.intersection(sessionRepositoryCardSchema, sessionHeadChangedSchema)) })
 export type ListMySessionsResponse = z.infer<typeof listMySessionsResponseSchema>
+export const sessionTurnDiffSchema = z.discriminatedUnion('status', [
+  z.strictObject({ status: z.literal('available'), patch: z.string() }),
+  z.strictObject({ status: z.literal('too-large'), filesChanged: z.number().int().nonnegative(), additions: z.number().int().nonnegative(), deletions: z.number().int().nonnegative() }),
+  z.strictObject({ status: z.literal('not-available') }),
+])
+export type SessionTurnDiff = z.infer<typeof sessionTurnDiffSchema>
 
 /** A prompt is refused after this host's push lost the checked head race. */
 export const SESSION_DIVERGED = 'SESSION_DIVERGED' as const
