@@ -1,6 +1,6 @@
 # Portable sessions
 
-Status: phase 1 implemented, 2026-11-18, on branch `solus/portable-sessions` (§17). Phase 0 ran on 2026-11-18 (§18): the two provider tests passed. Phase 2 is in progress (§19). Phase 4A (desktop and web clients) is implemented (§20).
+Status: phase 1 implemented, 2026-11-18, on branch `solus/portable-sessions` (§17). Phase 0 ran on 2026-11-18 (§18): the two provider tests passed. Phase 2 is in progress (§19). Phase 4A (desktop and web clients) is implemented (§20). Phase 4B (mobile) is implemented (§21).
 
 Related: [Run location](run-location.md) (run host, checkout),
 [Session identity](session-identity.md) (session id, thread id, lineage),
@@ -984,3 +984,105 @@ change; mobile is the next part and reuses the client-core modules below.
   conversation in another pane opens its own list with the Run on shortcut.
 - Not built in this phase: "Not synced yet", read-only open with no host
   online, and the signed-in home (§10, phase 3 and 5).
+
+## 21. Phase 4B as implemented (2026-11-18)
+
+Mobile (`apps/mobile/`). No server, client-core, or Svelte change. The phone
+uses `session-heads.ts` and `session-sync-card.ts` from client-core. It does
+not use `onSessionMetaRead`: that hook lives in `session-meta.ts`, which
+imports `serverConnections`, a browser-only module that the phone bundle may
+not import (`native-mobile-boundaries.test.ts`). The phone learns the facts
+from its own reads instead.
+
+### What the phone does
+
+- **One owner for the facts**: `SessionRunHosts`
+  (`features/threads/session-run-hosts.ts`, `app.runHosts`). It keeps the
+  `head` and `syncedTurn` that each host answered for each session. It learns
+  them from the `describeSession` read that each conversation makes when it
+  opens, from the batched `getSessionInfos` read below, and from each
+  `turn_settled` event (`afterTurnSettled`, counted once for each turn id).
+- **The host control for a started session** is a row under the composer's
+  questions and cards, above the composer: "on <host>" with the host's
+  machine mark (`ThreadRunHostRow.tsx`). It opens a sheet, **Run on**, with
+  one row for each host; an offline host is disabled. The rule is
+  `runHostRowView` (`features/threads/lib/run-host-row.ts`): the row shows for
+  a started session that the reader may prompt, when another host is
+  connected. It is locked while a turn runs (`isSessionBusyStatus`), while
+  background work runs, while a prompt waits in the outbox, and while files
+  are attached or uploading (they are on the run host).
+- **A pick** (`SolusApp.moveConversation`) opens the conversation on the
+  chosen host at once and closes the one on the host it leaves, which
+  unwatches that host. The thread route changes its `hostId`. The new
+  conversation shows the transcript that the old one showed
+  (`ConversationTarget.carriedTranscript`) and the draft moves with it, so
+  nothing on screen waits. The sheet closes and the composer takes focus.
+- **Prepare.** After its first load and watch, a conversation calls
+  `SessionRunHosts.opened`. For a pick, or when the facts say another host
+  is ahead, it reads the newest host's info once, then calls `sessionPrepare`
+  on the run host with `knownHead` and `sourceHostId`. The watch comes first,
+  so the run host's sync card reaches this conversation. When the answer is
+  `current`, or the sync card ends `done`, the conversation drops the carried
+  transcript and reads the host's own history, in the folder that host keeps
+  the session in (`describeSession` `cwd` and `projectPath`). A failed sync
+  keeps the carried transcript.
+- **No repository is sent.** The phone has no copied files and does not
+  build a `DispatchRepository` for a new session on another host either. A
+  host with no checkout of the project fails with `no-project-checkout`, and
+  the card says so.
+- **Every prompt carries `knownHead` and `sourceHostId`** when another host is
+  ahead (`promptFields` in the outbox drain of `ConversationController`). The
+  facts come from reads that already happened; the send makes no request.
+  `sourceHostId` is the installation id: the phone keeps each host under its
+  installation id, and the host's `serverInfo.installationId` wins when it is
+  read.
+- **One session, shown once.** `ThreadDirectory` draws a session that two
+  hosts list from the host with the higher `syncedTurn`
+  (`listedSessionHost`). It reads the facts of each such host once, in one
+  `getSessionInfos` call for each host, and draws the list again when they
+  arrive. Each host's own copy stays readable by `thread(hostId, sessionId)`.
+- **States.** The sync card (`WorktreeSetupCard.tsx`) shows the step labels,
+  the title, and the failure text of `sessionSyncCardView`, named with the
+  hosts' labels. A failure shows its full text under the steps, with
+  **Choose a host** (opens the Run on sheet) when another host can be chosen,
+  or **Connect Claude** / **Connect Codex** for `seat-required` (the
+  existing sign-in sheet). The thread header names the host with the newest
+  turn, "Last ran on <host>", when it is not the run host. The row says
+  "<host> is offline" when the host with the newest turn is away. When that
+  host is the run host, or the run host is away while the facts name a newest
+  host, the composer stays in place of the asleep card
+  (`withRunHostChoice`), so the person can type and choose another host.
+- **Fork.** The phone has no session fork action. This is the approved
+  exception of §16 decision 5; nothing was added.
+
+### Decisions
+
+1. **A pick changes the thread route's host**, because a phone conversation
+   is one store for each host and session. The carried transcript keeps the
+   conversation on screen while the new host syncs.
+2. **The host control is a row with a sheet**, not a native menu, so the sync
+   card's **Choose a host** can open the same choice.
+3. **The control is locked while files are attached**, as Auto balance keeps a
+   draft with attachments on its host (docs/run-on.md).
+4. **The phone keeps no facts across launches.** A relaunch reads them again
+   when a conversation opens or when two hosts list a session.
+5. **"Last ran on <host>" is in the thread header**, where the phone names
+   the conversation's host today. The list row already comes from the host
+   with the newest turn and names it.
+
+### Limits
+
+- Before the new host lists the session, a relaunch opens the thread on the
+  host it was on before (the saved route is written only for a listed
+  session), as desktop decision 7 does.
+- A draft edit within the save delay before a pick can be saved under the
+  old host; the composer keeps the text on screen.
+- On iPad, the sidebar selection follows the row's host; until the new host
+  lists the session, the selected row can be the old host's.
+- A session with no session repository (from before phase 1) has no facts:
+  a pick moves the conversation, and the new host gets no head.
+- Not built in this phase: "Not synced yet", and read-only open with no host
+  online.
+- The changed `conversation-controller.ts` (1292 lines; 1229 before) and
+  `ThreadDetailScreen.tsx` (730 lines; 720 before) were already over the size
+  limits; this change adds only small wiring there.

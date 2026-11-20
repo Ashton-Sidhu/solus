@@ -31,7 +31,9 @@ when another host is connected, or when a desktop session names a remote
 host and can return to the local machine. It shows for a new session and,
 between turns, for a started one (see [A started session](#a-started-session)). A web client has no local execution
 host, so its sole connected host does not show the picker. Mobile also hides
-the host control when there is no other host choice. To add the first remote host, use Settings → Hosts. Each row is one
+the host control when there is no other host choice. On mobile, a started
+session shows its host control as a row above the composer, "on <host>",
+which opens a **Run on** sheet. To add the first remote host, use Settings → Hosts. Each row is one
 line: the host name, then a mark for each organization the host belongs to.
 Organizations have no logo, so the mark is the first letter of the
 organization name; hover over it to see the full name. A personal host has no
@@ -144,7 +146,14 @@ there, the tab comes back on the new host.
 
 A fork runs where its source runs, as before. Before its first prompt, Run on
 is open on the fork: choose another host, and that host gets the source session
-first, then makes the fork there.
+first, then makes the fork there. The mobile app has no session fork.
+
+On mobile, the conversation opens on the host you choose at once and keeps
+the transcript and your draft on screen while that host gets the session. The
+thread header says "Last ran on <host>" while another host has the newest
+turn. The mobile app sends no repository and no copied files, so a host that
+has no checkout of the project cannot get the session from the phone: the card
+says that the host has no copy of the project.
 
 These rules need both hosts online: there is no cloud copy of a session yet.
 
@@ -202,7 +211,8 @@ for that file only. When the project has no `.worktreeinclude`, its env files
 
 A file larger than 1 MB is not copied, and one send copies at most 4 MB. When
 the project's host cannot be reached, the send goes without the files. The
-mobile app has no Run on list, so it has no copied files either.
+mobile app reads no copied files: it has no Run on list for a new session, and
+its Run on sheet for a started session sends none.
 
 ## Branch and checkout
 

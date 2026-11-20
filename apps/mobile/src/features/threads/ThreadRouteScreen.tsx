@@ -4,7 +4,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { isChat } from "@solus/contracts/chat";
 import { hostPathBaseName } from "@solus/contracts/host-path";
 import type { SessionRecord } from "@solus/contracts/types";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -17,7 +17,7 @@ import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
 import type { ConversationStore } from "../conversation/conversation-store";
-import { newThreadTarget } from "./new-thread-targets";
+import { newThreadTarget, type NewThreadTarget } from "./new-thread-targets";
 import { threadKey } from "./thread-directory";
 import { threadProjectPath } from "./threadListV2";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
@@ -38,6 +38,22 @@ function recordOf(record: SessionRecord): ConversationRecord {
     customTitle: record.customTitle,
     role: record.role,
   };
+}
+
+type ThreadTarget = { record: ConversationRecord } | { newSession: NewThreadTarget };
+
+/** What the thread opens, from the first source that knows the session. */
+function threadTarget(
+  listed: SessionRecord | undefined,
+  restored: ConversationRecord | null,
+  started: NewThreadTarget | null,
+  moved: ConversationStore | null,
+): ThreadTarget | null {
+  if (listed) return { record: recordOf(listed) };
+  if (restored) return { record: restored };
+  if (started) return { newSession: started };
+  const record = moved?.controller.target.record;
+  return record ? { record } : null;
 }
 
 function lastFolderName(path: string): string {
@@ -93,14 +109,13 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
     const last = app.lastRoute();
     return last?.hostId === hostId && last.record?.sessionId === sessionId ? last.record : null;
   }, [app, hostId, sessionId]);
-  const started = newThreadTarget(hostId, sessionId);
-  const target: { record: ConversationRecord } | { newSession: NonNullable<typeof started> } | null = shell
-    ? { record: recordOf(shell.record) }
-    : restored
-      ? { record: restored }
-      : started
-        ? { newSession: started }
-        : null;
+  const target = threadTarget(
+    shell?.record,
+    restored,
+    newThreadTarget(hostId, sessionId),
+    // A session the person just chose this host for: the host lists it after its sync.
+    app.openConversation(hostId, sessionId),
+  );
   // One store per conversation, keyed by session id: a lookup after the first
   // call, and the same store when the directory's record arrives later.
   const store = target ? app.conversation(hostId, target) : null;
@@ -109,6 +124,12 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
   useEffect(() => {
     if (!shell && hostState.kind === "idle") void app.threads.load(hostId);
   }, [app, hostId, hostState.kind, shell]);
+
+  // The next prompt runs on another host: the thread opens there at once.
+  const chooseHost = useCallback((nextHostId: string) => {
+    if (!store || !app.moveConversation(store, nextHostId)) return;
+    navigation.setParams({ hostId: nextHostId });
+  }, [app, navigation, store]);
 
   // The thread is the place to come back to on the next launch.
   const record = shell?.record ?? null;
@@ -162,6 +183,7 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
       hostLabel={host.label}
       shellTitle={shell ? shell.record.customTitle || shell.record.title || shell.record.slug : null}
       projectPath={projectPath}
+      onChooseHost={"record" in target ? chooseHost : undefined}
     />
   );
 }
@@ -173,6 +195,7 @@ function ThreadRouteContent(props: {
   readonly hostLabel: string;
   readonly shellTitle: string | null;
   readonly projectPath: string;
+  readonly onChooseHost?: (hostId: string) => void;
 }) {
   const app = useApp();
   const { store, hostId } = props;
@@ -184,7 +207,12 @@ function ThreadRouteContent(props: {
   const layout = deriveLayout(window);
   const chat = isChat(props.projectPath);
   const title = props.shellTitle || runTitle || "New session";
-  const headerSubtitle = [chat ? null : lastFolderName(props.projectPath), props.hostLabel]
+  // Where the conversation names its host: the host with the newest turn, when it is not this one.
+  const lastRanOn = useListened(app.runHosts.changes, () => {
+    const newest = app.runHosts.newestHostOf(props.sessionId, hostId);
+    return newest && newest !== hostId ? app.registry.host(newest)?.label ?? null : null;
+  });
+  const headerSubtitle = [chat ? null : lastFolderName(props.projectPath), lastRanOn ? `Last ran on ${lastRanOn}` : props.hostLabel]
     .filter(Boolean)
     .join(" · ");
   const header = useThreadHeaderOptions({
@@ -272,6 +300,7 @@ function ThreadRouteContent(props: {
             startedBy={meta.startedBy}
             layoutVariant={layout.variant}
             usesAutomaticContentInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
+            onChooseHost={props.onChooseHost}
           />
         )}
       </View>

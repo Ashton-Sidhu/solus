@@ -1,10 +1,12 @@
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { keepEqual, sameItems } from '@solus/client-core/keep-equal'
+import { listedSessionHost } from '@solus/client-core/session-heads'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 import type { HostRegistry } from '../hosts/host-registry'
+import type { SessionRunHosts } from './session-run-hosts'
 import { ShareArrivals } from './shared-with-you'
 
 /**
@@ -90,7 +92,11 @@ export class ThreadDirectory {
   constructor(
     private readonly registry: HostRegistry,
     private readonly connectionFor: (hostId: string) => HostConnection | null,
-  ) {}
+    /** What each host holds of a session: with it, a session two hosts list shows once. */
+    private readonly runHosts?: Pick<SessionRunHosts, 'turnsFor' | 'readOnce' | 'changes'>,
+  ) {
+    runHosts?.changes.subscribe(() => this.remerge())
+  }
 
   /** Change the list filter without changing a record or closing an open thread. */
   /** The hosts provisioned for an organization, whose threads the organization filter applies to. */
@@ -273,11 +279,46 @@ export class ThreadDirectory {
     // A list whose items did not change keeps its array: a host that starts
     // reading again, or a change to sessions only, leaves the project list as it was.
     const held = this.merged
+    const shownThreads = this.oneRowPerSession(threads, held.threads)
+    const shownUnlisted = this.oneRowPerSession(unlisted, held.unlisted)
     this.merged = {
-      threads: sameItems(threads, held.threads) ? held.threads : threads,
-      unlisted: sameItems(unlisted, held.unlisted) ? held.unlisted : unlisted,
+      threads: sameItems(shownThreads, held.threads) ? held.threads : shownThreads,
+      unlisted: sameItems(shownUnlisted, held.unlisted) ? held.unlisted : shownUnlisted,
       projects: sameItems(projects, held.projects) ? held.projects : projects,
     }
     this.changes.notify()
+  }
+
+  /**
+   * A session that ran on two hosts is in both hosts' lists. It shows once,
+   * from the host with its newest turn (docs/plans/portable-sessions.md §9);
+   * with no difference known, from the host that showed it before. The facts
+   * of each such host are read once, and their answer draws the list again.
+   */
+  private oneRowPerSession(threads: SolusThreadShell[], shown: readonly SolusThreadShell[]): SolusThreadShell[] {
+    const runHosts = this.runHosts
+    if (!runHosts) return threads
+    const bySession = new Map<string, SolusThreadShell[]>()
+    for (const thread of threads) {
+      const group = bySession.get(thread.record.sessionId)
+      if (group) group.push(thread)
+      else bySession.set(thread.record.sessionId, [thread])
+    }
+    if (bySession.size === threads.length) return threads
+    const shownHost = new Map(shown.map((thread) => [thread.record.sessionId, thread.hostId]))
+    const unknownByHost = new Map<string, string[]>()
+    const kept = new Set<SolusThreadShell>()
+    for (const [sessionId, group] of bySession) {
+      if (group.length === 1) {
+        kept.add(group[0]!)
+        continue
+      }
+      const hostIds = group.map((thread) => thread.hostId)
+      for (const hostId of hostIds) unknownByHost.set(hostId, [...(unknownByHost.get(hostId) ?? []), sessionId])
+      const chosen = listedSessionHost(hostIds, runHosts.turnsFor(sessionId), shownHost.get(sessionId) ?? null)
+      kept.add(group.find((thread) => thread.hostId === chosen) ?? group[0]!)
+    }
+    for (const [hostId, sessionIds] of unknownByHost) runHosts.readOnce(hostId, sessionIds)
+    return threads.filter((thread) => kept.has(thread))
   }
 }

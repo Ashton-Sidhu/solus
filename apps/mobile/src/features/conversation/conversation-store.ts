@@ -26,6 +26,8 @@ export interface ConversationMeta {
   rateLimit: RateLimitInfo | null
   queued: readonly QueuedPrompt[]
   queue: SessionQueueSnapshot
+  /** Prompts this device holds that the host has not taken yet: the run host stays as it is. */
+  hasUnsentPrompts: boolean
   hasOlder: boolean
   loadingOlder: boolean
   /** The agent session on another host that started this one. */
@@ -65,6 +67,7 @@ export class ConversationStore {
   private readonly itemListeners = new Map<string, Set<() => void>>()
   private readonly quoteListeners = new Set<(text: string) => void>()
   private readonly remarkListeners = new Set<(remarks: readonly string[]) => void>()
+  private readonly hostChoiceListeners = new Set<() => void>()
   private metaSnapshot: ConversationMeta
   /** Where the reader was, kept across a remount (rotation, a split resize). */
   scrollOffset = 0
@@ -132,6 +135,16 @@ export class ConversationStore {
     return () => { this.remarkListeners.delete(listener) }
   }
 
+  /** "Choose a host" on a failed sync card: the thread opens its host choice. */
+  requestHostChoice = (): void => {
+    for (const listener of Array.from(this.hostChoiceListeners)) listener()
+  }
+
+  onHostChoiceRequested(listener: () => void): () => void {
+    this.hostChoiceListeners.add(listener)
+    return () => { this.hostChoiceListeners.delete(listener) }
+  }
+
   orderSnapshot = (): readonly string[] => this.controller.model.order
 
   item(id: string): TranscriptItem | undefined {
@@ -151,6 +164,7 @@ export class ConversationStore {
       rateLimit: model.rateLimit,
       queued: model.queued,
       queue: this.controller.queue,
+      hasUnsentPrompts: this.controller.hasUnsentPrompts,
       hasOlder: model.olderCursor !== null,
       loadingOlder: this.controller.loadingOlder,
       startedBy: this.controller.startedBy,

@@ -38,6 +38,15 @@ export function threadHostChrome(state: Pick<HostReadinessState, 'readiness' | '
   }
 }
 
+/**
+ * The run host is away, and another host can take the session
+ * (docs/plans/portable-sessions.md §10): the composer stays in place of the
+ * asleep card, so the person types and chooses that host beside it.
+ */
+export function withRunHostChoice(chrome: ThreadHostChrome, keepsComposerWhileAway: boolean): ThreadHostChrome {
+  return keepsComposerWhileAway ? { ...chrome, showsComposer: true, isAsleep: false } : chrome
+}
+
 /** The statement in the composer's place while the host is away. Details is always there; the rest follows the dial. */
 export interface HostAsleepCardCopy {
   /** "Raiders is offline." or "Trying Raiders again…". */
