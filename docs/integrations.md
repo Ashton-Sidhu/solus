@@ -106,6 +106,21 @@ credential. A call on an integration you have not connected fails with
 can ask `connection_status` for an integration to check first. A request for
 input from the server during a call shows as a question card.
 
+**Progress and time limits.** A server can report the progress of a long call.
+The tool row shows the server's message, and a bar with a percent when the
+server gives a total, on desktop, web, and mobile. The agent does not see
+progress. A call stops when the server sends nothing for 60 seconds; each
+progress report starts those 60 seconds again. A call stops after 30 minutes
+in all, also when it continues to report progress. Both limits stop while you
+answer a question of the server. After a reconnect the row shows the call as
+running, with no number, until the next report.
+
+**Trace context.** A call that a turn makes is a span `integration_call` in
+Insights, under the tool call of the turn. The request carries the W3C
+`traceparent` of that span in `_meta`, so a server that reports to the same
+collector joins the turn's trace. Solus never sends `tracestate` or `baggage`.
+A request outside a turn, such as a Settings read, carries no trace context.
+
 When you ask the agent to use a service that has no tools in the session, it
 can call `connect_integration` with the service's name. The tool uses your
 server for that service if you have one. Otherwise it adds the one catalog

@@ -230,6 +230,14 @@ export function startSolusSpan(input: StartSolusSpanInput): Span {
   )
 }
 
+/** A span as a W3C `traceparent` value (version 00, sampled). Solus ids are
+ *  already the W3C widths. Never with `tracestate` or `baggage`: baggage can
+ *  carry personal data (docs/plans/mcp-first-class.md §13). */
+export function w3cTraceparent(span: Span): string {
+  const { traceId, spanId } = span.spanContext()
+  return `00-${traceId}-${spanId}-01`
+}
+
 /** Adds what a running turn learned — the executed model, the task it runs
  *  under — to its span and to the open row Insights lists while it runs. */
 export function updateOpenTurn(span: Span, input: { attrs?: SpanAttributes; dimensions?: SpanDimensions }): void {

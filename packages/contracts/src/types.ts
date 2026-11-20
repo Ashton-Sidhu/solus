@@ -1404,6 +1404,13 @@ export interface ContextCompaction {
   isRunning?: boolean
 }
 
+/** A running MCP tool call's own report of how far it is. A bar needs `total`. */
+export interface ToolProgress {
+  progress: number
+  total?: number
+  message?: string
+}
+
 export interface Message {
   /** Provider thread identity retained through a handoff's combined history. */
   sourceSessionId?: string
@@ -1457,6 +1464,9 @@ export interface Message {
   backgroundTaskSettledAt?: number
   /** Latest SDK heartbeat for a background sub-agent. This is activity metadata,
    *  not a todo plan: it has no trustworthy total-step denominator. */
+  /** The latest `tool_progress` of a running MCP tool call. Live only: history
+   *  never carries it, so a reload shows the call without a stale number. */
+  toolProgress?: ToolProgress
   backgroundTaskProgress?: {
     description?: string
     toolUses?: number
@@ -2012,6 +2022,12 @@ export type NormalizedEvent =
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean; toolImages?: ToolResultImage[] }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
   | { type: 'subagent_running'; toolUseId: string }
+  /** What a running MCP tool call reported of its own progress, for the person
+   *  only: the agent never sees it (docs/plans/mcp-first-class.md §5).
+   *  `toolUseId` is the id of the tool call's card. At most four a second for
+   *  one call; `message` is plain text of at most 200 characters. Live only:
+   *  never saved in a transcript and never replayed to a client that joins. */
+  | { type: 'tool_progress'; toolUseId: string; progress: number; total?: number; message?: string }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
   /** Solus's authoritative top-level turn boundary. Unlike `task_complete`, this

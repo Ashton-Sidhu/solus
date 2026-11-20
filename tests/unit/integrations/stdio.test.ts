@@ -132,7 +132,7 @@ function command(options: { era?: 'modern' | 'legacy'; owner?: string; auth?: In
 }
 
 function gateway(options: { clock?: FakeClock; values?: Map<string, string> } = {}) {
-  const created = new IntegrationGateway(store, globalThis, { clock: options.clock, savedFacts: new ServerFactsStore() })
+  const created = new IntegrationGateway(store, undefined, { clock: options.clock, savedFacts: new ServerFactsStore() })
   created.useCredentials({
     authorizationFor: async () => null,
     markNeedsSignIn: () => undefined,
@@ -297,7 +297,7 @@ describe('the environment (§7.1, §7.9)', () => {
       })
       expect(() => connections.submitEnvironment(integration, OWNER, [{ name: 'OTHER', value: 'x' }])).toThrow('Give a value for API_TOKEN.')
       connections.submitEnvironment(integration, OWNER, [{ name: 'API_TOKEN', value: SECRET }])
-      const shared = new IntegrationGateway(store, globalThis, { savedFacts: new ServerFactsStore() })
+      const shared = new IntegrationGateway(store, undefined, { savedFacts: new ServerFactsStore() })
       shared.useCredentials(connections)
       gateways.push(shared)
 

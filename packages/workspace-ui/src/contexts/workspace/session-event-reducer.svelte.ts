@@ -1,6 +1,6 @@
 import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { recordQuestionAnswer } from './question-history'
-import type { ContextCompaction, EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '@solus/contracts/types'
+import type { ContextCompaction, EnrichedError, GitState, Message, Session, ThreadGoal, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
 import { existingTaskId } from './session-draft.svelte'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
@@ -580,6 +580,10 @@ export class SessionEventReducer {
         if (event.lastToolName !== undefined) progress.lastToolName = event.lastToolName
         break
       }
+
+      case 'tool_progress':
+        this.applyToolProgress(session, event)
+        break
 
       case 'background_task_settled': {
         const msg = this.findBackgroundTaskMsg(session, event.taskId, event.toolUseId)
@@ -1219,6 +1223,33 @@ export class SessionEventReducer {
     return undefined
   }
 
+  /** A running MCP call's own progress (docs/plans/mcp-first-class.md §5), on its card in place. */
+  private applyToolProgress(session: Session, event: Extract<WireNormalizedEvent, { type: 'tool_progress' }>): void {
+    // The id is the call's own: its card may sit inside a sub-agent's transcript.
+    const msg = this.findToolMsg(session.messages, event.toolUseId) ?? this.findNestedToolMsg(session.messages, event.toolUseId)
+    // A card whose result landed is done; a late event must not reopen it.
+    if (!msg || msg.contentBytes !== undefined) return
+    // Claude settles a card when the call's input ends, before the call runs; progress says it still runs.
+    if (msg.toolStatus !== 'running') {
+      msg.toolStatus = 'running'
+      msg.toolCompletedAt = undefined
+    }
+    const progress: ToolProgress = { progress: event.progress }
+    if (event.total !== undefined) progress.total = event.total
+    if (event.message !== undefined) progress.message = event.message
+    msg.toolProgress = progress
+  }
+
+  /** A tool call inside a sub-agent's transcript, newest first. */
+  private findNestedToolMsg(list: Message[], toolId: string): Message | undefined {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const nested = list[i].subMessages
+      const found = nested ? this.findToolMsg(nested, toolId) : undefined
+      if (found) return found
+    }
+    return undefined
+  }
+
   /**
    * Land a tool_result on its tool message. The parent Agent tool's result
    * is a separate subagent_report event. This path only records the bounded
@@ -1231,6 +1262,8 @@ export class SessionEventReducer {
     if (!target) return
     target.errorHead = event.errorHead
     target.contentBytes = event.contentBytes
+    // Progress is live: the settled row shows the outcome, not the last number.
+    if (target.toolProgress) target.toolProgress = undefined
     if (event.toolImages) target.toolImages = event.toolImages
     if (event.secretOutcomes) target.secretOutcomes = event.secretOutcomes
     target.toolStatus = event.status === 'error' ? 'error' : 'completed'

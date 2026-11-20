@@ -29,12 +29,15 @@ import { mapCallResult, toolSummary } from './integration-tools'
 import { cancellableFetch } from './cancellable-fetch'
 import type { ServerFactsKey, ServerFactsStore } from './server-facts-store'
 import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, stdioTransport, type GatewayClock, type StdioChild } from './stdio-process'
+import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
+import type { Context } from '@opentelemetry/api'
+import { SPAN_KINDS, SPAN_SERVICES, type SpanDimensions, type SpanStatus } from '../data/insights/registries'
+import { endSolusSpan, startSolusSpan, w3cTraceparent } from '../execution/observability/tracer'
 
 const log = createLogger('integrations', 'gateway.ts')
 
 const IDLE_CLOSE_MS = 10 * 60 * 1000
-const CALL_TIMEOUT_MS = 60 * 1000
-/** The SDK's own request timeout is 60 s; the gateway's timer bounds a call instead, so it can pause while a person answers. */
+/** The SDK's own request timeout is 60 s; the gateway's limits bound a call instead, so they can pause while a person answers. */
 const SDK_TIMEOUT_OFF_MS = 24 * 60 * 60 * 1000
 /** A session's `Authorization` header is a snapshot: ask for it again after this, before a token expires (§4.1 rule 5). */
 const AUTHORIZATION_MAX_AGE_MS = 50 * 60 * 1000
@@ -83,10 +86,13 @@ export type ToolArguments = NonNullable<CallToolRequest['params']['arguments']>
 interface ActiveCall {
   integrationName: string
   context: AgentToolContext
-  /** Stops the call's timer while a person answers an elicitation, and starts it again after. */
+  /** Stops the call's limits while a person answers an elicitation, and starts them again after. */
   pauseTimeout: () => void
   resumeTimeout: () => void
 }
+
+/** Where a turn's span hangs: `SessionEmitter.turnContextOf`. */
+type TurnContextOf = (sessionId: string, toolUseId?: string) => { context: Context; dimensions: SpanDimensions } | undefined
 
 interface UpstreamSession {
   integrationId: string
@@ -142,6 +148,7 @@ export class IntegrationGateway {
   private readonly processes: StdioProcessStates
   /** `stdio` sessions that are starting, so the limit counts them. */
   private stdioStarting = 0
+  private turnContextOf: TurnContextOf | null = null
 
   /**
    * The integration records; the tool bridge lists a scope's integrations
@@ -150,7 +157,7 @@ export class IntegrationGateway {
    */
   constructor(
     readonly store: Pick<IntegrationStore, 'get' | 'list'>,
-    private readonly callClock: Pick<typeof globalThis, 'setTimeout' | 'clearTimeout'> = globalThis,
+    private readonly callClock: CallClock = SYSTEM_CALL_CLOCK,
     private readonly options: { clock?: GatewayClock; savedFacts?: ServerFactsStore } = {},
   ) {
     this.processes = new StdioProcessStates(() => this.clock.now())
@@ -168,6 +175,11 @@ export class IntegrationGateway {
   /** Installed once at boot: what saves the MCP App a successful tool call declares. */
   useAppCapture(capture: (call: IntegrationAppCapture) => Promise<void>): void {
     this.captureApp = capture
+  }
+
+  /** Installed once at boot: the turn a call's `integration_call` span hangs from (§13). */
+  useTurnContext(turnContextOf: TurnContextOf): void {
+    this.turnContextOf = turnContextOf
   }
 
   /** Reads one resource with the current person's connection. It never starts an agent turn. */
@@ -327,19 +339,26 @@ export class IntegrationGateway {
 
   private async callAs(integration: Integration, tool: string, input: ToolArguments, context: AgentToolContext, accountId: string, retried = false): Promise<AgentToolResult> {
     const integrationId = integration.id
-    let timer: ReturnType<typeof setTimeout> | null = null
+    // §5: silence stops a call after 60 s, and progress starts that again; 30 minutes stop it in all.
     const timeout = new AbortController()
-    const startTimer = () => { timer ??= this.callClock.setTimeout(() => timeout.abort(new Error('timeout')), CALL_TIMEOUT_MS) }
-    const stopTimer = () => { if (timer) this.callClock.clearTimeout(timer); timer = null }
-    const call: ActiveCall = { integrationName: integration.name, context, pauseTimeout: stopTimer, resumeTimeout: startTimer }
+    let reachedLimit: CallLimit | null = null
+    const limits = new CallLimits(this.callClock, (limit) => { reachedLimit = limit; timeout.abort(new Error('timeout')) })
+    const progress = new ProgressEvents(this.callClock, context)
+    const call: ActiveCall = { integrationName: integration.name, context, pauseTimeout: () => limits.pause(), resumeTimeout: () => limits.start() }
+    const trace = this.startCallSpan(integration, tool, context)
     let session: UpstreamSession | null = null
+    let ended: AgentToolResult | null = null
     try {
       session = await this.session(integrationId, currentPersonKey(), false, accountId)
       session.calls.push(call)
-      startTimer()
+      limits.start()
       const result = await session.client.callTool(
-        { name: tool, arguments: input },
-        { signal: AbortSignal.any([context.abortSignal, timeout.signal]), timeout: SDK_TIMEOUT_OFF_MS },
+        callRequest(tool, input, trace),
+        {
+          signal: AbortSignal.any([context.abortSignal, timeout.signal]),
+          timeout: SDK_TIMEOUT_OFF_MS,
+          onprogress: (update) => { limits.progressed(); progress.report(update) },
+        },
       )
       if (this.captureApp && !('isError' in result && result.isError)) await this.saveApp(this.captureApp, { integration, tool, input, result, context })
       const mapped = mapCallResult(result)
@@ -349,7 +368,7 @@ export class IntegrationGateway {
         this.readHeaderAgain(session)
         return this.callAs(integration, tool, input, context, accountId, true)
       }
-      return mapped
+      return ended = mapped
     } catch (error) {
       if (error instanceof ConnectionRequiredError) return this.connectionRequired(integration, context)
       if (stoppedWhileRunning(session)) return { ok: false, text: `${integration.name} stopped while it ran ${tool}.` }
@@ -363,7 +382,8 @@ export class IntegrationGateway {
         return this.connectionRequired(integration, context)
       }
       if (context.abortSignal.aborted) return { ok: false, text: `The ${integration.name} call was stopped.` }
-      if (timeout.signal.aborted) return { ok: false, text: `${integration.name} did not answer within ${CALL_TIMEOUT_MS / 1000} seconds.` }
+      if (reachedLimit === 'total') return ended = { ok: false, text: `${integration.name} did not finish ${tool} within ${CALL_MAX_TOTAL_MS / 60_000} minutes, so Solus stopped the call.` }
+      if (timeout.signal.aborted) return ended = { ok: false, text: `${integration.name} did not answer within ${CALL_TIMEOUT_MS / 1000} seconds.` }
       log.warn('integration_call_failed', { integrationId, tool, error: errorText(error) })
       if (session?.client.getProtocolEra() === 'modern' && isLostResponse(error)) {
         void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
@@ -373,7 +393,9 @@ export class IntegrationGateway {
       if (session && !(error instanceof SdkError)) void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
       return { ok: false, text: `${integration.name} could not run ${tool}: ${errorText(error)}` }
     } finally {
-      stopTimer()
+      limits.pause()
+      progress.end()
+      if (trace) endSolusSpan(trace.span, { endedAt: Date.now(), status: callSpanStatus(ended, context) })
       if (session) {
         const index = session.calls.indexOf(call)
         if (index >= 0) session.calls.splice(index, 1)
@@ -382,6 +404,27 @@ export class IntegrationGateway {
         } else this.touch(sessionKey(integrationId, session.personKey, session.accountId))
       }
     }
+  }
+
+  /**
+   * The `integration_call` span of a call that a turn made (§13), under the
+   * tool call's span. A call outside a turn has none and sends no trace context.
+   */
+  private startCallSpan(integration: Integration, tool: string, context: AgentToolContext): { span: ReturnType<typeof startSolusSpan>; traceparent: string } | null {
+    const sessionId = context.sessionId()
+    const turn = sessionId ? this.turnContextOf?.(sessionId, context.parentToolUseId()) : undefined
+    if (!turn) return null
+    const span = startSolusSpan({
+      kind: SPAN_KINDS.integrationCall,
+      name: tool,
+      service: SPAN_SERVICES.sessions,
+      startedAt: Date.now(),
+      attrs: { 'mcp.method.name': 'tools/call', 'gen_ai.tool.name': tool, integration: integration.slug },
+      dimensions: turn.dimensions,
+      parent: turn.context,
+      isClientRequest: true,
+    })
+    return { span, traceparent: w3cTraceparent(span) }
   }
 
   /**
@@ -899,6 +942,19 @@ export class IntegrationGateway {
   private notify(integrationId: string): void {
     for (const listener of this.listeners) listener(integrationId)
   }
+}
+
+/** A `tools/call` request. A call of a turn carries only `traceparent` (§13); never `tracestate` or `baggage`. */
+function callRequest(tool: string, input: ToolArguments, trace: { traceparent: string } | null): CallToolRequest['params'] {
+  const request: CallToolRequest['params'] = { name: tool, arguments: input }
+  if (trace) request._meta = { traceparent: trace.traceparent }
+  return request
+}
+
+/** How an `integration_call` span ends: the result's outcome, a stop, or a failure with no result. */
+function callSpanStatus(ended: AgentToolResult | null, context: AgentToolContext): SpanStatus {
+  if (ended) return ended.ok ? 'ok' : 'error'
+  return context.abortSignal.aborted ? 'interrupted' : 'error'
 }
 
 /** What a person calls an account: the identity its server reported, else its id. */

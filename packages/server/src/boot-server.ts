@@ -826,10 +826,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // when it starts (`integrationToolbox`), so nothing is listed at boot.
   const integrations = new IntegrationStore()
   // A command's verdict and facts are saved, so it starts once and a run start starts nothing (mcp-first-class.md §7.5).
-  const integrationGateway = new IntegrationGateway(integrations, globalThis, { savedFacts: new ServerFactsStore() })
+  const integrationGateway = new IntegrationGateway(integrations, undefined, { savedFacts: new ServerFactsStore() })
   const claudeAppProcesses = new ClaudeAppProcesses()
   const integrationApps = new IntegrationApps(integrationGateway, opts.sessionRuntime, claudeAppProcesses)
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))
+  integrationGateway.useTurnContext((sessionId, toolUseId) => opts.sessionRuntime.sessionEmitter.turnContextOf(sessionId, toolUseId))
   useClaudeAppCapture((sessionId, app) => integrationApps.captureClaude(sessionId, app))
   registerMcpAppHandlers(server, integrationApps)
   // Apps (docs/plans/apps.md): a backend on this host with its own data. An app's

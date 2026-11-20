@@ -4,6 +4,7 @@
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
   import { toolRowsCopyText } from "./lib/tool-row-copy";
+  import { toolProgressView } from "@solus/contracts/tool-progress";
   import { getMarkdownImageContext } from "./lib/markdown-image";
   import { toolRowImages } from "./lib/turn-images";
   import { toasts } from "../../lib/toasts";
@@ -119,6 +120,8 @@
   const runningStep = $derived(
     runningTool ? liveToolStep(runningTool.toolName || "Tool", runningTool.toolInput) : null,
   );
+  // An MCP call's own report of how far it is: its message as the row's object, a bar in the rail.
+  const progress = $derived(runningTool ? toolProgressView(runningTool.toolProgress) : null);
   // Running and failed both name the tool they are talking about; a finished
   // group names none, because the summary already counts them.
   const namedTool = $derived(runningTool ?? failedTool);
@@ -175,6 +178,7 @@
 
 {#snippet targetText()}{namedTarget}{/snippet}
 {#snippet thoughtText()}{thought}{/snippet}
+{#snippet progressText()}{progress?.message}{/snippet}
 
 <!-- No chassis at all: no fill, no hairline, no tint. This is the least
      important thing in the turn — it says how the answer was produced — so once
@@ -191,7 +195,13 @@
     expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
-    target={!isLive && namedTarget ? targetText : thought ? thoughtText : undefined}
+    target={!isLive && namedTarget
+      ? targetText
+      : progress?.message
+        ? progressText
+        : thought
+          ? thoughtText
+          : undefined}
     proseTarget={true}
     foregroundTarget={!!thought}
     glyphClass={failedTool && !runningTool ? "is-destructive" : ""}
@@ -248,6 +258,24 @@
     {#snippet rail()}
       {#if runningTool && tools.length > 1}
         <span>{doneCount}/{tools.length}</span>
+      {/if}
+      {#if progress?.fraction != null}
+        <span
+          class="relative inline-block h-1 w-10 shrink-0 overflow-hidden rounded-full bg-foreground/15"
+          role="progressbar"
+          aria-label="Tool progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress.percent}
+          data-testid="tool-progress-bar"
+        >
+          <!-- One finite transition per report; none when the reader asks for less motion. -->
+          <span
+            class="absolute inset-0 origin-left rounded-full bg-foreground/80 transition-transform duration-300 ease-out motion-reduce:transition-none"
+            style:transform={`scaleX(${progress.fraction})`}
+          ></span>
+        </span>
+        <span class="tabular-nums">{progress.percent}%</span>
       {/if}
       <span class="activity-rail-time">{duration}</span>
     {/snippet}
