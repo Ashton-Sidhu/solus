@@ -210,7 +210,7 @@
 {#if requestedPermissions.length}
   <div class="mb-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
     <Shield size={16} class="shrink-0" />
-    <span class="min-w-0 flex-1 truncate">This app asks to {mcpAppPermissionAction(requestedPermissions)}</span>
+    <span class="min-w-0 flex-1 py-1 break-words">This app asks to {mcpAppPermissionAction(requestedPermissions)}</span>
     <Button variant="ghost" class="shrink-0 pointer-coarse:h-11" onclick={grantPermissions}>Review…</Button>
   </div>
 {/if}
