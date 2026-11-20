@@ -2,7 +2,6 @@
   import { cutText } from "@solus/contracts/text-cut";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
-  import { prettyToolName } from "../../contexts/workspace/session.utils";
   import { toolRowsCopyText } from "./lib/tool-row-copy";
   import { toolProgressView } from "@solus/contracts/tool-progress";
   import { getMarkdownImageContext } from "./lib/markdown-image";
@@ -24,6 +23,7 @@
     activityKind,
     activityKinds,
     activitySummary,
+    failedToolLabel,
     formatActivityDuration,
     getToolDescription,
     getToolDescriptionFromParsed,
@@ -237,7 +237,7 @@
             liveActivityLabel(activityLabel, 0, true, turnStart)}{namedTarget ? ` ${namedTarget}` : ""}
         </span>
       {:else if failedTool}
-        <span class="tool-named">{prettyToolName(failedTool.toolName || "Tool")} failed</span>
+        <span class="tool-named">{failedToolLabel(failedTool.toolName || "Tool")}</span>
       {:else}
         {#each summary as segment, i (i)}
           {#if segment.strong}<span class="tool-named">{segment.text}</span
@@ -366,7 +366,7 @@
           {#if view.selectedToolId === step.id}
             {@const leftOut = toolRowLeftOut(step)}
             {#if leftOut.length > 0}
-              <ul class="m-0 list-none space-y-0.5 pb-1 ps-8 text-chrome-dense text-muted-foreground" aria-label="Left out of this result">
+              <ul class="m-0 list-none space-y-0.5 pb-1 ps-8 text-transcript-meta text-muted-foreground" aria-label="Left out of this result">
                 {#each leftOut as note, index (index)}
                   <li class="break-words">Left out: {note}</li>
                 {/each}

@@ -143,6 +143,8 @@ describe('native work log wording', () => {
     expect(toolRowLabel({ toolName: 'exec_command', input: '{"cmd":["bash","-lc","git status --short"]}' })).toBe('git status --short')
     expect(toolRowLabel({ toolName: 'Edit', input: '{"file_path":"/repo/src/app.ts"}' })).toBe('app.ts')
     expect(toolRowLabel({ toolName: 'Edit', input: '{"file_path":"/repo/src/app.ts"}' }, true)).toBe('/repo/src/app.ts')
+    // WHY: an MCP call names its server and tool, as desktop and the MCP task rows do, never the provider's raw name.
+    expect(toolRowLabel({ toolName: 'mcp__solus__linear__export_issues', input: '{}' })).toBe('linear · export_issues')
     expect(toolFullDetail({ input: '{"command":"bun test"}', errorHead: 'exit 1' })).toBe('bun test\n\nexit 1')
     expect(toolFullDetail({ input: null, errorHead: null })).toBeNull()
   })

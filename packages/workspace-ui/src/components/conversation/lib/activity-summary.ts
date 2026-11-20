@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { Message, TurnStartKind } from '@solus/contracts/types'
 import { isQuestionTool } from '@solus/contracts/question-history'
 import { prettyToolName } from '../../../contexts/workspace/session.utils'
+import { mcpToolLabel } from '@solus/client-core/mcp-tool-label'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import type { GroupedItem } from './turns'
@@ -383,14 +384,20 @@ function describeSolusTool(
     : description
 }
 
+/** A failed tool's row label: "linear · export_issues failed". */
+export function failedToolLabel(name: string): string {
+  return `${mcpToolLabel(name) ?? prettyToolName(name)} failed`
+}
+
 function describeMcpTool(
   name: string,
   parsed: ParsedToolInput,
   truncate: boolean,
 ): string {
-  if (parsed.sourceJson.trim() === '{}') return name
+  const label = mcpToolLabel(name) ?? name
+  if (parsed.sourceJson.trim() === '{}') return label
 
-  const description = `${name}: ${parsed.sourceJson}`
+  const description = `${label}: ${parsed.sourceJson}`
   return truncate && description.length > 60
     ? `${description.substring(0, 57)}...`
     : description
@@ -439,7 +446,7 @@ export function getToolDescription(
   input?: string,
   options: { truncate?: boolean } = {},
 ): string {
-  const pretty = prettyToolName(name)
+  const pretty = mcpToolLabel(name) ?? prettyToolName(name)
   const truncate = options.truncate ?? true
   if (!input) return pretty
   const parsed = parseToolInput(input)
@@ -453,6 +460,9 @@ export function getToolDescription(
  * input arrives, so the row does not repeat its tool name during the stream. */
 export function toolActivityTarget(name: string, input?: string): string {
   if (['Read', 'NotebookRead', 'Edit', 'NotebookEdit', 'Write'].includes(name) && !input) return ''
+  // The label already names an MCP call's server and tool, so its object is its arguments alone.
+  const mcpLabel = mcpToolLabel(name)
+  if (mcpLabel) return getToolDescription(name, input).slice(mcpLabel.length).replace(/^: /, '').trim()
   return getToolDescription(name, input).replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, '').trim()
 }
 

@@ -5,6 +5,7 @@ import { hostPathBaseName } from '@solus/contracts/host-path'
 import { isSecretTool, secretReceiptRows, secretReceiptText } from '@solus/contracts/secret-request'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import { toolCallCode, type ToolCallCode } from '@solus/client-core/tool-call-code'
+import { mcpToolLabel } from '@solus/client-core/mcp-tool-label'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 /**
@@ -162,7 +163,8 @@ export function toolRowLabel(tool: Pick<ToolTranscriptItem, 'toolName' | 'input'
   }
   if (action === 'browser' && parsed?.url) return parsed.url
   const detail = parsed?.description ?? path
-  return detail ? `${tool.toolName} ${compact(detail)}` : tool.toolName
+  const name = mcpToolLabel(tool.toolName) ?? tool.toolName
+  return detail ? `${name} ${compact(detail)}` : name
 }
 
 /** What one call is doing, in the present while it runs and the past after. */
