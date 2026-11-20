@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { Client, ProtocolError, type ElicitResult, type JSONRPCResponse } from '@modelcontextprotocol/client'
 import { MCP_TASK_STATUSES } from '@solus/contracts/integrations/mcp-task'
+import type { Integration } from '@solus/contracts/integration-types'
+import type { AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
 
 /**
  * The client side of the extension `io.modelcontextprotocol/tasks`
@@ -28,6 +30,29 @@ const taskSchema = z.object({
 
 /** The handle a server gives in place of a tool result. */
 export type McpTaskHandle = z.infer<typeof taskSchema>
+
+/** What the MCP task owner (`mcp-tasks.ts`) does for the gateway (docs/plans/mcp-first-class.md §12). */
+export interface McpTaskCalls {
+  /** A tool call that the server answered with a task handle: hold it, then give it to the background (§12.1). */
+  hold(call: HeldMcpTask): Promise<AgentToolResult>
+  /** An upstream session with a live MCP task is not closed when idle (§12.3). */
+  holdsUpstream(integrationId: string, personKey: string | null, accountId: string): boolean
+  /** A `stdio` process ended: its MCP tasks fail (§12.3). */
+  processEnded(integrationId: string, personKey: string | null): void
+}
+
+export interface HeldMcpTask {
+  integration: Integration
+  tool: string
+  accountId: string
+  personKey: string | null
+  handle: McpTaskHandle
+  context: AgentToolContext
+  traceparent: string | null
+}
+
+/** A status request found no running process of a `stdio` integration: its MCP tasks are gone with it. */
+export class ServerStoppedError extends Error {}
 
 /** One question the server asks in `input_required`; only an elicitation is shown (§0). */
 const inputRequestSchema = z.object({ method: z.string(), params: z.unknown().optional() })

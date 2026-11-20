@@ -225,7 +225,7 @@ function gatewayWith(integrations: Integration[], tools: Record<string, Upstream
     store: { list: () => integrations, get: (id: string) => integrations.find((integration) => integration.id === id) ?? null },
     toolsFor: async (id: string) => tools[id] ?? [],
     accountChoices: () => [],
-    factsFor: async () => ({ instructions: null }),
+    factsFor: async () => ({ instructions: null, capabilities: { prompts: false, resources: false, resourceSubscribe: false, tasks: false } }),
   }
 }
 

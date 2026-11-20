@@ -1,9 +1,7 @@
-import { z } from 'zod'
 import type { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { ProtocolError, SdkError, SdkErrorCode, type GetPromptResult, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
-import { MAX_MCP_PROMPTS_PER_SERVER } from '@solus/contracts/integrations/prompts'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
 import { currentPersonKey } from '../vault/acting-scope'
@@ -15,11 +13,12 @@ import { agentResultOf, mergedAccountResults, outputSchemaRefusal } from './resu
 import type { SavedServerFacts, ServerFactsKey, ServerFactsStore } from './server-facts-store'
 import { commandStartRefusal, type CommandStarter } from './command-admission'
 import { listUpstreamResources, NO_RESOURCES, type UpstreamResourceLists } from './resource-lists'
+import { listUpstreamPrompts, listUpstreamTools, serverCapabilitiesOf } from './upstream-lists'
 import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
 import { endSolusSpan } from '../execution/observability/tracer'
 import { accountLabel, callRequest, callSpanStatus, elicitFromCall, splitAccount, startCallSpan, type TurnContextOf } from './integration-call'
-import { cancelTask, MCP_TASKS_EXTENSION, taskHandleOf, TaskAwareClient, type McpTaskHandle } from './mcp-task-requests'
+import { cancelTask, MCP_TASKS_EXTENSION, ServerStoppedError, taskHandleOf, TaskAwareClient, type HeldMcpTask, type McpTaskCalls } from './mcp-task-requests'
 import {
   ConnectionRequiredError,
   errorText,
@@ -60,29 +59,6 @@ const STDIO_VERDICT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const STDIO_SESSION_LIMIT = 16
 
 /** What `connection_status` reports about one person's connection to an integration. */
-/** What the MCP task owner (`mcp-tasks.ts`) does for the gateway (docs/plans/mcp-first-class.md §12). */
-export interface McpTaskCalls {
-  /** A tool call that the server answered with a task handle: hold it, then give it to the background (§12.1). */
-  hold(call: HeldMcpTask): Promise<AgentToolResult>
-  /** An upstream session with a live MCP task is not closed when idle (§12.3). */
-  holdsUpstream(integrationId: string, personKey: string | null, accountId: string): boolean
-  /** A `stdio` process ended: its MCP tasks fail (§12.3). */
-  processEnded(integrationId: string, personKey: string | null): void
-}
-
-export interface HeldMcpTask {
-  integration: Integration
-  tool: string
-  accountId: string
-  personKey: string | null
-  handle: McpTaskHandle
-  context: AgentToolContext
-  traceparent: string | null
-}
-
-/** A status request found no running process of a `stdio` integration: its MCP tasks are gone with it. */
-export class ServerStoppedError extends Error {}
-
 export interface IntegrationConnectionReport {
   status: 'connected' | 'needs-sign-in' | 'not-connected'
   /** The account label, when connected and known. */
@@ -616,49 +592,34 @@ export class IntegrationGateway {
     return cached.tools
   }
 
-  private async list(integrationId: string, personKey: string | null, allowAnonymous = false, retried = false): Promise<UpstreamTool[]> {
+  /**
+   * Reads one list on a person's session. As a call does, a refused header is
+   * read again once, on a new session, before the person is asked to sign in.
+   */
+  private async listOn<T>(integrationId: string, personKey: string | null, allowAnonymous: boolean, read: (client: Client) => Promise<T>, retried = false): Promise<{ session: UpstreamSession; listed: T }> {
     const session = await this.session(integrationId, personKey, allowAnonymous)
+    try {
+      return { session, listed: await read(session.client) }
+    } catch (error) {
+      if (!session.authorized || !isAuthFailure(error)) throw error
+      if (!retried) {
+        this.readHeaderAgain(session)
+        return this.listOn(integrationId, personKey, allowAnonymous, read, true)
+      }
+      const integration = this.store.get(integrationId, ANY_ORGANIZATION)
+      if (integration) this.signInRefused(session, integration, error)
+      throw new ConnectionRequiredError()
+    }
+  }
+
+  private async list(integrationId: string, personKey: string | null, allowAnonymous = false): Promise<UpstreamTool[]> {
+    const { session, listed: { tools, expiresAt } } = await this.listOn(integrationId, personKey, allowAnonymous, (client) => listUpstreamTools(client, Date.now()))
     const key = sessionKey(integrationId, personKey)
-    const tools: UpstreamTool[] = []
-    let cursor: string | undefined
-    let expiresAt: number | null = null
-    do {
-      let page: Awaited<ReturnType<Client['listTools']>>
-      try {
-        page = await session.client.listTools(cursor ? { cursor } : undefined)
-      } catch (error) {
-        if (!session.authorized || !isAuthFailure(error)) throw error
-        // As a call does: one new session with the header read again, before the person is asked.
-        if (!retried) {
-          this.readHeaderAgain(session)
-          return this.list(integrationId, personKey, allowAnonymous, true)
-        }
-        const integration = this.store.get(integrationId, ANY_ORGANIZATION)
-        if (integration) this.signInRefused(session, integration, error)
-        throw new ConnectionRequiredError()
-      }
-      const ttl = z.number().safeParse(page.ttlMs)
-      if (ttl.success) {
-        const pageExpiry = Date.now() + Math.max(0, ttl.data)
-        expiresAt = expiresAt === null ? pageExpiry : Math.min(expiresAt, pageExpiry)
-      }
-      for (const tool of page.tools) {
-        tools.push({ name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, outputSchema: tool.outputSchema, annotations: tool.annotations, _meta: tool._meta })
-      }
-      cursor = page.nextCursor
-    } while (cursor)
     const previous = this.serverFacts.get(key)
-    const capabilities = session.client.getServerCapabilities()
     const instructions = session.client.getInstructions() ?? null
     this.serverFacts.set(key, {
       integrationId, tools, stale: false, expiresAt, prompts: promptsKept(previous),
-      era: session.client.getProtocolEra() ?? null, instructions,
-      capabilities: {
-        prompts: !!capabilities?.prompts,
-        resources: !!capabilities?.resources,
-        resourceSubscribe: !!capabilities?.resources?.subscribe,
-        tasks: !!capabilities?.extensions?.['io.modelcontextprotocol/tasks'],
-      },
+      era: session.client.getProtocolEra() ?? null, instructions, capabilities: serverCapabilitiesOf(session.client),
     })
     this.saveListed(session, key)
     if (previous?.instructions !== instructions) {
@@ -671,36 +632,9 @@ export class IntegrationGateway {
     return tools
   }
 
-  private async listPrompts(integrationId: string, personKey: string | null, retried = false): Promise<UpstreamPrompt[]> {
-    const session = await this.session(integrationId, personKey)
+  private async listPrompts(integrationId: string, personKey: string | null): Promise<UpstreamPrompt[]> {
+    const { session, listed: { prompts, expiresAt } } = await this.listOn(integrationId, personKey, false, (client) => listUpstreamPrompts(client, Date.now()))
     const key = sessionKey(integrationId, personKey)
-    const prompts: UpstreamPrompt[] = []
-    let cursor: string | undefined
-    let expiresAt: number | null = null
-    do {
-      let page: Awaited<ReturnType<Client['listPrompts']>>
-      try {
-        // The gateway's own cache decides when to list; the SDK's must not answer for it.
-        page = await session.client.listPrompts(cursor ? { cursor } : undefined, { cacheMode: 'refresh', timeout: CALL_TIMEOUT_MS })
-      } catch (error) {
-        if (!session.authorized || !isAuthFailure(error)) throw error
-        if (!retried) {
-          this.readHeaderAgain(session)
-          return this.listPrompts(integrationId, personKey, true)
-        }
-        const integration = this.store.get(integrationId, ANY_ORGANIZATION)
-        if (integration) this.signInRefused(session, integration, error)
-        throw new ConnectionRequiredError()
-      }
-      const ttl = z.number().safeParse(page.ttlMs)
-      if (ttl.success) {
-        const pageExpiry = Date.now() + Math.max(0, ttl.data)
-        expiresAt = expiresAt === null ? pageExpiry : Math.min(expiresAt, pageExpiry)
-      }
-      for (const prompt of page.prompts) prompts.push({ name: prompt.name, title: prompt.title, description: prompt.description, arguments: prompt.arguments })
-      cursor = prompts.length < MAX_MCP_PROMPTS_PER_SERVER ? page.nextCursor : undefined
-    } while (cursor)
-    prompts.splice(MAX_MCP_PROMPTS_PER_SERVER)
     const facts = this.serverFacts.get(key)
     const previous = facts?.prompts?.prompts
     if (facts) facts.prompts = { prompts, expiresAt }

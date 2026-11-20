@@ -157,6 +157,8 @@
 {#snippet command()}
   {#if commandEditor}
     {@const editor = commandEditor}
+    <!-- Escape from any field of the form closes the editor. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form class="flex flex-col gap-3" onsubmit={(event) => { event.preventDefault(); void saveCommand(); }}
       onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); commandEditor = null; } }}>
       <McpCommandFields form={editor} idPrefix="mcp-command-edit-{integration.id}" disabled={editor.isSaving || isOffline} />

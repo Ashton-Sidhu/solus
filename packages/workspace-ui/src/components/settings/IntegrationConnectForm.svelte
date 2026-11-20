@@ -205,6 +205,8 @@
     {@render fieldForm("API key", `integration-key-${integrationId}`, "password", flow.error)}
   {:else if flow?.kind === "values"}
     {@const names = flow.names}
+    <!-- Escape from any field of the form cancels, as it does in the API key field. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form class="flex flex-col gap-2.5" onsubmit={(event) => submitValues(event, names)} onkeydown={onFieldKeydown}>
       <McpCommandValues {names} values={valueDrafts} hasSaved={!!valuesText?.hasValues} idPrefix="integration-values-{integrationId}" disabled={isOffline} autofocus />
       <p class="text-chrome-dense text-(--solus-text-secondary)">The values stay on this host for you alone. Agents never see them, and Solus never shows them again.</p>
