@@ -157,6 +157,11 @@ export class IntegrationOAuth {
     this.clientMetadata = new PublishedClientMetadata({ fetch: this.fetch, now: this.now })
   }
 
+  /** Whether the host can sign in with Solus's Client ID Metadata Document now (§13.1). Reads it when its copy is old; never throws. */
+  async clientDocumentConfirmed(): Promise<boolean> {
+    return (await this.clientMetadata.current()) !== null
+  }
+
   /** Starts the acting person's sign-in, or returns the one they already have open for this integration and callback. */
   async start(integration: Integration, options: IntegrationOAuthStartOptions, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<IntegrationConnectStartResult> {
     if (integration.auth.kind !== 'oauth') throw new Error('This integration does not sign in with OAuth.')

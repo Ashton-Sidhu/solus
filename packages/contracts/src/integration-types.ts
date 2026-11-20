@@ -25,6 +25,13 @@ const oauthAuthSchema = z.object({
   /** True when the owner also saved a client secret. The secret itself never leaves the host. */
   hasClientSecret: z.boolean().optional(),
   /**
+   * `client-required` only because Solus's Client ID Metadata Document was not
+   * confirmed when the server refused (mcp-integrations.md §13.1): the server
+   * reads such documents but has no registration endpoint. The host takes the
+   * mark back once it confirms the document, with no step of the person.
+   */
+  awaitsClientDocument: z.literal(true).optional(),
+  /**
    * The server's authorization server is one Solus registered an app with
    * (§13.1): sign-in goes through that app and the person enters no client.
    * The owner's own client, when saved, still wins.

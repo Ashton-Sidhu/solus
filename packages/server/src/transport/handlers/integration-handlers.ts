@@ -123,7 +123,11 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
 
   server.register('integrationProbe', (args) => probeAddress(integrationProbeRequestSchema.parse(args[0]).url))
 
-  server.register('integrationList', (_args, ctx) => store.list(recordScopeOf(ctx.principal), ownerKeyOf(ctx.actor)).map((integration) => forReader(ctx.actor, integration)))
+  server.register('integrationList', (_args, ctx) => {
+    const integrations = store.list(recordScopeOf(ctx.principal), ownerKeyOf(ctx.actor))
+    void clearClientDocumentMarks(integrations)
+    return integrations.map((integration) => forReader(ctx.actor, integration))
+  })
 
   server.register('integrationGet', (args, ctx) => {
     const integration = store.getOwned(integrationIdRequestSchema.parse(args[0]).id, recordScopeOf(ctx.principal), ownerKeyOf(ctx.actor))
@@ -288,11 +292,34 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
    * will not register Solus. The record says so now, so every client shows the
    * client form and "Set up with an agent" instead of a sign-in that cannot work.
    */
-  function needsOwnerClient(integration: Integration): void {
+  async function needsOwnerClient(integration: Integration): Promise<void> {
     if (integration.auth.kind !== 'oauth' || integration.auth.registration === 'client-required') return
-    store.update(integration.id, { auth: { ...integration.auth, registration: 'client-required' } }, integration.organizationId)
-    log.info('integration_registration_refused', { integrationId: integration.id })
+    // A server that reads Client ID Metadata Documents refused because Solus's is not confirmed yet: the mark is taken back with it.
+    const awaitsClientDocument = integration.auth.registration === 'metadata-document' && !(await oauth.clientDocumentConfirmed())
+    const auth: IntegrationAuth = { ...integration.auth, registration: 'client-required' }
+    if (awaitsClientDocument) auth.awaitsClientDocument = true
+    store.update(integration.id, { auth }, integration.organizationId)
+    log.info('integration_registration_refused', { integrationId: integration.id, awaitsClientDocument })
     void events.broadcast('integration.changed', { integrationId: integration.id, change: 'updated' })
+  }
+
+  /**
+   * The marks made while Solus's Client ID Metadata Document was not confirmed
+   * go once the host confirms it: the record reads `metadata-document` again,
+   * and every client shows Connect in place of the client form. Read when a
+   * person lists their servers, so a deploy of the document reaches the record
+   * with no step of theirs; the document's own cache limits the reads.
+   */
+  async function clearClientDocumentMarks(integrations: Integration[]): Promise<void> {
+    const marked = integrations.filter((integration) => integration.auth.kind === 'oauth' && integration.auth.awaitsClientDocument)
+    if (marked.length === 0 || !(await oauth.clientDocumentConfirmed())) return
+    for (const integration of marked) {
+      if (integration.auth.kind !== 'oauth') continue
+      const { awaitsClientDocument: _cleared, ...auth } = integration.auth
+      store.update(integration.id, { auth: { ...auth, registration: 'metadata-document' } }, integration.organizationId)
+      log.info('integration_client_document_confirmed', { integrationId: integration.id })
+      void events.broadcast('integration.changed', { integrationId: integration.id, change: 'updated' })
+    }
   }
 
   server.register('integrationConnectStart', async (args, ctx) => {
@@ -321,7 +348,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
         try {
           return await oauth.start(integration, { callbackBaseUrl: request.callbackBaseUrl, fallbackHost: host, fallbackPort: port }, accountId)
         } catch (error) {
-          if (error instanceof OAuthClientRequiredError) needsOwnerClient(integration)
+          if (error instanceof OAuthClientRequiredError) await needsOwnerClient(integration)
           throw error
         }
       }
