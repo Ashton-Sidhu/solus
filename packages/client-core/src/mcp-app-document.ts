@@ -17,11 +17,14 @@ export function mcpAppFrameHeight(reportedHeight: number, prefersBorder: boolean
  * Android exposes the native message bridge to nested frames too, so the outer
  * page relays only its frame's messages, signed with `secret`, which the frame
  * cannot read. A second load of the frame is a navigation: the relay stops.
+ * The page declares both colour schemes, so it and the app frame follow the
+ * app's appearance, which the web view takes from the native theme.
  */
 export function nativeMcpAppDocument(snapshot: Pick<McpAppSnapshot, 'html' | 'csp'>, secret: string): string {
   const appDocument = mcpAppDocument(snapshot.html, snapshot.csp).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
   return `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <style>html,body{margin:0;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%}</style>
 <iframe id="app" sandbox="allow-scripts allow-forms" srcdoc="${appDocument}"></iframe>
 <script>

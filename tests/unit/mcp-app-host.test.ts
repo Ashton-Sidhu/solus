@@ -319,6 +319,18 @@ describe('MCP App permissions', () => {
     expect(JSON.parse(granted.posted[0]).result.hostCapabilities.sandbox.permissions).toEqual({ camera: {} })
   })
 
+  // WHY: an app that sets no colour scheme showed an opaque light frame in dark
+  // mode. Both schemes let the frame follow the client's theme without a reload,
+  // the policy stays the first thing in the document, and the app's own
+  // `color-scheme` (later in the document) still wins.
+  test('the app document follows the client theme and keeps its policy first', () => {
+    const html = mcpAppDocument('<style>:root{color-scheme:light}</style><p>Hi</p>', {})
+    expect(html.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"')).toBe(true)
+    expect(html).toContain('<meta name="color-scheme" content="light dark">')
+    expect(html.indexOf('name="color-scheme"')).toBeLessThan(html.indexOf(':root{color-scheme:light}'))
+    expect(nativeMcpAppDocument({ html: '<p>Hi</p>', csp: {} }, 'secret')).toContain('<meta name="color-scheme" content="light dark">')
+  })
+
   test('a base URI is allowed only from the declared origins', () => {
     expect(mcpAppDocument('', {})).toContain("base-uri 'none'")
     expect(mcpAppDocument('', { baseUriDomains: ['https://cdn.example.com'] })).toContain('base-uri https://cdn.example.com')

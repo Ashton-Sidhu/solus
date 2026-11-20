@@ -140,7 +140,10 @@ export interface McpAppToolInfo {
 /**
  * The app's document with its policy. Network access is limited to the app's
  * declared origins. Frames must also use an opaque sandbox origin, so the
- * document cannot read client state.
+ * document cannot read client state. It declares both colour schemes, so a
+ * frame takes the scheme of the client around it, live: in dark mode an app
+ * with no colours of its own draws on the dark card, not on an opaque light
+ * backdrop. An app's own `color-scheme` or colours win over the declaration.
  */
 export function mcpAppDocument(html: string, csp: McpAppCsp): string {
   const resources = csp.resourceDomains?.join(' ') ?? ''
@@ -157,5 +160,5 @@ export function mcpAppDocument(html: string, csp: McpAppCsp): string {
     `base-uri ${csp.baseUriDomains?.join(' ') || "'none'"}`,
     "form-action 'none'",
   ].join('; ')
-  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${html}`
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"><meta name="color-scheme" content="light dark">${html}`
 }
