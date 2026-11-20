@@ -15,21 +15,17 @@ export interface SessionHostTurn {
   pushRefused?: boolean
 }
 
-/** The session info property a host sets when the cloud refused its push. The
- *  contract does not declare it yet, so it is read as optional. */
-type WithPushRefusal = { pushRefusedHead?: string | null }
-
 /**
  * The facts one host answered for a session, or null when the host keeps no
  * session repository (an older host, or a Solus API, which reports no count).
  */
 export function sessionHostTurnOf(
   serverId: string,
-  meta: (Pick<SessionMeta, 'head' | 'syncedTurn'> & WithPushRefusal) | null | undefined,
+  meta: Pick<SessionMeta, 'head' | 'syncedTurn' | 'pushRefused'> | null | undefined,
 ): SessionHostTurn | null {
   if (!meta || meta.syncedTurn === undefined) return null
   const turn: SessionHostTurn = { serverId, head: meta.head ?? null, syncedTurn: meta.syncedTurn }
-  if (meta.pushRefusedHead) turn.pushRefused = true
+  if (meta.pushRefused) turn.pushRefused = true
   return turn
 }
 

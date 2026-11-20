@@ -61,9 +61,10 @@ describe('the newest head with the cloud', () => {
     expect(turns[0]?.syncedTurn).toBe(7)
   })
 
-  test('a refused push reads from the host property, which the contract does not declare yet', () => {
-    // WHY: the host worker adds `pushRefusedHead`; an absent field must read as not refused.
-    expect(sessionHostTurnOf('host-a', { head: HEAD_A, syncedTurn: 3, pushRefusedHead: HEAD_CLOUD } as never)?.pushRefused).toBe(true)
+  test('a refused push reads from the session info of the host', () => {
+    // WHY: the host sets `pushRefused` when the cloud refused its push. A client that reads another
+    // name never shows the message, and the person keeps sending prompts that the host refuses.
+    expect(sessionHostTurnOf('host-a', { head: HEAD_A, syncedTurn: 3, pushRefused: true })?.pushRefused).toBe(true)
     expect(sessionHostTurnOf('host-a', { head: HEAD_A, syncedTurn: 3 })?.pushRefused).toBeUndefined()
   })
 })
