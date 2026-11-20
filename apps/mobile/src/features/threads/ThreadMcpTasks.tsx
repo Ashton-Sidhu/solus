@@ -42,7 +42,7 @@ export function ThreadMcpTasks(props: {
   return (
     <View className="shrink-0 gap-1 px-4 pb-2">
       {props.view.tasks.map((task) => (
-        <McpTaskRow
+        <BackgroundItemRow
           key={task.id}
           item={mcpTaskItem(task)}
           mayDrive={props.mayDrive}
@@ -72,7 +72,8 @@ export function ThreadMcpTasks(props: {
   );
 }
 
-function McpTaskRow(props: {
+/** One row of the session's background work that the host keeps: an MCP task or a resource watch. */
+export function BackgroundItemRow(props: {
   readonly item: BackgroundItem;
   readonly mayDrive: boolean;
   readonly busyActionId: string | null;
@@ -88,7 +89,7 @@ function McpTaskRow(props: {
           <ActivityIndicator size="small" color={props.iconSubtleColor} />
         ) : (
           <SymbolView
-            name={item.state === "ended" ? "checkmark" : item.state === "stopped" ? "minus" : "exclamationmark.circle"}
+            name={item.state === "ended" ? "checkmark" : item.state === "stopped" ? "minus" : item.state === "waiting" ? "eye" : "exclamationmark.circle"}
             size={14}
             weight="medium"
             {...(item.state === "failed" ? { tintColorClassName: "accent-danger-foreground" } : { tintColor: props.iconSubtleColor })}
