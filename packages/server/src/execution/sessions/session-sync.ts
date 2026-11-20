@@ -267,9 +267,8 @@ export class SessionSync {
       await this.deps.repositories.named(finalRepository, signal).fetchBundle(fetched.repositoryPath, wasRefused)
       getDb().prepare('INSERT INTO session_storage (session_id, repository, head, turn_count) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET head = excluded.head, turn_count = excluded.turn_count')
         .run(sessionId, finalRepository, head, manifest.turns.length)
-      // Part C adds this column. A fetched cloud head is already pushed.
-      // SAFETY: SQLite PRAGMA table_info returns a name for each column.
-      if (fetched.source === 'cloud' && (getDb().prepare('PRAGMA table_info(session_storage)').all() as Array<{ name: string }>).some((column) => column.name === 'pushed_head')) {
+      // A fetched cloud head is already pushed.
+      if (fetched.source === 'cloud') {
         getDb().prepare('UPDATE session_storage SET pushed_head = ?, reported_head = ?, push_refused_head = NULL, push_error = NULL WHERE session_id = ?').run(head, head, sessionId)
       }
       if (gitCheckout) this.rt.sessionCheckouts.setSessionGitEnvironment(sessionId, cwd, gitCheckout)
