@@ -3,7 +3,7 @@
 A review guide is a walkthrough of a change that an agent writes for the
 person who decides if the change should land. It works on a working tree, a
 session, a branch, and a pull request, with Claude and Codex. It shows on
-desktop and web. Mobile does not show guides yet.
+desktop and web. Mobile also shows guides for pull requests.
 
 The guide explains the change. It does not look for bugs. Review agents and
 human reviewers do that.
@@ -14,6 +14,11 @@ The guide groups the change by concern, not by file. Each section has a title,
 an explanation, and the diff of the files it is about. Sections are in reading
 order: `core`, then `supporting`, then `low-signal`. Low-signal sections are
 closed until you open them.
+
+On desktop and web, guides with three or more main sections have a rail on
+the left. Hover over it or focus it with the keyboard to see the section
+titles. Select a title to jump to that section. A darker marker shows your
+current section.
 
 Every changed file is in the guide. If the agent leaves a file out, Solus adds
 it to a **Remaining changes** section.
@@ -68,7 +73,8 @@ Guides for a working tree, a session, or a branch do not have this action yet.
 On iOS and Android, the pull request screen has a **Guide** tab when the host
 has review guides. The guide is a tour: one stop for each section, in section
 order, with the section's explanation, its attention note, and its hunks. Tap a
-hunk to open that file in the **Files** tab. **Write guide** asks the host to
-write a guide for the pull request; the tab shows the progress and keeps the
-last guide readable. A guide for an older head stays readable, but it does not
-show its hunks until it is written again.
+hunk to open that file in the **Files** tab. For tours with three or more stops,
+a darker marker shows your current stop. Use **All stops** to jump to any stop.
+**Write guide** asks the host to write a guide for the pull request. The tab
+shows the progress and keeps the last guide readable. A guide for an older
+head stays readable, but it does not show its hunks until it is written again.

@@ -3,8 +3,9 @@ import { railTimeLines } from '@solus/workspace-ui/components/conversation/lib/h
 
 // WHY: the rail hangs in the reading column's side gutter, which is 48px in
 // every pane under ~1130px, and the transcript clips anything wider. "11:22 AM"
-// on one line was cut to "11:22 A". Every line must stay as narrow as a bare
-// clock, so the day period, the day, and the year each take their own line.
+// on one line was cut to "11:22 A". Where the gutter is that narrow the rail
+// stacks the parts, so each part must stay as narrow as a bare clock: the day
+// period, the day, and the year are separate parts.
 const GUTTER_LINE_CHARS = 5
 
 const now = new Date(2026, 10, 20, 15, 0).getTime()

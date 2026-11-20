@@ -3,7 +3,7 @@ import { useCallback, useSyncExternalStore } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
 import { useApp } from '../../app/app-context'
 import { useAppForeground } from '../../lib/appState'
-import type { TaskInvolvement } from '@solus/contracts/task-inspection'
+import type { TaskInvolvement } from '@solus/contracts/task-data'
 
 export function useTasks(hostId: string, query = '', involvement: TaskInvolvement = 'all') {
   const app = useApp(),

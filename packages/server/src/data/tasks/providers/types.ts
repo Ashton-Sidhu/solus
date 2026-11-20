@@ -1,4 +1,4 @@
-import type { TaskInvolvement } from '@solus/contracts/task-inspection'
+import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { z } from 'zod'
 import type { TaskRef, TaskSource, TaskStatusCategory } from '@solus/contracts/task-sources'
 import type {

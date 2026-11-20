@@ -50,11 +50,11 @@ test('an account reset clears details and ignores replies from the old account',
   const response = deferred<TaskDetails>()
   const api = new FakeApi().on('tasksGet', () => response.promise)
   const store = await storeForApi(api)
-  const reading = store.detail(details.task.id)
+  const reading = store.data(details.task.id).loadDetails()
   store.reset()
   response.resolve(details)
   await reading
-  expect(store.current.details.size).toBe(0)
+  expect(store.data(details.task.id).current.details.value).toBeNull()
 })
 
 test('a source response from the old account cannot start more reads', async () => {
@@ -93,13 +93,13 @@ test('two page requests share one command and a failed page leaves details intac
       throw new Error('rate limited')
     })
   const store = await storeForApi(api)
-  await store.detail(details.task.id)
+  await store.data(details.task.id).loadDetails()
   const first = store.loadMore(REPO),
     second = store.loadMore(REPO)
   expect(first).toBe(second)
   response.resolve()
   await expect(first).rejects.toThrow('rate limited')
   expect(api.callsOf('tasksLoadMore')).toHaveLength(1)
-  expect(store.current.details.get(details.task.id)?.task.title).toBe('Fix login')
+  expect(store.data(details.task.id).current.details.value?.task.title).toBe('Fix login')
   expect(store.current.loadingMore).toBe(false)
 })

@@ -1,8 +1,9 @@
+import { keepEqual } from '../keep-equal'
 import type { RunningServer, ServerEndpoint, NativeServerForward, NativeServerForwardRequest } from '@solus/contracts/running-servers'
 import { isInsideHostPath, sameHostPath } from '@solus/contracts/host-path'
-import type { RunningServersSource } from './store'
+import type { RunningServersSource } from './controller'
 
-export interface ServerForwarding {
+export interface RunningServersForwarding {
   keyPrefix: string
   origin: () => string
   start: (request: NativeServerForwardRequest) => Promise<NativeServerForward>
@@ -10,39 +11,40 @@ export interface ServerForwarding {
   list: () => Promise<NativeServerForward[]>
   openExternal: (url: string) => Promise<boolean>
 }
-export interface ServerCommands {
+export interface RunningServersCommands {
   source: () => RunningServersSource | null
-  forwarding?: ServerForwarding
+  forwarding?: RunningServersForwarding
   retain: (path: string | null) => () => void
   refresh: () => Promise<void>
   changed: () => void
 }
-export interface ServerRow { server: Server; endpoint: ServerEndpoint; checkoutPath: string | null; label: string }
+export interface RunningServersRow { server: RunningServers; endpoint: ServerEndpoint; checkoutPath: string | null; label: string }
+
+export interface RunningServersState { data: RunningServer; revision: number }
 
 /** One discovered process. Its commands and forwarded ports live and end with this identity. */
-export class Server {
-  #data: RunningServer
+export class RunningServers {
   #present = true
   #generation = 0
   readonly #forwards = new Map<string, { view: NativeServerForward; release: () => void }>()
   readonly #attempts = new Map<string, Promise<NativeServerForward>>()
   readonly #tokens = new Map<string, number>()
 
-  constructor(data: RunningServer, private readonly commands: ServerCommands) { this.#data = data }
-  get serverId() { return this.#data.serverId }
-  get process() { return this.#data.process }
-  get location() { return this.#data.location }
-  get startedBy() { return this.#data.startedBy }
-  get actions() { return this.#data.actions }
-  get endpoints() { return this.#data.endpoints }
+  constructor(data: RunningServer, private readonly commands: RunningServersCommands, private readonly state: RunningServersState = { data, revision: 0 }) {}
+  get serverId() { return this.state.data.serverId }
+  get process() { return this.state.data.process }
+  get location() { return this.state.data.location }
+  get startedBy() { return this.state.data.startedBy }
+  get actions() { return this.state.data.actions }
+  get endpoints() { return this.state.data.endpoints }
   get checkoutPath() { return this.location.worktreePath ?? this.process.workingDirectory }
   get sourceLabel() { return this.startedBy.kind === 'agent' ? 'Agent' : this.startedBy.kind === 'terminal' ? 'Terminal' : 'Configured' }
   get canForward() { return !!this.commands.forwarding }
-  get forwards() { return [...this.#forwards.values()].map((forward) => forward.view) }
-  get rows(): ServerRow[] { return this.endpoints.map((endpoint) => ({ server: this, endpoint, checkoutPath: this.checkoutPath, label: this.endpointLabel(endpoint) })) }
+  get forwards() { void this.state.revision; return [...this.#forwards.values()].map((forward) => forward.view) }
+  get rows(): RunningServersRow[] { return this.endpoints.map((endpoint) => ({ server: this, endpoint, checkoutPath: this.checkoutPath, label: this.endpointLabel(endpoint) })) }
   update(data: RunningServer): void {
     if (data.serverId !== this.serverId) throw new Error('A server cannot change its process identity.')
-    this.#data = data
+    this.state.data = keepEqual(data, this.state.data)
   }
   matchesCheckout(path: string | null, root?: string): boolean {
     if (!path) return this.location.worktreePath === null
@@ -56,7 +58,7 @@ export class Server {
     const format = type.includes('json') ? 'JSON' : type.includes('html') ? 'HTML' : endpoint.response ? 'HTTP' : 'TCP'
     return `:${endpoint.port} · ${format}`
   }
-  forwarded(endpoint: ServerEndpoint): NativeServerForward | undefined { return this.#forwards.get(endpoint.endpointId)?.view }
+  forwarded(endpoint: ServerEndpoint): NativeServerForward | undefined { void this.state.revision; return this.#forwards.get(endpoint.endpointId)?.view }
   async stop() {
     const source = this.connected()
     const result = await source.api.runningServerStop(this.serverId)
@@ -92,7 +94,7 @@ export class Server {
     }
     const previous = this.#forwards.get(endpoint.endpointId)
     this.#forwards.set(endpoint.endpointId, { view, release: previous?.release ?? this.commands.retain(this.checkoutPath) })
-    if (!previous || previous.view.forwardId !== view.forwardId) this.commands.changed()
+    if (!previous || previous.view.forwardId !== view.forwardId) this.changed()
     return view
   }
   async stopForward(forwardId: string): Promise<void> {
@@ -100,7 +102,7 @@ export class Server {
       this.#tokens.set(endpointId, (this.#tokens.get(endpointId) ?? 0) + 1)
       this.#forwards.delete(endpointId)
       forward.release()
-      this.commands.changed()
+      this.changed()
       await this.commands.forwarding?.stop(forwardId)
       if (!this.#attempts.has(endpointId)) this.#tokens.delete(endpointId)
     }
@@ -130,6 +132,7 @@ export class Server {
     this.#generation++
     for (const forward of this.forwards) void this.stopForward(forward.forwardId).catch(() => {})
   }
+  private changed(): void { this.state.revision++; this.commands.changed() }
   private connected(): RunningServersSource {
     const source = this.commands.source()
     if (!this.#present || !source?.ready) throw new Error('This server is no longer connected.')

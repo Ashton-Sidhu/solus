@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import NavigationRail from "../ui/navigation-rail/NavigationRail.svelte";
   import {
     hasRoomForRail,
     indexMinimapNodes,
@@ -33,7 +34,6 @@
 
   let paneWidth = $state(0);
   let activeIndex = $state(0);
-  let hovered = $state(false);
 
   const settings = getSettingsContext();
   const visible = $derived(
@@ -179,157 +179,11 @@
 </script>
 
 {#if visible}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <nav
-    class="msg-nav left-4"
-    class:expanded={hovered}
-    aria-label="Jump to message"
-    onmouseenter={() => (hovered = true)}
-    onmouseleave={() => (hovered = false)}
-  >
-    {#each items as it, i (it.id)}
-      <button
-        type="button"
-        class="msg-nav-row"
-        class:active={i === activeIndex}
-        title={it.preview}
-        aria-label={it.preview}
-        aria-current={i === activeIndex ? "true" : undefined}
-        onclick={() => goTo(it.id)}
-      >
-        <span class="msg-nav-dash" aria-hidden="true"></span>
-        <span class="msg-nav-label">{it.preview}</span>
-      </button>
-    {/each}
-  </nav>
+  <NavigationRail
+    class="left-4 top-[calc(50%-var(--solus-composer-inset,0px)/2)] max-h-[72%]"
+    label="Jump to message"
+    {items}
+    {activeIndex}
+    onSelect={goTo}
+  />
 {/if}
-
-<style>
-  .msg-nav {
-    position: absolute;
-    /* Centred on the reading area, not on the column: the floating composer
-       reserves the band below it (ADR-0027), so half of that band comes off
-       the centre. Held across a fold, so the ticks never move with the bar. */
-    top: calc(50% - var(--solus-composer-inset, 0px) / 2);
-    transform: translateY(-50%);
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    /* Rows touch: the space between ticks is each row's own padding, so every
-       pixel of the rail picks a message and none falls between two rows. */
-    gap: 0;
-    max-height: 72%;
-    padding: 6px;
-    border-radius: 14px;
-    border: 1px solid transparent;
-    background: transparent;
-    overflow-y: auto;
-    overflow-x: hidden;
-    scrollbar-width: none;
-    transition:
-      background-color 0.16s ease,
-      border-color 0.16s ease,
-      box-shadow 0.16s ease,
-      gap 0.16s ease;
-  }
-  .msg-nav::-webkit-scrollbar {
-    display: none;
-  }
-  .msg-nav.expanded {
-    gap: 1px;
-    background: var(--solus-container-bg);
-    border-color: var(--solus-container-border);
-    box-shadow: var(--solus-card-shadow-collapsed);
-  }
-
-  .msg-nav-row {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    width: 100%;
-    padding: 3px 0;
-    border: 0;
-    border-radius: 9px;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-  }
-  .msg-nav.expanded .msg-nav-row {
-    padding: 7px 11px;
-  }
-
-  /* Collapsed: the label contributes zero box (no width AND no height) so the
-     ticks stack on the row padding alone instead of on the label's line-height. */
-  .msg-nav-label {
-    max-width: 0;
-    max-height: 0;
-    opacity: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-size: var(--text-sm);
-    line-height: 1.25;
-    text-align: left;
-    transition:
-      max-width 0.18s ease,
-      max-height 0.18s ease,
-      opacity 0.14s ease;
-  }
-  .msg-nav.expanded .msg-nav-label {
-    max-width: 15rem;
-    max-height: 1.5rem;
-    opacity: 1;
-  }
-
-  /* Collapsed ruler ticks: tight hairline marks like a scrubber. The active tick
-     is longer, fully opaque and inked in the primary text colour. Hidden once the rail expands. */
-  .msg-nav-dash {
-    display: block;
-    width: 11px;
-    height: 2px;
-    flex-shrink: 0;
-    border-radius: 2px;
-    background: currentColor;
-    opacity: 0.5;
-    transition:
-      width 0.16s ease,
-      height 0.16s ease,
-      opacity 0.16s ease,
-      background-color 0.16s ease;
-  }
-  .msg-nav-row.active {
-    color: var(--solus-text-primary);
-  }
-  .msg-nav-row.active .msg-nav-dash {
-    width: 16px;
-    height: 2.5px;
-    opacity: 1;
-  }
-  .msg-nav.expanded .msg-nav-dash {
-    display: none;
-  }
-
-  /* Expanded rows read as a menu: hover and the current location both use
-     neutral washes, the current one a step stronger. */
-  .msg-nav.expanded .msg-nav-row:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .msg-nav.expanded .msg-nav-row.active {
-    background: var(--solus-surface-active);
-    color: var(--solus-text-primary);
-  }
-  .msg-nav-row:focus-visible {
-    outline: 2px solid var(--solus-accent);
-    outline-offset: 2px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .msg-nav,
-    .msg-nav-label,
-    .msg-nav-dash {
-      transition: none;
-    }
-  }
-</style>

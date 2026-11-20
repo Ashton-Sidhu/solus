@@ -166,8 +166,12 @@ export function materialKindsOf(ref: CredentialRef): readonly VaultMaterialKind[
   }
 }
 
-/** Whether an executor may upload this ref: everything but a provider token, which belongs to the client that issued it. */
-export const isUploadable = (ref: CredentialRef) => ref.kind !== 'provider'
+/**
+ * Whether an executor may upload this ref: everything but a provider token, which
+ * belongs to the client that issued it. A Linear key is pasted, not issued, so a
+ * host that kept it before its user signed in moves it into their account.
+ */
+export const isUploadable = (ref: CredentialRef) => ref.kind !== 'provider' || ref.provider === 'linear'
 
 // ── Delivery: what an executor receives for one use, never a refresh token ──
 

@@ -1,4 +1,4 @@
-/** Keep notifications inside Settings' pointer and keyboard focus boundary. */
+/** Use Settings' viewport-sized focus boundary without changing toast offsets. */
 class ToastSurface {
   target = $state<HTMLElement | null>(null)
 

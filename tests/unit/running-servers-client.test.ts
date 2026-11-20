@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { RunningServersStore, type RunningServersSource } from '@solus/client-core/running-servers'
+import { RunningServersController, type RunningServersSource } from '@solus/client-core/running-servers'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { RunningServer } from '@solus/contracts/running-servers'
 import { runningServer } from './running-server-fixtures'
@@ -11,7 +11,7 @@ function setup() {
   const unwatch = mock(async () => {})
   const source: RunningServersSource = { api: { runningServersWatch: watch, runningServersUnwatch: unwatch, runningServerStop: async () => ({ status: 'stopped' }), runningServerTunnel: async () => ({ relativeUrl: '/tunnel', expiresAt: 1 }), runningServersCheckoutRoots: async (paths) => paths.map((path) => ({ path, root: path })), projectConfigLoad: async () => null, projectConfigSave: async (_path, config) => config }, events, ready: true }
   let connectionChanged = () => {}
-  const store = new RunningServersStore(() => ({ ...source }), (changed) => { connectionChanged = changed; return () => {} })
+  const store = new RunningServersController(() => ({ ...source }), (changed) => { connectionChanged = changed; return () => {} })
   return { store, watch, unwatch, events, source,
     answer: async (servers = [runningServer()]) => { resolve(servers); await Promise.resolve(); await Promise.resolve() },
     connect: (ready: boolean) => { source.ready = ready; connectionChanged() },
@@ -77,7 +77,7 @@ describe('shared running server state', () => {
 })
 
 test('a missing host starts disconnected rather than loading forever', () => {
-  const store = new RunningServersStore(() => null, () => () => {})
+  const store = new RunningServersController(() => null, () => () => {})
   const release = store.retain()
   expect(store.status).toBe('disconnected')
   release()
@@ -97,7 +97,7 @@ test('an equal host update keeps object identity and does not invalidate readers
   release()
 })
 
-function whenReady(store: RunningServersStore): Promise<void> {
+function whenReady(store: RunningServersController): Promise<void> {
   if (store.status === 'ready') return Promise.resolve()
   return new Promise((resolve) => {
     const unsubscribe = store.subscribe(() => { if (store.status === 'ready') { unsubscribe(); resolve() } })
@@ -122,7 +122,7 @@ test('forwarding keeps discovery retained and Stop forwarding closes its last le
   s.source.api.runningServersWatch = async () => [runningServer()]
   const stop = mock(async (_forwardId: string) => {})
   const start = mock(async (request: import('@solus/contracts/running-servers').NativeServerForwardRequest) => ({ forwardId: 'forward', endpointKey: request.endpointKey, localPort: 1234, url: 'http://127.0.0.1:1234/' }))
-  const store = new RunningServersStore(() => s.source, () => () => {}, { keyPrefix: 'host', origin: () => 'https://host.test', start, stop, list: async () => [], openExternal: async () => true })
+  const store = new RunningServersController(() => s.source, () => () => {}, { keyPrefix: 'host', origin: () => 'https://host.test', start, stop, list: async () => [], openExternal: async () => true })
   const ready = whenReady(store)
   const release = store.retain()
   await ready
@@ -138,7 +138,7 @@ test('forwarding keeps discovery retained and Stop forwarding closes its last le
   expect(s.unwatch).toHaveBeenCalledTimes(1)
 })
 
-test('a refresh updates the same Server object, and a removed identity cannot be stopped', async () => {
+test('a refresh updates the same RunningServers object, and a removed identity cannot be stopped', async () => {
   const s = setup()
   const release = s.store.retain()
   await s.answer()

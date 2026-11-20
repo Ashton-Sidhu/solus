@@ -129,7 +129,9 @@ CREATE TABLE "app_workflow_runs" (
 	"interruptions" integer DEFAULT 0 NOT NULL,
 	"started_at" bigint NOT NULL,
 	"updated_at" bigint NOT NULL,
-	"finished_at" bigint
+	"finished_at" bigint,
+	"version" integer,
+	"dismissed_at" bigint
 );
 --> statement-breakpoint
 CREATE TABLE "app_workflow_steps" (
@@ -421,6 +423,26 @@ CREATE TABLE "session_records" (
 	"lead_started_at" bigint
 );
 --> statement-breakpoint
+CREATE TABLE "session_repositories" (
+	"cloud_scope" text NOT NULL,
+	"session_id" text NOT NULL,
+	"owner_user_id" text NOT NULL,
+	"repository" text NOT NULL,
+	"storage_scope" text NOT NULL,
+	"head" text,
+	"synced_turn" integer DEFAULT 0 NOT NULL,
+	"last_run_host_id" text,
+	"running_host_id" text,
+	"running_since" bigint,
+	"title" text,
+	"provider" text,
+	"model" text,
+	"repository_key" text,
+	"branch" text,
+	"last_activity_at" bigint DEFAULT 0 NOT NULL,
+	CONSTRAINT "session_repositories_cloud_scope_session_id_pk" PRIMARY KEY("cloud_scope","session_id")
+);
+--> statement-breakpoint
 CREATE TABLE "session_transcripts" (
 	"organization_id" text DEFAULT 'local' NOT NULL,
 	"session_id" text NOT NULL,
@@ -457,7 +479,8 @@ CREATE TABLE "task_sources" (
 	"columns" text DEFAULT '[]' NOT NULL,
 	"write_state" text,
 	"fetched_at" bigint,
-	"truncated" integer DEFAULT 0 NOT NULL
+	"truncated" integer DEFAULT 0 NOT NULL,
+	"next_cursor" text
 );
 --> statement-breakpoint
 CREATE TABLE "tasks" (
@@ -472,6 +495,7 @@ CREATE TABLE "tasks" (
 	"state_category" text NOT NULL,
 	"state_id" text,
 	"category" text NOT NULL,
+	"assignees" text DEFAULT '[]' NOT NULL,
 	"assignee" text,
 	"assignee_avatar_url" text,
 	"labels" text DEFAULT '[]' NOT NULL,
@@ -689,6 +713,7 @@ CREATE INDEX "session_by_parent" ON "session_records" USING btree ("parent_sessi
 CREATE INDEX "session_by_parent_activity" ON "session_records" USING btree ("parent_session_id","last_activity_at" desc,"session_id" desc);--> statement-breakpoint
 CREATE INDEX "session_by_project_path" ON "session_records" USING btree ("project_path","last_activity_at");--> statement-breakpoint
 CREATE INDEX "session_by_place" ON "session_records" USING btree ("place","last_activity_at");--> statement-breakpoint
+CREATE INDEX "session_repositories_owner" ON "session_repositories" USING btree ("owner_user_id","last_activity_at" desc);--> statement-breakpoint
 CREATE INDEX "session_transcripts_search_pending" ON "session_transcripts" USING btree ("session_id") WHERE search_text = '';--> statement-breakpoint
 CREATE INDEX "task_source_items_task" ON "task_source_items" USING btree ("task_id");--> statement-breakpoint
 CREATE INDEX "webhook_deliveries_by_webhook" ON "webhook_deliveries" USING btree ("webhook_id","arrived_at","id");--> statement-breakpoint

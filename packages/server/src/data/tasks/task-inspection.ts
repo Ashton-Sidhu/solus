@@ -11,10 +11,10 @@ import { z } from 'zod'
 import { parseTaskKey, type TaskSource } from '@solus/contracts/task-sources'
 import type {
   TaskExternalIssue,
-  TaskInspection,
+  TaskProviderData,
   TaskReactionContent,
   TaskTemplate
-} from '@solus/contracts/task-inspection'
+} from '@solus/contracts/task-data'
 import { githubRun, jiraTransport, taskAdapters } from './providers/registry'
 import { getTask } from './task'
 import type { RecordScope } from '../../admission/principal'
@@ -102,7 +102,7 @@ const INSPECTION_QUERY = `query($id: ID!, $before: String) {
   } }
 }`
 
-const emptyInspection = (reason: string): TaskInspection => ({
+const emptyInspection = (reason: string): TaskProviderData => ({
   author: null,
   assignees: [],
   reactions: [],
@@ -113,7 +113,7 @@ const emptyInspection = (reason: string): TaskInspection => ({
   unavailableReason: reason
 })
 
-export async function inspectTask(taskId: string, cursor?: string): Promise<TaskInspection> {
+export async function inspectTask(taskId: string, cursor?: string): Promise<TaskProviderData> {
   const ref = parseTaskKey(taskId)
   if (!ref) throw new Error('Invalid task key.')
   if (cursor && cursor.length > 4096) throw new Error('Invalid history cursor.')

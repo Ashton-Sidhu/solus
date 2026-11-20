@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
 import { useHostUser } from '@solus/server/host/host-user'
 import { AccountReads } from '@solus/server/vault/account-reads'
-import { credentialLocationOf, TYPESAFE_REF, Vault, type McpCredentialRef } from '@solus/server/vault/vault'
+import { credentialLocationOf, LINEAR_REF, TYPESAFE_REF, Vault, type McpCredentialRef } from '@solus/server/vault/vault'
 import { typesafeDeliverySchema } from '@solus/contracts/vault'
 import { memorySecretStore } from './integrations/memory-secrets'
 
@@ -97,6 +97,19 @@ describe('link and unlink', () => {
     expect(requests[0].method).toBe('PUT')
     expect(requests[0].url).toBe('https://cloud.test/v1/vault')
     expect(await requests[0].json()).toEqual({ ref: { kind: 'typesafe' }, material: { kind: 'key', key: 'ts-key' }, expectedVersion: null, label: null })
+    expect(secrets.values.size).toBe(0)
+  })
+
+  test('a Linear key saved before sign-in moves into the account instead of being lost', async () => {
+    // WHY: a signed-out person keeps their Linear key on this host. Signing in must
+    // carry it to the account, as it does the TypeSafe key, so Tasks keep reading Linear.
+    const { vault, requests, secrets } = vaultWith({ answer: async () => Response.json({ version: 1 }, { status: 201 }) })
+    useHostUser({ localId: 'mac' })
+    vault.save('local:mac', LINEAR_REF, { key: 'lin_api_key' })
+    useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
+    await vault.settleLinked('alice')
+    expect(requests).toHaveLength(1)
+    expect(await requests[0].json()).toEqual({ ref: LINEAR_REF, material: { kind: 'key', key: 'lin_api_key' }, expectedVersion: null, label: null })
     expect(secrets.values.size).toBe(0)
   })
 

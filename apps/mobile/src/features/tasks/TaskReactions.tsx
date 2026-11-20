@@ -1,6 +1,6 @@
 import { View } from 'react-native'
-import type { TaskInspectionStore, TaskInspectionState } from '@solus/client-core/task-inspection'
-import type { TaskReactionContent } from '@solus/contracts/task-inspection'
+import type { TaskDataStore, TaskProviderState } from '@solus/client-core/task-data'
+import type { TaskReactionContent } from '@solus/contracts/task-data'
 import { TaskAction, type TaskCommand } from './task-controls'
 const REACTIONS: Array<{ content: TaskReactionContent; label: string }> = [
   { content: 'THUMBS_UP', label: '👍' },
@@ -14,22 +14,22 @@ const REACTIONS: Array<{ content: TaskReactionContent; label: string }> = [
 ]
 export function TaskReactions({
   targetId,
-  inspection,
+  provider,
   store,
   busy,
   act
 }: {
   targetId: string
-  inspection: TaskInspectionState
-  store: TaskInspectionStore
+  provider: TaskProviderState
+  store: TaskDataStore
   busy: boolean
   act: TaskCommand
 }) {
-  if (!inspection.value?.capabilities.reactions) return null
+  if (!provider.value?.capabilities.reactions) return null
   return (
     <View className="flex-row flex-wrap gap-1">
       {REACTIONS.map((reaction) => {
-        const held = inspection.value?.reactions.find(
+        const held = provider.value?.reactions.find(
           (item) => item.targetId === targetId && item.content === reaction.content
         )
         return (

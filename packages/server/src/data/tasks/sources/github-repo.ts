@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { TaskInvolvement } from '@solus/contracts/task-inspection'
+import type { TaskInvolvement } from '@solus/contracts/task-data'
 import type { TaskSource } from '@solus/contracts/task-sources'
 import type { TaskAssigneeCandidate } from '@solus/contracts/task-types'
 import { createRepoIssue, GitHubTaskProvider, listRepoAssignees, withoutProjectScope } from '../providers/github'

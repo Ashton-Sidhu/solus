@@ -104,7 +104,7 @@ export async function createTasksWorld(): Promise<TasksWorld> {
     'svelte/reactivity': file('node_modules/svelte/src/reactivity/index-client.js'),
     '@solus/client-core/server-connections': connectionsModule,
     '@solus/client-core/host-key': file('packages/client-core/src/host-key.ts'),
-    '@solus/client-core/task-inspection': file('packages/client-core/src/task-inspection.ts'),
+    '@solus/client-core/task-data': file('packages/client-core/src/task-data.ts'),
     '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
     '../hosts/hosts.svelte': hostsModule,
     './task-snoozes.store.svelte': snoozesModule,

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { TaskInspectionState } from '@solus/client-core/task-inspection';
+  import type { TaskProviderState } from '@solus/client-core/task-data';
   import type { Task } from '../../../contexts/tasks/task.svelte';
-  import type { TaskReactionContent } from '@solus/contracts/task-inspection';
+  import type { TaskReactionContent } from '@solus/contracts/task-data';
   import { parseTaskKey } from '@solus/contracts/task-sources';
   import { toasts } from '../../../lib/toasts';
   let {
@@ -13,7 +13,7 @@
     enabled?: boolean;
     onOpenExternal: (url: string) => void;
   } = $props();
-  let inspection = $state<TaskInspectionState>({ value: null, pending: false, loadingMore: false, error: null });
+  let provider = $state<TaskProviderState>({ value: null, pending: false, loadingMore: false, error: null });
   let busy = $state(false);
   const reactions: { content: TaskReactionContent; label: string }[] = [
     { content: 'THUMBS_UP', label: '👍' },
@@ -29,22 +29,22 @@
   let targetId = $state('');
   const selectedTarget = $derived(targetId || issueId);
   $effect(() => {
-    const store = task.inspection;
+    const store = task.data;
     const off = store.subscribe(() => {
-      inspection = store.current;
+      provider = store.current.provider;
     });
-    inspection = store.current;
-    if (enabled && task.kind === 'issue') void store.refresh();
+    provider = store.current.provider;
+    if (enabled && task.kind === 'issue') void store.loadProvider();
     return off;
   });
   async function react(content: TaskReactionContent) {
     busy = true;
     try {
-      const previous = inspection.value?.reactions.find(
+      const previous = provider.value?.reactions.find(
         (reaction) =>
           reaction.targetId === selectedTarget && reaction.content === content,
       );
-      await task.inspection.react(
+      await task.data.react(
         selectedTarget,
         content,
         !previous?.viewerHasReacted,
@@ -69,30 +69,30 @@
       <button
         type="button"
         class="rounded-md p-2 text-workspace-chrome text-muted-foreground hover:bg-muted pointer-coarse:min-h-12"
-        disabled={inspection.pending}
-        onclick={() => void task.inspection.refresh()}
-        >{inspection.pending ? 'Refreshing…' : 'Refresh'}</button
+        disabled={provider.pending}
+        onclick={() => void task.data.loadProvider()}
+        >{provider.pending ? 'Refreshing…' : 'Refresh'}</button
       >
     </div>
-    {#if inspection.error}<p class="text-sm text-destructive" role="alert">
-        {inspection.error} Loaded history is retained.
+    {#if provider.error}<p class="text-sm text-destructive" role="alert">
+        {provider.error} Loaded history is retained.
       </p>{/if}
-    {#if inspection.value}
-      {#if inspection.value.unavailableReason}<p
+    {#if provider.value}
+      {#if provider.value.unavailableReason}<p
           class="text-sm text-muted-foreground"
         >
-          {inspection.value.unavailableReason}
+          {provider.value.unavailableReason}
         </p>{/if}
-      {#if inspection.value.author}<p class="text-sm text-muted-foreground">
-          Opened by {inspection.value.author}
+      {#if provider.value.author}<p class="text-sm text-muted-foreground">
+          Opened by {provider.value.author}
         </p>{/if}
-      {#if inspection.value.commentsTruncated}<p
+      {#if provider.value.commentsTruncated}<p
           class="text-sm text-muted-foreground"
         >
           The provider returned only part of the comments. Open the provider to
           read all comments.
         </p>{/if}
-      {#if inspection.value.capabilities.reactions}
+      {#if provider.value.capabilities.reactions}
         <label class="grid gap-1 text-sm"
           >React to
           <select
@@ -113,7 +113,7 @@
         </label>
         <div class="flex flex-wrap gap-1">
           {#each reactions as reaction (reaction.content)}
-            {@const held = inspection.value.reactions.find(
+            {@const held = provider.value.reactions.find(
               (item) =>
                 item.targetId === selectedTarget &&
                 item.content === reaction.content,
@@ -130,9 +130,9 @@
           {/each}
         </div>
       {/if}
-      {#if inspection.value.pullRequests.length}
+      {#if provider.value.pullRequests.length}
         <h3 class="text-sm font-medium">Provider pull requests</h3>
-        {#each inspection.value.pullRequests as pr (pr.url)}
+        {#each provider.value.pullRequests as pr (pr.url)}
           <button
             type="button"
             class="rounded-md p-2 text-left text-sm hover:bg-muted"
@@ -145,28 +145,28 @@
         {/each}
       {/if}
       <ol class="grid gap-2 text-sm text-muted-foreground">
-        {#each inspection.value.events as event (event.id)}
+        {#each provider.value.events as event (event.id)}
           <li>
             <span class="text-foreground">{event.actor ?? 'Provider'}</span>
             {event.text} · {new Date(event.at).toLocaleString()}
           </li>
         {:else}
           <li>
-            {inspection.pending
+            {provider.pending
               ? 'Loading history…'
               : 'No provider events loaded.'}
           </li>
         {/each}
       </ol>
-      {#if inspection.value.historyCursor}
+      {#if provider.value.historyCursor}
         <button
           type="button"
           class="justify-self-start rounded-md border border-border px-3 py-2 text-workspace-chrome hover:bg-muted"
-          disabled={inspection.loadingMore || inspection.pending}
-          onclick={() => void task.inspection.loadMore()}
-          >{inspection.loadingMore
+          disabled={provider.loadingMore || provider.pending}
+          onclick={() => void task.data.loadOlderHistory()}
+          >{provider.loadingMore
             ? 'Loading…'
-            : inspection.error
+            : provider.error
               ? 'Retry older history'
               : 'Load older history'}</button
         >

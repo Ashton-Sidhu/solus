@@ -1,4 +1,4 @@
-import { TaskInspectionStore } from '@solus/client-core/task-inspection'
+import { TaskDataStore } from '@solus/client-core/task-data'
 // One task, as this client can read and act on it.
 //
 // GitHub and Jira own every task (docs/plans/provider-owned-tasks.md). A host
@@ -80,7 +80,7 @@ export class Task implements TaskRecord {
 
   // --- What this client knows besides the row -----------------------------
 
-  readonly inspection: TaskInspectionStore
+  readonly data: TaskDataStore
   readonly #store: TasksStore
 
   /** Whether any host has described this task yet. `TasksStore.get` mints a task
@@ -116,7 +116,7 @@ export class Task implements TaskRecord {
   constructor(store: TasksStore, id: string) {
     this.#store = store
     this.id = id
-    this.inspection = new TaskInspectionStore(id, () => {
+    this.data = new TaskDataStore(id, () => {
       if (!this.serverId) throw new Error('The task host is disconnected.')
       return serverConnections.apiFor(this.serverId)
     })
@@ -137,7 +137,7 @@ export class Task implements TaskRecord {
   set serverId(serverId: string | null) {
     if (this.#serverId === serverId) return
     this.#serverId = serverId
-    this.inspection.reset()
+    this.data.reset()
   }
 
   /** Hidden while its Undo toast is up. The draft still exists on the provider
@@ -247,9 +247,15 @@ export class Task implements TaskRecord {
       const serverId = await this.ownerHost()
       if (!serverId) throw new Error('No connected host has this task.')
       const [details, others] = await Promise.all([
-        serverConnections.apiFor(serverId).tasksGet(this.id),
+        this.data.loadDetails(),
         this.#readOtherAttachments(serverId),
       ])
+      if (this.serverId !== serverId) throw new Error('The task host changed during the read.')
+      if (this.data.current.details.value !== details) {
+        const current = this.data.current.details.value
+        if (current) return current
+        throw new Error('The task changed during the read.')
+      }
       this.#attachmentHosts.clear()
       for (const { serverId: otherServerId, attachments } of others) {
         for (const link of attachments.links) {
@@ -629,6 +635,7 @@ export class Task implements TaskRecord {
    * nothing else, so no surface can narrow them by opening a task.
    */
   applyDetails(details: TaskDetails): void {
+    this.data.adopt(details)
     this.hydrate(details.task)
     this.#details = details
     this.#applyDetailPrLinks(details)

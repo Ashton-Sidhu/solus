@@ -251,6 +251,7 @@ import { registerProviderHandlers } from './transport/handlers/provider-handlers
 import { PrSync } from './prs/pr-sync'
 import { PrWatcher } from './prs/pr-watcher'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
+import { registerVaultHandlers } from './transport/handlers/vault-handlers'
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
 import { setConnectionConnectNeededListener } from './connections/connection-tools'
 import { setConfigToolHost } from './execution/agents/tools/config-tools'
@@ -1258,6 +1259,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerWorkOutboxApplier()
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
   registerAtlassianHandlers(server)
+  registerVaultHandlers(server)
   setAtlassianOAuthCompletedListener((event) => events.broadcast('atlassian.oauthCompleted', event))
   setConnectionConnectNeededListener((request) => events.broadcast('connection.connectNeeded', request))
   // A config write from an agent tool converges every mounted client the same

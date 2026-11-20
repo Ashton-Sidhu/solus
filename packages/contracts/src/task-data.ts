@@ -21,7 +21,7 @@ export interface TaskProviderPullRequest {
   state: 'open' | 'closed' | 'merged' | 'unknown'
   closesIssue: boolean
 }
-export interface TaskInspection {
+export interface TaskProviderData {
   author: string | null
   assignees: TaskAssigneeCandidate[]
   commentsTruncated?: boolean
@@ -51,7 +51,7 @@ export interface TaskTemplate {
 }
 export interface TaskExternalIssue {
   details: TaskDetails
-  inspection: TaskInspection
+  inspection: TaskProviderData
   readOnly: boolean
 }
 export type TaskInvolvement = 'all' | 'authored' | 'assigned' | 'mentioned'

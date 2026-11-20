@@ -1,6 +1,8 @@
+import type { TaskDetailsRead, TaskProviderRead, TaskReadOptions } from './task-read'
+import type { VaultKeyRef, VaultKeySave, VaultKeyStatus } from './vault-keys'
 import type { PrReactionContent, PrReactions, PrUrlInspection } from './pr-social'
 import type { RepoRef } from './providers'
-import type { TaskInvolvement, TaskInspection, TaskReactionContent, TaskTemplate, TaskExternalIssue } from './task-inspection'
+import type { TaskInvolvement, TaskProviderData, TaskReactionContent, TaskTemplate, TaskExternalIssue } from './task-data'
 import type { RunningServer, StopRunningServerResult, RunningServerTunnel, NativeServerForward, NativeServerForwardRequest } from './running-servers'
 import type { VoiceTranscriptionOptions } from './voice-dictionary'
 import type { VoiceTranscript, VoicePartial, VoiceStreamRequest, VoiceStreamFeedRequest, VoiceWarmRequest } from './voice-stream'
@@ -726,6 +728,9 @@ export interface SolusAPI {
   presenceSetEditing(request: PresenceSetEditingRequest): Promise<void>
   /** The caller's own TypeSafe key: where it is, never its value. */
   typeSafeKeyStatus(): Promise<TypeSafeKeyStatus>
+  vaultKeyStatus(ref: VaultKeyRef): Promise<VaultKeyStatus>
+  vaultKeySave(input: VaultKeySave): Promise<void>
+  vaultKeyDisconnect(ref: VaultKeyRef): Promise<void>
   /** Saves or (with null) removes the caller's key, where this host keeps it. */
   typeSafeKeySet(apiKey: string | null): Promise<TypeSafeKeyStatus>
   /** This host's durable config. */
@@ -1109,8 +1114,9 @@ export interface SolusAPI {
   /** Read one task from its provider, with its comments and its attachments on
    *  this host. Answers the host's last copy, with `fromCache`, when the
    *  provider does not answer. */
-  tasksGet(id: string): Promise<TaskDetails>
-  tasksInspect(id: string, cursor?: string): Promise<TaskInspection>
+  tasksGet(id: string, read?: TaskDetailsRead): Promise<TaskDetails>
+  tasksGet(id: string, read: TaskProviderRead): Promise<TaskProviderData>
+  tasksGet(id: string, read?: TaskReadOptions): Promise<TaskDetails | TaskProviderData>
   tasksReact(id: string, targetId: string, content: TaskReactionContent, add: boolean): Promise<void>
   tasksTemplates(source: TaskSource): Promise<TaskTemplate[]>
   tasksResolve(url: string): Promise<TaskExternalIssue>

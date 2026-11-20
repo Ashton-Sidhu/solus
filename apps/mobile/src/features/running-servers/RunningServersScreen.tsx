@@ -1,6 +1,6 @@
 import { SERVER_LIST_PAGE_SIZE, serverUrlsFromText, type ServerEndpoint } from '@solus/contracts/running-servers';
 import { runningServers } from './running-servers.store';
-import type { Server } from '@solus/client-core/running-servers';
+import type { RunningServers } from '@solus/client-core/running-servers';
 import { hostPathBaseName } from '@solus/contracts/host-path';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState, useSyncExternalStore } from 'react';
@@ -43,7 +43,7 @@ export function RunningServersScreen({ route, navigation }: ScreenProps<'Running
     catch (error) { fail(error instanceof Error ? error.message : String(error)); }
     finally { setSavingUrls(false); }
   };
-  const open = async (server: Server, endpoint: ServerEndpoint) => {
+  const open = async (server: RunningServers, endpoint: ServerEndpoint) => {
     try {
       const connection = app.connections.connection(hostId);
       if (!connection) throw new Error('This host is disconnected.');
@@ -56,7 +56,7 @@ export function RunningServersScreen({ route, navigation }: ScreenProps<'Running
       navigation.navigate('ThreadBrowserPreview', { hostId, sessionId, browserPageId: page.browserPageId });
     } catch (error) { fail(error instanceof Error ? error.message : String(error)); }
   };
-  const stop = async (server: Server) => {
+  const stop = async (server: RunningServers) => {
     setBusy(server.serverId);
     try {
       const result = await server.stop();

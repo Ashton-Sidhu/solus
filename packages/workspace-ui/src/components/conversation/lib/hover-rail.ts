@@ -11,10 +11,11 @@ function formatterFor(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat 
 }
 
 /**
- * The rail's stamp, one short line each. The rail hangs in the reading
- * column's gutter, which is only 48px wide in any pane under ~1130px, so no
- * line may be wider than a clock: "11:22 AM" on one line is clipped by the
- * transcript's edge, "11:22" over "AM" is not.
+ * The rail's stamp, as the parts it may break between. The rail hangs in the
+ * reading column's gutter: a wide gutter shows "Mon 11:22 AM" on one line, but
+ * in any pane under ~1130px the gutter is only 48px, and the transcript's edge
+ * clips anything wider. There the parts stack, so no part may be wider than a
+ * bare clock.
  *
  * Within the last day it is just the clock — the transcript never prints a
  * date inline, and a reader scanning today's thread only needs the time. Past

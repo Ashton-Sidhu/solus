@@ -54,11 +54,13 @@
   class:is-touch={runtime.isTouchDevice}
 >
   {#if timeLines.length > 0}
+    <!-- One line where the gutter is wide enough; it breaks only between the
+         parts, and only where the gutter is narrow. -->
     <span
-      class="hover-rail-time flex flex-col gap-0.5 text-conversation-gutter {side === 'right' ? 'items-start' : 'items-end'}"
+      class="hover-rail-time max-w-full text-conversation-gutter {side === 'right' ? 'text-left' : 'text-right'}"
       {title}
     >
-      {#each timeLines as line, i (i)}<span>{line}</span>{/each}
+      {#each timeLines as line, i (i)}{#if i > 0}{" "}{/if}<span class="whitespace-nowrap">{line}</span>{/each}
     </span>
   {/if}
   {#if text || onCopy}
@@ -84,6 +86,9 @@
     right: 100%;
     bottom: 0.375rem;
     margin-right: 0.625rem;
+    /* The rail may not reach past the pane edge, where the transcript clips it. */
+    width: max-content;
+    max-width: calc(var(--transcript-gutter, 3rem) - 0.875rem);
     gap: 0.25rem;
     opacity: 0;
     /* Hide is slower than reveal, and lags slightly so the rail survives the
@@ -114,7 +119,7 @@
   .hover-rail-time {
     color: var(--muted-foreground);
     opacity: 0.55;
-    white-space: nowrap;
+    line-height: 1.25;
     user-select: none;
   }
 

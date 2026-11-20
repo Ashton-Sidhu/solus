@@ -30,3 +30,12 @@ export function draftWithUnsentRemarks(draft: string, remarks: readonly string[]
   const text = typed.join('\n\n')
   return draft.trim() ? `${draft.trimEnd()}\n\n${text}` : text
 }
+
+/** An option's preview as markdown. A preview is usually a mockup or a code
+ *  snippet laid out in columns, and markdown reflows its lines and drops its
+ *  leading spaces. So a preview with no fenced block of its own shows verbatim,
+ *  as one fenced block. A preview with a fence is markdown the agent wrote. */
+export function previewMarkdown(preview: string): string {
+  if (/^ {0,3}(```|~~~)/m.test(preview)) return preview
+  return `\`\`\`\n${preview.replace(/\n+$/, '')}\n\`\`\``
+}

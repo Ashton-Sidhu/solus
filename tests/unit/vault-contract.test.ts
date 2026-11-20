@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import {
   credentialRefSchema,
   deliverySchemaOf,
+  isUploadable,
   refKeyOf,
   vaultConnectRequestSchema,
   vaultSaveKeyRequestSchema,
@@ -47,6 +48,17 @@ describe('credential refs', () => {
     expect(credentialRefSchema.safeParse({ kind: 'mcp', serverUrl: 'not a url' }).success).toBe(false)
     // The host's integration id is not part of the account's ref.
     expect(credentialRefSchema.safeParse({ kind: 'mcp', serverUrl: 'https://a.test/mcp', integrationId: 'i' }).success).toBe(false)
+  })
+})
+
+describe('uploads', () => {
+  test('a host may upload a pasted key, but never a provider token', () => {
+    // WHY: a GitHub, Google, or Atlassian token belongs to the client that issued
+    // it. A Linear key was pasted, so the host that kept it moves it at sign-in.
+    expect(isUploadable({ kind: 'provider', provider: 'linear' })).toBe(true)
+    expect(isUploadable({ kind: 'typesafe' })).toBe(true)
+    expect(isUploadable({ kind: 'provider', provider: 'github' })).toBe(false)
+    expect(isUploadable({ kind: 'provider', provider: 'atlassian' })).toBe(false)
   })
 })
 

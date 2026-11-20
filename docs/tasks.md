@@ -53,8 +53,10 @@ connections offer:
 - the GitHub Projects that your GitHub connection can see;
 - the Jira projects and the Jira boards of the connected Atlassian site.
 
-A kind that offers nothing says why, for example "Connect GitHub in Settings
-first".
+A kind that offers nothing says why in the one-row footer of the menu: the
+logo of each provider with a problem, and "Connect GitHub, Jira, and Linear",
+which opens Settings › Integrations. Each logo shows its full reason as a
+tooltip, for example "Connect GitHub again to add Projects".
 
 To add a source that the list does not show, type or paste it into the search
 field of the control:
@@ -353,6 +355,23 @@ open their native provider form so required fields and validation are preserved.
 Native task screens read `tasksStoreFor(context, hostId)` from the Tasks
 feature. The store is created on first use and shared by the task list, task
 details and source setup for that host. Reading it does not start a request.
-`TasksStore` in client-core owns task state and commands. The feature owns its
+`TasksStore` in client-core owns list and source state and task commands.
+Its per-task `TaskDataStore` owns detail and provider reads. The feature owns its
 cache and clears state when the account or organization changes, or when a host
 is removed. `SolusApp` does not construct or cache task stores.
+
+## Task data reads
+
+Task data uses one RPC with typed read sections:
+
+```ts
+api.tasksGet(taskId) // TaskDetails: fields, description, comments, links, activity
+api.tasksGet(taskId, { section: 'provider' }) // TaskProviderData: history, reactions, people, PR facts
+api.tasksGet(taskId, { section: 'provider', cursor }) // Older provider history
+```
+
+The default details call is unchanged. A provider response does not include the task
+body or its comments. Both client surfaces use `TaskDataStore` for cached reads,
+loading state, errors and stale-response checks. Reads of the same section share
+an in-flight request. A failed section keeps its last value and does not clear
+the other section. There is no separate inspection RPC or inspection store.
