@@ -18,22 +18,24 @@ export interface UpstreamResourceLists {
   expiresAt: number | null
 }
 
+/** A page's `ttlMs`, which a legacy server leaves out. */
+const TTL = z.number().optional().catch(undefined)
+
 export const NO_RESOURCES: UpstreamResourceLists = { resources: [], templates: [], expiresAt: null }
 
 /** Lists `resources/list` and `resources/templates/list` page by page, at most 200 entries each. */
 export async function listUpstreamResources(client: Client, now: number): Promise<UpstreamResourceLists> {
   if (!client.getServerCapabilities()?.resources) return NO_RESOURCES
   const lists: UpstreamResourceLists = { resources: [], templates: [], expiresAt: null }
-  const expire = (ttlMs: unknown) => {
-    const ttl = z.number().safeParse(ttlMs)
-    if (!ttl.success) return
-    const expiry = now + Math.max(0, ttl.data)
+  const expire = (ttlMs: number | undefined) => {
+    if (ttlMs === undefined) return
+    const expiry = now + Math.max(0, ttlMs)
     lists.expiresAt = lists.expiresAt === null ? expiry : Math.min(lists.expiresAt, expiry)
   }
   let cursor: string | undefined
   do {
     const page = await client.listResources({ cursor })
-    expire(page.ttlMs)
+    expire(TTL.parse(page.ttlMs))
     for (const resource of page.resources) {
       if (lists.resources.length >= MAX_LISTED_RESOURCES) break
       lists.resources.push(withoutEmpty({ uri: resource.uri, name: resource.name, title: resource.title, description: resource.description, mimeType: resource.mimeType, size: resource.size }))
@@ -42,7 +44,7 @@ export async function listUpstreamResources(client: Client, now: number): Promis
   } while (cursor)
   do {
     const page = await client.listResourceTemplates({ cursor })
-    expire(page.ttlMs)
+    expire(TTL.parse(page.ttlMs))
     for (const template of page.resourceTemplates) {
       if (lists.templates.length >= MAX_LISTED_RESOURCES) break
       lists.templates.push(withoutEmpty({ uriTemplate: template.uriTemplate, name: template.name, title: template.title, description: template.description, mimeType: template.mimeType }))
@@ -86,6 +88,6 @@ export function expandUriTemplate(template: string, values: ReadonlyMap<string, 
 }
 
 /** A `resources/read` answer as MCP content, so the one mapper (`agentResultOf`, §6) reads it as it reads a tool result. */
-export function readAsContent(result: ReadResourceResult): { content: Array<{ type: 'resource'; resource: ReadResourceResult['contents'][number] }> } {
+export function readAsContent(result: ReadResourceResult) {
   return { content: result.contents.map((resource) => ({ type: 'resource' as const, resource })) }
 }

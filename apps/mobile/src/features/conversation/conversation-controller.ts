@@ -37,7 +37,8 @@ import { parseAgentAuthCommand } from '@solus/contracts/agent-auth'
 import { mayWorkLocallyDuringSetup } from '@solus/contracts/setup-card'
 import { seatProviderSchema } from '@solus/contracts/seats'
 import { AgentAuthFlow } from './agent-auth-flow'
-import type { Integration, IntegrationConnectNeeded, IntegrationCustomServerNeeded } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationConnectNeeded, IntegrationCustomServerNeeded, IntegrationResource } from '@solus/contracts/integration-types'
+import { resourceAttachments } from './lib/resource-attachments'
 import { Listeners } from '../../lib/listeners'
 import { SessionSuggestionsFeed } from './session-suggestions'
 import { loweredPermissionMode, workPolicy } from '../policy/lib/policy-view'
@@ -711,6 +712,37 @@ export class ConversationController {
     this.attachments = [...this.attachments, ...referencedAttachments(refs, this.deps.uuid)]
     this.flush(true)
     return true
+  }
+
+  /**
+   * Has the host read an MCP resource into this conversation's attachments
+   * (docs/plans/mcp-first-class.md §11.3). It counts as an upload until the
+   * host answers, so a prompt sent meanwhile waits for it; a failed read says
+   * why in a notice.
+   */
+  attachResource(resource: IntegrationResource): void {
+    if (this.attachments.length + this.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT) {
+      this.model.addNotice(`A message can carry at most ${MAX_ATTACHMENT_UPLOAD_COUNT} attachments.`, 'error')
+      this.flush()
+      return
+    }
+    const name = resource.title ?? resource.name
+    const landed: Promise<UploadedAttachment | null> = Promise.resolve().then(async () => {
+      try {
+        const read = resourceAttachments(await this.deps.connection.api.integrationResourceAttach(this.uploadContext(), { integrationId: resource.integrationId, uri: resource.uri }))
+        if (!this.closed && this.uploads.includes(upload)) this.attachments = [...this.attachments, ...read]
+        return read[0] ?? null
+      } catch (error) {
+        this.model.addNotice(`Could not read ${name}: ${error instanceof Error ? error.message : String(error)}`, 'error')
+        return null
+      } finally {
+        this.uploads = this.uploads.filter((each) => each !== upload)
+        this.flush(true)
+      }
+    })
+    const upload: InFlightUpload = { landed }
+    this.uploads = [...this.uploads, upload]
+    this.flush(true)
   }
 
   /** Takes an attachment off the next prompt. The host keeps the upload. */

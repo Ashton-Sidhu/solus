@@ -11,6 +11,7 @@ const ATTACHMENT_MENU_ACTIONS: MenuAction[] = [
   { id: "files", title: "Choose Files", image: "folder" },
 ];
 const REFERENCE_SESSION_ACTION: MenuAction = { id: "session", title: "Reference Session…", image: "text.bubble" };
+const MCP_RESOURCE_ACTION: MenuAction = { id: "resource", title: "MCP Resource…", image: "server.rack" };
 
 export function ComposerAttachmentButton(props: {
   readonly disabled?: boolean;
@@ -21,6 +22,8 @@ export function ComposerAttachmentButton(props: {
   readonly attachmentsFull?: boolean;
   /** Offers "Reference Session…": a session reference is text, not a file. */
   readonly onReferenceSession?: () => void;
+  /** Offers "MCP Resource…": the host reads a resource into the attachments. */
+  readonly onAttachResource?: () => void;
 }) {
   const { scale } = useAndroidControlSizing();
   const button = (
@@ -42,7 +45,9 @@ export function ComposerAttachmentButton(props: {
     </Pressable>
   );
 
-  const attachActions = props.attachmentsFull ? [] : props.supportsFiles ? ATTACHMENT_MENU_ACTIONS : ATTACHMENT_MENU_ACTIONS.slice(0, 1);
+  const pickActions = props.supportsFiles ? ATTACHMENT_MENU_ACTIONS : ATTACHMENT_MENU_ACTIONS.slice(0, 1);
+  const resourceActions = props.onAttachResource ? [MCP_RESOURCE_ACTION] : [];
+  const attachActions = props.attachmentsFull ? [] : [...pickActions, ...resourceActions];
   const actions = props.onReferenceSession ? [...attachActions, REFERENCE_SESSION_ACTION] : attachActions;
   if (props.disabled || actions.length === 0 || (!props.supportsFiles && !props.onReferenceSession)) {
     return button;
@@ -61,6 +66,8 @@ export function ComposerAttachmentButton(props: {
           void props.onPickFiles();
         } else if (nativeEvent.event === "session") {
           props.onReferenceSession?.();
+        } else if (nativeEvent.event === "resource") {
+          props.onAttachResource?.();
         }
       }}
     >

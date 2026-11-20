@@ -20,6 +20,14 @@ const PAGE_SIZE = 100
 
 type ResourceServer = Pick<Integration, 'id' | 'name' | 'slug' | 'auth'>
 
+/** What `list_integration_resources` answers: one page, and the servers that could not list. */
+interface ListAnswer {
+  resources: ListedEntry[]
+  nextCursor?: string
+  unavailable?: string[]
+  note?: string
+}
+
 /** One entry of the list the agent reads: a resource has a `uri`, a template a `uriTemplate`. */
 interface ListedEntry {
   server: string
@@ -67,7 +75,7 @@ export function resourceAgentTools(servers: ResourceServer[], gateway: Pick<Inte
       }
       const start = Math.max(0, Number.parseInt(input.cursor ?? '0', 10) || 0)
       const page = entries.slice(start, start + PAGE_SIZE)
-      const answer: { resources: ListedEntry[]; nextCursor?: string; unavailable?: string[]; note?: string } = { resources: page }
+      const answer: ListAnswer = { resources: page }
       if (start + PAGE_SIZE < entries.length) answer.nextCursor = String(start + PAGE_SIZE)
       if (failures.length) answer.unavailable = failures
       if (entries.some((entry) => entry.uriTemplate)) answer.note = 'A `uriTemplate` is not readable as it is: fill in its {variables} to make a URI.'

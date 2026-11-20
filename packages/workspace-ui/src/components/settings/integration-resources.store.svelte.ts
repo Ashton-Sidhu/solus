@@ -87,7 +87,7 @@ class IntegrationResourcesStore {
 
   /** Every list of the host is read again; the old one stays until the new one lands. */
   private reload(serverId: string): void {
-    for (const key of [...this.lists.keys()]) {
+    for (const key of this.lists.keys()) {
       const [host, projectPath] = key.split('\u0000')
       if (host === serverId) void this.load(serverId, projectPath || undefined)
     }
