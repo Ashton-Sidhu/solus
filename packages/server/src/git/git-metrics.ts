@@ -1,3 +1,5 @@
+import type { GitPolicy } from './git-process'
+
 /**
  * Every git subprocess is timed and counted under its subcommand and outcome.
  * Checkpoints, snapshots, status refreshes and worktree setup all spawn git, and
@@ -25,6 +27,8 @@ const OPTIONS_WITH_VALUE = new Set(['-c', '-C', '--git-dir', '--work-tree', '--n
 export type GitOutcome = 'ok' | 'error' | 'aborted'
 
 export interface GitCommandMeasurement {
+  /** The policy that ran the command (docs/adr/0005-one-git-process-runner.md). */
+  policy: GitPolicy['name']
   operation: string
   outcome: GitOutcome
   durationMs: number
@@ -53,38 +57,21 @@ export function gitOperation(args: readonly string[]): string {
   return 'other'
 }
 
-function record(args: readonly string[], outcome: GitOutcome, startedAt: number): void {
-  meter?.({ operation: gitOperation(args), outcome, durationMs: performance.now() - startedAt })
+/** Records one finished git subprocess, started at `startedAt` (`performance.now()`). */
+export function recordGitCommand(policy: GitPolicy['name'], args: readonly string[], outcome: GitOutcome, startedAt: number): void {
+  meter?.({ policy, operation: gitOperation(args), outcome, durationMs: performance.now() - startedAt })
 }
 
-/** Runs one git subprocess and records its duration and outcome. */
-export async function meterGitCommand<Result>(
-  args: readonly string[],
-  signal: AbortSignal | undefined,
-  run: () => Promise<Result>,
-): Promise<Result> {
-  const startedAt = performance.now()
-  try {
-    const result = await run()
-    record(args, 'ok', startedAt)
-    return result
-  } catch (error) {
-    // Node rejects an aborted execFile with an AbortError; the signal answers too.
-    const isAborted = signal?.aborted || (error instanceof Error && error.name === 'AbortError')
-    record(args, isAborted ? 'aborted' : 'error', startedAt)
-    throw error
-  }
-}
-
-/** The synchronous form of `meterGitCommand`. */
-export function meterGitCommandSync<Result>(args: readonly string[], run: () => Result): Result {
-  const startedAt = performance.now()
-  try {
-    const result = run()
-    record(args, 'ok', startedAt)
-    return result
-  } catch (error) {
-    record(args, 'error', startedAt)
-    throw error
+/**
+ * The series that one command records: the name and the labels of its duration
+ * and of its count. A project command keeps the names it always had. A storage
+ * command has its own, so the project numbers count only the Git that runs on
+ * a person's checkout.
+ */
+export function gitCommandSeries({ policy, operation, outcome }: GitCommandMeasurement) {
+  const storage = policy === 'storage'
+  return {
+    duration: { name: storage ? 'git_storage_command_duration' : 'git_command_duration', labels: { operation } },
+    count: { name: storage ? 'git_storage_commands_total' : 'git_commands_total', labels: { operation, outcome } },
   }
 }

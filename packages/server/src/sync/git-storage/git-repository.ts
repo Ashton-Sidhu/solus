@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
@@ -6,13 +5,14 @@ import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { hostCliEnv } from '../../cli-env'
 import { isStorageRepositoryName, type StorageRepositoryKind } from '../../data/storage-repository-name'
-import { withUserScope } from '../../vault/acting-scope'
+import { GitProcessError, runGit, type GitPolicy } from '../../git/git-process'
 
 /**
  * The Git storage layer (docs/adr/0004-shared-git-storage.md): the bare
  * repositories that keep the history of works and of sessions. Only Solus
  * reads them, always with `--git-dir` (ADR 0002), and never with a checkout.
- * This file is the only one that starts a Git process for storage.
+ * This file owns the storage policy of the Git process runner
+ * (docs/adr/0005-one-git-process-runner.md), and no other file uses it.
  */
 
 const MAX_TEXT_BYTES = 16 * 1024 * 1024
@@ -75,43 +75,55 @@ export function repositoryPath(root: string, kind: StorageRepositoryKind, name: 
   return join(root, `${name}.git`)
 }
 
+/**
+ * The storage policy: Git on a repository that Solus owns. The host runs it,
+ * with no system config, no global config, no prompt, and no hook, and each
+ * command names the repository with `--git-dir`.
+ */
+function storagePolicy(gitDir: string, options: GitRepositoryOptions): GitPolicy {
+  const name = options.subject ? `${options.subject} Git` : 'Git'
+  return {
+    name: 'storage',
+    args: ['--git-dir', gitDir, '-c', 'core.hooksPath=/dev/null'],
+    // Git diagnostics can contain the credential, so nothing reads them.
+    keepsOutput: false,
+    // These are service-owned repositories, not a person's code checkout: the host runs Git, with no user of a member.
+    launchOptions(_args, env) {
+      const hostEnv = hostCliEnv({ GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', ...options.env, ...env })
+      // A trace can contain the credential of a remote.
+      for (const key of Object.keys(hostEnv)) if (key.startsWith('GIT_TRACE') || key === 'GIT_CURL_VERBOSE') delete hostEnv[key]
+      return { env: hostEnv }
+    },
+    // A person can see these words, so they show no command and no diagnostics. A process that Solus stops has no exit code; the words then give 1.
+    failureMessage(failure, args) {
+      if (options.deadline?.aborted) return 'The Git operation timed out.'
+      return failure.reason === 'not-started' ? `The ${name} process could not run.` : `The ${name} ${args[0]} operation failed (${failure.code ?? 1}).`
+    },
+  }
+}
+
 /** One bare repository on disk. It can be absent: it then has no head, and `init` makes it. */
 export class GitRepository {
-  /** `path` is the bare Git directory. */
-  constructor(readonly path: string, protected readonly options: GitRepositoryOptions = {}) {}
+  private readonly policy: GitPolicy
 
-  /** Run one Git command in this repository and answer its output. */
+  /** `path` is the bare Git directory. */
+  constructor(readonly path: string, protected readonly options: GitRepositoryOptions = {}) {
+    this.policy = storagePolicy(path, options)
+  }
+
+  /** Run one Git command in this repository and answer its output. A failure is a `GitProcessError`. */
   git(args: string[], io: GitIo = {}): Promise<string> {
-    const { signal, deadline, subject } = this.options
-    const limit = io.maxBytes ?? this.options.outputLimitBytes ?? MAX_TEXT_BYTES
-    const name = subject ? `${subject} Git` : 'Git'
-    // These are service-owned repositories, not a person's code checkout.
-    return withUserScope(null, () => new Promise<string>((resolve, reject) => {
-      const env = hostCliEnv({ GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', ...this.options.env, ...io.env })
-      // A trace can contain the credential of a remote.
-      for (const key of Object.keys(env)) if (key.startsWith('GIT_TRACE') || key === 'GIT_CURL_VERBOSE') delete env[key]
-      const child = spawn('git', ['--git-dir', this.path, '-c', 'core.hooksPath=/dev/null', ...args], {
-        env, signal: signal && deadline ? AbortSignal.any([signal, deadline]) : signal ?? deadline,
-        // Git diagnostics can contain the credential, so nothing reads them.
-        timeout: this.options.timeoutMs, stdio: ['pipe', 'pipe', 'ignore'],
-      })
-      const parts: Buffer[] = []
-      let bytes = 0
-      if (io.output) child.stdout.pipe(io.output, { end: false })
-      else child.stdout.on('data', (part: Buffer) => { bytes += part.length; if (bytes > limit) child.kill(); else parts.push(part) })
-      child.stdin.on('error', () => {})
-      if (io.stream) {
-        io.stream.on('error', () => child.kill())
-        io.stream.pipe(child.stdin)
-      } else child.stdin.end(io.text)
-      child.once('error', () => reject(new Error(deadline?.aborted ? 'The Git operation timed out.' : `The ${name} process could not run.`)))
-      child.once('close', (code) => {
-        // A process can end before the stop for too much output arrives. Its output is not complete, so it is not an answer.
-        if (io.maxBytes !== undefined && bytes > limit) reject(new RepositoryFileTooLargeError())
-        else if (code === 0 && bytes <= limit) resolve(Buffer.concat(parts).toString('utf8'))
-        else reject(new Error(deadline?.aborted ? 'The Git operation timed out.' : `The ${name} ${args[0]} operation failed (${code}).`))
-      })
-    }))
+    const { signal, deadline } = this.options
+    return runGit(this.policy, args, {
+      env: io.env,
+      signal: signal && deadline ? AbortSignal.any([signal, deadline]) : signal ?? deadline,
+      timeout: this.options.timeoutMs,
+      outputLimit: io.maxBytes ?? this.options.outputLimitBytes ?? MAX_TEXT_BYTES,
+      input: io.stream ?? io.text,
+      output: io.output,
+    }).then((output) => output.toString('utf8'), (error: Error) => {
+      throw io.maxBytes !== undefined && error instanceof GitProcessError && error.reason === 'output-limit' ? new RepositoryFileTooLargeError() : error
+    })
   }
 
   /** Make the repository. It is safe on a repository that exists. */

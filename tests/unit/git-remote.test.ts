@@ -96,6 +96,20 @@ test('timeout is a failed result', async () => {
   finally { await client.close() }
 })
 
+// WHY: the sync card shows the words of a failed Git process. A process that
+// Solus stops has no exit code of its own; the words must give the number 1,
+// as before the shared layer, and the caller must get the reason as a type.
+test('a stopped process reports the number 1 and its reason', async () => {
+  const f = fixture()
+  const commit = f.commit()
+  const writer = await GitRemote.open({ gitDir: f.local, remote: f.url, timeoutMs: 10_000 })
+  const reader = await GitRemote.open({ gitDir: f.local, remote: f.url, timeoutMs: 10_000, outputLimitBytes: 8 })
+  try {
+    await writer.checkedPush(commit, null)
+    await expect(reader.remoteHead()).rejects.toMatchObject({ reason: 'output-limit', message: 'The Git ls-remote operation failed (1).' })
+  } finally { await writer.close(); await reader.close() }
+})
+
 // WHY: Session storage needs the same scoped token route as works.
 test('Cloudflare accepts session names and requests read scope', async () => {
   const calls: Array<{ url: string; body?: string }> = []

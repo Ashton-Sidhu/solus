@@ -9,7 +9,7 @@ import { MemberUsers, memberUsersFilePath, useMemberUsers } from './host/member-
 import { useMemberSwitch } from './cli-env'
 import { bootServer, type BootOptions, type BootedServer } from './boot-server'
 import { configureOtel, recordOtelCount, recordOtelDuration } from './otel'
-import { useGitCommandMeter } from './git/git-metrics'
+import { gitCommandSeries, useGitCommandMeter } from './git/git-metrics'
 import { getHostConfig, getServerSettings } from './host/settings'
 import { createLogger } from './logger'
 import { watchEventLoopStalls } from './host/event-loop-stalls'
@@ -88,9 +88,10 @@ async function bootCoreAsHost(opts: BootCoreOptions): Promise<BootCore> {
   // The MDM policy is read before the first export: a locked `otel` wins over the environment (plans/030 §5.1).
   useHostPolicyStore(new HostPolicyStore({ mdm: await loadMachinePolicy(), standing: () => null }))
   await configureOtel(getHostConfig().config.otel, hostPolicies().hostSetting('otel') !== null)
-  useGitCommandMeter(({ operation, outcome, durationMs }) => {
-    recordOtelDuration('git_command_duration', durationMs, { operation })
-    recordOtelCount('git_commands_total', { operation, outcome })
+  useGitCommandMeter((measurement) => {
+    const { duration, count } = gitCommandSeries(measurement)
+    recordOtelDuration(duration.name, measurement.durationMs, duration.labels)
+    recordOtelCount(count.name, count.labels)
   })
   phaseDone('otel_configured')
   const sessionRuntime = new SessionRuntime(createBackends(), { queueDirectory: join(dataDir(), 'session-queues') })

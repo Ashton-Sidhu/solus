@@ -1,11 +1,10 @@
-import { execFile as execFileCb, execFileSync, spawn } from 'child_process'
+import { execFile as execFileCb } from 'child_process'
 import { resolve as resolvePath } from 'path'
 import { promisify } from 'util'
-import { launchedProcess, launchProcess } from '../cli-env'
+import { launchOptions, launchedProcess } from '../cli-env'
 import { currentIdentity } from '../vault/acting-scope'
-import { withBareRepositoryGuard } from './bare-repository-guard'
 import { GitUnavailableError, isGitUsable } from './git-availability'
-import { meterGitCommand, meterGitCommandSync } from './git-metrics'
+import { runGit, runGitSync, type GitRun, type SyncGitPolicy } from './git-process'
 
 const execFileAsync = promisify(execFileCb)
 
@@ -40,86 +39,66 @@ export interface GitExecOptions {
   raw?: boolean
 }
 
-export function git(args: string[], cwd: string, opts: GitExecOptions = {}): string {
-  if (!isGitUsable()) throw new GitUnavailableError()
-  const run = launchProcess('git', withBareRepositoryGuard('git', [...GIT_DEFAULT_ARGS, ...args]), { ...GIT_DEFAULT_ENV, ...opts.env })
-  return meterGitCommandSync(args, () => execFileSync(run.file, run.args, {
-    cwd,
-    encoding: 'utf-8',
-    timeout: opts.timeout ?? DEFAULT_TIMEOUT,
-    maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
-    env: run.env,
-  })).trim()
-}
-
-async function launched(bin: string, args: string[], opts: GitExecOptions) {
-  if (bin === 'git' && !isGitUsable()) throw new GitUnavailableError()
+/**
+ * The project policy (docs/adr/0005-one-git-process-runner.md): Git on a
+ * person's checkout. It reads the person's Git configuration, credential
+ * helpers, and signing, and runs as the acting identity.
+ */
+const projectGit: SyncGitPolicy = {
+  name: 'project',
+  args: GIT_DEFAULT_ARGS,
+  keepsOutput: true,
   // The acting identity's environment, with a member's author once known: a
   // partial clone can turn any git command into a fetch, so every one acts as someone.
-  const launch = await currentIdentity(`${bin} ${args[0] ?? ''}`.trim()).launchOptions(bin === 'git' ? { ...GIT_DEFAULT_ENV, ...opts.env } : opts.env)
-  return launchedProcess(launch, bin, withBareRepositoryGuard(bin, bin === 'git' ? [...GIT_DEFAULT_ARGS, ...args] : args))
+  async launchOptions(args, env) {
+    if (!isGitUsable()) throw new GitUnavailableError()
+    return currentIdentity(`git ${args[0] ?? ''}`.trim()).launchOptions({ ...GIT_DEFAULT_ENV, ...env })
+  },
+  launchOptionsSync(_args, env) {
+    if (!isGitUsable()) throw new GitUnavailableError()
+    return launchOptions({ ...GIT_DEFAULT_ENV, ...env })
+  },
+  // The words of Node's `execFile`, which the clients read.
+  failureMessage: (failure, _args, commandLine) => `Command failed: ${commandLine}\n${failure.stderr}`,
+}
+
+function projectRun(cwd: string, opts: GitExecOptions): GitRun {
+  return { cwd, env: opts.env, signal: opts.signal, timeout: opts.timeout ?? DEFAULT_TIMEOUT, outputLimit: opts.maxBuffer ?? DEFAULT_MAX_BUFFER }
+}
+
+export function git(args: string[], cwd: string, opts: GitExecOptions = {}): string {
+  return runGitSync(projectGit, args, projectRun(cwd, opts)).trim()
 }
 
 export async function runAsync(bin: string, args: string[], cwd: string, opts: GitExecOptions = {}): Promise<string> {
-  const run = await launched(bin, args, opts)
-  const spawnProcess = () => execFileAsync(run.file, run.args, {
-    cwd,
-    encoding: 'utf-8',
-    timeout: opts.timeout ?? DEFAULT_TIMEOUT,
-    maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
-    env: run.env,
-    signal: opts.signal,
-  })
-  const { stdout } = bin === 'git' ? await meterGitCommand(args, opts.signal, spawnProcess) : await spawnProcess()
+  let stdout: string
+  if (bin === 'git') stdout = (await runGit(projectGit, args, projectRun(cwd, opts))).toString('utf8')
+  else {
+    const run = launchedProcess(await currentIdentity(`${bin} ${args[0] ?? ''}`.trim()).launchOptions(opts.env), bin, args)
+    stdout = (await execFileAsync(run.file, run.args, {
+      cwd,
+      encoding: 'utf-8',
+      timeout: opts.timeout ?? DEFAULT_TIMEOUT,
+      maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
+      env: run.env,
+      signal: opts.signal,
+    })).stdout
+  }
   return opts.raw ? stdout : stdout.trim()
 }
 
-/** The part of stderr that a failed streamed command keeps for its error. */
-const STDERR_TAIL_CHARS = 8_192
-
 /**
- * `runAsync` for a command that reports progress on stderr. Each line goes to
- * `onStderrLine` as it arrives; git ends a rewritten progress line with `\r`,
- * so `\r` and `\n` both end a line. Resolves with stdout, like `runAsync`.
+ * `runAsync('git', …)` for a command that reports progress on stderr. Each
+ * line goes to `onStderrLine` as it arrives; git ends a rewritten progress
+ * line with `\r`, so `\r` and `\n` both end a line. Resolves with stdout.
  */
 export async function runStreamed(
-  bin: string,
   args: string[],
   cwd: string,
   opts: GitExecOptions & { onStderrLine: (line: string) => void },
 ): Promise<string> {
-  const run = await launched(bin, args, opts)
-  const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER
-  return new Promise<string>((resolve, reject) => {
-    const child = spawn(run.file, run.args, {
-      cwd,
-      env: run.env,
-      signal: opts.signal,
-      timeout: opts.timeout ?? DEFAULT_TIMEOUT,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderrTail = ''
-    let partialLine = ''
-    child.stdout.setEncoding('utf-8')
-    child.stderr.setEncoding('utf-8')
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
-      if (stdout.length > maxBuffer) child.kill()
-    })
-    child.stderr.on('data', (chunk: string) => {
-      stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_CHARS)
-      const lines = (partialLine + chunk).split(/[\r\n]/)
-      partialLine = lines.pop() ?? ''
-      for (const line of lines) if (line) opts.onStderrLine(line)
-    })
-    child.on('error', reject)
-    child.on('close', (code, signal) => {
-      if (partialLine) opts.onStderrLine(partialLine)
-      if (code === 0) resolve(opts.raw ? stdout : stdout.trim())
-      else reject(new Error(`Command failed: ${bin} ${args.join(' ')}${signal ? ` (${signal})` : ''}\n${stderrTail.trim()}`))
-    })
-  })
+  const stdout = (await runGit(projectGit, args, { ...projectRun(cwd, opts), onDiagnosticLine: opts.onStderrLine })).toString('utf8')
+  return opts.raw ? stdout : stdout.trim()
 }
 
 /**

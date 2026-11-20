@@ -2,8 +2,9 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { git, runAsync } from '@solus/server/git/exec'
-import { useGitCommandMeter, type GitCommandMeasurement } from '@solus/server/git/git-metrics'
+import { git, runAsync, runStreamed } from '@solus/server/git/exec'
+import { gitCommandSeries, useGitCommandMeter, type GitCommandMeasurement } from '@solus/server/git/git-metrics'
+import { GitRepository } from '@solus/server/sync/git-storage/git-repository'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 // The helpers under test start processes; with no caller, they act as the host (plans/019).
@@ -61,4 +62,34 @@ test('an unknown subcommand is labeled other, and no argument or path becomes a 
 test('a non-git binary is not recorded', async () => {
   await runAsync('true', [], directory)
   expect(measurements).toEqual([])
+})
+
+test('a project command records the series it had before the one runner', async () => {
+  // WHY: dashboards and alerts read these names and labels. The runner serves
+  // storage Git also, and that must not rename a project series, add a label
+  // to it, or put storage commands in its numbers (docs/adr/0005).
+  await runAsync('git', ['status', '--porcelain'], directory)
+  git(['ls-files'], directory)
+  await runStreamed(['status', '--porcelain'], directory, { onStderrLine: () => {} })
+  await expect(runAsync('git', ['rev-parse', '--verify', 'no-such-ref'], directory)).rejects.toThrow()
+
+  expect(measurements.map(gitCommandSeries)).toEqual([
+    { duration: { name: 'git_command_duration', labels: { operation: 'status' } }, count: { name: 'git_commands_total', labels: { operation: 'status', outcome: 'ok' } } },
+    { duration: { name: 'git_command_duration', labels: { operation: 'ls-files' } }, count: { name: 'git_commands_total', labels: { operation: 'ls-files', outcome: 'ok' } } },
+    { duration: { name: 'git_command_duration', labels: { operation: 'status' } }, count: { name: 'git_commands_total', labels: { operation: 'status', outcome: 'ok' } } },
+    { duration: { name: 'git_command_duration', labels: { operation: 'rev-parse' } }, count: { name: 'git_commands_total', labels: { operation: 'rev-parse', outcome: 'error' } } },
+  ])
+})
+
+test('a storage command records its own series', async () => {
+  // WHY: the Git of works, sessions, and apps had no metric. It is counted
+  // now, apart from the Git that runs on a person's checkout.
+  const repository = new GitRepository(join(directory, 'storage.git'))
+  await repository.init()
+  await expect(repository.git(['cat-file', 'blob', '0'.repeat(40)])).rejects.toThrow()
+
+  expect(measurements.map(gitCommandSeries)).toEqual([
+    { duration: { name: 'git_storage_command_duration', labels: { operation: 'init' } }, count: { name: 'git_storage_commands_total', labels: { operation: 'init', outcome: 'ok' } } },
+    { duration: { name: 'git_storage_command_duration', labels: { operation: 'cat-file' } }, count: { name: 'git_storage_commands_total', labels: { operation: 'cat-file', outcome: 'error' } } },
+  ])
 })

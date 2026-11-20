@@ -6,6 +6,7 @@ import { isSolusWorktreePath, worktreeProjectRoot, type BranchRef, type GitCheck
 import { createLogger } from '../logger'
 import { dispatchStep } from '../execution/observability/session-emitter'
 import { git, gitCommitExists, gitOutputPath, runAsync, runStreamed } from './exec'
+import { GitProcessError } from './git-process'
 import { progressPercent } from '../execution/sessions/dispatch-repository'
 import type { StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
 import type { WORKTREE_SETUP_STEPS } from '@solus/contracts/setup-card'
@@ -423,7 +424,7 @@ export async function createWorktree(
       },
       // No deadline: a large checkout or a slow post-checkout hook can take
       // minutes. Stop still cancels it through the signal.
-      () => runStreamed('git', checkoutArgs, projectPath, {
+      () => runStreamed(checkoutArgs, projectPath, {
         signal: options.signal,
         timeout: 0,
         env: GIT_PROGRESS_ENV,
@@ -440,7 +441,7 @@ export async function createWorktree(
         await dispatchStep<string>(
           'start_point_refresh',
           { worktreePath, startPoint, fn: 'runAsync', file: 'worktree-manager.ts' },
-          () => runStreamed('git', [...checkoutConfig, 'reset', '--hard', latestCommit], worktreePath, {
+          () => runStreamed([...checkoutConfig, 'reset', '--hard', latestCommit], worktreePath, {
             signal: options.signal,
             timeout: 0,
             env: GIT_PROGRESS_ENV,
@@ -573,8 +574,8 @@ async function copyIncludedWorktreeFiles(
 async function safeCommitDiff(args: string[], cwd: string): Promise<string> {
   try {
     return await runAsync('git', args, cwd, { maxBuffer: MAX_COMMIT_DIFF_BYTES })
-  } catch (err: any) {
-    if (err?.code === 'ENOBUFS') return ''
+  } catch (err) {
+    if (err instanceof GitProcessError && err.reason === 'output-limit') return ''
     throw err
   }
 }
