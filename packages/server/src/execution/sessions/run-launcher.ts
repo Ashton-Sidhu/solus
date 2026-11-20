@@ -900,7 +900,7 @@ export class RunLauncher {
       const turnStartedAt = Date.now()
       // The MCP servers' tools are listed here, for the run's person, so every run —
       // typed, queued, restored, or started by an agent — gets that person's own.
-      const { tools: integrationTools, instructions: integrationInstructions } = await integrationToolbox(request.actor ?? HOST_ACTOR)
+      const { tools: integrationTools, instructions: integrationInstructions } = await integrationToolbox(request.actor ?? HOST_ACTOR, effectiveCwd)
       // The operations of the host's apps are tools too (docs/plans/apps.md §7.1); a name already in the run stays with its tool.
       const appTools = await appOperationAgentTools(request.actor ?? HOST_ACTOR, new Set([...request.tools, ...integrationTools].map((tool) => tool.name)))
       if (this.rt.isShuttingDown) throw new Error('Interrupted')

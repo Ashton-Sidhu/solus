@@ -2,9 +2,13 @@ import { z } from 'zod'
 import { mcpAppToolMetadataSchema } from '@solus/contracts/mcp-apps'
 import type { CallToolResult } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { permissionsAllow } from '@solus/contracts/permissions'
 import { ownerKeyOf, type Actor } from '../admission/actor'
+import { permissionsFor } from '../admission/access-policy'
 import { recordScopeOf } from '../admission/principal'
 import { createLogger } from '../logger'
+import { resolveHomePath } from '../platform/paths'
+import { resolveProjectKey } from '../project-config/project-config'
 import { agentToolImage, type AgentTool, type AgentToolResult } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
 
@@ -53,11 +57,26 @@ async function toolsForRun(source: IntegrationGateway, integration: Integration,
  */
 export interface IntegrationInstruction { name: string; slug: string; text: string }
 
-export async function integrationToolbox(actor: Actor, _projectKey?: string): Promise<{ tools: AgentTool[]; instructions: IntegrationInstruction[] }> {
+/**
+ * Whether an integration joins this run. One from a project joins only the runs
+ * of that project, a worktree of it included (docs/plans/mcp-first-class.md
+ * §8.4); a chat has no project. A command joins only the runs of a person who
+ * still holds `host.admin`, because it runs as code on the host (§7.2, §7.8).
+ */
+function joinsRun(integration: Integration, actor: Actor, projectKey: () => string | null): boolean {
+  if (integration.kind === 'stdio' && !permissionsAllow(permissionsFor(actor.principal), 'host.admin')) return false
+  return integration.projectKey === undefined || integration.projectKey === projectKey()
+}
+
+/** `projectPath`: the run's working directory, whose project key a project integration must match. */
+export async function integrationToolbox(actor: Actor, projectPath?: string | null): Promise<{ tools: AgentTool[]; instructions: IntegrationInstruction[] }> {
   const current = gateway
   if (!current) return { tools: [], instructions: [] }
   const personKey = ownerKeyOf(actor)
-  const integrations = current.store.list(recordScopeOf(actor.principal), personKey)
+  // The key asks git for the project root, so it is read only when a project integration needs it.
+  let projectKey: string | null | undefined
+  const runProjectKey = () => (projectKey ??= projectPath ? resolveProjectKey(resolveHomePath(projectPath)) : null)
+  const integrations = current.store.list(recordScopeOf(actor.principal), personKey).filter((integration) => joinsRun(integration, actor, runProjectKey))
   const listed = await Promise.all(integrations.map((integration) => toolsForRun(current, integration, personKey)))
   const tools: AgentTool[] = []
   const included = new Set<string>()

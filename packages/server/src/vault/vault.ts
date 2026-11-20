@@ -1,6 +1,6 @@
 import { join } from 'node:path'
-import type { z } from 'zod'
-import { DEFAULT_INTEGRATION_ACCOUNT, type Integration } from '@solus/contracts/integration-types'
+import { z } from 'zod'
+import { DEFAULT_INTEGRATION_ACCOUNT, integrationEnvValueSchema, type Integration, type IntegrationEnvValue } from '@solus/contracts/integration-types'
 import { oauthTokenSchema, type OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { parseUserKey } from '@solus/contracts/user'
 import {
@@ -186,6 +186,18 @@ function mcpHostKey(integrationId: string, personKey: string, accountId?: string
   return accountId && accountId !== DEFAULT_INTEGRATION_ACCOUNT ? `${base}-${Buffer.from(accountId).toString('base64url')}` : base
 }
 
+/**
+ * `integration-env-<integrationId>-<person>`, and `-<account>`: the environment
+ * values of a `stdio` integration (docs/plans/mcp-first-class.md §7.1). Only
+ * this host keeps them: the command runs here, and its record is not in the
+ * account.
+ */
+function envHostKey(integrationId: string, personKey: string, accountId?: string): string {
+  return mcpHostKey(integrationId, personKey, accountId).replace(/^integration-token-/, 'integration-env-')
+}
+
+const envValuesSchema = z.array(integrationEnvValueSchema)
+
 /** One of a person's connections, by integration and account, as link and unlink move its token. */
 export interface HostConnectionKey {
   integrationId: string
@@ -279,6 +291,9 @@ export class Vault {
         const token = this.loadHost(mcpHostKey(integrationId, fromKey, accountId), oauthTokenSchema)
         if (token && !this.loadHost(mcpHostKey(integrationId, toKey, accountId), oauthTokenSchema)) this.saveHost(mcpHostKey(integrationId, toKey, accountId), token)
         this.removeHost(mcpHostKey(integrationId, fromKey, accountId))
+        const values = this.loadHost(envHostKey(integrationId, fromKey, accountId), envValuesSchema)
+        if (values && !this.loadHost(envHostKey(integrationId, toKey, accountId), envValuesSchema)) this.saveHost(envHostKey(integrationId, toKey, accountId), values)
+        this.removeHost(envHostKey(integrationId, fromKey, accountId))
       } catch (error) {
         // The row moved: without its token it reads as not connected, and the person signs in again.
         log.warn('integration_token_move_failed', { integrationId, error: error instanceof Error ? error.message : String(error) })
@@ -314,7 +329,10 @@ export class Vault {
    */
   forgetPerson(personKey: string, connections: HostConnectionKey[]): void {
     for (const key of [...Object.values(PROVIDER_HOST_KEYS), TYPESAFE_HOST_KEY]) this.removeHost(key)
-    for (const { integrationId, accountId } of connections) this.removeHost(mcpHostKey(integrationId, personKey, accountId))
+    for (const { integrationId, accountId } of connections) {
+      this.removeHost(mcpHostKey(integrationId, personKey, accountId))
+      this.removeHost(envHostKey(integrationId, personKey, accountId))
+    }
     this.forgetAll()
   }
 
@@ -358,6 +376,34 @@ export class Vault {
 
   forget(personKey: string, ref: McpCredentialRef): void {
     this.cache.delete(cacheKey(personKey, ref.serverUrl))
+  }
+
+  // ── Environment values of a `stdio` integration (mcp-first-class.md §7.1) ──
+
+  /**
+   * Keeps one person's values for one account of a `stdio` integration, in this
+   * host's store only, whoever the person is: the command runs on this host. The
+   * values go into that server's process alone, never into a record, a log, an
+   * answer to a client, or the agent's process.
+   */
+  saveEnvironment(personKey: string | null, ref: McpCredentialRef, values: IntegrationEnvValue[]): void {
+    if (!hasMcpCredentials(personKey)) throw new Error('Only a person who is not a guest connects an MCP server.')
+    this.saveHost(envHostKey(ref.integrationId, personKey, ref.accountId), envValuesSchema.parse(values))
+  }
+
+  /** The person's saved values, or null when they gave none. */
+  readEnvironment(personKey: string | null, ref: McpCredentialRef): IntegrationEnvValue[] | null {
+    if (!hasMcpCredentials(personKey)) return null
+    return this.loadHost(envHostKey(ref.integrationId, personKey, ref.accountId), envValuesSchema)
+  }
+
+  /** True when there were values to remove. */
+  removeEnvironment(personKey: string | null, ref: McpCredentialRef): boolean {
+    if (!hasMcpCredentials(personKey)) return false
+    const key = envHostKey(ref.integrationId, personKey, ref.accountId)
+    const held = this.loadHost(key, envValuesSchema) !== null
+    this.removeHost(key)
+    return held
   }
 
   /** A delegation ended (sign-out, removal): no credential it brought may be used again; the next call reads the account. */

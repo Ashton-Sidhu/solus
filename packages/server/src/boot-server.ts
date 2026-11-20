@@ -112,6 +112,7 @@ import { installConnectIntegrationTool } from './integrations/connect-integratio
 import { createIntegration } from './integrations/integration-create'
 import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationGateway } from './integrations/gateway'
+import { ServerFactsStore } from './integrations/server-facts-store'
 import { hostIntegrationClients, IntegrationConnectionStore } from './integrations/connection-store'
 import { IntegrationConnections } from './integrations/connections'
 import { IntegrationOAuth, type IntegrationConnectionEvents } from './integrations/oauth'
@@ -824,7 +825,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Integrations (docs/plans/mcp-integrations.md): a run lists its person's tools
   // when it starts (`integrationToolbox`), so nothing is listed at boot.
   const integrations = new IntegrationStore()
-  const integrationGateway = new IntegrationGateway(integrations)
+  // A command's verdict and facts are saved, so it starts once and a run start starts nothing (mcp-first-class.md §7.5).
+  const integrationGateway = new IntegrationGateway(integrations, globalThis, { savedFacts: new ServerFactsStore() })
   const claudeAppProcesses = new ClaudeAppProcesses()
   const integrationApps = new IntegrationApps(integrationGateway, opts.sessionRuntime, claudeAppProcesses)
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))

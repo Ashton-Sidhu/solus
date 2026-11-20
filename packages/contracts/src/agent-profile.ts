@@ -12,7 +12,7 @@
  */
 
 import { z } from 'zod'
-import { integrationAuthSchema } from './integration-types'
+import { remoteIntegrationAuthSchema } from './integration-types'
 import { seatProviderSchema, type SeatProvider } from './seats'
 
 /**
@@ -76,7 +76,8 @@ export const agentProfileEntrySchema = z.discriminatedUnion('kind', [
     slug: z.string().regex(SLUG),
     name: z.string().trim().min(1).max(200),
     url: z.string().min(1).max(4096),
-    auth: integrationAuthSchema,
+    /** A server at a URL: a `stdio` integration stays on the host it was added on (mcp-first-class.md §7.8). */
+    auth: remoteIntegrationAuthSchema,
     /**
      * The tools the person turned off (docs/plans/mcp-integrations.md §6.1),
      * so the switches follow them to every host. A profile written before this

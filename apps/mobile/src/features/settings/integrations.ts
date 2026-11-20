@@ -391,6 +391,9 @@ export function connectStarted(result: IntegrationConnectStartResult, name: stri
       return { step: 'waiting', through: 'host', flowId: result.flowId, url: result.url, input: result.input, expiresAt: result.expiresAt, submitted: false, busy: false, error: null }
     case 'token':
       return { step: 'token', through: 'host', busy: false, error: null }
+    // The values form of a command is phase B2 of docs/plans/mcp-first-class.md (§7.7).
+    case 'env':
+      return { step: 'finished', ok: false, message: `${name} is a command on the host. This version of Solus cannot take its environment values yet.` }
     case 'connected':
       return { step: 'finished', ok: true, message: `Connected to ${name}.` }
   }

@@ -95,7 +95,7 @@ import type { SessionActionLeaf } from './permissions'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
-import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationIdRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
+import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
@@ -650,7 +650,7 @@ export interface SolusAPI {
   appModelCallCancel(request: AppModelCallRequest): Promise<AppModelCallView>
   integrationList(): Promise<Integration[]>
   integrationGet(request: IntegrationIdRequest): Promise<Integration | null>
-  /** Host administrator: probes the address, then writes the record. Changes arrive as `integration.changed`. */
+  /** Probes an address, then writes the record; a command (`stdio`) needs a host administrator and starts nothing. Changes arrive as `integration.changed`. */
   integrationCreate(request: IntegrationCreateRequest): Promise<Integration>
   /** Host administrator. */
   integrationUpdate(request: IntegrationUpdateRequest): Promise<Integration>
@@ -659,6 +659,10 @@ export interface SolusAPI {
   /** The upstream tools of one integration, as the gateway last listed them. */
   integrationTools(request: IntegrationIdRequest): Promise<IntegrationToolSummary[]>
   integrationFacts(request: IntegrationIdRequest): Promise<IntegrationFacts>
+  /** Host administrator, owner: starts the caller's process of a `stdio` integration and lists its tools; `recheck` checks the revision again. */
+  integrationProcessStart(request: IntegrationProcessStartRequest): Promise<IntegrationFacts>
+  /** Owner: closes the caller's sessions of a `stdio` integration, which stops their processes. The next use starts one again. */
+  integrationProcessStop(request: IntegrationIdRequest): Promise<{ stopped: boolean }>
   /** The caller's own connections (§4). Changes arrive as `integration.connectionChanged`. */
   integrationConnectionList(): Promise<IntegrationConnection[]>
   /** Starts the caller's sign-in to one integration. The end of a `waiting` flow arrives as `host.integrationAuthFinished`. */

@@ -28,6 +28,7 @@ export const automation_runs = host.automationRuns.sqlite
 export const browser_profiles = host.browserProfiles.sqlite
 export const integration = host.integration.sqlite
 export const integration_connection = host.integrationConnection.sqlite
+export const integration_server_facts = host.integrationServerFacts.sqlite
 export const notification_pr_observations = host.notificationPrObservations.sqlite
 export const saved_metrics_queries = host.savedMetricsQueries.sqlite
 export const turn_flags = host.turnFlags.sqlite

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { integrationSlug, integrationUrlSchema, type CatalogEntry, type Integration, type IntegrationCreateRequest, type IntegrationCustomServerNeeded } from '@solus/contracts/integration-types'
+import { integrationSlug, integrationUrlSchema, type CatalogEntry, type Integration, type IntegrationCustomServerNeeded, type IntegrationUrlCreateRequest } from '@solus/contracts/integration-types'
 import { SetupHandoff, setupNeedOfUndetermined } from '@solus/contracts/integrations/setup-handoff'
 import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL, type Principal } from '../admission/principal'
 import { workspaceToolAuthority } from '../admission/workspace-tool-authority'
@@ -21,7 +21,7 @@ const ADD_BY_URL_HINT = 'The user can add a server by its URL in Settings → MC
 interface ConnectIntegrationDeps {
   catalog: Pick<IntegrationCatalog, 'list'>
   /** `createIntegration` with the host's store, events, and profile bound. */
-  create(principal: Principal, owner: string, request: IntegrationCreateRequest): Promise<Integration>
+  create(principal: Principal, owner: string, request: IntegrationUrlCreateRequest): Promise<Integration>
 }
 
 let deps: ConnectIntegrationDeps | null = null

@@ -301,11 +301,33 @@ export const integration = defineTable('integration', {
   url: text({ notNull: true }),
   auth: json({ notNull: true }),
   disabled_tools: json({ notNull: true, default: '[]' }),
+  /** The command of a `stdio` integration (docs/plans/mcp-first-class.md §7.1); null for the other kinds. */
+  launch: json(),
+  /** The project an integration joins the runs of (§8.4); null joins every run of its owner. */
+  project_key: text(),
   created_at: text({ notNull: true }),
   updated_at: text({ notNull: true }),
 }, {
   indexes: [{ name: 'integration_slug', columns: ['organization_id', 'created_by', 'slug'], unique: true }],
 })
+
+/**
+ * What the gateway read from a `stdio` integration for one person and account
+ * (docs/plans/mcp-first-class.md §7.5), so the command starts once and a run
+ * start starts nothing. `verdict` is the SDK's `PriorDiscovery`, and
+ * `verdict_at` the time a revision check made it; `facts` is the tool list,
+ * the server instructions, and the capabilities. Never shared between people:
+ * the SDK forbids it for a saved `DiscoverResult`.
+ */
+export const integrationServerFacts = defineTable('integration_server_facts', {
+  integration_id: text({ notNull: true }),
+  user_id: text({ notNull: true }),
+  account_id: text({ notNull: true }),
+  verdict: json(),
+  verdict_at: bigint(),
+  facts: json(),
+  stored_at: bigint({ notNull: true }),
+}, { primaryKey: ['integration_id', 'user_id', 'account_id'] })
 
 export const integrationConnection = defineTable('integration_connection', {
   integration_id: text({ notNull: true }),
@@ -359,5 +381,5 @@ export const HOST_TABLES = [
   runs, runQueue, runExchanges, asyncQuestions,
   outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, memberFolder, automations, automationRuns, browserProfiles,
-  integration, integrationConnection, notificationPrObservations, savedMetricsQueries, turnFlags,
+  integration, integrationConnection, integrationServerFacts, notificationPrObservations, savedMetricsQueries, turnFlags,
 ] as const

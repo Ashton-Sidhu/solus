@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/client'
 import { StreamableHTTPClientTransport, SdkHttpError } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import type { Transport } from '@modelcontextprotocol/client'
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import {
   SdkError,
   SdkErrorCode,
@@ -13,7 +14,7 @@ import {
   type PriorDiscovery,
   type Tool,
 } from '@modelcontextprotocol/client'
-import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
 import { solusServerFor } from './solus-servers'
@@ -26,6 +27,8 @@ import type { IntegrationCredentials } from './connections'
 import type { IntegrationStore } from './integration-store'
 import { mapCallResult, toolSummary } from './integration-tools'
 import { cancellableFetch } from './cancellable-fetch'
+import type { ServerFactsKey, ServerFactsStore } from './server-facts-store'
+import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, stdioTransport, type GatewayClock, type StdioChild } from './stdio-process'
 
 const log = createLogger('integrations', 'gateway.ts')
 
@@ -37,6 +40,10 @@ const SDK_TIMEOUT_OFF_MS = 24 * 60 * 60 * 1000
 const AUTHORIZATION_MAX_AGE_MS = 50 * 60 * 1000
 /** Re-probe old servers daily so an upgraded server can move to the modern revision. */
 const LEGACY_VERDICT_MAX_AGE_MS = 24 * 60 * 60 * 1000
+/** A saved `stdio` verdict is checked again after this (docs/plans/mcp-first-class.md §7.5). */
+const STDIO_VERDICT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+/** Live `stdio` sessions on one host (§7.3). */
+const STDIO_SESSION_LIMIT = 16
 
 /** What `connection_status` reports about one person's connection to an integration. */
 export interface IntegrationConnectionReport {
@@ -96,6 +103,11 @@ interface UpstreamSession {
   openedAt: number
   /** Replaced by a newer session while calls were in flight: closed when the last one ends. */
   retired: boolean
+  /** The gateway closes it: its end is not the process ending by itself. */
+  closing: boolean
+  lastUsedAt: number
+  /** Set for a `stdio` integration once its process started. */
+  stdio: StdioChild | null
 }
 
 interface ServerFacts {
@@ -127,9 +139,26 @@ export class IntegrationGateway {
   private readonly opening = new Map<string, Promise<UpstreamSession>>()
   private credentials: IntegrationCredentials | null = null
   private captureApp: ((call: IntegrationAppCapture) => Promise<void>) | null = null
+  private readonly processes: StdioProcessStates
+  /** `stdio` sessions that are starting, so the limit counts them. */
+  private stdioStarting = 0
 
-  /** The integration records; the tool bridge lists a scope's integrations through it. */
-  constructor(readonly store: Pick<IntegrationStore, 'get' | 'list'>, private readonly callClock: Pick<typeof globalThis, 'setTimeout' | 'clearTimeout'> = globalThis) {}
+  /**
+   * The integration records; the tool bridge lists a scope's integrations
+   * through it. `savedFacts` keeps the verdict and the facts of `stdio`
+   * integrations (§7.5); without it a command is checked at each start.
+   */
+  constructor(
+    readonly store: Pick<IntegrationStore, 'get' | 'list'>,
+    private readonly callClock: Pick<typeof globalThis, 'setTimeout' | 'clearTimeout'> = globalThis,
+    private readonly options: { clock?: GatewayClock; savedFacts?: ServerFactsStore } = {},
+  ) {
+    this.processes = new StdioProcessStates(() => this.clock.now())
+  }
+
+  private get clock(): GatewayClock {
+    return this.options.clock ?? SYSTEM_CLOCK
+  }
 
   /** Installed once at boot: how a session reads a person's sign-in. */
   useCredentials(credentials: IntegrationCredentials): void {
@@ -173,9 +202,53 @@ export class IntegrationGateway {
   async factsFor(integrationId: string, personKey: string | null): Promise<IntegrationFacts> {
     await this.toolsFor(integrationId, personKey)
     const facts = this.serverFacts.get(sessionKey(integrationId, personKey))
-    return facts
+    const answer: IntegrationFacts = facts
       ? { era: facts.era, instructions: facts.instructions, capabilities: facts.capabilities }
       : { era: null, instructions: null, capabilities: { prompts: false, resources: false, resourceSubscribe: false, tasks: false } }
+    if (this.store.get(integrationId, ANY_ORGANIZATION)?.kind === 'stdio') answer.process = this.processFacts(integrationId, personKey)
+    return answer
+  }
+
+  /** `running` while one of the person's sessions has a live child, else what the last end left. No PID. */
+  private processFacts(integrationId: string, personKey: string | null): IntegrationProcessFacts {
+    for (const session of this.sessions.values()) {
+      if (session.integrationId === integrationId && session.personKey === personKey && session.stdio && !session.stdio.ended) return { state: 'running' }
+    }
+    return this.processes.facts(sessionKey(integrationId, personKey))
+  }
+
+  /**
+   * Start and test, Start again, and Test again (§7.7): starts the caller's
+   * process of a `stdio` integration and lists its tools. It clears `failed`.
+   * `recheck` drops the saved verdict and stops a running process first, so the
+   * revision is checked again. Throws a plain message.
+   */
+  async startProcess(integrationId: string, recheck = false): Promise<IntegrationFacts> {
+    const personKey = currentPersonKey()
+    if (personKey === null) throw new Error('A command runs for a person, and this connection acts for none.')
+    const key = sessionKey(integrationId, personKey)
+    this.processes.clear(key)
+    if (recheck) {
+      this.options.savedFacts?.dropVerdicts(integrationId)
+      await this.stopProcess(integrationId)
+      this.processes.clear(key)
+    }
+    try {
+      await this.list(integrationId, personKey)
+    } catch (error) {
+      const integration = this.store.get(integrationId, ANY_ORGANIZATION)
+      if (error instanceof ConnectionRequiredError) throw new Error(`Give the environment values of ${integration?.name ?? 'this server'} first.`)
+      throw error
+    }
+    return this.factsFor(integrationId, personKey)
+  }
+
+  /** Stop (§7.7): closes the caller's sessions of an integration, which stops their processes. The next use starts one again. */
+  async stopProcess(integrationId: string): Promise<boolean> {
+    const personKey = currentPersonKey()
+    const keys = [...this.sessions].filter(([, session]) => session.integrationId === integrationId && session.personKey === personKey).map(([key]) => key)
+    await Promise.all(keys.map((key) => this.closeSession(key)))
+    return keys.length > 0
   }
 
   /**
@@ -279,6 +352,7 @@ export class IntegrationGateway {
       return mapped
     } catch (error) {
       if (error instanceof ConnectionRequiredError) return this.connectionRequired(integration, context)
+      if (stoppedWhileRunning(session)) return { ok: false, text: `${integration.name} stopped while it ran ${tool}.` }
       if (session?.authorized && isAuthFailure(error)) {
         // The session's header can outlive its token: a new session reads it again, refreshed, before the person is asked.
         if (!retried) {
@@ -317,7 +391,9 @@ export class IntegrationGateway {
    * server, built for this person, which reads their token on each request
    * (§13.6).
    */
-  private transportFor(integration: Integration, personKey: string | null, authorization: string | null, accountId: string): Transport {
+  private transportFor(integration: Integration, personKey: string | null, authorization: string | null, accountId: string, environment: IntegrationEnvValue[]): Transport {
+    // A command: the SDK starts it with no shell, and this transport holds its one child (§7.3).
+    if (integration.kind === 'stdio') return stdioTransport(integration, environment)
     const server = solusServerFor(integration.url)
     if (server) {
       const [clientEnd, serverEnd] = InMemoryTransport.createLinkedPair()
@@ -334,8 +410,18 @@ export class IntegrationGateway {
       : new StreamableHTTPClientTransport(new URL(integration.url), { fetch: cancellableFetch() })
   }
 
-  /** Forget an integration's sessions and tool lists, as after an edit or a removal. */
+  /**
+   * A new command or new names, or a removal (§7.5): the sessions, the lists,
+   * and the saved verdict and facts of every person go.
+   */
+  forget(integrationId: string): void {
+    this.options.savedFacts?.removeAllFor(integrationId)
+    this.invalidate(integrationId)
+  }
+
+  /** Forget an integration's sessions and tool lists, as after an edit or a removal. A change of the record also ends `failed` (§7.3). */
   invalidate(integrationId: string): void {
+    this.processes.clearIntegration(`${integrationId}\u0000`)
     this.revisions.delete(integrationId)
     for (const [key, cache] of this.serverFacts) {
       if (cache.integrationId === integrationId) this.serverFacts.delete(key)
@@ -417,6 +503,8 @@ export class IntegrationGateway {
    */
   private async upstreamTools(integrationId: string, personKey: string | null, allowAnonymous = false): Promise<UpstreamTool[]> {
     const key = sessionKey(integrationId, personKey)
+    // A command that is not running is read from its saved facts: a run or a Settings read starts nothing (§7.5).
+    if (!this.sessions.has(key) && this.store.get(integrationId, ANY_ORGANIZATION)?.kind === 'stdio') return this.savedFacts(integrationId, personKey)?.tools ?? []
     const cached = this.serverFacts.get(key)
     if (cached && !cached.stale && (cached.expiresAt === null || Date.now() < cached.expiresAt)) return cached.tools
     let listed = this.listing.get(key)
@@ -473,6 +561,7 @@ export class IntegrationGateway {
         tasks: !!capabilities?.extensions?.['io.modelcontextprotocol/tasks'],
       },
     })
+    this.saveListed(session, key)
     if (previous?.instructions !== instructions) {
       log.info('integration_instructions_changed', { integrationId, length: instructions?.length ?? 0 })
       for (const listener of this.factsListeners) listener(integrationId)
@@ -511,13 +600,18 @@ export class IntegrationGateway {
    * recently. Any other session asks for the header again (§4.1 rule 5).
    */
   private isCurrent(session: UpstreamSession): boolean {
-    if (!session.authorized) return this.store.get(session.integrationId, ANY_ORGANIZATION)?.auth.kind === 'none'
+    if (!session.authorized) {
+      // A command's values are read once, at its start; a new connection closes the session.
+      const integration = this.store.get(session.integrationId, ANY_ORGANIZATION)
+      return integration?.kind === 'stdio' || integration?.auth.kind === 'none'
+    }
     return Date.now() - session.openedAt < AUTHORIZATION_MAX_AGE_MS
   }
 
   private async open(key: string, integrationId: string, personKey: string | null, allowAnonymous: boolean, accountId: string): Promise<UpstreamSession> {
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) throw new Error('This integration was removed.')
+    if (integration.kind === 'stdio') return this.openStdio(key, integration, personKey, accountId)
     let authorization: string | null = null
     // The host's own work (null) has no connection: it lists anonymously.
     if (integration.auth.kind !== 'none' && personKey !== null) {
@@ -525,22 +619,10 @@ export class IntegrationGateway {
     }
     this.retire(key)
     if (integration.auth.kind !== 'none' && !authorization && !allowAnonymous) throw new ConnectionRequiredError()
-    const client = new Client({ name: 'solus', version: '1.0.0' }, {
-      versionNegotiation: { mode: 'auto' },
-      capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } },
-      listChanged: { tools: { autoRefresh: false, onChanged: () => {
-        if (this.sessions.get(key) !== session) return
-        this.serverFacts.delete(key)
-        this.notify(integrationId)
-      } } },
-    })
-    const session: UpstreamSession = {
-      integrationId, personKey, accountId, client, connected: Promise.resolve(), idleTimer: null, calls: [],
-      authorized: !!authorization, openedAt: Date.now(), retired: false,
-    }
-    client.setRequestHandler('elicitation/create', (request) => this.elicit(session, request))
+    const session = this.newSession(key, integrationId, personKey, accountId, !!authorization)
+    const client = session.client
     const prior = this.priorFor(integrationId)
-    session.connected = client.connect(this.transportFor(integration, personKey, authorization, accountId), prior ? { prior } : undefined)
+    session.connected = client.connect(this.transportFor(integration, personKey, authorization, accountId, []), prior ? { prior } : undefined)
     this.sessions.set(key, session)
     try {
       await session.connected
@@ -561,6 +643,151 @@ export class IntegrationGateway {
     // The list cached before an idle close may be old: read it again in the background.
     if (this.serverFacts.get(key)?.stale) void this.list(integrationId, personKey, allowAnonymous).catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
     return session
+  }
+
+  /** A session and its client, not yet connected. */
+  private newSession(key: string, integrationId: string, personKey: string | null, accountId: string, authorized: boolean): UpstreamSession {
+    const client = new Client({ name: 'solus', version: '1.0.0' }, {
+      versionNegotiation: { mode: 'auto' },
+      capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } },
+      listChanged: { tools: { autoRefresh: false, onChanged: () => {
+        if (this.sessions.get(key) !== session) return
+        this.serverFacts.delete(key)
+        this.notify(integrationId)
+      } } },
+    })
+    const session: UpstreamSession = {
+      integrationId, personKey, accountId, client, connected: Promise.resolve(), idleTimer: null, calls: [],
+      authorized, openedAt: Date.now(), retired: false, closing: false, lastUsedAt: this.clock.now(), stdio: null,
+    }
+    client.setRequestHandler('elicitation/create', (request) => this.elicit(session, request))
+    return session
+  }
+
+  /**
+   * Starts a command (§7.3), with its saved verdict when there is one, so it
+   * starts once (§7.5). The host's own work never starts one (§3 rule 2), and
+   * a command runs for the person who added it alone (§7.8). A verdict the SDK
+   * refuses is dropped and the revision is checked once more.
+   */
+  private async openStdio(key: string, integration: Integration, personKey: string | null, accountId: string, retried = false): Promise<UpstreamSession> {
+    if (personKey === null) throw new Error(`${integration.name} is a command, and the host's own work starts no command.`)
+    if (personKey !== integration.ownerKey) throw new Error(`${integration.name} runs only for the person who added it.`)
+    const refusal = this.processes.refusal(sessionKey(integration.id, personKey))
+    if (refusal) throw new Error(refusal)
+    const environment = integration.auth.kind === 'env' ? this.credentials?.environmentFor?.(integration.id, personKey, accountId) ?? null : []
+    if (!environment) throw new ConnectionRequiredError()
+    this.retire(key)
+    this.stdioStarting++
+    try {
+      await this.makeRoomForStdio()
+      return await this.connectStdio(key, integration, personKey, accountId, environment, retried)
+    } finally {
+      this.stdioStarting--
+    }
+  }
+
+  private async connectStdio(key: string, integration: Integration, personKey: string, accountId: string, environment: IntegrationEnvValue[], retried: boolean): Promise<UpstreamSession> {
+    const processKey = sessionKey(integration.id, personKey)
+    const factsKey: ServerFactsKey = { integrationId: integration.id, personKey, accountId }
+    const prior = retried ? undefined : this.savedPrior(factsKey)
+    // The saved list is the one a new list is compared with.
+    this.savedFacts(integration.id, personKey)
+    const session = this.newSession(key, integration.id, personKey, accountId, false)
+    const transport = this.transportFor(integration, personKey, null, accountId, environment)
+    const stdio = transport instanceof StdioClientTransport ? transport : null
+    const stderr = new StderrTail(stdio?.stderr ?? null)
+    const startedAt = this.clock.now()
+    session.connected = session.client.connect(transport, prior ? { prior, timeout: STDIO_START_TIMEOUT_MS } : { timeout: STDIO_START_TIMEOUT_MS })
+    this.sessions.set(key, session)
+    try {
+      await session.connected
+    } catch (error) {
+      if (this.sessions.get(key) === session) this.sessions.delete(key)
+      void session.client.close().catch(() => undefined)
+      if (prior && error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed) {
+        this.options.savedFacts?.dropVerdict(factsKey)
+        return this.connectStdio(key, integration, personKey, accountId, environment, true)
+      }
+      const failure = this.processes.startFailed(processKey, integration, startedAt, stderr, error)
+      this.factsChanged(integration.id)
+      throw failure
+    }
+    session.stdio = { pid: stdio?.pid ?? null, stderr, startedAt, ended: false }
+    session.client.onclose = () => this.stdioEnded(key, session, integration.name)
+    if (!prior) {
+      const discover = session.client.getDiscoverResult()
+      this.options.savedFacts?.saveVerdict(factsKey, discover ? { kind: 'modern', discover } : { kind: 'legacy' }, this.clock.now())
+    }
+    this.processes.started(processKey)
+    log.info('integration_process_started', { integrationId: integration.id, personKey, pid: session.stdio.pid })
+    this.touch(key)
+    this.factsChanged(integration.id)
+    if (this.serverFacts.get(key)?.stale) void this.list(integration.id, personKey).catch((error) => log.warn('integration_relist_failed', { integrationId: integration.id, error: errorText(error) }))
+    return session
+  }
+
+  /** The process ended and the gateway did not close it (§7.3): the session goes, calls in flight fail, and the next use starts it again. */
+  private stdioEnded(key: string, session: UpstreamSession, integrationName: string): void {
+    const child = session.stdio
+    if (!child || child.ended || session.closing) return
+    child.ended = true
+    // A retired session is closed by the gateway after its last call.
+    if (session.retired) {
+      log.info('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: child.pid, byItself: false, stderrBytes: child.stderr.bytes })
+      return
+    }
+    if (this.sessions.get(key) === session) {
+      this.sessions.delete(key)
+      if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
+      const cache = this.serverFacts.get(key)
+      if (cache) cache.stale = true
+    }
+    const state = this.processes.ended(sessionKey(session.integrationId, session.personKey), child.startedAt, `${integrationName} stopped by itself.`, child.stderr.tail)
+    log.warn('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: child.pid, byItself: true, state, stderrBytes: child.stderr.bytes })
+    this.factsChanged(session.integrationId)
+  }
+
+  /** At most 16 live commands (§7.3): a new one closes the idle one used least recently, or fails. */
+  private async makeRoomForStdio(): Promise<void> {
+    const live = [...this.sessions].filter(([, session]) => session.stdio && !session.stdio.ended)
+    if (live.length + this.stdioStarting <= STDIO_SESSION_LIMIT) return
+    const idle = live.filter(([, session]) => !session.calls.length).sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt)[0]
+    if (!idle) throw new Error('Too many MCP servers are running on this host.')
+    log.info('integration_process_evicted', { integrationId: idle[1].integrationId })
+    await this.closeSession(idle[0])
+  }
+
+  /** The saved verdict of one person and account, unless it is older than 7 days. */
+  private savedPrior(key: ServerFactsKey): PriorDiscovery | undefined {
+    const verdict = this.options.savedFacts?.get(key)?.verdict
+    if (!verdict || this.clock.now() - verdict.checkedAt > STDIO_VERDICT_MAX_AGE_MS) return undefined
+    return verdict.prior
+  }
+
+  /** A command's facts in memory, else as saved; the saved ones wait for the next start to be listed again. */
+  private savedFacts(integrationId: string, personKey: string | null): ServerFacts | null {
+    const key = sessionKey(integrationId, personKey)
+    const cached = this.serverFacts.get(key)
+    if (cached) return cached
+    if (personKey === null) return null
+    const saved = this.options.savedFacts?.get({ integrationId, personKey, accountId: DEFAULT_INTEGRATION_ACCOUNT })?.facts
+    if (!saved) return null
+    const facts: ServerFacts = { integrationId, ...saved, stale: true, expiresAt: null }
+    this.serverFacts.set(key, facts)
+    return facts
+  }
+
+  /** A command's new list is saved, so the next run reads it without a start (§7.5). */
+  private saveListed(session: UpstreamSession, key: string): void {
+    const facts = this.serverFacts.get(key)
+    if (!session.stdio || session.personKey === null || !facts) return
+    const { tools, era, instructions, capabilities } = facts
+    this.options.savedFacts?.saveFacts({ integrationId: session.integrationId, personKey: session.personKey, accountId: session.accountId }, { tools, era, instructions, capabilities }, this.clock.now())
+  }
+
+  private factsChanged(integrationId: string): void {
+    for (const listener of this.factsListeners) listener(integrationId)
   }
 
   /** An old verdict expires so a server upgrade can be found. */
@@ -618,9 +845,10 @@ export class IntegrationGateway {
     }
   }
 
-  private connectionRequired(integration: Pick<Integration, 'id' | 'name'>, context: AgentToolContext): AgentToolResult {
+  private connectionRequired(integration: Pick<Integration, 'id' | 'name' | 'auth'>, context: AgentToolContext): AgentToolResult {
     const sessionId = context.sessionId()
     if (sessionId) this.askToConnect(integration, sessionId)
+    if (integration.auth.kind === 'env') return { ok: false, text: `CONNECTION_REQUIRED: Give the environment values of ${integration.name} in Settings → MCP, then try again.` }
     return { ok: false, text: `CONNECTION_REQUIRED: Sign in to ${integration.name} in Settings → MCP, then try again.` }
   }
 
@@ -633,15 +861,16 @@ export class IntegrationGateway {
       return
     }
     this.sessions.delete(key)
-    if (session.idleTimer) clearTimeout(session.idleTimer)
+    if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
     session.retired = true
   }
 
   private touch(key: string): void {
     const session = this.sessions.get(key)
     if (!session) return
-    if (session.idleTimer) clearTimeout(session.idleTimer)
-    session.idleTimer = setTimeout(() => {
+    session.lastUsedAt = this.clock.now()
+    if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
+    session.idleTimer = this.clock.setTimeout(() => {
       if (session.calls.length) return this.touch(key)
       void this.closeSession(key)
     }, IDLE_CLOSE_MS)
@@ -652,11 +881,19 @@ export class IntegrationGateway {
     const session = this.sessions.get(key)
     if (!session) return
     this.sessions.delete(key)
-    if (session.idleTimer) clearTimeout(session.idleTimer)
+    if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
     const cache = this.serverFacts.get(key)
     if (cache) cache.stale = true
+    // The SDK closes standard input, then sends SIGTERM and SIGKILL to the one child it started (§7.3).
+    session.closing = true
     await session.client.close().catch((error) => log.warn('integration_session_close_failed', { integrationId: session.integrationId, error: errorText(error) }))
     log.info('integration_session_closed', { integrationId: session.integrationId })
+    if (session.stdio && !session.stdio.ended) {
+      session.stdio.ended = true
+      log.info('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: session.stdio.pid, byItself: false, stderrBytes: session.stdio.stderr.bytes })
+      this.processes.stopped(sessionKey(session.integrationId, session.personKey))
+      this.factsChanged(session.integrationId)
+    }
   }
 
   private notify(integrationId: string): void {
@@ -695,6 +932,11 @@ const REFUSED_IN_RESULT = /\b(?:status|HTTP)\W{0,3}401\b|\b401\s+Unauthorized\b/
 /** The first try's own answer reports HTTP 401 for a session that sent a header. */
 function refusedInFirstCall(session: UpstreamSession, result: AgentToolResult, retried: boolean): boolean {
   return !retried && session.authorized && !result.ok && REFUSED_IN_RESULT.test(result.text)
+}
+
+/** The session's command ended by itself while a call was in flight (§7.3). */
+function stoppedWhileRunning(session: UpstreamSession | null): boolean {
+  return session !== null && session.stdio !== null && session.stdio.ended && !session.closing
 }
 
 /** An in-flight modern request has no SSE resume path after transport loss. */

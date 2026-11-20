@@ -8,8 +8,9 @@ import type { ESTree } from '@oxlint/plugins'
 // literal directory name and fails with ENOENT, which the Claude SDK reports as
 // "the native binary exists but failed to launch" — naming the executable for a
 // fault in its working directory. The agents are where Solus launches
-// processes, so every `cwd` they hand out is resolved first.
-const guardedRoot = 'packages/server/src/execution/agents/'
+// processes, so every `cwd` they hand out is resolved first. The gateway starts
+// the command of a `stdio` MCP server in one module (docs/plans/mcp-first-class.md §7.3).
+const guardedRoots = ['packages/server/src/execution/agents/', 'packages/server/src/integrations/stdio-process.ts']
 
 const resolverName = 'resolveHomePath'
 
@@ -73,7 +74,7 @@ export const requireResolvedCwdRule = defineRule({
   },
   create(context) {
     const path = repositoryPath(context.cwd, context.filename)
-    if (!path.startsWith(guardedRoot)) return {}
+    if (!guardedRoots.some((root) => path.startsWith(root))) return {}
 
     // A log entry must show the path as it arrived — resolving it there would
     // erase the very `~` this rule exists to catch. Ancestors are visited
