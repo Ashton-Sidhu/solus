@@ -22,6 +22,51 @@ pushed. No pull request was opened.
   changed file (`boot-server.ts`, `AddressInfo`) is a line of `main` that the
   merge moved.
 
+## Merge of `main` at `09f769306`
+
+`2f340d6a3` merges `main` at `09f769306` ("chore: commit pending work on main
+before the last MCP merge", about 140 files of other sessions' work in
+progress). No `package.json` or lockfile changed, so no install ran.
+
+- **Conflicts.** One: `packages/server/drizzle/sqlite/meta/_journal.json`.
+  `main` folded all its migrations of both engines into one `0000_baseline`.
+  The journal takes `main`'s version. F2's `0011_integration_resource_watches`
+  (SQL and snapshot) was removed and generated again with `drizzle-kit
+  generate --config drizzle.sqlite.config.ts --name
+  integration_resource_watches`: it is now `0001_integration_resource_watches`,
+  after the baseline, with the same SQL as F2's, and its snapshot's `prevId` is
+  the baseline's id. `mcp-first-class.md` and `mcp-f2-handoff.md` name the new
+  tag.
+- **Merged automatically, read:** `host-api.ts`, `permissions.ts`,
+  `rpc-planes.ts`, `rpc.ts` (`main`'s vault key methods and task reads, and
+  this program's two resource watch methods, each once) and `boot-server.ts`
+  (`main`'s vault handlers beside this program's wiring).
+- **Migrations.** `drizzle-kit generate` makes no change and `drizzle-kit
+  check` passes, for SQLite and for Postgres. Postgres has no migration of
+  this program.
+- **Running servers.** `main` changed the client stores of running servers
+  (`client-core/running-servers/`, the workspace and mobile stores), not the
+  host's registry. Phase D's host side (`RunningServerRegistry.observeScans`,
+  `ServerDiscovery.listeningPorts`) is intact, and its clients (Settings → MCP
+  and the mobile hooks, which hold the lease and read the list again on a
+  change) type-check against the new stores. The registry, client, store,
+  forward, HTTP, and stop tests pass, and so does `integrations/local-servers`.
+  Not seen in a running app.
+- **Type checks**, compared by message with `main` at `09f769306` (checked out
+  in this worktree for the reading, then back): contracts 0, client-core 2,
+  mobile 0, server 134, workspace-ui 40; no new message.
+- **Tests:** `tests/unit/integrations/`, `rpc-planes`, `data-model-baseline`,
+  `data-model-identity`, the six `running-servers-*` files,
+  `server-discovery-startup`, and the tests that this program added or
+  changed: 621 pass, 4 fail. None is from this program or from the merge:
+  `data-model-identity` (2, also on `main`), `native-mobile-integrations` (one
+  label, also on `main`), and an unhandled error (`rune_outside_svelte`)
+  reported against `server-discovery-startup` when it runs in one process
+  after the other files; that file alone passes (2 pass). Neither side of the
+  merge changed it.
+- **Not done:** the full suite, `svelte-check`, the lints, and the screenshots
+  were not run again after this merge.
+
 ## Part 2: the visual pass
 
 The maintainer asked: "improve the look of the added ui elements to match the

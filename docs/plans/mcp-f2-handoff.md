@@ -99,7 +99,10 @@ are 939 bytes without it, 1,540 with it, the same for both providers).
 ## Migration
 
 `packages/server/drizzle/sqlite/0011_integration_resource_watches.sql` (journal
-tag `0011_integration_resource_watches`, with `meta/0011_snapshot.json`), made
+tag `0011_integration_resource_watches`, with `meta/0011_snapshot.json`; after
+the merge of `main` at `09f769306`, which folded the migrations into one
+baseline, it is `0001_integration_resource_watches` with the same SQL, see
+`mcp-visual-pass-handoff.md`), made
 with `drizzle-kit generate --config drizzle.sqlite.config.ts --name
 integration_resource_watches`, as `0008` to `0010` were. SQLite only;
 `drizzle-kit generate` for Postgres reports no change.

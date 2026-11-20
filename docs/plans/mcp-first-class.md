@@ -1484,7 +1484,8 @@ Where the code differs from §11.5, the code is right.
   (`session-status`), the deletion (`onSessionRecordDeleted`, new in
   `data/sessions/session-records.ts`), and the archive (`onSessionViewChanged`).
 - **The table** is `integration_resource_watch` (migration
-  `0011_integration_resource_watches`). The person column is `user_id`, not
+  `0001_integration_resource_watches`, after the baseline of `main`; it was
+  `0011` before `main` folded its migrations into `0000_baseline`). The person column is `user_id`, not
   `person_key`. It adds `name`, `status` (`live` or `ended`), `end_reason`,
   `status_message`, `wakes`, `last_wake_at`, and `updated_at`, so the limits
   and an ended row hold across a restart.
