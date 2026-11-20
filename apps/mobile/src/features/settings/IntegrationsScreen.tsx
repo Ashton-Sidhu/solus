@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolSummary } from "@solus/contracts/integration-types";
 import { resourceAllows } from "@solus/contracts/permissions";
+import { CLI_SKIP_NOTE, cliSkipLines } from "@solus/client-core/mcp-cli-skips";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { T3_CODE_BRAND_MARK_SOURCE } from "../../components/brandAssets";
@@ -387,6 +388,18 @@ function IntegrationTools(props: {
           onToggle={(isOn) => props.onToggle(tool.name, isOn)}
         />
       ))}
+      {tools.cliSkips.length ? <CliCopyNote lines={cliSkipLines(tools.cliSkips)} /> : null}
+    </View>
+  );
+}
+
+/** The CLI copies of this server that the person's runs left out (docs/plans/mcp-first-class.md §8.5). */
+function CliCopyNote(props: { readonly lines: string[] }) {
+  return (
+    <View accessibilityLabel="CLI copy" className="gap-1">
+      <Text className="text-sm text-foreground">CLI copy</Text>
+      {props.lines.map((line) => <Text key={line} className="text-sm text-foreground-muted">{line}</Text>)}
+      <SettingsNote>{CLI_SKIP_NOTE}</SettingsNote>
     </View>
   );
 }

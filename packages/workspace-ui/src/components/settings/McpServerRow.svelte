@@ -15,6 +15,7 @@
   import IntegrationConnectForm from "./IntegrationConnectForm.svelte";
   import IntegrationExtraAccounts from "./IntegrationExtraAccounts.svelte";
   import McpServerIcon from "./McpServerIcon.svelte";
+  import McpCliSkipNote from "./McpCliSkipNote.svelte";
   import McpToolSwitches from "./McpToolSwitches.svelte";
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
@@ -52,6 +53,7 @@
   const showConnect = $derived(status.canConnect && !isOpen && hostState?.connectionsStatus === "loaded");
   const offersOAuthClientSetup = $derived(integration.auth.kind === "oauth");
   const disabledTools = $derived(new Set(integration.disabledTools));
+  const cliSkips = $derived(hostState?.facts.get(integration.id)?.cliSkips ?? []);
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
   const canEdit = $derived(hosts.get(serverId)?.me.may("edit", { kind: "integration", id: integration.id, role: integration.role }) ?? true);
 
@@ -111,6 +113,10 @@
 
 {#snippet oauthClient()}
   <IntegrationOAuthClientForm {serverId} {integration} />
+{/snippet}
+
+{#snippet cliCopies()}
+  <McpCliSkipNote skips={cliSkips} />
 {/snippet}
 
 {#snippet tools()}
@@ -216,6 +222,9 @@
         {@render field("Account", account)}
       {/if}
       {@render field("Tools", tools)}
+      {#if cliSkips.length}
+        {@render field("CLI copy", cliCopies)}
+      {/if}
       {#if hostState?.facts.get(integration.id)?.instructions}
         <details class="group py-3 text-workspace-chrome">
           <summary class="-ml-1 flex min-h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-md px-1 text-(--solus-text-secondary) outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">

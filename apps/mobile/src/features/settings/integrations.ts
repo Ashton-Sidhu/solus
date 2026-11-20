@@ -10,6 +10,7 @@ import type {
   IntegrationConnectStartResult,
   IntegrationProbeResult,
   IntegrationToolSummary,
+  IntegrationCliSkip,
 } from '@solus/contracts/integration-types'
 import type { VaultConnectResult } from '@solus/contracts/vault'
 
@@ -32,7 +33,7 @@ export type IntegrationListState =
 
 export type IntegrationToolsState =
   | { kind: 'loading' }
-  | { kind: 'loaded'; tools: IntegrationToolSummary[]; instructions: string | null }
+  | { kind: 'loaded'; tools: IntegrationToolSummary[]; instructions: string | null; cliSkips: IntegrationCliSkip[] }
   | { kind: 'error'; message: string }
 
 /** One page of the catalog search. `total` counts every match of the query. */
