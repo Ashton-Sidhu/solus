@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { DispatchRepository, RunLocation, Session, SessionMeta } from '@solus/contracts/types'
 import type { SessionPrepareRequest, SessionPrepareResult } from '@solus/contracts/rpc'
-import { withSessionHostTurn, type SessionHostTurn } from '@solus/client-core/session-heads'
+import { withSessionHostTurn, type SessionCloudHead, type SessionHostTurn } from '@solus/client-core/session-heads'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connectionCalls: string[] = []
@@ -35,7 +35,7 @@ const ON_A = folderLocation({ serverId: 'host-a', path: '/a/solus' })
 const ON_B = openFolder(ON_A, { serverId: 'host-b', path: '/b/solus' })
 const REPOSITORY: DispatchRepository = { cloneUrl: 'https://github.com/solus-sh/solus.git' }
 
-function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareResult?: SessionPrepareResult } = {}) {
+function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareResult?: SessionPrepareResult; cloud?: SessionCloudHead; runningServerId?: string } = {}) {
   let turns: readonly SessionHostTurn[] = opts.turns ?? [{ serverId: 'host-a', head: 'head-3', syncedTurn: 3 }]
   const session = {
     id: opts.forked ? 'fork-1' : 'session-1',
@@ -53,6 +53,8 @@ function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareRes
   const reads: string[] = []
   const metaByHost = new Map<string, SessionMeta>()
   const refreshed: string[] = []
+  const pushRefusals: string[] = []
+  const resumedInto: string[] = []
   const workspace = {
     tabOrder: ['tab-1'],
     sessionFor: () => session,
@@ -63,6 +65,9 @@ function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareRes
     }) as never,
     refreshStartTarget: () => {},
     tabIdForSession: () => 'tab-1',
+    opening: {
+      resumeSession: async (meta: SessionMeta, resume: { intoTabId: string }) => { resumedInto.push(`${meta.serverId}:${resume.intoTabId}`); return resume.intoTabId },
+    },
   }
   const changes = new RunHostChanges(workspace, (tabId) => { refreshed.push(tabId) }, {
     resolveId: (serverId) => serverId,
@@ -77,11 +82,15 @@ function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareRes
       prepared.push({ serverId, request })
       return opts.prepareResult ?? { state: 'started' }
     },
+    cloudHeadFor: () => opts.cloud ?? null,
+    runningServerFor: () => opts.runningServerId ?? null,
+    cloudRepositoryKeyOf: () => null,
+    notePushRefused: (serverId, sessionId, isRefused) => { pushRefusals.push(`${serverId}:${sessionId}:${isRefused}`) },
     hostRef: (serverId) => `installation-of-${serverId}`,
     repoKeyOf: () => 'github.com/solus-sh/solus',
     repository: async () => ({ ...REPOSITORY }),
   })
-  return { changes, session, prepared, watched, reads, metaByHost, refreshed, setTurns: (next: SessionHostTurn[]) => { turns = next } }
+  return { changes, session, prepared, watched, reads, metaByHost, refreshed, pushRefusals, resumedInto, setTurns: (next: SessionHostTurn[]) => { turns = next } }
 }
 
 async function settle(): Promise<void> {
@@ -217,5 +226,57 @@ describe('opening a session', () => {
     behind.changes.opened('tab-1')
     await settle()
     expect(behind.prepared.map((entry) => entry.serverId)).toEqual(['host-b'])
+  })
+})
+
+// With the cloud (docs/plans/portable-sessions-cloud.md §5.4, §8.1 E).
+const CLOUD_HEAD = 'c'.repeat(40)
+const CLOUD: SessionCloudHead = { head: CLOUD_HEAD, syncedTurn: 5, lastRunHostId: 'account-studio', runningHostId: null, lastRunServerId: null }
+
+describe('the cloud as the source', () => {
+  test('a prompt names the cloud head and the host that ran the last turn, though this client cannot reach it', () => {
+    // WHY: the host that ran the last turn may be offline; the run host fetches from the cloud first.
+    const { changes, session } = harness({ cloud: CLOUD })
+    expect(changes.promptFields(session)).toEqual({ knownHead: CLOUD_HEAD, sourceHostId: 'account-studio' })
+  })
+
+  test('opening a session that the cloud has newer prepares the run host from the cloud', async () => {
+    // WHY: the host is ready before the person sends, with no host-to-host read.
+    const { changes, prepared, reads } = harness({ cloud: CLOUD })
+    changes.opened('tab-1')
+    await settle()
+    expect(prepared).toEqual([{ serverId: 'host-a', request: { sessionId: 'session-1', knownHead: CLOUD_HEAD, sourceHostId: 'account-studio', repository: REPOSITORY } }])
+    expect(reads).toEqual([])
+  })
+
+  test('a current host loads the conversation into a tab that opened from the cloud with none', async () => {
+    // WHY: a cloud-only session shows its conversation once a machine that has it is selected.
+    const { changes, session, metaByHost, resumedInto } = harness({ prepareResult: { state: 'current', head: CLOUD_HEAD } as SessionPrepareResult, cloud: CLOUD })
+    session.messages = []
+    metaByHost.set('host-b', { sessionId: 'session-1', serverId: 'host-b', cwd: '/b/solus', head: CLOUD_HEAD, syncedTurn: 5 } as SessionMeta)
+    changes.change('tab-1', ON_B)
+    await settle()
+    expect(resumedInto).toEqual(['host-b:tab-1'])
+  })
+
+  test('a prompt while another connected host runs a turn moves the tab there first', () => {
+    // WHY: one turn at a time (plan §4 decision 5): the prompt joins the running turn's queue.
+    const { changes, session } = harness({ runningServerId: 'host-b' })
+    changes.followRunningHost('tab-1')
+    expect(runHost(session.run)).toBe('host-b')
+    const stays = harness({ runningServerId: 'host-a' })
+    stays.changes.followRunningHost('tab-1')
+    expect(runHost(stays.session.run)).toBe('host-a')
+  })
+
+  test('"Use the newer copy" prepares the cloud head, reads the conversation again, and clears the refusal', async () => {
+    // WHY: design answer 3.4. The run host becomes current and shows the session's one history.
+    const { changes, prepared, metaByHost, resumedInto, pushRefusals } = harness({ prepareResult: { state: 'current', head: CLOUD_HEAD } as SessionPrepareResult, cloud: CLOUD })
+    metaByHost.set('host-a', { sessionId: 'session-1', serverId: 'host-a', cwd: '/a/solus', head: CLOUD_HEAD, syncedTurn: 5 } as SessionMeta)
+    await changes.useNewerCopy('tab-1')
+    await settle()
+    expect(prepared[0]?.request).toMatchObject({ sessionId: 'session-1', knownHead: CLOUD_HEAD, sourceHostId: 'account-studio' })
+    expect(resumedInto).toEqual(['host-a:tab-1'])
+    expect(pushRefusals).toEqual(['host-a:session-1:false'])
   })
 })

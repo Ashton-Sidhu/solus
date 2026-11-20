@@ -79,6 +79,7 @@ import { isWaitingForHost } from '@solus/client-core/host-readiness'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
+import { sessionListStore } from './session-list.store.svelte'
 import { RunHostChanges } from './run-host-changes'
 import { hostKey } from '@solus/client-core/host-key'
 import { workPolicy } from '../policy/work-policy.svelte'
@@ -1922,6 +1923,10 @@ export class WorkspaceContext implements SurfaceContext {
     if (openTab) {
       if (!opts.background) this.selectTab(openTab)
       return openTab
+    }
+    if (sessionListStore.listed(sessionId)?.cloudOnly && !opts.background) {
+      await this.opening.openCloudSession(sessionId)
+      return this.tabIdForSession(sessionId) ?? null
     }
     const meta = await readSessionMeta(serverId, sessionId)
     return meta ? await this.opening.resumeSession(meta, { background: opts.background }) : null

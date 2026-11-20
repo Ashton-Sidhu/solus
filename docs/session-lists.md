@@ -187,6 +187,23 @@ show it once, from the host with the higher `syncedTurn` (the head facts that
 each home's session info once to learn them; the rule is `listedSessionHost` in
 `client-core/session-heads.ts`.
 
+### The cloud entries
+
+When the person is signed in, the list also reads `listMySessions`
+(`GET /v1/me/sessions`) from each connected Solus API, and keeps the four cloud
+facts of each session (`head`, `syncedTurn`, `lastRunHostId`, `runningHostId`)
+from those entries, from the Solus API's records, and from
+`session.headChanged` (`contexts/workspace/cloud-sessions.svelte.ts`). The
+event writes the facts in place; no row is built again.
+
+The list is the records of the connected homes, plus one row for each cloud
+entry that no connected home lists (`cloudOnly`). A cloud entry whose last run
+host is connected but does not list the session (it was archived there) gets no
+row. A cloud-only row opens on the saved host that ran its last turn, else on
+the Run on host, with no conversation until a host that has it is selected.
+Search and the picker do not show cloud-only sessions yet. When a Solus API
+connection goes (sign-out), its cloud entries and facts go with it.
+
 ## Known difference
 
 The record list has one row per session: a session that changed provider is

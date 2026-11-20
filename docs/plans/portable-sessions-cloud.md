@@ -698,3 +698,106 @@ provider. It returns `SESSION_DIVERGED` for every prompt route that admits a
 turn. `SessionMeta.pushRefused` exposes the state to clients. A remote-head sync
 keeps the previous local head at `refs/solus/refused/<sha>`, then adopts the
 cloud head and clears the refusal. The local turns remain in that Git history.
+
+### Part E as implemented (desktop and web)
+
+Desktop and web (`packages/workspace-ui/`, `packages/client-core/`). No server
+change, no mobile change. The client extends phase 4A (`portable-sessions.md`
+§20).
+
+- **The four facts.** `CloudSessions` (`contexts/workspace/cloud-sessions.svelte.ts`,
+  `sessionListStore.cloud`) keeps `head`, `syncedTurn`, `lastRunHostId`, and
+  `runningHostId` for each session. It learns them from the records a Solus API
+  answers (`sessionRecordList`, `sessionRecordGet`), from `listMySessions`, and
+  from `session.headChanged` on each Solus API connection. Each value is a
+  `$state` object, and the event writes only the properties that changed; the
+  row objects and the list stay the same. An unknown session id in the event
+  reads `listMySessions` once, because the event has no card.
+- **`listMySessions`** is the record method `sessionCloudList()` on the host
+  API (`contracts/host-api.ts`, `client-core/workspace-records.ts`). The list
+  calls it only on a Solus API connection. An older API that has no route
+  answers no entries.
+- **The list.** The rows of the connected homes, plus a `cloudOnly` row for
+  each cloud entry that no home lists. A cloud entry whose last run host is
+  connected and does not list it gets no row (that host archived it). One row
+  for one session id: a home's record always wins over a cloud entry. The row
+  opens on the saved host that ran the last turn (`savedRunnerFor`), else on the
+  Run on host. `forgetHost` of a Solus API (sign-out) removes its entries and
+  facts.
+- **Opening a cloud-only row** (`SessionOpening.openCloudSession`, from the
+  sidebar and `revealSession`) makes a tab with the session id, the card's
+  title, provider, and model, and no conversation. It calls
+  `RunHostChanges.opened`, so an online run host that is behind prepares from
+  the cloud at once. The conversation shows `ConversationAwaitsMachine` ("The
+  conversation shows here when you select a machine in Run on.") while
+  `conversationAwaitsMachine` is true. When the run host is current
+  (`sessionPrepare` answers `current`, or the sync card ends `done`), the owner
+  loads the conversation with `resumeSession(meta, { intoTabId })`. A host
+  that comes back (`hostReady`) does the same for its tabs.
+- **The source rule** (`sessionSyncOrigin` in `client-core/session-heads.ts`).
+  The newest head is the larger `syncedTurn` among the connected hosts and the
+  cloud; a tie goes to the hosts. When the cloud is newer, the prompt and
+  `sessionPrepare` carry `knownHead` = the cloud head and `sourceHostId` =
+  `lastRunHostId` as the cloud names it, though this client may not reach that
+  host. A run host that has the cloud head, or that ran the last turn, gets no
+  head. `afterTurnSettled` counts past the cloud's `syncedTurn`.
+  `newestSessionServer` gives the host that the row and the Run on note name.
+- **States** (`sessionCloudState` in `client-core/session-cloud-state.ts`), in
+  the places phase 4A chose. The Run on row under the composer shows one note
+  (`runHostRowNote`): "Running on <host>" first, then "<host> is offline", then
+  "Not synced yet". "Not synced yet" shows when a host has a larger
+  `syncedTurn` than the cloud and the cloud has a copy; it ends when
+  `session.headChanged` reports the count. "Running on <host>" counts only a
+  `runningHostId` that names a connected host other than the run host; Run on
+  is locked then, and `promptTab` first moves the tab to that host
+  (`RunHostChanges.followRunningHost`), so the prompt joins that turn's queue.
+- **The refused push.** `PushRefusedCard` takes the place of the setup card:
+  "This session continued on <host>. The turns on this machine are not in it."
+  with **Fork** (`forkTab`) and **Use the newer copy**
+  (`RunHostChanges.useNewerCopy`: a `sessionPrepare` with the cloud head, then
+  the conversation is read again). It shows when the run host's session info
+  has `pushRefusedHead` (read as optional; the contract does not declare it
+  yet), when a prompt is refused with `SESSION_DIVERGED` (the text goes back to
+  the composer), or when the status card has `promptRefusalCode:
+  'SESSION_DIVERGED'`.
+
+#### Client-core for mobile
+
+- `session-heads.ts`: `SessionHostTurn.pushRefused?`, `SessionCloudHead`,
+  `SessionSyncOrigin`, `sessionSyncOrigin(turns, runServerId, cloud)`,
+  `newestSessionServer(turns, preferServerId, cloud)`, and
+  `afterTurnSettled(turns, serverId, cloudTurn = 0)`.
+- `session-cloud-state.ts`: `SessionCloudState`, `sessionCloudState(input)`,
+  `sessionCloudStateText(state, hostLabel)`, `conversationAwaitsMachine(input)`.
+- `workspace-records.ts`: `sessionCloudList()`.
+
+#### Decisions
+
+1. **The refused-push property is `pushRefusedHead`** on `SessionMeta`, after
+   the column `push_refused_head`. The client reads it as optional and does not
+   add it to the contract, because the server worker owns that change.
+2. **A running host that this client cannot reach is not counted** (design
+   §5.4): its fact can be stale after a crash. The prompt then goes to the run
+   host as before.
+3. **A cloud-only row opens on the saved last run host when this client keeps
+   it**, so the composer says that host is offline, as phase 4A does. Else it
+   opens on the Run on host, which prepares from the cloud at once. With no
+   host at all, a toast says "Connect a machine to continue this session".
+4. **"Not synced yet" needs a cloud copy.** Before the first push, or with
+   cloud sync off, nothing shows: the client cannot tell "waiting" from "off".
+5. **Tie to the hosts.** An equal `syncedTurn` uses the host's copy.
+6. **Cloud-only rows are personal** (`organizationId: 'local'`): they show in
+   every organization window, as a personal host's sessions do.
+
+#### Limits
+
+- No search or picker result for a cloud-only session (phase 5 reads).
+- Archive and snooze of a cloud-only row go to the Solus API, which keeps no
+  list state for a `person:` session (D2), so they are not kept.
+- A prompt sent before the conversation of a cloud-only tab loads shows only
+  the new turn; the older turns show after the session is opened again.
+- After "Running on <host>" moves the tab, the transcript shows the turns this
+  client had; that host's own older turns show after a reopen.
+- A reload of a cloud-only tab before a host has it restores an empty tab on
+  the same host; a pick in Run on or a prompt makes a host current and loads it.
+- Mobile is not changed.

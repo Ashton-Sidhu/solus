@@ -44,6 +44,8 @@
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import SuggestionGroup from "./suggestions/SuggestionGroup.svelte";
   import SessionStatusCard from "./SessionStatusCard.svelte";
+  import ConversationAwaitsMachine from "./ConversationAwaitsMachine.svelte";
+  import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
 
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import DiffSummaryCard from "./DiffSummaryCard.svelte";
@@ -184,6 +186,7 @@
   /** Past its grace and not back yet: what needs the host (composer, actions) is
    *  hidden, and the host's state and diagnostics take its place. */
   const isHostAway = $derived(!!hostState?.away);
+  const awaitsMachine = $derived(!!sess && sessionListStore.awaitsMachine(sess, serverConnections.resolveId(sessionHostId), isHostAway));
   // ─── Breadcrumb room ───
   // The band that says where you are belongs to the pane, not to this
   // transcript: `WorkspaceBody` draws it over the leading pane and
@@ -669,8 +672,8 @@
 
 <!-- A host that is away has nothing to load: the pane stays empty rather than
      a skeleton that never ends. Its state is in the composer's place. -->
-{#if tab && sess && sess.messages.length === 0 && isHostAway}
-  <div class="h-full"></div>
+{#if tab && sess && sess.messages.length === 0 && (isHostAway || awaitsMachine)}
+  {#if awaitsMachine}<ConversationAwaitsMachine />{:else}<div class="h-full"></div>{/if}
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->

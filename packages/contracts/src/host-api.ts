@@ -17,6 +17,7 @@ import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
 import type { SessionArtifacts } from './session-artifacts'
 import type { SessionChange, SessionChanged } from './session-state'
+import type { ListMySessionsResponse } from './session-repositories'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
 import type { SessionSubagentRequest, SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
@@ -327,6 +328,9 @@ export interface SolusAPI {
   sessionRecordGet(sessionId: string): Promise<SessionRecord | null>
   /** Collaboration plane: what was said in the sessions this home keeps. */
   sessionRecordSearch(query: SessionRecordSearchQuery): Promise<SessionRecordSearch>
+  /** The Solus API only: the caller's sessions in the cloud, with their card and four facts
+   *  (`GET /v1/me/sessions`; docs/plans/portable-sessions-cloud.md answer 2.3 C). */
+  sessionCloudList(): Promise<ListMySessionsResponse['items']>
   /** Collaboration plane, at the session's home (`/v1/sessions/:sessionId`;
    *  docs/plans/session-archive.md): settle a session for everyone, or archive
    *  and snooze it in the caller's own list. Answers where it is now. */
