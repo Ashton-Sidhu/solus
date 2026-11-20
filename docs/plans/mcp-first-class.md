@@ -228,7 +228,9 @@ some of them. This plan follows the sources.
     of §9.1 is the `GET` of a Server URL, and D sends `server/discover` only to
     an endpoint whose `response.protocol` is `http`. A server that an agent or
     a terminal started is found only when its address is a Server URL; §9.4
-    applies to those, and the runtime sentence covers the rest.
+    applies to those, and the runtime sentence covers the rest. *2026-11-20:
+    replaced by §9.6: a loopback TCP row of a process that Solus started gets
+    one `POST /mcp`.*
 41. **The list holds only the processes Solus started, and Server URLs**
     (found in D). A server that the person started in another terminal is not
     in it, so "a fresh list has a listener on that port" (§9.3) would say Not
@@ -1240,6 +1242,42 @@ endpoint of an agent's process raises one card in that session.
   the installed row shows Not running.
 - **Not built.** The Running servers card's **Add to MCP** (§9.2): another
   session rewrites that card's client code now.
+
+### 9.6 A TCP listener of a process that Solus started (2026-11-20)
+
+The maintainer asked that a server an agent or a terminal started be found
+with no Server URL. This replaces the limit of §1 item 40 and of §9.5
+"Requests".
+
+- **Which listener.** A row of the running-servers list with
+  `response: null` (TCP only), on `127.0.0.1` or `::1`, whose `startedBy` is
+  `agent` or `terminal`. The list holds such a row only for a process that
+  Solus started: the registry finds `SOLUS_SESSION_ID` or `SOLUS_TERMINAL_ID`
+  in its environment or in an ancestor's (macOS `ps -E`, Linux
+  `/proc/<pid>/environ`), or, on Windows, it descends from an agent that the
+  host started. A `configured` or `unknown` row gets no request.
+- **When.** Only when the list has shown the row for 2 seconds
+  (`SETTLE_MS`), measured by the time of the scans: in practice the next
+  scan, 3 seconds later. A row that goes before then is forgotten, and waits
+  again when it comes back. No timer: the check runs in the scan that
+  passes the wait, as §9.5.
+- **What.** One `POST /mcp` of `server/discover`, the request of §9.5, with
+  the same limits (no credential, no redirect, 1.5 seconds, 16 KB, four at a
+  time, no `initialize`). One check for each process and port: a TCP row
+  gets none when the same process already has an answer on that port (its
+  Server URL). The answer, also "not MCP" and a refused or broken
+  connection of a service that is not HTTP, is kept until the port has no
+  listener or another process holds it. A new process on the port has a
+  new `serverId` and is checked again.
+- **Then.** An MCP answer shows under Found on this host and, for an agent's
+  process with a session, raises the card of §9.4. A terminal's server
+  shows in Settings only, as before.
+- **Not done.** The registry has no fact that marks a port as a known
+  non-HTTP service, so none is used. A Redis server that an agent started
+  gets the one request and logs a "possible security attack" line and
+  closes the connection; the answer is "not MCP" and is kept. An MCP server
+  at a path other than `/mcp` of a TCP row is not found; the person types its
+  address, as for a server that Solus did not start.
 
 ## 10. MCP prompts as slash commands
 

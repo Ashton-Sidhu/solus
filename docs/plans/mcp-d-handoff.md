@@ -11,6 +11,20 @@ Commits:
 - the docs commit that adds this file, the as-built notes of
   `mcp-first-class.md` (§1 items 40–46, §9.5), and `docs/integrations.md`.
 
+## Note, 2026-11-20: TCP listeners of a Solus process are checked now
+
+Branch `solus/2feaa060`. The gap in "What the feature does not give that D
+needed" is closed by the maintainer's decision: `LocalMcpServers` also sends
+`server/discover` to a loopback TCP row (`response: null`) whose `startedBy`
+is `agent` or `terminal`, once the list has shown it for 2 seconds. One
+`POST /mcp` for each process and port, kept for the life of the process,
+with the limits above. An agent's MCP server now shows under Found on this
+host and raises the session card with no Server URL. The rule is in
+`mcp-first-class.md` §9.6. The running-servers feature did not change;
+`local-servers.ts` and its test changed. A listener of a process that Solus
+did not start still gets nothing: the person pastes its `http://localhost`
+address in Settings → MCP.
+
 ## What was built
 
 ### Host
@@ -240,7 +254,7 @@ Each was looked at. Mobile was not captured: it needs a native build.
 
 - **Discovered (TCP) listeners are not checked** (above): an agent's or a
   terminal's MCP server is found only through a Server URL. A decision for the
-  maintainer.
+  maintainer. *Done 2026-11-20: see the note at the top.*
 - **Running servers card: Add to MCP** (§9.2) not built, on desktop, web, or
   mobile; `docs/running-servers.md` not changed for the same reason.
 - **Mobile was not run**: no native build. Its changes pass `tsc` and the unit

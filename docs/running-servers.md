@@ -25,7 +25,9 @@ agent or a terminal opened from Solus. It excludes Solus, provider CLIs,
 interactive shells, unowned processes, LAN-only listeners, and ports held by
 multiple processes. IPv4 and IPv6 rows for the same process and port are combined.
 **Automatic discovery sends no HTTP or TLS probes.** An unprobed row says TCP;
-its default browser address uses HTTP.
+its default browser address uses HTTP. The MCP owner on the host, not this
+feature, sends one `server/discover` request to a loopback TCP row of a Solus
+process (`docs/integrations.md`, "MCP servers that run on the host").
 
 For HTTPS, a specific path, or a server started outside Solus, use **Server URLs**
 in the project panel menu. On mobile, use **Server URLs** on the server screen.
