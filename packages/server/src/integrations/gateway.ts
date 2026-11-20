@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Client } from '@modelcontextprotocol/client'
+import type { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { ProtocolError, SdkError, SdkErrorCode, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
@@ -17,6 +17,7 @@ import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, t
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
 import { endSolusSpan } from '../execution/observability/tracer'
 import { accountLabel, callRequest, callSpanStatus, elicitFromCall, splitAccount, startCallSpan, type TurnContextOf } from './integration-call'
+import { cancelTask, MCP_TASKS_EXTENSION, taskHandleOf, TaskAwareClient, type McpTaskHandle } from './mcp-task-requests'
 import {
   ConnectionRequiredError,
   errorText,
@@ -54,6 +55,29 @@ const STDIO_VERDICT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const STDIO_SESSION_LIMIT = 16
 
 /** What `connection_status` reports about one person's connection to an integration. */
+/** What the MCP task owner (`mcp-tasks.ts`) does for the gateway (docs/plans/mcp-first-class.md §12). */
+export interface McpTaskCalls {
+  /** A tool call that the server answered with a task handle: hold it, then give it to the background (§12.1). */
+  hold(call: HeldMcpTask): Promise<AgentToolResult>
+  /** An upstream session with a live MCP task is not closed when idle (§12.3). */
+  holdsUpstream(integrationId: string, personKey: string | null, accountId: string): boolean
+  /** A `stdio` process ended: its MCP tasks fail (§12.3). */
+  processEnded(integrationId: string, personKey: string | null): void
+}
+
+export interface HeldMcpTask {
+  integration: Integration
+  tool: string
+  accountId: string
+  personKey: string | null
+  handle: McpTaskHandle
+  context: AgentToolContext
+  traceparent: string | null
+}
+
+/** A status request found no running process of a `stdio` integration: its MCP tasks are gone with it. */
+export class ServerStoppedError extends Error {}
+
 export interface IntegrationConnectionReport {
   status: 'connected' | 'needs-sign-in' | 'not-connected'
   /** The account label, when connected and known. */
@@ -84,6 +108,7 @@ export class IntegrationGateway {
   /** `stdio` sessions that are starting, so the limit counts them. */
   private stdioStarting = 0
   private turnContextOf: TurnContextOf | null = null
+  private mcpTasks: McpTaskCalls | null = null
 
   /**
    * The integration records; the tool bridge lists a scope's integrations
@@ -117,6 +142,39 @@ export class IntegrationGateway {
     this.turnContextOf = turnContextOf
   }
 
+  /** Installed once at boot: the owner of MCP tasks (§12). Without it a task handle is cancelled and refused. */
+  useMcpTasks(mcpTasks: McpTaskCalls): void {
+    this.mcpTasks = mcpTasks
+  }
+
+  /**
+   * Runs one MCP task request (`tasks/get`, `tasks/update`, `tasks/cancel`) as
+   * the task's person and account (§12.3), on their session, opened if none is.
+   * A `stdio` integration is not started for it: with no running process this
+   * throws `ServerStoppedError`. A refused header is read again once, then the
+   * connection needs sign-in and this throws `ConnectionRequiredError`.
+   */
+  async withTaskSession<T>(integrationId: string, personKey: string, accountId: string, use: (client: Client) => Promise<T>, retried = false): Promise<T> {
+    const key = sessionKey(integrationId, personKey, accountId)
+    const integration = this.store.get(integrationId, ANY_ORGANIZATION)
+    if (!integration) throw new ServerStoppedError('The MCP server was removed.')
+    if (integration.kind === 'stdio' && !this.sessions.get(key)?.stdio) throw new ServerStoppedError('The server stopped.')
+    const session = await this.session(integrationId, personKey, false, accountId)
+    try {
+      return await use(session.client)
+    } catch (error) {
+      if (!session.authorized || !isAuthFailure(error)) throw error
+      if (!retried) {
+        this.readHeaderAgain(session)
+        return this.withTaskSession(integrationId, personKey, accountId, use, true)
+      }
+      this.signInRefused(session, integration, error)
+      throw new ConnectionRequiredError()
+    } finally {
+      this.touch(key)
+    }
+  }
+
   /**
    * Reads one resource with the current person's connection. It never starts an
    * agent turn. `starter` is who the read acts for: a command starts only for
@@ -128,7 +186,13 @@ export class IntegrationGateway {
 
   /** Calls one tool for an MCP App, or an app of Solus, with the current person's connection. It never starts an agent turn. */
   async callAppTool(integrationId: string, name: string, input: ToolArguments, starter: CommandStarter): Promise<AppToolResult> {
-    return this.withAppSession(integrationId, starter, (client) => client.callTool({ name, arguments: input }, { timeout: CALL_TIMEOUT_MS }))
+    return this.withAppSession(integrationId, starter, (client) => client.callTool({ name, arguments: input }, { timeout: CALL_TIMEOUT_MS }).catch((error: unknown) => {
+      // An app waits for its answer in the frame; it cannot wait for an MCP task (§12). The work is not left running.
+      const handle = taskHandleOf(error)
+      if (!handle) throw error
+      void cancelTask(client, handle.taskId, { traceparent: null, timeout: CALL_TIMEOUT_MS }).catch(() => undefined)
+      throw new Error(`${name} runs as an MCP task, and an MCP App cannot wait for one. Ask the agent to run ${name}.`)
+    }))
   }
 
   private async withAppSession<T>(integrationId: string, starter: CommandStarter, use: (client: Client) => Promise<T>): Promise<T> {
@@ -308,6 +372,12 @@ export class IntegrationGateway {
       return ended = mapped
     } catch (error) {
       if (error instanceof ConnectionRequiredError) return this.connectionRequired(integration, context)
+      const handle = taskHandleOf(error)
+      if (handle && session) {
+        // The call has its answer; the limits of §5 end here, and the MCP task's own limits start (§12).
+        limits.pause()
+        return ended = await this.heldTask(session, { integration, tool, accountId, personKey: session.personKey, handle, context, traceparent: trace?.traceparent ?? null })
+      }
       if (stoppedWhileRunning(session)) return { ok: false, text: `${integration.name} stopped while it ran ${tool}.` }
       if (session?.authorized && isAuthFailure(error)) {
         // The session's header can outlive its token: a new session reads it again, refreshed, before the person is asked.
@@ -343,6 +413,13 @@ export class IntegrationGateway {
         } else this.touch(sessionKey(integrationId, session.personKey, session.accountId))
       }
     }
+  }
+
+  /** Without an owner of MCP tasks, the work is not left running on the server. */
+  private async heldTask(session: UpstreamSession, call: HeldMcpTask): Promise<AgentToolResult> {
+    if (this.mcpTasks) return this.mcpTasks.hold(call)
+    void cancelTask(session.client, call.handle.taskId, { traceparent: call.traceparent, timeout: CALL_TIMEOUT_MS }).catch(() => undefined)
+    return { ok: false, text: `${call.integration.name} runs ${call.tool} as an MCP task, and this host cannot follow one.` }
   }
 
   /**
@@ -583,9 +660,10 @@ export class IntegrationGateway {
 
   /** A session and its client, not yet connected. */
   private newSession(key: string, integrationId: string, personKey: string | null, accountId: string, authorized: boolean): UpstreamSession {
-    const client = new Client({ name: 'solus', version: '1.0.0' }, {
+    // The tasks extension goes on each request (§12): a server may answer any tool call with an MCP task.
+    const client = new TaskAwareClient({ name: 'solus', version: '1.0.0' }, {
       versionNegotiation: { mode: 'auto' },
-      capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } },
+      capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {}, [MCP_TASKS_EXTENSION]: {} } },
       listChanged: { tools: { autoRefresh: false, onChanged: () => {
         if (this.sessions.get(key) !== session) return
         this.serverFacts.delete(key)
@@ -681,6 +759,7 @@ export class IntegrationGateway {
       const cache = this.serverFacts.get(key)
       if (cache) cache.stale = true
     }
+    this.mcpTasks?.processEnded(session.integrationId, session.personKey)
     const state = this.processes.ended(sessionKey(session.integrationId, session.personKey), child.startedAt, `${integrationName} stopped by itself.`, child.stderr.tail)
     log.warn('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: child.pid, byItself: true, state, stderrBytes: child.stderr.bytes })
     this.factsChanged(session.integrationId)
@@ -690,7 +769,7 @@ export class IntegrationGateway {
   private async makeRoomForStdio(): Promise<void> {
     const live = [...this.sessions].filter(([, session]) => session.stdio && !session.stdio.ended)
     if (live.length + this.stdioStarting <= STDIO_SESSION_LIMIT) return
-    const idle = live.filter(([, session]) => !session.calls.length).sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt)[0]
+    const idle = live.filter(([, session]) => !session.calls.length && !this.holdsUpstream(session)).sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt)[0]
     if (!idle) throw new Error('Too many MCP servers are running on this host.')
     log.info('integration_process_evicted', { integrationId: idle[1].integrationId })
     await this.closeSession(idle[0])
@@ -784,10 +863,14 @@ export class IntegrationGateway {
     session.lastUsedAt = this.clock.now()
     if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
     session.idleTimer = this.clock.setTimeout(() => {
-      if (session.calls.length) return this.touch(key)
+      if (session.calls.length || this.holdsUpstream(session)) return this.touch(key)
       void this.closeSession(key)
     }, IDLE_CLOSE_MS)
     session.idleTimer.unref?.()
+  }
+
+  private holdsUpstream(session: UpstreamSession): boolean {
+    return !!this.mcpTasks?.holdsUpstream(session.integrationId, session.personKey, session.accountId)
   }
 
   private async closeSession(key: string): Promise<void> {
@@ -805,6 +888,7 @@ export class IntegrationGateway {
       session.stdio.ended = true
       log.info('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: session.stdio.pid, byItself: false, stderrBytes: session.stdio.stderr.bytes })
       this.processes.stopped(sessionKey(session.integrationId, session.personKey))
+      this.mcpTasks?.processEnded(session.integrationId, session.personKey)
       this.factsChanged(session.integrationId)
     }
   }

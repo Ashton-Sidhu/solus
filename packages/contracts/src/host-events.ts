@@ -35,6 +35,7 @@ import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
 import type { AgentAuthFinishedEvent } from './agent-auth'
+import type { McpTaskChangedEvent } from './integrations/mcp-task'
 import type { IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnectionChangedEvent, IntegrationConnectNeeded, IntegrationCustomServerNeeded } from './integration-types'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus } from './organization-scope'
@@ -212,6 +213,8 @@ export interface HostEventMap {
   'integration.connectNeeded': IntegrationConnectNeeded
   /** An agent needs the address of a server that is not in the catalog. */
   'integration.customServerNeeded': IntegrationCustomServerNeeded
+  /** One MCP task of a session changed (mcp-first-class.md §12.5). Delivered to the clients that may read the session. */
+  'mcpTask.changed': McpTaskChangedEvent
   /** Who is watching one session, and whose turn is running. The whole room each
    *  time: a handful of rows, and two clients disagreeing about who is present is
    *  the failure to avoid. Delivered to the session's watchers. */
@@ -325,6 +328,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.integrationAuthFinished': { owner: 'integrations', category: 'targeted', recovery: 'reset', description: "An integration sign-in in one person's scope ended." },
   'integration.connectNeeded': { owner: 'integrations', category: 'delta', recovery: 'reset', description: 'An integration tool needs the user to connect their account.' },
   'integration.customServerNeeded': { owner: 'integrations', category: 'delta', recovery: 'reset', description: 'An agent needs the address of a server that is not in the catalog.' },
+  'mcpTask.changed': { owner: 'integrations', category: 'delta', recovery: 'reload', description: "One MCP task of a session changed; recover through mcpTaskList." },
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
   'work.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people who have one work open, or what they do there, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },

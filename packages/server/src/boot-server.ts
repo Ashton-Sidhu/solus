@@ -74,6 +74,9 @@ import { GUEST_VISIT_TTL_MS } from './admission/doors'
 import { profileTargetFor, registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { registerIntegrationHandlers } from './transport/handlers/integration-handlers'
 import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
+import { registerMcpTaskHandlers } from './transport/handlers/mcp-task-handlers'
+import { McpTasks } from './integrations/mcp-tasks'
+import { McpTaskStore } from './integrations/mcp-task-store'
 import { registerAppHandlers } from './transport/handlers/app-handlers'
 import { Apps } from './apps/apps'
 import { AppDeployments } from './apps/deployments/app-deployments'
@@ -833,6 +836,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   integrationGateway.useTurnContext((sessionId, toolUseId) => opts.sessionRuntime.sessionEmitter.turnContextOf(sessionId, toolUseId))
   useClaudeAppCapture((sessionId, app) => integrationApps.captureClaude(sessionId, app))
   registerMcpAppHandlers(server, integrationApps)
+  // MCP tasks (mcp-first-class.md §12): a tool call that a server runs as an MCP task
+  // becomes the session's background work, and its end starts the agent again once.
+  const mcpTasks = new McpTasks({
+    store: new McpTaskStore(),
+    gateway: integrationGateway,
+    wake: async (sessionId, text, images) => {
+      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', { via: 'mcp-task', ...(images.length ? { imageAttachmentRefs: images } : {}) })
+    },
+    publish: (event) => { void events.broadcast('mcpTask.changed', event) },
+    backgroundEnded: (sessionId) => opts.sessionRuntime.providerEvents.endBackgroundWait(sessionId),
+  })
+  integrationGateway.useMcpTasks(mcpTasks)
+  opts.sessionRuntime.useMcpTaskHolds((sessionId) => mcpTasks.holdsSession(sessionId))
+  registerMcpTaskHandlers(server, mcpTasks)
+  mcpTasks.start()
   // Apps (docs/plans/apps.md): a backend on this host with its own data. An app's
   // integration calls go through the gateway; its operations run in its own runner.
   // An app's calls are spans of the host's one tracer: in metrics.db always, and at a collector when export is on.
@@ -2185,6 +2203,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
+        // Before the gateway closes its processes: a host stop is not the end of an MCP task (§12.4).
+        mcpTasks.stop()
         await integrationGateway.close()
         agentAuth.stopAll()
         await lanDiscovery.close()

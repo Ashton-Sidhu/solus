@@ -70,6 +70,7 @@ const NO_CREATOR: Record<string, string> = {
   notification_pr_observations: "cache of a person's pending pull requests (`user_id`)",
   integration_connection: "a person's connection state on an integration (`user_id`); the integration carries the creator",
   integration_server_facts: "what a stdio integration's server answered one person (`user_id`); the integration carries the creator",
+  mcp_task: "one person's tool call that a server runs as an MCP task (`user_id`); no other person makes a row",
   member_folder: "a person's folder name on this host (`user_id`)",
   automation_runs: 'derived rows of an automation run',
   webhook_deliveries: 'log of requests to a webhook',
