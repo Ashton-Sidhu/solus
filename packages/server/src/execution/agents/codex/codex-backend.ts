@@ -113,7 +113,7 @@ import {
   codexBackgroundCommandWake,
   codexSubagentWake,
 } from './codex-utils'
-import { adaptCodexTools, bareAgentToolName, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
+import { adaptCodexTools, bareAgentToolName, codexDynamicCallId, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
 import { CodexNativeChildren, type ChildStop, type ChildTurn, type SettledChild } from './codex-native-children'
 import type { Turn } from './generated/v2/Turn'
 import { z } from 'zod'
@@ -1529,12 +1529,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         respondWithToolText(toolName ? `Unsupported dynamic tool: ${bareAgentToolName(toolName)}` : 'Unsupported dynamic tool call.', false)
         return
       }
+      // The call's own id: its transcript row, its approval, and the tool's context all name it.
+      const parentToolUseId = codexDynamicCallId(params, msg.id)
       const respondWithResult = async (approved: boolean) => {
         if (!approved) {
           respondWithToolText(`The user declined ${selectedTool.name}.`, false)
           return
         }
-        const parentToolUseId = optionalString(params?.callId) || String(msg.id)
         const result = await handle.toolDispatcher.execute(toolName, args, parentToolUseId)
         respondWithToolText(result.text, result.ok, result.images)
       }

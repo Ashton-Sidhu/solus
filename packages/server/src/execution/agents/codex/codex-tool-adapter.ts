@@ -3,6 +3,19 @@ import { advertisedInputSchema, assertUniqueAgentTools, executeAgentTool, enable
 import type { CodexDynamicTool } from './codex-protocol'
 import type { DynamicToolCallOutputContentItem } from './generated/v2/DynamicToolCallOutputContentItem'
 
+/**
+ * The id of a dynamic tool call, as its tool sees it (`parentToolUseId`): the
+ * `callId` of `item/tool/call`. The transcript row of the call is the
+ * `dynamicToolCall` item, whose `id` is the same value: Codex 0.167 builds both
+ * from one core `call_id`, live (`bespoke_event_handling.rs`, `dynamic.rs`)
+ * and in history (`thread_history.rs`). So a tool's card, a saved MCP App, and
+ * a live app card name the same row. An older app server without `callId`
+ * gives the request id, which names no row.
+ */
+export function codexDynamicCallId(params: { callId?: unknown } | undefined, requestId: string | number): string {
+  return typeof params?.callId === 'string' && params.callId ? params.callId : String(requestId)
+}
+
 export function bareAgentToolName(name: string): string {
   return name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name
 }

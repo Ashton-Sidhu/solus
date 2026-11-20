@@ -1451,10 +1451,14 @@ the normalizer sends it as `tool_call_update` (step 4). Codex sends the input
 whole, so on Codex the card mounts at the start of the call, gets
 `tool-input` at once, and gets no partial (§1, item 13). `tool-cancelled`
 works for both. On Codex the capture names the call by the `callId` of
-`item/tool/call`, and the transcript row by the item id. H1 takes them as one
-id; a real Codex run has not confirmed it. If they differ, the live card gets
-no saved app, ends as `failed` 15 seconds after the call, and the saved card
-starts a new frame.
+`item/tool/call`, and the transcript row by the item id. They are one id
+(wave 3, read in the Codex 0.167 source): core `request_dynamic_tool` sets the
+`DynamicToolCall` item's `id` to the model's `call_id`, the app server copies
+`item.id` into the request's `callId` (`bespoke_event_handling.rs`), and
+history rebuilds the item with `id: payload.call_id` (`thread_history.rs`).
+`codexDynamicCallId` in `codex-tool-adapter.ts` reads it for the tool context
+and the approval; only an app server without `callId` falls back to the
+request id, which names no row. A real Codex turn has still not run.
 
 **Owner.** The bridge `packages/client-core/src/mcp-app-host.ts` gains the
 live mode (`followCall`, `toolResult`) and the pure function
