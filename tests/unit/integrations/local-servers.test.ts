@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import type { AddressInfo } from 'node:net'
+import { createServer as createTcpServer, type AddressInfo, type Server as TcpServer } from 'node:net'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from '../helpers/bun-sqlite'
@@ -175,7 +175,7 @@ describe('the requests a listener gets', () => {
     expect(requests).toEqual(['http://127.0.0.1:7004/mcp'])
   })
 
-  test('a listener the list knows only as TCP gets no request', async () => {
+  test('a listener the list knows only as TCP, of a process that Solus did not start, gets no request', async () => {
     // WHY: automatic discovery sends no bytes to an unknown service (docs/running-servers.md); a debugger or a database stays untouched.
     const { local, registry } = owner()
     registry.scan([running('a', 5432, { isHttp: false })], [5432])
@@ -247,6 +247,182 @@ describe('the requests a listener gets', () => {
     }
     await done
     expect(most).toBe(4)
+  })
+})
+
+describe('a TCP listener of a process that Solus started', () => {
+  const agent: RunningServer['startedBy'] = { kind: 'agent', sessionId: 'session-9' }
+  const terminal: RunningServer['startedBy'] = { kind: 'terminal', terminalId: 'term-1', sessionId: 'session-9' }
+
+  test('gets one POST /mcp in its life, and only after the list has shown it for two seconds', async () => {
+    const { local, registry } = owner()
+    registry.scan([running('a', 7501, { isHttp: false, startedBy: agent })], [7501])
+    await local.runningNow()
+    // WHY: a process that has just opened its port may still be starting; a request then can disturb it.
+    expect(requests).toEqual([])
+    clock += 1000
+    registry.scan()
+    await local.runningNow()
+    expect(requests).toEqual([])
+    clock += 2000
+    registry.scan()
+    await local.runningNow()
+    expect(requests).toEqual(['http://127.0.0.1:7501/mcp'])
+    // WHY: the registry scans each 3 seconds; a database or a debugger must not get a POST on each scan.
+    for (let scan = 0; scan < 20; scan++) {
+      clock += 3000
+      registry.scan()
+    }
+    await local.runningNow()
+    expect(requests).toEqual(['http://127.0.0.1:7501/mcp'])
+  })
+
+  test('a terminal\'s listener is checked too; a listener of another process, or on another address, is not', async () => {
+    const { local, registry } = owner()
+    const servers = [
+      running('term', 7502, { isHttp: false, startedBy: terminal }),
+      running('other', 7503, { isHttp: false }),
+      running('lan', 7504, { isHttp: false, startedBy: agent, address: '192.168.1.20' }),
+    ]
+    registry.scan(servers, [7502, 7503, 7504])
+    clock += 3000
+    registry.scan()
+    await local.runningNow()
+    expect(requests).toEqual(['http://127.0.0.1:7502/mcp'])
+  })
+
+  test('a listener that goes before the wait ends gets no request, and waits again when it comes back', async () => {
+    const { local, registry } = owner()
+    registry.scan([running('a', 7505, { isHttp: false, startedBy: agent })], [7505])
+    clock += 1000
+    registry.scan([], [])
+    clock += 3000
+    registry.scan([running('a', 7505, { isHttp: false, startedBy: agent })], [7505])
+    await local.runningNow()
+    expect(requests).toEqual([])
+    clock += 3000
+    registry.scan()
+    await local.runningNow()
+    expect(requests).toEqual(['http://127.0.0.1:7505/mcp'])
+  })
+
+  test('a "not MCP" answer is kept; a new process on the same port is checked again', async () => {
+    const { local, registry } = owner()
+    registry.scan([running('old', 7506, { isHttp: false, startedBy: agent })], [7506])
+    for (let scan = 0; scan < 5; scan++) {
+      clock += 3000
+      registry.scan()
+    }
+    expect((await local.runningNow()).servers).toEqual([])
+    expect(requests).toEqual(['http://127.0.0.1:7506/mcp'])
+    answers.set('http://127.0.0.1:7506/mcp', { isMcp: true })
+    registry.scan([running('new', 7506, { isHttp: false, startedBy: agent })], [7506])
+    clock += 3000
+    registry.scan()
+    expect((await local.runningNow()).servers.map((server) => server.place.runningServerId)).toEqual(['new'])
+    expect(requests).toEqual(['http://127.0.0.1:7506/mcp', 'http://127.0.0.1:7506/mcp'])
+  })
+
+  test('a process whose Server URL was checked gets no second check when the list shows its port as TCP', async () => {
+    const { local, registry } = owner()
+    registry.scan([running('a', 7507, { path: '/api/mcp', startedBy: agent })], [7507])
+    await local.runningNow()
+    // The Server URL's GET failed once: the list shows the guessed root address instead.
+    for (let scan = 0; scan < 3; scan++) {
+      clock += 3000
+      registry.scan([running('a', 7507, { isHttp: false, startedBy: agent })], [7507])
+    }
+    await local.runningNow()
+    expect(requests).toEqual(['http://127.0.0.1:7507/api/mcp'])
+  })
+
+  test('shows under Found on this host and raises the card in the agent\'s session, with no Server URL', async () => {
+    answers.set('http://127.0.0.1:7508/mcp', { isMcp: true, serverInfo: { name: 'notes', title: 'Notes' } })
+    const { local, registry, cards } = owner()
+    registry.scan([running('a', 7508, { isHttp: false, startedBy: agent })], [7508])
+    clock += 3000
+    registry.scan()
+    const now = await local.runningNow()
+    expect(now.servers).toEqual([{ url: 'http://127.0.0.1:7508/mcp', place: { kind: 'port', runningServerId: 'a', endpointId: '7508', port: 7508, processName: 'node', checkout: 'main', serverInfo: { name: 'notes', title: 'Notes' }, startedBySessionId: 'session-9' } }])
+    clock += 3000
+    registry.scan()
+    await local.runningNow()
+    expect(cards).toEqual([{ sessionId: 'session-9', name: 'Notes', url: 'http://127.0.0.1:7508/mcp' }])
+  })
+
+  test('the owner starts no timer of its own over many scans', async () => {
+    const timeouts = spyOn(globalThis, 'setTimeout')
+    const intervals = spyOn(globalThis, 'setInterval')
+    try {
+      const { local, registry } = owner()
+      registry.scan([running('a', 7509, { isHttp: false, startedBy: agent })], [7509])
+      for (let scan = 0; scan < 5; scan++) {
+        clock += 3000
+        registry.scan()
+      }
+      await local.runningNow()
+      local.stop()
+      // WHY: the checks follow the registry's scans and the clients' leases; no timer of their own runs on the host.
+      expect(timeouts).not.toHaveBeenCalled()
+      expect(intervals).not.toHaveBeenCalled()
+    } finally {
+      timeouts.mockRestore()
+      intervals.mockRestore()
+    }
+  })
+
+  describe('with real loopback listeners', () => {
+    let mcp: Server
+    let raw: TcpServer
+    let mcpPort = 0
+    let rawPort = 0
+    let mcpRequests = 0
+    let rawConnections = 0
+
+    beforeEach(async () => {
+      mcpRequests = 0
+      rawConnections = 0
+      mcp = createServer((req, res) => {
+        mcpRequests++
+        req.resume()
+        req.on('end', () => {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: 0, result: { supportedVersions: ['2026-07-28'], capabilities: {}, _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scratch', version: '0.1.0' } } } }))
+        })
+      })
+      // A service that does not speak HTTP: it answers with its own bytes and closes, as a database does.
+      raw = createTcpServer((socket) => {
+        rawConnections++
+        socket.once('data', () => socket.end('-ERR unknown protocol\r\n'))
+      })
+      await new Promise<void>((resolve) => mcp.listen(0, '127.0.0.1', resolve))
+      await new Promise<void>((resolve) => raw.listen(0, '127.0.0.1', resolve))
+      mcpPort = (mcp.address() as AddressInfo).port
+      rawPort = (raw.address() as AddressInfo).port
+    })
+
+    afterEach(async () => {
+      mcp.closeAllConnections()
+      await new Promise<void>((resolve) => mcp.close(() => resolve()))
+      await new Promise<void>((resolve) => raw.close(() => resolve()))
+    })
+
+    test('an MCP server answers the one request; a service that is not HTTP is "not MCP" and gets no second connection', async () => {
+      const registry = new FakeRegistry()
+      const local = new LocalMcpServers({ integrations: () => [], gateway: { invalidate: () => undefined, askForCustomServer: () => undefined }, factsChanged: () => undefined, now: () => clock })
+      local.follow(registry)
+      registry.scan([running('mcp', mcpPort, { isHttp: false, startedBy: agent }), running('raw', rawPort, { isHttp: false, startedBy: terminal })], [mcpPort, rawPort])
+      for (let scan = 0; scan < 4; scan++) {
+        clock += 3000
+        registry.scan()
+        await local.runningNow()
+      }
+      const now = await local.runningNow()
+      expect(now.servers.map((server) => [server.url, server.place.serverInfo])).toEqual([[`http://127.0.0.1:${mcpPort}/mcp`, { name: 'scratch', version: '0.1.0' }]])
+      expect(mcpRequests).toBe(1)
+      expect(rawConnections).toBe(1)
+      local.stop()
+    })
   })
 })
 
