@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
+import { SymbolView } from '../../../components/AppSymbol'
 import type { CommandProcessActionKind, CommandProcessStatus } from '@solus/contracts/integrations/command-server'
 import { usePalette } from '../../../theme/theme'
 import { CODE_FONT, space, type } from '../../../theme/tokens'
@@ -32,8 +33,15 @@ export function CommandProcessPanel(props: {
       {props.error ? <Text accessibilityRole="alert" selectable style={{ color: palette.danger, fontSize: type.chrome }}>{props.error}</Text> : null}
       {status.stderrTail ? (
         <View style={{ gap: space.xs }}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Standard error" accessibilityState={{ expanded: stderrOpen }} onPress={() => setStderrOpen((open) => !open)}>
-            <Text style={{ color: palette.textSecondary, fontSize: type.dense }}>{`Standard error ${stderrOpen ? '−' : '+'}`}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Standard error"
+            accessibilityState={{ expanded: stderrOpen }}
+            onPress={() => setStderrOpen((open) => !open)}
+            className="min-h-11 flex-row items-center gap-2 self-start active:opacity-60"
+          >
+            <Text style={{ color: palette.textSecondary, fontSize: type.dense }}>Standard error</Text>
+            <SymbolView name={stderrOpen ? 'chevron.down' : 'chevron.right'} size={13} tintColorClassName="accent-icon-muted" type="monochrome" />
           </Pressable>
           {stderrOpen ? <Text selectable style={{ color: palette.text, fontSize: type.dense, fontFamily: CODE_FONT }}>{status.stderrTail}</Text> : null}
         </View>

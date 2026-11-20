@@ -177,7 +177,7 @@
   {:else}
     <div class="flex flex-wrap items-start justify-between gap-2">
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p class="break-all font-mono text-workspace-chrome text-foreground">{subtitle}</p>
+        <p class="break-words font-mono text-chrome-dense leading-6 text-foreground">{subtitle}</p>
         <p class="text-chrome-dense text-(--solus-text-secondary)">In <span class="font-mono">{integration.launch?.cwd ?? "~"}</span> on {hostLabel}</p>
       </div>
       <!-- The process field below says why it is off, once. -->
@@ -326,7 +326,7 @@
           <summary class="-ml-1 flex min-h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-md px-1 text-(--solus-text-secondary) outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
             <ChevronRight size={16} class="shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none" />Instructions for the agent
           </summary>
-          <p class="mt-1 whitespace-pre-wrap break-words pl-6 text-foreground" data-testid="integration-instructions">{hostState.facts.get(integration.id)?.instructions}</p>
+          <p class="mt-1 whitespace-pre-wrap break-words pl-6 text-(--solus-text-secondary)" data-testid="integration-instructions">{hostState.facts.get(integration.id)?.instructions}</p>
         </details>
       {/if}
     </div>

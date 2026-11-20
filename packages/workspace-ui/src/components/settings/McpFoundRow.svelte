@@ -40,10 +40,10 @@
       <span class="text-chrome-dense leading-5 text-(--solus-text-tertiary)">{foundPlacesText(server, hostLabel)}</span>
     </div>
     {#if server.state === "new"}
-      <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline || isAdding}
+      <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || isAdding}
         onclick={() => onReview(server)} aria-label="Add {server.name}">Add</Button>
     {:else if server.state === "changed"}
-      <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline || isAdding}
+      <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || isAdding}
         onclick={() => onReview(server)} aria-label="Review the change of {server.name}">Review change</Button>
     {:else if server.state === "added"}
       <span class="flex h-7 shrink-0 items-center gap-1.5 px-2.5 text-chrome-dense text-(--solus-text-secondary) pointer-coarse:min-h-11">

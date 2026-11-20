@@ -464,10 +464,17 @@ function IntegrationTools(props: {
     <View className="gap-3 px-4 pb-3 pl-[58px]">
       {tools.instructions ? (
         <View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Instructions for the agent" accessibilityState={{ expanded: instructionsOpen }} onPress={() => setInstructionsOpen((open) => !open)}>
-            <Text className="text-sm text-foreground">Instructions for the agent {instructionsOpen ? "−" : "+"}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Instructions for the agent"
+            accessibilityState={{ expanded: instructionsOpen }}
+            onPress={() => setInstructionsOpen((open) => !open)}
+            className="min-h-11 flex-row items-center gap-2 self-start active:opacity-60"
+          >
+            <Text className="text-sm text-foreground-secondary">Instructions for the agent</Text>
+            <SymbolView name={instructionsOpen ? "chevron.down" : "chevron.right"} size={13} tintColorClassName="accent-icon-muted" type="monochrome" />
           </Pressable>
-          {instructionsOpen ? <Text className="mt-2 text-sm text-foreground-muted" selectable>{tools.instructions}</Text> : null}
+          {instructionsOpen ? <Text className="text-sm text-foreground-muted" selectable>{tools.instructions}</Text> : null}
         </View>
       ) : null}
       {tools.tools.length === 0 ? <SettingsNote>This server lists no tools.</SettingsNote> : null}
