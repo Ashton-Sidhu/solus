@@ -56,7 +56,7 @@ import { couldBeForgedByWebPage, isServeRequest, requestOrigin } from './web-pag
 const log = createLogger('main', 'http')
 
 export interface HttpServerOptions {
-  solusApi?: { operations: WorkspaceOperations; serviceId: string; signingKey?: Buffer }
+  solusApi?: { operations: WorkspaceOperations; serviceId: string; signingKey?: Buffer; sessionReader?: import('../sync/sessions/session-cloud-reader').SessionCloudReader }
   isVerifyingUpdate?: () => boolean
   /** Bind address: defaults to 127.0.0.1 (loopback only). Set 0.0.0.0 for remote access. */
   host?: string
@@ -242,7 +242,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   if (opts.solusApi) {
     const spec = JSON.stringify(solusApiOpenApi())
     solusApiRouter = createSolusApiRouter({
-      admission: workspaceAdmissionFor(opts, doors), operations: opts.solusApi.operations,
+      admission: workspaceAdmissionFor(opts, doors), operations: opts.solusApi.operations, sessionReader: opts.solusApi.sessionReader,
       capabilities: { serviceId: opts.solusApi.serviceId, mode: opts.isApiMode ? 'solus-api' : 'combined-host',
         apiVersion: '1', capabilities: ['works', 'session-records', 'notifications', ...(opts.isApiMode ? ['insights' as const] : [])],
         events: { transport: 'websocket', relativePath: '/ws', protocolVersion: HOST_SOCKET_PROTOCOL_VERSION } },

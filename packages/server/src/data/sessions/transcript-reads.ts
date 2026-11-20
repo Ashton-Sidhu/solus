@@ -7,6 +7,7 @@ import { getDatabase } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { sessionTranscripts } from './transcript-schema'
+import { session } from './schema'
 
 /**
  * The workspace service's history reads (docs/plans/cloud-service-model.md §6):
@@ -22,7 +23,7 @@ const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const conversationResultSchema = z.object({ sessionId: z.string().optional(), messageId: z.string().optional(), provider: agentIdSchema.optional(), serverId: z.string().optional(), item: z.number().int().optional() })
 
 /** A mirrored row as the runner projected it; every field the wire contract names, nothing else. */
-const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
+export const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
   messageId: z.string().optional(),
   sourceSessionId: z.string().optional(),
   sourceProvider: agentIdSchema.optional(),
@@ -69,6 +70,13 @@ const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
 })
 
 const rowSchema = z.object({ position: z.number(), message: z.string() })
+
+/** A mirrored session keeps its live source even if its repository is behind. */
+export async function hasTranscript(scope: RecordScope, sessionId: string): Promise<boolean> {
+  const rows = await getDatabase().all(sql`SELECT t.position FROM ${sessionTranscripts} t JOIN ${session} s ON s.session_id = t.session_id AND s.organization_id = t.organization_id
+    WHERE ${scopeClause(scope, sql`t.organization_id`)} AND t.session_id = ${sessionId} AND s.publication = 'published' LIMIT 1`)
+  return rows.length > 0
+}
 
 /** A handoff divider a runner mirrored before plan 012 stage 6 drew it as activity. */
 const legacySwitchSchema = z.object({

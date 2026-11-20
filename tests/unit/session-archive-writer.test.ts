@@ -406,3 +406,83 @@ describe('session archive writer', () => {
     expect(readFileSync(patch, 'utf8')).not.toContain('turn-1.txt')
   })
 })
+
+describe('settled row boundaries', () => {
+  for (const provider of ['claude-code', 'codex'] as const) {
+    // WHY: a provider can start the next turn before the ended turn's archive capture reads its history.
+    test(`${provider} finds the ended turn after the next turn starts`, async () => {
+      const { loadSettledTurnRows } = await import('@solus/server/sync/sessions/settled-turn-rows')
+      const pages = [
+        { messages: [{ role: 'user', content: 'next', timestamp: 200 }], before: 'older' },
+        { messages: [{ role: 'user', content: 'ended', timestamp: 100 }, { role: 'assistant', content: 'done', timestamp: 120 }], before: null },
+      ]
+      const calls: Array<string | undefined> = []
+      const rows = await loadSettledTurnRows(150, async before => { calls.push(before); return before ? pages[1] : pages[0] })
+      expect(rows?.map(row => row.content)).toEqual(['ended', 'done'])
+      expect(calls).toEqual([undefined, 'older'])
+    })
+    // WHY: two settled turns can wait for Git; each pending record must keep its own projected rows through a restart.
+    test(`${provider} keeps two captured turns distinct until commit`, async () => {
+      const transcript = join(tempDir(`${provider}-two-rows`), 'thread.jsonl')
+      writeFileSync(transcript, 'first\n')
+      const repositories = new Repositories(tempDir(`${provider}-two-repository`))
+      const originalCommit = repositories.commit.bind(repositories)
+      let releaseCommit: (() => void) | undefined
+      const commitGate = new Promise<void>(resolve => { releaseCommit = resolve })
+      repositories.commit = async (...args) => { await commitGate; return originalCommit(...args) }
+      let rows = [{ role: 'user', content: 'first', timestamp: 100 }]
+      const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows })
+      await writer.turnEnded(turnEnd({ provider, endedAt: 150 }))
+      rows = [{ role: 'user', content: 'second', timestamp: 200 }]
+      appendFileSync(transcript, 'second\n')
+      await writer.turnEnded(turnEnd({ provider, endedAt: 250 }))
+      expect(pendingCount()).toBe(2)
+      releaseCommit?.()
+      await writer.idle()
+      const head = await repositories.head(REPOSITORY())
+      expect(await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')).toContain('first')
+      expect(await repositories.readText(REPOSITORY(), head!, 'rows/1.jsonl')).toContain('second')
+      await writer.stop()
+    })
+  }
+})
+
+// WHY: a restart must commit the projected rows saved at turn end, not reread a later provider turn.
+test('restart uses pending turn rows', async () => {
+  const transcript = join(tempDir('restart-rows'), 'thread.jsonl')
+  writeFileSync(transcript, 'first\n')
+  const repositories = new Repositories(tempDir('restart-row-repository'))
+  const originalCommit = repositories.commit.bind(repositories)
+  let attempts = 0
+  repositories.commit = async (...args) => {
+    if (++attempts === 1) throw new Error('Git stopped before commit')
+    return originalCommit(...args)
+  }
+  let rows = [{ role: 'user', content: 'first', timestamp: 100 }]
+  const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows, retryMs: 60_000 })
+  await writer.turnEnded(turnEnd({ endedAt: 150 }))
+  await writer.idle()
+  expect(pendingCount()).toBe(1)
+  await writer.stop()
+  rows = [{ role: 'user', content: 'later', timestamp: 200 }]
+  const resumed = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows })
+  resumed.resume()
+  await resumed.idle()
+  const head = await repositories.head(REPOSITORY())
+  expect(await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')).toContain('first')
+  expect(await repositories.readText(REPOSITORY(), head!, 'rows/0.jsonl')).not.toContain('later')
+  expect(pendingCount()).toBe(0)
+  await resumed.stop()
+})
+
+// WHY: capture can run after two later provider turns; it must still find the settled turn's start.
+test('a late capture skips two completed turns', async () => {
+  const { loadSettledTurnRows } = await import('@solus/server/sync/sessions/settled-turn-rows')
+  const pages = [
+    { messages: [{ role: 'user', content: 'third', timestamp: 300 }, { role: 'assistant', content: 'done', timestamp: 320 }], before: '1' },
+    { messages: [{ role: 'user', content: 'second', timestamp: 200 }, { role: 'assistant', content: 'done', timestamp: 220 }], before: '0' },
+    { messages: [{ role: 'user', content: 'first', timestamp: 100 }, { role: 'assistant', content: 'done', timestamp: 120 }], before: null },
+  ]
+  const rows = await loadSettledTurnRows(150, before => Promise.resolve(pages[before === undefined ? 0 : before === '1' ? 1 : 2]!))
+  expect(rows?.map(row => row.content)).toEqual(['first', 'done'])
+})

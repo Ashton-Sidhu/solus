@@ -41,11 +41,25 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
     return { url, token: tokenSchema.parse(await issued.json()).result.plaintext }
   }
 
-  async readFile(repository: string, commit: string, path: string): Promise<string> {
+  async readFile(repository: string, commit: string, path: string, maxBytes?: number): Promise<string> {
     this.checkName(repository)
     const response = await this.request(`/repos/${repository}/file?${new URLSearchParams({ ref: commit, path })}`)
     if (!response.ok) throw new Error('The Artifacts work body could not be read.')
-    return response.text()
+    if (maxBytes === undefined) return response.text()
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('The Artifacts file has no body.')
+    const parts: Uint8Array[] = []
+    let bytes = 0
+    try {
+      for (;;) {
+        const part = await reader.read()
+        if (part.done) break
+        bytes += part.value.byteLength
+        if (bytes > maxBytes) throw new Error('SESSION_FILE_TOO_LARGE')
+        parts.push(part.value)
+      }
+    } finally { await reader.cancel().catch(() => {}) }
+    return Buffer.concat(parts).toString('utf8')
   }
 
   async remove(repository: string): Promise<void> {

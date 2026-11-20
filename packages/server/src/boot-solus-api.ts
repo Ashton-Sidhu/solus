@@ -25,6 +25,7 @@ import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { sessionRemoteProvider } from './sync/sessions/session-remote-provider'
+import { SessionCloudReader } from './sync/sessions/session-cloud-reader'
 import { userKey } from '@solus/contracts/user'
 import { readSessionRepository } from './data/sessions/session-repositories'
 import { formatSessionCloudScope } from '@solus/contracts/session-repositories'
@@ -147,12 +148,20 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     await closeDatabase(); closeDb(); throw error
   }
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
+  const sessionReader = new SessionCloudReader(db, sessionStorage, shares)
+  server.useResourceAccess({ standingFor: async (principal, resource) => {
+    if (resource.kind === 'session' && (principal.kind === 'org-member' || principal.kind === 'owner' && principal.via === 'grant')) {
+      const row = await readSessionRepository(db, formatSessionCloudScope('person', principal.userId), resource.id)
+      if (row?.owner_user_id === principal.userId) return { role: 'owner' }
+    }
+    return shares.standingFor(principal, resource)
+  } })
   const presence = workspacePresence(server, events)
   if (options.webhookAdmin) registerWebhookAdminHandlers(server, options.webhookAdmin)
-  registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
+  registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port, sessionReader })
   const { requestListener, routes, solusApiRouter, doors } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
-    solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
+    solusApi: { ...settings, operations: createWorkspaceOperations(shares), sessionReader },
     verifyAccessToken: (token) => tokens.verify(token),
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),
     shareLinks: new ShareLinkResolver({ shares, hostRoutes: options.hostRoutes }),

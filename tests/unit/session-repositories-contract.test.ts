@@ -28,3 +28,16 @@ test('personal session list is registered in the API and OpenAPI', async () => {
   expect(solusApiOperations.listMySessions.scope).toBe('sessions:read')
   expect(solusApiOpenApi().paths[LIST_MY_SESSIONS_PATH]?.get.operationId).toBe('listMySessions')
 })
+
+// WHY: clients need one stable path and typed answer for a turn patch when no host is online.
+test('turn diff has an API operation and three typed results', async () => {
+  const { SESSION_TURN_DIFF_OPERATION_PATH, sessionTurnDiffSchema } = await import('@solus/contracts/session-repositories')
+  const { solusApiOperations } = await import('@solus/contracts/solus-api/operations')
+  const { solusApiOpenApi } = await import('@solus/contracts/solus-api/openapi')
+  expect(solusApiOperations.sessionTurnDiff.path).toBe(SESSION_TURN_DIFF_OPERATION_PATH)
+  expect(solusApiOperations.sessionTurnDiff.scope).toBe('sessions:read')
+  expect(solusApiOpenApi().paths['/v1/sessions/{sessionId}/turns/{turnIndex}/diff']?.get.operationId).toBe('sessionTurnDiff')
+  expect(sessionTurnDiffSchema.parse({ status: 'available', patch: '' })).toEqual({ status: 'available', patch: '' })
+  expect(sessionTurnDiffSchema.parse({ status: 'too-large', filesChanged: 1, additions: 2, deletions: 3 })).toMatchObject({ status: 'too-large' })
+  expect(sessionTurnDiffSchema.parse({ status: 'not-available' })).toEqual({ status: 'not-available' })
+})

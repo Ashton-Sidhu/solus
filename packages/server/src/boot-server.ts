@@ -4,8 +4,7 @@ import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { SessionArchiveWriter } from './sync/sessions/session-archive-writer'
-import { projectSessionHistory } from './data/sessions/result-projection'
-import { startsHistoryTurn } from '@solus/contracts/session-history'
+import { loadSettledTurnRows } from './sync/sessions/settled-turn-rows'
 import { SessionPusher } from './sync/sessions/session-push'
 import { DelegatedSessionRemoteAccess } from './sync/sessions/session-remote-access'
 import { sessionCloudScope } from './sync/sessions/session-cloud-scope'
@@ -636,12 +635,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     repositories: sessionRepositories,
     onCommit: sessionId => sessionPusher?.committed(sessionId),
     threadFiles: async (provider, threadId, projectPath) => await opts.sessionRuntime.backendFor(provider).threadFiles?.(threadId, projectPath) ?? [],
-    turnRows: async (provider, sessionId, projectPath) => {
-      const page = await opts.sessionRuntime.history.loadSessionPage({ provider, sessionId, projectPath, turnLimit: 1 })
-      // A page cut inside an unusually large turn cannot serve as a complete turn archive.
-      if (page.messages.length && !startsHistoryTurn(page.messages[0])) return null
-      return projectSessionHistory(page.messages)
-    },
+    turnRows: (provider, sessionId, projectPath, endedAt) => loadSettledTurnRows(endedAt,
+      before => opts.sessionRuntime.history.loadSessionPage({ provider, sessionId, projectPath, turnLimit: 1, before })),
   })
   opts.sessionRuntime.useSessionArchive(sessionArchive)
   sessionArchive.resume()

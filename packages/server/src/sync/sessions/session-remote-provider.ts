@@ -15,6 +15,7 @@ const execute = promisify(execFile)
 export interface SessionRemoteProvider {
   storageScope: string
   remote(repository: string, access: 'read' | 'write'): Promise<{ url: string; token: string }>
+  readFile(repository: string, head: string, path: string, maxBytes: number): Promise<string>
 }
 
 /** The record service owns credentials; hosts receive a single repository token. */
@@ -30,14 +31,26 @@ export async function sessionRemoteProvider(db: Db, env: NodeJS.ProcessEnv = pro
     const saved = await db.all<{ storage_scope: string }>(sql`SELECT DISTINCT storage_scope FROM ${sessionRepositories}`)
     if (saved.some(row => row.storage_scope !== storageScope)) throw new Error('The configured session Artifacts account/namespace differs from existing session mappings; migrate explicitly.')
     const cloud = new CloudflareWorkRepositories(accountId, namespace, credential, undefined, requestFetch)
-    return { storageScope, remote: (repository, access) => cloud.remote(repository, access) }
+    return { storageScope, remote: (repository, access) => cloud.remote(repository, access), readFile: (repository, head, path, maxBytes) => cloud.readFile(repository, head, path, maxBytes) }
   }
   if (kind === 'local-git') {
     const root = join(dataDir(), 'sessions', 'cloud-repositories')
     const storageScope = `file://${root}`
     const saved = await db.all<{ storage_scope: string }>(sql`SELECT DISTINCT storage_scope FROM ${sessionRepositories}`)
     if (saved.some(row => row.storage_scope !== storageScope)) throw new Error('The configured local session repository path differs from existing session mappings; migrate explicitly.')
-    return { storageScope, async remote(repository) {
+    return { storageScope, async readFile(repository, head, file, maxBytes) {
+      if (!/^session-[a-f0-9]{48}$/.test(repository) || !/^[a-f0-9]{40}$/.test(head) || !/^(manifest\.json|rows\/[0-9]+\.jsonl|diff\/[0-9]+\.patch)$/.test(file)) throw new Error('Invalid session repository file.')
+      const path = join(root, `${repository}.git`)
+      try {
+        const command = launchProcess('git', ['--git-dir', path, 'show', `${head}:${file}`], { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' })
+        const body = (await execute(command.file, command.args, { timeout: 30_000, maxBuffer: maxBytes + 1, env: command.env })).stdout
+        if (Buffer.byteLength(body) > maxBytes) throw new Error('SESSION_FILE_TOO_LARGE')
+        return body
+      } catch (error) {
+        if (error instanceof Error && ('code' in error) && error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error('SESSION_FILE_TOO_LARGE')
+        throw error
+      }
+    }, async remote(repository) {
       if (!/^session-[a-f0-9]{48}$/.test(repository)) throw new Error('Invalid session repository name.')
       const path = join(root, `${repository}.git`)
       await mkdir(root, { recursive: true, mode: 0o700 })
