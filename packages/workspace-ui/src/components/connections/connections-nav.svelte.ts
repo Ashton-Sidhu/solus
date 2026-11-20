@@ -1,4 +1,4 @@
-import { onServerRemoving } from "@solus/client-core/server-registry"
+import { hostCatalog } from "@solus/client-core/host-catalog"
 import type { AddWay } from "../fleet/lib/fleet-model"
 
 /**
@@ -21,7 +21,7 @@ class ConnectionsNav {
   constructor() {
     // A forgotten host's page closes with it. Left open, the page would come
     // back the moment the host is listed again, as if Forget did nothing.
-    onServerRemoving((server) => {
+    hostCatalog.onForgotten((server) => {
       if (server.id === this.hostId) this.back()
     })
   }

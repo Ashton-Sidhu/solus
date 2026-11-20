@@ -1,6 +1,6 @@
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { serverFromSshAdd } from '@solus/client-core/server-registry'
+import { serverFromSshAdd } from '@solus/client-core/known-host'
 import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
 import { sshAddStatusCard } from '@solus/client-core/ssh-progress'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
@@ -151,7 +151,7 @@ class AddOverSshStore {
       switch (outcome.kind) {
         case 'save-forwarded':
           // Narrowed by the outcome: only a forwarded answer is saved here.
-          if (result.status === 'forwarded') serversStore.savePairedServer(serverFromSshAdd(result, null))
+          if (result.status === 'forwarded') await serversStore.savePairedServer(serverFromSshAdd(result, null))
           break
         case 'linked':
           void serversStore.refreshDirectory()

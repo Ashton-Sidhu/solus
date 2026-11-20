@@ -5,7 +5,7 @@ import {
   type HostReadinessAction,
   type HostReadinessState,
 } from '@solus/client-core/host-readiness'
-import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/server-registry'
+import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/known-host'
 import type { ServerItem } from '../../../contexts/connections/servers.store.svelte'
 import { managedHostStateLabel } from '../../servers/lib/managed-host'
 

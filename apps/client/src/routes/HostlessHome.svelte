@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { removeServer } from "@solus/client-core/server-registry";
+  import { hostCatalog } from "@solus/client-core/host-catalog";
   import { onMount, tick } from "svelte";
   import { HostlessHostsStore } from "./lib/hostless-hosts.store.svelte";
   import {
@@ -25,7 +25,7 @@
   import { cloudOrigin } from "../lib/cloud-origin.svelte";
   import { activateServer } from "../lib/primary-connection";
   import { localApi } from "@solus/client-core/local-api";
-  import type { SavedServer } from "@solus/client-core/server-registry";
+  import type { KnownHost } from "@solus/client-core/known-host";
   import PairingBridge from "@solus/workspace-ui/components/servers/PairingBridge.svelte";
   import { useHostLookup } from "@solus/workspace-ui/components/servers/lib/host-lookup.svelte";
   import {
@@ -65,7 +65,7 @@
   const device = thisDevice(localApi.getPlatform(), navigator.userAgent);
   const targetUrl = $derived(selectedHost?.url ?? (connectInput.kind === "empty" ? "" : connectInput.url));
   const hostLookup = useHostLookup(() => targetUrl);
-  let paired = $state<SavedServer | null>(null);
+  let paired = $state<KnownHost | null>(null);
   let failedUrl = $state<string | null>(null);
   const phase = $derived(
     pairingPhase({ targetUrl, host: hostLookup.host, isPairing: busy && !paired, isPaired: !!paired, failedUrl }),
@@ -112,6 +112,7 @@
       // form must not accept a second submission while that lands. The
       // bridge shows the pairing land first.
       paired = server;
+      await hosts.keepPaired(server);
       setTimeout(() => activateServer(server), pairedHoldMs());
     } catch (err) {
       failedUrl = targetUrl;
@@ -169,7 +170,7 @@
             type="button"
             class="flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-quaternary) opacity-0 transition-[opacity,color] group-hover/card:opacity-100 hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none pointer-coarse:opacity-100"
             aria-label={`Forget ${server.label}`}
-            onclick={() => removeServer(server.id)}
+            onclick={() => void hosts.forget(server.id)}
           >
             <XIcon size={12} />
           </button>
@@ -191,6 +192,13 @@
           {@render text("Solus Cloud", "Sign in to see the hosts linked to your account.")}
           {@render pill("Sign in")}
         </a>
+      {:else if cloudOrigin.kind === "signed-in" && hosts.directoryState === "failed"}
+        <!-- No cached copy (plans/033 §3 Q2): the cloud's hosts show once a read answers. -->
+        <button type="button" class={cn(cardClass, "px-4 py-3.5 text-left")} onclick={() => void hostCatalog.refreshDirectory()}>
+          {@render tile(null)}
+          {@render text("Solus Cloud", "Your account's hosts could not be read.")}
+          {@render pill("Retry")}
+        </button>
       {:else if cloudOrigin.kind === "signed-in" && savedServers.length === 0}
         <!-- Signed in with nothing listed: say where linking happens. -->
         <a href={cloudOrigin.linkMachineUrl} class={cn(cardClass, "px-4 py-3.5")}>

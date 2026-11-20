@@ -1,14 +1,14 @@
 import { beforeEach, expect, mock, test } from 'bun:test'
 import type { HostFact } from '@solus/client-core/host-facts'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import { LOCAL_SERVER_ID, type SavedServer } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID, type KnownHost } from '@solus/client-core/known-host'
 
-// The desktop's own host is not in the saved remote registry. Its routes must
+// The desktop's own host is not among the known remote hosts. Its routes must
 // come from server info, so a user can find an address to use on another device.
 const servers = {
   local: { installationId: 'this-mac' },
-  remotes: [] as SavedServer[],
-  servers: [] as SavedServer[],
+  remotes: [] as KnownHost[],
+  servers: [] as KnownHost[],
   readinessFor: () => ({ readiness: 'ready' }),
 }
 let fact: HostFact<Pick<ConnectionsServerInfo, 'routes'>> = { state: 'loading' }

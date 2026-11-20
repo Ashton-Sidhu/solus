@@ -152,7 +152,7 @@ describe('server discovery', () => {
 
     expect(filterUnsavedDiscoveredServers({
       discovered,
-      savedServers: [{
+      knownHosts: [{
         id: 'saved-installation',
         label: 'Saved',
         url: 'http://100.64.0.11:3000',

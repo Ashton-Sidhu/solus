@@ -1,5 +1,5 @@
 import { serverConnections } from '@solus/client-core/server-connections'
-import { LOCAL_SERVER_ID, serverFromSshAdd, type SavedServer } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID, serverFromSshAdd, type KnownHost } from '@solus/client-core/known-host'
 import { pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
@@ -274,11 +274,11 @@ export class HostOnboardingStore {
    * turns into its setup rail without ever closing.
    */
   private adoptPairedHost(
-    server: SavedServer,
+    server: KnownHost,
     target: DiscoveredServer,
     identityKey?: string,
   ): void {
-    serversStore.savePairedServer(server)
+    void serversStore.savePairedServer(server)
     // A pair started from the run-on picker already has a destination — that
     // flow retargets the session itself, and this stage's "start working" would
     // move the whole app instead of the one tab the user asked about.

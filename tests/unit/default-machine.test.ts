@@ -3,13 +3,13 @@ import { asHostApi } from '@solus/client-core/host-api'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { HostFacts } from '@solus/client-core/host-facts'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { chooseRunOnHost, type SavedServer } from '@solus/client-core/server-registry'
+import { chooseRunOnHost, type KnownHost } from '@solus/client-core/known-host'
 import type { SettingsContext } from '@solus/workspace-ui/contexts/app/settings.context.svelte'
 
 // docs/plans/workspace-and-machines.md §5.1: new work goes to a machine, never
 // to the organization's workspace service, which runs nothing.
 
-function saved(id: string, uplink?: SavedServer['uplink']): SavedServer {
+function saved(id: string, uplink?: KnownHost['uplink']): KnownHost {
   return { id, label: id, url: `https://${id}.test`, sessionToken: '', installationId: id, lastConnected: 1, uplink }
 }
 
@@ -25,7 +25,7 @@ describe('the default machine', () => {
     expect(chooseRunOnHost({
       primaryId: workspaceId,
       localId: null,
-      saved: [],
+      known: [],
       activeOrganizationId: 'org-1',
       isConnected: () => true,
     })).toBeNull()
@@ -33,17 +33,17 @@ describe('the default machine', () => {
 
   test('keeps a primary that is a machine, over the desktop\'s own', () => {
     // A desktop that switched its default host to a remote machine keeps it.
-    expect(chooseRunOnHost({ primaryId: laptop.id, localId: 'local', saved: [laptop], activeOrganizationId: null, isConnected: () => true })).toBe(laptop.id)
-    expect(chooseRunOnHost({ primaryId: null, localId: 'local', saved: [laptop], activeOrganizationId: null, isConnected: () => true })).toBe('local')
+    expect(chooseRunOnHost({ primaryId: laptop.id, localId: 'local', known: [laptop], activeOrganizationId: null, isConnected: () => true })).toBe(laptop.id)
+    expect(chooseRunOnHost({ primaryId: null, localId: 'local', known: [laptop], activeOrganizationId: null, isConnected: () => true })).toBe('local')
   })
 
   test('prefers the active organization\'s managed host, then any connected machine', () => {
     const all = [laptop, otherManaged, orgManaged]
-    expect(chooseRunOnHost({ primaryId: workspaceId, localId: null, saved: all, activeOrganizationId: 'org-1', isConnected: () => true })).toBe(orgManaged.id)
+    expect(chooseRunOnHost({ primaryId: workspaceId, localId: null, known: all, activeOrganizationId: 'org-1', isConnected: () => true })).toBe(orgManaged.id)
     expect(chooseRunOnHost({
       primaryId: workspaceId,
       localId: null,
-      saved: all,
+      known: all,
       activeOrganizationId: 'org-1',
       isConnected: (id) => id !== orgManaged.id,
     })).toBe(laptop.id)
@@ -51,7 +51,7 @@ describe('the default machine', () => {
 
   test('skips a machine that is not connected', () => {
     // A call sent to a machine that is away waits for as long as it stays away.
-    expect(chooseRunOnHost({ primaryId: workspaceId, localId: null, saved: [laptop], activeOrganizationId: 'org-1', isConnected: () => false })).toBeNull()
+    expect(chooseRunOnHost({ primaryId: workspaceId, localId: null, known: [laptop], activeOrganizationId: 'org-1', isConnected: () => false })).toBeNull()
   })
 })
 

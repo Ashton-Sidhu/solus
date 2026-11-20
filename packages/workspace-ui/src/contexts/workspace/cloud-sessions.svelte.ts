@@ -48,7 +48,7 @@ export class CloudSessions {
   private listedByRow = new WeakMap<CloudSessionRow, ListedSession>()
 
   constructor(
-    private readonly hosts: Pick<SessionListHosts, 'connectedRunnerFor' | 'savedRunnerFor'>,
+    private readonly hosts: Pick<SessionListHosts, 'connectedRunnerFor' | 'knownRunnerFor'>,
     /** Whether a connected home lists the session: its row is then the home's, not the cloud's. */
     private readonly isListedByHost: (sessionId: string) => boolean,
   ) {}
@@ -78,7 +78,7 @@ export class CloudSessions {
   headFor(sessionId: string): SessionCloudHead | null {
     const facts = this.factsBySession.get(sessionId)
     if (!facts) return null
-    return { ...facts, lastRunServerId: facts.lastRunHostId ? this.savedRunnerFor(facts.lastRunHostId) : null }
+    return { ...facts, lastRunServerId: facts.lastRunHostId ? this.knownRunnerFor(facts.lastRunHostId) : null }
   }
 
   /** The connected host that runs a turn of this session now. A running host
@@ -114,7 +114,7 @@ export class CloudSessions {
     if (this.isListedByHost(row.sessionId)) return null
     const lastRunHostId = this.factsBySession.get(row.sessionId)?.lastRunHostId
     if (lastRunHostId && this.hosts.connectedRunnerFor(lastRunHostId)) return null
-    const serverId = (lastRunHostId ? this.savedRunnerFor(lastRunHostId) : null) ?? row.apiServerId
+    const serverId = (lastRunHostId ? this.knownRunnerFor(lastRunHostId) : null) ?? row.apiServerId
     const known = this.listedByRow.get(row)
     if (known?.serverId === serverId) return known
     const listed: ListedSession = {
@@ -138,8 +138,8 @@ export class CloudSessions {
     return listed
   }
 
-  private savedRunnerFor(hostId: string): string | null {
-    return (this.hosts.savedRunnerFor ?? this.hosts.connectedRunnerFor)(hostId)
+  private knownRunnerFor(hostId: string): string | null {
+    return (this.hosts.knownRunnerFor ?? this.hosts.connectedRunnerFor)(hostId)
   }
 
   /** Keep the facts a Solus API answered for a session. Equal facts change nothing. */

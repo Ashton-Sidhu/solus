@@ -13,7 +13,7 @@ import { isMac } from '../../../lib/keybindings/match';
 import { toasts } from '../../../lib/toasts';
 import { parseAttachmentClipboardHtml, refsMatchHost } from '@solus/client-core/attachment-clipboard';
 import { reattachedAttachment } from '../../../lib/attachment-clipboard';
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry';
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host';
 import { hostPolicy } from '@solus/client-core/host-policy';
 import { serverConnections } from '@solus/client-core/server-connections';
 import {

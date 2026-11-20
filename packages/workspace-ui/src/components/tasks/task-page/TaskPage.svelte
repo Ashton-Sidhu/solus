@@ -8,7 +8,7 @@
   } from "../../../contexts";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import { setMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import {
     useKeybinding,

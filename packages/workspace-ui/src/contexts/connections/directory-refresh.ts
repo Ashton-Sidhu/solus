@@ -1,4 +1,4 @@
-import type { SavedServer } from '@solus/client-core/server-registry'
+import type { KnownHost } from '@solus/client-core/known-host'
 import type { ManagedHostLifecycle } from '@solus/contracts/uplink'
 
 /**
@@ -16,7 +16,7 @@ export const DIRECTORY_FOCUS_GAP_MS = 15_000
 /** States a managed host leaves by itself. `stopped` and `failed` wait for a person. */
 const SETTLING_STATES: ReadonlySet<ManagedHostLifecycle> = new Set(['provisioning', 'starting', 'stopping', 'deleting'])
 
-export function directoryRefreshDelayMs(servers: readonly SavedServer[]): number {
+export function directoryRefreshDelayMs(servers: readonly KnownHost[]): number {
   const settling = servers.some(
     (server) => server.uplink?.kind === 'managed' && !!server.uplink.managedState && SETTLING_STATES.has(server.uplink.managedState),
   )

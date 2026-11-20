@@ -191,6 +191,17 @@ describe('the layout of the map', () => {
     expect(shared).toEqual([{ kind: 'empty' }])
   })
 
+  test('a zone whose read has not answered says so, and offers no way to add a host it cannot see yet', () => {
+    // WHY: plans/033 §3 Q2. Nothing is kept from an earlier start, so before the
+    // first directory read Solus Cloud is empty: it must read as loading, and as
+    // failed with Retry, never as a fleet with no cloud machines.
+    const answers = { own: 'ready', cloud: 'loading', shared: 'failed' } as const
+    const [own, cloud, shared] = mapLayout(fleet(0, 0, 0), [{ ...nearby, zone: 'cloud' }], 48, answers).zones.map((zone) => zone.rows.map((row) => row.slot.kind === 'unread' ? row.slot : row.slot.kind))
+    expect(own).toEqual(['add'])
+    expect(cloud).toEqual([{ kind: 'unread', state: 'loading' }])
+    expect(shared).toEqual([{ kind: 'unread', state: 'failed' }])
+  })
+
   test('a full zone shows no cards, and keeps the height of its capacity for its tiles', () => {
     const atCapacity = mapLayout(fleet(5, 0, 0), [], 48).zones[0]!
     const full = mapLayout(fleet(40, 0, 0), [nearby], 48).zones[0]!

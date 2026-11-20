@@ -8,7 +8,7 @@ import { normalizeServerUrl } from './pairing'
 /**
  * What a person controls about a host's routes (docs/plans/host-routes.md §12): the
  * list they see, the check before an address is added, and each change to a saved
- * host. Desktop and web (`server-registry.ts`) and mobile (`host-registry.ts`) call
+ * host. Desktop and web (`host-catalog.ts`) and mobile (`host-registry.ts`) call
  * these, so every client has one set of rules and one set of words.
  */
 

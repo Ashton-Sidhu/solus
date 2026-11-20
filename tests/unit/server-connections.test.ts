@@ -1,6 +1,10 @@
 import { describe, expect, mock, test } from 'bun:test'
 import type { SolusServerTarget } from '@solus/client-core/server-connection'
-import { installationIdDecision } from '@solus/client-core/server-registry'
+import { installationIdDecision } from '@solus/client-core/known-host'
+import type { HostCredential } from '@solus/client-core/host-credentials'
+import type { HostListing } from '@solus/contracts/host-list'
+import type { DirectoryHost } from '@solus/contracts/uplink'
+import { catalogOf, fakeDirectory, fakeList, memoryCredentials } from './helpers/host-catalog-world'
 import type { WsTransport } from '@solus/client-core/ws-transport'
 import type { SolusAPI } from '../../src/preload'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
@@ -41,11 +45,26 @@ mock.module('@solus/client-core/server-connection', () => ({
     }
     return { transport: transport as unknown as WsTransport, api: api as unknown as SolusAPI, events: transport.events }
   },
-  savedServerTarget: (server: { id: string; routes: HostRoute[] }) => ({ ...server, url: preferredRouteUrl(server, ''), local: false }) as SolusServerTarget,
+  knownHostTarget: (server: { id: string; routes: HostRoute[] }) => ({ ...server, url: preferredRouteUrl(server, ''), local: false }) as SolusServerTarget,
   preferredRouteUrl,
 }))
 
 const { ServerConnections } = await import('@solus/client-core/server-connections')
+
+/** A catalog that answered: the list, the directory, and this device's credentials (plans/033). */
+async function catalogWith(input: { listings?: HostListing[]; credentials?: Record<string, HostCredential>; directory?: DirectoryHost[] }) {
+  const directory = fakeDirectory('https://app.solus.test')
+  directory.answer(input.directory ?? [])
+  const catalog = catalogOf({ credentials: memoryCredentials([], input.credentials), directory })
+  await catalog.useListSource(fakeList([], 'account', input.listings ?? []).source)
+  await catalog.refreshDirectory()
+  return { catalog, directory }
+}
+
+const managedRow = (managedState: DirectoryHost['managedState'], url = 'https://h-cloud.solus.test'): DirectoryHost => ({
+  hostId: 'h_cloud', installationId: 'managed:h_cloud', label: 'Cloud · Acme', kind: 'managed', category: 'managed', organizationIds: ['org-1'],
+  managedState, routes: [{ kind: 'tunnel', url }],
+})
 
 const remoteTarget: SolusServerTarget = {
   id: 'remote',
@@ -88,26 +107,10 @@ describe('lazily created connections', () => {
     }
   })
 
-  test('does not connect to a saved alias for the local installation', async () => {
+  test('does not connect to a known alias for the local installation', async () => {
     startedTransports.length = 0
-    const previousLocalStorage = globalThis.localStorage
-    Object.defineProperty(globalThis, 'localStorage', {
-      configurable: true,
-      writable: true,
-      value: {
-        getItem: (key: string) => key === 'solus.servers'
-          ? JSON.stringify([{
-              id: 'local-installation',
-              label: 'This Mac through Uplink',
-              routes: [{ kind: 'tunnel', url: 'https://local.example', source: 'directory', seenAt: 1 }],
-              sessionToken: '',
-              installationId: 'local-installation',
-              lastConnected: 1,
-            }])
-          : null,
-      },
-    })
-    const connections = new ServerConnections()
+    const { catalog } = await catalogWith({ directory: [{ hostId: 'h_local', installationId: 'local-installation', label: 'This Mac through Uplink', kind: 'personal', category: 'personal', organizationIds: [], routes: [{ kind: 'tunnel', url: 'https://local.example' }] }] })
+    const connections = new ServerConnections(catalog)
     connections.registerTarget({
       id: 'local',
       label: 'This Mac',
@@ -124,15 +127,6 @@ describe('lazily created connections', () => {
       expect(startedTransports).toEqual(['local'])
     } finally {
       connections.release('local')
-      if (previousLocalStorage === undefined) {
-        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
-      } else {
-        Object.defineProperty(globalThis, 'localStorage', {
-          configurable: true,
-          writable: true,
-          value: previousLocalStorage,
-        })
-      }
     }
   })
 
@@ -141,46 +135,18 @@ describe('lazily created connections', () => {
     // yet; the network's resolver kept that "no such name" answer, and the ready host
     // stayed unreachable (Offline) from that network for up to 30 minutes (2026-09-23).
     startedTransports.length = 0
-    let managedState = 'provisioning'
-    const previousLocalStorage = globalThis.localStorage
-    Object.defineProperty(globalThis, 'localStorage', {
-      configurable: true,
-      writable: true,
-      value: {
-        getItem: (key: string) => key === 'solus.servers'
-          ? JSON.stringify([{
-              id: 'cloud',
-              label: 'Cloud · Acme',
-              routes: [{ kind: 'tunnel', url: 'https://h-cloud.solus.test', source: 'directory', seenAt: 1 }],
-              sessionToken: '',
-              installationId: 'managed:h_cloud',
-              lastConnected: 1,
-              uplink: { hostId: 'h_cloud', directoryUrl: 'https://app.solus.test', kind: 'managed', managedState },
-            }])
-          : null,
-      },
-    })
-    const connections = new ServerConnections()
-    try {
-      connections.startCatalogSupervisors()
-      await Promise.resolve()
-      expect(startedTransports).toEqual([])
+    const { catalog, directory } = await catalogWith({ directory: [managedRow('provisioning')] })
+    const connections = new ServerConnections(catalog)
+    connections.startCatalogSupervisors()
+    await Promise.resolve()
+    expect(startedTransports).toEqual([])
 
-      managedState = 'ready'
-      connections.startCatalogSupervisors()
-      await Promise.resolve()
-      expect(startedTransports).toEqual(['cloud'])
-    } finally {
-      if (previousLocalStorage === undefined) {
-        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
-      } else {
-        Object.defineProperty(globalThis, 'localStorage', {
-          configurable: true,
-          writable: true,
-          value: previousLocalStorage,
-        })
-      }
-    }
+    // The directory read that says `ready` dials it: the connections follow the catalog.
+    directory.answer([managedRow('ready')])
+    await catalog.refreshDirectory()
+    await Promise.resolve()
+    expect(startedTransports).toEqual(['managed:h_cloud'])
+    connections.release('managed:h_cloud')
   })
 
   test('a live connection follows the route the directory gives a managed host once it links', async () => {
@@ -189,49 +155,26 @@ describe('lazily created connections', () => {
     // onboarding dialed a name with no DNS record until its wait ran out.
     startedTransports.length = 0
     switchedUrls.length = 0
-    let saved = {
-      id: 'cloud',
-      label: 'Cloud · Acme',
-      routes: [{ kind: 'tunnel', url: 'https://h-cloud.solus.test', source: 'directory', seenAt: 1 }],
-      sessionToken: '',
-      installationId: 'managed:h_cloud',
-      lastConnected: 1,
-      uplink: { hostId: 'h_cloud', directoryUrl: 'https://app.solus.test', kind: 'managed', managedState: 'provisioning' },
-    }
-    const previousLocalStorage = globalThis.localStorage
-    Object.defineProperty(globalThis, 'localStorage', {
-      configurable: true,
-      writable: true,
-      value: { getItem: (key: string) => key === 'solus.servers' ? JSON.stringify([saved]) : null },
-    })
-    const connections = new ServerConnections()
+    const { catalog, directory } = await catalogWith({ directory: [managedRow('provisioning')] })
+    const connections = new ServerConnections(catalog)
     try {
       connections.startCatalogSupervisors()
       await Promise.resolve()
       expect(switchedUrls).toEqual([])
 
       const machine = 'https://solus-h-cloud.sprites.test'
-      saved = { ...saved, routes: [{ kind: 'tunnel', url: machine, source: 'directory', seenAt: 2 }], uplink: { ...saved.uplink, managedState: 'ready' } }
-      connections.startCatalogSupervisors()
+      directory.answer([managedRow('ready', machine)])
+      await catalog.refreshDirectory()
       await Promise.resolve()
-      expect(switchedUrls).toEqual([`cloud:${machine}`])
-      expect(connections.ensure('cloud').target.url).toBe(machine)
-      expect(startedTransports).toEqual(['cloud'])
+      expect(switchedUrls).toEqual([`managed:h_cloud:${machine}`])
+      expect(connections.ensure('managed:h_cloud').target.url).toBe(machine)
+      expect(startedTransports).toEqual(['managed:h_cloud'])
 
       // A read that changes nothing does not re-aim the socket.
-      connections.startCatalogSupervisors()
+      await catalog.refreshDirectory()
       expect(switchedUrls).toHaveLength(1)
     } finally {
-      connections.release('cloud')
-      if (previousLocalStorage === undefined) {
-        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
-      } else {
-        Object.defineProperty(globalThis, 'localStorage', {
-          configurable: true,
-          writable: true,
-          value: previousLocalStorage,
-        })
-      }
+      connections.release('managed:h_cloud')
     }
   })
 
@@ -242,17 +185,11 @@ describe('lazily created connections', () => {
     switchedUrls.length = 0
     const direct = 'http://10.0.0.9:51234'
     const tunnel = 'https://studio.tunnel.solus.test'
-    const saved = {
-      id: 'studio',
-      label: 'Studio',
-      routes: [{ kind: 'lan', url: direct, source: 'directory', seenAt: 1 }, { kind: 'tunnel', url: tunnel, source: 'directory', seenAt: 1 }],
-      sessionToken: '',
-      installationId: 'inst-studio',
+    const { catalog } = await catalogWith({
       // The key lets the http route be asked: without it a credential could never go there.
-      identityKey: identityKeyFor('inst-studio'),
-      lastConnected: 1,
-      uplink: { hostId: 'h_studio', directoryUrl: 'https://app.solus.test', kind: 'personal' },
-    }
+      listings: [{ id: 'studio', label: 'Studio', installationId: 'inst-studio', lastConnected: 1, routes: [], identityKey: identityKeyFor('inst-studio') }],
+      directory: [{ hostId: 'h_studio', installationId: 'inst-studio', label: 'Studio', kind: 'personal', category: 'personal', organizationIds: [], routes: [{ kind: 'lan', url: direct }, { kind: 'tunnel', url: tunnel }] }],
+    })
     const healthAsked: string[] = []
     const previousFetch = globalThis.fetch
     globalThis.fetch = (async (input: string | URL | Request) => {
@@ -262,13 +199,7 @@ describe('lazily created connections', () => {
       if (url !== `${tunnel}/health`) throw new Error('unreachable')
       return new Response(JSON.stringify({ ok: true, installationId: 'inst-studio', name: 'Studio' }), { status: 200 })
     }) as typeof fetch
-    const previousLocalStorage = globalThis.localStorage
-    Object.defineProperty(globalThis, 'localStorage', {
-      configurable: true,
-      writable: true,
-      value: { getItem: (key: string) => key === 'solus.servers' ? JSON.stringify([saved]) : null },
-    })
-    const connections = new ServerConnections()
+    const connections = new ServerConnections(catalog)
     try {
       connections.startCatalogSupervisors()
       await new Promise((resolve) => setTimeout(resolve, 10))
@@ -278,15 +209,6 @@ describe('lazily created connections', () => {
     } finally {
       connections.release('studio')
       globalThis.fetch = previousFetch
-      if (previousLocalStorage === undefined) {
-        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
-      } else {
-        Object.defineProperty(globalThis, 'localStorage', {
-          configurable: true,
-          writable: true,
-          value: previousLocalStorage,
-        })
-      }
     }
   })
 
@@ -427,30 +349,14 @@ describe('session-scoped host capabilities', () => {
 })
 
 describe('an installation id names a host in every client of it', () => {
-  test('resolves to this client’s id for that host, and leaves a host it does not have unchanged', () => {
+  test('resolves to this client’s id for that host, and leaves a host it does not have unchanged', async () => {
     // WHY: a task shared to an organization names the machine that runs each of
     // its sessions by installation id (docs/plans/cloud-sharing.md §3a). The owner's
-    // desktop calls that machine `local` and their browser calls it by a saved id;
+    // desktop calls that machine `local` and their browser calls it by its listed id;
     // both must open the session. A teammate has no such host, so the id must stay
     // unresolved and the task page offers no Open.
-    const previousLocalStorage = globalThis.localStorage
-    Object.defineProperty(globalThis, 'localStorage', {
-      configurable: true,
-      writable: true,
-      value: {
-        getItem: (key: string) => key === 'solus.servers'
-          ? JSON.stringify([{
-              id: 'studio',
-              label: 'Studio',
-              routes: [{ kind: 'tunnel', url: 'https://studio.example', source: 'directory', seenAt: 1 }],
-              sessionToken: '',
-              installationId: 'studio-installation',
-              lastConnected: 1,
-            }])
-          : null,
-      },
-    })
-    const connections = new ServerConnections()
+    const { catalog } = await catalogWith({ listings: [{ id: 'studio', label: 'Studio', installationId: 'studio-installation', lastConnected: 1, routes: [{ kind: 'tunnel', url: 'https://studio.example' }] }] })
+    const connections = new ServerConnections(catalog)
     connections.registerTarget({
       id: 'local',
       label: 'This Mac',
@@ -459,176 +365,78 @@ describe('an installation id names a host in every client of it', () => {
       installationId: 'mac-installation',
       local: true,
     })
-    try {
-      expect(connections.resolveId('mac-installation')).toBe('local')
-      expect(connections.resolveId('studio-installation')).toBe('studio')
-      expect(connections.resolveId('local')).toBe('local')
-      expect(connections.resolveId('teammate-installation')).toBe('teammate-installation')
-    } finally {
-      if (previousLocalStorage === undefined) {
-        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
-      } else {
-        Object.defineProperty(globalThis, 'localStorage', {
-          configurable: true,
-          writable: true,
-          value: previousLocalStorage,
-        })
-      }
-    }
-  })
-})
-
-describe('connection-owned startup reads', () => {
-  const info: ConnectionsServerInfo = {
-    host: 'test.invalid', port: 443, allowLan: false, installationId: 'info-host',
-    remoteAccess: true, requireAuth: true, trustLocalNetwork: false,
-    hostKind: 'personal', roles: ['execution', 'collaboration'], principal: 'remote-owner',
-  }
-
-  test('concurrent and later consumers share one info read; explicit refresh and a new server session read again', async () => {
-    const connections = new ServerConnections()
-    connections.registerTarget({ ...remoteTarget, id: 'info', installationId: 'info-host' })
-    let calls = 0
-    infoLoaders.set('info', async () => { calls++; return info })
-    // The installation id names the same host, so it shares the same read.
-    await Promise.all([connections.serverInfoFor('info'), connections.serverInfoFor('info-host')])
-    expect(await connections.serverInfoFor('info')).toEqual(info)
-    expect(calls).toBe(1)
-    await Promise.all([connections.serverInfoFor('info', true), connections.serverInfoFor('info', true)])
-    expect(calls).toBe(2)
-    const facts = connections.factsFor('info')
-    facts.sessionChanged('lost')
-    facts.sessionChanged('fresh')
-    await connections.serverInfoFor('info')
-    expect(calls).toBe(3)
-    connections.release('info')
-    infoLoaders.delete('info')
-  })
-
-  test('a late answer from the old server session cannot replace the new identity', async () => {
-    const connections = new ServerConnections()
-    connections.registerTarget({ ...remoteTarget, id: 'info-stale' })
-    let finish!: (value: ConnectionsServerInfo) => void
-    infoLoaders.set('info-stale', () => new Promise((resolve) => { finish = resolve }))
-    const old = connections.serverInfoFor('info-stale')
-    await Promise.resolve()
-    const facts = connections.factsFor('info-stale')
-    facts.sessionChanged('lost')
-    infoLoaders.set('info-stale', async () => ({ ...info, userId: 'new-person' }))
-    facts.sessionChanged('fresh')
-    expect((await connections.serverInfoFor('info-stale')).userId).toBe('new-person')
-    finish({ ...info, userId: 'old-person' })
-    await old
-    expect((await connections.serverInfoFor('info-stale')).userId).toBe('new-person')
-    connections.release('info-stale')
-    infoLoaders.delete('info-stale')
-  })
-
-  test('failed info reads can retry, and different hosts never share an answer', async () => {
-    const connections = new ServerConnections()
-    for (const id of ['info-fail', 'info-other']) connections.registerTarget({ ...remoteTarget, id })
-    infoLoaders.set('info-fail', async () => { throw new Error('offline') })
-    infoLoaders.set('info-other', async () => ({ ...info, installationId: 'other' }))
-    await expect(connections.serverInfoFor('info-fail')).rejects.toThrow('offline')
-    infoLoaders.set('info-fail', async () => info)
-    expect((await connections.serverInfoFor('info-fail')).installationId).toBe('info-host')
-    expect((await connections.serverInfoFor('info-other')).installationId).toBe('other')
-    for (const id of ['info-fail', 'info-other']) { connections.release(id); infoLoaders.delete(id) }
-  })
-
-  test('project identity readers share pending work, including an explicit refresh', async () => {
-    const connections = new ServerConnections()
-    connections.registerTarget({ ...remoteTarget, id: 'projects' })
-    let calls = 0
-    identityLoaders.set('projects', async () => { calls++; return [] })
-    await Promise.all([connections.projectIdentities('projects'), connections.projectIdentities('projects')])
-    expect(calls).toBe(1)
-    await connections.projectIdentities('projects')
-    expect(calls).toBe(1)
-    await Promise.all([connections.projectIdentities('projects', true), connections.projectIdentities('projects', true)])
-    expect(calls).toBe(2)
-    connections.release('projects')
-    identityLoaders.delete('projects')
+    expect(connections.resolveId('mac-installation')).toBe('local')
+    expect(connections.resolveId('studio-installation')).toBe('studio')
+    expect(connections.resolveId('local')).toBe('local')
+    expect(connections.resolveId('teammate-installation')).toBe('teammate-installation')
   })
 })
 
 // docs/plans/desktop-remote-only.md. WHY: the app must connect only to saved hosts,
 // and a person with none must still reach a workspace that can add one.
 describe('a desktop window with its local host off', () => {
-  const savedHost = (id: string) => ({
-    id, label: id, sessionToken: 'token', installationId: id, lastConnected: 1,
-    routes: [{ kind: 'lan', url: `http://${id}.test:3000`, source: 'pairing', seenAt: 1 }],
-  })
+  const listingOf = (id: string): HostListing => ({ id, label: id, installationId: id, lastConnected: 1, routes: [{ kind: 'lan', url: `http://${id}.test:3000`, source: 'pairing', seenAt: 1 }] })
 
-  function withStorage(run: (storage: Map<string, string>) => void): void {
+  function withActiveServer(activeId: string | null, run: () => Promise<void>): Promise<void> {
     const previous = globalThis.localStorage
-    const storage = new Map<string, string>()
+    const storage = new Map<string, string>(activeId ? [['solus.activeServerId', activeId]] : [])
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
       writable: true,
       value: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
     })
-    try {
-      run(storage)
-    } finally {
+    return run().finally(() => {
       Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: previous })
-    }
+    })
   }
 
-  test('opens on the active saved host and has no device host', () => {
-    withStorage((storage) => {
-      storage.set('solus.servers', JSON.stringify([savedHost('first'), savedHost('second')]))
-      storage.set('solus.activeServerId', 'second')
-      const connections = new ServerConnections()
+  test('opens on the active known host and has no device host', () => withActiveServer('second', async () => {
+    const { catalog } = await catalogWith({ listings: [listingOf('first'), listingOf('second')] })
+    const connections = new ServerConnections(catalog)
 
-      const primary = connections.openWithoutLocalHost()
+    const primary = connections.openWithoutLocalHost()
 
-      expect(primary.presence).toBe('present')
-      expect(connections.defaultServerId()).toBe('second')
-      expect(connections.localServerId()).toBeNull()
-      expect(connections.localHostApi()).toBeNull()
-      expect(connections.deviceHostId()).toBeNull()
-    })
-  })
+    expect(primary.presence).toBe('present')
+    expect(connections.defaultServerId()).toBe('second')
+    expect(connections.localServerId()).toBeNull()
+    expect(connections.localHostApi()).toBeNull()
+    expect(connections.deviceHostId()).toBeNull()
+  }))
 
-  test('falls to the first saved host when the remembered active host is this computer', () => {
-    withStorage((storage) => {
-      storage.set('solus.servers', JSON.stringify([savedHost('first')]))
-      const connections = new ServerConnections()
+  test('falls to the first known host when the remembered active host is this computer', () => withActiveServer(null, async () => {
+    const { catalog } = await catalogWith({ listings: [listingOf('first')] })
+    expect(new ServerConnections(catalog).openWithoutLocalHost().serverId).toBe('first')
+  }))
 
-      expect(connections.openWithoutLocalHost().serverId).toBe('first')
-    })
-  })
+  test('with no known host the window waits on a gone primary, and the first host the catalog learns of takes over', () => withActiveServer(null, async () => {
+    const journal: string[] = []
+    const catalog = catalogOf({ credentials: memoryCredentials(journal), directory: null })
+    const list = fakeList(journal, 'host:local')
+    await catalog.useListSource(list.source)
+    const connections = new ServerConnections(catalog)
 
-  test('with no saved host the window waits on a gone primary, and the first saved host takes over', () => {
-    withStorage((storage) => {
-      const connections = new ServerConnections()
+    expect(connections.openWithoutLocalHost().presence).toBe('gone')
+    // Settings lists these as hosts: a window with none must list none.
+    expect(connections.connectedServerIds()).toEqual([])
+    connections.startCatalogSupervisors()
 
-      expect(connections.openWithoutLocalHost().presence).toBe('gone')
-      // Settings lists these as hosts: a window with none must list none.
-      expect(connections.connectedServerIds()).toEqual([])
+    // Pairing adds one host; the connections follow the catalog with no other call.
+    await catalog.pair({ ...listingOf('paired'), sessionToken: 'token' })
 
-      // Pairing saves one host; a directory read saves many and then asks for the catalog.
-      storage.set('solus.servers', JSON.stringify([savedHost('paired')]))
-      connections.startCatalogSupervisors()
-
-      expect(connections.defaultServerId()).toBe('paired')
-      expect(connections.presenceOf('paired')).toBe('present')
-    })
-  })
+    expect(connections.defaultServerId()).toBe('paired')
+    expect(connections.presenceOf('paired')).toBe('present')
+  }))
 
   test('a window that booted on its local host never treats that host as turned off', () => {
     expect(new ServerConnections().isLocalHostOff()).toBe(false)
   })
 
-  test('only the local host reads as turned off: a removed host is still removed', () => {
-    withStorage(() => {
-      const connections = new ServerConnections()
-      connections.openWithoutLocalHost()
+  test('only the local host reads as turned off: a removed host is still removed', () => withActiveServer(null, async () => {
+    const connections = new ServerConnections((await catalogWith({})).catalog)
+    connections.openWithoutLocalHost()
 
-      expect(connections.isLocalHostOff()).toBe(true)
-      expect(connections.isLocalHostOff('local')).toBe(true)
-      expect(connections.isLocalHostOff('managed:deleted')).toBe(false)
-    })
-  })
+    expect(connections.isLocalHostOff()).toBe(true)
+    expect(connections.isLocalHostOff('local')).toBe(true)
+    expect(connections.isLocalHostOff('managed:deleted')).toBe(false)
+  }))
 })

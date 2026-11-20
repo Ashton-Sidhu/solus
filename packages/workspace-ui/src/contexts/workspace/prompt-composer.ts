@@ -1,5 +1,5 @@
 import type { Attachment, Prompt, PromptImageRef, PromptOptions, Session, SessionMetadataGenerationContext } from '@solus/contracts/types'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hostReferenceContext } from '@solus/contracts/host-link'
 import type { PlanStore } from '../plans/plan.store.svelte'

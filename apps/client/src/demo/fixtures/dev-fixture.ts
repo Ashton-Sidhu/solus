@@ -1,6 +1,6 @@
 import type { ReviewGuide } from '@solus/contracts/review'
 import { demoProjectFiles } from './project-files'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { DEMO_PROJECT, type DemoFixtures } from './types'
 
 const SESSION_ID = 'demo-session-complete'

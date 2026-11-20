@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronRight, KeyRound, Laptop, Link2, Plus, Terminal } from "@lucide/svelte";
+  import { ChevronRight, KeyRound, Laptop, Link2, Plus, RotateCw, Terminal } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import FleetMapCard from "./FleetMapCard.svelte";
@@ -25,6 +25,7 @@
     type FleetZoneId,
     type Point,
     type TileColorMode,
+    type ZoneAnswers,
     type ZoneSlot,
   } from "./lib/fleet-model";
 
@@ -38,6 +39,8 @@
   interface Props {
     machines: FleetMachine[];
     found: FoundMachine[];
+    /** Whether each zone's hosts are read yet: a zone not read says so, with Retry when its read failed. */
+    answers: ZoneAnswers;
     colorMode: TileColorMode;
     query: string;
     focusId: string | null;
@@ -49,15 +52,17 @@
     onStart: (serverId: string) => void;
     /** The found machine under the pointer, by its key; null when the pointer leaves it. */
     onPointFound: (key: string | null) => void;
+    /** Reads a zone's hosts again after its read failed. */
+    onRetry: (zone: FleetZoneId) => void;
   }
 
-  let { machines, found, colorMode, query, focusId, isLive, onPoint, onOpen, onOpenZone, onAdd, onStart, onPointFound }: Props = $props();
+  let { machines, found, answers, colorMode, query, focusId, isLive, onPoint, onOpen, onOpenZone, onAdd, onStart, onPointFound, onRetry }: Props = $props();
 
   /** The map's own box, in px. Its height is `MAP_HEIGHT` rem, so the two give its width in rem. */
   let mapWidth = $state(0);
   let mapHeight = $state(0);
 
-  const map = $derived(mapLayout(machinesByZone(machines), found, mapHeight ? (mapWidth / mapHeight) * MAP_HEIGHT : 0));
+  const map = $derived(mapLayout(machinesByZone(machines), found, mapHeight ? (mapWidth / mapHeight) * MAP_HEIGHT : 0, answers));
   const device = $derived(machines.find((machine) => machine.zone === "device") ?? null);
   const tunneled = $derived(map.zones.flatMap(({ zone, hosts }) => (zone.isViaTunnel ? hosts : [])));
   const hubPort = $derived({ x: map.hub.x + map.hub.w / 2, y: map.hub.y });
@@ -291,6 +296,8 @@
         {@render foundCard(slot.machine, at)}
       {:else if slot.kind === "add"}
         {@render addCard(slot.way, at)}
+      {:else if slot.kind === "unread"}
+        {@render unreadCard(zone.id, zone.label, slot.state, at)}
       {:else}
         <p
           class="absolute flex -translate-1/2 items-center justify-center overflow-hidden text-chrome-dense whitespace-nowrap text-muted-foreground"
@@ -330,6 +337,38 @@
     </span>
     <Plus size={13} class="shrink-0 group-hover:text-foreground" />
   </button>
+{/snippet}
+
+<!-- A zone whose hosts are not read yet: nothing is kept from an earlier start (plans/033 §3 Q2). -->
+{#snippet unreadCard(zoneId: FleetZoneId, label: string, state: "loading" | "failed", at: Point)}
+  {#if state === "loading"}
+    <p
+      class="absolute flex -translate-1/2 items-center justify-center overflow-hidden text-chrome-dense whitespace-nowrap text-muted-foreground"
+      style:left="{at.x}%"
+      style:top="{at.y}%"
+      style:width="{map.cardWidth}%"
+      style:height="{CARD_HEIGHT}rem"
+      role="status"
+    >
+      {zoneId === "own" ? "Reading your host list…" : `Reading ${label}…`}
+    </p>
+  {:else}
+    <button
+      type="button"
+      onclick={() => onRetry(zoneId)}
+      class="group absolute z-10 flex -translate-1/2 items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--solus-status-error)/40 pr-3 pl-2 text-left text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-card motion-reduce:transition-none"
+      style:left="{at.x}%"
+      style:top="{at.y}%"
+      style:width="{map.cardWidth}%"
+      style:height="{CARD_HEIGHT}rem"
+    >
+      <span class="grid size-[30px] shrink-0 place-items-center"><RotateCw size={13} /></span>
+      <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span class="truncate text-[0.8125rem] font-medium text-foreground">{zoneId === "own" ? "Host list not read" : `${label} not read`}</span>
+        <span class="truncate text-chrome-dense">Select to retry</span>
+      </span>
+    </button>
+  {/if}
 {/snippet}
 
 {#snippet addCard(way: Extract<ZoneSlot, { kind: "add" }>["way"], at: Point)}

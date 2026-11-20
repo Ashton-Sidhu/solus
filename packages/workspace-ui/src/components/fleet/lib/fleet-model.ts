@@ -1,3 +1,4 @@
+import type { AnswerState } from '@solus/client-core/host-catalog'
 import type { HostReadiness } from '@solus/client-core/host-readiness'
 import type { RouteKind } from '@solus/contracts/host-routes'
 import type { HostOperatingSystem } from '@solus/contracts/types'
@@ -158,6 +159,16 @@ export const ZONES: readonly FleetZone[] = [
   { id: 'shared', label: 'Shared with you', isViaTunnel: true, cardCapacity: 1 },
 ]
 
+/**
+ * Whether each zone's hosts are read yet (plans/033 §3 Q2): your machines come
+ * from the person's host list, Solus Cloud and Shared with you from the account
+ * directory. Nothing is kept from an earlier start, so a zone says it is reading,
+ * or that its read failed, until one answers.
+ */
+export type ZoneAnswers = Record<FleetZoneId, AnswerState>
+
+export const ZONES_ANSWERED = { own: 'ready', cloud: 'ready', shared: 'ready' } satisfies ZoneAnswers
+
 /** The hosts of each zone, in the order the fleet lists them. */
 export interface MachinesByZone {
   own: FleetMachine[]
@@ -247,12 +258,13 @@ const UNMEASURED_MAP_WIDTH = 48
 /** A zone's place on the map, in percent of the map box. */
 export interface ZoneBox { x: number; y: number; w: number; h: number }
 
-/** What one row of a zone with room shows: a host, a found machine to add, a way to add one, or that the zone has nothing. */
+/** What one row of a zone with room shows: a host, a found machine to add, a way to add one, that the zone has nothing, or that its hosts are not read yet. */
 export type ZoneSlot =
   | { kind: 'host'; machine: FleetMachine }
   | { kind: 'found'; machine: FoundMachine }
   | { kind: 'add'; way: Extract<AddWay, 'cloud' | 'pair'> }
   | { kind: 'empty' }
+  | { kind: 'unread'; state: Exclude<AnswerState, 'ready'> }
 
 export interface ZoneRow {
   slot: ZoneSlot
@@ -292,10 +304,12 @@ export interface MapLayout {
 /**
  * The rows of a zone with room: its hosts, then room to grow, which is a found
  * machine where it would go or a way to add one. A zone always has a row, so an
- * empty zone says what it is for.
+ * empty zone says what it is for. A zone whose hosts are not read yet says so in
+ * place of room to grow: what it would offer depends on the answer.
  */
-function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], found: readonly FoundMachine[]): ZoneSlot[] {
+function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], found: readonly FoundMachine[], answer: AnswerState): ZoneSlot[] {
   const slots: ZoneSlot[] = hosts.map((machine) => ({ kind: 'host', machine }))
+  if (answer !== 'ready') return [...slots, { kind: 'unread', state: answer }]
   for (const machine of found.filter((machine) => machine.zone === zone.id).slice(0, zone.cardCapacity - hosts.length)) {
     slots.push({ kind: 'found', machine })
   }
@@ -312,7 +326,7 @@ function zoneSlots(zone: FleetZone, hosts: readonly FleetMachine[], found: reado
  * shows tiles. The zones of a side stack, and each stack is centered on this
  * device, so the links spread evenly above and below it.
  */
-export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[], mapWidth: number): MapLayout {
+export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[], mapWidth: number, answers: ZoneAnswers = ZONES_ANSWERED): MapLayout {
   const across = (rem: number) => (rem / (mapWidth > 0 ? mapWidth : UNMEASURED_MAP_WIDTH)) * 100
   const down = (rem: number) => (rem / MAP_HEIGHT) * 100
   const zoneWidth = Math.min(ZONE_WIDTH.share, across(ZONE_WIDTH.most))
@@ -327,7 +341,7 @@ export function mapLayout(byZone: MachinesByZone, found: readonly FoundMachine[]
   const stacked = ZONES.map((zone) => {
     const hosts = byZone[zone.id]
     const isFull = isZoneFull(zone, hosts.length)
-    const slots = isFull ? [] : zoneSlots(zone, hosts, found)
+    const slots = isFull ? [] : zoneSlots(zone, hosts, found, answers[zone.id])
     const rowCount = isFull ? zone.cardCapacity : slots.length
     const moreFound = found.filter((machine) => machine.zone === zone.id).length - slots.filter((slot) => slot.kind === 'found').length
     return { zone, hosts, isFull, slots, moreFound, height: ZONE_HEADER + rowCount * CARD_HEIGHT + (rowCount - 1) * CARD_GAP + ZONE_FOOT }

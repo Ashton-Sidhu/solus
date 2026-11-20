@@ -2,7 +2,7 @@ import { hosts, serversStore } from "@solus/workspace-ui/contexts";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 
-import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
 import { serverConnections } from "@solus/client-core/server-connections";
 import { hostPolicy } from "@solus/client-core/host-policy";
 import { unsupportedOnHost } from "@solus/client-core/host-capabilities";

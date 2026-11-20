@@ -17,7 +17,7 @@ import {
   sizeSummary,
   type ComputeHost,
 } from '@solus/workspace-ui/components/onboarding/lib/cloud-compute'
-import { managedHostNeedsStart } from '@solus/client-core/server-registry'
+import { managedHostNeedsStart } from '@solus/client-core/known-host'
 
 // Where a cloud account's agents can run (docs/plans/cloud-onboarding.md §3.1, §7.4).
 // The cloud host belongs to the organization; a linked machine is its owner's

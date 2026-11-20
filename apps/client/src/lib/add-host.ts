@@ -1,6 +1,7 @@
 import { normalizeServerUrl, pairServer, urlHost } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
-import { loadServers, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
+import type { KnownHost } from '@solus/client-core/known-host'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { mergeRoutes, routeForUrl } from '@solus/contracts/host-routes'
 import { track } from '@solus/workspace-ui/lib/analytics'
 import { classifyConnectInput, probeServer, type ProbedServer } from './connect'
@@ -17,24 +18,23 @@ export interface ServingOrigin {
   /** What to offer the user when this browser does not keep the host yet. */
   offered: OfferedHost
   /** The host's entry when it admits this browser with no pairing (loopback, a proxied bind). */
-  entry: SavedServer | null
-  /** The host as this browser keeps it; null when it keeps none. */
-  saved: SavedServer | null
+  entry: KnownHost | null
+  /** The host as this browser knows it: paired here, or at this address; null when it knows none. */
+  known: KnownHost | null
 }
 
 export async function probeServingOrigin(origin: string): Promise<ServingOrigin | null> {
   const health = await probeServer(origin)
   if (!health.ok) return null
   const normalizedOrigin = normalizeServerUrl(origin)
-  const saved = loadServers().find((server) =>
-    (!!health.installationId && server.installationId === health.installationId)
-    || server.routes.some((route) => normalizeServerUrl(route.url) === normalizedOrigin),
-  )
+  // The page's host is dialed before the person's list is read there, so its credential alone names it.
+  const known = (health.installationId ? hostCatalog.pairedHost(health.installationId) : null)
+    ?? hostCatalog.hosts().find((server) => server.routes.some((route) => normalizeServerUrl(route.url) === normalizedOrigin))
   const name = health.name || urlHost(origin)
-  const entry: SavedServer | null = health.requireAuth === false && health.installationId
+  const entry: KnownHost | null = health.requireAuth === false && health.installationId
     ? { id: health.installationId, routes: mergeRoutes([], [routeForUrl(origin)], 'page', Date.now()), sessionToken: '', installationId: health.installationId, label: health.name || 'This computer', os: health.os, lastConnected: Date.now() }
     : null
-  return { offered: { url: origin, name }, entry, saved: saved ?? null }
+  return { offered: { url: origin, name }, entry, known: known ?? null }
 }
 
 /** Why a typed address gave no Solus host, from what the probe saw (docs/plans/tailscale-support.md D2). */
@@ -66,12 +66,13 @@ export interface AddHostRequest {
   deviceLabel?: string
 }
 
+/** Pairs this browser with the host the input names. The caller keeps the host (`hostCatalog.pair`). */
 export async function addHostFromInput({
   input,
   code = '',
   serverLabel = '',
   deviceLabel = defaultDeviceLabel(),
-}: AddHostRequest): Promise<SavedServer> {
+}: AddHostRequest): Promise<KnownHost> {
   const classified = classifyConnectInput(input)
   if (classified.kind === 'empty') {
     throw new Error('Paste a pairing link or enter a server address')
@@ -81,7 +82,7 @@ export async function addHostFromInput({
   const label = serverLabel.trim()
   const method = 'token'
   try {
-    let server: SavedServer
+    let server: KnownHost
     if (classified.kind === 'link') {
       ({ server } = await pairServer({
         url: classified.url,
@@ -106,7 +107,6 @@ export async function addHostFromInput({
       })
       server = result.server
     }
-    upsertServer(server)
     track('pairing_completed', { method })
     return server
   } catch (err) {

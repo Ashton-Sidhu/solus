@@ -7,7 +7,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import ConversationLoading from "./ConversationLoading.svelte";
-  import { savedHostLabel } from "./lib/session-sync-view";
+  import { knownHostLabel } from "./lib/session-sync-view";
 
   /**
    * A session's conversation read from Solus Cloud while no host shows it
@@ -20,7 +20,7 @@
 
   const workspace = getWorkspaceContext();
   const sess = $derived(workspace.sessionFor(tabId));
-  const hostLabel = $derived((sess && savedHostLabel(serverConnections.resolveId(runHost(sess.run)))) || "This machine");
+  const hostLabel = $derived((sess && knownHostLabel(serverConnections.resolveId(runHost(sess.run)))) || "This machine");
   const text = $derived(sessionCloudReadText(view, hostLabel));
 
   function act(): void {

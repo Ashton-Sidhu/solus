@@ -1,6 +1,6 @@
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { pairServer } from '@solus/client-core/pairing'
-import type { SavedServer } from '@solus/client-core/server-registry'
+import type { KnownHost } from '@solus/client-core/known-host'
 import { serversStore } from '../../contexts'
 import { addOverSshStore } from '../servers/add-over-ssh.store.svelte'
 
@@ -10,9 +10,9 @@ import { addOverSshStore } from '../servers/add-over-ssh.store.svelte'
  */
 
 /** Pairs with a host that runs Solus, with the code it shows, and saves it. Throws the host's refusal. */
-export async function pairWithCode(url: string, code: string | undefined, reportedName?: string, onTailnet = false): Promise<SavedServer> {
+export async function pairWithCode(url: string, code: string | undefined, reportedName?: string, onTailnet = false): Promise<KnownHost> {
   const result = await pairServer({ url, pairToken: code, deviceLabel: defaultDeviceLabel(), serverLabel: '', reportedName, onTailnet })
-  serversStore.savePairedServer(result.server)
+  await serversStore.savePairedServer(result.server)
   return result.server
 }
 

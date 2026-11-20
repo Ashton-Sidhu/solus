@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session } from '@solus/contracts/types'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import {
   isRunOnHostLocked,
   repoKeyForPath,

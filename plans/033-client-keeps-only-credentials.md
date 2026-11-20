@@ -119,6 +119,124 @@ Opus 5.5.
   Revoke.
 - `execution/orchestration/introduced-hosts.ts` uses the same functions.
 
+### 4.5 Client-core API (S2)
+
+Built in S2. This is the contract for S3 (desktop and web) and S4 (mobile).
+`server-registry.ts` is gone. Device storage on desktop and web holds one entry,
+`solus.hostCredentials`. The first credential read deletes `solus.servers` and
+`solus.workspaces`; nothing reads them (§2 rule 5).
+
+**Modules and exports**
+
+| Module | Exports |
+| --- | --- |
+| `known-host.ts` (replaces `server-registry.ts`) | `KnownHost`, `KnownHostUplink`, `LOCAL_SERVER_ID`, `getActiveServerId`, `setActiveServerId` (Q4), `awaitsManagedCompute`, `hostInOrganization`, `managedHostNeedsStart`, `chooseRunOnHost({ primaryId, localId, known, activeOrganizationId, isConnected })` (the `saved` input is now `known`), `pairedAddress`, `serverFromSshAdd`, `installationIdDecision` |
+| `host-credentials.ts` | `HostCredential` `{ token, identityKey?, tokenPairedOverHttps?, routes, routeOrder? }`, the port `HostCredentialStorage` (`read`, `write`, `remove`), `localStorageCredentials(storage?)`, `encodeCredentials`, `decodeCredentials`, `HOST_CREDENTIALS_KEY`, `DEVICE_ROUTE_SOURCES` (`pairing`, `user`, `discovery`, `ssh`, `page`), `isDeviceRoute`, `deviceRoutes` |
+| `host-list-source.ts` | `HostListSource` (now with `key` and an optional `subscribe(onChange)`), `hostListHostSource(hostId, api, events?)` (new first argument), `hostListAccountSource(documents)`, `deviceHostListSource(storage)` (key `solus.hostList`), `hostListSourceFor({ accountDocuments, deviceHost, deviceStorage })`, `ListingStorage` |
+| `host-catalog.ts` | `HostCatalog`, the page's `hostCatalog` (desktop and web: `localStorage`, `uplinkAccountSource()`, `takeStartupDirectoryRead`), `activeOrganizationId()` (moved from `workspace-registry.ts`), the pure `joinHosts` and `listingOf`, and the types `AnswerState`, `HostCatalogOptions`, `HostDirectoryReader`, `PairOutcome` |
+| `workspace-registry.ts` | `KnownWorkspace` (was `SavedWorkspace`), `ambiguousOrganizationIds`, `workspaceFor(workspaces, serviceId)`, `activeWorkspace`, `workspaceTarget` |
+| `server-connection.ts` | `knownHostTarget` (was `savedServerTarget`); `preferredRouteUrl` takes a `KnownHost`. A refreshed token goes to `hostCatalog.renewToken`. |
+| `server-connections.ts` | `new ServerConnections(catalog = hostCatalog)`. After the first `startCatalogSupervisors()`, each catalog change dials the hosts it adds and re-aims moved routes; no caller starts supervisors after a pair or a directory read. `verifySavedServerIdentity` is now `verifyKnownHostIdentity`. |
+| `session-runner.ts` | `knownRunnerFor` (was `savedRunnerFor`), `connectedRunnerFor(runnerHostId, known?, readinessFor?)` |
+| `uplink-session.ts` | `organizationIdFor(hostAnswer, uplink, activeOrganizationId)`. The directory merge functions are gone. |
+| `pairing.ts` | `PairServerResult.server` is a `KnownHost`. |
+
+`host-link.ts` keeps `isSavedHost`, `answersAsSavedHost`, and `SavedHostIdentity`:
+the server imports `answersAsSavedHost`, and S2 does not change server code.
+
+**`HostCatalog`**
+
+| Member | Meaning |
+| --- | --- |
+| `load()` | Reads the credentials once. Boot awaits it before `startCatalogSupervisors()`. |
+| `hosts()`, `find(id)`, `managedHostIds()` | Sync reads of the join. `hosts()` is a new array after each change. |
+| `workspaces()`, `workspaceFor(serviceId)` | The directory's workspace services. |
+| `listState()`, `directoryState()` | `loading` before the first read settles; `failed` while no read succeeded; `ready` after one did. A later failed read keeps the last answer and the state. Signed out, or with no account, the directory is `ready` with no hosts. |
+| `directorySignedIn()`, `listSourceKey()` | What the last directory read said; which source is read. |
+| `onChange(listener)` | Any change of a read above. |
+| `onForgotten(listener)` | A host leaves: `forget`, a host paired again at its address, or §3 Q1. Replaces `onServerRemoving`. |
+| `useListSource(source)` | Sign-in and sign-out change the source. The same `key` only reads again. A new key: each host this device paired that the old list named goes to the new list at its first read, so a sign-in forgets nothing. |
+| `refresh()`, `refreshList()`, `refreshDirectory()` | Reads again. A directory read in flight is shared. |
+| `pair(host)` | Writes the credential, then puts the listing. Resolves `{ host, listError }`; a listing the list refused stays shown and is sent again at the next read. |
+| `forget(id)` | Removes the listing, then deletes the credential. Throws, and deletes nothing, when the list does not answer. |
+| `renewToken(id, token)` | A refreshed token, for a host with a credential. |
+| `touchLastConnected(id)`, `stampOperatingSystem(id, os)`, `applyAdvertised(id, advertised)` | Kept in memory, and put to the list for a host this device paired. |
+| `applyForwarded(forwarded)`, `applyDiscovered(discovered)` | Route reads; `true` when something changed. Device routes go to the credential of a host that has one, else stay in memory. |
+| `changeRoutes(id, change)` | A person's route change (`host-route-control.ts`): written to this device's credential (with no token for a host dialed with a grant); the listing follows a removed pairing route. |
+
+Join rules (`joinHosts`): a listed host takes its label, OS, and host routes from
+the list, its token, routes, and route order from this device, and its uplink and
+tunnel from the directory (matched by installation id). A directory host that this
+page cannot reach and holds no token for is left out. A credential that no answer
+names shows only while the list is `failed`, so boot dials listed hosts after the
+read. §3 Q1 runs only after a successful read, when the list and the directory are
+both `ready`.
+
+**What replaces each removed export**
+
+| Removed | Use |
+| --- | --- |
+| `loadServers()` | `hostCatalog.hosts()` or `hostCatalog.find(id)` |
+| `saveServers`, `upsertServer`, `savePairedServer` | `await hostCatalog.pair(server)`; show `listError` as "paired here but not yet on your host list" |
+| `changeServer` | `await hostCatalog.changeRoutes(id, change)`, then `serverConnections.followRoutes(id)` |
+| `removeServer` | `await hostCatalog.forget(id)` (end the account registration first for a directory host) |
+| `touchLastConnected`, `stampHostOperatingSystem`, `applyAdvertised` | the catalog methods of the same meaning (`ServerConnections` calls the last two) |
+| `withForwardedRoutes` + `saveServers` | `hostCatalog.applyForwarded(forwarded)` |
+| `withDiscoveredRoutes` + `saveServers` | `hostCatalog.applyDiscovered(discovered)` |
+| `managedHostIds()` | `hostCatalog.managedHostIds()` |
+| `onServerSaved` | `hostCatalog.onChange` |
+| `onServerRemoving` | `hostCatalog.onForgotten` |
+| `markDirectoryAnswered`, `hasDirectoryAnswered`, `onDirectoryAnswered` | `hostCatalog.directoryState() === 'ready'` and `onChange` |
+| `withListedHosts`, `mergeDirectoryIntoSaved`, `savedServerFromDirectory` | the catalog's join; read `hosts()` |
+| `listingOf` (from `host-list-source.ts`) | `listingOf` in `host-catalog.ts`; callers do not need it |
+| `loadWorkspaces`, `saveDirectoryWorkspaces` | `hostCatalog.workspaces()`, `hostCatalog.refreshDirectory()` |
+| `savedWorkspaceFor(id)` | `hostCatalog.workspaceFor(id)` |
+| `activeOrganizationId` from `workspace-registry.ts` | `activeOrganizationId` from `host-catalog.ts` |
+| `SavedServer`, `SavedServerUplink`, `SavedWorkspace` | `KnownHost`, `KnownHostUplink`, `KnownWorkspace` |
+| `savedServerTarget`, `savedRunnerFor` | `knownHostTarget`, `knownRunnerFor` |
+
+**S3 wiring (desktop and web)**
+
+1. Boot: `await hostCatalog.load()`. Register and dial the device host, then call
+   `serverConnections.startCatalogSupervisors()` once. Then choose the source and
+   call `hostCatalog.refreshDirectory()`. The listed hosts are dialed when the list
+   answers.
+2. On every account state change: `hostCatalog.useListSource(hostListSourceFor({
+   accountDocuments: signedIn ? accountDocuments() : null, deviceHost: deviceHostId ?
+   { id, api: serverConnections.apiFor(id), events: serverConnections.eventsFor(id) } :
+   null, deviceStorage: localStorage }))`. Only the account origin, which has no device
+   host, uses `deviceStorage`.
+3. `servers.store` wraps the catalog: `remotes` and `workspaces` are `$state` copies
+   of `hosts()` and `workspaces()`, set in `onChange`, where it also reconciles the
+   window's organization. The wake, focus, and timer reads call `hostCatalog.refresh()`
+   or `refreshDirectory()`; the timer and the focus gap stay in the store.
+   `startManagedHost` reads `hostCatalog.find(id)?.uplink?.managedState` after each
+   `refreshDirectory()`.
+4. The Map and every host picker show `directoryState()` (`loading`, `failed` with
+   Retry calling `refreshDirectory()`) and `listState()`.
+5. `onForgotten` clears the skew dismissals, queued sends, and pull request cache of
+   the host, as `onServerRemoving` did.
+6. `apps/client`: `adoptCloudDirectory` calls `hostCatalog.refreshDirectory()` (it
+   takes the startup read). `probeServingOrigin` reads `hostCatalog.hosts()`.
+   `pairFromLocation`, `add-host.ts`, and `primary-connection.ts` call
+   `hostCatalog.pair`. `HostlessHome` calls `hostCatalog.forget`. A boot with no
+   known host awaits the list and the directory before it chooses the hostless home.
+
+**S4 wiring (mobile)**
+
+1. Build one `new HostCatalog({ credentials, directory: () => accountReader,
+   clientOrigin: () => '' })`. The keychain adapter keeps every credential in one
+   `SecretStore` item through `encodeCredentials` and `decodeCredentials`.
+2. Source: `hostListSourceFor({ accountDocuments: signedIn ? documents : null,
+   deviceHost: null, deviceStorage: keyValueStore })`.
+3. `HostRegistry` keeps no host data: `hosts()` and `host(id)` read the catalog,
+   `credential(id)` is `find(id)?.sessionToken`, `savePaired` is `pair`,
+   `updateCredential` is `renewToken`, `touch` is `touchLastConnected` and
+   `stampOperatingSystem`, `applyAdvertised` and route changes call the catalog, and
+   `onHostRemoved` is `onForgotten`. `applyDirectory`, `setListedHosts`,
+   `onListingChange`, `uplink`, and `accountUserId` go: the catalog reads the
+   directory and writes the listings. `paired` is `!!sessionToken`.
+
 ## 5. Surfaces
 
 - **Clients:** desktop, web served by a host, web at the account origin, mobile.

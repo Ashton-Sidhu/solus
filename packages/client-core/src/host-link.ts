@@ -7,7 +7,7 @@ import { HostSupervisor, type DialOutcome } from './host-supervisor'
 import type { LinkReadiness, RefusedReason } from './host-readiness'
 import type { DialError } from './host-diagnostics'
 import type { AddressReader, HostConnectionCheck } from './host-connection-check'
-import { installationIdDecision, type SavedServerUplink } from './server-registry'
+import { installationIdDecision, type KnownHostUplink } from './known-host'
 import type { WakeSignal } from './wake-signals'
 import { readHostHealth, type HostHealth } from './host-http'
 
@@ -333,14 +333,14 @@ export class HostLink {
 export type AdvertisedHost = { routes: HostRoute[]; identityKey: string }
 
 /** Whether a host's health names the host this client saved. */
-export function isSavedHost(saved: { installationId: string; uplink?: SavedServerUplink }, health: HostHealth): boolean {
+export function isSavedHost(saved: { installationId: string; uplink?: KnownHostUplink }, health: HostHealth): boolean {
   return installationIdDecision(saved.installationId, health.installationId, saved.uplink) === 'match'
 }
 
 /** What a client knows about a saved host to check that a route reaches it. */
 export interface SavedHostIdentity {
   installationId: string
-  uplink?: SavedServerUplink
+  uplink?: KnownHostUplink
   /** The host's identity key (docs/plans/host-routes.md D3); absent until a trusted source gave it. */
   identityKey?: string
 }

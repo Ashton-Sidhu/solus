@@ -1,4 +1,4 @@
-import { awaitsManagedCompute, type SavedServerUplink } from '@solus/client-core/server-registry'
+import { awaitsManagedCompute, type KnownHostUplink } from '@solus/client-core/known-host'
 import type { ManagedHostLifecycle } from '@solus/contracts/uplink'
 
 /**
@@ -17,12 +17,12 @@ const LIFECYCLE_LABELS = {
   deleting: 'Deleting',
 } satisfies Record<ManagedHostLifecycle, string>
 
-export function isManagedHost(uplink: SavedServerUplink | undefined): boolean {
+export function isManagedHost(uplink: KnownHostUplink | undefined): boolean {
   return uplink?.kind === 'managed'
 }
 
 /** The same question of a resolved host row, which a forgotten host answers with no uplink at all. */
-export function hostIsManaged(host: { uplink?: SavedServerUplink } | { unknown: true } | null | undefined): boolean {
+export function hostIsManaged(host: { uplink?: KnownHostUplink } | { unknown: true } | null | undefined): boolean {
   return !!host && 'uplink' in host && isManagedHost(host.uplink)
 }
 
@@ -31,12 +31,12 @@ export function hostIsManaged(host: { uplink?: SavedServerUplink } | { unknown: 
  * so a disabled row says why. Null when ready, for a personal host, and for a state
  * this client does not know.
  */
-export function managedHostStateLabel(uplink: SavedServerUplink | undefined): string | null {
+export function managedHostStateLabel(uplink: KnownHostUplink | undefined): string | null {
   const state = uplink?.managedState
   return awaitsManagedCompute(uplink) && state ? LIFECYCLE_LABELS[state] : null
 }
 
 /** A managed host takes work only when its compute is ready; it stays listed the rest of the time so its state is visible. */
-export function canRunOnHost(uplink: SavedServerUplink | undefined): boolean {
+export function canRunOnHost(uplink: KnownHostUplink | undefined): boolean {
   return !awaitsManagedCompute(uplink)
 }

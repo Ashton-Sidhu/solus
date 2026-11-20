@@ -2,7 +2,7 @@ import { isServerUpdateActive, type ServerUpdateOperation } from '@solus/contrac
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import { onServerRemoving } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import type { HostUpdateStatus } from '@solus/contracts/host-update-types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { SetupAgent } from '@solus/contracts/types'
@@ -56,7 +56,7 @@ export class HostUpdatesStore {
       if (status === 'ready') void this.load(serverId)
       else this.clear(serverId)
     })
-    onServerRemoving((server) => {
+    hostCatalog.onForgotten((server) => {
       const serverId = server.id
       this.clear(serverId)
       this.operations.delete(serverId)

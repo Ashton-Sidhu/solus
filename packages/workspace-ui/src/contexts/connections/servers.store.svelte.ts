@@ -15,34 +15,25 @@ import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { onWakeSignal } from '@solus/client-core/wake-signals'
-import { hostListAccountSource, hostListHostSource, listingOf, withListedHosts, type HostListSource } from '@solus/client-core/host-list-source'
-import type { HostListing } from '@solus/contracts/host-list'
-import { takeStartupDirectoryRead, uplinkAccountSource } from '@solus/client-core/uplink-account'
-import { mergeDirectoryIntoSaved, withDiscoveredRoutes } from '@solus/client-core/uplink-session'
-import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
+import { hostListSourceFor } from '@solus/client-core/host-list-source'
+import { uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { workspaceTarget, type KnownWorkspace } from '@solus/client-core/workspace-registry'
+import { hostCatalog, type AnswerState } from '@solus/client-core/host-catalog'
 import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
 import { organizationSelection } from './organization-selection.store.svelte'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
   getActiveServerId,
-  loadServers,
   LOCAL_SERVER_ID,
-  managedHostIds,
   managedHostNeedsStart,
-  markDirectoryAnswered,
-  onServerRemoving,
-  onServerSaved,
-  removeServer,
-  saveServers,
   setActiveServerId,
-  touchLastConnected,
-  upsertServer,
-  type SavedServer,
-  type SavedServerUplink,
-} from '@solus/client-core/server-registry'
+  type KnownHost,
+  type KnownHostUplink,
+} from '@solus/client-core/known-host'
 import type { HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
 import { isSolusApiId, solusApiId, type HostRules } from '@solus/contracts/uplink'
 import { routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
+import { untrack } from 'svelte'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
@@ -77,7 +68,15 @@ export interface ServerItem {
   /** Every way this client knows to reach the host (direct-first dialing, C3). */
   routes: HostRoute[]
   /** Set when the owner's cloud directory lists the host. */
-  uplink?: SavedServerUplink
+  uplink?: KnownHostUplink
+}
+
+/** A read of the hosts that has not answered yet: the person's host list, or the account directory (plans/033 §3 Q2). */
+export interface UnreadHosts {
+  answer: 'list' | 'directory'
+  state: Exclude<AnswerState, 'ready'>
+  /** What a host list or picker says in place of the hosts it cannot show yet. */
+  text: string
 }
 
 /** A session can outlive the saved-host entry that once named its remote host. */
@@ -108,9 +107,14 @@ class ServersStore {
    *  deliberately carries no `os`: OS logos mark machines you are not sitting
    *  at, and the local row keeps the plain device glyph everywhere. */
   private localIdentity = $state<{ name: string; os?: HostOperatingSystem } | null>(null)
-  remotes = $state<SavedServer[]>(loadServers())
+  /** The hosts this client knows, as the host catalog joins them (plans/033 §4.2). */
+  remotes = $state<KnownHost[]>([...hostCatalog.hosts()])
   /** The organizations' workspace services, as the account directory last listed them. */
-  workspaces = $state<SavedWorkspace[]>(loadWorkspaces())
+  workspaces = $state<KnownWorkspace[]>([...hostCatalog.workspaces()])
+  /** Whether the person's host list answered: until it does, the list shows a loading or failed state (§3 Q2). */
+  listState = $state<AnswerState>(hostCatalog.listState())
+  /** Whether the account directory answered: Solus Cloud shows loading, or failed with Retry, until it does (§3 Q2). */
+  directoryState = $state<AnswerState>(hostCatalog.directoryState())
   private readonly organizationListeners = new Set<OrganizationListener>()
   activeServerId = $state(serverConnections.defaultServerId() ?? getActiveServerId())
   addServerOpen = $state(false)
@@ -124,12 +128,11 @@ class ServersStore {
   justPairedServerId = $state<string | null>(null)
   discoveryBusy = $state(false)
   /** What the account's host directory last said about being signed in: null until asked. */
-  directorySignedIn = $state<boolean | null>(null)
-  private directoryRefreshInFlight = false
-  /** The person's host list (plans/031 D7): where it is read now, and what it last answered. */
-  private hostList: HostListSource | null = null
-  private listedHosts: HostListing[] = []
-  private hostListEventsFor: string | null = null
+  directorySignedIn = $state<boolean | null>(hostCatalog.directorySignedIn())
+  /** The ids the catalog named when both its answers last settled: a host that leaves them is released. */
+  private settledIds = new Set<string>()
+  /** Whether the person was signed in when the host list source was last chosen; null before. */
+  private listSignedIn: boolean | null = null
   private directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null
   private lastDirectoryReadAt = 0
   /** Bumps on every readiness change: `readinessFor` reads the connections through it. */
@@ -145,6 +148,16 @@ class ServersStore {
   private scanInFlight = false
   private lastDiscoveryScanAt = 0
 
+  constructor() {
+    hostCatalog.onChange(() => this.followCatalog())
+  }
+
+  /** The hosts provisioned for an organization; follows `remotes`. */
+  get managedHostIds(): ReadonlySet<string> {
+    void this.remotes
+    return hostCatalog.managedHostIds()
+  }
+
   /** The workspace service connections this account holds, one per organization. */
   get cloudConnections(): ServerItem[] {
     return this.workspaces.map((workspace) => {
@@ -158,6 +171,26 @@ class ServersStore {
         routes: target.routes ?? [],
       }
     })
+  }
+
+  /**
+   * The reads whose hosts a list cannot show yet. Nothing is kept from an earlier
+   * start, so a list says it is reading, or that a read failed, with Retry.
+   */
+  get unreadHosts(): UnreadHosts[] {
+    const unread: UnreadHosts[] = []
+    if (this.listState !== 'ready') {
+      unread.push({ answer: 'list', state: this.listState, text: this.listState === 'loading' ? 'Reading your host list…' : 'Your host list could not be read' })
+    }
+    if (this.directoryState !== 'ready') {
+      unread.push({ answer: 'directory', state: this.directoryState, text: this.directoryState === 'loading' ? `Reading ${SOLUS_CLOUD_LABEL}…` : `${SOLUS_CLOUD_LABEL} could not be read` })
+    }
+    return unread
+  }
+
+  /** Reads hosts again after a read failed: the person's host list, or the account directory. */
+  retryHosts(answer: UnreadHosts['answer']): void {
+    void (answer === 'list' ? hostCatalog.refreshList() : this.refreshDirectory())
   }
 
   /**
@@ -393,46 +426,100 @@ class ServersStore {
 
     // Forgetting a host is total: its skew dismissals, queued sends and kept
     // pull requests leave with it (the session snapshot cache purges itself
-    // the same way).
-    onServerRemoving((server) => {
+    // the same way). A host forgotten on another device leaves here too (§3 Q1).
+    hostCatalog.onForgotten((server) => {
       forgetSkewDismissals(server.id)
       sendOutbox.forgetHost(server.id)
       void prDeviceCache.forgetHost(server.id)
-      if (listingOf(server)) this.forgetListed(server.id)
-    })
-    // A host this client pairs or forgets goes to the person's host list (plans/031 D7).
-    onServerSaved((server) => {
-      const listing = listingOf(server)
-      if (listing) void this.hostList?.put(listing).catch(() => toasts.error(`${server.label} is paired here but not yet on your host list`))
     })
 
-    // The account's host directory is the fourth source of hosts (C1). It is
-    // read on boot, on sign-in changes, on wake, when Connections opens, when the
-    // window gets focus, and on a timer while the window is active; nothing
-    // pushes it. The account store mirrors main's sign-in state
+    // The account's host directory and the person's host list are read on boot,
+    // on sign-in changes, on wake, when Connections opens, when the window gets
+    // focus, and the directory on a timer while the window is active; nothing
+    // pushes the directory. The account store mirrors main's sign-in state
     // and has no other subscriber until a sign-in surface lands, so it starts here.
     accountStore.start()
     void this.refreshDirectory()
-    void this.refreshHostList()
+    this.followAccountForHostList()
     onWakeSignal(() => {
       void this.refreshDirectory()
-      void this.refreshHostList()
+      void hostCatalog.refreshList()
     })
     localApi.onAccountStateChange?.((state) => {
       // A host refused while the account held no sign-in waits for the next one.
       if (state.kind === 'signed-in') serverConnections.dialHostsBlockedOnSignIn()
       void this.refreshDirectory()
-      // Signed in, the list is the account's; signed out, the device host's (plans/031 D7).
-      void this.refreshHostList()
     })
     // A host added on the account site in a browser is found when the person
     // comes back to this window, which on desktop is a focus and not a wake.
     window.addEventListener('focus', () => {
       if (Date.now() - this.lastDirectoryReadAt >= DIRECTORY_FOCUS_GAP_MS) {
         void this.refreshDirectory()
-        void this.refreshHostList()
+        void hostCatalog.refreshList()
       }
     })
+  }
+
+  /**
+   * Reads the person's host list from where it is now (plans/031 D7, plans/033
+   * §4.5): the account's document while signed in; signed out, the device host's
+   * list, or this device's own where it runs beside no host (the account origin).
+   * Chosen once the account has answered, and again at each sign-in or sign-out.
+   */
+  private followAccountForHostList(): void {
+    $effect.root(() => {
+      $effect(() => {
+        if (!accountStore.hasAnswered) return
+        const signedIn = accountStore.isSignedIn
+        untrack(() => this.chooseHostList(signedIn))
+      })
+    })
+  }
+
+  private chooseHostList(signedIn: boolean): void {
+    if (this.listSignedIn === signedIn) return
+    this.listSignedIn = signedIn
+    const deviceHostId = serverConnections.deviceHostId()
+    const source = hostListSourceFor({
+      accountDocuments: signedIn ? accountDocuments() : null,
+      deviceHost: deviceHostId
+        ? { id: deviceHostId, api: serverConnections.apiFor(deviceHostId), events: serverConnections.eventsFor(deviceHostId) }
+        : null,
+      deviceStorage: globalThis.localStorage ?? null,
+    })
+    // Boot may have chosen the same list already (the web client reads it before it mounts).
+    if (source && source.key === hostCatalog.listSourceKey()) return
+    void hostCatalog.useListSource(source)
+  }
+
+  /**
+   * Copies the catalog's answers into reactive state. A host or workspace that
+   * left them is released only if nothing is talking to it: a read must never cut
+   * a working session. Ids are compared only while both answers are settled, so a
+   * list that is read again from a new source does not drop every host meanwhile.
+   */
+  private followCatalog(): void {
+    this.remotes = [...hostCatalog.hosts()]
+    this.workspaces = [...hostCatalog.workspaces()]
+    this.listState = hostCatalog.listState()
+    this.directoryState = hostCatalog.directoryState()
+    this.directorySignedIn = hostCatalog.directorySignedIn()
+    if (this.listState !== 'loading' && this.directoryState !== 'loading') {
+      const kept = new Set([
+        ...this.remotes.map((server) => server.id),
+        ...this.workspaces.map((workspace) => solusApiId(workspace.organizationId)),
+      ])
+      const connected = new Set(serverConnections.connectedServerIds())
+      for (const serverId of this.settledIds) {
+        if (!kept.has(serverId) && !connected.has(serverId)) serverConnections.release(serverId)
+      }
+      this.settledIds = kept
+    }
+    // The window's choice stands while the directory still lists it; a
+    // dropped organization falls back to the account's active one.
+    if (organizationSelection.reconcile(this.workspaces)) {
+      for (const listener of this.organizationListeners) listener(this.activeOrganizationId)
+    }
   }
 
   /** The next timed read, sooner while a managed host settles. An inactive
@@ -448,51 +535,13 @@ class ServersStore {
   }
 
   /**
-   * Folds the signed-in account's directory into the saved hosts: a paired host that
-   * is also listed gains its tunnel route, a host only listed is saved with the tunnel
-   * alone, and a host the directory dropped loses the tunnel (and the row, if it was
-   * never paired). Without an account source this is a no-op.
+   * Reads the signed-in account's directory again (`hostCatalog.refreshDirectory`):
+   * its hosts and the organizations' workspace services. A read in flight is shared.
    */
   async refreshDirectory(): Promise<void> {
-    const source = uplinkAccountSource()
-    if (!source || this.directoryRefreshInFlight) return
-    this.directoryRefreshInFlight = true
     try {
-      const directory = await (takeStartupDirectoryRead() ?? source.listDirectory())
-      if (!directory) {
-        this.directorySignedIn = false
-        return
-      }
-      this.directorySignedIn = true
-      const before = [
-        ...loadServers().map((server) => server.id),
-        ...loadWorkspaces().map((workspace) => solusApiId(workspace.organizationId)),
-      ]
-      const merged = mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now())
-      saveServers(merged)
-      const workspaces = saveDirectoryWorkspaces(directory.workspaces, directory.directoryUrl)
-      // A host or workspace the directory dropped is released only if nothing is
-      // talking to it: a refresh must never cut a working session.
-      const kept = new Set([
-        ...merged.map((server) => server.id),
-        ...workspaces.map((workspace) => solusApiId(workspace.organizationId)),
-      ])
-      const connected = new Set(serverConnections.connectedServerIds())
-      for (const serverId of before) {
-        if (!kept.has(serverId) && !connected.has(serverId)) serverConnections.release(serverId)
-      }
-      this.workspaces = workspaces
-      // The window's choice stands while the directory still lists it; a
-      // dropped organization falls back to the account's active one.
-      const organizationChanged = organizationSelection.reconcile(workspaces)
-      this.refreshServers()
-      serverConnections.startCatalogSupervisors()
-      markDirectoryAnswered()
-      if (organizationChanged) {
-        for (const listener of this.organizationListeners) listener(this.activeOrganizationId)
-      }
+      await hostCatalog.refreshDirectory()
     } finally {
-      this.directoryRefreshInFlight = false
       this.lastDirectoryReadAt = Date.now()
       this.scheduleDirectoryRefresh()
     }
@@ -565,46 +614,16 @@ class ServersStore {
     if (notice) dismissSkew(skewDismissalKey(serverId, notice.clientVersion, notice.serverVersion))
   }
 
-  /** This client's own hosts, and each host the person's list names that this client does not keep. */
-  refreshServers(): void {
-    this.remotes = withListedHosts(loadServers(), this.listedHosts)
-  }
-
-  /** Takes a host off the person's list, and off what this client shows of it. */
-  private forgetListed(serverId: string): void {
-    this.listedHosts = this.listedHosts.filter((listing) => listing.id !== serverId)
-    void this.hostList?.remove(serverId).catch(() => toasts.error('This host is forgotten here but still on your host list'))
-    this.refreshServers()
-  }
-
   /**
-   * Reads the person's host list (plans/031 D7): the account's document while signed
-   * in, the device host's list while signed out. A phone and the account origin have
-   * no device host, so signed out they show their own hosts alone.
+   * Keeps a host this client just paired (`hostCatalog.pair`): its credential, then
+   * its listing on the person's host list. A listing the list refused stays shown
+   * here and is sent again at the next read.
    */
-  async refreshHostList(): Promise<void> {
-    const signedIn = accountStore.state.kind === 'signed-in'
-    const documents = signedIn ? accountDocuments() : null
-    const deviceHostId = signedIn ? null : serverConnections.deviceHostId()
-    const source = documents ? hostListAccountSource(documents) : deviceHostId ? hostListHostSource(serverConnections.apiFor(deviceHostId)) : null
-    this.hostList = source
-    if (deviceHostId && this.hostListEventsFor !== deviceHostId) {
-      // Another client of the device host changed the list: read it again.
-      this.hostListEventsFor = deviceHostId
-      serverConnections.eventsFor(deviceHostId).subscribe('host.listChanged', () => void this.refreshHostList())
-    }
-    const listed = source ? await source.read() : []
-    // A newer refresh chose another source while this one read; a failed read keeps the last answer.
-    if (source !== this.hostList || !listed) return
-    this.listedHosts = listed
-    this.refreshServers()
-  }
-
-  savePairedServer(server: SavedServer): void {
-    upsertServer(server)
-    this.refreshServers()
+  async savePairedServer(server: KnownHost): Promise<void> {
     if (server.installationId) this.nearby.delete(server.installationId)
     this.justPairedServerId = server.id
+    const { host, listError } = await hostCatalog.pair(server)
+    if (listError) toasts.error(`${host.label} is paired here but not yet on your host list`)
   }
 
   pairForRunOn(requesterId: string): void {
@@ -649,21 +668,17 @@ class ServersStore {
       // (docs/plans/tailscale-support.md D4); desktop's local host reads this
       // machine's tailnet itself. A managed host advertises no tailnet routes.
       const otherHostIds = this.local ? [] : serverConnections.connectedServerIds()
-        .filter((serverId) => serverId !== discoveryServerId && !managedHostIds().has(serverId))
+        .filter((serverId) => serverId !== discoveryServerId && !this.managedHostIds.has(serverId))
       const [own, fromHosts] = await Promise.all([
         serverConnections.apiFor(discoveryServerId).discoverServers(),
         askHostsToDiscover(otherHostIds.map((serverId) => () => serverConnections.apiFor(serverId).discoverServers())),
       ])
       const discovered = mergeDiscovered(own, fromHosts)
       // A saved host found on this network is dialed here before its tunnel (docs/plans/host-routes.md D1).
-      const withNearby = withDiscoveredRoutes(loadServers(), discovered, Date.now())
-      if (withNearby) {
-        saveServers(withNearby)
-        this.refreshServers()
-      }
+      hostCatalog.applyDiscovered(discovered)
       const filtered = filterUnsavedDiscoveredServers({
         discovered,
-        savedServers: loadServers(),
+        knownHosts: this.remotes,
         selfInstallationId: this.local?.installationId
           ?? this.activeServer?.installationId,
       })
@@ -695,8 +710,7 @@ class ServersStore {
     serverConnections.setPrimary(serverId)
     setActiveServerId(serverId)
     this.activeServerId = serverConnections.resolveId(serverId)
-    if (serverId !== LOCAL_SERVER_ID) touchLastConnected(serverId)
-    this.refreshServers()
+    if (serverId !== LOCAL_SERVER_ID) hostCatalog.touchLastConnected(serverId)
     requestInputFocus()
   }
 
@@ -755,15 +769,14 @@ class ServersStore {
       return
     }
     if (fallbackId && serverId === this.activeServerId) this.switchTo(fallbackId)
-    // A host only the person's list names: this client keeps nothing to remove.
-    if (!loadServers().some((saved) => saved.id === serverId)) this.forgetListed(serverId)
-    removeServer(serverId)
+    await hostCatalog.forget(serverId)
+    // The directory may have named the host until now: read it again, so the host leaves every list here.
+    await this.refreshDirectory()
     // No longer a catalog entry, so the eager supervisor leaves with it. A tab
     // on this host retains it, and a retained connection still lists the host
     // as a connected row: forgetting overrides that hold.
     serverConnections.unretain(serverId)
     serverConnections.release(serverId)
-    this.refreshServers()
     requestInputFocus()
     // A forgotten host becomes discoverable again — rescan so it drops straight
     // back into Nearby instead of vanishing until the next sweep.

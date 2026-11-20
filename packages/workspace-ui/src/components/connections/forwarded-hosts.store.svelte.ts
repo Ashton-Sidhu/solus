@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { loadServers, saveServers, withForwardedRoutes } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { unencryptedPasswordMessage } from '@solus/client-core/ssh-password'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import type { ForwardedHost } from '@solus/contracts/remote-machines'
@@ -119,16 +119,12 @@ class ForwardedHostsStore {
 
   private apply(serverId: string, forwarded: ForwardedHost[]): void {
     this.hostsByServer.set(serverId, forwarded)
-    // Only the machine that holds the forwards can dial them, so only its saved routes follow them.
+    // Only the machine that holds the forwards can dial them, so only its known routes follow them.
     if (serverId !== hosts.device?.id) return
     for (const host of forwardsNewlyWaiting(forwarded, this.waitingForAuth)) this.onNeedsAuth?.(serverId, host)
     this.waitingForAuth = new Set(forwarded.filter((host) => host.state === 'needs-auth').map((host) => host.installationId))
-    const next = withForwardedRoutes(loadServers(), forwarded)
-    if (!next) return
-    saveServers(next)
-    serversStore.refreshServers()
-    // A connection copies its routes when it is made: re-aim one whose forward moved.
-    serverConnections.startCatalogSupervisors()
+    // A connection whose forward moved is re-aimed when the catalog changes.
+    hostCatalog.applyForwarded(forwarded)
   }
 }
 

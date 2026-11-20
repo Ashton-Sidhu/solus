@@ -8,7 +8,7 @@ import type { SessionActionLeaf } from '@solus/contracts/permissions'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
-import { savedWorkspaceFor, workspaceTarget } from '@solus/client-core/workspace-registry'
+import { workspaceFor, workspaceTarget } from '@solus/client-core/workspace-registry'
 import { serversStore } from '../connections/servers.store.svelte'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
@@ -208,7 +208,7 @@ export class SharesStore {
    */
   linkContext(serverId: string, resource: ShareResource): GuestLinkContext {
     if (isSolusApiId(serverId)) {
-      const workspace = savedWorkspaceFor(serverId)
+      const workspace = workspaceFor(serversStore.workspaces, serverId)
       const origin = workspace ? workspaceTarget(workspace).uplink?.directoryUrl : undefined
       return origin ? { kind: 'origin', origin } : { kind: 'checking' }
     }

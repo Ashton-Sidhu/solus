@@ -49,7 +49,7 @@ test('cloud connections stay correct with no host status, survive an outage, and
       '@solus/client-core/uplink-account': onboardingDeps,
       '../../contexts': onboardingDeps,
       './lib/cloud-compute': onboardingDeps,
-      '@solus/client-core/server-registry': onboardingDeps,
+      '@solus/client-core/known-host': onboardingDeps,
       '../../contexts/seats/cloud-agent-seats.store.svelte': onboardingDeps,
       '../../contexts/workspace/repository-checkout': onboardingDeps,
       '@solus/contracts/chat': SvelteRunes.file('packages/contracts/src/chat.ts'),

@@ -1,9 +1,9 @@
 import { afterAll, afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { adoptAccountOrigin, configureUplinkAccountSource, takeStartupDirectoryRead, uplinkAccountSource } from '@solus/client-core/uplink-account'
-import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { configureCloudAccount, startupAccountRead, type CloudAccountSession } from '@solus/client-core/cloud-account'
-import type { SavedServer } from '@solus/client-core/server-registry'
+import { HostCatalog } from '@solus/client-core/host-catalog'
+import { credentialFor, fakeList, listingFor, memoryCredentials } from './helpers/host-catalog-world'
 import { DEFAULT_HOST_RULES, type AccountResponse, type DirectoryResponse } from '@solus/contracts/uplink'
 import { WebTokenSession } from '@solus/client-core/web-token-session'
 
@@ -61,7 +61,8 @@ test('the first setup checklist uses the account boot read, and later opens refr
   expect(refreshGithub).toHaveBeenCalledTimes(1)
 })
 
-// Run the actual web startup function with an in-memory saved catalog.
+// Run the actual web startup function with an in-memory host catalog (plans/033).
+// A host this browser paired is on the person's list with its credential.
 const source = readFileSync(new URL('../../apps/client/src/main.ts', import.meta.url), 'utf8')
 const start = source.indexOf('async function adoptCloudDirectory(')
 const end = source.indexOf('async function bootFromCatalog(', start)
@@ -69,20 +70,20 @@ const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice
 
 async function bootDirectory(origin: string, isSignedIn: boolean, options: { accountShell?: boolean; shellDirectory?: DirectoryResponse; shellAccount?: AccountResponse; webSession?: CloudAccountSession } = {}) {
   const state = { kind: 'unknown' }
-  const saved: SavedServer[] = [{ id: 'paired', label: 'Paired host', url: 'https://paired.example', sessionToken: 'fixture', lastConnected: 1 }]
-  const save = mock((servers: SavedServer[]) => { saved.splice(0, saved.length, ...servers) })
-  const saveWorkspaces = mock((_workspaces: unknown[], _directoryUrl: string) => [])
-  const answered = mock(() => {})
+  const catalog = new HostCatalog({
+    credentials: memoryCredentials([], { paired: credentialFor('paired') }),
+    directory: () => uplinkAccountSource(),
+    startupDirectory: takeStartupDirectoryRead,
+    clientOrigin: () => origin,
+  })
+  await catalog.useListSource(fakeList([], 'device', [listingFor('paired', { label: 'Paired host' })]).source)
   const webSession = options.webSession ?? (isSignedIn ? session(true) : null)
   const shell = options.accountShell === false ? null : { signedIn: undefined, directory: options.shellDirectory, account: options.shellAccount, settingsJson: undefined }
-  const boot = new Function('adoptAccountOrigin', 'accountShell', 'webSession', 'uplinkAccountSource', 'cloudOrigin',
-    'location', 'loadServers', 'saveServers', 'mergeDirectoryIntoSaved', 'saveDirectoryWorkspaces', 'startupAccountRead', 'markDirectoryAnswered',
+  const boot = new Function('adoptAccountOrigin', 'accountShell', 'webSession', 'cloudOrigin', 'location', 'hostCatalog',
     `${compiled}\nreturn adoptCloudDirectory();`)
-  await boot(adoptAccountOrigin, shell, webSession, uplinkAccountSource, state, { origin }, () => saved, save, mergeDirectoryIntoSaved, saveWorkspaces, startupAccountRead, answered)
-  // Only a merged directory makes the saved hosts authoritative (workspace-and-machines.md §6).
-  expect(answered).toHaveBeenCalledTimes(save.mock.calls.length)
-  expect(saveWorkspaces).toHaveBeenCalledTimes(save.mock.calls.length)
-  return { state, saved, save, saveWorkspaces }
+  await boot(adoptAccountOrigin, shell, webSession, state, { origin }, catalog)
+  const ids = () => catalog.hosts().map((host) => host.id)
+  return { state, catalog, ids }
 }
 
 test('signed in, the start reads the directory once, with an access token and no probe before it', async () => {
@@ -90,21 +91,19 @@ test('signed in, the start reads the directory once, with an access token and no
   fetchSpy.mockImplementation(async (_url, init) => new Headers(init?.headers).get('authorization')
     ? Response.json({ hosts: [host], workspaces: [workspace] })
     : Response.json({ error: 'unauthorized' }, { status: 401 }))
-  const { state, saved, save, saveWorkspaces } = await bootDirectory(origin, true)
+  const { state, catalog, ids } = await bootDirectory(origin, true)
   expect(state.kind).toBe('signed-in')
   const [directory] = requestsTo(origin, '/v1/hosts')
   expect(directory![1]).toMatchObject({ credentials: 'omit' })
   expect(new Headers(directory![1]?.headers).get('authorization')).toBe('Bearer account-token')
   expect(requestsTo(origin, '/v1/hosts')).toHaveLength(1)
   expect(requestsTo(origin, '/v1/account')).toHaveLength(1)
-  expect(save).toHaveBeenCalledTimes(1)
-  expect(saved.some((server) => server.installationId === host.installationId)).toBe(true)
-  expect(saved.some((server) => server.id === 'paired')).toBe(true)
+  expect(catalog.directoryState()).toBe('ready')
+  expect(ids()).toEqual(['paired', host.installationId])
   // WHY: a workspace service is a cloud service, never a host.
-  expect(saved.some((server) => server.id.startsWith('workspace:'))).toBe(false)
-  expect(saveWorkspaces).toHaveBeenCalledWith([workspace], origin)
-  // The mounted store takes boot's result once; an explicit refresh still reads.
-  expect((await takeStartupDirectoryRead())?.hosts[0].label).toBe(host.label)
+  expect(ids().some((id) => id.startsWith('workspace:'))).toBe(false)
+  expect(catalog.workspaces()).toEqual([{ ...workspace, directoryUrl: origin }])
+  // The catalog takes boot's read once; an explicit refresh still reads.
   expect(takeStartupDirectoryRead()).toBeNull()
   expect(requestsTo(origin, '/v1/hosts')).toHaveLength(1)
   fetchSpy.mockImplementation(async () => Response.json({ hosts: [{ ...host, label: 'Renamed host' }], workspaces: [] }))
@@ -113,20 +112,21 @@ test('signed in, the start reads the directory once, with an access token and no
   expect(refreshed?.hosts[0].label).toBe('Renamed host')
 })
 
-test('the account origin with no sign-in keeps the saved hosts and reads nothing more', async () => {
+test('the account origin with no sign-in keeps the paired hosts and reads nothing more', async () => {
   const origin = nextOrigin()
   fetchSpy.mockImplementation(async () => Response.json({ error: 'unauthorized' }, { status: 401 }))
-  const { state, saved, save } = await bootDirectory(origin, false)
+  const { state, catalog, ids } = await bootDirectory(origin, false)
   expect(state.kind).toBe('signed-out')
   expect(requestsTo(origin, '/v1/hosts')).toHaveLength(0)
   expect(requestsTo(origin, '/v1/account')).toHaveLength(0)
-  expect(save).not.toHaveBeenCalled()
-  expect(saved.map((server) => server.id)).toEqual(['paired'])
+  // Signed out, the directory answers at once with no hosts.
+  expect(catalog.directoryState()).toBe('ready')
+  expect(ids()).toEqual(['paired'])
   // No session: there is nobody to give tokens for.
   expect(uplinkAccountSource()).toBeNull()
 })
 
-test('with the shell\'s directory, the hosts are saved while the first token answer is still pending', async () => {
+test('with the shell\'s directory, the hosts are known while the first token answer is still pending', async () => {
   // WHY (fast-secure-startup.md, step 3): the workspace mounts when its code has run; no
   // auth request stands before the hosts it shows.
   const origin = nextOrigin()
@@ -137,11 +137,10 @@ test('with the shell\'s directory, the hosts are saved while the first token ans
   })
   webSession.start([host.hostId])
   fetchSpy.mockImplementation(() => tokens.promise)
-  const { state, saved } = await bootDirectory(origin, true, { webSession, shellDirectory: { hosts: [host], workspaces: [workspace] } as DirectoryResponse })
+  const { state, ids } = await bootDirectory(origin, true, { webSession, shellDirectory: { hosts: [host], workspaces: [workspace] } as DirectoryResponse })
   expect(state.kind).toBe('signed-in')
-  expect(saved.some((server) => server.installationId === host.installationId)).toBe(true)
+  expect(ids()).toContain(host.installationId)
   expect(requestsTo(origin, '/v1/hosts')).toHaveLength(0)
-  expect((await takeStartupDirectoryRead())?.hosts[0].label).toBe(host.label)
   tokens.resolve(Response.json({ error: 'unauthorized' }, { status: 401 }))
 })
 
@@ -151,32 +150,33 @@ test('with the shell\'s directory and account, the boot asks neither route', asy
   const origin = nextOrigin()
   const account: AccountResponse = { userId: 'u', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [], github: null }
   fetchSpy.mockImplementation(async () => Response.json({ error: 'unexpected' }, { status: 500 }))
-  const { saved } = await bootDirectory(origin, true, { shellDirectory: { hosts: [host], workspaces: [workspace] } as DirectoryResponse, shellAccount: account })
-  expect(saved.some((server) => server.installationId === host.installationId)).toBe(true)
+  const { ids } = await bootDirectory(origin, true, { shellDirectory: { hosts: [host], workspaces: [workspace] } as DirectoryResponse, shellAccount: account })
+  expect(ids()).toContain(host.installationId)
   expect(await startupAccountRead()).toEqual(account)
   expect(fetchSpy).not.toHaveBeenCalled()
 })
 
-test('a page whose shell does not name the account origin is a host page: it asks nothing and keeps the saved hosts', async () => {
+test('a page whose shell does not name the account origin is a host page: it asks nothing and keeps the paired hosts', async () => {
   // WHY: a host serves the same bundle; spending a request to tell them apart is what the
   // shell's marker removes, and a host page must never adopt an account source.
   const origin = nextOrigin()
-  const { state, saved, save } = await bootDirectory(origin, true, { accountShell: false })
+  const { state, ids } = await bootDirectory(origin, true, { accountShell: false })
   expect(state.kind).toBe('not-cloud')
   expect(fetchSpy).not.toHaveBeenCalled()
-  expect(save).not.toHaveBeenCalled()
-  expect(saved.map((server) => server.id)).toEqual(['paired'])
+  expect(ids()).toEqual(['paired'])
   expect(uplinkAccountSource()).toBeNull()
 })
 
-test('an invalid directory keeps the saved hosts, and a valid empty one is a signed-in account', async () => {
+test('an invalid directory is a failed read that keeps the paired hosts, and a valid empty one is a signed-in account', async () => {
   const invalid = nextOrigin()
   fetchSpy.mockImplementation(async (_url, init) => new Headers(init?.headers).get('authorization')
     ? Response.json({ hosts: [null] })
     : Response.json({}, { status: 401 }))
   const first = await bootDirectory(invalid, true)
   expect(first.state.kind).toBe('signed-in')
-  expect(first.save).not.toHaveBeenCalled()
+  // No cached copy (plans/033 §3 Q2): Solus Cloud shows the failed read, with Retry.
+  expect(first.catalog.directoryState()).toBe('failed')
+  expect(first.ids()).toEqual(['paired'])
 
   const empty = nextOrigin()
   fetchSpy.mockImplementation(async (_url, init) => new Headers(init?.headers).get('authorization')
@@ -184,7 +184,8 @@ test('an invalid directory keeps the saved hosts, and a valid empty one is a sig
     : Response.json({}, { status: 401 }))
   const second = await bootDirectory(empty, true)
   expect(second.state.kind).toBe('signed-in')
-  expect(second.save).toHaveBeenCalledTimes(1)
+  expect(second.catalog.directoryState()).toBe('ready')
+  expect(second.ids()).toEqual(['paired'])
 })
 
 test('hosts become available while the onboarding account read is still pending', async () => {
@@ -199,8 +200,8 @@ test('hosts become available while the onboarding account read is still pending'
     throw new Error('The directory must not wait for the onboarding account')
   })
   try {
-    const { saved } = await bootDirectory(origin, true)
-    expect(saved.some((server) => server.installationId === host.installationId)).toBe(true)
+    const { ids } = await bootDirectory(origin, true)
+    expect(ids()).toContain(host.installationId)
     expect(requestsTo(origin, '/v1/account')).toHaveLength(1)
   } finally {
     timer.mockRestore()

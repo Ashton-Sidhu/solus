@@ -17,7 +17,7 @@ import {
   defaultComputeHost,
   type ComputeChoices,
 } from './lib/cloud-compute'
-import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/server-registry'
+import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/known-host'
 import type { ServerItem } from '../../contexts/connections/servers.store.svelte'
 import type { WorkspaceContext } from '../../contexts/workspace/workspace.context.svelte'
 import type { OnboardingStage } from './lib/onboarding-model'

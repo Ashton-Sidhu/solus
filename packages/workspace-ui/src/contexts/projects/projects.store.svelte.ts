@@ -5,7 +5,7 @@ import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { HostApi } from '@solus/client-core/host-api'
 import { SvelteMap } from 'svelte/reactivity'
 import { z } from 'zod'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import type { WorkspaceProject } from '@solus/contracts/workspace-projects'
 import { localProjectParts, projectKeyOf } from '@solus/client-core/project-identity'
 import {

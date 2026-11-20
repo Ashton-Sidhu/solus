@@ -5,7 +5,7 @@
   import { normalizeServerUrl, pairServer, parsePairLink } from "@solus/client-core/pairing";
   import { defaultDeviceLabel } from "@solus/client-core/device-label";
   import { localApi } from "@solus/client-core/local-api";
-  import type { SavedServer } from "@solus/client-core/server-registry";
+  import type { KnownHost } from "@solus/client-core/known-host";
   import { wslHostLabel } from "@solus/contracts/remote-machines";
   import { serversStore, type AddHostMode } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -30,7 +30,7 @@
   let pairCode = $state("");
   let label = $state("");
   let busy = $state(false);
-  let paired = $state<SavedServer | null>(null);
+  let paired = $state<KnownHost | null>(null);
   let failedUrl = $state<string | null>(null);
   let linkInput: HTMLInputElement | null = $state(null);
   let urlInput: HTMLInputElement | null = $state(null);
@@ -130,7 +130,7 @@
         serverLabel: label.trim(),
         reportedName: lookedUpHost?.name,
       });
-      serversStore.savePairedServer(result.server);
+      await serversStore.savePairedServer(result.server);
       paired = result.server;
       void tick().then(() => doneButton?.focus());
     } catch (err) {
