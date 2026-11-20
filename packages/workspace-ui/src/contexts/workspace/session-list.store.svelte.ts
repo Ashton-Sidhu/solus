@@ -7,7 +7,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { connectedRunnerFor, savedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionHomeId } from '@solus/client-core/session-home'
 import { onSessionMetaRead, readSessionMeta } from '@solus/client-core/session-meta'
-import { SessionHostTurns, sessionHostTurnOf, type SessionHostTurn } from '@solus/client-core/session-heads'
+import { SessionHostTurns, SessionHostTurnsBook } from '@solus/client-core/session-heads'
 import { sessionCloudState, type SessionCloudState } from '@solus/client-core/session-cloud-state'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { keepEqual } from '@solus/client-core/keep-equal'
@@ -166,6 +166,7 @@ export class SessionListStore {
    *  (docs/plans/portable-sessions.md §9). Plain facts from session info reads
    *  that already happen, and from turns this client saw end. */
   private hostTurnsBySession = new SvelteMap<string, SessionHostTurns>()
+  private readonly hostTurnsBook = new SessionHostTurnsBook(this.hostTurnsBySession)
   /** `<serverId> <sessionId>` pairs this store asked for their facts once. */
   private askedHostTurns = new Set<string>()
   /** What the cloud knows of this person's sessions, and the ones only it lists. */
@@ -392,10 +393,7 @@ export class SessionListStore {
     for (const [sessionId, others] of this.listedRecords) {
       if (others.delete(serverId) && others.size === 0) this.listedRecords.delete(sessionId)
     }
-    for (const [sessionId, turns] of this.hostTurnsBySession) {
-      const kept = turns.without(serverId)
-      if (kept !== turns) this.hostTurnsBySession.set(sessionId, kept)
-    }
+    this.hostTurnsBook.forgetHost(serverId)
     for (const home of homes) void this.loadHost(home)
   }
 
@@ -498,7 +496,7 @@ export class SessionListStore {
 
   /** What each host that answered holds of this session's repository. */
   hostTurnsFor(sessionId: string): SessionHostTurns {
-    return this.hostTurnsBySession.get(sessionId) ?? SessionHostTurns.none
+    return this.hostTurnsBook.forSession(sessionId)
   }
 
   /** The host that has the newest turn of a session, the cloud included; a tie goes to `preferServerId`. */
@@ -520,29 +518,20 @@ export class SessionListStore {
 
   /** A host refused a prompt because the cloud refused its push, or it uses the newer copy now. */
   notePushRefused(serverId: string, sessionId: string, isRefused: boolean): void {
-    const turns = this.hostTurnsFor(sessionId)
-    const known = turns.of(serverId)
-    if (!!known?.pushRefused === isRefused) return
-    const turn: SessionHostTurn = { serverId, head: known?.head ?? null, syncedTurn: known?.syncedTurn ?? 0 }
-    if (isRefused) turn.pushRefused = true
-    this.writeHostTurns(sessionId, turns.with(turn))
+    if (this.hostTurnsBook.notePushRefused(serverId, sessionId, isRefused)) this.refreshListed(sessionId)
   }
 
   /** A host answered a session's info: keep its head and turn count. */
   noteSessionMeta(serverId: string, meta: Pick<SessionMeta, 'sessionId' | 'head' | 'syncedTurn'>): void {
-    const turn = sessionHostTurnOf(serverId, meta)
-    if (!turn) return
-    this.writeHostTurns(meta.sessionId, this.hostTurnsFor(meta.sessionId).with(turn))
+    if (this.hostTurnsBook.noteMeta(serverId, meta)) this.refreshListed(meta.sessionId)
   }
 
   /** A turn of this session ended on `serverId`: that host has its newest turn now. */
   noteTurnSettled(serverId: string, sessionId: string): void {
-    this.writeHostTurns(sessionId, this.hostTurnsFor(sessionId).afterTurnSettled(serverId, this.cloud.factsFor(sessionId)?.syncedTurn))
+    if (this.hostTurnsBook.noteTurnSettled(serverId, sessionId, this.cloud.factsFor(sessionId)?.syncedTurn)) this.refreshListed(sessionId)
   }
 
-  private writeHostTurns(sessionId: string, turns: SessionHostTurns): void {
-    if (turns === this.hostTurnsBySession.get(sessionId)) return
-    this.hostTurnsBySession.set(sessionId, turns)
+  private refreshListed(sessionId: string): void {
     if ((this.listedRecords.get(sessionId)?.size ?? 0) > 1) this.showListed(sessionId)
   }
 

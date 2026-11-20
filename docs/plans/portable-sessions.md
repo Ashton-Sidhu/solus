@@ -1220,8 +1220,11 @@ type. A pure rule of one input object stays a function.
   makes it from session info.
 - `SessionHostTurns`: the turns of every host that answered, as one value.
   `of`, `newestTurn`, `with`, `without`, `afterTurnSettled`, `newestHost`,
-  `syncSource`, `listedHost`, `syncOrigin`, `newestServer`. The web session
-  list store and the mobile `SessionRunHosts` keep one for each session.
+  `syncSource`, `listedHost`, `syncOrigin`, `newestServer`.
+- `SessionHostTurnsBook`: owns the map from session id to `SessionHostTurns`.
+  `forSession`, `noteMeta`, `noteTurnSettled`, `notePushRefused`, and
+  `forgetHost` update one session entry at a time. The web store gives it a
+  `SvelteMap`; mobile gives it a `Map` and sends its own change notice.
 - `SessionCloudHead`, `SessionSyncSource`, `SessionSyncOrigin`: the cloud facts
   as a client names them, and where a run host syncs from.
 - `sessionCloudState` (`SessionCloudState`), `sessionCloudStateText`,
