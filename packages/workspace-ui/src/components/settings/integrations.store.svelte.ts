@@ -262,13 +262,19 @@ class IntegrationsStore {
     const state = this.states.get(serverId)
     if (!state) return
     state.toolErrors.delete(integrationId)
+    // The facts only add the instructions section: a facts read that fails, or an
+    // older host without it, leaves the section out and keeps the tools.
+    void (async () => {
+      try {
+        const facts = await serverConnections.apiFor(serverId).integrationFacts({ id: integrationId })
+        this.states.get(serverId)?.facts.set(integrationId, facts)
+      } catch {
+        this.states.get(serverId)?.facts.delete(integrationId)
+      }
+    })()
     try {
-      const [tools, facts] = await Promise.all([
-        serverConnections.apiFor(serverId).integrationTools({ id: integrationId }),
-        serverConnections.apiFor(serverId).integrationFacts({ id: integrationId }),
-      ])
+      const tools = await serverConnections.apiFor(serverId).integrationTools({ id: integrationId })
       this.states.get(serverId)?.tools.set(integrationId, tools)
-      this.states.get(serverId)?.facts.set(integrationId, facts)
     } catch (cause) {
       this.states.get(serverId)?.toolErrors.set(integrationId, errorText(cause, 'Could not load the tools.'))
     }

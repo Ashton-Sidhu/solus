@@ -9,6 +9,7 @@ import {
 import {
   DEMO_CATALOG,
   DEMO_INTEGRATION_CONNECTIONS,
+  DEMO_INTEGRATION_FACTS,
   DEMO_INTEGRATION_TOOLS,
   DEMO_INTEGRATIONS,
 } from '../fixtures/integrations'
@@ -35,6 +36,7 @@ export function registerIntegrationsHandlers(backend: DemoServer): void {
     return integrations.find((integration) => integration.id === id) ?? null
   })
   backend.register('integrationTools', (args) => DEMO_INTEGRATION_TOOLS.get(arg<IntegrationIdRequest>(args, 0).id) ?? [])
+  backend.register('integrationFacts', (args) => DEMO_INTEGRATION_FACTS.get(arg<IntegrationIdRequest>(args, 0).id) ?? null)
   backend.register('integrationUpdate', (args) => {
     const request = arg<IntegrationUpdateRequest>(args, 0)
     const integration = integrations.find((candidate) => candidate.id === request.id)
