@@ -13,8 +13,9 @@ import {
   integrationUpdateRequestSchema,
   type Integration,
   type IntegrationAuth,
+  integrationFoundAddRequestSchema,
+  integrationFoundListRequestSchema,
   type IntegrationOAuthClientInput,
-  type IntegrationUpdateRequest,
 } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { OAuthClientRequiredError } from '@solus/contracts/integrations/oauth-protocol'
@@ -25,11 +26,12 @@ import type { IntegrationCatalog } from '../../integrations/catalog'
 import type { IntegrationClients, IntegrationConnectionStore } from '../../integrations/connection-store'
 import type { IntegrationConnections } from '../../integrations/connections'
 import type { IntegrationGateway } from '../../integrations/gateway'
-import type { IntegrationPatch, IntegrationStore } from '../../integrations/integration-store'
+import type { IntegrationStore } from '../../integrations/integration-store'
 import type { IntegrationOAuth } from '../../integrations/oauth'
-import { commandAuth, createIntegration, createStdioIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
-import { stdioServerAddress } from '../../integrations/stdio-process'
+import { createIntegration, createStdioIntegration, probeAddress, probeForWrite, updateCommand } from '../../integrations/integration-create'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
+import type { FoundServers } from '../../integrations/found-servers'
+import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { createLogger } from '../../logger'
 import { currentPersonKey, requirePersonKey } from '../../vault/acting-scope'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -88,6 +90,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   /** Where the owner's OAuth client secret is kept; `oauth` reads it from the same store. */
   clients: Pick<IntegrationClients, 'saveClient' | 'removeClient'>
   getServerInfo(): { host: string; port: number }
+  /** The MCP servers in this host's config files (docs/plans/mcp-first-class.md §8). */
+  found: FoundServers
   /**
    * The caller's agent profile (plans/020-agent-profile.md): signed in, the
    * caller's own servers are part of it, so a change here goes to their account
@@ -102,27 +106,6 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   const requireIntegration = (id: string, actor: Actor) => {
     const integration = store.get(id, recordScopeOf(actor.principal))
     if (!integration || forReader(actor, integration).role !== 'owner') throw new Error('That integration is no longer on this host.')
-    return integration
-  }
-
-  /**
-   * A new command or new names for a `stdio` integration (§7.6): `host.admin`
-   * only. The verdict and the facts belonged to the old command (§7.5), so they
-   * go and the process stops; every person gives values for new names again.
-   */
-  function updateCommand(existing: Integration, request: IntegrationUpdateRequest, principal: Principal): Integration {
-    requireHostAdmin(principal)
-    const patch: IntegrationPatch = { name: request.name, disabledTools: request.disabledTools }
-    if (request.launch) {
-      patch.launch = request.launch
-      patch.url = stdioServerAddress(request.launch)
-    }
-    if (request.envNames) patch.auth = commandAuth(request.envNames)
-    const integration = store.update(existing.id, patch, recordScopeOf(principal))
-    if (!integration) throw new Error('That integration is no longer on this host.')
-    gateway.forget(existing.id)
-    if (request.envNames) connections.removeAllFor(existing)
-    void events.broadcast('integration.changed', { integrationId: existing.id, change: 'updated' })
     return integration
   }
 
@@ -154,7 +137,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const existing = requireIntegration(id, ctx.actor)
     const commandChanged = request.launch !== undefined || request.envNames !== undefined
     if (existing.kind === 'stdio' ? url !== undefined || oauthClient !== undefined : commandChanged) throw new Error(`${existing.name} cannot take that change: a command has a launch and names, a server an address.`)
-    if (commandChanged) return forReader(ctx.actor, updateCommand(existing, request, ctx.principal))
+    if (commandChanged) return forReader(ctx.actor, updateCommand({ store, events, gateway, connections }, existing, request, ctx.principal))
     let auth: IntegrationAuth | undefined = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
     if (oauthClient !== undefined) {
       auth = withOAuthClient(auth ?? existing.auth, oauthClient)
@@ -214,6 +197,22 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const { id } = integrationIdRequestSchema.parse(args[0])
     requireStdio(requireIntegration(id, ctx.actor))
     return { stopped: await gateway.stopProcess(id) }
+  })
+
+  // Found servers (docs/plans/mcp-first-class.md §8): a project's files only where the caller may read that project.
+  server.register('integrationFoundList', (args, ctx) => {
+    const request = integrationFoundListRequestSchema.parse(args[0] ?? {})
+    if (request.projectPath) assertPathInScope('integrationFoundList', ctx.principal, request.projectPath)
+    return deps.found.list(ctx.principal, ownerKeyOf(ctx.actor), request)
+  })
+
+  server.register('integrationFoundAdd', async (args, ctx) => {
+    const request = integrationFoundAddRequestSchema.parse(args[0])
+    if (request.projectPath) assertPathInScope('integrationFoundAdd', ctx.principal, request.projectPath)
+    const owner = ownerKeyOf(ctx.actor)
+    if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
+    const result = await deps.found.add(ctx.principal, owner, request)
+    return result.kind === 'saved' ? { kind: 'saved' as const, integration: forReader(ctx.actor, result.integration) } : result
   })
 
   server.register('integrationConnectionList', () => {

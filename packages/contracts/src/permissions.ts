@@ -227,6 +227,8 @@ const PERMISSION_OF_METHOD = {
   // A stdio integration runs as code on the host: creating or changing its command, and starting it, needs
   // `host.admin`, which the handler checks; the other kinds stay at `host.use` (mcp-first-class.md §7.2).
   integrationProcessStart: HOST_USE, integrationProcessStop: HOST_USE,
+  // The handler shows the host's own files and adds a command only for `host.admin` (mcp-first-class.md §8.6).
+  integrationFoundList: HOST_USE, integrationFoundAdd: HOST_USE,
   integrationConnectionList: HOST_USE, integrationConnectStart: HOST_USE, integrationConnectSubmit: HOST_USE,
   integrationConnectCancel: HOST_USE, integrationDisconnect: HOST_USE, agentProfileApply: HOST_USE,
   agentProfilePull: HOST_USE, agentProfileStatus: HOST_USE, typeSafeKeyStatus: HOST_USE, configGet: HOST_USE,

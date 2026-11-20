@@ -20,6 +20,7 @@ import { IntegrationOAuthClientPanel } from "./components/IntegrationOAuthClient
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { ListFilterMenu } from "../workspace/ListFilterMenu";
 import { ServerIcon } from "./components/ServerIcon";
+import { FoundServersSection } from "./components/FoundServersSection";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -124,6 +125,7 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
               returnKeyType="search"
             />
             <InstalledSection integrations={integrations} installed={list.integrations} query={query} />
+            {query.trim() ? null : <FoundServersSection hostId={hostId} />}
             {looksLikeUrl(query) ? (
               <CustomAddressSection integrations={integrations} installed={list.integrations} address={query.trim()} onAdd={add} />
             ) : (

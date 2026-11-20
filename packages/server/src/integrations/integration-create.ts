@@ -1,11 +1,14 @@
-import { integrationSlug, solusServerIdOf, type Integration, type IntegrationAuth, type IntegrationCommandCreateRequest, type IntegrationLaunch, type IntegrationProbeResult, type IntegrationProbeUndeterminedReason, type IntegrationUrlCreateRequest } from '@solus/contracts/integration-types'
+import { integrationSlug, solusServerIdOf, type Integration, type IntegrationAuth, type IntegrationCommandCreateRequest, type IntegrationLaunch, type IntegrationProbeResult, type IntegrationProbeUndeterminedReason, type IntegrationUpdateRequest, type IntegrationUrlCreateRequest } from '@solus/contracts/integration-types'
 import { splitCommandLine } from '@solus/contracts/integrations/command-line'
-import { organizationForNew, type Principal } from '../admission/principal'
+import { organizationForNew, recordScopeOf, type Principal } from '../admission/principal'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
 import { resolveProjectKey, resolveProjectRoot } from '../project-config/project-config'
 import type { HostEventPublisher } from '../transport/events/host-event-publisher'
-import type { IntegrationCreateInput, IntegrationStore } from './integration-store'
+import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from './command-admission'
+import type { IntegrationConnections } from './connections'
+import type { IntegrationGateway } from './gateway'
+import type { IntegrationCreateInput, IntegrationPatch, IntegrationStore } from './integration-store'
 import { probeMcpServer } from './probe'
 import { probeSolusServer } from './solus-servers'
 import { stdioServerAddress } from './stdio-process'
@@ -62,15 +65,15 @@ export interface IntegrationCreateDeps {
  * path for Settings (`integrationCreate`) and the agent (`connect_integration`,
  * §13.2), so the two cannot create different records.
  */
-export async function createIntegration(deps: IntegrationCreateDeps, principal: Principal, owner: string, request: IntegrationUrlCreateRequest): Promise<Integration> {
+export async function createIntegration(deps: IntegrationCreateDeps, principal: Principal, owner: string, request: IntegrationUrlCreateRequest, projectKey?: string): Promise<Integration> {
   const probe = await probeForWrite(request.url)
-  const integration = deps.store.create(
-    { name: request.name, url: request.url, slug: integrationSlug(request.slug ?? request.name), auth: probe.auth },
-    organizationForNew(principal),
-    owner,
-  )
+  const input: IntegrationCreateInput = { name: request.name, url: request.url, slug: integrationSlug(request.slug ?? request.name), auth: probe.auth }
+  // A server from a project file joins only that project's runs (mcp-first-class.md §8.4).
+  if (projectKey) input.projectKey = projectKey
+  const integration = deps.store.create(input, organizationForNew(principal), owner)
   void deps.events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
-  void deps.profile?.saved(principal, integration)
+  // The project's file is in the repository, so each host finds it again: it is no profile entry.
+  if (!projectKey) void deps.profile?.saved(principal, integration)
   return integration
 }
 
@@ -106,5 +109,31 @@ export function createStdioIntegration(deps: Pick<IntegrationCreateDeps, 'store'
   // Neither the command nor its arguments are logged: an argument can hold a secret.
   log.info('integration_command_added', { integrationId: integration.id, envNames: request.envNames.length, project: projectRoot !== null })
   void deps.events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
+  return integration
+}
+
+export interface CommandChangeDeps extends Pick<IntegrationCreateDeps, 'store' | 'events'> {
+  gateway: Pick<IntegrationGateway, 'forget'>
+  connections: Pick<IntegrationConnections, 'removeAllFor'>
+}
+
+/**
+ * A new command or new names for a `stdio` integration (§7.6): `host.admin`
+ * only. The verdict and the facts belonged to the old command (§7.5), so they
+ * go and the process stops; every person gives values for new names again.
+ */
+export function updateCommand(deps: CommandChangeDeps, existing: Integration, request: Pick<IntegrationUpdateRequest, 'name' | 'disabledTools' | 'launch' | 'envNames'>, principal: Principal): Integration {
+  if (!mayRunCommands(principal)) throw new Error(COMMAND_CHANGE_REFUSAL)
+  const patch: IntegrationPatch = { name: request.name, disabledTools: request.disabledTools }
+  if (request.launch) {
+    patch.launch = request.launch
+    patch.url = stdioServerAddress(request.launch)
+  }
+  if (request.envNames) patch.auth = commandAuth(request.envNames)
+  const integration = deps.store.update(existing.id, patch, recordScopeOf(principal))
+  if (!integration) throw new Error('That integration is no longer on this host.')
+  deps.gateway.forget(existing.id)
+  if (request.envNames) deps.connections.removeAllFor(existing)
+  void deps.events.broadcast('integration.changed', { integrationId: existing.id, change: 'updated' })
   return integration
 }

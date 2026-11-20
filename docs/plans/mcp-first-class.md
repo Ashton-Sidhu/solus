@@ -908,6 +908,19 @@ servers of the host that the page shows, never of its own computer.
 never reads the owner's files; a path outside the listed files is never
 read; a file that is a symbolic link out of its folder is refused.
 
+**As built in C1.** The answer is `{ servers, files }`: each file that is
+there, with its server count or why it was not read. `FOUND_CHANGED` is the
+answer `{ kind: 'found-changed' }`. A found server also carries
+`projectOnly`, `valuesInFile` (names), and `commandMissing`. The user files
+are read only for `host.admin`; a member's seat home is not read yet. The
+Codex layers come from the host's shared Codex app-server. Each file is
+parsed with a Zod schema; an entry that does not parse is an `invalid` row.
+`~/.claude.json` may be 8 MB, since Claude Code keeps each project's state
+there. The keys `mcpServers` and `projects["<path>"].mcpServers` were
+confirmed on a real install; the VS Code user path was not. Mobile reads the
+user files only, since its MCP screen has no project. The approval is a
+dialog on desktop and web and the native alert on mobile.
+
 **Tests** (`tests/unit/integrations/found-servers.test.ts`, with files in a
 temporary directory): each file kind parses; the same command in two files
 is one row; no value is in a response; a changed file gives `FOUND_CHANGED`;

@@ -487,6 +487,9 @@ export const settingsDefinitions = {
   "mcp.section-connect-by-address": {
     label: "Connect by address",
   },
+  "mcp.section-found": {
+    label: "Found on this host",
+  },
   "host.section-retention": {
     label: "Retention",
   },

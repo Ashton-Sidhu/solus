@@ -347,6 +347,7 @@ describe('who may add a command (§7.2)', () => {
       oauth: {} as never,
       clients: memoryClients(),
       getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
+      found: {} as never,
     })
     return { server, changed }
   }
@@ -396,6 +397,7 @@ describe('new environment names (§7.6)', () => {
       oauth: {} as never,
       clients: memoryClients(),
       getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
+      found: {} as never,
     })
 
     await server.handle('integrationUpdate', [{ id: integration.id, envNames: ['API_KEY'] }], TEST_HANDLER_CTX)
@@ -444,6 +446,7 @@ describe('who may start a command (§7.2, §7.8)', () => {
       oauth: {} as never,
       clients: memoryClients(),
       getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
+      found: {} as never,
     })
     await expect(server.handle('integrationProcessStart', [{ id: integration.id }], { clientId: 'member', principal: member })).rejects.toThrow(refusal)
     expect(startsOf(starts)).toEqual([])

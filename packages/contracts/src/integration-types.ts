@@ -361,6 +361,107 @@ export const integrationProcessStartRequestSchema = z.object({
 export type IntegrationProcessStartRequest = z.infer<typeof integrationProcessStartRequestSchema>
 
 /**
+ * A config file in which another tool keeps MCP servers (mcp-first-class.md
+ * §8.1): a project `.mcp.json`, Claude Code's `~/.claude.json`, Codex
+ * `config.toml`, Cursor's and VS Code's `mcp.json`, and Claude Desktop's config.
+ */
+export type ConfigFileKind = 'mcp-json' | 'claude-json' | 'codex-config' | 'cursor' | 'vscode' | 'claude-desktop'
+
+/**
+ * Where the host read a found server (§8.2): one entry of one config file.
+ * `path` is the file as the person reads it, with `~` for the home folder of
+ * the host. `name` is the server's name in that file.
+ */
+export interface FoundPlace {
+  kind: 'file'
+  file: ConfigFileKind
+  scope: 'user' | 'project'
+  path: string
+  name: string
+}
+
+/** A found server's transport, as the host read it. Names only: no value of `env` or of a header leaves the host. */
+export type FoundTransport =
+  | { kind: 'stdio'; command: string; args: string[]; envNames: string[]; cwd?: string }
+  | { kind: 'http'; url: string; headerNames: string[] }
+  | { kind: 'sse'; url: string }
+
+/**
+ * `sse`: the deprecated HTTP+SSE transport. `expansion`: `${…}` in the command,
+ * the arguments, the folder, or the URL, which Solus does not expand.
+ * `not-allowed`: a command, for a person without `host.admin`. `invalid`: the
+ * entry does not read as an MCP server Solus can run.
+ */
+export type FoundUnsupportedReason = 'sse' | 'expansion' | 'not-allowed' | 'invalid'
+
+/**
+ * An MCP server the host read from a config file (§8.2). It is not an
+ * integration until the person adds it. One found server for one address: the
+ * same command in two files is one found server with two places. `added`: the
+ * caller has an integration with that address. `changed`: the caller has an
+ * integration of the same name, kind, and scope whose address differs, so the
+ * file now holds another command or URL; `integrationId` names it.
+ */
+export interface FoundServer {
+  foundId: string
+  /** A hash of the transport and the scope as the host read them. An add with another fingerprint is refused (§8.3). */
+  fingerprint: string
+  name: string
+  foundIn: FoundPlace[]
+  /** Null only for an `invalid` entry, which names no command or URL Solus can read. */
+  transport: FoundTransport | null
+  state: 'new' | 'added' | 'changed' | 'unsupported'
+  integrationId?: string
+  unsupported?: FoundUnsupportedReason
+  /** Only project files hold it: an add joins only the runs of that project (§8.4). */
+  projectOnly: boolean
+  /** The environment names, or `Authorization`, whose value the file holds as plain text, so an add can copy it on the host. Never a value. */
+  valuesInFile: string[]
+  /** A command whose program the host does not find on its PATH or at its path. */
+  commandMissing?: boolean
+}
+
+/** One config file the host found, with the number of servers it read, or why it could not read it. */
+export interface FoundFile {
+  file: ConfigFileKind
+  scope: 'user' | 'project'
+  path: string
+  servers: number
+  problem?: string
+}
+
+/** The answer of `integrationFoundList`: the found servers, and each config file that is there. */
+export interface FoundServerList {
+  servers: FoundServer[]
+  files: FoundFile[]
+}
+
+/** `projectPath`: also read that project's files. `refresh`: read the files again, not the answer of the last 10 seconds. */
+export const integrationFoundListRequestSchema = z.object({
+  projectPath: z.string().min(1).max(4096).optional(),
+  refresh: z.boolean().optional(),
+}).strict()
+export type IntegrationFoundListRequest = z.infer<typeof integrationFoundListRequestSchema>
+
+/**
+ * Add a found server, or take the change of a `changed` one (§8.3). The host
+ * reads the files again and refuses another fingerprint. `useFileValues`: copy
+ * the values the file holds into the caller's connection, on the host.
+ */
+export const integrationFoundAddRequestSchema = z.object({
+  foundId: z.string().min(1).max(128),
+  fingerprint: z.string().min(1).max(128),
+  projectPath: z.string().min(1).max(4096).optional(),
+  useFileValues: z.boolean().optional(),
+}).strict()
+export type IntegrationFoundAddRequest = z.infer<typeof integrationFoundAddRequestSchema>
+
+/** `found-changed`: the file changed after the person saw it, so nothing was saved; read the list again. */
+export type IntegrationFoundAddResult =
+  | { kind: 'saved'; integration: Integration }
+  | { kind: 'found-changed' }
+
+/**
  * The catalog's categories as Solus shows them. The feed's own category names
  * are few and inconsistent, so each Solus category gathers several of them.
  * Most entries have none and are listed under All only.

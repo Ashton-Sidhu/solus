@@ -1,8 +1,9 @@
-import { Building2, RefreshCw, ShieldCheck, Webhook } from '@lucide/svelte'
+import { Building2, FileSearch, RefreshCw, ShieldCheck, Webhook } from '@lucide/svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { Command } from '../../command-palette/lib/commands'
 import type { SettingsTab } from '../../../contexts/workspace/routing/route-registry'
 import { EMPTY_WEBHOOKS_VIEW, serializeWebhooksView } from '../../webhooks/lib/webhooks-view'
+import { mcpPageRequest } from './mcp-page-request.svelte'
 
 /**
  * Palette entries for the settings pages that have an owner of their own
@@ -50,5 +51,20 @@ export function webhookCommands(shell: { showSettings(tab: SettingsTab, via: Via
     icon: Webhook,
     keywords: ['webhook', 'hook', 'create', 'sender', 'trigger'],
     run: () => shell.showSettings('webhooks', 'palette', serializeWebhooksView({ ...EMPTY_WEBHOOKS_VIEW, open: { kind: 'new', serverId: null } })),
+  }]
+}
+
+/** The MCP servers in the config files of the host (docs/plans/mcp-first-class.md §8.6), shared by desktop and web. */
+export function foundServerCommands(shell: { showSettings(tab: SettingsTab, via: Via): void }): Command[] {
+  return [{
+    id: 'find-mcp-servers',
+    label: 'Find MCP servers on this host',
+    group: 'General',
+    icon: FileSearch,
+    keywords: ['mcp', 'server', 'found', 'config', 'claude', 'codex', 'cursor', 'vscode', 'import', 'discover'],
+    run: () => {
+      mcpPageRequest.view = 'found'
+      shell.showSettings('mcp', 'palette')
+    },
   }]
 }

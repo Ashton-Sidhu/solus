@@ -58,6 +58,7 @@ function setup() {
     oauth,
     clients: secrets,
     getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
+    found: {} as never,
   })
   const integration = store.create(
     { name: 'Zoom', url: fake.mcpUrl, slug: 'zoom', auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required' } },

@@ -1488,6 +1488,13 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/settings/components/FoundServersSection.tsx": {
+      "compiled": [
+        "FoundRow",
+        "FoundServersSection"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/settings/components/IntegrationConnectPanel.tsx": {
       "compiled": [
         "IntegrationConnectPanel"
@@ -1622,6 +1629,12 @@
       "compiled": [
         "useAgentProfile",
         "useAgentProfileHosts"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/use-found-servers.ts": {
+      "compiled": [
+        "useFoundServers"
       ],
       "skipped": []
     },

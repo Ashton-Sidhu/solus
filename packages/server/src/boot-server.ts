@@ -110,6 +110,7 @@ import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
 import { installConnectIntegrationTool } from './integrations/connect-integration-tool'
 import { createIntegration } from './integrations/integration-create'
+import { FoundServers } from './integrations/found-servers'
 import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationGateway } from './integrations/gateway'
 import { ServerFactsStore } from './integrations/server-facts-store'
@@ -125,6 +126,7 @@ import { publishPresenceRoom, registerPresenceHandlers } from './transport/handl
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
 import { CodexBackend } from './execution/agents/codex/codex-backend'
+import { getCodexAppServerClient } from './execution/agents/codex/codex-agent'
 import { ActingIdentities, hostSecretFilesFolder, identityFor, useActingIdentities } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { currentHostUser, hostUserKey, useHostUser } from './host/host-user'
@@ -1034,6 +1036,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     clients: hostIntegrationClients,
     getServerInfo: () => ({ host, port: actualPort }),
     profile: integrationProfile,
+    found: new FoundServers({
+      store: integrations,
+      events,
+      profile: integrationProfile,
+      gateway: integrationGateway,
+      connections: integrationConnections,
+      // Codex reads its own files, with its rule for a trusted project (mcp-first-class.md §8.1).
+      codexLayers: codexBackend ? async (cwd) => (await getCodexAppServerClient().request('config/read', { includeLayers: true, cwd })).layers ?? [] : undefined,
+    }),
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   const guides = new ReviewGuideJobs((event) => publishGuideStatus(events, event), { pr: prGuideSource, local: localGuideSource })
