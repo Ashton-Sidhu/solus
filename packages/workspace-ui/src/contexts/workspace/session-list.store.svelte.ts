@@ -466,6 +466,8 @@ export class SessionListStore {
   async setArchived(target: SessionListTarget, isArchived: boolean): Promise<void> {
     const serverId = this.homeFor(target)
     this.watchHost(serverId)
+    const previousView = this.viewsBySession.get(target.sessionId)
+    this.writeView(target.sessionId, { ...(previousView ?? EMPTY_SESSION_VIEW), archivedAt: isArchived ? Date.now() : null })
     const listed = isArchived ? this.listedBySession.get(target.sessionId) : undefined
     if (listed) {
       this.rememberFormerShare(listed)
@@ -476,6 +478,7 @@ export class SessionListStore {
       this.writeView(target.sessionId, view)
       if (!isArchived && !this.listedBySession.has(target.sessionId)) void this.loadSession(serverId, target.sessionId)
     } catch (error) {
+      this.writeView(target.sessionId, previousView)
       if (listed && !this.listedBySession.has(target.sessionId)) this.listedBySession.set(target.sessionId, listed)
       throw error
     }

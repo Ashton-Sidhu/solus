@@ -821,7 +821,7 @@ export function buildThreadListV2Items(input: {
     if (input.chatsOnly && !isChatSession(thread.record)) continue;
     if (!matchesSearch(thread, query, threadPullRequests(thread, input.facts))) continue;
     const view = threadView(thread, input.facts);
-    if (input.facts.pins?.has(thread.key)) {
+    if (input.facts.pins?.has(thread.key) && view.archivedAt === null && threadState(thread, input.facts).settledAt === null) {
       pinned.push(thread);
       continue;
     }

@@ -101,10 +101,16 @@ export class RunningServerRegistry {
 }
 
 let registry: RunningServerRegistry | null = null
-export function initRunningServers(publish: RunningServerRegistryDeps['publish']): RunningServerRegistry {
+export function initRunningServers(publish: RunningServerRegistryDeps['publish'], runAsHost: <Result>(operation: () => Promise<Result>) => Promise<Result>): RunningServerRegistry {
   registry?.stop()
+  const scanner = new RunningServerScanner()
   registry = new RunningServerRegistry({
-    scanner: new RunningServerScanner(), publish,
+    // Scans and tunnel upgrades are host work, including calls outside an RPC's actor scope.
+    scanner: {
+      scan: (paths) => runAsHost(() => scanner.scan(paths)),
+      identityMatches: (server) => runAsHost(() => scanner.identityMatches(server)),
+      stopJob: (server) => runAsHost(() => scanner.stopJob(server)),
+    }, publish,
     now: Date.now,
     schedule: (tick, delayMs) => {
       const timer = setTimeout(() => void tick(), delayMs)

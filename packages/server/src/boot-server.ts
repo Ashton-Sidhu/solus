@@ -125,7 +125,7 @@ import { publishPresenceRoom, registerPresenceHandlers } from './transport/handl
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
 import { CodexBackend } from './execution/agents/codex/codex-backend'
-import { ActingIdentities, hostSecretFilesFolder, identityFor, useActingIdentities } from './execution/seats/acting-identity'
+import { ActingIdentities, hostSecretFilesFolder, identityFor, useActingIdentities, withHostScope } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { currentHostUser, hostUserKey, useHostUser } from './host/host-user'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
@@ -1226,7 +1226,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     seats,
     clientsForSeat,
   })
-  const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) })
+  const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) }, withHostScope)
   const serverTunnels = registerRunningServerHandlers(server, serverRegistry)
   const resourceTelemetry = new ResourceTelemetry({
     resolvePath: resolveResourceMonitorPath,
@@ -1880,7 +1880,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       workLive.disconnected(clientId)
       resourceTelemetry.unsubscribe(clientId)
       serverRegistry.unwatch(clientId)
-        serverTunnels.disconnect(clientId)
+      serverTunnels.disconnect(clientId)
     },
     onClientExpired: ({ clientId }) => {
       opts.sessionRuntime.watchers.handleClientExpired(clientId)

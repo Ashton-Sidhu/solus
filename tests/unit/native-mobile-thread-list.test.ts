@@ -663,6 +663,32 @@ describe('thread list state', () => {
     expect(list.facts().pins?.has(threadKey('h', 's'))).toBe(true)
   })
 
+  test('a pin moves to the normal shelf or leaves the list before the server answers', async () => {
+    const host = fakeConnection()
+    const thread = shell('h', 'moving-pin')
+    host.connection.api.pinnedSessionsList = async () => [{ sessionId: thread.record.sessionId, provider: 'codex', cwd: '/repo', title: 'Pin', pinnedAt: 1 }]
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    await list.loadPins('h')
+    const layout = () => buildThreadListV2Items({ threads: [thread], facts: list.facts(), hostId: null, searchQuery: '', now: NOW, settledShelfExpanded: true })
+    const pending = Promise.withResolvers<{ view: SessionView }>()
+    host.connection.api.sessionUpdate = () => pending.promise
+    const completing = list.setSettled('h', thread.record.sessionId, true)
+    expect(layout().settledCount).toBe(1)
+    expect(layout().items[0]).toMatchObject({ variant: 'slim' })
+    expect(layout().items[0]?.pinned).not.toBe(true)
+    pending.reject(new Error('refused'))
+    await expect(completing).rejects.toThrow('refused')
+    expect(layout().items[0]?.pinned).toBe(true)
+
+    const archived = Promise.withResolvers<{ view: SessionView }>()
+    host.connection.api.sessionUpdate = () => archived.promise
+    const archiving = list.setArchived('h', thread.record.sessionId, true)
+    expect(layout().items).toEqual([])
+    archived.reject(new Error('refused'))
+    await expect(archiving).rejects.toThrow('refused')
+    expect(layout().items[0]?.pinned).toBe(true)
+  })
+
   test('a completion event invalidates an older pin read', async () => {
     const host = fakeConnection()
     const pin: PinnedSession = { sessionId: 's', provider: 'codex', cwd: '/repo', title: 'Session', pinnedAt: 1 }
@@ -705,7 +731,7 @@ test('pinned mobile sessions stay first without a header, in pin order', () => {
   const older = shell('h', 'older')
   const newer = shell('h', 'newer')
   const pinnedFacts: ThreadListV2Facts = {
-    ...facts({ states: { [older.key]: { settledAt: NOW } }, views: { [newer.key]: { snoozedUntil: NOW + HOUR } } }),
+    ...facts({ views: { [newer.key]: { snoozedUntil: NOW + HOUR } } }),
     pins: new Map([
       [older.key, { sessionId: 'older', provider: 'codex', title: 'Older', cwd: '/repo', pinnedAt: 1 }],
       [newer.key, { sessionId: 'newer', provider: 'claude-code', title: 'Newer', cwd: '/repo', pinnedAt: 2 }],
@@ -720,5 +746,5 @@ test('pinned mobile sessions stay first without a header, in pin order', () => {
   const unpinned = buildThreadListV2Items({ threads: [active, older, newer], facts: { ...pinnedFacts, pins: new Map() }, hostId: null, searchQuery: '', now: NOW })
   expect(unpinned.items[0]?.thread.key).toBe(active.key)
   expect(unpinned.snoozedCount).toBe(1)
-  expect(unpinned.settledCount).toBe(1)
+  expect(unpinned.settledCount).toBe(0)
 })
