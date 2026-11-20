@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Client, ProtocolError, type JSONRPCResponse } from '@modelcontextprotocol/client'
+import { Client, ProtocolError, type ElicitResult, type JSONRPCResponse } from '@modelcontextprotocol/client'
 import { MCP_TASK_STATUSES } from '@solus/contracts/integrations/mcp-task'
 
 /**
@@ -87,7 +87,7 @@ export function getTask(client: Client, taskId: string, options: TaskRequestOpti
 }
 
 /** Answers questions of an `input_required` MCP task. The server reads the answers later. */
-export async function updateTask(client: Client, taskId: string, inputResponses: Record<string, object>, options: TaskRequestOptions): Promise<void> {
+export async function updateTask(client: Client, taskId: string, inputResponses: Record<string, ElicitResult>, options: TaskRequestOptions): Promise<void> {
   await client.request({ method: 'tasks/update', params: { ...taskParams(taskId, options.traceparent), inputResponses } }, emptyResultSchema, { timeout: options.timeout })
 }
 

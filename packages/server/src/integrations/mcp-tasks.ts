@@ -14,7 +14,7 @@ import { cancelTask, getTask, isUnknownTask, updateTask, type McpTaskState } fro
 import type { McpTaskRow, McpTaskStore } from './mcp-task-store'
 import { agentResultOf } from './result-content'
 import { SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
-import { ConnectionRequiredError } from './upstream-session'
+import { ConnectionRequiredError, errorText } from './upstream-session'
 
 const log = createLogger('integrations', 'mcp-tasks.ts')
 
@@ -189,7 +189,7 @@ export class McpTasks implements McpTaskCalls {
 
   processEnded(integrationId: string, personKey: string | null): void {
     if (this.stopped) return
-    for (const task of [...this.live.values()]) {
+    for (const task of this.live.values()) {
       if (task.isStdio && task.row.integrationId === integrationId && task.row.personKey === personKey) {
         void this.end(task, 'failed', 'The server stopped.', { kind: 'reason', text: 'The server stopped.' })
       }
@@ -279,7 +279,7 @@ export class McpTasks implements McpTaskCalls {
   private async stopWithTurn(task: LiveTask): Promise<void> {
     if (!task.hold) return
     task.cancelRequestedAt = this.clock.now()
-    void this.request(task.row, (client, options) => cancelTask(client, task.row.upstreamTaskId, options)).catch((error: unknown) => {
+    void this.request(task.row, (client, options) => cancelTask(client, task.row.upstreamTaskId, options)).catch((error) => {
       log.warn('mcp_task_cancel_failed', { sessionId: task.row.sessionId, mcpTaskId: task.row.id, error: errorText(error) })
     })
     await this.end(task, 'cancelled', 'Stopped with the turn.', { kind: 'silent' })
@@ -319,41 +319,46 @@ export class McpTasks implements McpTaskCalls {
         return await this.pollFailed(task, error)
       }
       if (!this.live.has(task.row.id)) return
-      task.failures = 0
-      let changed = task.problem !== null
-      task.problem = null
-      if (state.pollIntervalMs !== undefined) task.intervalMs = pollInterval(state.pollIntervalMs)
-      const expiresAt = state.ttlMs === undefined ? task.row.expiresAt : expiryOf(task.row.createdAt, state.ttlMs)
-      const message = oneLine(state.statusMessage)
-      switch (state.status) {
-        case 'completed': return await this.end(task, 'completed', message, { kind: 'result', state })
-        case 'failed': {
-          const reason = message ?? oneLine(state.error?.message) ?? 'The server reported a failure.'
-          return await this.end(task, 'failed', reason, { kind: 'reason', text: reason })
-        }
-        case 'cancelled':
-          return await this.end(task, 'cancelled', message ?? 'Cancelled.', task.cancelRequestedAt === null ? { kind: 'reason', text: 'The server cancelled the MCP task.' } : { kind: 'silent' })
-        case 'input_required':
-          changed = this.readInput(task, state) || changed
-          break
-        case 'working':
-          changed = changed || task.input.size > 0
-          task.input.clear()
-          task.answered.clear()
-      }
-      if (state.status !== task.row.status || message !== task.row.statusMessage || expiresAt !== task.row.expiresAt) {
-        task.row.status = state.status
-        task.row.statusMessage = message
-        task.row.updatedAt = this.clock.now()
-        task.row.expiresAt = expiresAt
-        this.deps.store.update(task.row.id, { status: state.status, statusMessage: message, updatedAt: task.row.updatedAt, expiresAt })
-        changed = true
-      }
-      if (changed) this.publish(task)
-      this.schedule(task)
+      await this.read(task, state)
     } finally {
       task.polling = false
     }
+  }
+
+  /** What one status request read: an end, a question, or progress (§12.3). */
+  private async read(task: LiveTask, state: McpTaskState): Promise<void> {
+    task.failures = 0
+    let changed = task.problem !== null
+    task.problem = null
+    if (state.pollIntervalMs !== undefined) task.intervalMs = pollInterval(state.pollIntervalMs)
+    const expiresAt = state.ttlMs === undefined ? task.row.expiresAt : expiryOf(task.row.createdAt, state.ttlMs)
+    const message = oneLine(state.statusMessage)
+    switch (state.status) {
+      case 'completed': return this.end(task, 'completed', message, { kind: 'result', state })
+      case 'failed': {
+        const reason = message ?? oneLine(state.error?.message) ?? 'The server reported a failure.'
+        return this.end(task, 'failed', reason, { kind: 'reason', text: reason })
+      }
+      case 'cancelled':
+        return this.end(task, 'cancelled', message ?? 'Cancelled.', task.cancelRequestedAt === null ? { kind: 'reason', text: 'The server cancelled the MCP task.' } : { kind: 'silent' })
+      case 'input_required':
+        changed = this.readInput(task, state) || changed
+        break
+      case 'working':
+        changed = changed || task.input.size > 0
+        task.input.clear()
+        task.answered.clear()
+    }
+    if (state.status !== task.row.status || message !== task.row.statusMessage || expiresAt !== task.row.expiresAt) {
+      task.row.status = state.status
+      task.row.statusMessage = message
+      task.row.updatedAt = this.clock.now()
+      task.row.expiresAt = expiresAt
+      this.deps.store.update(task.row.id, { status: state.status, statusMessage: message, updatedAt: task.row.updatedAt, expiresAt })
+      changed = true
+    }
+    if (changed) this.publish(task)
+    this.schedule(task)
   }
 
   /** A failed status request: the MCP task stays live until it expires (§12.5), and the next request waits longer. */
@@ -376,8 +381,8 @@ export class McpTasks implements McpTaskCalls {
   private readInput(task: LiveTask, state: McpTaskState): boolean {
     const requests = state.inputRequests ?? {}
     let changed = false
-    for (const key of [...task.input.keys()]) if (!Object.hasOwn(requests, key)) { task.input.delete(key); changed = true }
-    for (const key of [...task.answered]) if (!Object.hasOwn(requests, key)) task.answered.delete(key)
+    for (const key of task.input.keys()) if (!Object.hasOwn(requests, key)) { task.input.delete(key); changed = true }
+    for (const key of task.answered) if (!Object.hasOwn(requests, key)) task.answered.delete(key)
     const declined: Record<string, { action: 'decline' }> = {}
     for (const [key, request] of Object.entries(requests)) {
       if (task.answered.has(key) || task.input.has(key)) continue
@@ -394,7 +399,7 @@ export class McpTasks implements McpTaskCalls {
       changed = true
     }
     if (Object.keys(declined).length) {
-      void this.request(task.row, (client, options) => updateTask(client, task.row.upstreamTaskId, declined, options)).catch((error: unknown) => {
+      void this.request(task.row, (client, options) => updateTask(client, task.row.upstreamTaskId, declined, options)).catch((error) => {
         log.warn('mcp_task_decline_failed', { sessionId: task.row.sessionId, mcpTaskId: task.row.id, error: errorText(error) })
       })
     }
@@ -534,7 +539,7 @@ function pollInterval(ms: number | undefined): number {
 
 /** The server's `ttlMs` from the start, within Solus's own limit; null is unlimited, so the limit. */
 function expiryOf(createdAt: number, ttlMs: number | null | undefined): number {
-  if (typeof ttlMs !== 'number' || !Number.isFinite(ttlMs)) return createdAt + MCP_TASK_MAX_RUN_MS
+  if (ttlMs === null || ttlMs === undefined || !Number.isFinite(ttlMs)) return createdAt + MCP_TASK_MAX_RUN_MS
   return createdAt + Math.min(Math.max(0, ttlMs), MCP_TASK_MAX_RUN_MS)
 }
 
@@ -548,8 +553,4 @@ function oneLine(text: string | undefined | null): string | null {
   const line = text?.replace(/\s+/g, ' ').trim()
   if (!line) return null
   return line.length > STATUS_MESSAGE_CHARS ? `${line.slice(0, STATUS_MESSAGE_CHARS - 1)}…` : line
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

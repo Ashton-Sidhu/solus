@@ -176,7 +176,7 @@ import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
-import type { AgentId, IpcContext } from '@solus/contracts/types'
+import type { AgentId, IpcContext, PromptOptions } from '@solus/contracts/types'
 import { DEFAULT_SERVER_PORT, isSessionBusyStatus } from '@solus/contracts/types'
 import { registerWindowHandlers, type WindowDeps } from './transport/handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './transport/handlers/session-handlers'
@@ -842,7 +842,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     store: new McpTaskStore(),
     gateway: integrationGateway,
     wake: async (sessionId, text, images) => {
-      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', { via: 'mcp-task', ...(images.length ? { imageAttachmentRefs: images } : {}) })
+      const origin: Pick<PromptOptions, 'via' | 'imageAttachmentRefs'> = { via: 'mcp-task' }
+      if (images.length) origin.imageAttachmentRefs = images
+      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', origin)
     },
     publish: (event) => { void events.broadcast('mcpTask.changed', event) },
     backgroundEnded: (sessionId) => opts.sessionRuntime.providerEvents.endBackgroundWait(sessionId),

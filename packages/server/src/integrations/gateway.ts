@@ -186,13 +186,17 @@ export class IntegrationGateway {
 
   /** Calls one tool for an MCP App, or an app of Solus, with the current person's connection. It never starts an agent turn. */
   async callAppTool(integrationId: string, name: string, input: ToolArguments, starter: CommandStarter): Promise<AppToolResult> {
-    return this.withAppSession(integrationId, starter, (client) => client.callTool({ name, arguments: input }, { timeout: CALL_TIMEOUT_MS }).catch((error: unknown) => {
-      // An app waits for its answer in the frame; it cannot wait for an MCP task (§12). The work is not left running.
-      const handle = taskHandleOf(error)
-      if (!handle) throw error
-      void cancelTask(client, handle.taskId, { traceparent: null, timeout: CALL_TIMEOUT_MS }).catch(() => undefined)
-      throw new Error(`${name} runs as an MCP task, and an MCP App cannot wait for one. Ask the agent to run ${name}.`)
-    }))
+    return this.withAppSession(integrationId, starter, async (client) => {
+      try {
+        return await client.callTool({ name, arguments: input }, { timeout: CALL_TIMEOUT_MS })
+      } catch (error) {
+        // An app waits for its answer in the frame; it cannot wait for an MCP task (§12). The work is not left running.
+        const handle = taskHandleOf(error)
+        if (!handle) throw error
+        void cancelTask(client, handle.taskId, { traceparent: null, timeout: CALL_TIMEOUT_MS }).catch(() => undefined)
+        throw new Error(`${name} runs as an MCP task, and an MCP App cannot wait for one. Ask the agent to run ${name}.`)
+      }
+    })
   }
 
   private async withAppSession<T>(integrationId: string, starter: CommandStarter, use: (client: Client) => Promise<T>): Promise<T> {
