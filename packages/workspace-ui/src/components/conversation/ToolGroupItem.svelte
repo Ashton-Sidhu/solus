@@ -1,6 +1,7 @@
 <script lang="ts">
   import { cutText } from "@solus/contracts/text-cut";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
+  import { openToolLines, toolGroupKey } from "./lib/open-tool-lines";
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { toolRowsCopyText } from "./lib/tool-row-copy";
   import { toolProgressView } from "@solus/contracts/tool-progress";
@@ -72,7 +73,8 @@
 
   const disclosure = getTranscriptDisclosure();
   const imageContext = getMarkdownImageContext();
-  const view = $derived(disclosure.forKey(`tools:${tools[0]?.id}`));
+  const view = $derived(disclosure.forKey(toolGroupKey(tools[0]?.id)));
+  const openLines = $derived(openToolLines(disclosure, toolGroupKey(tools[0]?.id)));
 
   const runningTool = $derived(tools.find((t) => t.toolStatus === "running"));
   // A failure only owns the row while it is the last thing that happened. Once
@@ -176,7 +178,7 @@
   }
 
   function toggleToolExpanded(toolId: string): void {
-    view.selectedToolId = view.selectedToolId === toolId ? null : toolId;
+    if (!openLines.delete(toolId)) openLines.add(toolId);
   }
 </script>
 
@@ -289,7 +291,7 @@
           {@const endMs = toolEndMs(step)}
           {@const Glyph = KIND_ICONS[activityKind(step.toolName)]}
           {@const failed = step.toolStatus === "error"}
-          {@const open = view.selectedToolId === step.id}
+          {@const open = openLines.has(step.id)}
           <!-- An open call shows its input as code, parsed only while open. A
                history row waits for its full input; a running one has none yet. -->
           {@const code = open && step.toolStatus !== "running" && !step.historyToolInput
@@ -363,7 +365,7 @@
           {/if}
           <!-- What the host left out of the result, as the agent read it. Text
                only, so it needs no host behind the transcript. -->
-          {#if view.selectedToolId === step.id}
+          {#if open}
             {@const leftOut = toolRowLeftOut(step)}
             {#if leftOut.length > 0}
               <ul class="m-0 list-none space-y-0.5 pb-1 ps-8 text-transcript-meta text-muted-foreground" aria-label="Left out of this result">
