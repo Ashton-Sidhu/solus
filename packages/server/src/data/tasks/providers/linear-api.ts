@@ -1,10 +1,9 @@
 import { z } from 'zod'
-import { linearDeliverySchema, type ProviderRef } from '@solus/contracts/vault'
+import { linearDeliverySchema } from '@solus/contracts/vault'
 import { currentPersonKey } from '../../../vault/acting-scope'
-import { vault } from '../../../vault/vault'
+import { LINEAR_REF, vault } from '../../../vault/vault'
 import { TaskProviderError } from './types'
 
-const LINEAR_REF: ProviderRef = { kind: 'provider', provider: 'linear' }
 export interface LinearInput {
   commentId?: string
   emoji?: string

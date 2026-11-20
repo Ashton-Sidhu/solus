@@ -1,5 +1,6 @@
 import type { PermissionOption, PermissionRequest, Session } from '@solus/contracts/types'
 import { z } from 'zod'
+import { toolCallCode, type ToolCallCode } from '@solus/client-core/tool-call-code'
 import { checkoutGit, checkoutPlace } from '../../../contexts/workspace/run-location'
 import { hostPathBaseName, relativeHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
 
@@ -21,24 +22,65 @@ export type InterruptKicker = {
   tone: 'warning' | 'destructive'
 }
 
-/** Tools whose effects can reach outside the worktree and can't be undone by
- *  discarding the branch. */
-const DESTRUCTIVE_COMMAND_RE = /\brm\s+-[a-z]*[rf]|\bgit\s+push\s+.*--force|\bdd\s+if=|\bmkfs\b|\bshutdown\b|\bkillall\b/i
+/** A command name where a shell would run it: not inside a word, a path
+ *  segment's tail, or a method call such as `server.shutdown()`. */
+const COMMAND_START = String.raw`(?<![\w.-])`
+/** The rest of the statement after a match, up to the next separator, so the
+ *  card quotes the statement with its target. */
+const STATEMENT_REST = String.raw`[^\n;&|]*`
+
+function commandRule(body: string): RegExp {
+  return new RegExp(COMMAND_START + body + STATEMENT_REST)
+}
+
+/** Commands whose effects git cannot restore, each with what it does. A rule
+ *  reads the command's name and flags, never its target, so the reason names
+ *  the action and makes no claim about where it lands. */
+const DESTRUCTIVE_COMMANDS: { pattern: RegExp; reason: string }[] = [
+  {
+    // Recursive only: `rm -f file` is an ordinary delete, and `git rm` is restorable.
+    pattern: commandRule(String.raw`(?<!\bgit\s+)rm(?:\s+-\S*)*?\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?=\s|$)`),
+    reason: 'deletes a folder and everything in it',
+  },
+  {
+    // `--force-with-lease` refuses to overwrite work it has not seen.
+    pattern: commandRule(String.raw`git\s+push\b[^\n;&|]*?\s(?:-f|--force)(?=\s|$)`),
+    reason: 'rewrites history on the remote',
+  },
+  { pattern: commandRule(String.raw`dd\s[^\n;&|]*\bof=`), reason: 'writes raw bytes to a file or disk' },
+  { pattern: commandRule(String.raw`mkfs\b`), reason: 'formats a disk' },
+  { pattern: commandRule(String.raw`shutdown\b`), reason: 'shuts down the machine' },
+  { pattern: commandRule(String.raw`killall\b`), reason: 'stops every process with that name' },
+]
+
+/** The longest statement the card quotes; the full command is in the box below. */
+const MATCH_MAX_LENGTH = 80
 
 function commandOf(permission: PermissionRequest): string {
   const input = permissionCommandSchema.safeParse(permission.toolInput)
   return input.success ? (input.data.command ?? '') : ''
 }
 
-export function isDestructive(permission: PermissionRequest): boolean {
-  return DESTRUCTIVE_COMMAND_RE.test(commandOf(permission))
+/** The first statement in a shell command that a destructive rule matches, and why. */
+export function destructiveStatement(command: string): { statement: string; reason: string } | null {
+  for (const { pattern, reason } of DESTRUCTIVE_COMMANDS) {
+    const match = pattern.exec(command)
+    if (!match) continue
+    const statement = match[0].trim()
+    return {
+      statement: statement.length > MATCH_MAX_LENGTH ? `${statement.slice(0, MATCH_MAX_LENGTH - 1)}…` : statement,
+      reason,
+    }
+  }
+  return null
 }
 
 export function permissionKicker(permission: PermissionRequest): InterruptKicker {
-  if (isDestructive(permission)) {
+  const command = permissionCommand(permission)
+  if (command && destructiveStatement(command.code)) {
     return {
       label: 'Destructive',
-      title: 'Run an irreversible command',
+      title: 'Run a destructive command',
       chip: 'Destructive',
       tone: 'destructive',
     }
@@ -63,14 +105,12 @@ export function othersTurnTitle(title: string, othersTurn: string | null): strin
   return `${othersTurn} asks to ${title.charAt(0).toLowerCase()}${title.slice(1)}`
 }
 
-/** The command, verbatim and never truncated. Where it runs is provenance, so it
- *  belongs on the header's meta line rather than in the payload bar. */
-export function permissionArgv(
-  permission: PermissionRequest,
-): { label: string; text: string } | null {
-  const command = commandOf(permission)
-  if (!command) return null
-  return { label: 'bash', text: command }
+/** The command as an expanded tool row shows it once the call has run: the
+ *  shell wrapper removed and one statement on each line, never truncated.
+ *  Codex titles a command `Bash: <command>`, so the input decides, not the
+ *  title. Where it runs is provenance, so it belongs on the header's meta line. */
+export function permissionCommand(permission: PermissionRequest): ToolCallCode | null {
+  return commandOf(permission) ? toolCallCode('Bash', JSON.stringify(permission.toolInput)) : null
 }
 
 /**

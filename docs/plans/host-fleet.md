@@ -276,6 +276,8 @@ sign-in, or a check of its health (product decision, 2026-11-13).
   removal command runs only when the Undo period ends. Undo restores the row;
   a failed removal restores it too. Toasts stay inside Settings' focus boundary
   while its modal is open, so their actions work with a pointer and keyboard.
+  This boundary fills the viewport; the Settings card is inside it. Toasts keep
+  their normal viewport position, outside the card's transform and clipping.
   The host keeps its sessions and can be added again. This device has no Remove;
   managed cloud machines keep Delete on the host page because it deletes the disk.
 - The agent gets no new tools in this work: it uses the shell of the host it

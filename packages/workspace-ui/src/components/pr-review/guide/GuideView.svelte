@@ -65,7 +65,7 @@
 
   // The guide owns its own scroller so the rail can pin to its viewport.
   let scrollEl = $state<HTMLElement | null>(null);
-  const railItems = $derived(mainSections.map((s) => ({ id: s.id, title: s.title })));
+  const railItems = $derived(mainSections.map((s) => ({ id: s.id, label: s.title })));
 </script>
 
 <div class="text-workspace-chrome relative min-h-0 flex-1">

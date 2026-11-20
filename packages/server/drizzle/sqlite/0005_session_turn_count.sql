@@ -1,1 +1,0 @@
-ALTER TABLE `session_storage` ADD `turn_count` integer DEFAULT 0 NOT NULL;

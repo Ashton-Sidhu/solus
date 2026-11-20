@@ -8,6 +8,7 @@
   import { cloudConnectionsPointerUrl } from "../seats/lib/cloud-connections";
   import AtlassianProviderSettings from "../atlassian/AtlassianProviderSettings.svelte";
   import GoogleProviderSettings from "../google/GoogleProviderSettings.svelte";
+  import LinearConnection from "./LinearConnection.svelte";
   import { ensureIconCollections } from "../../lib/iconify";
   import SettingsSection from "./SettingsSection.svelte";
   import { PROVIDER_LOGOS } from "./lib/provider-logos";
@@ -44,7 +45,7 @@
 <SettingsSection
   {...settingsDefinitions["integrations.section-connections"]}
   description={cloudConnectionsUrl
-    ? "These live in your Solus account, so every host you work on can use them. Each opens your account to change it."
+    ? "These live in your Solus account, so every host you work on can use them."
     : "These connect on this host. Sign in to Solus to keep them in your account for every host."}
 >
   {#if cloudConnectionsUrl}
@@ -68,6 +69,7 @@
     <GoogleProviderSettings {serverId} />
     <AtlassianProviderSettings {serverId} />
   {/if}
+  <LinearConnection {serverId} />
 </SettingsSection>
 
 {#snippet googleLogo()}

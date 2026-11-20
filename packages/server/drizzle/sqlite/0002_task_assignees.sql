@@ -1,1 +1,0 @@
-ALTER TABLE `tasks` ADD `assignees` text DEFAULT '[]' NOT NULL;

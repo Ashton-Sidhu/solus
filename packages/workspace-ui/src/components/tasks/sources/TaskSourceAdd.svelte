@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { ChevronDown as CaretDownIcon, Plus as PlusIcon } from "@lucide/svelte";
+  import { ChevronDown as CaretDownIcon, Plus as PlusIcon, RefreshCw as RefreshIcon } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { taskSourceKey, taskSourceProvider } from "@solus/contracts/task-sources";
-  import { getSettingsContext, taskSourcesStore, accountStore } from "../../../contexts";
+  import { getSettingsContext, getWorkspaceContext, taskSourcesStore } from "../../../contexts";
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import * as Popover from "../../ui/popover";
   import * as Command from "../../ui/command";
   import { MenuSearch } from "../../ui/menu";
   import { SourceLogo } from "../../ui/list-page";
   import {
+    connectionProviderNames,
     manualSourceChoice,
     manualSourceKey,
     matchingChoices,
@@ -37,10 +38,10 @@
   let { look, onChanged }: Props = $props();
 
   const settings = getSettingsContext();
+  const session = getWorkspaceContext();
 
   let open = $state(false);
   let query = $state("");
-  const connectionsUrl = $derived(accountStore.state.kind === 'signed-in' ? new URL('/connections', accountStore.state.consoleUrl).toString() : null);
 
   const config = $derived({ taskSources: settings.taskSources });
   const configured = $derived(config.taskSources);
@@ -59,6 +60,9 @@
   // A connection problem is worth a line only while a person browses, not
   // while they search for one source by name.
   const connectionNotes = $derived(options && !query.trim() ? sourceConnectionNotes(options) : []);
+  const connectionNames = $derived(connectionProviderNames(connectionNotes));
+  // The full reasons, for a pointer that rests on the action.
+  const connectionHelp = $derived(connectionNotes.map((note) => note.text).join("\n") || undefined);
   const alreadyConfigured = $derived(
     !typedChoice && !!query.trim() && configured.some((source) => taskSourceKey(source) === manualSourceKey(query)),
   );
@@ -69,6 +73,11 @@
     if (!open) return;
     untrack(() => void taskSourcesStore.loadOptions());
   });
+
+  function openIntegrations() {
+    open = false;
+    session.showSettings("integrations");
+  }
 
   function add(choice: SourceChoice) {
     query = "";
@@ -165,34 +174,34 @@
         {/if}
       </Command.List>
     </Command.Root>
-    <!-- What keeps a source out of the list, and where to fix it. -->
+    <!-- What keeps a source out of the list, and where to fix it, in one
+         row: each logo carries its own reason as a tooltip. -->
     <div
-      class="grid gap-1.5 rounded-b-[inherit] border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-3 py-2 text-xs text-(--solus-text-tertiary)"
+      class="flex items-center gap-1 rounded-b-[inherit] border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) py-1 pr-1.5 pl-2.5 text-xs text-(--solus-text-tertiary)"
     >
-      {#each connectionNotes as note (note)}
-        <p class="m-0">{note}</p>
-      {/each}
-      <div class="-mx-1.5 flex items-center gap-1">
-        {#if connectionsUrl}
-          <a
-            href={connectionsUrl}
-            target="_blank"
-            rel="noreferrer"
-            class="rounded-md px-1.5 py-1 font-medium text-(--solus-text-secondary) no-underline transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
-          >Manage connections</a>
-        {:else if accountStore.isAvailable}
-          <button
-            type="button"
-            class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
-            onclick={() => void accountStore.signIn()}
-          >Sign in to manage connections</button>
-        {/if}
-        <button
-          type="button"
-          class="ml-auto cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
-          onclick={() => void taskSourcesStore.loadOptions()}
-        >Refresh</button>
-      </div>
+      {#if connectionNotes.length > 0}
+        <span class="flex shrink-0 items-center gap-1 pl-1.5">
+          {#each connectionNotes as note (note.text)}
+            <SourceLogo source={note.provider} title={note.text} />
+          {/each}
+        </span>
+      {/if}
+      <!-- Every connection is made in Settings › Integrations, signed in or not. -->
+      <button
+        type="button"
+        title={connectionHelp}
+        class="min-w-0 cursor-pointer truncate rounded-md border-0 bg-transparent px-1.5 py-1 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
+        onclick={openIntegrations}
+      >{connectionNotes.length > 0 ? `Connect ${connectionNames}` : "Manage connections"}</button>
+      <button
+        type="button"
+        class="ml-auto flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"
+        aria-label="Refresh sources"
+        title="Refresh sources"
+        onclick={() => void taskSourcesStore.loadOptions()}
+      >
+        <RefreshIcon size={13} aria-hidden="true" />
+      </button>
     </div>
   </Popover.Content>
 </Popover.Root>

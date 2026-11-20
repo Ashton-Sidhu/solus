@@ -7,7 +7,7 @@ import { createLogger } from '../../logger'
 import { githubCredentials } from '../../providers/github/credentials'
 import { classifyProviderFailure } from './providers/failures'
 import { githubRun, jiraTransport } from './providers/registry'
-import type { GithubRun, JiraTransport } from './providers/types'
+import { TaskProviderError, type GithubRun, type JiraTransport } from './providers/types'
 
 /**
  * What a person can choose as a task source
@@ -185,6 +185,8 @@ async function linearOptions(read: typeof linearConnection): Promise<NonNullable
     const account = await read()
     options = { connected: true, account: account.viewer.name, workspaceId: account.organization.id, teams: account.teams.nodes }
   } catch (error) {
+    // No saved key is not a failure: the person has not connected Linear yet.
+    if (error instanceof TaskProviderError && error.health === 'not_connected') return { connected: false, teams: [] }
     options = { connected: false, teams: [], error: error instanceof Error ? error.message : String(error) }
   }
   return options

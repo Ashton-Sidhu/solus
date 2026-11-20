@@ -11,8 +11,7 @@
    * printed, the colours the tool chose, and an error or warning line in its
    * tone when the tool printed no colour. Wrapped so a long line stays in the
    * pane; the caller sets the height it may take before it scrolls. Shared
-   * by a background command's wake, a device build's raw log, and the command
-   * a permission card asks about.
+   * by a background command's wake and a device build's raw log.
    */
   interface Props {
     output: string;
@@ -27,14 +26,6 @@
     copyable?: boolean;
     /** The scrolling element, for a caller that follows new output. */
     scroller?: HTMLElement | null;
-    /** Long lines wrap. Off for a command someone must read verbatim: it
-     *  scrolls sideways rather than re-flowing. */
-    wrap?: boolean;
-    /** Read each line for an error or a warning and colour it. Off for a
-     *  command, which is not a result. */
-    tones?: boolean;
-    /** No ring or radius of its own: the caller's box frames it. */
-    frameless?: boolean;
     class?: string;
   }
   let {
@@ -44,9 +35,6 @@
     active = false,
     copyable = true,
     scroller = $bindable(null),
-    wrap = true,
-    tones = true,
-    frameless = false,
     class: className,
   }: Props = $props();
 
@@ -65,10 +53,7 @@
 <div class={cn("group/terminal relative min-h-0", className)} data-testid="terminal-output">
   <div
     bind:this={scroller}
-    class={cn(
-      "max-h-[inherit] overflow-auto bg-[var(--solus-terminal-bg)] px-[0.8125rem] py-3 font-mono text-tool-step leading-[1.6] text-[var(--solus-terminal-fg)] selection:bg-[color:color-mix(in_oklch,var(--solus-terminal-fg)_20%,transparent)]",
-      !frameless && "rounded-lg shadow-[shadow:0_0_0_0.03125rem_var(--solus-terminal-border)]",
-    )}
+    class="max-h-[inherit] overflow-auto rounded-lg bg-[var(--solus-terminal-bg)] px-[0.8125rem] py-3 font-mono text-tool-step leading-[1.6] text-[var(--solus-terminal-fg)] shadow-[shadow:0_0_0_0.03125rem_var(--solus-terminal-border)] selection:bg-[color:color-mix(in_oklch,var(--solus-terminal-fg)_20%,transparent)]"
     role="log"
     aria-label={label}
   >
@@ -76,9 +61,9 @@
     {#if lines.length === 0}
       <p class="m-0 text-[var(--solus-terminal-dim)]">{active ? "Waiting for output" : "No output."}{#if active}{@render cursor()}{/if}</p>
     {:else}
-      <pre class={wrap ? "m-0 break-words whitespace-pre-wrap" : "m-0 whitespace-pre"}>{#each lines as line, index (index)}<span
-            class:text-[var(--solus-terminal-error)]={tones && line.tone === "error"}
-            class:text-[var(--solus-terminal-warning)]={tones && line.tone === "warning"}
+      <pre class="m-0 break-words whitespace-pre-wrap">{#each lines as line, index (index)}<span
+            class:text-[var(--solus-terminal-error)]={line.tone === "error"}
+            class:text-[var(--solus-terminal-warning)]={line.tone === "warning"}
           >{#each line.spans as span, spanIndex (spanIndex)}<span
                 class:font-semibold={span.bold}
                 class:opacity-70={span.dim}

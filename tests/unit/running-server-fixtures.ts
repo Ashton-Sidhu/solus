@@ -1,4 +1,4 @@
-import { Server } from '@solus/client-core/running-servers'
+import { RunningServers } from '@solus/client-core/running-servers'
 import type { RunningServer } from '@solus/contracts/running-servers'
 
 export function runningServer(serverId = 'server-1'): RunningServer {
@@ -18,5 +18,5 @@ export function processFact(pid: number, fields: Partial<import('@solus/server/h
 
 
 export function serverModel(data: RunningServer) {
-  return new Server(data, { source: () => null, retain: () => () => {}, changed: () => {}, refresh: async () => {} })
+  return new RunningServers(data, { source: () => null, retain: () => () => {}, changed: () => {}, refresh: async () => {} })
 }

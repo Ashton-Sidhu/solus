@@ -2,7 +2,7 @@ import { keepEqual, sameItems } from '../keep-equal'
 import type { RunningServer } from '@solus/contracts/running-servers'
 import type { HostApi } from '../host-api'
 import type { HostEventSubscriber } from '../host-event-subscriber'
-import { Server, type ServerForwarding, type ServerRow } from './server'
+import { RunningServers, type RunningServersForwarding, type RunningServersRow, type RunningServersCommands } from './running-servers'
 
 type ServerApi = Pick<HostApi, 'runningServersWatch' | 'runningServersUnwatch' | 'runningServersCheckoutRoots' | 'runningServerStop' | 'runningServerTunnel' | 'projectConfigLoad' | 'projectConfigSave'>
 interface StoreState {
@@ -15,13 +15,24 @@ export interface RunningServersSource {
   events: HostEventSubscriber
   ready: boolean
 }
+export interface RunningServersStoreState {
+  status: StoreState['status']
+  error: string | null
+  servers: readonly RunningServers[]
+  revision: number
+}
+export interface RunningServersBinding {
+  state: RunningServersStoreState
+  createServer: (data: RunningServer, commands: RunningServersCommands) => RunningServers
+}
+
 /** Shared by Svelte and React. Each host owns one instance, regardless of how
  *  many rows or panes read it. The server's lease is renewed while retained. */
-export class RunningServersStore {
+export class RunningServersController {
   private static readonly empty: StoreState = { status: 'loading', servers: [], error: null }
-  private view: StoreState = RunningServersStore.empty
-  private items: readonly Server[] = []
-  private version = 0
+  private view: StoreState = RunningServersController.empty
+  private readonly state: RunningServersStoreState
+  private readonly createServer: RunningServersBinding['createServer']
   private readonly listeners = new Set<() => void>()
   private holders = 0
   private epoch = 0
@@ -34,26 +45,31 @@ export class RunningServersStore {
   private readonly checkoutPaths = new Map<string, number>()
   private readonly checkoutRoots = new Map<string, string | null>()
   private refreshPending = false
-  private readonly models = new Map<string, Server>()
+  private readonly models = new Map<string, RunningServers>()
   private renewing = false
   private recoveredForwards = false
 
   constructor(
     private readonly sourceOf: () => RunningServersSource | null,
     private readonly observeConnection: (changed: () => void) => () => void,
-    private readonly forwarding?: ServerForwarding,
-  ) {}
+    private readonly forwarding?: RunningServersForwarding,
+    binding?: RunningServersBinding,
+  ) {
+    this.state = binding?.state ?? { status: 'loading', error: null, servers: [], revision: 0 }
+    this.createServer = binding?.createServer ?? ((data, commands) => new RunningServers(data, commands))
+  }
 
-  get revision(): number { return this.version }
-  get status() { return this.view.status }
-  get error() { return this.view.error }
-  get servers(): readonly Server[] { return this.items }
-  inCheckout(path: string | null): Server[] {
+  get revision(): number { return this.state.revision }
+  get status() { return this.state.status }
+  get error() { return this.state.error }
+  get servers(): readonly RunningServers[] { return this.state.servers }
+  inCheckout(path: string | null): RunningServers[] {
+    void this.state.revision
     if (path && !this.checkoutRoots.has(path)) return []
     return this.servers.filter((server) => server.matchesCheckout(path, path ? this.checkoutRoots.get(path) ?? undefined : undefined))
   }
-  rows(path?: string | null): ServerRow[] {
-    const groups = new Map<string | null, ServerRow[]>()
+  rows(path?: string | null): RunningServersRow[] {
+    const groups = new Map<string | null, RunningServersRow[]>()
     for (const server of path === undefined ? this.servers : this.inCheckout(path)) {
       const rows = groups.get(server.checkoutPath) ?? []
       rows.push(...server.rows)
@@ -61,7 +77,7 @@ export class RunningServersStore {
     }
     return [...groups.values()].flat()
   }
-  private changed(): void { this.version++; for (const listener of this.listeners) listener() }
+  private changed(): void { this.state.revision++; for (const listener of this.listeners) listener() }
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
@@ -89,7 +105,7 @@ export class RunningServersStore {
       this.source = null
       this.inFlight = false
       if (source?.ready) void source.api.runningServersUnwatch().catch(() => {})
-      this.set(RunningServersStore.empty)
+      this.set(RunningServersController.empty)
     }
   }
 
@@ -189,14 +205,16 @@ export class RunningServersStore {
     for (const data of view.servers) {
       const model = this.models.get(data.serverId)
       if (model) model.update(data)
-      else this.models.set(data.serverId, new Server(data, {
+      else this.models.set(data.serverId, this.createServer(data, {
         source: () => this.source, forwarding: this.forwarding,
         retain: (path) => this.retainCheckout(path), refresh: () => this.refresh(),
         changed: () => { this.view = { ...this.view }; this.changed() },
       }))
     }
     const items = view.servers.map((data) => this.models.get(data.serverId)!)
-    if (!sameItems(items, this.items)) this.items = items
+    if (!sameItems(items, this.state.servers)) this.state.servers = items
+    this.state.status = next.status
+    this.state.error = next.error
     this.view = next
     this.changed()
   }

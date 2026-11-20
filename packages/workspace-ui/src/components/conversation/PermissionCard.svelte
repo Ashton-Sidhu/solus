@@ -4,18 +4,18 @@
   import { getWorkspaceContext } from '../../contexts'
   import { requestExpiryText, type AgentId, type PermissionRequest, type PermissionOption } from '@solus/contracts/types'
   import { abbreviateHome } from '../../lib/paths'
-  import CopyButton from '../ui/CopyButton.svelte'
-  import { TerminalOutput } from '../ui/terminal-output'
+  import CodeBlock from '../ui/CodeBlock.svelte'
   import { fileChangePreviews } from './lib/fileChangePreview'
   import {
     formatWaiting,
-    permissionArgv,
+    permissionCommand,
     permissionCwd,
     permissionFileLabel,
     permissionFooterOrder,
     permissionScope,
     othersTurnTitle,
     permissionKicker,
+    destructiveStatement,
     splitPathTail,
   } from './lib/interrupt'
   import { presenceStore } from '../../contexts/presence/presence.store.svelte'
@@ -90,10 +90,11 @@
     return parsed.success && (parsed.data.old_string !== undefined || parsed.data.new_string !== undefined)
   })
 
-  // The full argv is the hero and is never truncated — approving a command you
+  // The full command is the hero and is never truncated — approving a command you
   // can't fully read is the failure mode this card exists to prevent.
-  const argv = $derived(permissionArgv(permission))
+  const command = $derived(permissionCommand(permission))
   const kicker = $derived(permissionKicker(permission))
+  const destructive = $derived(command ? destructiveStatement(command.code) : null)
   // Anyone may answer (D2); a teammate's turn says whose it is.
   const othersTurn = $derived(othersTurnLabel(permission.turnAuthor, sess ? presenceStore.currentUserId(runHost(sess.run)) : null))
   const eyebrow = $derived(othersTurn ? othersTurnTitle(kicker.title, othersTurn) : `${agentName} asks for permission`)
@@ -167,31 +168,22 @@
         <span class="interrupt-chip" title={cwdParts.head + cwdParts.tail}><FolderIcon size={11} />{cwdParts.tail}</span>
       {/if}
     </p>
-    {#if kicker.tone === 'destructive'}
+    {#if destructive}
+      <!-- The statement that matched, quoted: in a long script it can sit
+           below the fold of the command box. -->
       <p class="m-0 text-transcript-meta text-destructive">
-        Matches a destructive command pattern — its effects can reach outside the worktree.
+        Contains <code class="font-mono break-all">{destructive.statement}</code>, which {destructive.reason}.
       </p>
     {/if}
   </div>
 
-  {#if argv}
-    <!-- The command in the terminal it will run in, verbatim: approving a
-         command you can't read whole is the failure mode this card exists
-         to prevent, so it scrolls sideways rather than re-flowing, and no
-         line is read as a result. -->
-    <div class="interrupt-term">
-      <span class="interrupt-term-prompt" aria-hidden="true">$</span>
-      <div class="min-w-0 flex-1 pr-6">
-        <TerminalOutput
-          output={argv.text}
-          label={`${argv.label} command`}
-          copyable={false}
-          frameless
-          wrap={false}
-          tones={false}
-        />
-      </div>
-      <span class="interrupt-term-copy"><CopyButton text={argv.text} title="Copy command" /></span>
+  {#if command}
+    <!-- The command as the expanded tool row shows it: approving a command
+         you can't read whole is the failure mode this card exists to prevent,
+         so a long line wraps rather than hiding past the edge. A long script
+         scrolls inside the block so the decision stays on screen. -->
+    <div class="[&_pre]:max-h-80 [&_pre]:overflow-y-auto [&_pre]:whitespace-pre-wrap [&_pre]:wrap-anywhere" data-slot="permission-command">
+      <CodeBlock text={command.code} lang={command.language} />
     </div>
   {/if}
 

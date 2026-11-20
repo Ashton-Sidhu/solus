@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { TaskInspectionStore } from '@solus/client-core/task-inspection'
+import { TaskDataStore } from '@solus/client-core/task-data'
 import { serializeTaskWrite } from '@solus/server/data/tasks/task-writes'
-import type { TaskInspection } from '@solus/contracts/task-inspection'
+import type { TaskProviderData } from '@solus/contracts/task-data'
 
-const inspection = (cursor: string | null, ids: string[]): TaskInspection => ({
+const inspection = (cursor: string | null, ids: string[]): TaskProviderData => ({
   author: 'Ada',
   assignees: [],
   reactions: [],
@@ -20,51 +20,52 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-describe('provider task inspection', () => {
+describe('provider task data', () => {
   test('a failed continuation retains rows and cursor, so retry can finish the same page', async () => {
     let fail = true
-    const store = new TaskInspectionStore('github:I1', () => ({
-      tasksInspect: async (_id, cursor) => {
-        if (!cursor) return inspection('older', ['new'])
+    const store = new TaskDataStore('github:I1', () => ({
+      tasksGet: async (_id, read) => {
+        if (!read?.cursor) return inspection('older', ['new'])
         if (fail) throw new Error('rate limited')
         return inspection(null, ['old', 'new'])
       },
       tasksReact: async () => {}
     }))
-    await store.refresh()
-    await store.loadMore()
-    expect(store.current.value?.events.map((event) => event.id)).toEqual(['new'])
-    expect(store.current.value?.historyCursor).toBe('older')
-    expect(store.current.error).toBe('rate limited')
+    await store.loadProvider()
+    await store.loadOlderHistory()
+    expect(store.current.provider.value?.events.map((event) => event.id)).toEqual(['new'])
+    expect(store.current.provider.value?.historyCursor).toBe('older')
+    expect(store.current.provider.error).toBe('rate limited')
     fail = false
-    await store.loadMore()
-    expect(new Set(store.current.value?.events.map((event) => event.id))).toEqual(
+    await store.loadOlderHistory()
+    expect(new Set(store.current.provider.value?.events.map((event) => event.id))).toEqual(
       new Set(['old', 'new'])
     )
-    expect(store.current.value?.historyCursor).toBeNull()
+    expect(store.current.provider.value?.historyCursor).toBeNull()
   })
   test('a page that finishes after a refresh cannot replace current history', async () => {
-    const older = deferred<TaskInspection>()
+    const older = deferred<TaskProviderData>()
     let reads = 0
-    const store = new TaskInspectionStore('github:I1', () => ({
-      tasksInspect: async (_id, cursor) =>
-        cursor ? older.promise : inspection('older', [++reads === 1 ? 'first' : 'fresh']),
+    const store = new TaskDataStore('github:I1', () => ({
+      tasksGet: async (_id, read) =>
+        read?.cursor ? older.promise : inspection('older', [++reads === 1 ? 'first' : 'fresh']),
       tasksReact: async () => {}
     }))
-    await store.refresh()
-    const page = store.loadMore()
-    await store.refresh()
+    await store.loadProvider()
+    const page = store.loadOlderHistory()
+    await store.loadProvider()
     older.resolve(inspection(null, ['stale']))
     await page
-    expect(store.current.value?.events.map((event) => event.id)).toEqual(['fresh'])
+    expect(store.current.provider.value?.events.map((event) => event.id)).toEqual(['fresh'])
+    expect(store.current.provider.loadingMore).toBe(false)
   })
   test('a disconnected API getter ends loading and leaves a retryable error', async () => {
-    const store = new TaskInspectionStore('github:I1', () => {
+    const store = new TaskDataStore('github:I1', () => {
       throw new Error('disconnected')
     })
-    await store.refresh()
-    expect(store.current.pending).toBe(false)
-    expect(store.current.error).toBe('disconnected')
+    await store.loadProvider()
+    expect(store.current.provider.pending).toBe(false)
+    expect(store.current.provider.error).toBe('disconnected')
   })
 })
 
@@ -92,10 +93,10 @@ test('writes to one task stay in order, and a refused write does not block the n
 })
 
 test('an account change discards an in-flight inspection and permits a new read', async () => {
-  const old = deferred<TaskInspection>()
+  const old = deferred<TaskProviderData>()
   let first = true
-  const store = new TaskInspectionStore('github:I1', () => ({
-    tasksInspect: async () => {
+  const store = new TaskDataStore('github:I1', () => ({
+    tasksGet: async () => {
       if (first) {
         first = false
         return old.promise
@@ -104,18 +105,18 @@ test('an account change discards an in-flight inspection and permits a new read'
     },
     tasksReact: async () => {}
   }))
-  const reading = store.refresh()
+  const reading = store.loadProvider()
   await Promise.resolve()
   store.reset()
-  await store.refresh()
+  await store.loadProvider()
   old.resolve(inspection(null, ['old account']))
   await reading
-  expect(store.current.value?.events.map((event) => event.id)).toEqual(['new account'])
-  expect(store.current.pending).toBe(false)
+  expect(store.current.provider.value?.events.map((event) => event.id)).toEqual(['new account'])
+  expect(store.current.provider.pending).toBe(false)
 })
 
 test('templates from a previous source cannot replace the current source choices', async () => {
-  const { TaskTemplateStore } = await import('@solus/client-core/task-inspection')
+  const { TaskTemplateStore } = await import('@solus/client-core/task-data')
   const slow =
     deferred<
       Array<{ id: string; name: string; description: string; title: string; body: string }>
@@ -137,17 +138,20 @@ test('templates from a previous source cannot replace the current source choices
 })
 
 test('a reaction waits for an older read, then reads the provider after the accepted write', async () => {
-  const old = deferred<TaskInspection>(), accepted = deferred<void>()
+  const old = deferred<TaskProviderData>(),
+    accepted = deferred<void>()
   let reads = 0
-  const store = new TaskInspectionStore('github:I1', () => ({
-    tasksInspect: async () => ++reads === 1 ? old.promise : inspection(null, ['after write']),
-    tasksReact: async () => { accepted.resolve() },
+  const store = new TaskDataStore('github:I1', () => ({
+    tasksGet: async () => (++reads === 1 ? old.promise : inspection(null, ['after write'])),
+    tasksReact: async () => {
+      accepted.resolve()
+    }
   }))
-  const reading = store.refresh()
+  const reading = store.loadProvider()
   const writing = store.react('I1', 'HEART', true)
   await accepted.promise
   old.resolve(inspection(null, ['before write']))
   await Promise.all([reading, writing])
   expect(reads).toBe(2)
-  expect(store.current.value?.events.map((event) => event.id)).toEqual(['after write'])
+  expect(store.current.provider.value?.events.map((event) => event.id)).toEqual(['after write'])
 })

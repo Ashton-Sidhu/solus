@@ -1,3 +1,4 @@
+import { taskReadOptionsSchema } from '@solus/contracts/task-read'
 import { inspectTask, reactToTask, taskTemplates, resolveTaskUrl } from '../../data/tasks/task-inspection'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
@@ -104,7 +105,6 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
 
   server.register('tasksLoadMore', ([source], ctx) => loadMoreTaskSource(taskSourceSchema.parse(source), readerOf(ctx).personKey))
   server.register('tasksSourceOptions', () => taskSourceOptions())
-  server.register('tasksInspect', ([id, cursor]) => inspectTask(id, cursor))
   server.register('tasksReact', ([id, targetId, content, add]) => reactToTask(id, targetId, content, add))
   server.register('tasksTemplates', ([source]) => taskTemplates(taskSourceSchema.parse(source)))
   server.register('tasksResolve', ([url], ctx) => resolveTaskUrl(recordScopeOf(ctx.principal), url, readerOf(ctx).personKey))
@@ -115,8 +115,11 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
   })
 
   server.register('tasksGet', (args, ctx) => {
-    const [id] = args
-    return getTask(recordScopeOf(ctx.principal), id, readerOf(ctx).personKey)
+    const [id, options] = args
+    const read = taskReadOptionsSchema.parse(options ?? { section: 'details' })
+    const taskId = z.string().min(1).max(512).parse(id)
+    if (read.section === 'provider') return inspectTask(taskId, read.cursor)
+    return getTask(recordScopeOf(ctx.principal), taskId, readerOf(ctx).personKey)
   })
 
   server.register('tasksCreate', (args, ctx) => {

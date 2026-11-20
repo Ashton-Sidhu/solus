@@ -1,12 +1,15 @@
 # Running servers
 
 The Running servers card sits below Git in the desktop and web project panel.
-It lists the selected checkout's servers. **All on host** includes other
-checkouts and unassigned servers. The card has its own collapse and visibility
+It lists the selected checkout's servers. The **Checkout | Host** switch in the
+card header selects the scope. **Host** includes other checkouts and unassigned
+servers. The card has its own collapse and visibility
 controls. It is visible only when the selected scope has server rows. Loading, disconnected,
 and failed scans with no rows do not show a card. Discovery stays subscribed, so
 the card returns when a server appears. The mobile server screen keeps its status
-and retry controls available. Stop is red.
+and retry controls available. On desktop and web, a row shows its copy, forward,
+and stop buttons when the pointer is on it or keyboard focus is in it. Stop turns
+red on hover. On a touch screen, the buttons always show.
 
 Native mobile exposes the same list and Stop action from the session header's
 server button. Both clients start with four endpoint rows and offer **Show more**.
@@ -80,17 +83,20 @@ the host's address.
 
 The running-server feature owns its collection stores. `runningServers.forHost(hostId)`
 returns the desktop/web Svelte store. Its registry uses `SvelteMap`, and each
-store exposes `servers`, `status`, `error`, and checkout rows. Neither `Host` nor
-`SolusApp` owns this collection. Native mobile has a feature-owned registry scoped
-to its host connections and uses the same framework-neutral collection owner.
+store owns `servers`, `status`, and `error` through Svelte runes and exposes
+checkout rows. Neither `Host` nor `SolusApp` owns this collection. Native mobile
+has a feature-owned registry scoped to its host connections and shares the same
+connection and lifecycle controller.
 
-Each entry is a stable `Server` instance. It owns its process identity, endpoint
+Each entry is a stable `RunningServers` instance. It owns its process identity, endpoint
 labels, checkout matching, Stop, forwarded ports, renewal, and system-browser
 opening. Removing a server disposes its forwards and invalidates commands held
 by old callers. A refresh updates the same instance when its identity is unchanged.
-The collection owns subscriptions, reconnect guards, configured URLs, and checkout
-roots. It sends its change notifications through a small Svelte adapter on
-desktop/web and React's external-store interface on mobile.
+A shared controller owns subscriptions, reconnect guards, configured URLs, and checkout
+roots. It writes directly into the Svelte store's state on desktop/web and uses React's
+external-store interface on mobile. Per-entry state is reactive too, so a held
+`RunningServers` instance updates without replacing its identity. There is no
+`createSubscriber` bridge or lazy loading from property getters.
 
 On the host, `ServerDiscovery.discover(paths)` returns serializable server records.
 It encapsulates operating-system reads, ownership rules, configured probes, caches,
@@ -102,6 +108,7 @@ class instances and Svelte state do not cross that transport.
 is a Node owner, separate from the reactive client registry. It does not depend on
 Svelte. Its discovery operations run in the host's acting scope, including tunnel
 upgrades that start outside an RPC.
+
 The host scans every three seconds while a client holds a lease. Clients renew
 every eight seconds. Readers and active forwards retain that lease. The last
 holder releases it, disconnection removes it, and an abandoned lease expires

@@ -19,7 +19,7 @@ describe('conversation minimap active marker', () => {
   test('scroll reads are bounded by mounted rows, not historical prompts', () => {
     const dom = new JSDOM('<main><div data-nav-msg-id="500"></div><div data-nav-msg-id="501"></div></main>')
     const container = dom.window.document.querySelector('main')!
-    const items = Array.from({ length: 502 }, (_, i) => ({ id: String(i), preview: '' }))
+    const items = Array.from({ length: 502 }, (_, i) => ({ id: String(i), label: '' }))
     const index = indexMinimapNodes(container, items)
     let reads = 0
     for (let frame = 0; frame < 10; frame++) {
@@ -36,7 +36,7 @@ describe('conversation minimap active marker', () => {
   test('paging rebuilds missing nodes even when the navigation list is unchanged', () => {
     const dom = new JSDOM('<main><div data-nav-msg-id="tail"></div></main>')
     const container = dom.window.document.querySelector('main')!
-    const items = [{ id: 'older', preview: '' }, { id: 'tail', preview: '' }]
+    const items = [{ id: 'older', label: '' }, { id: 'tail', label: '' }]
     const before = indexMinimapNodes(container, items)
     expect(before.firstMountedIndex).toBe(1)
     expect(before.nodes.has('older')).toBe(false)
@@ -80,7 +80,7 @@ describe('minimap nav item builder', () => {
     const before = build([first])
     const after = build([first, userMessage('u2', 'second')])
     expect(after[0]).toBe(before[0])
-    expect(after[0]?.preview).toBe('spread out')
+    expect(after[0]?.label).toBe('spread out')
   })
 
   test('rebuilds when a user row is added', () => {
@@ -106,8 +106,8 @@ describe('minimap nav item builder', () => {
     // An edit keeps the row's identity, so identity alone cannot decide this.
     const build = createNavItemBuilder()
     const message = { id: 'u1', role: 'user', content: 'before' }
-    expect(build([message])[0]?.preview).toBe('before')
+    expect(build([message])[0]?.label).toBe('before')
     message.content = 'after'
-    expect(build([message])[0]?.preview).toBe('after')
+    expect(build([message])[0]?.label).toBe('after')
   })
 })

@@ -38,7 +38,7 @@ export interface NavItem {
   id: string;
   /** Single-line hover preview, precomputed at build time so the rail rows never
    *  re-derive it (see previewText). */
-  preview: string;
+  label: string;
 }
 
 /** Rebuild only when message membership changes, never on a scroll frame. */
@@ -148,7 +148,7 @@ export function createNavItemBuilder(): (messages: readonly NavSourceMessage[]) 
       } else {
         item = hostNoticeKind(message)
           ? null
-          : { id: message.id, preview: previewText(message.content) };
+          : { id: message.id, label: previewText(message.content) };
         cache.set(message, { content: message.content, item });
       }
       if (!item) continue;

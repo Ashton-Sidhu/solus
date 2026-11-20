@@ -322,6 +322,9 @@ export const RPC_PLANES = {
   // Host config
   typeSafeKeyStatus: 'collaboration',
   typeSafeKeySet: 'collaboration',
+  vaultKeyStatus: 'collaboration',
+  vaultKeySave: 'collaboration',
+  vaultKeyDisconnect: 'collaboration',
   configGet: 'collaboration',
   configUpdate: 'collaboration',
   textGenerationSettingsGet: 'collaboration',
@@ -512,7 +515,7 @@ export const RPC_PLANES = {
   tasksSidebarSnapshot: 'collaboration',
   tasksSearchComments: 'collaboration',
   tasksGet: 'execution',
-  tasksInspect: 'execution', tasksReact: 'execution', tasksTemplates: 'execution', tasksResolve: 'execution',
+ tasksReact: 'execution', tasksTemplates: 'execution', tasksResolve: 'execution',
   tasksAttachments: 'collaboration',
   tasksCreate: 'execution',
   tasksUpdate: 'execution',

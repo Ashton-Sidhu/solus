@@ -210,6 +210,9 @@
   let scrollEl: HTMLDivElement | null = $state(null);
   let messagesEl: HTMLDivElement | null = $state(null);
   let readingColumnEl: HTMLDivElement | null = $state(null);
+  // Each message's hover rail hangs in this gutter and wraps only when it is too narrow.
+  let transcriptWidth = $state(0);
+  let readingColumnWidth = $state(0);
   // The one owner of following the end. It lives as long as the scroller, not
   // its visibility, so a hidden view still knows whether the reader was at the
   // end when it is shown again.
@@ -716,6 +719,7 @@
       {/if}
       <div
         bind:this={scrollEl}
+        bind:clientWidth={transcriptWidth}
         data-slot="transcript"
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
@@ -728,10 +732,11 @@
              --solus-reading-max) so everything lines up. -->
         <div
           bind:this={readingColumnEl}
+          bind:clientWidth={readingColumnWidth}
           class="w-full"
           class:opacity-0={waitingForHistory || arrival.pending}
           inert={waitingForHistory || arrival.pending}
-          style="max-width:var(--solus-reading-max);margin-inline:auto{reservesBandRoom
+          style="max-width:var(--solus-reading-max);margin-inline:auto;--transcript-gutter:{Math.max(0, (transcriptWidth - readingColumnWidth) / 2)}px{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"
         >

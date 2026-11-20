@@ -1,9 +1,9 @@
 import { z } from 'zod'
 import type {
-  TaskInspection,
+  TaskProviderData,
   TaskReactionContent,
   TaskTemplate
-} from '@solus/contracts/task-inspection'
+} from '@solus/contracts/task-data'
 import { linearRequest } from './linear-api'
 import { TaskProviderError } from './types'
 
@@ -68,7 +68,7 @@ export async function inspectLinearIssue(
   workspaceId: string,
   issueId: string,
   before?: string
-): Promise<TaskInspection> {
+): Promise<TaskProviderData> {
   const result = await linearRequest(
     `query($id: String!, $before: String) { organization { id } viewer { id } issue(id: $id) {
     id creator { name } assignee { email avatarUrl } reactions { id emoji user { id } }
@@ -82,7 +82,7 @@ export async function inspectLinearIssue(
   if (result.organization.id !== workspaceId)
     throw new TaskProviderError('no_access', 'This issue belongs to another Linear workspace.')
   const issue = result.issue
-  const reactions: TaskInspection['reactions'] = []
+  const reactions: TaskProviderData['reactions'] = []
   for (const target of [{ id: issue.id, reactions: issue.reactions }, ...issue.comments.nodes]) {
     for (const content of Object.keys(EMOJI).filter(
       (key): key is TaskReactionContent => key in EMOJI

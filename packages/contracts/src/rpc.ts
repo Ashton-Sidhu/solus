@@ -403,6 +403,9 @@ export const RPC_INVOKE_METHODS = [
   // Host config — the tier that follows a user between clients
   'typeSafeKeyStatus',
   'typeSafeKeySet',
+  'vaultKeyStatus',
+  'vaultKeySave',
+  'vaultKeyDisconnect',
   'configGet',
   'configUpdate',
 
@@ -590,7 +593,6 @@ export const RPC_INVOKE_METHODS = [
   'tasksSidebarSnapshot',
   'tasksSearchComments',
   'tasksGet',
-  'tasksInspect',
   'tasksReact',
   'tasksTemplates',
   'tasksResolve',

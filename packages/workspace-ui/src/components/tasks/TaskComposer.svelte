@@ -33,8 +33,8 @@
     composerFieldsFor,
   } from "./lib/task-composer";
   import type { TaskCreateInput, TaskPriority, TaskSourceState } from "@solus/contracts/task-types";
-  import { TaskTemplateStore } from '@solus/client-core/task-inspection';
-  import type { TaskTemplate } from '@solus/contracts/task-inspection';
+  import { TaskTemplateStore } from '@solus/client-core/task-data';
+  import type { TaskTemplate } from '@solus/contracts/task-data';
   import { taskHostId } from '../../contexts/tasks/task-sources.store.svelte';
   import { serverConnections } from '@solus/client-core/server-connections';
   import { localApi } from '@solus/client-core/local-api';

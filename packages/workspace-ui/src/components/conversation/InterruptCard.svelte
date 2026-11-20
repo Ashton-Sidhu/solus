@@ -250,39 +250,7 @@
     }
   }
 
-  /* ── the command, a preview, a diff: the only boxed things on the card ── */
-  :global(.interrupt-term) {
-    position: relative;
-    display: flex;
-    min-width: 0;
-    align-items: flex-start;
-    gap: 0.5rem;
-    overflow: hidden;
-    border-radius: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    background: color-mix(in oklch, var(--foreground) 3%, transparent);
-    box-shadow: inset 0 0 0 0.0625rem color-mix(in oklab, var(--border) 50%, transparent);
-  }
-  :global(.interrupt-term-prompt) {
-    flex-shrink: 0;
-    user-select: none;
-    font-family: var(--solus-code-font-family);
-    font-size: 0.8125rem;
-    line-height: 1.6;
-    color: var(--muted-foreground);
-  }
-  :global(.interrupt-term-copy) {
-    position: absolute;
-    top: 0.375rem;
-    right: 0.5rem;
-    opacity: 0;
-    transition: opacity var(--duration-quick) var(--ease-premium);
-  }
-  :global(.interrupt-term:hover .interrupt-term-copy),
-  :global(.interrupt-term:focus-within .interrupt-term-copy) {
-    opacity: 1;
-  }
-
+  /* ── a preview or a diff: the only boxed things on the card besides the command ── */
   :global(.interrupt-payload) {
     overflow: hidden;
     border-radius: 0.5rem;

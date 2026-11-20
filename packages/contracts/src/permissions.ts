@@ -113,6 +113,9 @@ const PERMISSION_OF_METHOD = {
   // The machine's one GitHub, Google, Atlassian, or TypeSafe credential on a host; each
   // person's own row on the workspace service, where every member holds this leaf.
   typeSafeKeySet: 'host.admin.connections',
+  vaultKeyStatus: HOST_USE,
+  vaultKeySave: 'host.admin.connections',
+  vaultKeyDisconnect: 'host.admin.connections',
   googleConnect: 'host.admin.connections',
   googleDisconnect: 'host.admin.connections',
   atlassianStartOAuth: 'host.admin.connections',
@@ -264,7 +267,7 @@ const PERMISSION_OF_METHOD = {
   // one is decided by the caller's own provider connection, so every task
   // method is the ordinary use of the host (docs/plans/provider-owned-tasks.md).
   tasksLoadMore: HOST_USE, tasksSources: HOST_USE, tasksSourceOptions: HOST_USE, tasksSearch: HOST_USE, tasksGet: HOST_USE,
-  tasksInspect: HOST_USE, tasksReact: HOST_USE, tasksTemplates: HOST_USE, tasksResolve: HOST_USE,
+  tasksReact: HOST_USE, tasksTemplates: HOST_USE, tasksResolve: HOST_USE,
   tasksAttachments: HOST_USE, tasksCreate: HOST_USE, tasksUpdate: HOST_USE, tasksMove: HOST_USE,
   tasksDelete: HOST_USE, tasksMarkRead: HOST_USE, tasksSnooze: HOST_USE,
   tasksComment: HOST_USE, tasksRetryComment: HOST_USE, tasksDeleteComment: HOST_USE,

@@ -10,6 +10,7 @@ import {
   vaultCredentialHeldBodySchema,
   vaultUploadResponseSchema,
   type CredentialRef,
+  type LinearRef,
   type McpDelivery,
   type McpRef,
   type ProviderRef,
@@ -72,6 +73,7 @@ export function mcpCredentialRef(integration: Pick<Integration, 'id' | 'url'>, a
 }
 
 export const TYPESAFE_REF: TypesafeRef = { kind: 'typesafe' }
+export const LINEAR_REF: LinearRef = { kind: 'provider', provider: 'linear' }
 
 /** Raised when the OS keyring is unavailable; we never write a token in
  *  plaintext. Shared by every provider that stores a credential. */
@@ -304,23 +306,27 @@ export class Vault {
 
   /**
    * Link (cloud-vault.md §2.5): the host's user now has an account, so this host
-   * keeps no login of theirs. Their TypeSafe key moves into the account, where a
-   * key the account holds already wins; GitHub, Google, and Atlassian are made
-   * again on the website, since a token belongs to the client that issued it. Their
-   * MCP connections move by the reconcile. A key the cloud did not take stays,
-   * unread, until the next try (the next delegation) or the unlink.
+   * keeps no login of theirs. Their pasted keys (TypeSafe, Linear) move into the
+   * account, where a key the account holds already wins; GitHub, Google, and
+   * Atlassian are made again on the website, since a token belongs to the client
+   * that issued it. Their MCP connections move by the reconcile. A key the cloud
+   * did not take stays, unread, until the next try (the next delegation) or the unlink.
    */
   async settleLinked(personKey: string): Promise<void> {
-    for (const provider of Object.keys(PROVIDER_HOST_KEYS) as VaultProvider[]) this.removeHost(PROVIDER_HOST_KEYS[provider])
-    const held = this.loadHost(TYPESAFE_HOST_KEY, typesafeDeliverySchema)
-    if (!held) return
-    const result = await this.upload(personKey, TYPESAFE_REF, { kind: 'key', key: held.key }, null)
-    if (result.kind !== 'uploaded' && result.kind !== 'held') {
-      log.info('typesafe_key_kept_until_upload', { reason: result.kind })
-      return
+    for (const provider of Object.keys(PROVIDER_HOST_KEYS) as VaultProvider[])
+      if (provider !== 'linear') this.removeHost(PROVIDER_HOST_KEYS[provider])
+    for (const ref of [TYPESAFE_REF, LINEAR_REF]) {
+      const hostKey = hostKeyOf(ref)
+      const held = this.loadHost(hostKey, typesafeDeliverySchema)
+      if (!held) continue
+      const result = await this.upload(personKey, ref, { kind: 'key', key: held.key }, null)
+      if (result.kind !== 'uploaded' && result.kind !== 'held') {
+        log.info('host_key_kept_until_upload', { credential: hostKey, reason: result.kind })
+        continue
+      }
+      this.removeHost(hostKey)
+      log.info('host_key_moved_to_account', { credential: hostKey, outcome: result.kind })
     }
-    this.removeHost(TYPESAFE_HOST_KEY)
-    log.info('typesafe_key_moved_to_account', { outcome: result.kind })
   }
 
   /**
@@ -341,7 +347,7 @@ export class Vault {
    * An executor's upload into the person's account (cloud-vault.md §2.2): once, with
    * `expectedVersion: null`, so a connection the account holds already wins.
    */
-  async upload(personKey: string, ref: McpCredentialRef | TypesafeRef, material: UploadMaterial, label: string | null): Promise<CloudCredentialUpload> {
+  async upload(personKey: string, ref: McpCredentialRef | TypesafeRef | LinearRef, material: UploadMaterial, label: string | null): Promise<CloudCredentialUpload> {
     const body: VaultUploadRequest = { ref: cloudRefOf(ref), material, expectedVersion: null, label }
     const call = await this.callAccount(personKey, 'PUT', VAULT_PATH, body)
     if (call.kind !== 'response') return call

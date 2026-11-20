@@ -1,47 +1,46 @@
-import { createSubscriber } from 'svelte/reactivity'
-import { RunningServersStore as CoreStore } from '@solus/client-core/running-servers'
+import { RunningServers, RunningServersController, type RunningServersStoreState } from '@solus/client-core/running-servers'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
 import { SvelteMap } from 'svelte/reactivity'
 import { untrack } from 'svelte'
 
-/** Reading a host's list retains one shared subscription until its last
- *  reactive reader leaves. Components own no loading or reconnect logic. */
+/** Rune-backed state for one host. Surfaces explicitly retain its discovery lease. */
 export class RunningServersStore {
-  readonly #core: CoreStore
-  readonly #subscribe: () => void
+  status = $state<RunningServersStoreState['status']>('loading')
+  error = $state<string | null>(null)
+  servers = $state.raw<readonly RunningServers[]>([])
+  revision = $state(0)
+  readonly #controller: RunningServersController
 
-  constructor(hostId: string) {
-    this.#core = new CoreStore(() => {
-      if (serverConnections.readinessFor(hostId).readiness !== 'ready') return null
-      return { api: serverConnections.apiFor(hostId), events: serverConnections.eventsFor(hostId), ready: true }
+  constructor(hostId: string, connections: Pick<typeof serverConnections, 'readinessFor' | 'apiFor' | 'eventsFor' | 'onReadinessChange' | 'onConnectionCreated' | 'httpOriginFor'> = serverConnections) {
+    this.#controller = new RunningServersController(() => {
+      if (connections.readinessFor(hostId).readiness !== 'ready') return null
+      return { api: connections.apiFor(hostId), events: connections.eventsFor(hostId), ready: true }
     }, (changed) => {
-      const stops = [serverConnections.onReadinessChange(changed), serverConnections.onConnectionCreated(changed)]
+      const stops = [connections.onReadinessChange(changed), connections.onConnectionCreated(changed)]
       return () => { for (const stop of stops) stop() }
     }, ['darwin', 'linux', 'win32'].includes(localApi.getPlatform?.() ?? 'web') ? {
       keyPrefix: hostId,
-      origin: () => serverConnections.httpOriginFor(hostId),
+      origin: () => connections.httpOriginFor(hostId),
       start: (request) => localApi.serverForwardStart(request),
       stop: (forwardId) => localApi.serverForwardStop(forwardId),
       list: () => localApi.serverForwardList(),
       openExternal: (url) => localApi.openExternal(url),
-    } : undefined)
-    this.#subscribe = createSubscriber((update) => {
-      const stop = this.#core.subscribe(update)
-      const release = this.#core.retain()
-      return () => { stop(); release() }
+    } : undefined, {
+      state: this,
+      createServer: (data, commands) => {
+        const state = $state({ data, revision: 0 })
+        return new RunningServers(data, commands, state)
+      },
     })
   }
 
-  get status() { this.#subscribe(); return this.#core.status }
-  get servers() { this.#subscribe(); return this.#core.servers }
-  get error() { this.#subscribe(); return this.#core.error }
-  inCheckout(path: string | null) { this.#subscribe(); return this.#core.inCheckout(path) }
-  rows(path?: string | null) { this.#subscribe(); return this.#core.rows(path) }
-  retry() { this.#core.retry() }
-  retainCheckout(path: string | null) { return this.#core.retainCheckout(path) }
-  configuredUrls(path: string) { return this.#core.configuredUrls(path) }
-  configureUrls(path: string, urls: string[]) { return this.#core.configureUrls(path, urls) }
+  inCheckout(path: string | null) { return this.#controller.inCheckout(path) }
+  rows(path?: string | null) { return this.#controller.rows(path) }
+  retry() { this.#controller.retry() }
+  retainCheckout(path: string | null) { return this.#controller.retainCheckout(path) }
+  configuredUrls(path: string) { return this.#controller.configuredUrls(path) }
+  configureUrls(path: string, urls: string[]) { return this.#controller.configureUrls(path, urls) }
 }
 
 

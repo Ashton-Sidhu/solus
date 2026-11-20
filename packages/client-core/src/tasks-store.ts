@@ -11,8 +11,8 @@ import type {
   TaskSessionLink,
   TaskUpdatePatch
 } from '@solus/contracts/task-types'
-import type { TaskExternalIssue, TaskInvolvement } from '@solus/contracts/task-inspection'
-import { TaskInspectionStore, TaskTemplateStore } from './task-inspection'
+import type { TaskExternalIssue, TaskInvolvement } from '@solus/contracts/task-data'
+import { TaskDataStore, TaskTemplateStore } from './task-data'
 
 export interface TasksState {
   tasks: TaskSummary[]
@@ -23,7 +23,6 @@ export interface TasksState {
   sessionsByTask: ReadonlyMap<string, TaskSessionLink[]>
   pending: boolean
   error: string | null
-  details: ReadonlyMap<string, TaskDetails>
 }
 /** Transport-neutral task state for native clients. All reads name one host. */
 export class TasksStore {
@@ -35,8 +34,7 @@ export class TasksStore {
     loadingMore: false,
     sessionsByTask: new Map(),
     pending: false,
-    error: null,
-    details: new Map()
+    error: null
   }
   #listeners = new Set<() => void>()
   #optionsGeneration = 0
@@ -44,8 +42,7 @@ export class TasksStore {
   #identity = 0
   #query = ''
   #involvement: TaskInvolvement = 'all'
-  #inspections = new Map<string, TaskInspectionStore>()
-  #detailsGeneration = new Map<string, number>()
+  #data = new Map<string, TaskDataStore>()
   #pageRead: Promise<void> | null = null
   #writes = new Map<string, Promise<void>>()
   readonly templates = new TaskTemplateStore()
@@ -72,10 +69,9 @@ export class TasksStore {
     this.#identity++
     this.#optionsGeneration++
     this.#generation++
-    this.#detailsGeneration.clear()
     this.#pageRead = null
     this.#writes.clear()
-    for (const store of this.#inspections.values()) store.reset()
+    for (const store of this.#data.values()) store.reset()
     this.templates.reset()
     this.#set({
       tasks: [],
@@ -85,8 +81,7 @@ export class TasksStore {
       loadingMore: false,
       sessionsByTask: new Map(),
       pending: false,
-      error: null,
-      details: new Map()
+      error: null
     })
   }
   async load(
@@ -154,23 +149,11 @@ export class TasksStore {
         this.#set({ optionsPending: false })
     }
   }
-  async detail(taskId: string): Promise<TaskDetails> {
-    const identity = this.#identity
-    const generation = (this.#detailsGeneration.get(taskId) ?? 0) + 1
-    this.#detailsGeneration.set(taskId, generation)
-    const details = await this.api().tasksGet(taskId)
-    if (identity === this.#identity && this.#detailsGeneration.get(taskId) === generation) {
-      const next = new Map(this.#state.details)
-      next.set(taskId, details)
-      this.#set({ details: next })
-    }
-    return details
-  }
-  inspection(taskId: string): TaskInspectionStore {
-    let store = this.#inspections.get(taskId)
+  data(taskId: string): TaskDataStore {
+    let store = this.#data.get(taskId)
     if (!store) {
-      store = new TaskInspectionStore(taskId, this.api)
-      this.#inspections.set(taskId, store)
+      store = new TaskDataStore(taskId, this.api)
+      this.#data.set(taskId, store)
     }
     return store
   }
@@ -183,7 +166,7 @@ export class TasksStore {
         if (identity !== this.#identity) throw new Error('The task account changed.')
         await command()
         if (identity !== this.#identity) return
-        await this.detail(taskId)
+        await this.data(taskId).loadDetails({ refresh: true })
         if (identity === this.#identity) await this.load()
       })
     this.#writes.set(taskId, write)
@@ -258,9 +241,7 @@ export class TasksStore {
     const identity = this.#identity
     const result = await this.api().tasksResolve(url)
     if (identity !== this.#identity) throw new Error('The task account changed.')
-    const details = new Map(this.#state.details)
-    details.set(result.details.task.id, result.details)
-    this.#set({ details })
+    this.data(result.details.task.id).adopt(result.details, result.inspection)
     return result
   }
 }

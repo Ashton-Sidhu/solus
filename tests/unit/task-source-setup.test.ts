@@ -8,6 +8,7 @@ import {
   matchingChoices,
   sourceChoiceGroups,
   sourceConnectionNotes,
+  connectionProviderNames,
   sourceHealthNote,
   sourceStripRows,
   taskSourceLabel,
@@ -192,16 +193,24 @@ describe('what can be added', () => {
     // WHY: a missing choice reads as "Solus cannot do this", when the truth is
     // one connection away.
     expect(sourceConnectionNotes({ ...options, github: { connected: false, repositories: [], projects: [] } }))
-      .toEqual(['Connect GitHub in Settings to add repositories and Projects.'])
+      .toEqual([{ provider: 'github', text: 'Connect GitHub to add repositories and Projects.' }])
     expect(sourceConnectionNotes({ ...options, jira: { connected: false, projects: [], boards: [] } }))
-      .toEqual(['Connect Atlassian in Settings to add Jira projects and boards.'])
+      .toEqual([{ provider: 'jira', text: 'Connect Atlassian to add Jira projects and boards.' }])
+    expect(sourceConnectionNotes({ ...options, linear: { connected: false, teams: [] } }))
+      .toEqual([{ provider: 'linear', text: 'Connect Linear to add teams.' }])
+  })
+
+  test('a Linear read that failed is said in the words of the host', () => {
+    // WHY: an expired key is not "connect Linear"; the host knows which it is.
+    expect(sourceConnectionNotes({ ...options, linear: { connected: false, teams: [], error: 'Linear key expired' } }))
+      .toEqual([{ provider: 'linear', text: 'Linear key expired' }])
   })
 
   test('a GitHub connection that cannot read Projects asks for a new connection, not for a Project', () => {
     // WHY: an empty list here is not "you have no Projects". The connection
     // lacks the `project` scope (plan §4.6), and only a reconnect repairs it.
     expect(sourceConnectionNotes({ ...options, github: { ...options.github, hasProjectScope: false, projects: [] } }))
-      .toEqual(['Connect GitHub again to let Solus read Projects.'])
+      .toEqual([{ provider: 'github', text: 'Connect GitHub again to add Projects.' }])
   })
 
   test('an Atlassian connection with no Jira site offers nothing and says why', () => {
@@ -210,7 +219,7 @@ describe('what can be added', () => {
     const noSite = { ...options, jira: { ...options.jira, cloudId: undefined } }
 
     expect(groupOf(sourceChoiceGroups(noSite, []), 'jira-project').choices).toEqual([])
-    expect(sourceConnectionNotes(noSite)).toEqual(['This Atlassian connection does not reach Jira.'])
+    expect(sourceConnectionNotes(noSite)).toEqual([{ provider: 'jira', text: 'This Atlassian connection does not reach Jira.' }])
   })
 
   test('a failed read of the boards is said in the words of the host', () => {
@@ -219,7 +228,18 @@ describe('what can be added', () => {
     // their Jira site instead of at their connection.
     const boardsError = 'Connect Atlassian again to let Solus read Jira boards.'
 
-    expect(sourceConnectionNotes({ ...options, jira: { ...options.jira, boards: [], boardsError } })).toEqual([boardsError])
+    expect(sourceConnectionNotes({ ...options, jira: { ...options.jira, boards: [], boardsError } })).toEqual([{ provider: 'jira', text: boardsError }])
+  })
+
+  test('the footer names each provider once, as one short phrase', () => {
+    // WHY: the footer is one row. Two GitHub notes or a list of sentences made it a block of text.
+    const github = { provider: 'github' as const, text: 'a' }
+    const jira = { provider: 'jira' as const, text: 'b' }
+    const linear = { provider: 'linear' as const, text: 'c' }
+
+    expect(connectionProviderNames([github])).toBe('GitHub')
+    expect(connectionProviderNames([github, jira])).toBe('GitHub and Jira')
+    expect(connectionProviderNames([github, github, jira, linear])).toBe('GitHub, Jira, and Linear')
   })
 
   test('the search of the menu matches the kind, the label and the detail', () => {

@@ -385,6 +385,9 @@ export const settingsDefinitions = {
   "integrations.atlassian": {
     label: "Atlassian",
   },
+  "integrations.linear": {
+    label: "Linear",
+  },
   "providers.section-instance": {
     label: "Instance",
   },
