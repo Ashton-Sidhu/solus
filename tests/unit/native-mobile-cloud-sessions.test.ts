@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { HostRpcError } from '@solus/client-core/rpc-error'
 import { sessionCloudState } from '@solus/client-core/session-cloud-state'
+import { SessionHostTurns } from '@solus/client-core/session-heads'
 import type { ListMySessionsResponse } from '@solus/contracts/session-repositories'
 import type { SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
 import { SolusApp } from '../../apps/mobile/src/app/solus-app'
@@ -222,7 +223,7 @@ describe('mobile source rule with the cloud', () => {
     runHosts.noteMeta('b', { sessionId: SESSION, head: 'h4', syncedTurn: 4 })
     expect(runHosts.promptFields(SESSION, 'a')).toEqual({ knownHead: 'h4', sourceHostId: 'b' })
     runHosts.noteTurnSettled('a', SESSION)
-    expect(runHosts.turnsFor(SESSION).find((turn) => turn.serverId === 'a')?.syncedTurn).toBe(5)
+    expect(runHosts.turnsFor(SESSION).of('a')?.syncedTurn).toBe(5)
     expect(runHosts.promptFields(SESSION, 'a')).toEqual({})
   })
 })
@@ -241,11 +242,11 @@ describe('mobile cloud states', () => {
   test('"Not synced yet" when a host has a turn the cloud does not', () => {
     // WHY: plan §10: the person sees that the newest turn has not reached the cloud yet;
     // with no cloud copy at all (sync off, or before the first push) nothing is said.
-    const state = sessionCloudState({ runServerId: 'a', turns: [{ serverId: 'a', head: 'h5', syncedTurn: 5 }], cloud, runningServerId: null })
+    const state = sessionCloudState({ runServerId: 'a', turns: new SessionHostTurns([{ serverId: 'a', head: 'h5', syncedTurn: 5 }]), cloud, runningServerId: null })
     const view = runHostRowView({ ...idle, cloudState: state })
     expect(runHostRowNote(view)).toBe('Not synced yet')
     expect(view.isLocked).toBe(false)
-    expect(sessionCloudState({ runServerId: 'a', turns: [{ serverId: 'a', head: 'h5', syncedTurn: 5 }], cloud: null, runningServerId: null })).toBeNull()
+    expect(sessionCloudState({ runServerId: 'a', turns: new SessionHostTurns([{ serverId: 'a', head: 'h5', syncedTurn: 5 }]), cloud: null, runningServerId: null })).toBeNull()
     // The note shows with no other host to choose too.
     expect(runHostRowNote(runHostRowView({ ...idle, hosts: [idle.hosts[0]!], cloudState: state }))).toBe('Not synced yet')
   })
@@ -253,7 +254,7 @@ describe('mobile cloud states', () => {
   test('"Running on <host>" locks the host control and names where the prompt goes', () => {
     // WHY: plan §4 decision 5: one turn at a time; while another host runs a turn, the host
     // stays, and a prompt goes to the host that runs it.
-    const state = sessionCloudState({ runServerId: 'a', turns: [], cloud, runningServerId: 'b' })
+    const state = sessionCloudState({ runServerId: 'a', turns: new SessionHostTurns([]), cloud, runningServerId: 'b' })
     const view = runHostRowView({ ...idle, cloudState: state })
     expect(runHostRowNote(view)).toBe('Running on Laptop')
     expect(view).toMatchObject({ isLocked: true, runningHostId: 'b' })
@@ -265,11 +266,11 @@ describe('mobile cloud states', () => {
   test('a refused push says where the session continued, from the host facts or a refused prompt', () => {
     // WHY: design answer 3.4: the turns on this host are not in the session; the person
     // must see why the host refuses prompts, and the one action that continues.
-    const fromFacts = sessionCloudState({ runServerId: 'a', turns: [{ serverId: 'a', head: 'h3', syncedTurn: 3, pushRefused: true }], cloud, runningServerId: null })
+    const fromFacts = sessionCloudState({ runServerId: 'a', turns: new SessionHostTurns([{ serverId: 'a', head: 'h3', syncedTurn: 3, pushRefused: true }]), cloud, runningServerId: null })
     const view = runHostRowView({ ...idle, cloudState: fromFacts })
     expect(view.pushRefusedText).toBe('This session continued on Laptop. The turns on this machine are not in it.')
     expect(runHostRowNote(view)).toBeNull()
-    const fromPrompt = sessionCloudState({ runServerId: 'a', turns: [], cloud, runningServerId: null, wasPromptRefused: true })
+    const fromPrompt = sessionCloudState({ runServerId: 'a', turns: new SessionHostTurns([]), cloud, runningServerId: null, wasPromptRefused: true })
     expect(fromPrompt?.kind).toBe('push-refused')
   })
 })

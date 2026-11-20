@@ -1,6 +1,5 @@
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
 import { keepEqual, sameItems } from '@solus/client-core/keep-equal'
-import { listedSessionHost } from '@solus/client-core/session-heads'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
@@ -357,7 +356,7 @@ export class ThreadDirectory {
       }
       const hostIds = group.map((thread) => thread.hostId)
       for (const hostId of hostIds) unknownByHost.set(hostId, [...(unknownByHost.get(hostId) ?? []), sessionId])
-      const chosen = listedSessionHost(hostIds, runHosts.turnsFor(sessionId), shownHost.get(sessionId) ?? null)
+      const chosen = runHosts.turnsFor(sessionId).listedHost(hostIds, shownHost.get(sessionId) ?? null)
       kept.add(group.find((thread) => thread.hostId === chosen) ?? group[0]!)
     }
     for (const [hostId, sessionIds] of unknownByHost) runHosts.readOnce(hostId, sessionIds)

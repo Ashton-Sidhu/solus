@@ -1,12 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  afterTurnSettled,
-  newestSessionServer,
-  sessionHostTurnOf,
-  sessionSyncOrigin,
-  type SessionCloudHead,
-  type SessionHostTurn,
-} from '@solus/client-core/session-heads'
+import { SessionHostTurns, sessionHostTurnOf, type SessionCloudHead, type SessionHostTurn } from '@solus/client-core/session-heads'
 import { conversationAwaitsMachine, sessionCloudState, sessionCloudStateText } from '@solus/client-core/session-cloud-state'
 
 // The source rule and the states of a portable session when the cloud knows it
@@ -16,6 +9,7 @@ import { conversationAwaitsMachine, sessionCloudState, sessionCloudStateText } f
 const HEAD_A = 'a'.repeat(40)
 const HEAD_CLOUD = 'c'.repeat(40)
 const turn = (serverId: string, syncedTurn: number, head: string | null = `${serverId}-${syncedTurn}`): SessionHostTurn => ({ serverId, head, syncedTurn })
+const hostTurns = (...entries: SessionHostTurn[]) => new SessionHostTurns(entries)
 const cloud = (fields: Partial<SessionCloudHead> = {}): SessionCloudHead => ({
   head: HEAD_CLOUD, syncedTurn: 4, lastRunHostId: 'account-host-b', runningHostId: null, lastRunServerId: null, ...fields,
 })
@@ -25,40 +19,40 @@ describe('the newest head with the cloud', () => {
     // WHY: the host that ran the last turn may be offline or unknown to this
     // client; the run host fetches from the cloud first (plan §4 decision 15
     // no longer needs that host to be online).
-    const origin = sessionSyncOrigin([turn('host-a', 3, HEAD_A)], 'host-a', cloud())
+    const origin = hostTurns(turn('host-a', 3, HEAD_A)).syncOrigin('host-a', cloud())
     expect(origin).toEqual({ knownHead: HEAD_CLOUD, sourceServerId: null, sourceHostId: 'account-host-b' })
   })
 
   test('a connected host newer than the cloud stays the source, named by this client', () => {
     // WHY: a turn that is not pushed yet is only on that host.
-    const origin = sessionSyncOrigin([turn('host-a', 5, HEAD_A), turn('host-b', 4)], 'host-b', cloud({ syncedTurn: 4 }))
+    const origin = hostTurns(turn('host-a', 5, HEAD_A), turn('host-b', 4)).syncOrigin('host-b', cloud({ syncedTurn: 4 }))
     expect(origin).toEqual({ knownHead: HEAD_A, sourceServerId: 'host-a', sourceHostId: null })
   })
 
   test('a run host that has the cloud head, or ran the last turn, sends no head', () => {
     // WHY: a head on a current host would start a sync for nothing, and the
     // turn start must make no network request (plan §4 decision 7).
-    expect(sessionSyncOrigin([turn('host-a', 3, HEAD_CLOUD)], 'host-a', cloud())).toBeNull()
-    expect(sessionSyncOrigin([], 'host-b', cloud({ lastRunServerId: 'host-b' }))).toBeNull()
+    expect(hostTurns(turn('host-a', 3, HEAD_CLOUD)).syncOrigin('host-a', cloud())).toBeNull()
+    expect(hostTurns().syncOrigin('host-b', cloud({ lastRunServerId: 'host-b' }))).toBeNull()
   })
 
   test('a tie goes to the hosts, and no cloud gives the rule of phase 4A', () => {
     // WHY: an equal count means the same history; a host read is the direct copy.
-    expect(sessionSyncOrigin([turn('host-a', 4, HEAD_A)], 'host-a', cloud())).toBeNull()
-    expect(sessionSyncOrigin([turn('host-a', 4, HEAD_A), turn('host-b', 2)], 'host-b', null)?.sourceServerId).toBe('host-a')
+    expect(hostTurns(turn('host-a', 4, HEAD_A)).syncOrigin('host-a', cloud())).toBeNull()
+    expect(hostTurns(turn('host-a', 4, HEAD_A), turn('host-b', 2)).syncOrigin('host-b', null)?.sourceServerId).toBe('host-a')
   })
 
   test('the row names the host of the last turn from the cloud when it is newer', () => {
     // WHY: "Last ran on <host>" must not name an older host that this client happens to reach.
-    expect(newestSessionServer([turn('host-a', 3)], 'host-a', cloud({ lastRunServerId: 'host-b' }))).toBe('host-b')
-    expect(newestSessionServer([turn('host-a', 5)], 'host-a', cloud({ lastRunServerId: 'host-b' }))).toBe('host-a')
+    expect(hostTurns(turn('host-a', 3)).newestServer('host-a', cloud({ lastRunServerId: 'host-b' }))).toBe('host-b')
+    expect(hostTurns(turn('host-a', 5)).newestServer('host-a', cloud({ lastRunServerId: 'host-b' }))).toBe('host-a')
   })
 
   test('a turn that ends on a host that synced from the cloud counts past the cloud', () => {
     // WHY: the host fetched the cloud head before its turn; counting from an
     // older host read would make another host look as new and send no head.
-    const turns = afterTurnSettled([turn('host-a', 2)], 'host-a', 6)
-    expect(turns[0]?.syncedTurn).toBe(7)
+    const turns = hostTurns(turn('host-a', 2)).afterTurnSettled('host-a', 6)
+    expect(turns.of('host-a')?.syncedTurn).toBe(7)
   })
 
   test('a refused push reads from the session info of the host', () => {
@@ -74,27 +68,27 @@ describe('the cloud state of a session on its run host', () => {
 
   test('not synced yet: a host has a newer turn than the cloud', () => {
     // WHY: the person must know that another machine cannot continue from that turn yet.
-    expect(sessionCloudState({ ...base, turns: [turn('host-a', 5)], cloud: cloud({ syncedTurn: 4 }) })).toEqual({ kind: 'not-synced' })
+    expect(sessionCloudState({ ...base, turns: hostTurns(turn('host-a', 5)), cloud: cloud({ syncedTurn: 4 }) })).toEqual({ kind: 'not-synced' })
   })
 
   test('no state when the cloud has the newest turn, has no copy, or the client is signed out', () => {
     // WHY: a stale "Not synced yet" after the push, or one shown with sync off, is a lie.
-    expect(sessionCloudState({ ...base, turns: [turn('host-a', 4)], cloud: cloud({ syncedTurn: 4 }) })).toBeNull()
-    expect(sessionCloudState({ ...base, turns: [turn('host-a', 4)], cloud: cloud({ syncedTurn: 0, head: null }) })).toBeNull()
-    expect(sessionCloudState({ ...base, turns: [turn('host-a', 4)], cloud: null })).toBeNull()
+    expect(sessionCloudState({ ...base, turns: hostTurns(turn('host-a', 4)), cloud: cloud({ syncedTurn: 4 }) })).toBeNull()
+    expect(sessionCloudState({ ...base, turns: hostTurns(turn('host-a', 4)), cloud: cloud({ syncedTurn: 0, head: null }) })).toBeNull()
+    expect(sessionCloudState({ ...base, turns: hostTurns(turn('host-a', 4)), cloud: null })).toBeNull()
   })
 
   test('running elsewhere: another connected host runs a turn', () => {
     // WHY: one turn at a time (plan §4 decision 5); Run on locks and the prompt goes there.
-    expect(sessionCloudState({ ...base, turns: [], cloud: cloud(), runningServerId: 'host-b' })).toEqual({ kind: 'running-elsewhere', runningServerId: 'host-b' })
-    expect(sessionCloudState({ ...base, turns: [], cloud: cloud({ syncedTurn: 0, head: null }), runningServerId: 'host-a' })).toBeNull()
+    expect(sessionCloudState({ ...base, turns: hostTurns(), cloud: cloud(), runningServerId: 'host-b' })).toEqual({ kind: 'running-elsewhere', runningServerId: 'host-b' })
+    expect(sessionCloudState({ ...base, turns: hostTurns(), cloud: cloud({ syncedTurn: 0, head: null }), runningServerId: 'host-a' })).toBeNull()
   })
 
   test('a refused push wins, from the host fact or from a refused prompt, and names where it continued', () => {
     // WHY: the second history must not grow; the person chooses Fork or the newer copy.
-    const refused = sessionCloudState({ ...base, turns: [{ ...turn('host-a', 5), pushRefused: true }], cloud: cloud({ lastRunServerId: 'host-b' }), runningServerId: 'host-b' })
+    const refused = sessionCloudState({ ...base, turns: hostTurns({ ...turn('host-a', 5), pushRefused: true }), cloud: cloud({ lastRunServerId: 'host-b' }), runningServerId: 'host-b' })
     expect(refused).toEqual({ kind: 'push-refused', continuedOnServerId: 'host-b', continuedOnHostId: 'account-host-b' })
-    expect(sessionCloudState({ ...base, turns: [], cloud: null, wasPromptRefused: true })?.kind).toBe('push-refused')
+    expect(sessionCloudState({ ...base, turns: hostTurns(), cloud: null, wasPromptRefused: true })?.kind).toBe('push-refused')
     expect(sessionCloudStateText(refused!, (serverId) => serverId === 'host-b' ? 'Studio' : 'another machine'))
       .toBe('This session continued on Studio. The turns on this machine are not in it.')
   })

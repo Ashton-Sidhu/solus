@@ -1,15 +1,6 @@
 import type { SessionPrepareResult } from '@solus/contracts/rpc'
 import type { PromptOptions, SessionMeta } from '@solus/contracts/types'
-import {
-  afterTurnSettled,
-  newestSessionServer,
-  sessionHostTurnOf,
-  sessionSyncOrigin,
-  withSessionHostTurn,
-  type SessionCloudHead,
-  type SessionHostTurn,
-  type SessionSyncOrigin,
-} from '@solus/client-core/session-heads'
+import { SessionHostTurns, sessionHostTurnOf, type SessionCloudHead, type SessionSyncOrigin } from '@solus/client-core/session-heads'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 
@@ -32,34 +23,32 @@ export interface SessionRunHostsDeps {
   cloudHeadFor?(sessionId: string): SessionCloudHead | null
 }
 
-const NO_TURNS: readonly SessionHostTurn[] = []
-
 export class SessionRunHosts {
   readonly changes = new Listeners()
-  private readonly turnsBySession = new Map<string, readonly SessionHostTurn[]>()
+  private readonly turnsBySession = new Map<string, SessionHostTurns>()
   /** `<hostId> <sessionId>` pairs asked for their facts once. */
   private readonly asked = new Set<string>()
 
   constructor(private readonly deps: SessionRunHostsDeps) {}
 
   /** What each host that answered holds of this session's repository. */
-  turnsFor = (sessionId: string): readonly SessionHostTurn[] => this.turnsBySession.get(sessionId) ?? NO_TURNS
+  turnsFor = (sessionId: string): SessionHostTurns => this.turnsBySession.get(sessionId) ?? SessionHostTurns.none
 
   /** The host that has the newest turn of a session, the cloud included; a tie goes to `preferHostId`. */
   newestHostOf(sessionId: string, preferHostId?: string | null): string | null {
-    return newestSessionServer(this.turnsFor(sessionId), preferHostId, this.cloudHeadFor(sessionId))
+    return this.turnsFor(sessionId).newestServer(preferHostId, this.cloudHeadFor(sessionId))
   }
 
   /** A host answered a session's info: keep its head, turn count, and whether the cloud refused its push. */
   noteMeta(hostId: string, meta: Pick<SessionMeta, 'sessionId' | 'head' | 'syncedTurn' | 'pushRefused'> | null | undefined): void {
     const turn = sessionHostTurnOf(hostId, meta)
     if (!turn || !meta) return
-    this.write(meta.sessionId, withSessionHostTurn(this.turnsFor(meta.sessionId), turn))
+    this.write(meta.sessionId, this.turnsFor(meta.sessionId).with(turn))
   }
 
   /** A turn of this session ended on `hostId`: that host has its newest turn now. */
   noteTurnSettled(hostId: string, sessionId: string): void {
-    this.write(sessionId, afterTurnSettled(this.turnsFor(sessionId), hostId, this.cloudHeadFor(sessionId)?.syncedTurn))
+    this.write(sessionId, this.turnsFor(sessionId).afterTurnSettled(hostId, this.cloudHeadFor(sessionId)?.syncedTurn))
   }
 
   /** The newest head and the host that has it, when another host or the cloud
@@ -76,7 +65,7 @@ export class SessionRunHosts {
    */
   readOnce(hostId: string, sessionIds: readonly string[]): void {
     const missing = sessionIds.filter((sessionId) =>
-      !this.asked.has(`${hostId} ${sessionId}`) && !this.turnsFor(sessionId).some((turn) => turn.serverId === hostId))
+      !this.asked.has(`${hostId} ${sessionId}`) && !this.turnsFor(sessionId).of(hostId))
     if (missing.length === 0) return
     const connection = this.deps.readyConnection(hostId)
     if (!connection) return
@@ -113,7 +102,7 @@ export class SessionRunHosts {
     }
     const origin = this.originFor(sessionId, runHostId)
     if (!origin) {
-      const run = this.turnsFor(sessionId).find((turn) => turn.serverId === runHostId)
+      const run = this.turnsFor(sessionId).of(runHostId)
       return run && this.newestHostOf(sessionId, runHostId) === runHostId ? { state: 'current', head: run.head } : null
     }
     return this.requestPrepare(sessionId, runHostId, origin)
@@ -142,7 +131,7 @@ export class SessionRunHosts {
   }
 
   private originFor(sessionId: string, runHostId: string): SessionSyncOrigin | null {
-    return sessionSyncOrigin(this.turnsFor(sessionId), runHostId, this.cloudHeadFor(sessionId))
+    return this.turnsFor(sessionId).syncOrigin(runHostId, this.cloudHeadFor(sessionId))
   }
 
   /** What a prompt or a prepare carries for an origin. The cloud names its
@@ -154,8 +143,8 @@ export class SessionRunHosts {
 
   forgetHost(hostId: string): void {
     for (const [sessionId, turns] of this.turnsBySession) {
-      const kept = turns.filter((turn) => turn.serverId !== hostId)
-      if (kept.length !== turns.length) this.turnsBySession.set(sessionId, kept)
+      const kept = turns.without(hostId)
+      if (kept !== turns) this.turnsBySession.set(sessionId, kept)
     }
     for (const key of this.asked) if (key.startsWith(`${hostId} `)) this.asked.delete(key)
     this.changes.notify()
@@ -170,7 +159,7 @@ export class SessionRunHosts {
     return this.deps.readyConnection(hostId)?.facts.value('serverInfo')?.installationId ?? hostId
   }
 
-  private write(sessionId: string, turns: readonly SessionHostTurn[]): void {
+  private write(sessionId: string, turns: SessionHostTurns): void {
     if (turns === this.turnsFor(sessionId)) return
     this.turnsBySession.set(sessionId, turns)
     this.changes.notify()

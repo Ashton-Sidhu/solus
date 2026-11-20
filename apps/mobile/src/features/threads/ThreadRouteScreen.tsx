@@ -245,7 +245,7 @@ function useAwaitsHost(store: ConversationStore, meta: ConversationMeta, hasRows
     hasStatusCard: meta.setupStep !== null,
     runServerId: hostId,
     isRunHostAway,
-    runTurn: app.runHosts.turnsFor(sessionId).find((turn) => turn.serverId === hostId),
+    runTurn: app.runHosts.turnsFor(sessionId).of(hostId),
     cloud: app.cloudSessions.headFor(sessionId),
   });
   useListened(app.runHosts.changes, read);

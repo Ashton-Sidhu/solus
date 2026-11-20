@@ -42,7 +42,6 @@
   import { resolvePickerScope, scopeForChoice } from "./lib/picker-scope";
   import { PickerSearches } from "./lib/conversation-search.svelte";
   import { mergeSessionHomes, type SessionHomeHosts } from "../lib/session-home";
-  import { listedSessionHost } from "@solus/client-core/session-heads";
   import { sessionListStore } from "../../../contexts/workspace/session-list.store.svelte";
   import type { PickerSearchMode, PickerSort } from "./lib/picker-search";
   import type { PickerFilters } from "./lib/picker-filters";
@@ -127,7 +126,7 @@
   const sessionHomes: SessionHomeHosts = {
     isSolusApi: isSolusApiId,
     isConnected: (serverId) => !!serverId && serverConnections.readinessFor(serverId).readiness === "ready",
-    newestHostOf: (sessionId, serverIds) => listedSessionHost(serverIds, sessionListStore.hostTurnsFor(sessionId), null),
+    newestHostOf: (sessionId, serverIds) => sessionListStore.hostTurnsFor(sessionId).listedHost(serverIds, null),
   };
   const conversationHits = $derived(
     mergeSessionHomes(

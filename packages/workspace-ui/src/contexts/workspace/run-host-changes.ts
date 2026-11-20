@@ -2,7 +2,7 @@ import type { DispatchRepository, PromptOptions, RunLocation, Session, SessionMe
 import type { SessionPrepareRequest, SessionPrepareResult } from '@solus/contracts/rpc'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { readSessionMeta } from '@solus/client-core/session-meta'
-import { newestSessionHost, sessionSyncOrigin, type SessionCloudHead, type SessionHostTurn, type SessionSyncOrigin } from '@solus/client-core/session-heads'
+import type { SessionCloudHead, SessionHostTurns, SessionSyncOrigin } from '@solus/client-core/session-heads'
 import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
 import { moveTabToHost, repoKeyForPath, syncRepository, type RunOnWorkspace } from '../../components/servers/run-on'
 import { serversStore } from '../connections/servers.store.svelte'
@@ -21,7 +21,7 @@ export interface RunHostWorkspace extends RunOnWorkspace {
 /** The hosts and facts the run host changes use. Replaced in tests. */
 export interface RunHostDeps {
   resolveId(serverId: string): string
-  hostTurnsFor(sessionId: string): readonly SessionHostTurn[]
+  hostTurnsFor(sessionId: string): SessionHostTurns
   /** What the cloud knows of a session; null when signed out or not in the cloud. */
   cloudHeadFor(sessionId: string): SessionCloudHead | null
   /** The connected host that runs a turn of this session now, as the cloud says. */
@@ -144,7 +144,7 @@ export class RunHostChanges {
   /** Where the tab's run host syncs its session from (plan §7.1, with the cloud). */
   private originFor(session: Session): SessionSyncOrigin | null {
     const sessionId = syncedSessionId(session)
-    return sessionSyncOrigin(this.deps.hostTurnsFor(sessionId), this.deps.resolveId(runHost(session.run)), this.deps.cloudHeadFor(sessionId))
+    return this.deps.hostTurnsFor(sessionId).syncOrigin(this.deps.resolveId(runHost(session.run)), this.deps.cloudHeadFor(sessionId))
   }
 
   /** The id the run host finds a source host by. */
@@ -163,7 +163,7 @@ export class RunHostChanges {
     const sessionId = syncedSessionId(session)
     const location = session.run.location
     const runServerId = this.deps.resolveId(runHost(session.run))
-    const newest = newestSessionHost(this.deps.hostTurnsFor(sessionId), runServerId)?.serverId
+    const newest = this.deps.hostTurnsFor(sessionId).newestHost(runServerId)?.serverId
       ?? (opts.previousServerId ? this.deps.resolveId(opts.previousServerId) : null)
     // The cloud's head arrives by event; a host's head only by a read.
     if (newest && newest !== runServerId) await this.deps.readMeta(newest, sessionId).catch(() => null)

@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { DispatchRepository, RunLocation, Session, SessionMeta } from '@solus/contracts/types'
 import type { SessionPrepareRequest, SessionPrepareResult } from '@solus/contracts/rpc'
-import { withSessionHostTurn, type SessionCloudHead, type SessionHostTurn } from '@solus/client-core/session-heads'
+import { SessionHostTurns, type SessionCloudHead, type SessionHostTurn } from '@solus/client-core/session-heads'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connectionCalls: string[] = []
@@ -36,7 +36,7 @@ const ON_B = openFolder(ON_A, { serverId: 'host-b', path: '/b/solus' })
 const REPOSITORY: DispatchRepository = { cloneUrl: 'https://github.com/solus-sh/solus.git' }
 
 function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareResult?: SessionPrepareResult; cloud?: SessionCloudHead; runningServerId?: string; showsCloudCopy?: boolean } = {}) {
-  let turns: readonly SessionHostTurn[] = opts.turns ?? [{ serverId: 'host-a', head: 'head-3', syncedTurn: 3 }]
+  let turns = new SessionHostTurns(opts.turns ?? [{ serverId: 'host-a', head: 'head-3', syncedTurn: 3 }])
   const session = {
     id: opts.forked ? 'fork-1' : 'session-1',
     agentSessionId: 'thread-1',
@@ -81,7 +81,7 @@ function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareRes
     readMeta: async (serverId, sessionId) => {
       reads.push(`${serverId}:${sessionId}`)
       const meta = metaByHost.get(serverId) ?? null
-      if (meta?.syncedTurn !== undefined) turns = withSessionHostTurn(turns, { serverId, head: meta.head ?? null, syncedTurn: meta.syncedTurn })
+      if (meta?.syncedTurn !== undefined) turns = turns.with({ serverId, head: meta.head ?? null, syncedTurn: meta.syncedTurn })
       return meta
     },
     prepare: async (serverId, request) => {
@@ -96,7 +96,7 @@ function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareRes
     repoKeyOf: () => 'github.com/solus-sh/solus',
     repository: async () => ({ ...REPOSITORY }),
   })
-  return { changes, session, prepared, watched, reads, metaByHost, refreshed, pushRefusals, resumedInto, releasedCopies, setTurns: (next: SessionHostTurn[]) => { turns = next } }
+  return { changes, session, prepared, watched, reads, metaByHost, refreshed, pushRefusals, resumedInto, releasedCopies, setTurns: (next: SessionHostTurn[]) => { turns = new SessionHostTurns(next) } }
 }
 
 async function settle(): Promise<void> {

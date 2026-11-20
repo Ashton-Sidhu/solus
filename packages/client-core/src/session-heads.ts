@@ -29,104 +29,6 @@ export function sessionHostTurnOf(
   return turn
 }
 
-/** The facts with one host's answer in place of its older one. Equal facts
- *  return the same array, so a reader that compares by reference sees no change. */
-export function withSessionHostTurn(
-  turns: readonly SessionHostTurn[],
-  turn: SessionHostTurn,
-): readonly SessionHostTurn[] {
-  const index = turns.findIndex((entry) => entry.serverId === turn.serverId)
-  const known = index === -1 ? undefined : turns[index]
-  if (known && known.head === turn.head && known.syncedTurn === turn.syncedTurn && !!known.pushRefused === !!turn.pushRefused) return turns
-  if (index === -1) return [...turns, turn]
-  return turns.map((entry, position) => (position === index ? turn : entry))
-}
-
-/**
- * A turn ended on `serverId`, as this client saw it. The host writes its turn
- * commit in the background after the turn, so its count is not read yet: it now
- * has the newest turn, one more than any host this client knows, and one more
- * than the cloud (`cloudTurn`), because the host synced to the cloud head
- * before the turn. Its head stays the last one read until a read gives the
- * new one.
- */
-export function afterTurnSettled(
-  turns: readonly SessionHostTurn[],
-  serverId: string,
-  cloudTurn = 0,
-): readonly SessionHostTurn[] {
-  const newest = Math.max(0, cloudTurn, ...turns.map((entry) => entry.syncedTurn))
-  const known = turns.find((entry) => entry.serverId === serverId)
-  const settled: SessionHostTurn = { serverId, head: known?.head ?? null, syncedTurn: newest + 1 }
-  if (known?.pushRefused) settled.pushRefused = true
-  return withSessionHostTurn(turns, settled)
-}
-
-/**
- * The host that has the newest turn of a session: the most turns. A tie goes to
- * `preferServerId` (the run host), because its copy is as new and needs no
- * sync; then to the host this client heard from first. Null when no host
- * reported any turn.
- */
-export function newestSessionHost(
-  turns: readonly SessionHostTurn[],
-  preferServerId?: string | null,
-): SessionHostTurn | null {
-  let newest: SessionHostTurn | null = null
-  for (const entry of turns) {
-    if (entry.syncedTurn <= 0) continue
-    if (!newest || entry.syncedTurn > newest.syncedTurn) newest = entry
-    else if (entry.syncedTurn === newest.syncedTurn && entry.serverId === preferServerId) newest = entry
-  }
-  return newest
-}
-
-/** Where `runServerId` must sync the session from before its next turn. */
-export interface SessionSyncSource {
-  /** The newest head this client knows. The run host syncs when its own head differs. */
-  knownHead: string
-  /** The host that has that head. */
-  sourceServerId: string
-}
-
-/**
- * What a prompt or a prepare to `runServerId` carries (plan §7.1): the newest
- * head and the host that has it, or null when the run host has the newest
- * turn this client knows. Null sends no head, so the host starts the turn at
- * once (a head that is only stale would start a sync for nothing).
- */
-export function sessionSyncSource(
-  turns: readonly SessionHostTurn[],
-  runServerId: string,
-): SessionSyncSource | null {
-  const newest = newestSessionHost(turns, runServerId)
-  if (!newest || newest.serverId === runServerId || !newest.head) return null
-  const run = turns.find((entry) => entry.serverId === runServerId)
-  // A run host with the same head is current, though its count was read earlier.
-  if (run?.head === newest.head) return null
-  return { knownHead: newest.head, sourceServerId: newest.serverId }
-}
-
-/**
- * Which of the hosts that list one session shows it (plan §9): the host with
- * the higher `syncedTurn`. A host with no facts yet loses to one that has
- * them. With no difference, the row stays where it is (`currentServerId`), so
- * a list read does not move it; else the first host that listed it.
- */
-export function listedSessionHost(
-  candidateServerIds: readonly string[],
-  turns: readonly SessionHostTurn[],
-  currentServerId: string | null,
-): string | null {
-  if (candidateServerIds.length === 0) return null
-  const countOf = (serverId: string) => turns.find((entry) => entry.serverId === serverId)?.syncedTurn ?? -1
-  let chosen = currentServerId && candidateServerIds.includes(currentServerId) ? currentServerId : candidateServerIds[0]!
-  for (const serverId of candidateServerIds) {
-    if (countOf(serverId) > countOf(chosen)) chosen = serverId
-  }
-  return chosen
-}
-
 /**
  * What the cloud knows of one session (docs/plans/portable-sessions-cloud.md
  * §5.4), with the host that ran its last turn as this client names it. The
@@ -135,6 +37,14 @@ export function listedSessionHost(
  */
 export interface SessionCloudHead extends SessionRepositoryFacts {
   lastRunServerId: string | null
+}
+
+/** Where `runServerId` must sync the session from before its next turn. */
+export interface SessionSyncSource {
+  /** The newest head this client knows. The run host syncs when its own head differs. */
+  knownHead: string
+  /** The host that has that head. */
+  sourceServerId: string
 }
 
 /** Where a run host syncs a session from, with the cloud in the choice. */
@@ -147,45 +57,133 @@ export interface SessionSyncOrigin {
   sourceHostId: string | null
 }
 
-/** Whether the cloud has a newer turn than every host this client read. A tie
- *  goes to the hosts: their copy is as new and is read directly. */
-function cloudIsNewest(turns: readonly SessionHostTurn[], cloud: SessionCloudHead | null | undefined): cloud is SessionCloudHead & { head: string } {
-  if (!cloud?.head || cloud.syncedTurn <= 0) return false
-  return cloud.syncedTurn > Math.max(0, ...turns.map((entry) => entry.syncedTurn))
-}
-
 /**
- * The source rule with the cloud (portable-sessions-cloud §5.4 item 5): the
- * newest head is the larger `syncedTurn` among the connected hosts and the
- * cloud. When it is the cloud's, the source is the host that ran the last
- * turn, though this client may not reach it: the run host fetches from the
- * cloud first. Null when the run host has that head already, so the prompt
- * starts its turn at once.
+ * What every host that answered holds of one session's repository. A value:
+ * a change gives a new one, and equal facts give the same one, so a reader
+ * that compares by reference sees no change.
  */
-export function sessionSyncOrigin(
-  turns: readonly SessionHostTurn[],
-  runServerId: string,
-  cloud: SessionCloudHead | null | undefined,
-): SessionSyncOrigin | null {
-  if (cloudIsNewest(turns, cloud)) {
-    const run = turns.find((entry) => entry.serverId === runServerId)
-    if (run?.head === cloud.head || cloud.lastRunServerId === runServerId) return null
-    return { knownHead: cloud.head, sourceServerId: cloud.lastRunServerId, sourceHostId: cloud.lastRunHostId }
+export class SessionHostTurns {
+  /** No host answered. */
+  static readonly none = new SessionHostTurns([])
+
+  constructor(readonly entries: readonly SessionHostTurn[]) {}
+
+  /** What `serverId` holds, when it answered. */
+  of(serverId: string): SessionHostTurn | undefined {
+    return this.entries.find((entry) => entry.serverId === serverId)
   }
-  const source = sessionSyncSource(turns, runServerId)
-  return source ? { knownHead: source.knownHead, sourceServerId: source.sourceServerId, sourceHostId: null } : null
-}
 
-/**
- * The host that has the newest turn, with the cloud in the choice: the host
- * that ran the last turn when the cloud is newer than every host read, else
- * `newestSessionHost`. Null when that host is not one this client keeps.
- */
-export function newestSessionServer(
-  turns: readonly SessionHostTurn[],
-  preferServerId: string | null | undefined,
-  cloud: SessionCloudHead | null | undefined,
-): string | null {
-  if (cloudIsNewest(turns, cloud)) return cloud.lastRunServerId
-  return newestSessionHost(turns, preferServerId)?.serverId ?? null
+  /** The most turns that one host holds; 0 when no host reported a turn. */
+  get newestTurn(): number {
+    return Math.max(0, ...this.entries.map((entry) => entry.syncedTurn))
+  }
+
+  /** The facts with one host's answer in place of its older one. */
+  with(turn: SessionHostTurn): SessionHostTurns {
+    const index = this.entries.findIndex((entry) => entry.serverId === turn.serverId)
+    const known = index === -1 ? undefined : this.entries[index]
+    if (known && known.head === turn.head && known.syncedTurn === turn.syncedTurn && !!known.pushRefused === !!turn.pushRefused) return this
+    if (index === -1) return new SessionHostTurns([...this.entries, turn])
+    return new SessionHostTurns(this.entries.map((entry, position) => (position === index ? turn : entry)))
+  }
+
+  /** The facts with nothing from `serverId`: this client keeps that host no more. */
+  without(serverId: string): SessionHostTurns {
+    const kept = this.entries.filter((entry) => entry.serverId !== serverId)
+    return kept.length === this.entries.length ? this : new SessionHostTurns(kept)
+  }
+
+  /**
+   * A turn ended on `serverId`, as this client saw it. The host writes its turn
+   * commit in the background after the turn, so its count is not read yet: it now
+   * has the newest turn, one more than any host this client knows, and one more
+   * than the cloud (`cloudTurn`), because the host synced to the cloud head
+   * before the turn. Its head stays the last one read until a read gives the
+   * new one.
+   */
+  afterTurnSettled(serverId: string, cloudTurn = 0): SessionHostTurns {
+    const known = this.of(serverId)
+    const settled: SessionHostTurn = { serverId, head: known?.head ?? null, syncedTurn: Math.max(cloudTurn, this.newestTurn) + 1 }
+    if (known?.pushRefused) settled.pushRefused = true
+    return this.with(settled)
+  }
+
+  /**
+   * The host that has the newest turn of the session: the most turns. A tie goes
+   * to `preferServerId` (the run host), because its copy is as new and needs no
+   * sync; then to the host this client heard from first. Null when no host
+   * reported any turn.
+   */
+  newestHost(preferServerId?: string | null): SessionHostTurn | null {
+    let newest: SessionHostTurn | null = null
+    for (const entry of this.entries) {
+      if (entry.syncedTurn <= 0) continue
+      if (!newest || entry.syncedTurn > newest.syncedTurn) newest = entry
+      else if (entry.syncedTurn === newest.syncedTurn && entry.serverId === preferServerId) newest = entry
+    }
+    return newest
+  }
+
+  /**
+   * What a prompt or a prepare to `runServerId` carries (plan §7.1): the newest
+   * head and the host that has it, or null when the run host has the newest
+   * turn this client knows. Null sends no head, so the host starts the turn at
+   * once (a head that is only stale would start a sync for nothing).
+   */
+  syncSource(runServerId: string): SessionSyncSource | null {
+    const newest = this.newestHost(runServerId)
+    if (!newest || newest.serverId === runServerId || !newest.head) return null
+    // A run host with the same head is current, though its count was read earlier.
+    if (this.of(runServerId)?.head === newest.head) return null
+    return { knownHead: newest.head, sourceServerId: newest.serverId }
+  }
+
+  /**
+   * Which of the hosts that list the session shows it (plan §9): the host with
+   * the higher `syncedTurn`. A host with no facts yet loses to one that has
+   * them. With no difference, the row stays where it is (`currentServerId`), so
+   * a list read does not move it; else the first host that listed it.
+   */
+  listedHost(candidateServerIds: readonly string[], currentServerId: string | null): string | null {
+    if (candidateServerIds.length === 0) return null
+    const countOf = (serverId: string) => this.of(serverId)?.syncedTurn ?? -1
+    let chosen = currentServerId && candidateServerIds.includes(currentServerId) ? currentServerId : candidateServerIds[0]!
+    for (const serverId of candidateServerIds) {
+      if (countOf(serverId) > countOf(chosen)) chosen = serverId
+    }
+    return chosen
+  }
+
+  /** Whether the cloud has a newer turn than every host this client read. A tie
+   *  goes to the hosts: their copy is as new and is read directly. */
+  private isBehind(cloud: SessionCloudHead | null | undefined): cloud is SessionCloudHead & { head: string } {
+    return !!cloud?.head && cloud.syncedTurn > 0 && cloud.syncedTurn > this.newestTurn
+  }
+
+  /**
+   * The source rule with the cloud (portable-sessions-cloud §5.4 item 5): the
+   * newest head is the larger `syncedTurn` among the connected hosts and the
+   * cloud. When it is the cloud's, the source is the host that ran the last
+   * turn, though this client may not reach it: the run host fetches from the
+   * cloud first. Null when the run host has that head already, so the prompt
+   * starts its turn at once.
+   */
+  syncOrigin(runServerId: string, cloud: SessionCloudHead | null | undefined): SessionSyncOrigin | null {
+    if (this.isBehind(cloud)) {
+      if (this.of(runServerId)?.head === cloud.head || cloud.lastRunServerId === runServerId) return null
+      return { knownHead: cloud.head, sourceServerId: cloud.lastRunServerId, sourceHostId: cloud.lastRunHostId }
+    }
+    const source = this.syncSource(runServerId)
+    return source ? { knownHead: source.knownHead, sourceServerId: source.sourceServerId, sourceHostId: null } : null
+  }
+
+  /**
+   * The host that has the newest turn, with the cloud in the choice: the host
+   * that ran the last turn when the cloud is newer than every host read, else
+   * `newestHost`. Null when that host is not one this client keeps.
+   */
+  newestServer(preferServerId: string | null | undefined, cloud: SessionCloudHead | null | undefined): string | null {
+    if (this.isBehind(cloud)) return cloud.lastRunServerId
+    return this.newestHost(preferServerId)?.serverId ?? null
+  }
 }

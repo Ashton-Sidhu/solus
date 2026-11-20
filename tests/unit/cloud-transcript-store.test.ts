@@ -2,7 +2,7 @@ import { afterAll, describe, expect, mock, test } from 'bun:test'
 import type { Message, Session } from '@solus/contracts/types'
 import type { SessionHistoryPage } from '@solus/contracts/session-history'
 import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
-import type { SessionCloudHead } from '@solus/client-core/session-heads'
+import { SessionHostTurns, type SessionCloudHead } from '@solus/client-core/session-heads'
 import type { SessionCloudPage } from '@solus/client-core/session-cloud-read'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
@@ -47,7 +47,7 @@ function harness(opts: { pages?: Record<string, SessionCloudPage | Error>; cloud
     sessionFor: () => tabSession,
     apiServerFor: () => (cloud ? API : null),
     cloudHeadFor: () => cloud,
-    hostTurnsFor: () => [],
+    hostTurnsFor: () => SessionHostTurns.none,
     isSignedIn: () => true,
     isCloudListed: () => true,
     readPage: async (apiServerId, request) => {

@@ -1,4 +1,4 @@
-import type { SessionCloudHead, SessionHostTurn } from './session-heads'
+import type { SessionCloudHead, SessionHostTurn, SessionHostTurns } from './session-heads'
 
 /**
  * The cloud state of one session on the host that runs its tab
@@ -19,7 +19,7 @@ export type SessionCloudState =
 export interface SessionCloudStateInput {
   runServerId: string
   /** What each host this client read holds of the session. */
-  turns: readonly SessionHostTurn[]
+  turns: SessionHostTurns
   /** What the cloud knows; null when this client has no cloud facts (signed out). */
   cloud: SessionCloudHead | null | undefined
   /** The connected host that `cloud.runningHostId` names. A running host this
@@ -31,16 +31,14 @@ export interface SessionCloudStateInput {
 
 export function sessionCloudState(input: SessionCloudStateInput): SessionCloudState | null {
   const { runServerId, turns, cloud, runningServerId } = input
-  const run = turns.find((entry) => entry.serverId === runServerId)
-  if (run?.pushRefused || input.wasPromptRefused) {
+  if (turns.of(runServerId)?.pushRefused || input.wasPromptRefused) {
     return { kind: 'push-refused', continuedOnServerId: cloud?.lastRunServerId ?? null, continuedOnHostId: cloud?.lastRunHostId ?? null }
   }
   if (runningServerId && runningServerId !== runServerId) return { kind: 'running-elsewhere', runningServerId }
   // Only a session the cloud knows can be behind it: with sync off, or before
   // the first push, there is no cloud copy to be behind.
   if (!cloud || cloud.syncedTurn <= 0) return null
-  const newest = Math.max(0, ...turns.map((entry) => entry.syncedTurn))
-  return newest > cloud.syncedTurn ? { kind: 'not-synced' } : null
+  return turns.newestTurn > cloud.syncedTurn ? { kind: 'not-synced' } : null
 }
 
 /** The words of a cloud state. `hostLabel` names a host id the state carries. */

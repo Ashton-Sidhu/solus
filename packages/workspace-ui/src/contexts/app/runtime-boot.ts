@@ -69,7 +69,7 @@ function reconcileGoneMachines(session: WorkspaceContext): void {
         return [{
           run: tabSession.run,
           close: () => session.closeTab(tabId),
-          copyHostIds: sessionListStore.hostTurnsFor(tabSession.id).filter((turn) => turn.syncedTurn > 0).map((turn) => turn.serverId),
+          copyHostIds: sessionListStore.hostTurnsFor(tabSession.id).entries.filter((turn) => turn.syncedTurn > 0).map((turn) => turn.serverId),
           // The host's checkout is not known here; the run host names it once it is current.
           runOn: (serverId: string) => session.runHosts.change(tabId, openFolder(tabSession.run.location, { serverId, path: '~' })),
         }]

@@ -2,7 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { AgentId, Message, Session } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
-import type { SessionCloudHead, SessionHostTurn } from '@solus/client-core/session-heads'
+import type { SessionCloudHead, SessionHostTurns } from '@solus/client-core/session-heads'
 import { serverConnections } from '@solus/client-core/server-connections'
 import {
   readSessionCloudPage,
@@ -66,7 +66,7 @@ export interface CloudTranscriptDeps {
   /** The Solus API connection that holds a session's cloud facts. */
   apiServerFor(sessionId: string): string | null
   cloudHeadFor(sessionId: string): SessionCloudHead | null
-  hostTurnsFor(sessionId: string): readonly SessionHostTurn[]
+  hostTurnsFor(sessionId: string): SessionHostTurns
   isSignedIn(): boolean
   isCloudListed(): boolean
   readPage(apiServerId: string, request: { sessionId: string; provider: AgentId; before?: string }): Promise<SessionCloudPage>
@@ -121,7 +121,7 @@ export class CloudTranscriptStore {
       isCloudListed: this.deps.isCloudListed(),
       runServerId,
       isRunHostAway,
-      runTurn: this.deps.hostTurnsFor(session.id).find((entry) => entry.serverId === runServerId),
+      runTurn: this.deps.hostTurnsFor(session.id).of(runServerId),
       cloud,
     })
     const isLive = session.status !== 'idle' && session.status !== 'completed'

@@ -160,7 +160,7 @@ test('a turn that ends after a sync from the cloud makes the host newer than the
     await store.load()
     await settle()
     store.noteTurnSettled('mac', 'here')
-    expect(store.hostTurnsFor('here').find((turn) => turn.serverId === 'mac')?.syncedTurn).toBe(5)
+    expect(store.hostTurnsFor('here').of('mac')?.syncedTurn).toBe(5)
     expect(store.cloudStateFor('here', 'mac')).toEqual({ kind: 'not-synced' })
     headChanged('here', facts({ head: 'f'.repeat(40), syncedTurn: 5, lastRunHostId: 'account-mac' }))
     expect(store.cloudStateFor('here', 'mac')).toBeNull()
