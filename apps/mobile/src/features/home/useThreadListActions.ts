@@ -35,6 +35,10 @@ async function offerUndo(
   return succeeded;
 }
 
+/** A session only the cloud lists has no host that keeps its list state yet
+ *  (docs/plans/portable-sessions-cloud.md, Part E mobile). */
+const CLOUD_ONLY_MESSAGE = "Open this session on a host first. Solus Cloud does not keep its list state.";
+
 function failureMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
 }
@@ -63,6 +67,10 @@ export function useThreadListActions(): {
       command: () => Promise<void>,
     ): Promise<boolean> => {
       if (inFlightThreadKeys.current.has(thread.key)) return false;
+      if (thread.cloudOnly) {
+        Alert.alert(failureTitle, CLOUD_ONLY_MESSAGE);
+        return false;
+      }
       inFlightThreadKeys.current.add(thread.key);
       // An older Undo for this thread would act against this action.
       threadUndoNotices.dismiss(thread.key);
@@ -146,6 +154,10 @@ export function useThreadListActions(): {
   );
   const renameThread = useCallback(
     (thread: SolusThreadShell) => {
+      if (thread.cloudOnly) {
+        Alert.alert("Could not rename thread", CLOUD_ONLY_MESSAGE);
+        return;
+      }
       const originalTitle = threadTitle(thread.record);
       const commit = (value: string) => {
         const title = value.trim();

@@ -46,6 +46,8 @@ export interface ConversationMeta {
   handoffPending: boolean
   /** The new session is a lead (`ConversationRun.lead`). */
   lead: boolean
+  /** The host refused a prompt: another host continued the session (`SESSION_DIVERGED`). */
+  isSessionDiverged: boolean
   /** What the next prompt runs with. */
   run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode }
   /** What the next prompt may choose: Auto before the host starts the
@@ -176,6 +178,7 @@ export class ConversationStore {
       unsentText: this.controller.unsentText,
       handoffPending: isHandoffPending(this.controller.threadProvider, this.controller.run.provider),
       lead: this.controller.run.lead === true,
+      isSessionDiverged: this.controller.isSessionDiverged,
       run: {
         provider: this.controller.run.provider,
         model: this.controller.run.preferredModel,

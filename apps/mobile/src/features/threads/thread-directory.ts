@@ -6,6 +6,7 @@ import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 import type { HostRegistry } from '../hosts/host-registry'
+import type { CloudSessions, CloudSessionRecord } from './cloud-sessions'
 import type { SessionRunHosts } from './session-run-hosts'
 import { ShareArrivals } from './shared-with-you'
 
@@ -24,6 +25,10 @@ export interface SolusThreadShell {
   readonly hostId: string
   readonly hostLabel: string
   readonly record: SessionRecord
+  /** Only the cloud lists the session: no host this phone reads has it yet
+   *  (docs/plans/portable-sessions-cloud.md §5.5). Its thread opens with no
+   *  conversation until a host has it. */
+  readonly cloudOnly?: true
 }
 
 /** One project, for T3's project filter and the new-task project picker. */
@@ -73,6 +78,9 @@ const RATE_LIMIT_RETRIES = 3
 
 const IDLE = { kind: 'idle' } as const
 
+/** How a cloud-only row names where it comes from when this phone keeps no host that ran it. */
+const CLOUD_LABEL = 'Solus Cloud'
+
 export class ThreadDirectory {
   readonly changes = new Listeners()
   private readonly hosts = new Map<string, HostThreadsState>()
@@ -88,14 +96,21 @@ export class ThreadDirectory {
   private openedSearchResults = new Map<string, SolusThreadShell>()
   private readonly shareArrivals = new ShareArrivals()
   private readonly shareListeners = new Set<(threads: readonly SolusThreadShell[]) => void>()
+  /** The cloud-only rows shown now, by thread key. */
+  private cloudShells = new Map<string, SolusThreadShell>()
+  /** The row of each cloud record, kept while its host and label do not change. */
+  private readonly cloudShellOf = new WeakMap<CloudSessionRecord, SolusThreadShell>()
 
   constructor(
     private readonly registry: HostRegistry,
     private readonly connectionFor: (hostId: string) => HostConnection | null,
     /** What each host holds of a session: with it, a session two hosts list shows once. */
     private readonly runHosts?: Pick<SessionRunHosts, 'turnsFor' | 'readOnce' | 'changes'>,
+    /** The sessions only the cloud lists: each gets one row. */
+    private readonly cloud?: Pick<CloudSessions, 'onlyInCloud' | 'changes'>,
   ) {
     runHosts?.changes.subscribe(() => this.remerge())
+    cloud?.changes.subscribe(() => this.remerge())
   }
 
   /** Change the list filter without changing a record or closing an open thread. */
@@ -145,6 +160,7 @@ export class ThreadDirectory {
       ?? value?.unlisted?.find((thread) => thread.key === key)
       ?? this.children.get(key)
       ?? this.openedSearchResults.get(key)
+      ?? this.cloudShells.get(key)
       ?? null
   }
 
@@ -264,15 +280,20 @@ export class ThreadDirectory {
     const unlisted: SolusThreadShell[] = []
     const projects: SolusProjectShell[] = []
     const managed = this.managedHostIds()
+    const listedByHost = new Set<string>()
     for (const [hostId, state] of this.hosts) {
       const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
       if (!value) continue
+      for (const thread of value.threads) listedByHost.add(thread.record.sessionId)
+      for (const thread of value.unlisted ?? []) listedByHost.add(thread.record.sessionId)
       // A personal host's threads show whole; a managed host's go through the organization (plans/031 rule 3).
       const usesFilter = usesWindowFilter(hostId, managed)
       threads.push(...value.threads.filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
       unlisted.push(...(value.unlisted ?? []).filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId, usesFilter)))
       projects.push(...value.projects)
     }
+    this.cloudShells = this.cloudOnlyShells(listedByHost)
+    threads.push(...this.cloudShells.values())
     threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
     unlisted.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
     projects.sort((a, b) => a.project.folderName.localeCompare(b.project.folderName))
@@ -287,6 +308,21 @@ export class ThreadDirectory {
       projects: sameItems(projects, held.projects) ? held.projects : projects,
     }
     this.changes.notify()
+  }
+
+  /** One row for each session only the cloud lists; a host's record of a session always wins. */
+  private cloudOnlyShells(listedByHost: ReadonlySet<string>): Map<string, SolusThreadShell> {
+    const shells = new Map<string, SolusThreadShell>()
+    for (const { hostId, isLastRunHost, record } of this.cloud?.onlyInCloud((sessionId) => listedByHost.has(sessionId)) ?? []) {
+      const hostLabel = isLastRunHost ? this.registry.host(hostId)?.label ?? CLOUD_LABEL : CLOUD_LABEL
+      const kept = this.cloudShellOf.get(record)
+      const shell: SolusThreadShell = kept?.hostId === hostId && kept.hostLabel === hostLabel
+        ? kept
+        : { key: threadKey(hostId, record.sessionId), hostId, hostLabel, record, cloudOnly: true }
+      this.cloudShellOf.set(record, shell)
+      shells.set(shell.key, shell)
+    }
+    return shells
   }
 
   /**

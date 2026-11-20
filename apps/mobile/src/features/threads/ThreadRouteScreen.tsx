@@ -2,6 +2,7 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { isChat } from "@solus/contracts/chat";
+import { conversationAwaitsMachine } from "@solus/client-core/session-cloud-state";
 import { hostPathBaseName } from "@solus/contracts/host-path";
 import type { SessionRecord } from "@solus/contracts/types";
 import { useCallback, useEffect, useMemo } from "react";
@@ -16,9 +17,9 @@ import { deriveLayout } from "../../lib/layout";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
-import type { ConversationStore } from "../conversation/conversation-store";
+import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import { newThreadTarget, type NewThreadTarget } from "./new-thread-targets";
-import { threadKey } from "./thread-directory";
+import { threadKey, type SolusThreadShell } from "./thread-directory";
 import { threadProjectPath } from "./threadListV2";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import type { ThreadContentPresentation, ThreadFeedHistoryControls } from "./ThreadFeed";
@@ -40,16 +41,17 @@ function recordOf(record: SessionRecord): ConversationRecord {
   };
 }
 
-type ThreadTarget = { record: ConversationRecord } | { newSession: NewThreadTarget };
+type ThreadTarget = { record: ConversationRecord; fromCloud?: true } | { newSession: NewThreadTarget };
 
 /** What the thread opens, from the first source that knows the session. */
 function threadTarget(
-  listed: SessionRecord | undefined,
+  listed: SolusThreadShell | null,
   restored: ConversationRecord | null,
   started: NewThreadTarget | null,
   moved: ConversationStore | null,
 ): ThreadTarget | null {
-  if (listed) return { record: recordOf(listed) };
+  if (listed?.cloudOnly) return { record: recordOf(listed.record), fromCloud: true };
+  if (listed) return { record: recordOf(listed.record) };
   if (restored) return { record: restored };
   if (started) return { newSession: started };
   const record = moved?.controller.target.record;
@@ -110,7 +112,7 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
     return last?.hostId === hostId && last.record?.sessionId === sessionId ? last.record : null;
   }, [app, hostId, sessionId]);
   const target = threadTarget(
-    shell?.record,
+    shell,
     restored,
     newThreadTarget(hostId, sessionId),
     // A session the person just chose this host for: the host lists it after its sync.
@@ -126,13 +128,16 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
   }, [app, hostId, hostState.kind, shell]);
 
   // The next prompt runs on another host: the thread opens there at once.
-  const chooseHost = useCallback((nextHostId: string) => {
-    if (!store || !app.moveConversation(store, nextHostId)) return;
-    navigation.setParams({ hostId: nextHostId });
+  const followHost = useCallback((nextHostId: string) => {
+    const moved = store ? app.moveConversation(store, nextHostId) : null;
+    if (moved) navigation.setParams({ hostId: nextHostId });
+    return moved;
   }, [app, navigation, store]);
+  const chooseHost = useCallback((nextHostId: string) => void followHost(nextHostId), [followHost]);
 
-  // The thread is the place to come back to on the next launch.
-  const record = shell?.record ?? null;
+  // The thread is the place to come back to on the next launch. A cloud-only
+  // thread is not: this host may not have it, and the list opens it again.
+  const record = shell && !shell.cloudOnly ? shell.record : null;
   useEffect(() => {
     if (record) app.rememberRoute({ hostId, projectPath: record.projectPath, record: recordOf(record) });
   }, [app, hostId, record]);
@@ -184,8 +189,46 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
       shellTitle={shell ? shell.record.customTitle || shell.record.title || shell.record.slug : null}
       projectPath={projectPath}
       onChooseHost={"record" in target ? chooseHost : undefined}
+      onFollowHost={"record" in target ? followHost : undefined}
     />
   );
+}
+
+/** A cloud session that no host here has a copy of yet. */
+const AWAITS_HOST: ThreadContentPresentation = {
+  kind: "unavailable",
+  title: "This session is in Solus Cloud",
+  detail: "The conversation shows here when a host has it. Select a host in Run on, or send a prompt.",
+};
+
+/**
+ * Whether the conversation has nothing to show until a host has the session:
+ * only the cloud listed it, and this host has no copy this phone read
+ * (docs/plans/portable-sessions-cloud.md §5.5). The thread shows a calm empty state.
+ */
+function useAwaitsHost(store: ConversationStore, meta: ConversationMeta, hasRows: boolean, isRunHostAway: boolean): boolean {
+  const app = useApp();
+  const hostId = store.controller.hostId;
+  const sessionId = conversationIdOf(store);
+  const read = () => conversationAwaitsMachine({
+    hasStarted: store.controller.target.record !== undefined,
+    messageCount: hasRows ? 1 : 0,
+    isLoadingHistory: meta.phase.kind === "loading",
+    hasStatusCard: meta.setupStep !== null,
+    runServerId: hostId,
+    isRunHostAway,
+    runTurn: app.runHosts.turnsFor(sessionId).find((turn) => turn.serverId === hostId),
+    cloud: app.cloudSessions.headFor(sessionId),
+  });
+  useListened(app.runHosts.changes, read);
+  return useListened(app.cloudSessions.changes, read);
+}
+
+/** What the thread shows in place of its messages, if anything. */
+function threadContentPresentation(phase: ConversationMeta["phase"], hasRows: boolean, awaitsHost: boolean): ThreadContentPresentation {
+  if (awaitsHost) return AWAITS_HOST;
+  if (phase.kind === "error" && !hasRows) return { kind: "unavailable", title: "The conversation could not be opened", detail: phase.message };
+  return phase.kind === "loading" && !hasRows ? { kind: "loading" } : { kind: "ready" };
 }
 
 function ThreadRouteContent(props: {
@@ -196,6 +239,7 @@ function ThreadRouteContent(props: {
   readonly shellTitle: string | null;
   readonly projectPath: string;
   readonly onChooseHost?: (hostId: string) => void;
+  readonly onFollowHost?: (hostId: string) => ConversationStore | null;
 }) {
   const app = useApp();
   const { store, hostId } = props;
@@ -236,16 +280,9 @@ function ThreadRouteContent(props: {
     [meta.hasOlder, meta.loadingOlder, store],
   );
 
-  const contentPresentation: ThreadContentPresentation =
-    meta.phase.kind === "error" && !hasRows
-      ? {
-          kind: "unavailable",
-          title: "The conversation could not be opened",
-          detail: meta.phase.message,
-        }
-      : meta.phase.kind === "loading" && !hasRows
-        ? { kind: "loading" }
-        : { kind: "ready" };
+  const awaitsHost = useAwaitsHost(store, meta, hasRows, hostReadiness.away);
+
+  const contentPresentation = threadContentPresentation(meta.phase, hasRows, awaitsHost);
 
   return (
     <>
@@ -301,6 +338,7 @@ function ThreadRouteContent(props: {
             layoutVariant={layout.variant}
             usesAutomaticContentInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
             onChooseHost={props.onChooseHost}
+            onFollowHost={props.onFollowHost}
           />
         )}
       </View>

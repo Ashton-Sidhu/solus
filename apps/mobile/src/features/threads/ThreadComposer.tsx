@@ -109,6 +109,9 @@ export interface ThreadComposerProps {
   readonly onStopThread: () => void;
   /** After a prompt was handed to the conversation. */
   readonly onSent?: () => void;
+  /** The conversation the next prompt goes to, when it is not this one: another
+   *  host runs a turn of the session now (docs/plans/portable-sessions.md §4 decision 5). */
+  readonly sendStore?: () => ConversationStore;
   /** Keeps the new-session host choice aware of the unsent draft. */
   readonly onDraftChange?: (text: string) => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
@@ -531,7 +534,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       latestDraft.current = "";
       if (saveTimer.current) clearTimeout(saveTimer.current);
       try {
-        const sending = store.controller.send(prompt, {
+        const sending = (props.sendStore?.() ?? store).controller.send(prompt, {
           delivery: followUp ?? sendPresentation.action ?? undefined,
         });
         props.onSent?.();
@@ -541,7 +544,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         inFlightRef.current = false;
       }
     },
-    [app, canSend, draftMessage, hostId, inputRef, meta.attachments.length, meta.permissions, props.draftKey, props.onSent, queuedEdit, sendPresentation.action, store],
+    [app, canSend, draftMessage, hostId, inputRef, meta.attachments.length, meta.permissions, props.draftKey, props.onSent, props.sendStore, queuedEdit, sendPresentation.action, store],
   );
 
   const attach = useCallback(

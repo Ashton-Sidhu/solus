@@ -1,7 +1,7 @@
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionStarterFromHost, SessionRecord, SessionStatus, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionMeta, SessionStarterFromHost, SessionRecord, SessionStatus, StatusCardState, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
@@ -42,6 +42,7 @@ import { Listeners } from '../../lib/listeners'
 import { SessionSuggestionsFeed } from './session-suggestions'
 import { loweredPermissionMode, workPolicy } from '../policy/lib/policy-view'
 import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
+import { SESSION_DIVERGED } from '@solus/contracts/session-repositories'
 import type { SessionRunHosts } from '../threads/session-run-hosts'
 
 /**
@@ -78,6 +79,10 @@ export interface ConversationTarget {
    *  and reads its own history, so the conversation stays on screen while the
    *  host syncs. */
   carriedTranscript?: TranscriptModel
+  /** Only the cloud listed the session (docs/plans/portable-sessions-cloud.md
+   *  §5.5): this host may have no copy yet, and then shows no conversation
+   *  until it has one. */
+  fromCloud?: true
 }
 
 export interface ConversationDeps {
@@ -97,7 +102,7 @@ export interface ConversationDeps {
   attachmentIo?: AttachmentIo
   /** What each host holds of the session's repository: the prompt carries the
    *  newest head, and an open asks a host that is behind to sync. */
-  runHosts?: Pick<SessionRunHosts, 'noteMeta' | 'noteTurnSettled' | 'promptFields' | 'opened'>
+  runHosts?: Pick<SessionRunHosts, 'noteMeta' | 'noteTurnSettled' | 'promptFields' | 'opened' | 'prepareNewerCopy'>
   onChange(changes: { items: string[]; order: boolean; meta: boolean }): void
 }
 
@@ -176,6 +181,12 @@ export class ConversationController {
   private carried: TranscriptModel | null
   /** The first load asked the run host to sync when it is behind. */
   private openedOnHost = false
+  /** A cloud session this host has no copy of: no history is read until it has one. */
+  private awaitsHostCopy = false
+  /** "Use the newer copy" asked the host to sync: its history is read again when it is current. */
+  private reloadsWhenCurrent = false
+  /** The host refused a prompt because another host continued the session (`SESSION_DIVERGED`). */
+  isSessionDiverged = false
   /** Turns this conversation saw end, so a replayed event counts a turn once. */
   private readonly settledTurnIds = new Set<string>()
   /** Saved artifact reads in flight, per transcript: a rebuilt transcript reads again. */
@@ -506,22 +517,31 @@ export class ConversationController {
     if (generation !== this.loadGeneration) return null
     this.startedBy = hostStarterOf(description?.meta?.startedBy)
     this.deps.runHosts?.noteMeta(this.hostId, description?.meta)
-    // A host that has the session keeps it in its own folder, not the one the
-    // host it came from used.
-    if (this.target.movedFrom && description?.meta?.cwd) {
-      this.run.workingDirectory = description.meta.cwd
-      this.projectPath = description.meta.projectPath
-    }
+    this.followHostCopy(description?.meta ?? null)
     const lineage = description?.lineage
     if (lineage) {
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
       this.followThread(lineage.active.provider)
     }
     if (this.carried) return this.carried
+    if (this.awaitsHostCopy) return new TranscriptModel(this.run.sessionId)
     const page = await api.loadSessionPage({ ...this.historySource, turnLimit: INITIAL_HISTORY_TURNS })
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
     return TranscriptModel.fromHistory(this.run.sessionId, page)
+  }
+
+  /**
+   * What this host answered of its copy. A host that has the session keeps it
+   * in its own folder, not the one the host it came from used. A cloud
+   * session it has no copy of reads no history until it has one.
+   */
+  private followHostCopy(meta: Pick<SessionMeta, 'cwd' | 'projectPath'> | null): void {
+    const { movedFrom, fromCloud } = this.target
+    this.awaitsHostCopy = !!fromCloud && !meta
+    if (!(movedFrom || fromCloud) || !meta?.cwd) return
+    this.run.workingDirectory = meta.cwd
+    this.projectPath = meta.projectPath
   }
 
   /** The provider refused the last turn's login, live or in loaded history: the sheet offers sign-in again. */
@@ -1047,7 +1067,30 @@ export class ConversationController {
     this.model.apply(event)
     this.run.status = this.model.status
     this.flush(event.type === 'session_queue' || event.type === 'provider_switch_applied' || event.type === 'activity')
-    if (event.type === 'status_card' && event.card.status === 'done' && isSessionSyncCard(event.card, this.run.sessionId)) this.adoptHostHistory()
+    if (event.type === 'status_card') this.followStatusCard(event.card)
+  }
+
+  /** A sync card that ends makes this host current; a refused prompt's card says the session diverged. */
+  private followStatusCard(card: StatusCardState): void {
+    if (card.status === 'done' && isSessionSyncCard(card, this.run.sessionId)) this.adoptHostHistory()
+    if (card.promptRefusalCode === SESSION_DIVERGED) this.noteSessionDiverged()
+  }
+
+  private noteSessionDiverged(): void {
+    if (this.isSessionDiverged) return
+    this.isSessionDiverged = true
+    this.flush(true)
+  }
+
+  /**
+   * "Use the newer copy" after a refused push (design answer 3.4): this host
+   * syncs to the cloud head, then reads its history again. Its own turns stay
+   * in its Git history and provider files.
+   */
+  async takeNewerCopy(): Promise<void> {
+    this.reloadsWhenCurrent = true
+    const result = await this.deps.runHosts?.prepareNewerCopy(this.run.sessionId, this.hostId)
+    if (result?.state === 'current') this.adoptHostHistory()
   }
 
   private async watch(): Promise<WatchSessionResult> {
@@ -1145,6 +1188,7 @@ export class ConversationController {
           // The bubble shows the host's words; a policy refusal also keeps its code for the one fix it offers.
           const code = error instanceof Error ? rpcErrorCode(error) : null
           if (code && isPolicyRefusalCode(code)) this.policyRefusals.set(record.clientPromptId, code)
+          if (code === SESSION_DIVERGED) this.noteSessionDiverged()
           throw error
         })
         this.started = true
@@ -1175,11 +1219,16 @@ export class ConversationController {
     if (result?.state === 'current') this.adoptHostHistory()
   }
 
-  /** This host is current: the carried transcript gives way to the host's own
-   *  history, read in the folder where the host keeps the session. */
+  /** This host is current: the carried transcript, the empty cloud
+   *  conversation, or the refused copy gives way to the host's own history,
+   *  read in the folder where the host keeps the session. */
   private adoptHostHistory(): void {
-    if (!this.carried || this.closed) return
+    if ((!this.carried && !this.awaitsHostCopy && !this.reloadsWhenCurrent) || this.closed) return
     this.carried = null
+    if (this.reloadsWhenCurrent) {
+      this.reloadsWhenCurrent = false
+      this.isSessionDiverged = false
+    }
     void this.load()
   }
 

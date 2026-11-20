@@ -808,3 +808,95 @@ change, no mobile change. The client extends phase 4A (`portable-sessions.md`
 - A sync gate test now passes the bundle output path in the correct callback position. The path is absolute and lies in the sync's removed temporary directory. The repository writer rejects a relative bundle path.
 - A refused-push test uses two local copies and `file://` remotes. The fork has a separate repository. Its provider fork file contains the second host's earlier turn and the fork turn. The original remote stays at the first host's head.
 - A cloud prepare test checks that the host adopts the newer head, clears the refused state, admits a prompt, and keeps the old local head under `refs/solus/refused/<sha>`.
+
+### Part E as implemented (mobile)
+
+Mobile (`apps/mobile/`). No server, client-core, or Svelte change. The phone
+uses `session-heads.ts` and `session-cloud-state.ts` from client-core, as
+desktop and web do.
+
+- **The connection.** The phone already has a Solus API connection for an
+  organization (`HostConnections.solusApi`, the one webhooks use). When the
+  person is signed in and works in an organization whose Solus API the account
+  directory lists, `SolusApp` follows that connection for the cloud's
+  sessions. `listMySessions` answers the person's own `person:` sessions on
+  any organization's Solus API, so one connection is enough.
+- **The four facts.** `CloudSessions` (`features/threads/cloud-sessions.ts`,
+  `app.cloudSessions`) keeps one thread record for each session that
+  `listMySessions` answers. `head`, `syncedTurn`, `lastRunHostId`, and
+  `runningHostId` are plain properties of that record. `session.headChanged`
+  writes the properties that changed in place, and the record object stays.
+  An event for a session with no record lists again, because the event has no
+  card. A list read with the same card keeps the record; a new card is a new
+  record, so its row draws again. The list is read when the connection is
+  ready and again on each accepted connection, so a reconnect has no stale
+  fact. The cloud names hosts by account host id; the phone finds its saved
+  host by `uplink.hostId`.
+- **The list.** `ThreadDirectory` adds one `cloudOnly` row for each cloud
+  record that no host lists (in or out of the list). A host's record always
+  wins. A record whose last run host is connected gets no row, because that
+  host archived it. The row opens on the saved last run host, else on the first
+  connected host, else on the first saved host. With no host at all there is
+  no row. The row's host line is the last run host's label, or "Solus Cloud"
+  when the phone keeps no host that ran it.
+- **Opening a cloud-only row.** The thread opens with `fromCloud`. When the
+  host answers `describeSession` with no copy, the conversation reads no
+  history and shows a calm empty state, "This session is in Solus Cloud. The
+  conversation shows here when a host has it. Select a host in Run on, or send
+  a prompt." (`conversationAwaitsMachine`). The open calls
+  `SessionRunHosts.opened`, which prepares the host from the cloud at once.
+  When `sessionPrepare` answers `current`, or the sync card ends `done`, the
+  conversation reads the host's history in the folder the host keeps the
+  session in. A cloud-only thread is not saved as the last route.
+- **The source rule.** `SessionRunHosts` reads the cloud head
+  (`cloudHeadFor`). `promptFields`, `opened`, and `prepare` use
+  `sessionSyncOrigin`; `newestHostOf` uses `newestSessionServer`;
+  `noteTurnSettled` counts past the cloud's `syncedTurn`. When the cloud is
+  newest, `sourceHostId` is `lastRunHostId` as the cloud names it.
+- **States.** `useRunHostRow` computes `sessionCloudState` and
+  `runHostRowView` takes it. The row under the composer says "Running on
+  <host>" first, then "<host> is offline", then "Not synced yet". The cloud
+  note shows also when no other host can be chosen. "Running on <host>" locks
+  the host control, and the composer sends the prompt to the conversation on
+  that host (`useRunningHostSend`, `ThreadRouteScreen.followHost`): the thread
+  moves there at once, as a pick does.
+- **The refused push.** `SessionPushRefusedCard` shows above the row: "This
+  session continued on <host>. The turns on this machine are not in it." with
+  **Use the newer copy** (`ConversationController.takeNewerCopy`: a
+  `sessionPrepare` with the cloud head, then the history is read again). It
+  shows when the host's session info has `pushRefused`, when a prompt is
+  refused with `SESSION_DIVERGED`, or when a status card has
+  `promptRefusalCode: 'SESSION_DIVERGED'`. The phone has no session fork, so
+  there is no Fork action (portable-sessions.md §16 decision 5).
+- **Sign-in, sign-out, reconnect.** A new connection (sign-in, another
+  organization) drops what the old one gave, then lists again. Sign-out
+  follows no connection: the cloud records and the cloud-only rows go, and the
+  phone ends that Solus API connection, because it belongs to the account.
+
+#### Decisions
+
+1. **The controller method is `takeNewerCopy`** and the run host owner's is
+   `prepareNewerCopy`. The React compiler reads a name that starts with `use`
+   as a hook.
+2. **A cloud-only row with no saved last run host opens on the first
+   connected host**, which prepares from the cloud at once. The row says
+   "Solus Cloud", not a host it did not run on.
+3. **The cloud note shows without a host choice.** "Not synced yet" is a fact
+   of the session, not of the choice.
+4. **The phone sends no repository** with a prepare from the cloud, as phase
+   4B decided. A host with no checkout of the project fails with
+   `no-project-checkout`.
+
+#### Limits
+
+- A person with no organization, or an organization whose Solus API the
+  directory does not list, has no Solus API connection on the phone: no cloud
+  facts and no cloud-only rows. The same limit applies to desktop and web.
+- The phone reads no organization session records from the Solus API
+  (`session-archive.md`, Limits), so the cloud facts of a published
+  organization session are not on the phone.
+- No search result for a cloud-only session. Settle, snooze, archive, and
+  rename of a cloud-only row say "Open this session on a host first": Solus
+  Cloud keeps no list state for a personal session (D2).
+- No person checked the screens on a phone; the states are covered by unit
+  tests only.
