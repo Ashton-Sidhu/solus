@@ -1,8 +1,7 @@
-import { spawn } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hostCliEnv } from '../cli-env'
+import { GitRepository } from './git-repository'
 
 export type CheckedPushResult =
   | { status: 'accepted'; head: string }
@@ -16,17 +15,21 @@ export interface GitRemoteOptions {
   signal?: AbortSignal
   timeoutMs: number
   outputLimitBytes?: number
-  authorDate?: string
 }
 
-/** Git operations on a bare repository. Session callers must give a long hard timeoutMs and a suitable outputLimitBytes. */
+/** The remote of one bare repository. Session callers must give a long hard timeoutMs and a suitable outputLimitBytes. */
 export class GitRemote {
+  /** The local repository at `gitDir`. Its Git processes have the credential and the time limit of this remote. */
+  readonly repository: GitRepository
+
   private constructor(
     private readonly options: GitRemoteOptions,
     private readonly root: string,
     private readonly env: NodeJS.ProcessEnv,
     private readonly deadline: AbortSignal,
-  ) {}
+  ) {
+    this.repository = new GitRepository(options.gitDir, { deadline, outputLimitBytes: options.outputLimitBytes, env })
+  }
 
   static async open(options: GitRemoteOptions): Promise<GitRemote> {
     let url: URL
@@ -48,17 +51,13 @@ case "$1" in
   *) exit 1 ;;
 esac
 `, { mode: 0o700 })
-      const env = hostCliEnv({ GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: askpass,
-        GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+      const env = { GIT_ASKPASS: askpass,
         SOLUS_GIT_HOST: url.host, SOLUS_GIT_TOKEN: options.token?.split('?expires=')[0],
-        GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '',
-        GIT_CONFIG_KEY_1: 'core.hooksPath', GIT_CONFIG_VALUE_1: '/dev/null',
-        GIT_CONFIG_KEY_2: 'protocol.file.allow', GIT_CONFIG_VALUE_2: 'always',
-        GIT_AUTHOR_NAME: 'Solus', GIT_AUTHOR_EMAIL: 'storage@solus.invalid',
-        GIT_COMMITTER_NAME: 'Solus', GIT_COMMITTER_EMAIL: 'storage@solus.invalid',
-        GIT_AUTHOR_DATE: options.authorDate, GIT_COMMITTER_DATE: options.authorDate,
-      })
-      for (const key of Object.keys(env)) if (key.startsWith('GIT_TRACE') || key === 'GIT_CURL_VERBOSE') delete env[key]
+        GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '',
+        GIT_CONFIG_KEY_1: 'protocol.file.allow', GIT_CONFIG_VALUE_1: 'always',
+        GIT_CONFIG_KEY_2: 'http.lowSpeedLimit', GIT_CONFIG_VALUE_2: '1',
+        GIT_CONFIG_KEY_3: 'http.lowSpeedTime', GIT_CONFIG_VALUE_3: '60',
+      }
       const deadline = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)]) : AbortSignal.timeout(options.timeoutMs)
       return new GitRemote(options, root, env, deadline)
     } catch (error) {
@@ -69,31 +68,8 @@ esac
 
   async close(): Promise<void> { await rm(this.root, { recursive: true, force: true }) }
 
-  async git(args: string[], input?: string): Promise<string> {
-    const deadline = this.deadline
-    const child = spawn('git', ['--git-dir', this.options.gitDir, '-c', 'http.lowSpeedLimit=1', '-c', 'http.lowSpeedTime=60', ...args], {
-      env: this.env, stdio: 'pipe', signal: deadline,
-    })
-    const parts: Buffer[] = []
-    let bytes = 0
-    child.stdout.on('data', (part: Buffer) => {
-      bytes += part.length
-      if (bytes > (this.options.outputLimitBytes ?? 16 * 1024 * 1024)) child.kill()
-      else parts.push(part)
-    })
-    child.stderr.resume() // Git diagnostics can contain the credential.
-    child.stdin.on('error', () => {})
-    child.stdin.end(input)
-    const code = await new Promise<number>((resolve, reject) => {
-      child.once('error', () => reject(new Error(deadline.aborted ? 'The Git operation timed out.' : 'The Git process could not run.')))
-      child.once('close', status => resolve(status ?? 1))
-    })
-    if (code !== 0) throw new Error(deadline.aborted ? 'The Git operation timed out.' : `The Git ${args[0]} operation failed (${code}).`)
-    return Buffer.concat(parts).toString('utf8')
-  }
-
   async remoteHead(): Promise<string | null> {
-    const refs = (await this.git(['ls-remote', this.options.remote, 'refs/heads/main'])).trim()
+    const refs = (await this.repository.git(['ls-remote', this.options.remote, 'refs/heads/main'])).trim()
     return refs ? refs.split(/\s+/)[0]! : null
   }
 
@@ -103,9 +79,9 @@ esac
       if (head === commit) return { status: 'accepted', head: commit }
       if (head !== expectedHead) return { status: 'refused', head }
       try {
-        await this.git(['push', `--force-with-lease=refs/heads/main:${expectedHead ?? ''}`, this.options.remote, `${commit}:refs/heads/main`])
-      } catch (error) {
-        if (error instanceof Error && error.message === 'The Git operation timed out.') return { status: 'failed', reason: 'timeout' }
+        await this.repository.git(['push', `--force-with-lease=refs/heads/main:${expectedHead ?? ''}`, this.options.remote, `${commit}:refs/heads/main`])
+      } catch {
+        if (this.deadline.aborted) return { status: 'failed', reason: 'timeout' }
         const afterFailure = await this.remoteHead()
         if (afterFailure === commit) return { status: 'accepted', head: commit }
         if (afterFailure !== expectedHead) return { status: 'refused', head: afterFailure }
@@ -115,8 +91,8 @@ esac
       if (confirmed === commit) return { status: 'accepted', head: commit }
       if (confirmed !== expectedHead) return { status: 'refused', head: confirmed }
       return { status: 'failed', reason: 'transport' }
-    } catch (error) {
-      return { status: 'failed', reason: error instanceof Error && error.message === 'The Git operation timed out.' ? 'timeout' : 'transport' }
+    } catch {
+      return { status: 'failed', reason: this.deadline.aborted ? 'timeout' : 'transport' }
     }
   }
 }

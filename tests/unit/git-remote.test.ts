@@ -4,8 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { GitRemote } from '../../packages/server/src/sync/git-remote'
-import { CloudflareWorkRepositories } from '../../packages/server/src/sync/works/cloudflare-work-repositories'
+import { GitRemote } from '../../packages/server/src/sync/git-storage/git-remote'
+import { ArtifactsRepositoryProvider } from '../../packages/server/src/sync/git-storage/artifacts-repository-provider'
 import { actAsHostForTests } from '../../packages/server/src/execution/seats/acting-identity'
 
 actAsHostForTests()
@@ -84,7 +84,7 @@ test('token stays in askpass and askpass checks the host', async () => {
     expect(() => execFileSync(env.GIT_ASKPASS!, ['Password for \'https://other.example\':'], { env, stdio: 'pipe' })).toThrow()
     expect((client as unknown as { options: { remote: string } }).options.remote).not.toContain(token)
     expect(f.run(['config', '--list'])).not.toContain(token)
-    await expect(client.git(['show', 'missing-object'])).rejects.not.toThrow(token)
+    await expect(client.repository.git(['show', 'missing-object'])).rejects.not.toThrow(token)
   } finally { await client.close() }
 })
 
@@ -106,7 +106,7 @@ test('Cloudflare accepts session names and requests read scope', async () => {
       ? { success: true, result: { remote: `https://${account}.artifacts.cloudflare.net/repo` } }
       : { success: true, result: { plaintext: 'short-token' } })
   }
-  const access = new CloudflareWorkRepositories(account, 'test', 'account-token', undefined, mockedFetch)
+  const access = new ArtifactsRepositoryProvider(account, 'test', 'account-token', undefined, mockedFetch)
   expect(await access.remote(`session-${'b'.repeat(48)}`, 'read')).toEqual({ url: `https://${account}.artifacts.cloudflare.net/repo`, token: 'short-token' })
   expect(JSON.parse(calls[1]!.body!)).toMatchObject({ scope: 'read' })
   await expect(access.remote('session-bad', 'read')).rejects.toThrow('Invalid Solus repository name')

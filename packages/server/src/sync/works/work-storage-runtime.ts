@@ -9,8 +9,8 @@ import { databaseWorkStorage } from '../../data/works/database-work-storage'
 import { installWorkStorage, workStorageProviderSchema } from '../../data/works/work-storage'
 import { GitWorkStorage } from '../../data/works/git-work-storage'
 import { GitWorkTransport } from './git-work-transport'
-import { CloudflareWorkRepositories } from './cloudflare-work-repositories'
-import { LocalWorkRepositories } from './local-work-repositories'
+import { ArtifactsRepositoryProvider } from '../git-storage/artifacts-repository-provider'
+import { LocalGitRepositoryProvider } from '../git-storage/local-git-repository-provider'
 import { migrateLocalWorkHistory } from './local-work-migration'
 import { WorkArchiveWriter } from './work-archive-writer'
 
@@ -34,20 +34,18 @@ export async function startWorkStorage(input: {
   const existing = z.object({ count: z.coerce.number() }).parse(await input.database().get(sql`SELECT COUNT(*) AS count FROM ${workStorage} WHERE provider = 'cloudflare-artifacts'`))
   const abort = new AbortController()
   const writers: WorkArchiveWriter[] = []
-  const localTransport = new GitWorkTransport(new LocalWorkRepositories(join(dataDir(), 'works', 'history'), abort.signal), abort.signal)
+  const localTransport = new GitWorkTransport(new LocalGitRepositoryProvider(join(dataDir(), 'works', 'history'), 'work', abort.signal), abort.signal)
   const localWriter = new WorkArchiveWriter(input.database, localTransport, Date.now, input.flushLive, 'local-git')
   const localGit = new GitWorkStorage(localTransport, workId => localWriter.drain(workId), Date.now, 'local', 'local-git')
   writers.push(localWriter)
   let artifacts: GitWorkStorage | undefined
   if (provider === 'cloudflare-artifacts' || existing.count > 0) {
-    if (!env.SOLUS_ARTIFACTS_ACCOUNT_ID || !env.SOLUS_ARTIFACTS_NAMESPACE || !env.SOLUS_ARTIFACTS_API_TOKEN) throw new Error('Artifacts work storage needs SOLUS_ARTIFACTS_ACCOUNT_ID, SOLUS_ARTIFACTS_NAMESPACE and SOLUS_ARTIFACTS_API_TOKEN.')
-    const storageScope = `${env.SOLUS_ARTIFACTS_ACCOUNT_ID}/${env.SOLUS_ARTIFACTS_NAMESPACE}`
+    const repositories = ArtifactsRepositoryProvider.fromEnvironment(env, 'SOLUS_ARTIFACTS_NAMESPACE', 'Artifacts work storage', abort.signal)
     const scopes = z.object({ storage_scope: z.string().nullable() }).array().parse(await input.database().all(sql`SELECT DISTINCT storage_scope FROM ${workStorage} WHERE provider = 'cloudflare-artifacts'`))
-    if (scopes.some(row => row.storage_scope !== storageScope)) throw new Error('The configured Artifacts account/namespace differs from existing work mappings; migrate explicitly.')
-    const repositories = new CloudflareWorkRepositories(env.SOLUS_ARTIFACTS_ACCOUNT_ID, env.SOLUS_ARTIFACTS_NAMESPACE, env.SOLUS_ARTIFACTS_API_TOKEN, abort.signal)
+    if (scopes.some(row => row.storage_scope !== repositories.storageScope)) throw new Error('The configured Artifacts account/namespace differs from existing work mappings; migrate explicitly.')
     const transport = new GitWorkTransport(repositories, abort.signal)
     const writer = new WorkArchiveWriter(input.database, transport, Date.now, input.flushLive)
-    artifacts = new GitWorkStorage(transport, workId => writer.drain(workId), Date.now, storageScope)
+    artifacts = new GitWorkStorage(transport, workId => writer.drain(workId), Date.now, repositories.storageScope)
     writers.push(writer)
   }
   const restore = installWorkStorage({ database: databaseWorkStorage, localGit, artifacts, defaultProvider: provider })

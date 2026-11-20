@@ -11,7 +11,7 @@ import { withUserScope } from '../vault/acting-scope'
 /**
  * An app's git repository (docs/plans/apps.md §4.2): a private, bare
  * repository under the host's data folder, as a work's history is
- * (`sync/works/local-work-repositories.ts`). `refs/heads/main` is the source:
+ * (`sync/git-storage/local-git-repository-provider.ts`). `refs/heads/main` is the source:
  * one commit, a revision, for each save. `refs/solus/versions/<number>` is the
  * build of that version: one commit whose parent is the revision it was built
  * from. The host writes every commit; nothing pushes to this repository.

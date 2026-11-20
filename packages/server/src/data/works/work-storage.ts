@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Db } from '../../db/database'
 import { documentContentHash } from '../../docs/content-hash'
+import { storageRepositoryName } from '../storage-repository-name'
 import { workStorage } from './schema'
 
 export const workStorageProviderSchema = z.enum(['database', 'local-git', 'cloudflare-artifacts'])
@@ -67,7 +67,7 @@ export async function storageForWork(db: Db, organizationId: string, workId: str
 /** Only creation chooses the default. Local works use offline Git when it is configured. */
 export async function initializeWorkStorage(db: Db, organizationId: string, workId: string): Promise<void> {
   const provider = organizationId === 'local' ? (localGitAdapter ? 'local-git' : 'database') : defaultProvider
-  const repository = provider === 'database' ? null : `work-${createHash('sha256').update(JSON.stringify([organizationId, workId])).digest('hex').slice(0, 48)}`
+  const repository = provider === 'database' ? null : storageRepositoryName('work', organizationId, workId)
   await db.run(sql`INSERT INTO ${workStorage} (work_id, organization_id, provider, repository, storage_scope)
     VALUES (${workId}, ${organizationId}, ${provider}, ${repository}, ${provider === 'cloudflare-artifacts' ? artifactsAdapter?.storageScope : provider === 'local-git' ? 'local' : null})`)
 }

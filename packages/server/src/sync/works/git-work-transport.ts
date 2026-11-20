@@ -1,18 +1,21 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { withUserScope } from '../../vault/acting-scope'
-import { GitRemote } from '../git-remote'
+import { GitRemote } from '../git-storage/git-remote'
+import type { GitRepository } from '../git-storage/git-repository'
+import type { RepositoryProvider } from '../git-storage/repository-provider'
 import { documentContentHash } from '../../docs/content-hash'
 import { workArchiveManifestSchema, type WorkArchiveOperation, type WorkArchiveBody, type WorkArchiveTransport } from '../../data/works/git-work-storage'
 
-export interface WorkRepositoryAccess {
-  remote(repository: string): Promise<{ url: string; token?: string }>
-  readFile(repository: string, commit: string, path: string): Promise<string>
-  remove(repository: string): Promise<void>
-}
+/** What a work archive needs from the place that holds its repository. */
+type WorkRepositoryAccess = Pick<RepositoryProvider, 'remote' | 'readFile' | 'remove'>
 
-/** Native Git object writes with no checkout, no token in config, and a checked remote head. */
+/**
+ * The archive of one work in its repository: `manifest.json`, each body at
+ * `bodies/<content hash>`, and the current body at `content.<extension>`. The
+ * Git commands are those of the Git storage layer
+ * (docs/adr/0004-shared-git-storage.md).
+ */
 export class GitWorkTransport implements WorkArchiveTransport {
   constructor(private readonly access: WorkRepositoryAccess, private readonly signal?: AbortSignal) {}
 
@@ -27,25 +30,21 @@ export class GitWorkTransport implements WorkArchiveTransport {
     try { await this.access.remove(repository) } catch { throw new Error('The work archive could not be deleted; cleanup will retry.') }
   }
 
+  /** The record service has no local copy of an archive: it fetches the head with no blobs, adds one commit, and pushes it. */
   async push(repository: string, operation: WorkArchiveOperation, bodies: readonly WorkArchiveBody[]): Promise<string> {
-    // These are service-owned archives, not a person's code checkout.
-    return withUserScope(null, () => this.pushArchive(repository, operation, bodies))
-  }
-
-  private async pushArchive(repository: string, operation: WorkArchiveOperation, bodies: readonly WorkArchiveBody[]): Promise<string> {
-    const remote = await this.access.remote(repository)
+    const remote = await this.access.remote(repository, 'write')
     const root = await mkdtemp(join(tmpdir(), 'solus-work-archive-'))
     const client = await GitRemote.open({ gitDir: root, remote: remote.url, token: remote.token,
-      signal: this.signal, timeoutMs: 120_000, outputLimitBytes: 16 * 1024 * 1024, authorDate: operation.capturedAt })
+      signal: this.signal, timeoutMs: 120_000, outputLimitBytes: 16 * 1024 * 1024 })
     try {
-      const git = (args: string[], input?: string) => client.git(args, input)
-      await git(['init', '--bare', '--initial-branch=main'])
-      await git(['config', 'remote.origin.promisor', 'true'])
-      await git(['config', 'remote.origin.partialclonefilter', 'blob:none'])
+      const scratch = client.repository
+      await scratch.init()
+      await scratch.git(['config', 'remote.origin.promisor', 'true'])
+      await scratch.git(['config', 'remote.origin.partialclonefilter', 'blob:none'])
       const head = await client.remoteHead()
-      if (head) await git(['fetch', '--filter=blob:none', remote.url, 'refs/heads/main'])
+      if (head) await scratch.fetchMain(remote.url, 'blob:none')
       if (head) {
-        const current = workArchiveManifestSchema.parse(JSON.parse(await git(['show', `${head}:manifest.json`])))
+        const current = workArchiveManifestSchema.parse(JSON.parse(await scratch.readText(head, 'manifest.json')))
         if (current.operationId === operation.manifest.operationId) {
           if (JSON.stringify(current) !== JSON.stringify(operation.manifest)) throw new Error('The remote operation differs from the pending write.')
           return head
@@ -53,8 +52,8 @@ export class GitWorkTransport implements WorkArchiveTransport {
         if (current.work.id !== operation.manifest.work.id || current.work.organizationId !== operation.manifest.work.organizationId) throw new Error('The archive belongs to another work.')
       }
       if (head !== operation.expectedCommit) throw new Error('The remote work changed before this push.')
-      const commit = await buildArchiveCommit(git, head, operation, bodies)
-      await git(['update-ref', 'refs/heads/main', commit])
+      const commit = await writeArchiveCommit(scratch, head, operation, bodies)
+      await scratch.setHead(commit)
       const pushed = await client.checkedPush(commit, head)
       if (pushed.status === 'refused') throw new Error('The remote work changed before this push.')
       if (pushed.status === 'failed') throw new Error('The archive push was not confirmed.')
@@ -63,29 +62,35 @@ export class GitWorkTransport implements WorkArchiveTransport {
   }
 }
 
-async function buildArchiveCommit(git: (args: string[], input?: string) => Promise<string>, head: string | null, operation: WorkArchiveOperation, bodies: readonly WorkArchiveBody[]): Promise<string> {
-  const entries = new Map<string, string>()
+async function writeArchiveCommit(scratch: GitRepository, head: string | null, operation: WorkArchiveOperation, bodies: readonly WorkArchiveBody[]): Promise<string> {
+  // The blob of each body, by content hash.
+  const blobs = new Map<string, string>()
   if (head) {
-    for (const line of (await git(['ls-tree', `${head}:bodies`])).trim().split('\n').filter(Boolean)) {
+    for (const line of (await scratch.git(['ls-tree', `${head}:bodies`])).trim().split('\n').filter(Boolean)) {
       const match = /^100644 blob ([a-f0-9]{40})\t([a-f0-9]{64})$/.exec(line)
       if (!match) throw new Error('The archive body tree is invalid.')
-      entries.set(match[2]!, match[1]!)
+      blobs.set(match[2]!, match[1]!)
     }
   }
   for (const body of bodies) {
     if (documentContentHash(body.content) !== body.hash) throw new Error('An archive input body is corrupt.')
-    const blob = (await git(['hash-object', '-w', '--stdin'], body.content)).trim()
-    const existing = entries.get(body.hash)
+    const blob = await scratch.writeBlob({ content: body.content })
+    const existing = blobs.get(body.hash)
     if (existing && existing !== blob) throw new Error('An immutable body changed.')
-    entries.set(body.hash, blob)
+    blobs.set(body.hash, blob)
   }
   for (const hash of [operation.manifest.work.contentHash, ...operation.manifest.revisions.map(revision => revision.contentHash)]) {
-    if (!entries.has(hash)) throw new Error('The archive has a missing content reference.')
+    if (!blobs.has(hash)) throw new Error('The archive has a missing content reference.')
   }
-  const tree = (await git(['mktree', '--missing'], [...entries].sort(([a], [b]) => a.localeCompare(b)).map(([hash, blob]) => `100644 blob ${blob}\t${hash}\n`).join(''))).trim()
-  const manifest = (await git(['hash-object', '-w', '--stdin'], JSON.stringify(operation.manifest))).trim()
   const extension = operation.manifest.work.type === 'doc' ? 'md' : operation.manifest.work.type === 'artifact' ? 'html' : 'json'
-  const body = entries.get(operation.manifest.work.contentHash)!
-  const rootTree = (await git(['mktree', '--missing'], `040000 tree ${tree}\tbodies\n100644 blob ${body}\tcontent.${extension}\n100644 blob ${manifest}\tmanifest.json\n`)).trim()
-  return (await git(['commit-tree', rootTree, ...(head ? ['-p', head] : []), '-m', `Solus work ${operation.manifest.operationId}`])).trim()
+  return scratch.writeCommit({
+    parent: head, message: `Solus work ${operation.manifest.operationId}`, date: operation.capturedAt,
+    // The archive names each body, so the tree has no file that the manifest does not know.
+    keepParentFiles: false,
+    entries: [
+      ...[...blobs].map(([hash, blob]) => ({ path: `bodies/${hash}`, blob })),
+      { path: `content.${extension}`, blob: blobs.get(operation.manifest.work.contentHash)! },
+      { path: 'manifest.json', content: JSON.stringify(operation.manifest) },
+    ],
+  })
 }

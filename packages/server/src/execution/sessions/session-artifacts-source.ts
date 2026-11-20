@@ -1,9 +1,8 @@
 import { existsSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SessionRepositoryTokenResponse } from '@solus/contracts/session-repositories'
 import type { Actor } from '../../admission/actor'
-import { GitRemote } from '../../sync/git-remote'
+import { GitRemote } from '../../sync/git-storage/git-remote'
 import { SessionSyncError, type SessionSource, type SessionSourceRequest, type SourceBundle } from './session-sync'
 
 export type SessionReadAccess = (sessionId: string, actor: Actor, signal: AbortSignal) => Promise<SessionRepositoryTokenResponse | null>
@@ -49,24 +48,19 @@ export async function fetchSessionArtifacts(
   const access = await getReadAccess(sessionId, actor, signal)
   if (!access) return { state: 'no-repository' }
   const repositoryPath = `${outFile}.git`
-  await mkdir(repositoryPath, { recursive: true, mode: 0o700 })
   const remote = await GitRemote.open({ gitDir: repositoryPath, remote: access.remote, token: access.token || undefined, signal,
     timeoutMs: 10 * 60_000, outputLimitBytes: 1024 * 1024 })
   try {
-    await remote.git(['init', '--bare', '--initial-branch=main'])
-    if (localRepositoryPath && existsSync(join(localRepositoryPath, 'objects'))) {
-      await mkdir(join(repositoryPath, 'objects', 'info'), { recursive: true })
-      await writeFile(join(repositoryPath, 'objects', 'info', 'alternates'), `${join(localRepositoryPath, 'objects')}\n`)
-    }
+    const copy = remote.repository
+    await copy.init()
+    if (localRepositoryPath && existsSync(join(localRepositoryPath, 'objects'))) await copy.borrowObjects(localRepositoryPath)
     const head = await remote.remoteHead()
     if (!head) return { state: 'no-repository' }
     if (head === have && (!wantedHead || wantedHead === head)) return { state: 'current' }
-    await remote.git(['fetch', access.remote, 'refs/heads/main'])
-    if (have && !await remote.git(['merge-base', '--is-ancestor', have, head]).then(() => true, () => false)) return { state: 'diverged' }
-    if (wantedHead && !await remote.git(['merge-base', '--is-ancestor', wantedHead, head]).then(() => true, () => false)) {
-      return { state: 'no-repository' }
-    }
-    await remote.git(['update-ref', 'refs/heads/main', head])
+    await copy.fetchMain(access.remote)
+    if (have && !await copy.isAncestor(have, head)) return { state: 'diverged' }
+    if (wantedHead && !await copy.isAncestor(wantedHead, head)) return { state: 'no-repository' }
+    await copy.setHead(head)
     return { state: 'ready', repositoryPath, head, source: 'cloud' }
   } catch (error) {
     signal.throwIfAborted()
