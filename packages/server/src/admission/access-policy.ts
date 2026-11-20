@@ -98,6 +98,8 @@ export const RESOURCE_LOCATORS = {
   mcpTaskList: sessionFieldAt(0, 'sessionId'),
   mcpTaskCancel: sessionFieldAt(0, 'sessionId'),
   mcpTaskAnswer: sessionFieldAt(0, 'sessionId'),
+  integrationResourceWatchList: sessionFieldAt(0, 'sessionId'),
+  integrationResourceWatchStop: sessionFieldAt(0, 'sessionId'),
   mcpAppToolInfo: sessionFieldAt(0, 'sessionId'),
   mcpAppCallTool: sessionFieldAt(0, 'sessionId'),
   mcpAppReadResource: sessionFieldAt(0, 'sessionId'),

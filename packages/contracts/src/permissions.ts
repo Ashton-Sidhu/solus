@@ -399,7 +399,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   watchSession: 'read.transcript', unwatchSession: 'read.transcript', bindRuntimeSession: 'read.transcript',
   loadSession: 'read.transcript', loadSessionPage: 'read.transcript', loadSessionSubagent: 'read.transcript',
   loadSessionToolInputs: 'read.transcript', loadSessionPreview: 'read.transcript', loadSessionMessageWindow: 'read.transcript',
-  getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript', mcpAppLiveRead: 'read.transcript', mcpTaskList: 'read.transcript',
+  getSessionInfo: 'read.transcript', getSessionInfos: 'read.transcript', describeSession: 'read.transcript', mcpAppRead: 'read.transcript', mcpAppLiveRead: 'read.transcript', mcpTaskList: 'read.transcript', integrationResourceWatchList: 'read.transcript',
   sessionRepositoryBundle: 'drive.prompt',
   loadPlanContent: 'read.transcript', loadPlanAnnotations: 'read.transcript', getThreadGoal: 'read.transcript',
   tasksForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
@@ -409,7 +409,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // Sessions — driving: turns, the queue, typing, and sending or dismissing a suggestion
   prompt: 'drive.prompt', compactSession: 'drive.prompt', retry: 'drive.prompt', promptHeadlessSession: 'drive.prompt',
   sessionPrepare: 'drive.prompt',
-  stopSession: 'drive.prompt', stopBackgroundTasks: 'drive.prompt', mcpTaskCancel: 'drive.prompt', mcpTaskAnswer: 'drive.prompt', continueSetupLocally: 'drive.prompt', resetSession: 'drive.prompt', switchSessionAgent: 'drive.prompt',
+  stopSession: 'drive.prompt', stopBackgroundTasks: 'drive.prompt', mcpTaskCancel: 'drive.prompt', mcpTaskAnswer: 'drive.prompt', integrationResourceWatchStop: 'drive.prompt', continueSetupLocally: 'drive.prompt', resetSession: 'drive.prompt', switchSessionAgent: 'drive.prompt',
   cancelQueuedPrompt: 'drive.prompt', editQueuedPrompt: 'drive.prompt', sessionQueue: 'drive.prompt', sessionQueueChange: 'drive.prompt',
   presenceSetComposing: 'drive.prompt', writePlanFile: 'drive.prompt', sessionSuggestionDecide: 'drive.prompt',
   // Sessions — a suggestion a person who may prompt sends or dismisses

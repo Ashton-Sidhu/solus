@@ -296,6 +296,8 @@ export const RPC_PLANES = {
   // The host reads an MCP resource as the person and keeps it in its attachment store (mcp-first-class.md §11)
   integrationResourceList: 'execution',
   integrationResourceAttach: 'execution',
+  integrationResourceWatchList: 'execution',
+  integrationResourceWatchStop: 'execution',
   // The host polls a session's MCP tasks and answers for them (mcp-first-class.md §12)
   mcpTaskList: 'execution',
   mcpTaskCancel: 'execution',

@@ -124,7 +124,8 @@ export async function integrationToolbox(actor: Actor, projectPath?: string | nu
     if (text && included.has(integration.id)) instructions.push({ name: integration.name, slug: integration.slug, text })
   })
   const resourceServers = listedIntegrations.filter((_integration, index) => facts[index].capabilities.resources)
-  for (const resourceTool of resourceAgentTools(resourceServers, current, actor.principal)) {
+  const watchServers = listedIntegrations.filter((_integration, index) => facts[index].capabilities.resources && facts[index].capabilities.resourceSubscribe)
+  for (const resourceTool of resourceAgentTools(resourceServers, watchServers, current, actor.principal)) {
     if (names.has(resourceTool.name)) continue
     names.add(resourceTool.name)
     tools.push(resourceTool)

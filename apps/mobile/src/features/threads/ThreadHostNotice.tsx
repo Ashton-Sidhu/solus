@@ -7,6 +7,7 @@ import {
 } from "@solus/client-core/pull-request-watch-wake";
 import { backgroundCommandWake, backgroundCommandWakeSummary } from "@solus/client-core/background-command-wake";
 import { mcpTaskWake } from "@solus/contracts/integrations/mcp-task";
+import { resourceWatchWake } from "@solus/contracts/integrations/resource-watch";
 import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { TerminalOutput } from "../../components/TerminalOutput";
@@ -153,10 +154,25 @@ export const UserTurnRow = memo(function UserTurnRow(props: ComponentProps<typeo
       />
     );
   }
+  const resourceWatch = sent ? resourceWatchWake(item.text) : null;
+  if (resourceWatch) {
+    return (
+      <HostNoticeRow
+        label="Resource watch"
+        summary={`${resourceWatch.label} · changed`}
+        attention={false}
+        icon="eye"
+        text={item.text}
+        plain={resourceWatch.body}
+        store={props.store}
+        iconSubtleColor={props.iconSubtleColor}
+      />
+    );
+  }
   return <UserMessageRow {...props} />;
 });
 
 /** A prompt the host sent as a caption, known by its text: a history row keeps no origin. */
 export function isHostNotice(text: string): boolean {
-  return !!(pullRequestWatchWake(text) || backgroundCommandWake(text) || mcpTaskWake(text));
+  return !!(pullRequestWatchWake(text) || backgroundCommandWake(text) || mcpTaskWake(text) || resourceWatchWake(text));
 }

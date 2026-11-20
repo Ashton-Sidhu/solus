@@ -29,6 +29,7 @@ export const integration = host.integration.sqlite
 export const integration_connection = host.integrationConnection.sqlite
 export const integration_server_facts = host.integrationServerFacts.sqlite
 export const mcp_task = host.mcpTask.sqlite
+export const integration_resource_watch = host.integrationResourceWatch.sqlite
 export const notification_pr_observations = host.notificationPrObservations.sqlite
 export const saved_metrics_queries = host.savedMetricsQueries.sqlite
 export const turn_flags = host.turnFlags.sqlite

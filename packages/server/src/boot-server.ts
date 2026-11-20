@@ -87,6 +87,9 @@ import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
 import { registerMcpTaskHandlers } from './transport/handlers/mcp-task-handlers'
 import { McpTasks } from './integrations/mcp-tasks'
 import { McpTaskStore } from './integrations/mcp-task-store'
+import { registerResourceWatchHandlers } from './transport/handlers/resource-watch-handlers'
+import { ResourceWatches } from './integrations/resource-watches'
+import { ResourceWatchStore } from './integrations/resource-watch-store'
 import { registerAppHandlers } from './transport/handlers/app-handlers'
 import { Apps } from './apps/apps'
 import { AppDeployments } from './apps/deployments/app-deployments'
@@ -158,7 +161,7 @@ import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabaseForShutdown, getDatabase } from './db/database'
-import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
+import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, onSessionRecordDeleted, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
 import { isLeadSession, onSessionBecameLead } from './data/sessions/lead-sessions'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
@@ -285,7 +288,7 @@ import { emitSessionTasksChanged } from './data/tasks/task-sessions'
 import { onSessionPullRequestsChanged } from './data/sessions/session-pull-requests'
 import { emitSessionArtifactsChanged, onSessionArtifactsChanged } from './data/sessions/session-artifacts'
 import { onPullRequestWatchesChanged, stopSessionPullRequestWatches } from './data/sessions/pull-request-watches'
-import { onSessionReadStateChanged, onSessionStateChanged } from './data/sessions/session-states'
+import { onSessionReadStateChanged, onSessionStateChanged, onSessionViewChanged } from './data/sessions/session-states'
 import { onOutboxChanged } from './sync/outbox/outbox-store'
 import { registerOutboxHandlers } from './transport/handlers/outbox-handlers'
 import { registerTaskOutboxApplier } from './data/tasks/task-applier'
@@ -893,6 +896,27 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.sessionRuntime.useMcpTaskHolds((sessionId) => mcpTasks.holdsSession(sessionId))
   registerMcpTaskHandlers(server, mcpTasks)
   mcpTasks.start()
+  // Resource watches (mcp-first-class.md §11.5): a change of a watched MCP resource
+  // starts the session's agent again, once for a burst, after a running turn.
+  const resourceWatches = new ResourceWatches({
+    store: new ResourceWatchStore(),
+    gateway: integrationGateway,
+    wake: async (sessionId, text, images) => {
+      const origin: Pick<PromptOptions, 'via' | 'imageAttachmentRefs'> = { via: 'resource-watch' }
+      if (images.length) origin.imageAttachmentRefs = images
+      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', origin)
+    },
+    publish: (event) => { void events.broadcast('integration.resourceWatchChanged', event) },
+    isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
+  })
+  integrationGateway.useResourceWatches(resourceWatches)
+  opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => resourceWatches.sessionStatusChanged(event.sessionId, event.status))
+  domainEventUnsubscribes.push(
+    onSessionRecordDeleted((sessionId) => resourceWatches.sessionDeleted(sessionId)),
+    onSessionViewChanged((change) => { if (change.view.archivedAt !== null) resourceWatches.sessionArchived(change.sessionId, change.personKey) }),
+  )
+  registerResourceWatchHandlers(server, resourceWatches)
+  resourceWatches.start()
   // Apps (docs/plans/apps.md): a backend on this host with its own data. An app's
   // integration calls go through the gateway; its operations run in its own runner.
   // An app's calls are spans of the host's one tracer: in metrics.db always, and at a collector when export is on.
@@ -2321,6 +2345,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await seatConnector.stopAll()
         // Before the gateway closes its processes: a host stop is not the end of an MCP task (§12.4).
         mcpTasks.stop()
+        resourceWatches.stop()
         await integrationGateway.close()
         agentAuth.stopAll()
         await lanDiscovery.close()

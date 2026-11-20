@@ -38,7 +38,7 @@ function turnComponent(directory: string): string {
       import Stub from ${JSON.stringify(stub)};
       import McpAppLiveCard from ${JSON.stringify(liveCard)};
       const BackgroundWorkRow = Stub, TurnActivityRow = Stub, StatusCard = Stub, TurnEndDivider = Stub;
-      const ToolInputStatus = Stub, TurnImageGallery = Stub, ToolGroupItem = Stub, McpTaskRows = Stub;
+      const ToolInputStatus = Stub, TurnImageGallery = Stub, ToolGroupItem = Stub, McpTaskRows = Stub, ResourceWatchRows = Stub;
       const describeBackgroundWait = () => null, settledBackgroundWait = () => null;
       const getSettingsContext = () => ({ showToolCalls: true });
       const TurnArtifacts = Stub;

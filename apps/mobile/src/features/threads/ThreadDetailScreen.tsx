@@ -56,6 +56,8 @@ import { showsBackgroundWork } from "@solus/client-core/background-work";
 import { mcpTaskIsLive } from "@solus/contracts/integrations/mcp-task";
 import { ThreadMcpTasks } from "./ThreadMcpTasks";
 import { useMcpTasks } from "./use-mcp-tasks";
+import { ThreadResourceWatches } from "./ThreadResourceWatches";
+import { useResourceWatches } from "./use-resource-watches";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
 import { ThreadMcpPipDock } from "./ThreadMcpPipDock";
@@ -236,6 +238,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   // A live MCP task holds the session in `background`; its own row says so, with its own Cancel.
   const mcpTasks = useMcpTasks(store.controller.hostId, conversationIdOf(store), turnActive);
   const backgroundIsMcpTasks = mcpTasks.tasks.some(mcpTaskIsLive) && !meta.backgroundWorkRunning;
+  // A resource watch waits for news: its row shows, and it does not hold `background`.
+  const resourceWatches = useResourceWatches(store.controller.hostId, conversationIdOf(store), turnActive);
   // A settled turn can leave background work running; Stop ends it too.
   const isBackground = showsBackgroundWork(meta.status, meta.backgroundWorkRunning) && !backgroundIsMcpTasks;
   const canStop = mayDrive && (turnActive || isBackground);
@@ -651,6 +655,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               ) : null}
               {activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
                 <ThreadMcpTasks view={mcpTasks} store={store} mayDrive={mayDrive} maxHeight={pendingUserInputMaxHeight} />
+              ) : null}
+              {activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
+                <ThreadResourceWatches view={resourceWatches} mayDrive={mayDrive} />
               ) : null}
               {activePendingApproval || activePendingUserInput ? (
                 <Animated.View

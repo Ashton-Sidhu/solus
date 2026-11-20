@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Ban as StoppedIcon, Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon } from "@lucide/svelte";
+  import { Ban as StoppedIcon, Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon, Eye as WaitingIcon } from "@lucide/svelte";
   import type { BackgroundItem } from "@solus/client-core/background-item";
   import ActivityRow from "./ActivityRow.svelte";
   import { Button } from "../ui/button";
@@ -8,8 +8,8 @@
   import { formatActivityDuration } from "./lib/activity-summary";
 
   /**
-   * One item of a session's background work that the host keeps (an MCP task;
-   * a resource watch later), on the row `BackgroundWorkRow` uses: the glyph,
+   * One item of a session's background work that the host keeps (an MCP task
+   * or a resource watch), on the row `BackgroundWorkRow` uses: the glyph,
    * what runs, its state in the target, its actions, and the time since the
    * start on the rail. It knows nothing of the kind: `item` is all it reads.
    */
@@ -76,6 +76,8 @@
   {#snippet glyph()}
     {#if item.state === "running"}
       <span class="activity-spinner" aria-hidden="true"></span>
+    {:else if item.state === "waiting"}
+      <WaitingIcon aria-hidden="true" />
     {:else if item.state === "attention"}
       <AlertIcon aria-hidden="true" />
     {:else if item.state === "failed"}

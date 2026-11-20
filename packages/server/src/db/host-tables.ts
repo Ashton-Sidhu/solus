@@ -348,6 +348,34 @@ export const mcpTask = defineTable('mcp_task', {
   indexes: [{ name: 'mcp_task_by_session', columns: ['session_id', 'created_at'] }],
 })
 
+/**
+ * One session's subscription to one MCP resource (docs/plans/mcp-first-class.md
+ * §11.5). The host keeps it open as `user_id`, the person whose agent asked,
+ * with that person's connection, and a change starts the session's agent again.
+ * `status` is `live` or `ended`; `end_reason` says why it ended. `wakes` and
+ * `last_wake_at` hold the limits across a restart of the host.
+ */
+export const integrationResourceWatch = defineTable('integration_resource_watch', {
+  id: text({ primaryKey: true }),
+  organization_id: text({ notNull: true }),
+  session_id: text({ notNull: true }),
+  integration_id: text({ notNull: true }),
+  user_id: text({ notNull: true }),
+  account_id: text({ notNull: true }),
+  uri: text({ notNull: true }),
+  name: text({ notNull: true }),
+  status: text({ notNull: true }),
+  end_reason: text(),
+  status_message: text(),
+  wakes: integer({ notNull: true }),
+  last_wake_at: bigint(),
+  created_at: bigint({ notNull: true }),
+  updated_at: bigint({ notNull: true }),
+  expires_at: bigint({ notNull: true }),
+}, {
+  indexes: [{ name: 'integration_resource_watch_by_session', columns: ['session_id', 'created_at'] }],
+})
+
 export const integrationConnection = defineTable('integration_connection', {
   integration_id: text({ notNull: true }),
   user_id: text(),
@@ -438,6 +466,6 @@ export const HOST_TABLES = [
   runs, runQueue, runExchanges, asyncQuestions,
   outboxOps, deliveryQueue, transcriptMirrorRows, activityMirrorRows,
   kv, projects, memberFolder, automations, automationRuns, browserProfiles,
-  integration, integrationConnection, integrationServerFacts, mcpTask, notificationPrObservations, savedMetricsQueries, turnFlags,
+  integration, integrationConnection, integrationServerFacts, mcpTask, integrationResourceWatch, notificationPrObservations, savedMetricsQueries, turnFlags,
   sessionStorage, sessionStorageTurns,
 ] as const

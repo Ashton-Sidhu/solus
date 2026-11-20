@@ -11,6 +11,7 @@
   import { describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
   import BackgroundWorkRow from "./BackgroundWorkRow.svelte";
   import McpTaskRows from "./McpTaskRows.svelte";
+  import ResourceWatchRows from "./ResourceWatchRows.svelte";
   import { mcpTasksStore } from "../../contexts/sessions/mcp-tasks.store.svelte";
   import { mcpTaskIsLive } from "@solus/contracts/integrations/mcp-task";
   import { shownMcpTasks } from "@solus/client-core/mcp-task-row";
@@ -199,6 +200,10 @@
 {/if}
 {#if mcpTasks.length}
   <McpTaskRows {tabId} tasks={mcpTasks} />
+{/if}
+<!-- Its resource watches show there too. A watch waits for news, so it does not hold `background`. -->
+{#if index === total - 1 && ownSessionId && ownServerId}
+  <ResourceWatchRows {tabId} sessionId={ownSessionId} serverId={ownServerId} since={turn.startedAt} />
 {/if}
 <!-- Only when nothing else is reporting the run: a tool group at
    the tail already carries the spinner. -->
