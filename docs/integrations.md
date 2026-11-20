@@ -285,6 +285,45 @@ plan). The host has the whole capability: `integrationCreate` with a command
 line, `integrationProcessStart`, `integrationProcessStop`, and the values
 through `integrationConnectSubmit`.
 
+## Long tool calls (MCP tasks)
+
+A server of revision 2026-07-28 can run a tool call as an MCP task (the
+extension `io.modelcontextprotocol/tasks`). The server decides; Solus declares
+the extension on each request.
+
+- The call waits up to 30 seconds. An MCP task that ends in that time is the
+  tool's result, and the agent sees nothing special.
+- After 30 seconds the call answers that the work runs in the background, and
+  the turn can end. The host asks the server for the status (`tasks/get`) as
+  the person who made the call, at the server's interval within 1 to 60
+  seconds. When the MCP task ends, the host sends its result to the session
+  once, as a queued message: the transcript shows it as an **MCP task**
+  notice, and the agent answers it in a new turn. A failure and an expiry
+  send their reason. Both providers get the same text.
+- The session's background work shows each MCP task: the server and the
+  tool, its state, the time since the start, and **Cancel**. A question of
+  the server shows **Answer**, which opens the question card. While an MCP
+  task is live, the session's status is `background`.
+- Cancel asks the server to stop. The row says "Cancelling…" until the
+  server reports the end, at most 2 minutes. A cancelled MCP task sends no
+  message. Stop of the turn in the first 30 seconds cancels the MCP task;
+  later it does not touch it.
+- A server that cannot be reached, or a sign-in that stopped working, shows
+  on the row; the MCP task stays live until it expires. A new sign-in
+  continues it.
+- After a restart of the host, the host asks again for each MCP task of a
+  server at a URL, and delivers an end that came while it was down. The MCP
+  tasks of a command (stdio) fail, because the process is gone.
+- Limits: 5 live MCP tasks for one session and 50 on a host (a call past
+  either is cancelled and refused); 24 hours for one MCP task, or the
+  server's `ttlMs` when shorter; 10 results that start one session in an
+  hour (more stay on the row). A deleted session cancels its MCP tasks.
+- An MCP App cannot wait for an MCP task: its call gets an error, and the
+  host cancels the work.
+
+The server's task id stays on the host. Plan:
+`docs/plans/mcp-first-class.md` §12; handoff: `docs/plans/mcp-g-handoff.md`.
+
 ## Who may change what
 
 Every person adds, renames, and removes their own servers, sets their OAuth

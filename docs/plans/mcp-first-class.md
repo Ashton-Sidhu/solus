@@ -2,7 +2,8 @@
 
 Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, and H1 are built
 (`mcp-b1-handoff.md` has the B1 contract; `mcp-wave3-handoff.md` records the
-merge of A2, A3, B1, and H1). This plan continues
+merge of A2, A3, B1, and H1). G is built on its own branch
+(`mcp-g-handoff.md`). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -135,6 +136,17 @@ some of them. This plan follows the sources.
     kept each `input_json_delta` and sent the input whole on
     `tool_call_complete`. H1 adds the partial input for Solus integration
     tools only (§14.1, step 4).
+
+24. **The SDK has no tasks client, and only `tools/call` can get a task**
+    (G). Version 2.4.0 of `@modelcontextprotocol/client` refuses a result
+    with `resultType: "task"` (`UNSUPPORTED_RESULT_TYPE`, without the handle)
+    and has no typed `tasks/*` method. It sends `tasks/get` and
+    `tasks/cancel` through `request()` with an explicit schema, `tasks/update`
+    as an extension method, and the `Mcp-Name` header for all three. The
+    extension (`ext-tasks`, revision 2026-07-28) allows a task for
+    `tools/call` only; a client must treat one on another request as invalid.
+    So `resources/read` and `prompts/get` never give an MCP task. §12.6 has
+    what G wrote.
 
 ## 2. Vocabulary
 
@@ -1318,6 +1330,60 @@ task's person, with their connection. A result goes only to the session that
 made the call. An input request has the trust of an elicitation: it comes
 from the server, and the card names the server. A task cannot start a turn
 in another session.
+
+### 12.6 As built (G)
+
+Where the code differs from §12.1 to §12.5, the code is right.
+
+- **The SDK seam.** `integrations/mcp-task-requests.ts`: `TaskAwareClient`
+  overrides the SDK's protected `_onresponse` and turns a `resultType:
+  "task"` answer into an error that carries the handle (`taskHandleOf`).
+  `getTask`, `updateTask`, and `cancelTask` send the three requests with
+  Zod result schemas. The gateway declares the extension in its client
+  capabilities, which the SDK puts on each request of the modern revision.
+- **The owner.** `integrations/mcp-tasks.ts` (`McpTasks`) holds the call,
+  polls, delivers, cancels, and answers. The gateway knows it as
+  `McpTaskCalls` (`useMcpTasks`) and adds `withTaskSession`, which runs a
+  request as the task's person, does not start a stdio process, and moves a
+  refused sign-in to "needs sign-in". `boot-server.ts` wires the owner, the
+  event, and the handlers (`transport/handlers/mcp-task-handlers.ts`).
+- **The table** is `mcp_task` (migration `0003_mcp_tasks`). The person
+  column is `user_id`, not `person_key` (the data-model rule).
+  `expires_at` is never null: the server's `ttlMs`, at most 24 hours.
+  `deleteHostRowsOfSession` deletes a session's rows; the owner finds the row
+  gone at its next request, cancels the MCP task on the server, and keeps no
+  timer.
+- **Contracts.** `contracts/src/integrations/mcp-task.ts`.
+  `mcpTaskCancel({ sessionId, id })` and
+  `mcpTaskAnswer({ sessionId, id, key, answers })`: the access policy
+  locates the session from the arguments, so both name it, and the owner
+  refuses an MCP task of another session. `answers` is the question card's
+  answer map (with `__action`); the host builds the elicitation answer with
+  the mapping an in-turn elicitation uses. `McpTask` gains `cancelling` and
+  `problem` (`unreachable` or `needs-sign-in`). `createdAt` and `updatedAt`
+  are milliseconds.
+- **Delivery.** `promptSession(sessionId, text, 'queue', { via: 'mcp-task',
+  imageAttachmentRefs })` with no `actor`: `promptSession` uses the session's
+  person, who made the call. The first line is `An MCP task ended
+  (<completed|failed>): <server> · <tool>` (`mcpTaskWakeHeader`), so a client
+  knows the notice after a reload. Images go to the session's attachment
+  store. The result is mapped by `agentResultOf` without the output schema
+  check.
+- **Background status.** `SessionRuntime.mcpTaskHolds` is read beside
+  `isAwaitingReplies` in `provider-events.ts`; an end with nothing to send
+  calls `endBackgroundWait`.
+- **Limits the plan did not have.** 5 live MCP tasks for one session, 50 on
+  a host; 24 hours for one; a cancel the server does not confirm in 2
+  minutes ends on the host; 10 results that start one session in an hour; a
+  failed status request waits twice as long each time, up to 60 seconds; 8
+  open questions for one MCP task (more are declined).
+- **The row** is data-driven: `BackgroundItem` in
+  `client-core/background-item.ts`, `mcpTaskItem` in
+  `client-core/mcp-task-row.ts`. Desktop and web: `BackgroundItemRow.svelte`
+  under the last turn (`McpTaskRows.svelte`), and the notice
+  `McpTaskNoticeRow.svelte`. Mobile: `ThreadMcpTasks.tsx` above the composer
+  and the notice in `ThreadHostNotice.tsx`. Mobile keeps no turn start times,
+  so there an ended row shows until the next turn starts on that device.
 
 **Tests** (`tests/unit/integrations/mcp-tasks.test.ts`, with a fake clock): a
 task that ends in 10 seconds is the tool's result; one that ends in 2

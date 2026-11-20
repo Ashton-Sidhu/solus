@@ -79,6 +79,12 @@ that must outlive the session is an automation (`create_automation`). See
 
 `background` is not busy. A new prompt is accepted and runs as the next turn.
 
+A live MCP task (`docs/integrations.md`, "Long tool calls") holds the session
+in `background` as a session it sent work to does (`mcpTaskHolds` on the
+runtime, read with `isAwaitingReplies`). Its end starts the agent with a
+queued message; a cancel settles the session as `completed`. Its own row,
+with Cancel, shows in place of the background work row.
+
 ## Providers
 
 - **Claude** keeps its SDK query open while tasks run. A new prompt goes into
