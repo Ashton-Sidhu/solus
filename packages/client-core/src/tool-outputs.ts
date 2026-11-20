@@ -7,13 +7,14 @@ import { toolServerName } from './mcp-tool-label'
  * Where a tool call's visible outputs show in a conversation, on desktop, web,
  * and mobile (docs/transcript-cards.md, "Tool outputs").
  *
- * The rule: an image goes to its turn's image gallery. Every other output that
- * a tool line shows only while it is open goes to the outputs strip under the
- * row that folds it. An output that already shows outside the folds stays
- * where it is. A new output field gets its place here: the type check and
- * tests/unit/tool-outputs.test.ts fail until it has one.
+ * The rule: every output that a tool line shows only while it is open goes to
+ * the outputs strip under the row that folds it. An output that already shows
+ * outside the folds stays where it is. Tool images do not go to the turn's
+ * image gallery: it holds the final output of the turn. A new output field
+ * gets its place here: the type check and tests/unit/tool-outputs.test.ts fail
+ * until it has one.
  */
-export type ToolOutputPlace = 'gallery' | 'strip' | 'outside-fold'
+export type ToolOutputPlace = 'strip' | 'outside-fold'
 
 /** The fields of a tool call's message that say what the call is, not what it gave back. */
 export const TOOL_CALL_FACTS = ['toolName', 'toolId', 'toolIndex', 'toolInput', 'toolStatus', 'toolCompletedAt'] as const
@@ -22,7 +23,7 @@ export const TOOL_CALL_FACTS = ['toolName', 'toolId', 'toolIndex', 'toolInput', 
 export type ToolOutputField = Exclude<Extract<keyof Message, `tool${string}`>, (typeof TOOL_CALL_FACTS)[number]> | 'errorHead'
 
 export const TOOL_OUTPUT_PLACES = {
-  toolImages: 'gallery',
+  toolImages: 'strip',
   toolAudio: 'strip',
   toolLeftOut: 'strip',
   // The running row's label and rail say it, and a live turn folds nothing.
@@ -42,17 +43,30 @@ export interface ToolCallOutputs {
   readonly toolLeftOut?: readonly string[]
 }
 
-/** A chip of the outputs strip. A chip opens the folds down to the tool line of `toolId`. */
-export type ToolStripChip =
+/**
+ * An item of the outputs strip. A thumbnail opens the image viewer on the
+ * images of its row; a chip opens the folds down to the tool line of `toolId`.
+ */
+export type ToolStripItem =
+  | { readonly kind: 'image'; readonly key: string; readonly toolId: string; readonly image: ReplyImage }
   | { readonly kind: 'audio'; readonly key: string; readonly toolId: string; readonly server: string; readonly format: string }
   | { readonly kind: 'left-out'; readonly key: string; readonly toolId: string; readonly count: number }
+
+export type ToolStripImage = Extract<ToolStripItem, { kind: 'image' }>
+export type ToolStripChip = Exclude<ToolStripItem, { kind: 'image' }>
 
 type FieldsIn<Place extends ToolOutputPlace> = {
   [Field in ToolOutputField]: (typeof TOOL_OUTPUT_PLACES)[Field] extends Place ? Field : never
 }[ToolOutputField]
 
-/** One chip maker for each strip field: a field moved to the strip does not type check without one. */
-const STRIP_CHIPS: { readonly [Field in FieldsIn<'strip'>]: (tool: ToolCallOutputs) => ToolStripChip[] } = {
+/** One item maker for each strip field: a field moved to the strip does not type check without one. */
+const STRIP_ITEMS: { readonly [Field in FieldsIn<'strip'>]: (tool: ToolCallOutputs) => ToolStripItem[] } = {
+  // A browser capture shows outside the folds as its capture card, so the
+  // scaled copy in its result is not added again.
+  toolImages: (tool) =>
+    solusAgentToolName(tool.toolName ?? '') === 'browser_snapshot'
+      ? []
+      : toolResultImages(tool.toolImages).map((image) => ({ kind: 'image', key: `image:${image.href}`, toolId: tool.id, image })),
   toolAudio: (tool) =>
     (tool.toolAudio ?? []).map((audio) => ({
       kind: 'audio',
@@ -65,57 +79,57 @@ const STRIP_CHIPS: { readonly [Field in FieldsIn<'strip'>]: (tool: ToolCallOutpu
     tool.toolLeftOut?.length ? [{ kind: 'left-out', key: `left-out:${tool.id}`, toolId: tool.id, count: tool.toolLeftOut.length }] : [],
 }
 
-/** One image reader for each gallery field. */
-const GALLERY_IMAGES: { readonly [Field in FieldsIn<'gallery'>]: (tool: ToolCallOutputs) => ReplyImage[] } = {
-  toolImages: (tool) => toolResultImages(tool.toolImages),
-}
-
 /** "MP3", from the stored file's extension. */
 export function audioFormat(audio: ToolResultAudio): string {
   return audio.assetId.slice(audio.assetId.lastIndexOf('.') + 1).toUpperCase()
 }
 
-/**
- * The images one call adds to its turn's gallery, in the order it returned
- * them. A running call adds none. A browser capture is in the gallery already
- * as its capture card, so the scaled copy in its result is not added again.
- */
-export function toolGalleryImages(tool: ToolCallOutputs): ReplyImage[] {
-  if (tool.toolStatus === 'running' || solusAgentToolName(tool.toolName ?? '') === 'browser_snapshot') return []
-  return (Object.keys(GALLERY_IMAGES) as FieldsIn<'gallery'>[]).flatMap((field) => GALLERY_IMAGES[field](tool))
+/** The strip shows this many thumbnails; one more tile opens the rest. */
+export const TOOL_STRIP_IMAGE_LIMIT = 6
+
+/** The outputs strip of a folded row. */
+export interface ToolStrip {
+  /** The thumbnails the strip shows, in call order. */
+  readonly thumbnails: readonly ToolStripImage[]
+  /** Every image of the row, in call order: the viewer a thumbnail opens browses them. */
+  readonly images: readonly ReplyImage[]
+  /** The images past the limit, which the `+N` tile opens. */
+  readonly moreCount: number
+  /** The audio and left-out chips, in call order, after the thumbnails. */
+  readonly chips: readonly ToolStripChip[]
 }
 
-/** The outputs strip of a folded row: the chips of its calls, in call order. A running call gives none. */
-export function toolStripChips(tools: readonly ToolCallOutputs[]): ToolStripChip[] {
-  const fields = Object.keys(STRIP_CHIPS) as FieldsIn<'strip'>[]
-  return tools.flatMap((tool) => (tool.toolStatus === 'running' ? [] : fields.flatMap((field) => STRIP_CHIPS[field](tool))))
-}
+export const EMPTY_TOOL_STRIP: ToolStrip = { thumbnails: [], images: [], moreCount: 0, chips: [] }
 
-/** The gallery shows this many tool images in a turn; one more card opens them all. */
-export const TOOL_GALLERY_LIMIT = 8
-
-/** A tool image the gallery shows, with the call that returned it. */
-export interface ToolGalleryImage {
-  readonly toolId: string
-  readonly image: ReplyImage
-}
-
-/** The tool images of a turn, in call order: the ones the gallery shows, all of them for the viewer, and how many the last card adds. */
-export function turnToolGallery(tools: readonly ToolCallOutputs[]): { shown: ToolGalleryImage[]; all: ReplyImage[]; moreCount: number } {
-  // Two calls can return the same picture: the gallery shows it once.
+/** The outputs strip of a folded row, from the calls it folds. A running call gives nothing. */
+export function toolStrip(tools: readonly ToolCallOutputs[]): ToolStrip {
+  const fields = Object.keys(STRIP_ITEMS) as FieldsIn<'strip'>[]
+  const items = tools.flatMap((tool) => (tool.toolStatus === 'running' ? [] : fields.flatMap((field) => STRIP_ITEMS[field](tool))))
+  const images: ToolStripImage[] = []
+  const chips: ToolStripChip[] = []
+  // Two calls can return the same picture: the strip shows it once.
   const seen = new Set<string>()
-  // Labels count across the turn, so three calls of one server read 1 to 12, not 1 to 4 three times.
+  // Labels count across the row, so three calls of one server read 1 to 12, not 1 to 4 three times.
   const counts = new Map<string, number>()
-  const images = tools.flatMap((tool) => {
-    const source = toolServerName(tool.toolName ?? '', tool.toolInput) ?? 'Tool'
-    return toolGalleryImages(tool).flatMap((image) => {
-      if (seen.has(image.href)) return []
-      seen.add(image.href)
-      const count = (counts.get(source) ?? 0) + 1
-      counts.set(source, count)
-      return [{ toolId: tool.id, image: { ...image, label: `${source} image ${count}` } }]
-    })
-  })
-  const shown = images.slice(0, TOOL_GALLERY_LIMIT)
-  return { shown, all: images.map(({ image }) => image), moreCount: images.length - shown.length }
+  const sources = new Map(tools.map((tool) => [tool.id, toolServerName(tool.toolName ?? '', tool.toolInput) ?? 'Tool']))
+  for (const item of items) {
+    if (item.kind !== 'image') {
+      chips.push(item)
+      continue
+    }
+    if (seen.has(item.image.href)) continue
+    seen.add(item.image.href)
+    const source = sources.get(item.toolId) ?? 'Tool'
+    const count = (counts.get(source) ?? 0) + 1
+    counts.set(source, count)
+    images.push({ ...item, image: { ...item.image, label: `${source} image ${count}` } })
+  }
+  if (images.length === 0 && chips.length === 0) return EMPTY_TOOL_STRIP
+  const thumbnails = images.slice(0, TOOL_STRIP_IMAGE_LIMIT)
+  return { thumbnails, images: images.map((item) => item.image), moreCount: images.length - thumbnails.length, chips }
+}
+
+/** Whether a strip has anything to show. */
+export function hasToolStrip(strip: ToolStrip): boolean {
+  return strip.images.length > 0 || strip.chips.length > 0
 }

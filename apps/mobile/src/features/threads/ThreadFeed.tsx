@@ -362,7 +362,7 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   }
 
   if (row.type === "turn-artifacts") {
-    return <TurnFooter store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} replyId={row.replyId} imageIds={row.imageIds} toolIds={row.toolIds} />;
+    return <TurnFooter store={context.store} promptId={row.promptId} nextPromptId={row.nextPromptId} replyId={row.replyId} imageIds={row.imageIds} />;
   }
 
   if (row.type === "image") {

@@ -277,9 +277,10 @@ the thoughts around them. An empty assistant message does not close the row.
 Only prose, a card (a question, a sub-agent, an agent conversation, a document,
 and the other result cards), browser snapshots, or a notice closes it.
 
-Agent reply images, generated images, browser captures, and the images that
-tool calls returned appear in a compact image gallery below the final reply
-(see [Tool outputs](#tool-outputs)). Each preview shows a thumbnail, a file
+Agent reply images, generated images, and browser captures appear in a compact
+image gallery below the final reply. Raw tool-result images, including device
+inspection screenshots, are excluded: they show in the outputs strip of the
+folded row (see [Tool outputs](#tool-outputs)). Each preview shows a thumbnail, a file
 name or label, and the format. Image embeds in assistant replies render as file
 chips at their authored positions. A chip opens the file; the gallery below the reply provides image
 previews. Videos keep their existing presentation. Prompt attachments stay with the prompt.
@@ -341,20 +342,33 @@ A tool call can give the person visible outputs. One rule says where each one
 shows, for every tool: Solus tools, the built-in tools of Claude and Codex, MCP
 tools, and resource reads.
 
-1. **An image goes to its turn's image gallery**, beside the reply images and
-   browser captures, at the time of its call. The open tool line also shows it,
-   as the line of a browser capture shows its picture. A browser capture is in
-   the gallery once, as its capture card; the scaled copy in its result is not
-   added again. Two calls that return the same picture show it once.
-2. **Every other output that a tool line shows only while open goes to the
-   outputs strip** under the row that folds it: the folded turn row, or the
-   folded tool group row of an open turn. The strip shows only while its row is
-   folded. It is one line of chips that wraps, on the left edge of the row
-   label, with no fill and no card. An audio chip shows the play glyph, the
-   server name, and the format (`elevenlabs MP3`). A notes chip shows
-   `N left out`. A chip opens the folds down to its tool line and moves focus
-   there.
-3. **An output that already shows outside the folds stays where it is.**
+1. **Every output that a tool line shows only while open goes to the outputs
+   strip** under the row that folds it: the folded turn row, or the folded tool
+   group row of an open turn. This includes the images that tool calls return.
+   The open tool line also shows them, as now.
+2. **An output that already shows outside the folds stays where it is.**
+3. **Only the final output of a turn goes to its image gallery**: images in
+   the agent's replies, generated images, and browser captures. A tool image
+   does not go to the gallery.
+
+The strip shows only while its row is folded. It is one line that wraps, on the
+left edge of the row label, with no box around it. It shows, in this order:
+
+- **Thumbnails** of the images the row's calls returned, in call order: at
+  most 6, 56 by 40 pixels, with the hairline border and a small radius. Then a
+  `+N` tile for the images past the limit. A thumbnail opens the image viewer
+  on all the images of that row; `+N` opens it at the first image it stands
+  for. The fold does not change. Two calls that return the same picture show it
+  once. A browser capture shows once, as its capture card: the scaled copy in
+  its result is not in the strip.
+- **Chips**, with a light fill and a full radius, the style of the chips that
+  list what a turn linked: one for each audio clip, with the play glyph, the
+  server name, and the format (`elevenlabs MP3`), and one for each call's
+  left-out notes (`N left out`). A chip opens the folds down to its tool line
+  and moves focus there. It writes only to `ConversationViewState`.
+
+A thumbnail signs its image URL only when it mounts and comes near the
+viewport. A running call adds nothing to the strip.
 
 The rule is in code at one place, `packages/client-core/src/tool-outputs.ts`
 (`TOOL_OUTPUT_PLACES`), shared by desktop, web, and mobile. A new output field
@@ -363,10 +377,10 @@ on a tool call's message must get a place there: the type check and
 
 | Output | Place | Why |
 | --- | --- | --- |
-| Images (`toolImages`): MCP image blocks, a `Read` of a picture, device screenshots, resource reads | Gallery | Rule 1 |
-| Browser capture (`browser_snapshot`) | Gallery, as its capture card | It was there before this rule |
-| Audio (`toolAudio`) | Strip | Rule 2 |
-| "Left out" notes (`toolLeftOut`) | Strip | Rule 2 |
+| Images (`toolImages`): MCP image blocks, a `Read` of a picture, device screenshots, resource reads | Strip, as thumbnails | Rule 1 |
+| Browser capture (`browser_snapshot`) | Gallery, as its capture card | Rule 3 |
+| Audio (`toolAudio`) | Strip | Rule 1 |
+| "Left out" notes (`toolLeftOut`) | Strip | Rule 1 |
 | Progress (`toolProgress`) | Neither | The running row's label and bar show it, and a live turn does not fold |
 | Error head (`errorHead`) | Neither | A failed row and a failed turn say so on their own line; the head is diagnosis |
 | The call's input (code in the open line) | Neither | It is the call, not an output |
@@ -377,12 +391,8 @@ on a tool call's message must get a place there: the type check and
 | Linked pull requests and files, changed files | Neither | Chips and the changes summary at the turn's end |
 | Sub-agent card, answered question, secret receipt | Neither | Steps of the work: the turn row counts them |
 
-The gallery shows at most 8 tool images in a turn (the most one call can
-return). A last card, `+N`, opens all of them in the image viewer. A gallery
-card signs its image URL only when it comes near the viewport. A running call
-adds nothing to the gallery or the strip. Mobile shows the tool images as
-thumbnails in the turn's footer once the turn ends, with the same limit, and
-the strip under its "Worked" row and under each folded tool group.
+Mobile shows the same strip under its "Worked" row and under each folded tool
+group. A thumbnail opens the native file viewer on the row's images.
 
 On desktop and web, more than one tool line of a group can be open at a time,
 as on mobile. The open lines are part of the conversation's view state, so they

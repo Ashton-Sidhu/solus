@@ -9,17 +9,14 @@ import { AppText as Text } from "../../components/AppText";
 import type { RootStackParamList } from "../../navigation/routes";
 import { conversationIdOf, type ConversationStore } from "../conversation/conversation-store";
 import { TurnArtifactChips } from "./AgentArtifactChips";
-import { ThreadToolGallery } from "./ThreadImages";
 
 /**
- * What ends a finished turn: the images its calls returned, the turn's changes
- * when the conversation shows its copy from Solus Cloud, then what the session
- * linked during the turn.
+ * What ends a finished turn: the turn's changes when the conversation shows
+ * its copy from Solus Cloud, then what the session linked during the turn.
  */
-export const TurnFooter = memo(function TurnFooter({ toolIds, ...props }: ComponentProps<typeof TurnArtifactChips> & { readonly toolIds: readonly string[] }) {
+export const TurnFooter = memo(function TurnFooter(props: ComponentProps<typeof TurnArtifactChips>) {
   return (
     <>
-      <ThreadToolGallery store={props.store} toolIds={toolIds} />
       <CloudTurnChanges store={props.store} promptId={props.promptId} />
       <TurnArtifactChips {...props} />
     </>

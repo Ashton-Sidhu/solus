@@ -16,7 +16,7 @@
   import MarkdownImage from "./MarkdownImage.svelte";
   import ToolAudioPlayer from "./ToolAudioPlayer.svelte";
   import ToolOutputStrip from "./ToolOutputStrip.svelte";
-  import { toolStripChips } from "@solus/client-core/tool-outputs";
+  import { EMPTY_TOOL_STRIP, hasToolStrip, toolStrip } from "@solus/client-core/tool-outputs";
   import { focusToolLine } from "./lib/tool-output-strip";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
@@ -181,7 +181,7 @@
   }
 
   // Only a folded row shows its strip, so an open one reads no outputs.
-  const stripChips = $derived(view.expanded ? [] : toolStripChips(tools));
+  const outputs = $derived(view.expanded ? EMPTY_TOOL_STRIP : toolStrip(tools));
 
   function openToolOutput(toolId: string, chip: HTMLElement): void {
     view.expanded = true;
@@ -198,7 +198,7 @@
 {#snippet targetText()}{namedTarget}{/snippet}
 {#snippet thoughtText()}{thought}{/snippet}
 {#snippet progressText()}{progress?.message}{/snippet}
-{#snippet outputStrip()}<ToolOutputStrip chips={stripChips} onOpen={openToolOutput} />{/snippet}
+{#snippet outputStrip()}<ToolOutputStrip strip={outputs} onOpen={openToolOutput} />{/snippet}
 
 <!-- No chassis at all: no fill, no hairline, no tint. This is the least
      important thing in the turn — it says how the answer was produced — so once
@@ -215,7 +215,7 @@
     expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
-    strip={stripChips.length > 0 ? outputStrip : undefined}
+    strip={hasToolStrip(outputs) ? outputStrip : undefined}
     target={!isLive && namedTarget
       ? targetText
       : progress?.message

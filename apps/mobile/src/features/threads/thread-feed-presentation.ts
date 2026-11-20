@@ -73,8 +73,8 @@ export type ThreadFeedRow =
   | { readonly type: 'lead-promotion'; readonly id: string }
   /** The composer picked another provider; the next prompt hands off (plans/021). */
   | { readonly type: 'handoff-pending'; readonly id: string }
-  /** The images the turn's calls returned, and the linked artifacts, below the turn reply. */
-  | ({ readonly type: 'turn-artifacts'; readonly id: string; readonly imageIds: readonly string[]; readonly toolIds: readonly string[]; readonly replyId: string | null } & TurnPromptIds)
+  /** Linked artifacts below the turn reply. */
+  | ({ readonly type: 'turn-artifacts'; readonly id: string; readonly imageIds: readonly string[]; readonly replyId: string | null } & TurnPromptIds)
   | { readonly type: 'image'; readonly id: string }
   /** An HTML render. `superseded`: a later render in the feed revises the same work. */
   | { readonly type: 'artifact'; readonly id: string; readonly superseded: boolean }
@@ -140,7 +140,6 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
       ...prompts,
       replyId,
       imageIds: turn.entries.filter((entry) => entry.kind === 'assistant' || entry.kind === 'image').map((entry) => entry.id),
-      toolIds: turn.entries.filter((entry) => entry.kind === 'tool').map((entry) => entry.id),
     })
   }
   const trailing = rows.findLast((row) => row.type !== 'turn-artifacts')

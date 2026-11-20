@@ -176,8 +176,8 @@ describe('native work log wording', () => {
     expect(fold).toMatchObject({ toolIds: ['t1', 't2', 't3'], toolGroupIds: ['work-group:t1', 'work-group:t1', 'work-group:t3'] })
     const opened = present([user('u1'), tool('t1'), tool('t2'), assistant('a1'), tool('t3'), assistant('a2')], { expandedTurnIds: ['turn:u1'] })
     expect(opened.filter((row) => row.type === 'work-toggle').map((row) => row.type === 'work-toggle' && row.groupId)).toEqual(['work-group:t1', 'work-group:t3'])
-    // The turn's footer reads the images of every call for its gallery.
-    expect(rows.find((row) => row.type === 'turn-artifacts')).toMatchObject({ toolIds: ['t1', 't2', 't3'] })
+    // Tool images are in the strip, not in the turn's footer.
+    expect(rows.find((row) => row.type === 'turn-artifacts')).not.toHaveProperty('toolIds')
   })
 
   test('the Solus tools of the MCP program have readable labels', () => {
