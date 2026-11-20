@@ -155,6 +155,16 @@ revision), the RPC contract, the Solus API, and the database.
   `runSetupProcess`): a setup step with a log that a client reads line by
   line, a stop from the client, and a process starter that tests replace. It
   runs as the acting identity and has the guard.
+- `transport/handlers/setup-handlers.ts`, the probes (`runProbe`) and the
+  `git config` writes: they start through the launch point of the acting
+  identity and have the guard, so their identity rule is that of the project
+  policy. They are synchronous. `git()` writes the diagnostics of Git to the
+  server's own standard error, and these probes fail in normal use (a folder
+  that is not a checkout). The right move is to make them wait
+  (`runAsync('git', …)`), which changes the dispatch checkout path. The tests
+  of that path (`dispatch-checkout-admission`, `dispatch-partial-checkout`,
+  `dispatch-repository-run`) fail on `main` now, so that move needs its own
+  change after they pass.
 - `devices/device-process.ts` (`runDeviceCommand`), `devices/device-run.ts`,
   `devices/device-run-source.ts`, and `devices/device-run-setup.ts`: the device
   domain runs each tool (`xcrun`, `adb`, Git) through one command runner that

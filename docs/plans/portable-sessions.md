@@ -1152,10 +1152,13 @@ type. A pure rule of one input object stays a function.
   layer. A session gives only its repository names, its file layout, and its
   admission rules.
   - `GitRepository` (`GitRepositoryOptions`, `GitIo`): one bare repository on
-    disk and the one Git process runner. `git`, `init`, `head`, `setHead`,
-    `isAncestor`, `fetchMain`, `borrowObjects`, `readText`, `appendFiles`,
-    `writeBlob`, `writeCommit` (`GitCommit`, `GitCommitEntry`, `GitFileEntry`),
-    and `path`. `repositoryPath(root, kind, name)` gives the path of a named
+    disk. It owns the storage policy of the Git process runner
+    (`git/git-process.ts`,
+    [ADR 0005](../adr/0005-one-git-process-runner.md)); the runner starts each
+    process, and a failed one gives a `GitProcessError` with a typed reason.
+    `git`, `gitBytes`, `init`, `head`, `setHead`, `isAncestor`, `fetchMain`,
+    `borrowObjects`, `readText`, `readBytes`, `appendFiles`, `writeBlob`,
+    `writeCommit` (`GitCommit`, `GitCommitEntry`, `GitFileEntry`), and `path`. `repositoryPath(root, kind, name)` gives the path of a named
     repository in a folder.
   - `GitRemote` (`GitRemoteOptions`, `CheckedPushResult`): the remote of one
     `GitRepository`, with a token. `repository`, `remoteHead`, `checkedPush`,

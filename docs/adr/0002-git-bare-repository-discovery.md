@@ -24,8 +24,12 @@ Every Git process the Solus server starts gets
 the policy, `withBareRepositoryGuard` in
 `packages/server/src/git/bare-repository-guard.ts`. These spawn paths use it:
 
-- `git()` and `runAsync('git', …)` in `git/exec.ts`: worktrees, status,
-  diffs, session snapshots, commits, pull request checkouts, and reviews.
+- The Git process runner in `git/git-process.ts` (ADR 0005), for each policy.
+  The project policy is `git()` and `runAsync('git', …)` in `git/exec.ts`:
+  worktrees, status, diffs, session snapshots, commits, pull request
+  checkouts, and reviews. The storage policy is the repositories of works,
+  sessions, and apps; each command names its repository with `--git-dir`,
+  which the guard permits.
 - The setup handlers (`transport/handlers/setup-handlers.ts`): the readiness
   and checkout probes, the `git config` writes, and the clone.
 - The device runs: `runDeviceCommand` in `devices/device-process.ts`, which

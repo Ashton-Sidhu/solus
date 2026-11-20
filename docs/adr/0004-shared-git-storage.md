@@ -50,7 +50,9 @@ import `sync/` and the name is a value that records keep.
   `<kind>-<first 48 hex of sha256(JSON([owner, id]))>`. The rule is the same
   as before for each feature; a test holds fixed names.
 - **`GitRepository`**: one bare repository on disk. It is the only code that
-  starts a `git` process for storage. `git(args, io)` is the one runner
+  runs Git for storage. Since ADR 0005 the process itself starts in the one
+  Git process runner (`git/git-process.ts`), and `GitRepository` owns the
+  storage policy of that runner. `git(args, io)` runs one command
   (always `--git-dir`, the host environment with no system config, no global
   config, no prompt, no trace variables, hooks off, text or a stream as input,
   the output as the answer or sent to a stream). On top of it: `init`, `head`,
@@ -122,9 +124,9 @@ can see.
 - A provider read uses `cat-file blob` in each adapter. `show` gave the same
   bytes.
 - A Git process that Solus stops because its output is too large, or because
-  its own time limit ended, reports the exit code `null` in each caller.
-  `GitRemote` reported `1` before. Only a log line and the output line of a
-  failed sync card can show this number.
+  its own time limit ended, reported the exit code `null` in each caller.
+  `GitRemote` reported `1` before. ADR 0005 changed this: a stopped process
+  reports `1` in each caller, and its error has a typed reason.
 - Output over the limit is always an error. Before, a process that ended
   before the stop arrived could answer with a part of its output.
 - The settings of a remote (no credential helper, the file protocol, the
@@ -136,6 +138,5 @@ can see.
 - The local provider checks a file path with the general rule (plain path
   segments). The local session provider had a list of the three session file
   patterns; `SessionCloudReader` asks only for those three.
-- Not in this decision: `apps/app-repository.ts` has its own Git runner and
-  commit builder for app repositories. It can move to `GitRepository` in a
-  separate change.
+- Not in this decision: `apps/app-repository.ts` had its own Git runner and
+  commit builder for app repositories. ADR 0005 moved it to `GitRepository`.
