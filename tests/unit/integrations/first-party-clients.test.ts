@@ -88,6 +88,34 @@ describe('first-party clients on this host', () => {
     expect(new IntegrationSignIn(GITHUB_MCP).firstParty).toBe('github')
   })
 
+  test('Solus\'s Google app wins over the Client ID Metadata Document', async () => {
+    const { IntegrationOAuth } = await import('@solus/server/integrations/oauth')
+    const { withActingScope } = await import('@solus/server/vault/acting-scope')
+    const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
+    const { SOLUS_CLIENT_ID_URL, SOLUS_CLIENT_METADATA } = await import('@solus/contracts/integrations/client-metadata-document')
+    const { memoryClients } = await import('./memory-secrets')
+    const discover = 'https://accounts.google.com/.well-known/openid-configuration'
+    const google = {
+      issuer: 'https://accounts.google.com',
+      authorization_endpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+      token_endpoint: 'https://oauth2.googleapis.com/token',
+      response_types_supported: ['code'],
+      code_challenge_methods_supported: ['S256'],
+      client_id_metadata_document_supported: true,
+    }
+    const oauth = new IntegrationOAuth({
+      // SAFETY: a sign-in start reaches only the clients and the fetch.
+      connections: {} as never, integrations: { get: () => null }, vault: { save: () => {} }, clients: memoryClients(),
+      events: { connectionChanged: () => {}, authFinished: () => {} },
+      fetch: async (input) => String(input) === discover ? Response.json(google) : String(input) === SOLUS_CLIENT_ID_URL ? Response.json(SOLUS_CLIENT_METADATA) : new Response(null, { status: 404 }),
+    })
+    const calendar: Integration = { ...GITHUB_MCP, id: 'int-cal', url: 'solus:google-calendar', auth: { kind: 'oauth', discover, registration: 'metadata-document', firstParty: 'google' } }
+    const result = await withActingScope({ identity: HOST_IDENTITY, personKey: 'member-1' }, () => oauth.start(calendar, { callbackBaseUrl: 'http://127.0.0.1:3001', fallbackHost: '127.0.0.1', fallbackPort: 3001 }))
+    if (result.kind !== 'waiting') throw new Error(`expected waiting, got ${result.kind}`)
+    // WHY (§13.1): the vendor-verified app names Solus on the consent screen and holds the vendor's review.
+    expect(new URL(result.url).searchParams.get('client_id')).toBe('solus-google')
+  })
+
   test('a Solus Calendar server signs in with Solus\'s Google app', async () => {
     const { probeAddress } = await import('@solus/server/integrations/integration-create')
     expect(await probeAddress('solus:google-calendar')).toMatchObject({ outcome: 'oauth', auth: { firstParty: 'google' } })

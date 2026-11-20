@@ -35,8 +35,8 @@ export interface FakeServers {
   revoked: string[]
   /** Every Authorization header the MCP endpoint saw. */
   mcpAuthorizations: Array<string | undefined>
-  /** Whether the authorization server offers dynamic registration. */
-  options: { registration: boolean; refuseRefresh: boolean; expiresIn: number }
+  /** Whether the authorization server offers dynamic registration, and whether it reads Client ID Metadata Documents. */
+  options: { registration: boolean; metadataDocument: boolean; refuseRefresh: boolean; expiresIn: number }
   issueCode(challenge: string, resource: string | null, redirectUri: string | null): string
   close(): Promise<void>
 }
@@ -71,7 +71,7 @@ export async function startFakeServers(): Promise<FakeServers> {
       for (const listener of modernListeners) listener.write(`data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed', params: {} })}\n\n`)
     },
     modernTtlMs: 60_000,
-    options: { registration: true, refuseRefresh: false, expiresIn: 3600 },
+    options: { registration: true, metadataDocument: false, refuseRefresh: false, expiresIn: 3600 },
     issueCode(challenge, resource, redirectUri) {
       const code = `code-${++counter}`
       codes.set(code, { challenge, resource, redirectUri })
@@ -158,6 +158,7 @@ export async function startFakeServers(): Promise<FakeServers> {
         response_types_supported: ['code'],
         code_challenge_methods_supported: ['S256'],
         token_endpoint_auth_methods_supported: ['none'],
+        ...(fake.options.metadataDocument ? { client_id_metadata_document_supported: true } : {}),
       }
       return json(res, 200, fake.options.registration ? { ...metadata, registration_endpoint: `${base}/as/register` } : metadata)
     }

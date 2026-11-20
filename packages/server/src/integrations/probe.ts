@@ -364,6 +364,9 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
       signals.push({ kind: 'authorization-server-metadata', result: 'ok' })
       // An authorization server Solus registered an app with signs in through that app (§13.1).
       const firstParty = firstPartyFor({ authorizationEndpoint: server.data.authorization_endpoint, tokenEndpoint: server.data.token_endpoint }, endpoint.href)
+      // What the server offers, not the client a sign-in uses: the sign-in uses
+      // the metadata document only when it is published and names the callback,
+      // and registers dynamically otherwise (`IntegrationOAuth.metadataDocumentClient`).
       const registration = server.data.client_id_metadata_document_supported ? 'metadata-document' : server.data.registration_endpoint ? 'dynamic' : 'client-required'
       return { found: firstParty ? { url: location, registration, firstParty } : { url: location, registration } }
     }

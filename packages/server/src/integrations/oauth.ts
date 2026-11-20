@@ -18,6 +18,7 @@ import type { IntegrationStore } from './integration-store'
 import { readServerIdentity, ServerCredentialRefusedError } from './server-identity'
 import { solusServerFor } from './solus-servers'
 import { firstPartyOAuthClient } from './first-party'
+import { PublishedClientMetadata } from './client-metadata'
 import { firstPartyClientById } from '@solus/contracts/first-party-clients'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { boundFetch } from './solus-servers/solus-server'
@@ -145,6 +146,7 @@ export class IntegrationOAuth {
   private readonly flows = new Map<string, PendingFlow>()
   private readonly refreshing = new Map<string, Promise<OAuthToken | null>>()
   private readonly protocol: McpOAuth
+  private readonly clientMetadata: PublishedClientMetadata
   private readonly fetch: typeof fetch
   private readonly now: () => number
 
@@ -152,6 +154,7 @@ export class IntegrationOAuth {
     this.fetch = deps.fetch ?? fetch
     this.now = deps.now ?? Date.now
     this.protocol = new McpOAuth({ fetch: this.fetch, now: this.now })
+    this.clientMetadata = new PublishedClientMetadata({ fetch: this.fetch, now: this.now })
   }
 
   /** Starts the acting person's sign-in, or returns the one they already have open for this integration and callback. */
@@ -403,20 +406,27 @@ export class IntegrationOAuth {
   }
 
   /**
-   * A saved client registered for this callback, else the owner's client (with
-   * its saved secret and token-endpoint method), else a new registration, else a
-   * plain refusal. The owner registered their redirect addresses at the server
+   * The client chain (docs/plans/mcp-integrations.md §13.1): the owner's
+   * client (with its saved secret and token-endpoint method), else Solus's app
+   * for this vendor, else Solus's Client ID Metadata Document, else a saved
+   * dynamic registration for this callback, else a new one, else a plain
+   * refusal. The owner registered their redirect addresses at the server
    * themselves, so their client is not checked against this one.
    */
   private async clientFor(integration: Integration, metadata: OAuthMetadata, redirectUri: string): Promise<OAuthClient> {
     const saved = this.deps.clients.client(integration.id, metadata.issuer)
-    if (saved?.redirectUris?.includes(redirectUri)) return saved
     const adminClientId = integration.auth.kind === 'oauth' ? integration.auth.clientId : undefined
     if (adminClientId) return saved?.clientId === adminClientId ? saved : { clientId: adminClientId }
     // The app Solus registered with this vendor, when there is no owner's client (§13.1).
     const firstPartyId = new IntegrationSignIn(integration).firstParty
     const firstParty = firstPartyId ? firstPartyOAuthClient(firstPartyId) : null
     if (firstParty) return firstParty
+    const documentClient = await this.metadataDocumentClient(metadata, redirectUri)
+    if (documentClient) {
+      log.info('integration_client_metadata_document', { integrationId: integration.id })
+      return documentClient
+    }
+    if (saved?.redirectUris?.includes(redirectUri)) return saved
     if (!metadata.registrationEndpoint) throw new OAuthClientRequiredError(OAUTH_CLIENT_REQUIRED_MESSAGE)
     try {
       const client = await this.protocol.register(metadata, [...(saved?.redirectUris ?? []), redirectUri])
@@ -427,6 +437,30 @@ export class IntegrationOAuth {
       log.warn('integration_client_registration_failed', { integrationId: integration.id, error: errorText(error) })
       throw error
     }
+  }
+
+  /**
+   * Solus's metadata document as the client, when the server reads such
+   * documents, the host confirmed the document is published, and the document
+   * names this exact callback. An authorization server compares the callback
+   * as a plain string, so a callback the document does not name, or one that
+   * only differs in its loopback port, registers dynamically instead:
+   *
+   * - The desktop app on its own host: `http://127.0.0.1:3001` (or `localhost`)
+   *   is in the document; a moved port is not.
+   * - A standalone host reached on loopback at its default port 3000: served.
+   *   Reached on its own origin (LAN, tailnet, public, tunnel): the document
+   *   cannot name it, so it registers dynamically.
+   * - A sign-in that starts at Solus Cloud: the cloud's flow, not this one; its
+   *   callback is on app.solus.sh, which this document does not name.
+   *
+   * Nothing is saved: the client ID is the document's URL.
+   */
+  private async metadataDocumentClient(metadata: OAuthMetadata, redirectUri: string): Promise<OAuthClient | null> {
+    if (!metadata.clientIdMetadataDocumentSupported) return null
+    const published = await this.clientMetadata.current()
+    if (!published?.redirect_uris.includes(redirectUri)) return null
+    return { clientId: published.client_id, tokenEndpointAuthMethod: 'none', redirectUris: published.redirect_uris }
   }
 
   private record(integrationId: string, personKey: string, status: 'needs-sign-in' | 'error', error: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): void {

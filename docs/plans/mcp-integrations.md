@@ -306,9 +306,10 @@ member's MCP tokens in the vault; that is §9.
 
 1. Read the integration's `auth`. For `bearer`, return `input: 'token'`; the
    card collects the key and `integrationConnectSubmit` stores it.
-2. For `oauth`, resolve the client: a saved registration for this host and
-   server, else dynamic client registration, else the client ID metadata
-   document, else `client-required` (the admin enters a client ID and secret on
+2. For `oauth`, resolve the client by the client chain of §13.1: the owner's
+   client, else a first-party client, else Solus's Client ID Metadata
+   Document, else a saved or new dynamic registration for this host and
+   server, else `client-required` (the owner enters a client ID and secret on
    the integration page).
 3. Build the authorization URL with PKCE and `resource` set to the server URL.
    Remember the pending flow with its `ActingScope`, as `startGoogleOAuthFlow`
@@ -718,6 +719,49 @@ The order of work, the build steps, and the status of each part are in
 
 **2026-11-18, MCP 2026-07-28 authorization.** The probe now selects a Client ID Metadata Document before dynamic registration when the authorization server advertises support. Solus does not yet host the required public HTTPS client document, so host sign-in still uses dynamic registration when no manual or first-party client applies. A present callback `iss` must match the recorded issuer before code exchange; an advertised `iss` is required. Dynamic registration sends `application_type: native` for loopback callbacks and `web` for HTTPS host callbacks. Saved clients and OAuth tokens are bound to the discovered issuer; a changed issuer requires a new client and sign-in.
 
+**2026-11-20, Solus's Client ID Metadata Document.** Solus's OAuth client ID
+is `https://solus.sh/oauth/client-metadata.json`. The document is
+`packages/contracts/src/integrations/solus-client-metadata.json` (the one
+source; `SOLUS_CLIENT_ID_URL` is its `client_id`), and `apps/site` serves it
+at that URL (`src/routes/oauth/client-metadata.json/+server.ts`) as
+`application/json` with `Cache-Control: public, max-age=3600`. It names Solus,
+`application_type: native`, the grants `authorization_code` and
+`refresh_token`, the response type `code`, `token_endpoint_auth_method: none`,
+and the privacy and terms pages. The site has no logo at a stable address, so
+the document has no `logo_uri`.
+
+The host chain is now: the owner's client, the first-party client, the
+document, a saved dynamic registration for this callback, a new dynamic
+registration, refusal. The host uses the document only when the authorization
+server advertises `client_id_metadata_document_supported`, the host read the
+published document and its `client_id` is equal to the URL
+(`integrations/client-metadata.ts`; read on demand, kept an hour, used for up
+to a day while reads fail, read again five minutes after a failure), and the
+document names the exact callback. Else it continues to dynamic registration.
+`SOLUS_OAUTH_CLIENT_METADATA_URL` names another document for a self-hosted
+deployment. A server compares the callback as a plain string, so the document
+lists only callbacks Solus builds:
+
+- **The desktop app on its own host:** `http://127.0.0.1:3001` and
+  `http://localhost:3001` are in the document. A host on another port (a
+  moved port, `SOLUS_PORT`) registers dynamically. The loopback port rule of
+  RFC 8252 §7.3 is not relied on: a server that does not apply it would refuse
+  the sign-in in the browser.
+- **A standalone host:** on loopback at its default port 3000 (the web client
+  on the same machine, or an SSH forward to that port), the document serves.
+  On its own origin (LAN, tailnet, public, or a Solus tunnel), a fixed
+  document cannot name the origin, so it registers dynamically.
+- **A sign-in that starts at Solus Cloud:** not served. Its callback is
+  `https://app.solus.sh/oauth/vault/callback`, an HTTPS web callback; this
+  document is a native client with loopback callbacks. The cloud can publish
+  its own document on app.solus.sh with McpOAuth unchanged.
+
+A loopback callback cannot prove which local program receives the code. MCP
+asks a server to warn for localhost-only callbacks; that applies to any
+loopback client, with or without the document. The document takes effect when
+the maintainer deploys `apps/site`; until then every host reads a 404 and
+registers dynamically.
+
 Status on 2026-10-23: steps 1 to 3 below work, and first-party clients for
 GitHub and Google work on the host path (`connect-with-less-setup.md`, step 6).
 
@@ -842,9 +886,9 @@ connections. They come before any new vendor registration:
 
 Then new registrations, in order of demand: Microsoft, Zoom, HubSpot, Slack.
 
-The client ID metadata document (`registration: 'metadata-document'`) is in
-the contract but not implemented. It needs a public HTTPS document whose
-redirect addresses cover every host. It is not part of this step.
+The client ID metadata document (`registration: 'metadata-document'`) is
+implemented for loopback callbacks on 2026-11-20; see the note at the top of
+this section.
 
 ### 13.2 A connect card the agent starts
 
