@@ -68,6 +68,9 @@ export interface SessionHistoryPage {
   /** The cloud repository has no rows for this turn or session. */
   availability?: 'available' | 'not-available'
   unavailableTurns?: number[]
+  /** The cloud repository's index of the one turn this page holds, for its
+   *  turn diff (`sessionTurnDiff`). Only a page read from the repository has it. */
+  turnIndex?: number
 }
 
 export interface ProviderHistoryPage {

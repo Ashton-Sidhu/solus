@@ -563,6 +563,8 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         s.historyPendingMessages = transcript.pendingMessages
       }
       if (s && transcript.messages.length > 0) {
+        // The host's rows take the place of a cloud copy shown while it was away.
+        ctx.cloudTranscripts.release(s.id)
         replaceHydratedMessages(s, transcript.messages)
         markStartupTranscriptApplied(tabId)
         ctx.eventReducer.rebuildAgentConversations(s)

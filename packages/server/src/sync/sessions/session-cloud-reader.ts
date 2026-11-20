@@ -47,8 +47,8 @@ export class SessionCloudReader {
     if (!Number.isSafeInteger(index) || index < 0 || index >= source.manifest.turns.length) return { messages: [], before: null, availability: 'not-available' }
     const turn = source.manifest.turns[index]!
     const next = index ? String(index - 1) : null
-    if (!turn.hasRows) return { messages: [], before: next, availability: 'not-available', unavailableTurns: [index] }
-    return { messages: await this.rows(source.row, index), before: next, availability: 'available' }
+    if (!turn.hasRows) return { messages: [], before: next, availability: 'not-available', unavailableTurns: [index], turnIndex: index }
+    return { messages: await this.rows(source.row, index), before: next, availability: 'available', turnIndex: index }
   }
 
   private async rows(row: SessionRepositoryRow, index: number): Promise<WireSessionLoadMessage[]> {
