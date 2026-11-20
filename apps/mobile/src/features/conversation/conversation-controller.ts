@@ -227,12 +227,7 @@ export class ConversationController {
     // One sheet lists every integration the turn asked for, as the group card
     // does on desktop and web; a repeated ask keeps its one row.
     this.cleanups.push(connection.events.subscribe('integration.connectNeeded', (payload) => {
-      if (payload.sessionId !== this.run.sessionId) return
-      const asked = this.connectNeeded.some((open) => open.integrationId === payload.integrationId)
-      this.connectNeeded = asked
-        ? this.connectNeeded.map((open) => (open.integrationId === payload.integrationId ? payload : open))
-        : [...this.connectNeeded, payload]
-      this.connectNeededChanges.notify()
+      if (payload.sessionId === this.run.sessionId) this.askToConnect(payload)
     }))
     this.cleanups.push(connection.events.subscribe('integration.customServerNeeded', (payload) => {
       if (payload.sessionId !== this.run.sessionId) return
@@ -711,6 +706,19 @@ export class ConversationController {
     this.attachments = [...this.attachments, ...referencedAttachments(refs, this.deps.uuid)]
     this.flush(true)
     return true
+  }
+
+  /**
+   * Shows the connect sheet for one integration, as a turn's
+   * `integration.connectNeeded` does; the person chose it from the MCP prompt
+   * sheet (docs/plans/mcp-first-class.md §10). A repeated ask keeps its one row.
+   */
+  askToConnect(request: IntegrationConnectNeeded): void {
+    const asked = this.connectNeeded.some((open) => open.integrationId === request.integrationId)
+    this.connectNeeded = asked
+      ? this.connectNeeded.map((open) => (open.integrationId === request.integrationId ? request : open))
+      : [...this.connectNeeded, request]
+    this.connectNeededChanges.notify()
   }
 
   /** Takes an attachment off the next prompt. The host keeps the upload. */

@@ -111,7 +111,6 @@ beforeAll(async () => {
     url: `http://127.0.0.1:${port}/mcp`,
     auth: { kind: 'none' },
     disabledTools: [],
-    createdBy: null,
     createdAt: '2026-11-20T00:00:00Z',
     updatedAt: '2026-11-20T00:00:00Z',
   }

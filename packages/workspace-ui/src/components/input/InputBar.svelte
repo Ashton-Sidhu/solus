@@ -666,6 +666,26 @@
     </div>
   {/if}
 
+  {#if commands.mcpPrompts?.form}
+    {@const mcpPrompts = commands.mcpPrompts}
+    {@const promptForm = commands.mcpPrompts.form}
+    <!-- The argument form loads on first use, not with the first screen. -->
+    {#await import("./PromptArgumentForm.svelte") then { default: PromptArgumentForm }}
+      {#key promptForm.prompt.command}
+        <PromptArgumentForm
+          title={promptForm.prompt.command}
+          description={promptForm.prompt.description ?? promptForm.prompt.title}
+          fields={promptForm.prompt.arguments}
+          initialValues={promptForm.values}
+          isSubmitting={promptForm.isSending}
+          error={promptForm.error}
+          onSubmit={mcpPrompts.submitForm}
+          onClose={mcpPrompts.closeForm}
+        />
+      {/key}
+    {/await}
+  {/if}
+
   {#if attachments.length > 0}
     <div class="pt-2">
       <AttachmentChips
@@ -820,6 +840,7 @@
         onRefsChange={handleRefsChange}
         includeSolusCommands
         onSolusCommand={handleSolusCommand}
+        onMcpPrompt={commands.mcpPrompts?.choose}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         {placeholder}

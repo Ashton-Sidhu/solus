@@ -164,6 +164,11 @@ export function toolNames(tools: UpstreamTool[]): string {
   return tools.map((tool) => tool.name).join('\u0000')
 }
 
+/** The prompts a new tool list keeps: a list from before a closed session may be old, so the next prompt read lists again. */
+export function promptsKept(previous: ServerFacts | undefined): ListedPrompts | null {
+  return previous && !previous.stale ? previous.prompts : null
+}
+
 export function promptNames(prompts: UpstreamPrompt[]): string {
   return prompts.map((prompt) => prompt.name).join('\u0000')
 }

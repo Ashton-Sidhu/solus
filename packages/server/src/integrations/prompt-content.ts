@@ -34,7 +34,7 @@ export interface PromptContent {
   attachments: Attachment[]
 }
 
-const IMAGE_EXTENSION: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
+const IMAGE_EXTENSION = new Map([['image/png', 'png'], ['image/jpeg', 'jpg'], ['image/webp', 'webp'], ['image/gif', 'gif']])
 
 export async function promptContentOf(result: GetPromptResult, options: PromptContentOptions): Promise<PromptContent> {
   const attachments: Attachment[] = []
@@ -49,7 +49,7 @@ export async function promptContentOf(result: GetPromptResult, options: PromptCo
     if (data.length > Math.ceil(MAX_ATTACHMENT_UPLOAD_BYTES / 3) * 4) return leftOutLine(`${label} (${mimeType}). An attachment may be at most ${formatByteSize(MAX_ATTACHMENT_UPLOAD_BYTES)}.`)
     const bytes = Buffer.from(data, 'base64')
     const extension = kind === 'image'
-      ? (rasterImageMimeOf(bytes) === mimeType ? IMAGE_EXTENSION[mimeType] : undefined)
+      ? (rasterImageMimeOf(bytes) === mimeType ? IMAGE_EXTENSION.get(mimeType) : undefined)
       : audioAssetExtension(mimeType, bytes) ?? undefined
     if (!extension) return leftOutLine(`${label} (${mimeType}). Its bytes are not that ${kind} type, or Solus does not attach it.`)
     const name = `${options.prompt.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 60)}-${label.replace(' ', '-')}.${extension}`

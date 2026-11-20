@@ -1,6 +1,7 @@
 import {
   integrationPromptCommand,
   type IntegrationPrompt,
+  type IntegrationPromptArgument,
   type IntegrationPromptGetRequest,
   type IntegrationPromptList,
   type IntegrationPromptSignIn,
@@ -85,11 +86,11 @@ export async function integrationPromptList(gateway: IntegrationGateway, actor: 
         integrationName: integration.name,
         command,
         name: upstream.name,
-        arguments: (upstream.arguments ?? []).map((argument) => ({
-          name: argument.name,
-          required: argument.required === true,
-          ...(argument.description ? { description: argument.description } : {}),
-        })),
+        arguments: (upstream.arguments ?? []).map((argument) => {
+          const entry: IntegrationPromptArgument = { name: argument.name, required: argument.required === true }
+          if (argument.description) entry.description = argument.description
+          return entry
+        }),
       }
       if (upstream.title) prompt.title = upstream.title
       if (upstream.description) prompt.description = upstream.description
@@ -122,7 +123,7 @@ export async function integrationPromptText(
     listed = (await gateway.promptsFor(integration.id, ownerKeyOf(actor))).find((prompt) => prompt.name === request.name)
   } catch (error) {
     if (error instanceof ConnectionRequiredError) return connectionRequired()
-    throw failed(error)
+    throw failed(errorText(error))
   }
   const missing = (listed?.arguments ?? []).filter((argument) => argument.required && !values.get(argument.name)?.trim()).map((argument) => argument.name)
   if (missing.length) throw new Error(`${integrationPromptCommand(integration.slug, request.name)} needs ${missing.join(', ')}.`)
@@ -133,11 +134,11 @@ export async function integrationPromptText(
     return { kind: 'text', ...content }
   } catch (error) {
     if (error instanceof ConnectionRequiredError) return connectionRequired()
-    throw failed(error)
+    throw failed(errorText(error))
   }
 
-  function failed(error: unknown): Error {
-    log.warn('integration_prompt_failed', { integrationId: integration.id, prompt: request.name, error: errorText(error) })
-    return new Error(`${integration.name} could not give the prompt ${request.name}: ${errorText(error)}`)
+  function failed(reason: string): Error {
+    log.warn('integration_prompt_failed', { integrationId: integration.id, prompt: request.name, error: reason })
+    return new Error(`${integration.name} could not give the prompt ${request.name}: ${reason}`)
   }
 }

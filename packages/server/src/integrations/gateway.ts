@@ -12,7 +12,7 @@ import type { IntegrationCredentials } from './connections'
 import type { IntegrationStore } from './integration-store'
 import { toolSummary } from './integration-tools'
 import { agentResultOf, mergedAccountResults, outputSchemaRefusal } from './result-content'
-import type { ServerFactsKey, ServerFactsStore } from './server-facts-store'
+import type { SavedServerFacts, ServerFactsKey, ServerFactsStore } from './server-facts-store'
 import { commandStartRefusal, type CommandStarter } from './command-admission'
 import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
@@ -24,6 +24,7 @@ import {
   isAuthFailure,
   isLostResponse,
   promptNames,
+  promptsKept,
   refusedInFirstCall,
   refusedMessage,
   sessionKey,
@@ -534,8 +535,7 @@ export class IntegrationGateway {
     const capabilities = session.client.getServerCapabilities()
     const instructions = session.client.getInstructions() ?? null
     this.serverFacts.set(key, {
-      // A list from before a closed session may be old: the next prompt read lists again.
-      integrationId, tools, stale: false, expiresAt, prompts: previous && !previous.stale ? previous.prompts : null,
+      integrationId, tools, stale: false, expiresAt, prompts: promptsKept(previous),
       era: session.client.getProtocolEra() ?? null, instructions,
       capabilities: {
         prompts: !!capabilities?.prompts,
@@ -821,8 +821,10 @@ export class IntegrationGateway {
     const { tools, era, instructions, capabilities } = facts
     const factsKey: ServerFactsKey = { integrationId: session.integrationId, personKey: session.personKey, accountId: session.accountId }
     // A new tool list keeps the prompts saved before, until the prompts are listed again.
+    const saved: SavedServerFacts = { tools, era, instructions, capabilities }
     const prompts = facts.prompts?.prompts ?? this.options.savedFacts?.get(factsKey)?.facts?.prompts
-    this.options.savedFacts?.saveFacts(factsKey, { tools, era, instructions, capabilities, ...(prompts ? { prompts } : {}) }, this.clock.now())
+    if (prompts) saved.prompts = prompts
+    this.options.savedFacts?.saveFacts(factsKey, saved, this.clock.now())
   }
 
   private factsChanged(integrationId: string): void {
