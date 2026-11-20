@@ -24,7 +24,7 @@
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { webState } from "../lib/web-state.svelte";
   import { localApi } from "@solus/client-core/local-api";
-  import type { SavedServer } from "@solus/client-core/server-registry";
+  import type { KnownHost } from "@solus/client-core/known-host";
   import PairingBridge from "@solus/workspace-ui/components/servers/PairingBridge.svelte";
   import { useHostLookup } from "@solus/workspace-ui/components/servers/lib/host-lookup.svelte";
   import {
@@ -51,7 +51,7 @@
   const device = thisDevice(localApi.getPlatform(), navigator.userAgent);
   const targetUrl = $derived(connectInput.kind === "empty" ? "" : connectInput.url);
   const hostLookup = useHostLookup(() => targetUrl);
-  let paired = $state<SavedServer | null>(null);
+  let paired = $state<KnownHost | null>(null);
   let failedUrl = $state<string | null>(null);
   const phase = $derived(
     pairingPhase({ targetUrl, host: hostLookup.host, isPairing: busy, isPaired: !!paired, failedUrl }),
@@ -97,8 +97,7 @@
       // It becomes the default for new work only when there is none yet; after
       // that, another host is chosen per run with the Run on picker.
       const hasRunOnHost = serverConnections.runOnHostId() !== null;
-      serversStore.savePairedServer(server);
-      serverConnections.startCatalogSupervisors();
+      await serversStore.savePairedServer(server);
       if (!hasRunOnHost) serversStore.switchTo(server.id);
       paired = server;
       setTimeout(close, pairedHoldMs());

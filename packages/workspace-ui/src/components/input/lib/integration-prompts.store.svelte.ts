@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { IntegrationPrompt, IntegrationPromptGetRequest, IntegrationPromptSignIn, IntegrationPromptText } from '@solus/contracts/integrations/prompts'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { onServerRemoving } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 
 /**
  * The MCP prompts of each host and project (docs/plans/mcp-first-class.md §10)
@@ -85,7 +85,7 @@ class IntegrationPromptsStore {
 
   private watch(serverId: string): void {
     if (this.watches.has(serverId)) return
-    if (this.watches.size === 0) this.stopRemoving ??= onServerRemoving((server) => this.forget(server.id))
+    if (this.watches.size === 0) this.stopRemoving ??= hostCatalog.onForgotten((server) => this.forget(server.id))
     const events = serverConnections.eventsFor(serverId)
     const stopChanged = events.subscribe('integration.changed', () => this.reloadHost(serverId))
     // A sign-in or a sign-out changes which prompts the person sees.

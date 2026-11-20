@@ -1,5 +1,5 @@
 import { hostBalancePreference, type HostBalancing } from '@solus/client-core/host-balance'
-import type { SavedServerUplink } from '@solus/client-core/server-registry'
+import type { KnownHostUplink } from '@solus/client-core/known-host'
 import type { HostBalancePreference } from '@solus/contracts/settings'
 import type { RunConfig } from '@solus/contracts/types'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
@@ -19,7 +19,7 @@ interface BalanceServer {
   id: string
   installationId?: string
   readiness: string
-  uplink?: SavedServerUplink
+  uplink?: KnownHostUplink
 }
 
 export interface BalanceCandidatesInput {

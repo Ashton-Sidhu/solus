@@ -27,7 +27,8 @@ for (const client of ['desktop', 'web'] as const) {
       window: { solusNative: nativeApi },
       getLocalConnection: async () => ({}),
       localServerTarget: () => target,
-      savedServerTarget: () => target,
+      knownHostTarget: () => target,
+      hostCatalog: { load: async () => {}, touchLastConnected() {} },
       serverConnections: {
         registerTarget() {},
         presenceOf: () => 'present',
@@ -48,7 +49,6 @@ for (const client of ['desktop', 'web'] as const) {
       installServiceWorkerMessageBridge() {},
       pageStyled: Promise.resolve(),
       removeBootSplash() {},
-      touchLastConnected() {},
       setActiveServerId() {},
       isStaleBuildError: () => false,
     }

@@ -1,9 +1,9 @@
-import type { SavedServer } from '@solus/client-core/server-registry'
+import type { KnownHost } from '@solus/client-core/known-host'
 import type { DiscoveredServer } from '@solus/contracts/types'
 
 export interface DiscoveryFilterInput {
   discovered: DiscoveredServer[]
-  savedServers: SavedServer[]
+  knownHosts: readonly Pick<KnownHost, 'id' | 'installationId'>[]
   selfInstallationId?: string
 }
 
@@ -20,7 +20,7 @@ export function discoveredServerUrl(server: Pick<DiscoveredServer, 'host' | 'por
 
 export function filterUnsavedDiscoveredServers(input: DiscoveryFilterInput): DiscoveredServer[] {
   const registered = new Set<string>()
-  for (const server of input.savedServers) {
+  for (const server of input.knownHosts) {
     if (server.installationId) registered.add(server.installationId)
     registered.add(server.id)
   }

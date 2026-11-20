@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { SavedServer } from '@solus/client-core/server-registry'
+import type { KnownHost } from '@solus/client-core/known-host'
 import type { ManagedHostLifecycle } from '@solus/contracts/uplink'
 import {
   DIRECTORY_REFRESH_MS,
@@ -13,14 +13,14 @@ import {
 
 const directoryUrl = 'https://app.solus.test'
 
-function managedHost(managedState: ManagedHostLifecycle): SavedServer {
+function managedHost(managedState: ManagedHostLifecycle): KnownHost {
   return {
     id: `managed-${managedState}`,
     label: 'Basic',
     url: 'https://solus-h-abc.sprites.app',
     installationId: `install-${managedState}`,
     uplink: { hostId: 'h_abc', directoryUrl, kind: 'managed', managedState },
-  } as SavedServer
+  } as KnownHost
 }
 
 const personalHost = {
@@ -29,7 +29,7 @@ const personalHost = {
   url: 'https://h-laptop.solus.test',
   installationId: 'install-laptop',
   uplink: { hostId: 'h_laptop', directoryUrl, kind: 'personal' },
-} as SavedServer
+} as KnownHost
 
 describe('how often the host directory is read', () => {
   test('a managed host that is provisioning or starting is read for often, so it is pickable soon after ready', () => {

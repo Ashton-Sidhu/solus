@@ -34,7 +34,7 @@
   }
 
   function removeRoute(url: string) {
-    hostRoutesStore.remove(serverId, url);
+    void hostRoutesStore.remove(serverId, url);
     confirmingRemoveUrl = null;
   }
 </script>

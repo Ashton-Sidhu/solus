@@ -61,6 +61,18 @@ describe('the join', () => {
     expect(catalog.find('a')).toMatchObject({ sessionToken: 'token-a', label: 'a.lan:3000' })
   })
 
+  test('a host this device paired is known by its credential before the list loads, so a page can dial the host that keeps its list', async () => {
+    // WHY: §4.5. A web page served by a host reads the person's list on that host,
+    // so it must dial the host with its token before any list names it.
+    const catalog = catalogOf({ credentials: memoryCredentials([], { a: credentialFor('a'), granted: credentialFor('granted', { token: '' }) }) })
+    await catalog.load()
+    expect(ids(catalog)).toEqual([])
+    expect(catalog.pairedHost('a')).toMatchObject({ id: 'a', sessionToken: 'token-a', routes: [{ url: 'http://a.lan:3000', source: 'pairing' }] })
+    // A credential with no token is routes only: the host is dialed with a grant, never as paired.
+    expect(catalog.pairedHost('granted')).toBeNull()
+    expect(catalog.pairedHost('unknown')).toBeNull()
+  })
+
   test('the directory is loading, then failed with no copy, then ready; signed out it is ready with no hosts', async () => {
     // WHY: §3 Q2. There is no cached copy of the cloud machines.
     const directory = fakeDirectory()

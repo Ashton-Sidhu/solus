@@ -145,7 +145,7 @@ export function singleHostServerConnections() {
     probeHealth: async () => null,
     capabilitiesFor: async () => capabilities,
     cachedCapabilitiesFor: () => capabilities,
-    verifySavedServerIdentity: async () => true,
+    verifyKnownHostIdentity: async () => true,
     projectIdentities: async () => [],
     emit: <K extends HostEventName>(serverId: string, type: K, payload: HostEventMap[K]) => {
       events(serverId).receive({ type, payload, occurredAt: Date.now() })

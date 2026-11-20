@@ -47,7 +47,7 @@ export class CloudSessions {
   /** The list row of each cloud-only session, kept while its row and host do not change. */
   private listedByRow = new WeakMap<CloudSessionRow, ListedSession>()
 
-  constructor(private readonly hosts: Pick<SessionListHosts, 'connectedRunnerFor' | 'savedRunnerFor'>) {}
+  constructor(private readonly hosts: Pick<SessionListHosts, 'connectedRunnerFor' | 'knownRunnerFor'>) {}
 
   /** The cloud's facts of a session, or undefined when the cloud has none here. */
   factsFor(sessionId: string): SessionRepositoryFacts | undefined {
@@ -74,7 +74,7 @@ export class CloudSessions {
   headFor(sessionId: string): SessionCloudHead | null {
     const facts = this.factsBySession.get(sessionId)
     if (!facts) return null
-    return { ...facts, lastRunServerId: facts.lastRunHostId ? this.savedRunnerFor(facts.lastRunHostId) : null }
+    return { ...facts, lastRunServerId: facts.lastRunHostId ? this.knownRunnerFor(facts.lastRunHostId) : null }
   }
 
   /** The connected host that runs a turn of this session now. A running host
@@ -110,7 +110,7 @@ export class CloudSessions {
     if (isListedByHost(row.sessionId)) return null
     const lastRunHostId = this.factsBySession.get(row.sessionId)?.lastRunHostId
     if (lastRunHostId && this.hosts.connectedRunnerFor(lastRunHostId)) return null
-    const serverId = (lastRunHostId ? this.savedRunnerFor(lastRunHostId) : null) ?? row.apiServerId
+    const serverId = (lastRunHostId ? this.knownRunnerFor(lastRunHostId) : null) ?? row.apiServerId
     const known = this.listedByRow.get(row)
     if (known?.serverId === serverId) return known
     const listed: ListedSession = {
@@ -134,8 +134,8 @@ export class CloudSessions {
     return listed
   }
 
-  private savedRunnerFor(hostId: string): string | null {
-    return (this.hosts.savedRunnerFor ?? this.hosts.connectedRunnerFor)(hostId)
+  private knownRunnerFor(hostId: string): string | null {
+    return (this.hosts.knownRunnerFor ?? this.hosts.connectedRunnerFor)(hostId)
   }
 
   /** Keep the facts a Solus API answered for a session. Equal facts change nothing. */

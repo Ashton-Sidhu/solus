@@ -12,7 +12,7 @@
   import { shouldShowRunOnPicker } from "../servers/run-on";
   import SessionChip from "../pickers/SessionChip.svelte";
   import StatusBarControls from "../layout/StatusBarControls.svelte";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import { unsupportedOnHost } from "@solus/client-core/host-capabilities";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { runHost } from "../../contexts/workspace/run-location";

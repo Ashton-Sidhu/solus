@@ -2,7 +2,7 @@ import { connectionNeedsAttention, isFirstIntegrationAccount } from '@solus/cont
 import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationCreateRequest, IntegrationEnvValue, IntegrationFacts, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from '@solus/contracts/integration-types'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { onServerRemoving } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { localApi } from '@solus/client-core/local-api'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import type { VaultSaveKeyRequest } from '@solus/contracts/vault'
@@ -187,7 +187,7 @@ class IntegrationsStore {
     const follow = (serverId: string) => { if (!releases.has(serverId)) releases.set(serverId, this.watch(serverId)) }
     for (const serverId of serverConnections.connectedServerIds()) follow(serverId)
     const stopCreated = serverConnections.onConnectionCreated((connection) => follow(connection.serverId))
-    const stopRemoving = onServerRemoving((server) => {
+    const stopRemoving = hostCatalog.onForgotten((server) => {
       releases.get(server.id)?.()
       releases.delete(server.id)
       // A removed host's connections must not stay in the count.

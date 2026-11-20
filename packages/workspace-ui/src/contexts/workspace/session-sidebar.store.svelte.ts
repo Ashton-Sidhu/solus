@@ -74,7 +74,7 @@ import { isUnopenedShare } from './shared-sessions'
 import { canDriveSession } from '../sharing/resource-roles'
 import { projectHome, runHost, workingPlace } from './run-location'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
-import { managedHostIds } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { hostPathBaseName } from '@solus/contracts/host-path'
 
 /** The facts a listed session opens with, before its description answers:
@@ -210,7 +210,7 @@ export class SessionSidebarStore {
     // A personal host's conversation shows in every window (plans/031 rule 1).
     (tabId) => {
       const session = this.session.sessionFor(tabId)
-      return usesWindowFilter(session ? runHost(session.run) : null, managedHostIds())
+      return usesWindowFilter(session ? runHost(session.run) : null, hostCatalog.managedHostIds())
     },
   ))
 

@@ -195,6 +195,7 @@
             <FleetMap
               {machines}
               found={discoverStore.found}
+              answers={fleetStore.answers}
               {colorMode}
               {query}
               {focusId}
@@ -205,6 +206,7 @@
               onAdd={(way) => connectionsNav.openAdd(way)}
               onStart={(serverId) => fleetStore.startHosts([serverId])}
               onPointFound={(key) => (pointedFoundKey = key)}
+              onRetry={(zone) => fleetStore.retryZone(zone)}
             />
           </div>
           <div class="@min-[37.5rem]/fleet:hidden">
@@ -213,6 +215,8 @@
               {colorMode}
               {query}
               foundCount={discoverStore.found.length}
+              answers={fleetStore.answers}
+              onRetry={(zone) => fleetStore.retryZone(zone)}
               onPoint={(serverId) => (pointedId = serverId)}
               onOpen={(serverId) => connectionsNav.open(serverId)}
               onOpenZone={(zone) => (openZoneId = zone)}

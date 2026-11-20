@@ -44,7 +44,7 @@ function fakeHomes(opts: { homes: Record<string, SessionRecord[]>; cloud: ListMy
   const connected = { ...opts.connected }
   const store = new SessionListStore({
     connectedRunnerFor: (hostId) => connected[hostId] ?? null,
-    savedRunnerFor: (hostId) => opts.saved?.[hostId] ?? connected[hostId] ?? null,
+    knownRunnerFor: (hostId) => opts.saved?.[hostId] ?? connected[hostId] ?? null,
     connectedServerIds: () => serverIds,
     isManagedHost: (serverId) => !isSolusApiId(serverId) && false,
   }, 0, async () => null)

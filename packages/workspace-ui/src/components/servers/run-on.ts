@@ -1,5 +1,5 @@
 import { serverConnections } from '@solus/client-core/server-connections'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { isSessionBusyStatus, type CloneCheckout, type CopiedProjectFile, type DispatchRepository, type GithubDelegatedCredential, type IpcContext, type ProjectIdentity, type RunConfig, type RunLocation, type Session } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { hasSessionStarted } from '../../lib/sessionUtils'

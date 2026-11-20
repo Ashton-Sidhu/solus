@@ -1,7 +1,8 @@
 import { SessionSearch, SESSION_SEARCH_PAGE_SIZE, searchFailureSummary, type SessionSearchHome, type SessionSearchState } from '@solus/client-core/session-search'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { loadServers, type SavedServer } from '@solus/client-core/server-registry'
+import type { KnownHost } from '@solus/client-core/known-host'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { stampSessionMetas } from '@solus/client-core/session-meta'
 import { connectedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
@@ -26,7 +27,7 @@ export interface ConversationSearchHosts<Api = Pick<HostApi, 'sessionRecordSearc
    *  organization's workspace service. */
   searchServerIds(): string[]
   apiFor(serverId: string): Api
-  /** The connected saved server a record's runner host id names, or null. */
+  /** The connected known host a record's runner host id names, or null. */
   connectedRunnerFor(runnerHostId: string): string | null
 }
 
@@ -39,9 +40,9 @@ export interface ConversationSearchHosts<Api = Pick<HostApi, 'sessionRecordSearc
 export function searchServerIds(
   connectedServerIds: readonly string[],
   localServerId: string | null,
-  saved: readonly Pick<SavedServer, 'id' | 'uplink'>[],
+  known: readonly Pick<KnownHost, 'id' | 'uplink'>[],
 ): string[] {
-  const organizationMachines = organizationMachineIds(saved)
+  const organizationMachines = organizationMachineIds(known)
   const machines = connectedServerIds.filter((id) => !isSolusApiId(id) && !organizationMachines.has(id))
   const ordered = localServerId && machines.includes(localServerId)
     ? [localServerId, ...machines.filter((id) => id !== localServerId)]
@@ -50,7 +51,7 @@ export function searchServerIds(
 }
 
 const registryHosts: ConversationSearchHosts<Pick<HostApi, 'sessionRecordSearch' | 'sessionRecordList'>> = {
-  searchServerIds: () => searchServerIds(serverConnections.connectedServerIds(), serverConnections.localServerId(), loadServers()),
+  searchServerIds: () => searchServerIds(serverConnections.connectedServerIds(), serverConnections.localServerId(), hostCatalog.hosts()),
   apiFor: (serverId) => serverConnections.apiFor(serverId),
   connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
 }
@@ -67,8 +68,8 @@ export type HostScope = { projectRoot: string } | { repositoryKey: string }
 export type ScopeOnHost = (serverId: string, projectKey: string) => HostScope | null
 
 /** The organizations' machines: their sessions are read from the workspace service. */
-function organizationMachineIds(saved: readonly Pick<SavedServer, 'id' | 'uplink'>[]): Set<string> {
-  return new Set(saved.filter((server) => server.uplink?.kind === 'managed').map((server) => server.id))
+function organizationMachineIds(known: readonly Pick<KnownHost, 'id' | 'uplink'>[]): Set<string> {
+  return new Set(known.filter((server) => server.uplink?.kind === 'managed').map((server) => server.id))
 }
 
 /**

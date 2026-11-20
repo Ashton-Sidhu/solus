@@ -1,4 +1,6 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, mock, test } from 'bun:test'
+import { answerPageDirectory, answerPageList, directoryAccount } from './helpers/page-host-catalog'
+import { listingFor } from './helpers/host-catalog-world'
 
 // WHY: the organization's workspace service is a cloud service the records
 // live in — one service, every organization scoped by its grant — never a host
@@ -8,31 +10,12 @@ import { afterAll, describe, expect, test } from 'bun:test'
 // Run-on picker, and on every badge. `servers` is the machines alone; the
 // connection is kept in its own registry and reachable only by id.
 
+mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', info: () => '', dismiss: () => {} }) }))
+
 const previousLocalStorage = globalThis.localStorage
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
-const values = new Map<string, string>([
-  ['solus.activeServerId', 'local'],
-  ['solus.servers', JSON.stringify([
-    {
-      id: 'remote',
-      label: 'Build host',
-      url: 'http://10.10.1.22:3000',
-      sessionToken: 'token',
-      installationId: 'build-host',
-      lastConnected: 1,
-    },
-  ])],
-  ['solus.workspaces', JSON.stringify([
-    {
-      organizationId: 'org-1',
-      label: 'eng',
-      routes: [{ kind: 'tunnel', url: 'https://workspace.solus.sh' }],
-      isActive: true,
-      directoryUrl: 'https://app.solus.sh',
-    },
-  ])],
-])
+const values = new Map<string, string>([['solus.activeServerId', 'local']])
 
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
@@ -51,7 +34,15 @@ Object.defineProperty(globalThis, 'localStorage', {
 ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
 
 const { serversStore } = await import('@solus/workspace-ui/contexts/connections/servers.store.svelte')
-serversStore.refreshServers()
+// The person's list names one machine; the directory lists the organization's workspace service.
+await answerPageList([listingFor('remote', { label: 'Build host', installationId: 'build-host', routes: [{ kind: 'lan', url: 'http://10.10.1.22:3000', source: 'pairing', seenAt: 1 }] })])
+await answerPageDirectory(directoryAccount([], [{
+  organizationId: 'org-1',
+  label: 'eng',
+  routes: [{ kind: 'tunnel', url: 'https://workspace.solus.sh' }],
+  isActive: true,
+  hostRules: { allowPersonalHosts: true },
+}]))
 
 afterAll(() => {
   if (previousLocalStorage === undefined) {

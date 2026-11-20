@@ -6,7 +6,7 @@ import { DEVICE_LAYOUT_KEY } from '@solus/workspace-ui/contexts/app/device-setti
 import { ANONYMOUS_PROFILE, personalProfileStorageKey } from '@solus/workspace-ui/contexts/app/personal-settings.store.svelte'
 import { DEMO_INSTALLATION_ID, type DemoFixtures } from './fixtures/types'
 import { personalSettingsDocumentSchema, type PersonalSettings } from '@solus/contracts/settings'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 
 /** The state every visitor arrives in: a light theme, no first-run onboarding,
  *  and the project panel open on the sections that describe the work in front

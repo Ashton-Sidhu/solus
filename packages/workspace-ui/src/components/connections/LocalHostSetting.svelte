@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import { isSessionBusyStatus } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../contexts";
   import { localHostStore } from "../../contexts/connections/local-host.store.svelte";

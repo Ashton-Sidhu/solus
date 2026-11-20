@@ -2,7 +2,7 @@ import { untrack } from 'svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { serverFromSshAdd } from '@solus/client-core/server-registry'
+import { serverFromSshAdd } from '@solus/client-core/known-host'
 import { sshAddStatusCard } from '@solus/client-core/ssh-progress'
 import { unaddedDistros } from '@solus/client-core/wsl-distros'
 import { wslHostLabel, type ForwardedHost, type SshAddProgress, type WslDistro, type WslDistroList } from '@solus/contracts/remote-machines'
@@ -119,7 +119,7 @@ class AddWslDistroStore {
         this.phase = 'failed'
         return
       }
-      if (outcome.kind === 'save-forwarded') serversStore.savePairedServer(serverFromSshAdd(result, null))
+      if (outcome.kind === 'save-forwarded') await serversStore.savePairedServer(serverFromSshAdd(result, null))
       this.added = result.host
       this.resultMessage = outcome.message
       this.phase = 'done'

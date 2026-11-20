@@ -1,7 +1,7 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import { onServerRemoving } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { replaceModelProfiles, type ModelProfilesStatus } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 
@@ -36,7 +36,7 @@ export class ModelProfilesStore {
     subscribeAllHosts('host.modelProfilesChanged', (serverId, status) => this.apply(serverId, status))
     this.connections.onConnectionCreated((connection) => { if (connection.link.readiness === 'ready') void this.load(connection.serverId) })
     this.connections.onReadinessChange((serverId, status) => { if (status === 'ready') void this.load(serverId) })
-    onServerRemoving((server) => {
+    hostCatalog.onForgotten((server) => {
       this.statuses.delete(server.id)
       this.errors.delete(server.id)
     })

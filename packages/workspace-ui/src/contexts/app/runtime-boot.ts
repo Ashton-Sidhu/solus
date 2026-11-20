@@ -9,8 +9,8 @@ import { bootstrapRuntimeTabs, prioritizeTabHydration } from '../workspace/sessi
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { onDirectoryAnswered } from '@solus/client-core/server-registry'
-import { reconcileMachineReferences, savedHostsAreAuthoritative } from '../workspace/machine-references'
+import { hostCatalog } from '@solus/client-core/host-catalog'
+import { reconcileMachineReferences, knownHostsAreAuthoritative } from '../workspace/machine-references'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { RunLocation } from '@solus/contracts/types'
@@ -51,11 +51,11 @@ export function refreshRuntime(
 
 /**
  * Clear references to machines that are gone (`reconcileMachineReferences`),
- * only once the saved hosts are authoritative: a directory read succeeded, or
- * this client has no directory to wait for.
+ * only once the known hosts are authoritative: the host list and the directory
+ * both answered.
  */
 function reconcileGoneMachines(session: WorkspaceContext): void {
-  if (!savedHostsAreAuthoritative()) return
+  if (!knownHostsAreAuthoritative()) return
   reconcileMachineReferences(
     {
       settings: session.settings,
@@ -90,10 +90,16 @@ export function initializeRuntime(
   refreshRuntime(session, sidebarStore)
   // Restored tabs and drafts may name a machine a previous load saw deleted.
   reconcileGoneMachines(session)
-  const stopDirectory = onDirectoryAnswered(() => {
+  // The known hosts changed: a host the list or the directory named now, or dropped.
+  let knownHostsKey = ''
+  const stopCatalog = hostCatalog.onChange(() => {
+    if (!knownHostsAreAuthoritative()) return
+    const key = hostCatalog.hosts().map((host) => host.id).join('\n')
+    if (key === knownHostsKey) return
+    knownHostsKey = key
     reconcileGoneMachines(session)
-    // A tab on a host that was missing before the directory answered waited;
-    // the open one restores now, the rest when they are selected.
+    // A tab on a host that was missing before the list and the directory answered
+    // waited; the open one restores now, the rest when they are selected.
     if (session.activeTabId) prioritizeTabHydration(session, session.activeTabId)
   })
   // Pins federate across hosts, so a host that connects after boot has to
@@ -142,7 +148,7 @@ export function initializeRuntime(
   // Hosts skip watch-fired freshness work while no client is foregrounded.
   startActivityLeaseHeartbeat()
   return () => {
-    stopDirectory()
+    stopCatalog()
     stopProviderInstances()
     stopConnections()
     stopReadiness()

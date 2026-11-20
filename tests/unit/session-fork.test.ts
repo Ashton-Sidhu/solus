@@ -186,8 +186,8 @@ test('the saved fork retains its preview and cutoff without claiming a provider 
   Object.assign(context, { runHosts: { persistedLocation: (saved: Session) => saved.run.location } })
   const parsed = source('tab-snapshot.ts')
   const declaration = parsed.statements.find(ts.isFunctionDeclaration)!
-  const snapshot = new Function('loadServers', 'LOCAL_SERVER_ID', 'existingTaskId', transpile(`${declaration.getText(parsed).replace(/^export /, '')}; return snapshotPersistedTabs`))(
-    () => [], 'local', () => 'same-subtask',
+  const snapshot = new Function('hostCatalog', 'LOCAL_SERVER_ID', 'existingTaskId', transpile(`${declaration.getText(parsed).replace(/^export /, '')}; return snapshotPersistedTabs`))(
+    { hosts: () => [] }, 'local', () => 'same-subtask',
   )
   const saved = JSON.parse(JSON.stringify(snapshot(context)))[0]
   expect(saved.pendingFork.messages).toEqual(fork.messages)

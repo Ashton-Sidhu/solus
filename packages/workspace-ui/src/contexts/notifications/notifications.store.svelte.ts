@@ -1,7 +1,7 @@
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { onServerRemoving } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   attentionNotificationDedupKey,
@@ -126,7 +126,7 @@ class NotificationsStore {
         this.activity.prepareForReconnect(serverId)
       }
     })
-    const stopRemoval = onServerRemoving((server) => {
+    const stopRemoval = hostCatalog.onForgotten((server) => {
       this.snapshotRevisions.set(server.id, (this.snapshotRevisions.get(server.id) ?? 0) + 1)
       this.tracker.dropHost(server.id)
       this.activity.dropHost(server.id)

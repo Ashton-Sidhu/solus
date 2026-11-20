@@ -20,7 +20,7 @@ import { seedDemoStorage } from './seed'
 import { DemoBackend } from './server'
 import { DemoStore } from './store'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import type { WsTransport } from '@solus/client-core/ws-transport'
 
 /** The slice of `WsTransport` that `registerPrimary` drives in the demo. */

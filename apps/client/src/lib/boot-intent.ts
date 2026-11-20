@@ -8,8 +8,10 @@ import { ROUTES } from '@solus/workspace-ui/contexts/workspace/routing/route-reg
  * is covered while the account loads.
  */
 export interface BootIntent {
-  /** The server the page needs first: a share link's runner, or the server its address names. */
+  /** The server the page needs first: the server its address names. */
   firstServerId: string | null
+  /** A share link's runner, by its account host id: the directory names the known host it is. */
+  runnerHostId?: string | null
   /** The page shows a resource in the leading pane (a share link, a member link), not the conversation. */
   opensResource: boolean
 }

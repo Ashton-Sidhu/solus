@@ -2,7 +2,7 @@ import { isSolusApiId, solusApiId } from '@solus/contracts/uplink'
 import type { ShareResource } from '@solus/contracts/sharing'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
-import { savedWorkspaceFor } from '@solus/client-core/workspace-registry'
+import { workspaceFor } from '@solus/client-core/workspace-registry'
 import type { WorksStore } from '../works/works.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { LOCAL_ORGANIZATION_ID } from '../../lib/organization-filter'
@@ -54,7 +54,7 @@ export class CloudPublication {
 
   /** The organization's workspace service is reached through the account's directory; read it only when this client does not know the service yet. */
   async reachCloud(cloudServerId: string): Promise<void> {
-    if (!savedWorkspaceFor(cloudServerId)) await serversStore.refreshDirectory()
+    if (!workspaceFor(serversStore.workspaces, cloudServerId)) await serversStore.refreshDirectory()
   }
 
   /** Put one Local work into one organization; a second request for the same resource joins the first. */

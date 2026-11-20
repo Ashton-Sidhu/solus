@@ -1,4 +1,4 @@
-import { loadWorkspaces } from '@solus/client-core/workspace-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { windowOrganizationSelection, type SelectableWorkspace } from '@solus/client-core/organization-selection'
 
 /**
@@ -9,7 +9,7 @@ import { windowOrganizationSelection, type SelectableWorkspace } from '@solus/cl
  * `serversStore.selectOrganization` is the command that changes it.
  */
 class OrganizationSelectionStore {
-  activeOrganizationId = $state<string | null>(windowOrganizationSelection.reconcile(loadWorkspaces()))
+  activeOrganizationId = $state<string | null>(windowOrganizationSelection.reconcile(hostCatalog.workspaces()))
 
   constructor() {
     windowOrganizationSelection.subscribe((organizationId) => { this.activeOrganizationId = organizationId })

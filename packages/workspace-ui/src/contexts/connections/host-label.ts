@@ -1,4 +1,4 @@
-import type { SavedServerUplink } from '@solus/client-core/server-registry'
+import type { KnownHostUplink } from '@solus/client-core/known-host'
 
 /**
  * Which name a host row prints.
@@ -27,7 +27,7 @@ export const CLOUD_HOST_LABEL = 'Cloud host'
 export const SOLUS_CLOUD_LABEL = 'Solus Cloud'
 
 export function hostRowLabel(
-  saved: { label: string; hasUserLabel?: boolean; uplink?: Pick<SavedServerUplink, 'kind'> },
+  saved: { label: string; hasUserLabel?: boolean; uplink?: Pick<KnownHostUplink, 'kind'> },
   reportedName: string | undefined,
 ): string {
   if (saved.hasUserLabel) return saved.label

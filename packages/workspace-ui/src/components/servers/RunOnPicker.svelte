@@ -4,9 +4,10 @@
     HardDrive as DesktopTowerIcon,
     Plus as PlusIcon,
     FileKey as CopiedFilesIcon,
+    RotateCw as RetryIcon,
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import type { RunConfig } from "@solus/contracts/types";
   import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import {
@@ -538,6 +539,20 @@
           {#each runOnHosts as server (server.id)}
             {@render serverRow(server)}
           {/each}
+          <!-- A host not read yet is not offered (plans/033 §3 Q2): the picker says why. -->
+          {#if variant !== "scope"}
+            {#each serversStore.unreadHosts as unread (unread.answer)}
+              {#if unread.state === "loading"}
+                <p role="status" class="truncate px-2 py-1.5 text-chrome-dense text-(--solus-text-tertiary)">{unread.text}</p>
+              {:else}
+                <DropdownMenu.Item closeOnSelect={false} onSelect={() => serversStore.retryHosts(unread.answer)}>
+                  <RetryIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
+                  <span class="min-w-0 flex-1 truncate">{unread.text}</span>
+                  <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">Retry</span>
+                </DropdownMenu.Item>
+              {/if}
+            {/each}
+          {/if}
           {#if variant !== "scope"}
           <DropdownMenu.Separator />
           {#if copiedFilesHome}

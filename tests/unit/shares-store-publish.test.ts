@@ -30,11 +30,6 @@ mock.module('@solus/workspace-ui/lib/toasts', () => ({
 
 /** The workspace services this client already knows from an earlier directory read. */
 const knownWorkspaces = new Set<string>()
-const realWorkspaceRegistry = { ...(await import('@solus/client-core/workspace-registry')) }
-mock.module('@solus/client-core/workspace-registry', () => ({
-  ...realWorkspaceRegistry,
-  savedWorkspaceFor: (serviceId: string) => (knownWorkspaces.has(serviceId) ? { organizationId: 'org-1' } : null),
-}))
 
 let directoryReads = 0
 /** Hosts this client knows, by the id this client gives each one. */
@@ -45,6 +40,9 @@ mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () 
     get activeOrganizationId() { return window.activeOrganizationId },
     get activeOrganizationName() { return window.activeOrganizationName },
     refreshDirectory: async () => { directoryReads++ },
+    get workspaces() {
+      return [...knownWorkspaces].map((serviceId) => ({ organizationId: serviceId.replace(/^workspace:/, ''), label: 'Acme', routes: [], directoryUrl: 'https://app.example.test' }))
+    },
     hostFor: (serverId: string) => knownHosts.get(serverId) ?? null,
   },
 }))

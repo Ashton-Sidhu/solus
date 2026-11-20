@@ -8,7 +8,7 @@ import AppleLogoIcon from '../../components/ui/AppleLogoIcon.svelte'
 import LinuxLogoIcon from '../../components/ui/LinuxLogoIcon.svelte'
 import WindowsLogoIcon from '../../components/ui/WindowsLogoIcon.svelte'
 import type { HostOperatingSystem } from '@solus/contracts/types'
-import type { SavedServerUplink } from '@solus/client-core/server-registry'
+import type { KnownHostUplink } from '@solus/client-core/known-host'
 import { hostReadinessCopy, type HostReadiness, type HostReadinessState } from '@solus/client-core/host-readiness'
 
 /** The host a surface belongs to, in the facts every badge needs. */
@@ -17,7 +17,7 @@ export interface HostAffinityTarget {
   local: boolean
   os?: HostOperatingSystem
   /** A managed host wears a cloud, whatever it runs on. */
-  uplink?: Pick<SavedServerUplink, 'kind'>
+  uplink?: Pick<KnownHostUplink, 'kind'>
 }
 
 export interface HostAffinityGlyph {

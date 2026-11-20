@@ -275,6 +275,18 @@ export class HostCatalog {
     return this.byId.get(id)
   }
 
+  /**
+   * A host this device paired, from its credential alone: known before any list
+   * names it. A web page served by a host dials that host first, because the
+   * person's list is read there (§4.5). Null when this device holds no token for it.
+   */
+  pairedHost(id: string): KnownHost | null {
+    const credential = this.credentials.get(id)
+    if (!credential?.token) return null
+    const alone: CatalogAnswers = { listings: new Map(), listState: 'failed', directory: null, credentials: new Map([[id, credential]]), learned: this.learned }
+    return this.find(id) ?? joinHosts(alone, (this.options.now ?? Date.now)(), this.options.clientOrigin?.() ?? globalThis.location?.origin ?? '')[0] ?? null
+  }
+
   /** The hosts provisioned for an organization (`uplink.kind === 'managed'`). */
   managedHostIds(): ReadonlySet<string> {
     return this.managedIds

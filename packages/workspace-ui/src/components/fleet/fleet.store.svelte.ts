@@ -7,7 +7,7 @@ import { hostUpdater } from '../../contexts/updates/host-updater.svelte'
 import { hostSetupStore } from '../servers/host-setup.store.svelte'
 import { hostReadinessSummary } from '../servers/lib/host-onboarding'
 import { isManagedHost } from '../servers/lib/managed-host'
-import { fleetMachine, type FleetMachine } from './lib/fleet-model'
+import { fleetMachine, type FleetMachine, type FleetZoneId, type ZoneAnswers } from './lib/fleet-model'
 
 /** Machine load moves slowly, and a host caches it for 5 s. */
 const LOAD_REFRESH_MS = 5_000
@@ -93,6 +93,16 @@ class FleetStore {
   updateHosts(serverIds: readonly string[]): void {
     const updates = serverIds.flatMap((serverId) => hostUpdatesStore.installableUpdatesFor(serverId))
     if (updates.length && !hostUpdater.isRunning) void hostUpdater.update(updates)
+  }
+
+  /** Whether each zone's hosts are read yet: yours from the host list, the rest from the account directory (plans/033 §3 Q2). */
+  get answers(): ZoneAnswers {
+    return { own: serversStore.listState, cloud: serversStore.directoryState, shared: serversStore.directoryState }
+  }
+
+  /** Reads a zone's hosts again after its read failed. */
+  retryZone(zone: FleetZoneId): void {
+    serversStore.retryHosts(zone === 'own' ? 'list' : 'directory')
   }
 
   /** Dials these hosts again now. */

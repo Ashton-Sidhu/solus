@@ -1,5 +1,5 @@
 import type { HostReadiness } from '@solus/client-core/host-readiness'
-import type { SavedServerUplink } from '@solus/client-core/server-registry'
+import type { KnownHostUplink } from '@solus/client-core/known-host'
 import { managedHostStateLabel } from '../../servers/lib/managed-host'
 
 /**
@@ -11,7 +11,7 @@ export interface AutomationMachine {
   id: string
   label: string
   readiness: HostReadiness
-  uplink?: SavedServerUplink
+  uplink?: KnownHostUplink
 }
 
 export interface AutomationMachineOption {

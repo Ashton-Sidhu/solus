@@ -1,7 +1,7 @@
 import { solusApiId } from '@solus/contracts/uplink'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { savedWorkspaceFor } from '@solus/client-core/workspace-registry'
+import { workspaceFor } from '@solus/client-core/workspace-registry'
 import { serversStore } from '../connections/servers.store.svelte'
 
 /** The admin methods of an organization's Solus API (docs/plans/webhooks.md §2.7). */
@@ -13,6 +13,6 @@ export type WebhookAdminApi = Pick<HostApi, 'webhookAdminList' | 'webhookAdminPa
  */
 export async function reachWebhookAdmin(organizationId: string): Promise<WebhookAdminApi> {
   const serviceId = solusApiId(organizationId)
-  if (!savedWorkspaceFor(serviceId)) await serversStore.refreshDirectory()
+  if (!workspaceFor(serversStore.workspaces, serviceId)) await serversStore.refreshDirectory()
   return serverConnections.apiFor(serviceId)
 }

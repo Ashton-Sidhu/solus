@@ -1,7 +1,7 @@
 import type { Session, StatusCardState } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { sessionSyncCardView, type SessionSyncCardNames } from '@solus/client-core/session-sync-card'
-import { loadServers } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { sessionListStore } from '../../../contexts/workspace/session-list.store.svelte'
 import { runHost } from '../../../contexts/workspace/run-location'
 import { agentLabel } from '../../../lib/agentAvailability'
@@ -27,10 +27,10 @@ export function sessionSyncNames(input: {
   }
 }
 
-/** A host's name. The saved list names a host that is offline too, which is
+/** A host's name. The catalog names a host that is offline too, which is
  *  when a card needs it most. */
-export function savedHostLabel(serverId: string): string | undefined {
-  return loadServers().find((server) => server.id === serverId)?.label
+export function knownHostLabel(serverId: string): string | undefined {
+  return hostCatalog.find(serverId)?.label
     ?? serverConnections.connectionFor(serverId)?.target.label
 }
 
@@ -41,7 +41,7 @@ export function presentedStatusCard(session: Pick<Session, 'id' | 'run'>, card: 
   return sessionSyncCardView(card, sessionSyncNames({
     runServerId,
     newestServerId: sessionListStore.newestHostFor(session.id, runServerId),
-    labelOf: savedHostLabel,
+    labelOf: knownHostLabel,
     provider: agentLabel(session.run.provider ?? 'claude-code'),
   }))
 }

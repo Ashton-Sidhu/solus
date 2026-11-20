@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { ChevronRight, Laptop, Plus } from "@lucide/svelte";
+  import { ChevronRight, Laptop, Plus, RotateCw } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import FleetLoadRing from "./FleetLoadRing.svelte";
   import HostStateIcon from "./HostStateIcon.svelte";
-  import { isZoneFull, machineMatches, machinesByZone, rollup, tileFill, toneOf, ZONES, type FleetMachine, type FleetZoneId, type TileColorMode } from "./lib/fleet-model";
+  import { isZoneFull, machineMatches, machinesByZone, rollup, tileFill, toneOf, ZONES, type FleetMachine, type FleetZoneId, type TileColorMode, type ZoneAnswers } from "./lib/fleet-model";
 
   /** The map in a narrow pane (D4): the same routes as a tree, with this device
    *  at the top. A full zone is one row of small tiles that opens the zone. The
@@ -13,13 +13,16 @@
     colorMode: TileColorMode;
     query: string;
     foundCount: number;
+    /** Whether each zone's hosts are read yet: a zone not read says so, with Retry when its read failed. */
+    answers: ZoneAnswers;
+    onRetry: (zone: FleetZoneId) => void;
     onPoint: (serverId: string | null) => void;
     onOpen: (serverId: string) => void;
     onOpenZone: (zone: FleetZoneId) => void;
     onAddFound: () => void;
   }
 
-  let { machines, colorMode, query, foundCount, onPoint, onOpen, onOpenZone, onAddFound }: Props = $props();
+  let { machines, colorMode, query, foundCount, answers, onRetry, onPoint, onOpen, onOpenZone, onAddFound }: Props = $props();
 
   const byZone = $derived(machinesByZone(machines));
   const device = $derived(machines.find((machine) => machine.zone === "device") ?? null);
@@ -35,7 +38,7 @@
     {#if device?.sessions}<HostStateIcon state="running" count={device.sessions} />{/if}
   </div>
   <ul>
-    {#each ZONES.filter((zone) => byZone[zone.id].length) as zone (zone.id)}
+    {#each ZONES.filter((zone) => byZone[zone.id].length || answers[zone.id] !== "ready") as zone (zone.id)}
       {@const rows = byZone[zone.id]}
       <li class="relative flex flex-col gap-1.5 pt-3 pl-5 before:absolute before:top-0 before:bottom-0 before:left-[7px] before:w-px before:bg-(--success)/40 last:before:bottom-auto last:before:h-5">
         <span aria-hidden="true" class="absolute top-5 left-[7px] h-px w-3 bg-(--success)/40"></span>
@@ -84,6 +87,23 @@
               </li>
             {/each}
           </ul>
+        {/if}
+        {#if answers[zone.id] === "loading"}
+          <p role="status" class="truncate px-1 py-2 text-chrome-dense text-muted-foreground">
+            {zone.id === "own" ? "Reading your host list…" : `Reading ${zone.label}…`}
+          </p>
+        {:else if answers[zone.id] === "failed"}
+          <button
+            type="button"
+            onclick={() => onRetry(zone.id)}
+            class="flex items-center gap-2.5 overflow-hidden rounded-xl border border-dashed border-(--solus-status-error)/40 py-2 pr-3 pl-2 text-left text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+          >
+            <span class="grid size-[30px] shrink-0 place-items-center"><RotateCw size={13} /></span>
+            <span class="flex min-w-0 flex-col gap-0.5">
+              <span class="truncate text-[0.8125rem] font-medium text-foreground">{zone.id === "own" ? "Host list not read" : `${zone.label} not read`}</span>
+              <span class="truncate text-chrome-dense">Select to retry</span>
+            </span>
+          </button>
         {/if}
       </li>
     {/each}

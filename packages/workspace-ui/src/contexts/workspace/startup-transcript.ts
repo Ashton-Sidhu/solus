@@ -1,6 +1,6 @@
 import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { loadServers } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { loadPersistedTabs } from './tab-persistence'
 import { afterPaint } from '../../lib/after-paint'
 import { checkoutPlace, runHost, workingPlace } from './run-location'
@@ -32,7 +32,7 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
     const tab = snapshot?.tabs.find((tab) => tab.tabId === snapshot.activeTabId)
     if (!tab?.agentSessionId || !tab.provider || tab.pendingFork || !checkoutPlace(tab).path) return
     const serverId = tab.serverInstallationId
-      ? loadServers().find((server) => server.installationId === tab.serverInstallationId)?.id ?? runHost(tab)
+      ? hostCatalog.hosts().find((server) => server.installationId === tab.serverInstallationId)?.id ?? runHost(tab)
       : runHost(tab)
     // A tab on a gone host restores read-only from the mirror (`hydrateTab`).
     if (serverConnections.presenceOf(serverId) === 'gone') return

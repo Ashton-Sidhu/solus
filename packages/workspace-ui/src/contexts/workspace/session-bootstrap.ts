@@ -4,7 +4,7 @@ import { afterPaint } from '../../lib/after-paint'
 import { markStartupTranscriptApplied } from './startup-transcript'
 import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { defaultContextWindowFor, isSessionBusyStatus, PERMISSION_MODES, type Message, type ModelConfig, type RunConfig, type Session, type SessionMeta } from '@solus/contracts/types'
-import { loadServers } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
 import { loadRestoredSessionTranscript } from './session-transcript'
@@ -15,7 +15,7 @@ import { readSessionMeta, stampSessionMeta } from '@solus/client-core/session-me
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hosts } from '../hosts/hosts.svelte'
 import { readSessionRecordPage } from '../sessions/session-record-transcript'
-import { GONE_MACHINE_NO_RECORD_REASON, GONE_MACHINE_READ_ONLY_REASON, LOCAL_HOST_OFF_READ_ONLY_REASON, recordHomeOf, savedHostsAreAuthoritative } from './machine-references'
+import { GONE_MACHINE_NO_RECORD_REASON, GONE_MACHINE_READ_ONLY_REASON, LOCAL_HOST_OFF_READ_ONLY_REASON, recordHomeOf, knownHostsAreAuthoritative } from './machine-references'
 import { z } from 'zod'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { checkoutGit, checkoutPlace, folderLocation, projectHome, remapHosts, runHost } from './run-location'
@@ -327,7 +327,7 @@ function _materializeTabs(
   activeTabId: string,
   drafts: TabDrafts | null,
 ): void {
-  const savedServers = loadServers()
+  const knownHosts = hostCatalog.hosts()
   for (const snapTab of persistedTabs) {
     let tab = ctx.tabs[snapTab.tabId]
     let session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
@@ -338,7 +338,7 @@ function _materializeTabs(
       // installation id does not.
       const reidentify = (serverId: string, installationId: string | undefined): string =>
         installationId
-          ? savedServers.find((server) => server.installationId === installationId)?.id ?? serverId
+          ? knownHosts.find((server) => server.installationId === installationId)?.id ?? serverId
           : serverId
       const saved = snapTab.location
       const location = remapHosts(saved, (serverId) =>
@@ -463,7 +463,7 @@ export async function hydrateTabOnGoneMachine(ctx: WorkspaceContext, snapTab: Pe
     session.readOnlyReason = LOCAL_HOST_OFF_READ_ONLY_REASON
     return true
   }
-  if (!savedHostsAreAuthoritative()) return false
+  if (!knownHostsAreAuthoritative()) return false
   const home = recordHomeOf(session)
   session.readOnlyReason = home ? GONE_MACHINE_READ_ONLY_REASON : GONE_MACHINE_NO_RECORD_REASON
   if (!home) return true
