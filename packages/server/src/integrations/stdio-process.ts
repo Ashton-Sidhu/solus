@@ -119,6 +119,7 @@ interface ProcessRecord {
   state: 'stopped' | 'failed'
   message?: string
   stderrTail?: string
+  startFailure?: IntegrationProcessFacts['startFailure']
   /** The times of the ends that came soon after a start, the oldest first. */
   quickEnds: number[]
 }
@@ -140,6 +141,7 @@ export class StdioProcessStates {
     const facts: IntegrationProcessFacts = { state: record.state }
     if (record.message) facts.message = record.message
     if (record.stderrTail) facts.stderrTail = record.stderrTail
+    if (record.startFailure) facts.startFailure = record.startFailure
     return facts
   }
 
@@ -194,7 +196,7 @@ export class StdioProcessStates {
     const timedOut = cause instanceof SdkError && cause.code === SdkErrorCode.RequestTimeout
     const message = notStarted
       ?? (timedOut ? `${integration.name} did not answer as an MCP server within ${STDIO_START_TIMEOUT_MS / 1000} seconds.` : `${integration.name} ended before it answered as an MCP server.`)
-    if (notStarted) this.records.set(key, { state: 'failed', message: notStarted, quickEnds: [] })
+    if (notStarted) this.records.set(key, { state: 'failed', message: notStarted, startFailure: spawnFailure(cause) === 'EACCES' ? 'not-runnable' : 'not-installed', quickEnds: [] })
     else this.ended(key, startedAt, message, stderr.tail)
     // The size of standard error only: it can hold a secret the server printed.
     log.warn('integration_process_start_failed', { integrationId: integration.id, notInstalled: notStarted !== null, timedOut, stderrBytes: stderr.bytes })

@@ -12,6 +12,7 @@ import type {
   IntegrationToolSummary,
 } from '@solus/contracts/integration-types'
 import type { VaultConnectResult } from '@solus/contracts/vault'
+import { commandLineText, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
 
 /**
  * The MCP servers of one host (docs/plans/mcp-integrations.md §7), as the
@@ -67,7 +68,7 @@ export type AddState =
   | { url: string; step: 'failed'; message: string; setupNeed?: IntegrationSetupNeed }
 
 /** The one change in flight, so its control shows progress and the others wait. */
-export type IntegrationAction = 'create' | `rename:${string}` | `remove:${string}` | `disconnect:${string}` | `oauth-client:${string}` | `tools:${string}`
+export type IntegrationAction = 'create' | `rename:${string}` | `remove:${string}` | `disconnect:${string}` | `oauth-client:${string}` | `tools:${string}` | `command:${string}`
 
 export const UNSUPPORTED_NOTE = 'This host does not support MCP servers. Update Solus on it.'
 
@@ -190,6 +191,11 @@ export function urlHost(url: string): string {
   if (solusServerIdOf(url)) return 'Built by Solus'
   const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:?#]+|\[[^\]]+\])/i.exec(url.trim())
   return match?.[1] ?? url
+}
+
+/** The row's address line: a command's line, else the host of the address. */
+export function serverAddressLine(integration: Pick<Integration, 'url' | 'launch'>): string {
+  return integration.launch ? commandLineText(integration.launch) : urlHost(integration.url)
 }
 
 /** A custom URL is added under the name of its host; the person may rename it later. */
@@ -317,6 +323,28 @@ export interface InstalledStatus {
   action: 'connect' | 'reconnect' | null
 }
 
+/** A command's connection is the person's environment values (mcp-first-class.md §7.1). */
+function commandValuesStatus(connection: IntegrationConnection | undefined): InstalledStatus {
+  return connection?.status === 'connected' ? { text: 'Values saved', tone: 'muted', action: null } : { text: 'Needs values', tone: 'muted', action: 'connect' }
+}
+
+/**
+ * The row's second line and its action button (mcp-first-class.md §7.7): a
+ * command shows its process state once it has the values it needs, and asks
+ * for values, not a sign-in.
+ */
+export interface InstalledRowLine {
+  text: string
+  tone: 'muted' | 'danger'
+  actionLabel: 'Connect' | 'Reconnect' | 'Enter values'
+}
+
+export function installedRowLine(status: InstalledStatus, process: Pick<CommandProcessStatus, 'label' | 'tone'> | null): InstalledRowLine {
+  const actionLabel = process ? 'Enter values' : status.action === 'reconnect' ? 'Reconnect' : 'Connect'
+  if (process && !status.action) return { text: process.label, tone: process.tone === 'error' ? 'danger' : 'muted', actionLabel }
+  return { text: status.text, tone: status.tone, actionLabel }
+}
+
 /**
  * One installed server as the mobile MCP screen words it: the shared sign-in
  * rules (`IntegrationSignIn`) and this client's text for them.
@@ -335,6 +363,7 @@ export class InstalledIntegration extends IntegrationSignIn {
     if (connections.kind === 'loading') return { text: 'Checking connection…', tone: 'muted', action: null }
     if (connections.kind !== 'loaded') return { text: 'Connection unknown', tone: 'muted', action: null }
     const connection = connections.byIntegration.get(this.integrationId)
+    if (this.integration.auth.kind === 'env') return commandValuesStatus(connection)
     if (connection?.status === 'connected') {
       const label = connection.label ?? connection.info?.displayName ?? connection.info?.email ?? null
       if (connection.source === 'cloud') return { text: 'Connected to your Solus account', tone: 'muted', action: null }
@@ -382,6 +411,8 @@ export type ConnectFlowState =
       error: string | null
     }
   | { step: 'token'; through: ConnectThrough; busy: boolean; error: string | null }
+  /** The environment values of a command (mcp-first-class.md §7.7): the names only; the values stay in the panel until Save. */
+  | { step: 'values'; names: string[]; busy: boolean; error: string | null }
   | { step: 'finished'; ok: boolean; message: string }
 
 /** What the host answered to Connect. */
@@ -391,9 +422,8 @@ export function connectStarted(result: IntegrationConnectStartResult, name: stri
       return { step: 'waiting', through: 'host', flowId: result.flowId, url: result.url, input: result.input, expiresAt: result.expiresAt, submitted: false, busy: false, error: null }
     case 'token':
       return { step: 'token', through: 'host', busy: false, error: null }
-    // The values form of a command is phase B2 of docs/plans/mcp-first-class.md (§7.7).
     case 'env':
-      return { step: 'finished', ok: false, message: `${name} is a command on the host. This version of Solus cannot take its environment values yet.` }
+      return { step: 'values', names: result.names, busy: false, error: null }
     case 'connected':
       return { step: 'finished', ok: true, message: `Connected to ${name}.` }
   }
@@ -415,6 +445,8 @@ export interface ConnectTarget {
  */
 export function connectsThroughCloud(target: ConnectTarget, accountUserId: string | null): boolean {
   if (accountUserId === null || target.url === undefined || target.auth === undefined) return false
+  // The environment values of a command stay on the host that runs it (mcp-first-class.md §7.8).
+  if (target.auth.kind === 'env') return false
   return !(target.auth.kind === 'oauth' && (target.auth.registration === 'client-required' || !!target.auth.clientId))
 }
 
@@ -437,7 +469,7 @@ export function connectRefused(message: string): ConnectFlowState {
 
 /** The address or the key is on its way to the host. */
 export function connectSubmitting(state: ConnectFlowState): ConnectFlowState {
-  return state.step === 'waiting' || state.step === 'token' ? { ...state, busy: true, error: null } : state
+  return state.step === 'waiting' || state.step === 'token' || state.step === 'values' ? { ...state, busy: true, error: null } : state
 }
 
 /**
@@ -447,12 +479,13 @@ export function connectSubmitting(state: ConnectFlowState): ConnectFlowState {
 export function connectSubmitted(state: ConnectFlowState, name: string): ConnectFlowState {
   if (state.step === 'waiting') return { ...state, busy: false, submitted: true }
   if (state.step === 'token') return { step: 'finished', ok: true, message: `Connected to ${name}.` }
+  if (state.step === 'values') return { step: 'finished', ok: true, message: `Saved the values of ${name}.` }
   return state
 }
 
 /** A submit, a cancel, or the browser failed; the flow stays open and says why. */
 export function connectFailed(state: ConnectFlowState, message: string): ConnectFlowState {
-  return state.step === 'waiting' || state.step === 'token' ? { ...state, busy: false, error: message } : state
+  return state.step === 'waiting' || state.step === 'token' || state.step === 'values' ? { ...state, busy: false, error: message } : state
 }
 
 /**

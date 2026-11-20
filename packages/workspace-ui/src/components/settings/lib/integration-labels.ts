@@ -1,6 +1,7 @@
 import { firstPartyClientById } from '@solus/contracts/first-party-clients'
 import { integrationUrlSchema, solusServerIdOf, type IntegrationConnection, type IntegrationProbeResult } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { commandValuesText } from '@solus/contracts/integrations/command-server'
 
 type UndeterminedReason = Extract<IntegrationProbeResult, { outcome: 'undetermined' }>['reason']
 
@@ -31,9 +32,10 @@ export function readyToolsText(count: number): string {
  * Where the connect dialog stands for one server (docs/integrations.md):
  * `adding` until the host has the record, then the administrator's OAuth client
  * when the server needs one, then the person's sign-in, then the tools to keep on.
- * A server without sign-in goes straight to its tools.
+ * A server without sign-in goes straight to its tools. A command starts on its
+ * own form (`command`), then goes to its tools (mcp-first-class.md §7.7).
  */
-export type ConnectStep = 'adding' | 'oauth-client' | 'sign-in' | 'tools'
+export type ConnectStep = 'adding' | 'command' | 'oauth-client' | 'sign-in' | 'tools'
 
 export interface IntegrationStatusText {
   text: string
@@ -117,7 +119,7 @@ export type OAuthClientText =
  */
 export class IntegrationLabels extends IntegrationSignIn {
   /** Where the connect dialog stands once the host has the record. */
-  connectStep(connection: IntegrationConnection | null): Exclude<ConnectStep, 'adding'> {
+  connectStep(connection: IntegrationConnection | null): Exclude<ConnectStep, 'adding' | 'command'> {
     if (this.canListTools(connection)) return 'tools'
     return this.needsOwnerClient ? 'oauth-client' : 'sign-in'
   }
@@ -125,6 +127,11 @@ export class IntegrationLabels extends IntegrationSignIn {
   /** The server's state in a few words, for its row in the MCP list. */
   statusText(connection: IntegrationConnection | null): IntegrationStatusText {
     if (!this.needsConnection) return { text: 'Ready', tone: 'ready', canConnect: false }
+    // A command's connection is the person's environment values (mcp-first-class.md §7.1).
+    if (this.integration.auth.kind === 'env') {
+      const values = commandValuesText(this.integration.auth.names, connection)
+      return values.hasValues ? { text: 'Values saved', tone: 'ready', canConnect: false } : { text: 'Needs values', tone: 'attention', canConnect: true }
+    }
     if (this.needsOwnerClient && connection?.status !== 'connected') return { text: 'Needs an OAuth client', tone: 'attention', canConnect: false }
     const status = connectionStatusText(connection)
     if (connection?.status === 'connected') return { text: status.text, tone: 'ready', canConnect: false }

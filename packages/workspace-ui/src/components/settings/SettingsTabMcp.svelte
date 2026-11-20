@@ -5,10 +5,13 @@
    * the integrations.sh catalog to connect more from, filtered by a rail of
    * categories (a row of chips in a narrow page). Connect opens one dialog that
    * adds the server, signs the person in, and asks which tools agents may use.
+   * Add command opens the same dialog on a command's form
+   * (docs/plans/mcp-first-class.md §7.7), as does the palette's "Add an MCP
+   * server command".
    */
   import { onDestroy, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { Check, LayoutGrid, LoaderCircle, Search, TriangleAlert, X } from "@lucide/svelte";
+  import { Check, LayoutGrid, LoaderCircle, Plus, Search, TriangleAlert, X } from "@lucide/svelte";
   import { CATALOG_CATEGORIES, type CatalogCategoryId, type CatalogEntry, type Integration } from "@solus/contracts/integration-types";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -20,6 +23,7 @@
   import { integrationsStore } from "./integrations.store.svelte";
   import { McpCatalog } from "./lib/mcp-catalog.svelte";
   import type { ConnectRequest } from "./lib/mcp-connect.svelte";
+  import { mcpPageRequest } from "./lib/mcp-page-request.svelte";
   import { catalogCountText, customUrlProblem, IntegrationLabels, urlHost } from "./lib/integration-labels";
   import { wordsMatch } from "./lib/settings-search";
   import { toasts } from "../../lib/toasts";
@@ -43,7 +47,7 @@
   const installed = $derived(hostState?.integrations ?? []);
   const installedByUrl = $derived(new Map(installed.map((integration) => [integration.url, integration])));
   const visibleInstalled = $derived(
-    installed.filter((integration) => !catalog.query.trim() || wordsMatch(catalog.query, [integration.name, integration.slug, urlHost(integration.url)])),
+    installed.filter((integration) => !catalog.query.trim() || wordsMatch(catalog.query, [integration.name, integration.slug, urlHost(integration.url), integration.launch?.command ?? ""])),
   );
   const isOffline = $derived(!!hostState?.isDisconnected);
   /** A typed https:// address is offered as a server of its own. */
@@ -54,6 +58,10 @@
   $effect(() => {
     const hostId = serverId;
     return untrack(() => integrationsStore.watch(hostId));
+  });
+  // The palette asked for the command form: it opens once the page shows.
+  $effect(() => {
+    if (mcpPageRequest.isAddCommandAsked && hostState?.integrations) untrack(() => { if (mcpPageRequest.takeAddCommand()) addCommand(); });
   });
   // The settings search follows into the page's own search.
   $effect(() => {
@@ -69,6 +77,10 @@
   function showView(next: McpView) {
     view = next;
     if (next !== "installed") catalog.setCategory(next === "all" ? null : next);
+  }
+
+  function addCommand() {
+    connectRequest = { name: "", url: "", isCommand: true };
   }
 
   function toggle(integrationId: string) {
@@ -201,6 +213,9 @@
 
 {#snippet installedSection()}
   <SettingsSection {...settingsDefinitions["mcp.section-installed"]} description="Their tools reach every agent on {hostLabel}. Servers with sign-in use your own account.">
+    {#snippet action()}
+      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline} onclick={addCommand}><Plus size={14} />Add command</Button>
+    {/snippet}
     {#if hostState?.error}
       <div class="flex flex-wrap items-center justify-between gap-3 p-4">
         <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{hostState.error}</p>
@@ -208,7 +223,7 @@
       </div>
     {:else if visibleInstalled.length === 0}
       <p class="p-6 text-center text-workspace-chrome text-muted-foreground">
-        {installed.length === 0 ? "No MCP servers yet. Connect one from the catalog." : `No installed server matches “${catalog.query.trim()}”.`}
+        {installed.length === 0 ? "No MCP servers yet. Connect one from the catalog, or add a command that runs on this host." : `No installed server matches “${catalog.query.trim()}”.`}
       </p>
     {/if}
     {#each visibleInstalled as integration (integration.id)}

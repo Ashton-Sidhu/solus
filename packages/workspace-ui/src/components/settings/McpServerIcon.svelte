@@ -1,5 +1,10 @@
 <script lang="ts">
-  /** A server's logo: the catalog's icon, else the service's logo by address, else its first letter. */
+  /**
+   * A server's logo: the catalog's icon, else the service's logo by address,
+   * else its first letter. A command (`stdio:` address, or none yet) has no
+   * service to ask: it shows a terminal.
+   */
+  import { SquareTerminal } from "@lucide/svelte";
   import { serverIconUrl } from "./lib/integration-labels";
 
   interface Props { name: string; url: string; icon?: string }
@@ -7,9 +12,12 @@
 
   let hasFailed = $state(false);
   const src = $derived(icon ?? serverIconUrl(url));
+  const isCommand = $derived(!icon && (url === "" || url.startsWith("stdio:")));
 </script>
 
-{#if hasFailed}
+{#if isCommand}
+  <span class="grid size-8 shrink-0 place-items-center rounded-lg border border-border/50 bg-muted text-muted-foreground" aria-hidden="true"><SquareTerminal size={16} /></span>
+{:else if hasFailed}
   <span class="grid size-8 shrink-0 place-items-center rounded-lg border border-border/50 bg-muted text-workspace-chrome font-medium text-muted-foreground" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
 {:else}
   <img {src} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={() => (hasFailed = true)}

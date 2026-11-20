@@ -1,6 +1,6 @@
 # MCP as a first-class feature
 
-Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, and H1 are built
+Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, and H1 are built
 (`mcp-b1-handoff.md` has the B1 contract; `mcp-wave3-handoff.md` records the
 merge of A2, A3, B1, and H1). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
@@ -678,10 +678,15 @@ cannot age it. Facts are saved for the account that lists, the first one.
 ### 7.7 Surfaces
 
 Desktop and web: `McpConnectDialog.svelte` gains the choice **Command** beside
-the URL field. Steps: `adding` (the line, the names with their values, the
+the URL field. As built (B2): the dialog has no URL field (an address is
+typed in the page's search), so **Add command** beside Installed, and the
+palette entry, open the dialog on its command step. Steps: `adding` (the line, the names with their values, the
 working directory, and the parsed result), then **Start and test**, then
 `tools`. The dialog says: "This command runs on `<host name>` as
-`<OS user>`. It can read and change files there." `McpServerRow.svelte` shows
+`<OS user>`. It can read and change files there." As built (B2): no client
+reads the host's OS user (`ConnectionsServerInfo` has none), so the dialog
+says "as the user that runs Solus there", and adds that the command stays on
+that host and does not sync (§7.8). `McpServerRow.svelte` shows
 the command, the process state, **Stop**, **Start again**, **Test again**,
 and the values form (names shown, values never read back). Mobile:
 `IntegrationsScreen.tsx` gets the same form and row. The command palette
@@ -693,7 +698,16 @@ gains "Add an MCP server command".
 | Empty | No command yet: the field's hint |
 | Error | The reason and the standard error tail: not found on PATH, ended at start, no MCP answer in 30 seconds |
 | Stale | A row follows `integration.changed`; after a reconnect the store reads again |
-| Not allowed | A person without `host.admin` sees "Only an administrator of this host can add a command." in place of the form |
+| Not allowed | A person without `host.admin` sees "Only an administrator of this host can add or change a command." (the host's own refusal text) in place of the form; the row shows the state, keeps Stop, Disconnect, and Remove, and turns off Edit and the starts |
+
+As built (B2): the facts tell the states apart this way. `stopped` with a
+message is an end by itself; `stopped` without one is **Not started** when
+no verdict was saved (`era` is null) and **Stopped** otherwise, because the
+gateway records no message for an idle close, Stop, a host stop, or an
+eviction. `failed` with `IntegrationProcessFacts.startFailure`
+(`not-installed` or `not-runnable`, new in B2) is a command `spawn` could
+not start. The labels and actions are `commandProcessStatus` in
+`contracts/src/integrations/command-server.ts`, which every client uses.
 
 Reverse actions: **Stop** for a start (the next use starts it again),
 **Remove** for an add (it stops the process, removes the values, the facts,
