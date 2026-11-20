@@ -9,6 +9,7 @@ import { resolveProjectKey } from '../project-config/project-config'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
 import { mayRunCommands, type CommandStarter } from './command-admission'
+import { resourceAgentTools } from './resource-tools'
 
 const log = createLogger('integrations', 'integration-tools.ts')
 
@@ -31,7 +32,7 @@ export function integrationGateway(): IntegrationGateway | null {
 const reportedCollisions = new Set<string>()
 
 /** How long a run waits for one server's tool list before it starts without that server. */
-const RUN_LIST_TIMEOUT_MS = 10_000
+export const RUN_LIST_TIMEOUT_MS = 10_000
 
 /** A server's tools for a run, or null when it did not list them in time; the list goes on and the next run reads it. */
 async function toolsForRun(source: IntegrationGateway, integration: Integration, personKey: string | null): Promise<UpstreamTool[] | null> {
@@ -68,15 +69,19 @@ function joinsRun(integration: Integration, actor: Actor, projectKey: () => stri
   return integration.projectKey === undefined || integration.projectKey === projectKey()
 }
 
-/** `projectPath`: the run's working directory, whose project key a project integration must match. */
+/** The integrations that join a run of `actor` in `projectPath`, the run's working directory, whose project key a project integration must match. */
+export function runIntegrations(source: Pick<IntegrationGateway, 'store'>, actor: Actor, projectPath?: string | null): Integration[] {
+  // The key asks git for the project root, so it is read only when a project integration needs it.
+  let projectKey: string | null | undefined
+  const runProjectKey = () => (projectKey ??= projectPath ? resolveProjectKey(resolveHomePath(projectPath)) : null)
+  return source.store.list(recordScopeOf(actor.principal), ownerKeyOf(actor)).filter((integration) => joinsRun(integration, actor, runProjectKey))
+}
+
 export async function integrationToolbox(actor: Actor, projectPath?: string | null): Promise<{ tools: AgentTool[]; instructions: IntegrationInstruction[] }> {
   const current = gateway
   if (!current) return { tools: [], instructions: [] }
   const personKey = ownerKeyOf(actor)
-  // The key asks git for the project root, so it is read only when a project integration needs it.
-  let projectKey: string | null | undefined
-  const runProjectKey = () => (projectKey ??= projectPath ? resolveProjectKey(resolveHomePath(projectPath)) : null)
-  const integrations = current.store.list(recordScopeOf(actor.principal), personKey).filter((integration) => joinsRun(integration, actor, runProjectKey))
+  const integrations = runIntegrations(current, actor, projectPath)
   const listed = await Promise.all(integrations.map((integration) => toolsForRun(current, integration, personKey)))
   const tools: AgentTool[] = []
   const included = new Set<string>()
@@ -101,10 +106,20 @@ export async function integrationToolbox(actor: Actor, projectPath?: string | nu
       included.add(integration.id)
     }
   })
-  const instructions = (await Promise.all(integrations.filter((integration) => included.has(integration.id)).map(async (integration) => {
-    const text = (await current.factsFor(integration.id, personKey)).instructions
-    return text ? { name: integration.name, slug: integration.slug, text } : null
-  }))).filter((entry): entry is IntegrationInstruction => entry !== null)
+  // A server that listed in time gives its facts: its instructions when its tools joined, and whether it has resources (§11.2).
+  const listedIntegrations = integrations.filter((_integration, index) => listed[index] !== null)
+  const facts = await Promise.all(listedIntegrations.map((integration) => current.factsFor(integration.id, personKey)))
+  const instructions: IntegrationInstruction[] = []
+  listedIntegrations.forEach((integration, index) => {
+    const text = facts[index].instructions
+    if (text && included.has(integration.id)) instructions.push({ name: integration.name, slug: integration.slug, text })
+  })
+  const resourceServers = listedIntegrations.filter((_integration, index) => facts[index].capabilities.resources)
+  for (const resourceTool of resourceAgentTools(resourceServers, current, actor.principal)) {
+    if (names.has(resourceTool.name)) continue
+    names.add(resourceTool.name)
+    tools.push(resourceTool)
+  }
   return { tools, instructions }
 }
 

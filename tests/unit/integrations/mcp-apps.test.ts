@@ -28,7 +28,7 @@ function setup() {
   const sessionId = `mcp-app-${++nextSession}`
   const integration: Integration = { id: 'charts', organizationId: 'org-1', ownerKey: ownerKeyOf(ctx.actor)!, kind: 'mcp', slug: 'charts', name: 'Charts', url: 'https://example.invalid/mcp', auth: { kind: 'none' }, disabledTools: [], createdBy: null, createdAt: '', updatedAt: '' }
   const gateway = new IntegrationGateway({ get: (id) => id === integration.id ? integration : null, list: () => [integration] })
-  const read = spyOn(gateway, 'readAppResource').mockResolvedValue({ contents: [{ uri: 'ui://chart', mimeType: 'text/html;profile=mcp-app', text: '<button>Filter</button>' }] })
+  const read = spyOn(gateway, 'readResource').mockResolvedValue({ contents: [{ uri: 'ui://chart', mimeType: 'text/html;profile=mcp-app', text: '<button>Filter</button>' }] })
   const tools = spyOn(gateway, 'toolsFor').mockResolvedValue([{ name: 'save', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }])
   const call = spyOn(gateway, 'callAppTool').mockResolvedValue({ content: [{ type: 'text', text: 'saved' }] })
   const recorded: Activity[] = []

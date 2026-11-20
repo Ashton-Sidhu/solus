@@ -145,6 +145,7 @@ export const RESOURCE_LOCATORS = {
   writePlanFile: optionalCtxAt(2),
   attachUpload: ctxAt(0),
   attachUploadToken: ctxAt(0),
+  integrationResourceAttach: ctxAt(0),
   setSessionTitle: sessionIdAt(0),
   ensureBackgroundSessionTitle: sessionIdAt(0),
   setSessionBranch: sessionIdAt(0),

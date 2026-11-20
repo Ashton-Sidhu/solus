@@ -141,7 +141,7 @@ describe('integration gateway', () => {
     const captures: string[] = []
     gateway.useAppCapture(async (call) => {
       expect(call.tool._meta).toEqual({ ui: { resourceUri: 'ui://echo' } })
-      const resource = await gateway.readAppResource(call.integration.id, 'ui://echo')
+      const resource = await gateway.readResource(call.integration.id, 'ui://echo')
       captures.push('text' in resource.contents[0] ? resource.contents[0].text : '')
     })
     try {
@@ -190,7 +190,8 @@ describe('integration gateway', () => {
     setIntegrationGateway(gateway)
     try {
       const toolbox = await integrationToolbox(HOST_ACTOR)
-      expect(toolbox.tools.map((tool) => tool.name).sort()).toEqual(['fake__confirm', 'fake__echo'])
+      // The server also lists a resource, so the two resource tools join (mcp-first-class.md §11.2).
+      expect(toolbox.tools.map((tool) => tool.name).filter((name) => name.startsWith('fake__')).sort()).toEqual(['fake__confirm', 'fake__echo'])
       expect(toolbox.instructions).toEqual([{ name: 'Fake', slug: 'fake', text: 'Use the echo tool for text.' }])
       record.disabledTools = ['echo', 'delete_all', 'confirm']
       expect((await integrationToolbox(HOST_ACTOR)).instructions).toEqual([])
@@ -584,7 +585,7 @@ describe('integration gateway with sign-in', () => {
     }
     setIntegrationGateway(gateway)
     try {
-      const names = (await integrationToolbox(memberActor)).tools.map((tool) => tool.name).sort()
+      const names = (await integrationToolbox(memberActor)).tools.map((tool) => tool.name).filter((name) => name.startsWith('secure__')).sort()
       expect(names).toEqual(['secure__confirm', 'secure__delete_all', 'secure__echo', 'secure__query'])
       // The host's own work has no person: the server refuses it, and nothing is cached as the member's.
       seen.length = 0

@@ -53,6 +53,8 @@ export interface ResultContentOptions {
   outputSchema?: UpstreamTool['outputSchema']
   /** The asset store; a test passes a temporary folder. */
   assetsDir?: string
+  /** The slug of a server whose resources the agent reads with `read_integration_resource` (§11.2): a resource link names it. */
+  resourceServer?: string
 }
 
 type McpCallResult = CallToolResult | CompatibilityCallToolResult
@@ -66,7 +68,7 @@ export async function agentResultOf(result: McpCallResult, options: ResultConten
     const refusal = structuredContentRefusal(options.tool, options.outputSchema, result.structuredContent)
     if (refusal) return refusal
   }
-  const mapping = new ContentMapping(options.assetsDir)
+  const mapping = new ContentMapping(options.assetsDir, options.resourceServer)
   for (const part of result.content) await mapping.add(part)
   if (result.structuredContent !== undefined) mapping.addStructured(result.structuredContent)
   return mapping.result(!isError)
@@ -114,16 +116,16 @@ class ContentMapping {
   private files = 0
   private fileBytes = 0
 
-  constructor(private readonly assetsDir: string | undefined) {}
+  constructor(private readonly assetsDir: string | undefined, private readonly resourceServer: string | undefined) {}
 
   async add(part: ContentBlock): Promise<void> {
     if (part.type === 'text') this.texts.push(part.text)
     else if (part.type === 'image') await this.addImage(`image ${++this.imageCount}`, typeOf(part.mimeType), part.data)
     else if (part.type === 'audio') await this.addAudio(`audio ${++this.audioCount}`, typeOf(part.mimeType), part.data)
     else if (part.type === 'resource_link') {
-      // F1 adds the read tool (§11.2) and its sentence to this line.
       const type = part.mimeType ? ` (${part.mimeType})` : ''
-      this.texts.push(`Resource link: ${part.title ?? part.name} <${part.uri}>${type}`)
+      const read = this.resourceServer ? ` Read it with \`read_integration_resource\`, server \`${this.resourceServer}\`.` : ''
+      this.texts.push(`Resource link: ${part.title ?? part.name} <${part.uri}>${type}${read}`)
     } else if (part.type === 'resource') {
       const resource = part.resource
       if ('text' in resource) this.texts.push(`Resource ${resource.uri}:\n${resource.text}`)

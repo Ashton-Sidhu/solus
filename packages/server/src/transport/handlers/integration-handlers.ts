@@ -10,9 +10,12 @@ import {
   integrationIdRequestSchema,
   integrationProbeRequestSchema,
   integrationProcessStartRequestSchema,
+  integrationResourceAttachRequestSchema,
+  integrationResourceListRequestSchema,
   integrationUpdateRequestSchema,
   type Integration,
   type IntegrationAuth,
+  type IntegrationResourceLists,
   type IntegrationOAuthClientInput,
   type IntegrationUpdateRequest,
 } from '@solus/contracts/integration-types'
@@ -30,6 +33,10 @@ import type { IntegrationOAuth } from '../../integrations/oauth'
 import { commandAuth, createIntegration, createStdioIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
 import { stdioServerAddress } from '../../integrations/stdio-process'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
+import { attachResource } from '../../integrations/resource-attach'
+import { resourceListsOf } from '../../integrations/resource-lists'
+import { RUN_LIST_TIMEOUT_MS, runIntegrations } from '../../integrations/integration-tools'
+import { uploadBucketId } from './attachment-handlers'
 import { createLogger } from '../../logger'
 import { currentPersonKey, requirePersonKey } from '../../vault/acting-scope'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -214,6 +221,43 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const { id } = integrationIdRequestSchema.parse(args[0])
     requireStdio(requireIntegration(id, ctx.actor))
     return { stopped: await gateway.stopProcess(id) }
+  })
+
+  /**
+   * The caller's MCP resources (§11.4): of one integration, or of each one that
+   * joins a run in `projectPath`. A server that does not answer in 10 seconds,
+   * or fails, is left out. A list starts no command.
+   */
+  server.register('integrationResourceList', async (args, ctx): Promise<IntegrationResourceLists> => {
+    const request = integrationResourceListRequestSchema.parse(args[0] ?? {})
+    const integrations = request.integrationId ? [requireIntegration(request.integrationId, ctx.actor)] : runIntegrations(deps, ctx.actor, request.projectPath)
+    const personKey = currentPersonKey()
+    const answers = await Promise.all(integrations.map(async (integration) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), RUN_LIST_TIMEOUT_MS) })
+      try {
+        const lists = await Promise.race([gateway.resourcesFor(integration.id, personKey, null), late])
+        return lists && resourceListsOf(integration.id, lists)
+      } catch (error) {
+        log.info('integration_resources_unavailable', { integrationId: integration.id, error: error instanceof Error ? error.message : String(error) })
+        return null
+      } finally {
+        clearTimeout(timer)
+      }
+    }))
+    return {
+      resources: answers.flatMap((answer) => answer?.resources ?? []),
+      templates: answers.flatMap((answer) => answer?.templates ?? []),
+    }
+  })
+
+  server.register('integrationResourceAttach', async (args, ctx) => {
+    const [ipc, raw] = args
+    const bucketId = uploadBucketId(ipc)
+    if (!bucketId) throw new Error('A conversation is required to attach a resource.')
+    const request = integrationResourceAttachRequestSchema.parse(raw)
+    const integration = requireIntegration(request.integrationId, ctx.actor)
+    return attachResource({ gateway, integration, request, starter: ctx.principal, bucketId, sessionId: ipc?.session?.sessionId || undefined })
   })
 
   server.register('integrationConnectionList', () => {

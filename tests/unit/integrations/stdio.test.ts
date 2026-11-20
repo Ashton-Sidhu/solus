@@ -417,7 +417,7 @@ describe('who may start a command (§7.2, §7.8)', () => {
     expect(run.ok).toBe(false)
     expect(run.text).toContain(refusal)
     await expect(asOwner(() => shared.callAppTool(integration.id, 'echo', { text: 'app' }, member))).rejects.toThrow(refusal)
-    await expect(asOwner(() => shared.readAppResource(integration.id, 'ui://fake/app', member))).rejects.toThrow(refusal)
+    await expect(asOwner(() => shared.readResource(integration.id, 'ui://fake/app', member))).rejects.toThrow(refusal)
     await expect(asOwner(() => shared.startProcess(integration.id, member))).rejects.toThrow(refusal)
     // The host's own work, such as an app's schedule, names no person: it starts nothing either.
     await expect(asOwner(() => shared.callAppTool(integration.id, 'echo', { text: 'schedule' }, null))).rejects.toThrow('acts for no person who can start it')

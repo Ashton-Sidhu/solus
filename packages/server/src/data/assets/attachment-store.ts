@@ -181,8 +181,19 @@ export async function storeAttachment(
   request: AttachmentUploadRequest,
   attachmentsDir?: string,
 ): Promise<string> {
-  const buffer = decodeAttachmentDataUrl(request)
-  const filePath = await attachmentUploadPath(bucketId, request.name, request.mime, attachmentsDir)
+  return storeAttachmentBytes(bucketId, request.name, request.mime, decodeAttachmentDataUrl(request), attachmentsDir)
+}
+
+/** Persist bytes the host already holds (an MCP resource it read) as one attachment of a conversation. */
+export async function storeAttachmentBytes(
+  bucketId: string,
+  name: string,
+  mime: string,
+  buffer: Buffer,
+  attachmentsDir?: string,
+): Promise<string> {
+  if (buffer.length > MAX_ATTACHMENT_UPLOAD_BYTES) throw new Error('Attachment exceeds the 10 MB limit.')
+  const filePath = await attachmentUploadPath(bucketId, name, mime, attachmentsDir)
   const release = await reserveAttachmentSlot(dirname(filePath))
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {

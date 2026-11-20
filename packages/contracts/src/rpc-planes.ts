@@ -284,6 +284,9 @@ export const RPC_PLANES = {
   // The host starts and stops a stdio integration's process (mcp-first-class.md §7.3)
   integrationProcessStart: 'execution',
   integrationProcessStop: 'execution',
+  // The host reads an MCP resource as the person and keeps it in its attachment store (mcp-first-class.md §11)
+  integrationResourceList: 'execution',
+  integrationResourceAttach: 'execution',
   // The host runs the sign-in and keeps the token (mcp-integrations.md §4.2)
   integrationConnectionList: 'execution',
   integrationConnectStart: 'execution',

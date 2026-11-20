@@ -13,6 +13,7 @@ import { toolSummary } from './integration-tools'
 import { agentResultOf, mergedAccountResults, outputSchemaRefusal } from './result-content'
 import type { ServerFactsKey, ServerFactsStore } from './server-facts-store'
 import { commandStartRefusal, type CommandStarter } from './command-admission'
+import { listUpstreamResources, NO_RESOURCES, type UpstreamResourceLists } from './resource-lists'
 import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
 import { endSolusSpan } from '../execution/observability/tracer'
@@ -73,6 +74,8 @@ export class IntegrationGateway {
   private readonly serverFacts = new Map<string, ServerFacts>()
   private readonly revisions = new Map<string, { prior: PriorDiscovery; checkedAt: number }>()
   private readonly listing = new Map<string, Promise<UpstreamTool[]>>()
+  /** The resource lists of each session key; they go with the session (§11.1). */
+  private readonly resourceLists = new Map<string, UpstreamResourceLists>()
   private readonly listeners: Array<(integrationId: string) => void> = []
   private readonly factsListeners: Array<(integrationId: string) => void> = []
   private readonly connectNeededListeners: Array<(request: IntegrationConnectNeeded) => void> = []
@@ -118,11 +121,12 @@ export class IntegrationGateway {
   }
 
   /**
-   * Reads one resource with the current person's connection. It never starts an
+   * Reads one resource with the current person's connection: an MCP App's
+   * document, an attachment, or the agent's read (§11). It never starts an
    * agent turn. `starter` is who the read acts for: a command starts only for
    * them (`commandStartRefusal`).
    */
-  async readAppResource(integrationId: string, uri: string, starter: CommandStarter, options: { signal?: AbortSignal; timeout?: number } = {}): Promise<ReadResourceResult> {
+  async readResource(integrationId: string, uri: string, starter: CommandStarter, options: { signal?: AbortSignal; timeout?: number } = {}): Promise<ReadResourceResult> {
     return this.withAppSession(integrationId, starter, (client) => client.readResource({ uri }, { timeout: options.timeout ?? CALL_TIMEOUT_MS, signal: options.signal }))
   }
 
@@ -137,6 +141,28 @@ export class IntegrationGateway {
       return await use(session.client)
     } finally {
       this.touch(sessionKey(integrationId, session.personKey, session.accountId))
+    }
+  }
+
+  /**
+   * One person's MCP resources and templates of an integration (§11.1), listed
+   * on first use and kept until a list-changed notification, their `ttlMs`, or
+   * the session's close. Without `starter` a command that is not running is not
+   * started for a list: it has none until it runs.
+   */
+  async resourcesFor(integrationId: string, personKey: string | null, starter: CommandStarter): Promise<UpstreamResourceLists> {
+    const key = sessionKey(integrationId, personKey)
+    const cached = this.resourceLists.get(key)
+    if (cached && (cached.expiresAt === null || Date.now() < cached.expiresAt)) return cached
+    if (!starter && !this.sessions.has(key) && this.store.get(integrationId, ANY_ORGANIZATION)?.kind === 'stdio') return NO_RESOURCES
+    const session = await this.session(integrationId, personKey, false, DEFAULT_INTEGRATION_ACCOUNT, starter)
+    try {
+      const lists = await listUpstreamResources(session.client, Date.now())
+      if (this.sessions.get(key) === session) this.resourceLists.set(key, lists)
+      log.info('integration_resources_listed', { integrationId, resources: lists.resources.length, templates: lists.templates.length })
+      return lists
+    } finally {
+      this.touch(key)
     }
   }
 
@@ -298,7 +324,13 @@ export class IntegrationGateway {
         },
       )
       if (this.captureApp && !('isError' in result && result.isError)) await this.saveApp(this.captureApp, { integration, tool, input, result, context })
-      const mapped = await agentResultOf(result, { tool, outputSchema: this.anyCachedTools(integrationId)?.find((candidate) => candidate.name === tool)?.outputSchema })
+      const facts = this.serverFacts.get(sessionKey(integrationId, session.personKey))
+      const mapped = await agentResultOf(result, {
+        tool,
+        outputSchema: this.anyCachedTools(integrationId)?.find((candidate) => candidate.name === tool)?.outputSchema,
+        // The read tool joins the run of a server with resources, so only its links name it.
+        resourceServer: facts?.capabilities.resources ? integration.slug : undefined,
+      })
       // Some servers take a revoked token when the session opens and refuse it only in
       // the call: read the header again, not from a copy, and try once more.
       if (refusedInFirstCall(session, mapped, retried)) {
@@ -360,6 +392,9 @@ export class IntegrationGateway {
     this.revisions.delete(integrationId)
     for (const [key, cache] of this.serverFacts) {
       if (cache.integrationId === integrationId) this.serverFacts.delete(key)
+    }
+    for (const key of this.resourceLists.keys()) {
+      if (key.startsWith(`${integrationId}\u0000`)) this.resourceLists.delete(key)
     }
     for (const [key, session] of this.sessions) {
       if (session.integrationId === integrationId) void this.closeSession(key)
@@ -590,6 +625,12 @@ export class IntegrationGateway {
         if (this.sessions.get(key) !== session) return
         this.serverFacts.delete(key)
         this.notify(integrationId)
+      } },
+      // Clients list resources again on `integration.changed` with `change: 'facts'` (§11.4).
+      resources: { autoRefresh: false, onChanged: () => {
+        if (this.sessions.get(key) !== session) return
+        this.resourceLists.delete(key)
+        this.factsChanged(integrationId)
       } } },
     })
     const session: UpstreamSession = {
@@ -758,7 +799,8 @@ export class IntegrationGateway {
     }
   }
 
-  private connectionRequired(integration: Pick<Integration, 'id' | 'name' | 'auth'>, context: AgentToolContext): AgentToolResult {
+  /** The `CONNECTION_REQUIRED` answer, and the connect card in the conversation of the call. */
+  connectionRequired(integration: Pick<Integration, 'id' | 'name' | 'auth'>, context: AgentToolContext): AgentToolResult {
     const sessionId = context.sessionId()
     if (sessionId) this.askToConnect(integration, sessionId)
     if (integration.auth.kind === 'env') return { ok: false, text: `CONNECTION_REQUIRED: Give the environment values of ${integration.name} in Settings → MCP, then try again.` }
@@ -797,6 +839,8 @@ export class IntegrationGateway {
     if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
     const cache = this.serverFacts.get(key)
     if (cache) cache.stale = true
+    // A closed session hears no list-changed notification.
+    this.resourceLists.delete(key)
     // The SDK closes standard input, then sends SIGTERM and SIGKILL to the one child it started (§7.3).
     session.closing = true
     await session.client.close().catch((error) => log.warn('integration_session_close_failed', { integrationId: session.integrationId, error: errorText(error) }))
