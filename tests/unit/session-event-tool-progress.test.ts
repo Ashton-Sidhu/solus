@@ -36,11 +36,12 @@ function card(session: Session, toolId: string): Message | undefined {
 }
 
 describe('tool progress on the desktop and web transcript', () => {
-  test('Claude: progress reopens the card its input end settled, and the result settles it again', async () => {
+  test('Claude: an integration card stays running past its input end, shows progress, and the result settles it', async () => {
     const { reducer, session } = await createReducer()
     reducer.apply('session-1', { type: 'tool_call', toolName: 'mcp__solus__fake__long', toolId: 'toolu_1', index: 0 })
     reducer.apply('session-1', { type: 'tool_call_complete', index: 0, toolId: 'toolu_1', toolInput: '{}' })
-    expect(card(session, 'toolu_1')?.toolStatus).toBe('completed')
+    // A Solus integration call runs after its input ends (§14.1): the card waits for the result.
+    expect(card(session, 'toolu_1')?.toolStatus).toBe('running')
 
     reducer.apply('session-1', { type: 'tool_progress', toolUseId: 'toolu_1', progress: 2, total: 5, message: 'Copying rows' })
     const message = card(session, 'toolu_1')
@@ -60,6 +61,17 @@ describe('tool progress on the desktop and web transcript', () => {
     reducer.apply('session-1', { type: 'tool_progress', toolUseId: 'toolu_1', progress: 8 })
     expect(card(session, 'toolu_1')?.toolStatus).toBe('completed')
     expect(card(session, 'toolu_1')?.toolProgress).toBeUndefined()
+  })
+
+  test('progress reopens a card that settled with no result', async () => {
+    const { reducer, session } = await createReducer()
+    reducer.apply('session-1', { type: 'tool_call', toolName: 'Bash', toolId: 'toolu_2', index: 0 })
+    reducer.apply('session-1', { type: 'tool_call_complete', index: 0, toolId: 'toolu_2', toolInput: '{}' })
+    expect(card(session, 'toolu_2')?.toolStatus).toBe('completed')
+
+    reducer.apply('session-1', { type: 'tool_progress', toolUseId: 'toolu_2', progress: 1 })
+    expect(card(session, 'toolu_2')?.toolStatus).toBe('running')
+    expect(card(session, 'toolu_2')?.toolCompletedAt).toBeUndefined()
   })
 
   test('Codex: progress lands on the card of the call id and changes only that message', async () => {

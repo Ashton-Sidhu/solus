@@ -1,40 +1,42 @@
 import { z } from 'zod'
 import { Client } from '@modelcontextprotocol/client'
-import { StreamableHTTPClientTransport, SdkHttpError } from '@modelcontextprotocol/client'
-import { InMemoryTransport } from '@modelcontextprotocol/client'
-import type { Transport } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
-import {
-  ProtocolError,
-  SdkError,
-  SdkErrorCode,
-  type CallToolRequest,
-  type ElicitRequest,
-  type ElicitResult,
-  type ReadResourceResult,
-  type PriorDiscovery,
-  type Tool,
-} from '@modelcontextprotocol/client'
+import { ProtocolError, SdkError, SdkErrorCode, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
-import { solusServerFor } from './solus-servers'
-import { solusMcpServer } from './solus-servers/solus-server'
 import { currentPersonKey } from '../vault/acting-scope'
 import type { AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
-import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../execution/agents/codex/codex-permissions'
-import { answerToolQuestionWith } from '../execution/sessions/input-requests'
 import type { IntegrationCredentials } from './connections'
 import type { IntegrationStore } from './integration-store'
 import { toolSummary } from './integration-tools'
 import { agentResultOf, mergedAccountResults, outputSchemaRefusal } from './result-content'
-import { cancellableFetch } from './cancellable-fetch'
 import type { ServerFactsKey, ServerFactsStore } from './server-facts-store'
-import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, stdioTransport, type GatewayClock, type StdioChild } from './stdio-process'
+import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
-import type { Context } from '@opentelemetry/api'
-import { SPAN_KINDS, SPAN_SERVICES, type SpanDimensions, type SpanStatus } from '../data/insights/registries'
-import { endSolusSpan, startSolusSpan, w3cTraceparent } from '../execution/observability/tracer'
+import { endSolusSpan } from '../execution/observability/tracer'
+import { accountLabel, callRequest, callSpanStatus, elicitFromCall, splitAccount, startCallSpan, type TurnContextOf } from './integration-call'
+import {
+  ConnectionRequiredError,
+  errorText,
+  isAuthFailure,
+  isLostResponse,
+  refusedInFirstCall,
+  refusedMessage,
+  sessionKey,
+  stoppedWhileRunning,
+  toolNames,
+  upstreamTransport,
+  type ActiveCall,
+  type AppToolResult,
+  type IntegrationAppCapture,
+  type ServerFacts,
+  type ToolArguments,
+  type UpstreamSession,
+  type UpstreamTool,
+} from './upstream-session'
+
+export type { IntegrationAppCapture, ToolArguments, UpstreamTool } from './upstream-session'
 
 const log = createLogger('integrations', 'gateway.ts')
 
@@ -57,76 +59,6 @@ export interface IntegrationConnectionReport {
   label: string | null
   /** False when the integration needs no sign-in. */
   signInRequired: boolean
-}
-
-/** The person has no usable connection: the call returns `CONNECTION_REQUIRED` (§4.1 rule 2). */
-class ConnectionRequiredError extends Error {
-  constructor() {
-    super('connection required')
-  }
-}
-
-/** One upstream tool as `tools/list` reported it, kept whole: the tool bridge needs its input schema. */
-export type UpstreamTool = Pick<Tool, 'name' | 'title' | 'description' | 'inputSchema' | 'outputSchema' | 'annotations' | '_meta'>
-
-/** A `tools/call` result as the SDK returns it. */
-type AppToolResult = Awaited<ReturnType<Client['callTool']>>
-
-/** A successful call of a tool that may declare an MCP App. */
-export interface IntegrationAppCapture {
-  integration: Integration
-  tool: UpstreamTool
-  input: ToolArguments
-  result: AppToolResult
-  context: AgentToolContext
-}
-
-type ElicitationAnswers = Parameters<typeof mcpElicitationResponse>[1]
-/** A `tools/call` input as the SDK takes it. */
-export type ToolArguments = NonNullable<CallToolRequest['params']['arguments']>
-
-interface ActiveCall {
-  integrationName: string
-  context: AgentToolContext
-  /** Stops the call's limits while a person answers an elicitation, and starts them again after. */
-  pauseTimeout: () => void
-  resumeTimeout: () => void
-}
-
-/** Where a turn's span hangs: `SessionEmitter.turnContextOf`. */
-type TurnContextOf = (sessionId: string, toolUseId?: string) => { context: Context; dimensions: SpanDimensions } | undefined
-
-interface UpstreamSession {
-  integrationId: string
-  personKey: string | null
-  /** Which of the person's accounts the session signs in as (§13.3). */
-  accountId: string
-  client: Client
-  connected: Promise<void>
-  idleTimer: ReturnType<typeof setTimeout> | null
-  /** Calls in flight, newest last: an elicitation goes to the newest one. */
-  calls: ActiveCall[]
-  /** The session sends the person's `Authorization` header. */
-  authorized: boolean
-  openedAt: number
-  /** Replaced by a newer session while calls were in flight: closed when the last one ends. */
-  retired: boolean
-  /** The gateway closes it: its end is not the process ending by itself. */
-  closing: boolean
-  lastUsedAt: number
-  /** Set for a `stdio` integration once its process started. */
-  stdio: StdioChild | null
-}
-
-interface ServerFacts {
-  integrationId: string
-  tools: UpstreamTool[]
-  era: IntegrationFacts['era']
-  instructions: string | null
-  capabilities: IntegrationFacts['capabilities']
-  /** The session closed, so `tools/list_changed` could not reach it: list again on the next read. */
-  stale: boolean
-  expiresAt: number | null
 }
 
 /**
@@ -344,7 +276,7 @@ export class IntegrationGateway {
     const limits = new CallLimits(this.callClock, (limit) => { reachedLimit = limit; timeout.abort(new Error('timeout')) })
     const progress = new ProgressEvents(this.callClock, context)
     const call: ActiveCall = { integrationName: integration.name, context, pauseTimeout: () => limits.pause(), resumeTimeout: () => limits.start() }
-    const trace = this.startCallSpan(integration, tool, context)
+    const trace = startCallSpan(this.turnContextOf, integration, tool, context)
     let session: UpstreamSession | null = null
     let ended: AgentToolResult | null = null
     try {
@@ -405,53 +337,6 @@ export class IntegrationGateway {
         } else this.touch(sessionKey(integrationId, session.personKey, session.accountId))
       }
     }
-  }
-
-  /**
-   * The `integration_call` span of a call that a turn made (§13), under the
-   * tool call's span. A call outside a turn has none and sends no trace context.
-   */
-  private startCallSpan(integration: Integration, tool: string, context: AgentToolContext): { span: ReturnType<typeof startSolusSpan>; traceparent: string } | null {
-    const sessionId = context.sessionId()
-    const turn = sessionId ? this.turnContextOf?.(sessionId, context.parentToolUseId()) : undefined
-    if (!turn) return null
-    const span = startSolusSpan({
-      kind: SPAN_KINDS.integrationCall,
-      name: tool,
-      service: SPAN_SERVICES.sessions,
-      startedAt: Date.now(),
-      attrs: { 'mcp.method.name': 'tools/call', 'gen_ai.tool.name': tool, integration: integration.slug },
-      dimensions: turn.dimensions,
-      parent: turn.context,
-      isClientRequest: true,
-    })
-    return { span, traceparent: w3cTraceparent(span) }
-  }
-
-  /**
-   * The session's transport. A remote server: streamable HTTP, with the header
-   * going to the integration's URL only, so a redirect fails instead of carrying
-   * it elsewhere (§4.1 rule 4). A Solus MCP server: an in-memory pair to its
-   * server, built for this person, which reads their token on each request
-   * (§13.6).
-   */
-  private transportFor(integration: Integration, personKey: string | null, authorization: string | null, accountId: string, environment: IntegrationEnvValue[]): Transport {
-    // A command: the SDK starts it with no shell, and this transport holds its one child (§7.3).
-    if (integration.kind === 'stdio') return stdioTransport(integration, environment)
-    const server = solusServerFor(integration.url)
-    if (server) {
-      const [clientEnd, serverEnd] = InMemoryTransport.createLinkedPair()
-      const credentials = this.credentials
-      void solusMcpServer(server, {
-        authorization: async () => (personKey === null ? null : (await credentials?.authorizationFor(integration.id, personKey, accountId)) ?? null),
-        onRefused: (error) => { if (personKey !== null) credentials?.markNeedsSignIn(integration.id, personKey, error.message, accountId) },
-      }).connect(serverEnd)
-      return clientEnd
-    }
-    if (integration.kind === 'solus') throw new Error(`This version of Solus does not have ${integration.name}. Update Solus on this host.`)
-    return authorization
-      ? new StreamableHTTPClientTransport(new URL(integration.url), { requestInit: { headers: { Authorization: authorization }, redirect: 'error' }, fetch: cancellableFetch() })
-      : new StreamableHTTPClientTransport(new URL(integration.url), { fetch: cancellableFetch() })
   }
 
   /**
@@ -666,7 +551,7 @@ export class IntegrationGateway {
     const session = this.newSession(key, integrationId, personKey, accountId, !!authorization)
     const client = session.client
     const prior = this.priorFor(integrationId)
-    session.connected = client.connect(this.transportFor(integration, personKey, authorization, accountId, []), prior ? { prior } : undefined)
+    session.connected = client.connect(upstreamTransport(integration, personKey, authorization, accountId, [], this.credentials), prior ? { prior } : undefined)
     this.sessions.set(key, session)
     try {
       await session.connected
@@ -704,7 +589,7 @@ export class IntegrationGateway {
       integrationId, personKey, accountId, client, connected: Promise.resolve(), idleTimer: null, calls: [],
       authorized, openedAt: Date.now(), retired: false, closing: false, lastUsedAt: this.clock.now(), stdio: null,
     }
-    client.setRequestHandler('elicitation/create', (request) => this.elicit(session, request))
+    client.setRequestHandler('elicitation/create', (request) => elicitFromCall(session.calls.at(-1), request))
     return session
   }
 
@@ -738,7 +623,7 @@ export class IntegrationGateway {
     // The saved list is the one a new list is compared with.
     this.savedFacts(integration.id, personKey)
     const session = this.newSession(key, integration.id, personKey, accountId, false)
-    const transport = this.transportFor(integration, personKey, null, accountId, environment)
+    const transport = upstreamTransport(integration, personKey, null, accountId, environment, this.credentials)
     const stdio = transport instanceof StdioClientTransport ? transport : null
     const stderr = new StderrTail(stdio?.stderr ?? null)
     const startedAt = this.clock.now()
@@ -842,31 +727,6 @@ export class IntegrationGateway {
     return Date.now() - saved.checkedAt < LEGACY_VERDICT_MAX_AGE_MS ? saved.prior : undefined
   }
 
-  /** Asks the person behind the newest call, as Codex's elicitation does (codex-permissions.ts). */
-  private async elicit(session: UpstreamSession, request: ElicitRequest): Promise<ElicitResult> {
-    const call = session.calls.at(-1)
-    if (!call) return { action: 'decline' }
-    const params = { ...request.params, mode: request.params.mode ?? 'form', serverName: call.integrationName }
-    const normalized = normalizeMcpElicitationRequest(params)
-    if (!normalized) return { action: 'decline' }
-    const questionId = `integration-${crypto.randomUUID()}`
-    call.pauseTimeout()
-    try {
-      const answers = await new Promise<ElicitationAnswers | null>((resolve) => {
-        const stop = answerToolQuestionWith(questionId, (answered) => { stop(); resolve(answered) })
-        const signal = call.context.abortSignal
-        if (signal.aborted) { stop(); resolve(null); return }
-        signal.addEventListener('abort', () => { stop(); resolve(null) }, { once: true })
-        call.context.emit({ type: 'question_request', questionId, questions: normalized.questions, ...normalized.request })
-      })
-      if (!answers) return { action: 'cancel' }
-      call.context.emit({ type: 'permission_resolved', questionId })
-      return mcpElicitResult(mcpElicitationResponse(params, answers))
-    } finally {
-      call.resumeTimeout()
-    }
-  }
-
   /** The session's header stopped working: the next session reads it again, past any copy the credentials keep. */
   private readHeaderAgain(session: UpstreamSession): void {
     if (session.personKey !== null) this.credentials?.forgetCached?.(session.integrationId, session.personKey, session.accountId)
@@ -943,79 +803,4 @@ export class IntegrationGateway {
   private notify(integrationId: string): void {
     for (const listener of this.listeners) listener(integrationId)
   }
-}
-
-/** A `tools/call` request. A call of a turn carries only `traceparent` (§13); never `tracestate` or `baggage`. */
-function callRequest(tool: string, input: ToolArguments, trace: { traceparent: string } | null): CallToolRequest['params'] {
-  const request: CallToolRequest['params'] = { name: tool, arguments: input }
-  if (trace) request._meta = { traceparent: trace.traceparent }
-  return request
-}
-
-/** How an `integration_call` span ends: the result's outcome, a stop, or a failure with no result. */
-function callSpanStatus(ended: AgentToolResult | null, context: AgentToolContext): SpanStatus {
-  if (ended) return ended.ok ? 'ok' : 'error'
-  return context.abortSignal.aborted ? 'interrupted' : 'error'
-}
-
-/** What a person calls an account: the identity its server reported, else its id. */
-function accountLabel(connection: Pick<IntegrationConnection, 'label' | 'accountId'>): string {
-  return connection.label ?? connection.accountId
-}
-
-/** The account Solus's input names, and the arguments the server takes. */
-interface AccountCall {
-  /** The account label or id the call named, or null. */
-  account: string | null
-  args: ToolArguments
-}
-
-function splitAccount(input: ToolArguments): AccountCall {
-  if (!input || !Object.hasOwn(input, ACCOUNT_INPUT)) return { account: null, args: input }
-  const { [ACCOUNT_INPUT]: account, ...args } = input
-  const named = z.string().min(1).safeParse(account)
-  return { account: named.success ? named.data : null, args }
-}
-
-/** One session per integration, person, and account (§13.3); the first account keeps the key it always had. */
-function sessionKey(integrationId: string, personKey: string | null, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): string {
-  const base = `${integrationId}\u0000${personKey ?? ''}`
-  return accountId === DEFAULT_INTEGRATION_ACCOUNT ? base : `${base}\u0000${accountId}`
-}
-
-/** A tool's error text that reports an HTTP 401, as "(status: 401)", "HTTP 401", or "401 Unauthorized". */
-const REFUSED_IN_RESULT = /\b(?:status|HTTP)\W{0,3}401\b|\b401\s+Unauthorized\b/i
-
-/** The first try's own answer reports HTTP 401 for a session that sent a header. */
-function refusedInFirstCall(session: UpstreamSession, result: AgentToolResult, retried: boolean): boolean {
-  return !retried && session.authorized && !result.ok && REFUSED_IN_RESULT.test(result.text)
-}
-
-/** The session's command ended by itself while a call was in flight (§7.3). */
-function stoppedWhileRunning(session: UpstreamSession | null): boolean {
-  return session !== null && session.stdio !== null && session.stdio.ended && !session.closing
-}
-
-/** An in-flight modern request has no SSE resume path after transport loss. */
-function isLostResponse(cause: unknown): boolean {
-  return !(cause instanceof SdkError) || cause.code === SdkErrorCode.ConnectionClosed || cause.code === SdkErrorCode.SendFailed
-}
-
-/** The server answered 401 or 403: it refused the header. */
-function isAuthFailure(cause: unknown): cause is SdkHttpError {
-  return cause instanceof SdkHttpError && (cause.status === 401 || cause.status === 403)
-}
-
-function refusedMessage(integration: Pick<Integration, 'name'>, error: SdkHttpError): string {
-  return `${integration.name} refused the saved sign-in (HTTP ${error.status}). Sign in again.`
-}
-
-function toolNames(tools: UpstreamTool[]): string {
-  return tools.map((tool) => tool.name).join('\u0000')
-}
-
-/** An error as one short line. A URL in it keeps no query string. */
-function errorText(cause: unknown): string {
-  const text = cause instanceof Error ? cause.message : String(cause)
-  return text.replace(/(https?:\/\/[^\s?#]+)[?#]\S*/g, '$1').slice(0, 300)
 }

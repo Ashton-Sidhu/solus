@@ -532,7 +532,8 @@ command.
 
 ### 7.3 The process
 
-The owner is the gateway. `transportFor` gains a third branch:
+The owner is the gateway. `upstreamTransport` (`integrations/upstream-session.ts`;
+it was the gateway's `transportFor` before the wave 3 split) gains a third branch:
 
 ```ts
 new StdioClientTransport({ command, args, env: valuesOfThisPerson, cwd: resolveHomePath(launch.cwd ?? '~'), stderr: 'pipe' })
