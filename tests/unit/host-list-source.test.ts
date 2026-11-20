@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { AccountHostListResponse, HostListing } from '@solus/contracts/host-list'
 import type { AccountDocumentRequest, AccountDocumentResult } from '@solus/contracts/account-documents'
 import { hostListAccountSource } from '@solus/client-core/host-list-source'
-import { listingOf } from '@solus/client-core/host-catalog'
+import { listingOf } from '@solus/client-core/host-join'
 import type { AccountDocumentCall } from '@solus/client-core/account-documents'
 import type { KnownHost } from '@solus/client-core/known-host'
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
 import { dialableRoutes } from '@solus/contracts/host-routes'
-import { joinHosts, type CatalogAnswers } from '@solus/client-core/host-catalog'
+import { joinHosts, type CatalogAnswers } from '@solus/client-core/host-join'
 import type { HostCredential } from '@solus/client-core/host-credentials'
 import { pairedAddress, type KnownHost } from '@solus/client-core/known-host'
 import { organizationIdFor } from '@solus/client-core/uplink-session'
