@@ -119,9 +119,26 @@
     }
   },
   "codex": {
+    "gpt-6.2-astra": {
+      "label": "Gpt 6.2 Astra",
+      "isDefault": true,
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "defaultReasoningEffort": "high",
+      "supportsFastMode": true,
+      "contextWindows": [1050000],
+      "defaultContextWindow": 1050000
+    },
+    "gpt-6.2-sol": {
+      "label": "Gpt 6.2 Sol",
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": true,
+      "contextWindows": [1050000],
+      "defaultContextWindow": 1050000
+    },
     "gpt-6-astra": {
       "label": "Gpt 6 Astra",
-      "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
       "defaultReasoningEffort": "high",
       "supportsFastMode": true,
@@ -130,7 +147,7 @@
     },
     "gpt-6.1-sol": {
       "label": "Gpt 6.1 Sol",
-      "isDefault": true,
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": true,
