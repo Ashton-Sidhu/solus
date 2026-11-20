@@ -10,7 +10,7 @@ import {
   type McpAppSnapshot,
   type McpAppToolInfo,
 } from '@solus/contracts/mcp-apps'
-import { MCP_APP_MAX_HEIGHT, type McpAppDisplayMode, type McpAppHostContext } from './mcp-app-context'
+import { MCP_APP_DISPLAY_MODES, MCP_APP_MAX_HEIGHT, type McpAppDisplayMode, type McpAppHostContext } from './mcp-app-context'
 import { mcpAppGrantedPermissions } from './mcp-app-permissions'
 
 /** What a client gives the bridge: its frame, its host calls, and its own approval prompt. */
@@ -36,7 +36,10 @@ export interface McpAppHostOptions {
   /** Replaces the app's context for the agent; empty text clears it. */
   updateModelContext(text: string): Promise<void>
   openLink(url: string): Promise<void>
-  displayMode(mode: McpAppDisplayMode): void
+  /** Puts the frame in a mode the bridge granted (`mcpAppGrantedDisplayMode`); answers the mode that results. */
+  displayMode(mode: McpAppDisplayMode): McpAppDisplayMode
+  /** The modes the app declared at initialize; null when it declared none. The person's controls follow them (`mcpAppOffersDisplayMode`). */
+  declaredDisplayModes?(modes: readonly McpAppDisplayMode[] | null): void
   resize(height: number): void
   /**
    * Removes the frame. The bridge calls it after the app had its teardown;
@@ -100,7 +103,11 @@ const textBlockSchema = z.object({ type: z.literal('text'), text: z.string().max
 const messageSchema = z.object({ role: z.literal('user'), content: z.union([textBlockSchema, z.array(textBlockSchema).min(1).max(32)]) })
 const resourceReadSchema = z.object({ uri: z.string().min(1).max(4096) })
 const openLinkSchema = z.object({ url: z.url().refine((url) => /^https?:\/\//i.test(url)) })
-const displayModeSchema = z.object({ mode: z.enum(['inline', 'fullscreen']) })
+const displayModeSchema = z.object({ mode: z.enum(MCP_APP_DISPLAY_MODES) })
+/** The modes an app declares in `ui/initialize`; a mode Solus does not know is left out. */
+const initializeSchema = z.object({
+  appCapabilities: z.object({ availableDisplayModes: z.array(z.string().max(32)).max(16).optional() }).optional(),
+}).catch({})
 const sizeSchema = z.object({ height: z.number().finite().positive() })
 const modelContextSchema = z.object({
   content: z.array(z.object({ type: z.string().max(64), text: z.string().optional() })).max(32).optional(),
@@ -112,6 +119,35 @@ const logSchema = z.object({
   logger: z.string().max(256).optional(),
   data: z.union([z.string(), z.json().transform((value) => JSON.stringify(value))]).default(''),
 })
+
+/**
+ * The mode an app's `ui/request-display-mode` results in (MCP Apps
+ * 2026-01-26, "Display Modes"): the current mode when the client cannot give
+ * the mode now, or when the app did not declare it. An app that declared no
+ * modes keeps `inline` and `fullscreen`, as before, but gets no `pip`.
+ */
+export function mcpAppGrantedDisplayMode(
+  requested: McpAppDisplayMode,
+  host: Pick<McpAppHostContext, 'displayMode' | 'availableDisplayModes'>,
+  declared: readonly McpAppDisplayMode[] | null,
+): McpAppDisplayMode {
+  if (!host.availableDisplayModes.includes(requested)) return host.displayMode
+  if (declared ? !declared.includes(requested) : requested === 'pip') return host.displayMode
+  return requested
+}
+
+/**
+ * Whether the person's control may put the frame in `mode`. The client must
+ * not give a mode that the app's declared list leaves out; the way back to
+ * `inline` is always there.
+ */
+export function mcpAppOffersDisplayMode(
+  mode: McpAppDisplayMode,
+  availableDisplayModes: readonly McpAppDisplayMode[],
+  declared: readonly McpAppDisplayMode[] | null,
+): boolean {
+  return mode === 'inline' || (availableDisplayModes.includes(mode) && (!declared || declared.includes(mode)))
+}
 
 /** The text the agent gets from one `ui/update-model-context`: text blocks, then structured content as JSON. */
 function modelContextText({ content = [], structuredContent }: z.infer<typeof modelContextSchema>): string {
@@ -141,6 +177,7 @@ export function createMcpAppHost(options: McpAppHostOptions) {
   let closing = false
   let pending = 0
   let modelContext = ''
+  let declaredModes: McpAppDisplayMode[] | null = null
   let logged = 0
   let nextRequestId = 0
   const answers = new Map<string, () => void>()
@@ -210,9 +247,17 @@ export function createMcpAppHost(options: McpAppHostOptions) {
     if (!(await options.confirm(title, detail, format)) || disposed) throw new DeclinedError()
   }
 
+  /** The modes the app declares at initialize; the bridge grants only those, and the client offers only those. */
+  function takeDeclaredModes({ appCapabilities }: z.infer<typeof initializeSchema>): void {
+    const declared = appCapabilities?.availableDisplayModes
+    declaredModes = declared ? MCP_APP_DISPLAY_MODES.filter((mode) => declared.includes(mode)) : null
+    options.declaredDisplayModes?.(declaredModes)
+  }
+
   async function answer({ method, params }: Envelope): Promise<string> {
     switch (method) {
       case 'ui/initialize':
+        takeDeclaredModes(initializeSchema.parse(params))
         return JSON.stringify({
           protocolVersion: MCP_APP_PROTOCOL_VERSION,
           hostInfo: { name: 'solus', version: '1.0.0' },
@@ -270,8 +315,9 @@ export function createMcpAppHost(options: McpAppHostOptions) {
       }
       case 'ui/request-display-mode': {
         const { mode } = displayModeSchema.parse(params)
-        options.displayMode(mode)
-        return JSON.stringify({ mode })
+        const context = options.context()
+        const granted = mcpAppGrantedDisplayMode(mode, context, declaredModes)
+        return JSON.stringify({ mode: granted === context.displayMode ? granted : options.displayMode(granted) })
       }
       default:
         throw new Error(`Unsupported app request: ${method}`)

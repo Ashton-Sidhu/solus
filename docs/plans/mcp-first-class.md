@@ -3,8 +3,8 @@
 Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, H1, and F1 are built
 (`mcp-b1-handoff.md` has the B1 contract; `mcp-wave3-handoff.md` records the
 merge of A2, A3, B1, and H1; `mcp-f1-handoff.md` has the F1 contract and what
-F1 left for E and F2). C2, E, and G are built on their own branches
-(`mcp-c2-handoff.md`, `mcp-e-handoff.md`, `mcp-g-handoff.md`). This plan continues
+F1 left for E and F2). C2, E, G, and H2 are built on their own branches
+(`mcp-c2-handoff.md`, `mcp-e-handoff.md`, `mcp-g-handoff.md`, `mcp-h2-handoff.md`). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -162,6 +162,28 @@ some of them. This plan follows the sources.
     `tools/call` only; a client must treat one on another request as invalid.
     So `resources/read` and `prompts/get` never give an MCP task. §12.6 has
     what G wrote.
+29. **The live app card never mounted in a turn on desktop and web** (found
+    in H2). H1 put it in the tool-group branch of `TranscriptItem.svelte`, but
+    a turn renders its tool groups in `ConversationTurn.svelte` with
+    `ToolGroupItem` directly, so that branch was never reached. H2 moves the
+    card to `ConversationTurn.svelte`, while the turn is live. A finished turn
+    folds its tools, so the saved card then shows the app in a new frame, as
+    on mobile.
+30. **`container-type` is not the containing block of a fixed element in
+    Chromium 152** (Electron 44, found in H2). The note in
+    `packages/workspace-ui/CLAUDE.md` says it is; in the harness the pane
+    computed `contain: none` and a fixed frame resolved against the window.
+    So a frame in `pip` cannot rely on the pane. The conversation names a
+    scoped CSS anchor (`--solus-conversation`), and the frame places itself
+    against it with `anchor()`, which is correct whichever element is the
+    containing block. A browser without anchor positioning places it in the
+    lower corner of the containing block.
+31. **"The card's menu gains Keep in view"**: the card has no menu. It has
+    round controls at its top right (full screen, close). H2 adds **Keep in
+    view** beside full screen.
+32. **"Resizing or moving the pip frame" is left out (§20), but the H2 brief
+    asks for a move.** H2 builds the smallest move: the frame goes between the
+    two lower corners of its conversation (§14.2).
 
 ## 2. Vocabulary
 
@@ -1655,8 +1677,12 @@ the handler checks the owner.
 
 ### 14.2 Picture-in-picture
 
-`DisplayMode` becomes `'inline' | 'fullscreen' | 'pip'`. The host context
-offers all three in `availableDisplayModes`.
+Built in H2 (`mcp-h2-handoff.md`).
+
+`McpAppDisplayMode` (`client-core/mcp-app-context.ts`) is
+`'inline' | 'fullscreen' | 'pip'`. Each client offers only what it can give
+the frame now: `mcpAppAvailableDisplayModes` answers the host context's
+`availableDisplayModes`.
 
 **What `pip` is in Solus.** The frame of the card leaves the transcript's
 flow and stays in view over its conversation, so the person can scroll and
@@ -1669,51 +1695,78 @@ adds none:
   companion pane, the frame stays inside that surface.
 - Desktop and web: `McpAppFrame.svelte` holds the frame in a `<dialog>` that
   it opens with `show()` for inline and `showModal()` for fullscreen. `pip`
-  is the same element, open with `show()`, at a fixed place: the lower right
-  of the conversation, above the input bar, 384 by 256 CSS pixels. The same
-  frame keeps running, so the app keeps its state. It is not modal: focus
-  stays in the input bar. This is why `pip` is not a surface in the
+  is the same element, open with `show()`, `position: fixed`, 384 by 256 CSS
+  pixels for the app (`MCP_APP_PIP_SIZE`) under a 36-pixel title bar, in a
+  lower corner of the conversation, 3rem above the input bar's top edge
+  (`--solus-composer-height`), so the session action row stays clear. It is
+  placed with CSS anchor positioning against the conversation (§1, item 30).
+  The same frame keeps running, so the app keeps its state. It is not modal:
+  focus stays in the input bar. This is why `pip` is not a surface in the
   companion pane: a frame that moves to another place in the document starts
   again.
-- The transcript keeps that item mounted while it is in `pip`.
+- The transcript keeps that item mounted while it is in `pip`: the
+  virtualizer keeps the card's turn (`TranscriptVirtualizer`'s `keptRows`).
+- The person moves the frame between the two lower corners with the title
+  bar's move control (`ConversationViewState.mcpAppPipSide`). A free move and
+  a resize are left out (§20): they need pointer capture, a keyboard way to do
+  the same, clamping on each pane resize, and a saved place, for little gain
+  over two corners. Two corners already let the person uncover what they
+  read, and CSS keeps the frame in its pane when the pane changes size.
 - Mobile: the frame is docked above the composer, at the full width and 200
-  points high. It is a new frame, as fullscreen is on mobile today. While
-  the keyboard is open it shows as one line with the app's title.
-- One `pip` frame for one conversation. A second request puts the first
-  back inline.
-- A conversation that is hidden hides its frame. `ConversationViewState`
-  keeps `pipActivityId`, so a conversation that was unmounted comes back with
-  its app in `pip`, in a new frame.
-- When the conversation is narrower than 480 pixels (a container query, not
-  the screen width), the host does not grant `pip`.
+  points high (`MCP_APP_DOCKED_HEIGHT`, `ThreadMcpPipDock.tsx`). It is a new
+  frame of the saved app, as fullscreen is on mobile. While the keyboard is
+  open it shows its title bar only; the frame keeps running at no height. A
+  live card on mobile has no saved app to dock yet, so it does not offer
+  `pip` until its call ended (`mcpAppAvailableDisplayModes({ isSaved })`).
+- One `pip` frame for one conversation (`ConversationViewState.mcpAppPip` on
+  desktop and web, `ConversationStore.mcpAppPip` on mobile). A second request
+  puts the first back inline, and that app hears its new mode.
+- A conversation that is hidden hides its frame (the pool hides it with
+  `display: none`). `ConversationViewState` keeps `mcpAppPip` (the card's key
+  and its turn), so a conversation that was unmounted comes back with its app
+  in `pip`, in a new frame. A live card's key is its tool-use id until it
+  takes its saved app; then the key becomes the activity id.
+- When the conversation is narrower than 480 pixels
+  (`MCP_APP_PIP_MIN_CONVERSATION_WIDTH`, measured on the conversation, not
+  the screen), the host does not offer or grant `pip`, and a frame in `pip`
+  goes back inline. A pane is legally about 356 pixels.
+- Close works in each mode. The decision cards of the conversation (a
+  permission, a question, and the others) paint above the frame (z-index 7
+  over 6), and the input bar's dock (10) is above both.
 
 **The protocol.**
 
-- The host grants `pip` only to a view that declared it in
-  `appCapabilities.availableDisplayModes`. The answer to
+- The bridge reads `appCapabilities.availableDisplayModes` from
+  `ui/initialize`. `mcpAppGrantedDisplayMode` grants a mode only when the
+  client offers it now and the app declared it; an app that declared no modes
+  keeps `inline` and `fullscreen`, as before, and gets no `pip`. The answer to
   `ui/request-display-mode` is always the mode that results.
 - Each change sends `ui/notifications/host-context-changed` with
-  `displayMode` and the fixed `containerDimensions`.
-- The person can ask for `pip` too: the card's menu gains "Keep in view".
+  `displayMode`, `availableDisplayModes`, and fixed `containerDimensions`.
+- The person can ask for `pip` too: **Keep in view** beside the full-screen
+  control. `mcpAppOffersDisplayMode` hides a control for a mode that the
+  app's declared list leaves out.
 
-**Reverse actions.** The frame has a title bar with **Return to card**
-(inline, and the transcript scrolls to the card), **Full screen**, and
-**Close** (inline). Escape with focus in the title bar returns to inline.
-The app can ask for `inline` itself. All controls work from the keyboard.
+**Reverse actions.** The frame has a title bar with the move, **Return to
+card** (inline, and the transcript scrolls to the card), **Full screen**, and
+**Close**. Escape with focus in the title bar returns to inline. The card's
+place in the transcript shows "The <app> app is in picture-in-picture" with
+**Return to card**. The app can ask for `inline` itself. After each control,
+the focus returns to the input bar. All controls work from the keyboard.
 
 | State | What shows |
 |---|---|
-| Loading | The frame's existing loading state at the `pip` size |
-| Error | The existing "This app is no longer available.", and the frame returns inline |
+| Loading | The frame's existing loading state |
+| Error | The existing "This app could not be displayed.", and the frame returns inline |
 | Stale | After a reconnect the frame keeps running; its host requests fail with today's errors until the connection is back |
 
 **Security.** The sandbox, the CSP, and the approval of a write tool do not
-change. The live document is read with the owner's connection and goes only
-to the owner. Partial input is the agent's text, already in the transcript;
-the app must not act on it (the specification says so), and Solus gives a
-live card no host call before the result. A `pip` frame cannot cover the
-input bar or a permission card: it sits above the transcript and below every
-card that asks the person for a decision.
+change in any mode. The live document is read with the owner's connection
+and goes only to the owner. Partial input is the agent's text, already in the
+transcript; the app must not act on it (the specification says so), and
+Solus gives a live card no host call before the result. A `pip` frame cannot
+cover the input bar or a permission card: it sits above the transcript and
+below every card that asks the person for a decision.
 
 **Tests.** `healPartialJson` on cut strings, arrays, objects, escapes, and a
 key with no value; partial notifications stop after `tool-input`; at most 10
@@ -1721,7 +1774,9 @@ a second; a stopped turn sends `tool-cancelled` with `stopped`; a live card
 takes the saved activity with the same `toolUseId` and does not mount again;
 a person who is not the owner gets `null`; `pip` is refused for a view that
 did not declare it; a second `pip` puts the first inline; a narrow
-conversation refuses `pip`; the mobile bridge sends the same messages.
+conversation refuses `pip`; the frame keeps its element in each mode; the
+focus returns to the input bar; a mobile live card does not offer `pip`; the
+mobile bridge sends the same messages.
 
 ## 15. Contracts in one place
 
@@ -1954,4 +2009,5 @@ plan.
   same command does under Claude Code or Codex.
 - `stdio` integrations for members of a shared host (§19, decision 3).
 - A `stdio` integration in the agent profile (§19, decision 4).
-- Resizing or moving the `pip` frame.
+- Resizing the `pip` frame, and moving it freely. It moves between the two
+  lower corners of its conversation (§14.2).

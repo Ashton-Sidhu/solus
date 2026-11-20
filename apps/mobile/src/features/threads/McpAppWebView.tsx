@@ -5,7 +5,7 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { z } from "zod";
 import type { HostApi } from "@solus/client-core/host-api";
 import { nativeMcpAppDocument, nativeMcpAppPost } from "@solus/client-core/mcp-app-document";
-import { mcpAppHostContext } from "@solus/client-core/mcp-app-context";
+import { mcpAppHostContext, type McpAppDisplayMode } from "@solus/client-core/mcp-app-context";
 import { createMcpAppHost, type McpAppHost, type McpAppLiveCall } from "@solus/client-core/mcp-app-host";
 import type { McpAppCancelReason, McpAppLiveDocument, McpAppRequest, McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
@@ -47,14 +47,18 @@ export function McpAppWebView(props: {
   readonly store: ConversationStore;
   readonly title: string;
   readonly hostRef: { current: McpAppHost | null };
-  readonly isFullscreen: boolean;
+  readonly displayMode: McpAppDisplayMode;
+  /** What the card can give this frame now (`mcpAppAvailableDisplayModes`). */
+  readonly availableDisplayModes: McpAppDisplayMode[];
   readonly safeAreaInsets: { top: number; right: number; bottom: number; left: number };
-  readonly onDisplayMode: (fullscreen: boolean) => void;
+  /** Puts the card in a mode the bridge granted; answers the mode that results. */
+  readonly onDisplayMode: (mode: McpAppDisplayMode) => McpAppDisplayMode;
+  readonly onDeclaredDisplayModes?: (modes: readonly McpAppDisplayMode[] | null) => void;
   readonly onHeight: (height: number) => void;
   readonly onModelContext: (text: string) => void;
   readonly onClose: (cancelled?: McpAppCancelReason) => void;
 }) {
-  const { snapshot, call, savedCall, api, store, title, hostRef, isFullscreen, safeAreaInsets } = props;
+  const { snapshot, call, savedCall, api, store, title, hostRef, displayMode, availableDisplayModes, safeAreaInsets } = props;
   const app = useApp();
   const theme = useUniwindTheme();
   const { themeAppearance } = useAppearancePreferences();
@@ -68,7 +72,8 @@ export function McpAppWebView(props: {
 
   const context = mcpAppHostContext({
     theme: themeAppearance,
-    isFullscreen,
+    displayMode,
+    availableDisplayModes,
     size: frameSize,
     platform: "mobile",
     touch: true,
@@ -114,7 +119,8 @@ export function McpAppWebView(props: {
         latest.current.props.onModelContext(text);
       },
       openLink: (url) => app.platform.openBrowser(url),
-      displayMode: (mode) => latest.current.props.onDisplayMode(mode === "fullscreen"),
+      displayMode: (mode) => latest.current.props.onDisplayMode(mode),
+      declaredDisplayModes: (modes) => latest.current.props.onDeclaredDisplayModes?.(modes),
       resize: (height) => latest.current.props.onHeight(height),
       close: (cancelled) => latest.current.props.onClose(cancelled),
     });
@@ -134,10 +140,11 @@ export function McpAppWebView(props: {
   }, [savedCall, generation, host]);
 
   // Inline, the app's own height report is not a change of the app's box.
-  const frameHeight = isFullscreen ? frameSize.height : undefined;
+  const frameHeight = displayMode === "inline" ? undefined : frameSize.height;
+  const availableModes = availableDisplayModes.join();
   useEffect(() => {
     host.current?.updateContext();
-  }, [themeAppearance, isFullscreen, frameSize.width, frameHeight, safeAreaInsets.right, safeAreaInsets.bottom, safeAreaInsets.left]);
+  }, [themeAppearance, displayMode, availableModes, frameSize.width, frameHeight, safeAreaInsets.right, safeAreaInsets.bottom, safeAreaInsets.left]);
 
   const onMessage = (event: WebViewMessageEvent) => {
     let message: z.infer<typeof relayMessageSchema>;
@@ -185,7 +192,10 @@ export function McpAppWebView(props: {
       bounces={false}
       allowFileAccess={false}
       onShouldStartLoadWithRequest={(load) => load.isTopFrame === false || load.url.startsWith("about:") || load.url.startsWith("data:")}
-      onLayout={({ nativeEvent: { layout } }) => setFrameSize({ width: Math.round(layout.width), height: Math.round(layout.height) })}
+      // A docked frame folds to no height while the keyboard is open; the app keeps the size it last had.
+      onLayout={({ nativeEvent: { layout } }) => {
+        if (layout.height > 0) setFrameSize({ width: Math.round(layout.width), height: Math.round(layout.height) });
+      }}
       onMessage={onMessage}
       onError={() => setFailed(true)}
       onContentProcessDidTerminate={() => setFailed(true)}

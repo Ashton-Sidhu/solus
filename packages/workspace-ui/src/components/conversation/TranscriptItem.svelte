@@ -31,8 +31,6 @@
   import { getArtifactRevisions, provideArtifactMessage } from "./lib/artifact-revisions-context";
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
   import McpAppCard from "./McpAppCard.svelte";
-  import McpAppLiveCard from "./McpAppLiveCard.svelte";
-  import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownList from "./MarkdownList.svelte";
@@ -217,21 +215,6 @@
   <SecretReceipt message={item.message} />
 {:else if item.kind === "tool-group"}
   <ToolGroupItem tools={item.messages} steps={item.steps} history={session.toolHistory} {skipMotion} />
-  {#if sess}
-    <!-- A Solus integration tool can show its MCP App while its call runs. -->
-    {#each item.messages as tool (tool.id)}
-      {@const liveToolName = mcpAppLiveToolName(tool.toolName)}
-      {#if liveToolName}
-        <McpAppLiveCard
-          message={tool}
-          toolName={liveToolName}
-          sessionId={sess.id}
-          {tabId}
-          onSend={(text) => session.dispatch.sendMessage(text, undefined, tabId, "queue")}
-        />
-      {/if}
-    {/each}
-  {/if}
 {:else if item.kind === "subagent-group"}
   <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
 {:else if item.kind === "system"}

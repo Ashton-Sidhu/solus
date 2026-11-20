@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { z } from 'zod'
-import { MCP_APP_MAX_HEIGHT, mcpAppContainerDimensions, mcpAppHostContext, type McpAppHostContext, type McpAppPalette } from '@solus/client-core/mcp-app-context'
-import { createMcpAppHost, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { MCP_APP_MAX_HEIGHT, MCP_APP_PIP_SIZE, mcpAppAvailableDisplayModes, mcpAppContainerDimensions, mcpAppHostContext, type McpAppHostContext, type McpAppPalette } from '@solus/client-core/mcp-app-context'
+import { createMcpAppHost, mcpAppGrantedDisplayMode, mcpAppOffersDisplayMode, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
 import { mcpAppAllowAttribute, mcpAppPermissionAction, mcpAppPermissionPrompt, mcpAppPermissionRequest } from '@solus/client-core/mcp-app-permissions'
 import { mcpAppFrameHeight, nativeMcpAppDocument } from '@solus/client-core/mcp-app-document'
 import { McpAppStore } from '@solus/client-core/mcp-app-store'
@@ -12,7 +12,7 @@ const palette: McpAppPalette = {
   background: '#111', raised: '#222', strong: '#333', text: '#eee', textSecondary: '#aaa', textTertiary: '#888', border: '#444',
   accent: '#d97757', info: '#7cc0ea', danger: '#e3645e', success: '#5a9e6f', warning: '#fbbf24', fontSans: 'system-ui', fontMono: 'monospace',
 }
-const context: McpAppHostContext = mcpAppHostContext({ theme: 'dark', isFullscreen: false, size: { width: 640, height: 320 }, platform: 'web', touch: false, hover: true, palette })
+const context: McpAppHostContext = mcpAppHostContext({ theme: 'dark', displayMode: 'inline', availableDisplayModes: ['inline', 'fullscreen'], size: { width: 640, height: 320 }, platform: 'web', touch: false, hover: true, palette })
 const jsonParams = z.json()
 const request = (method: string, params: z.infer<typeof jsonParams> = {}, id?: number) => JSON.stringify({ jsonrpc: '2.0', ...(id === undefined ? {} : { id }), method, params })
 
@@ -28,15 +28,88 @@ function setup(overrides: Partial<McpAppHostOptions> = {}) {
     callTool: async (name, input, approved) => { calls.push({ name, input, approved }); return '{"content":[]}' },
     readResource: async () => '{"contents":[]}', confirm: async () => false,
     sendMessage: async (text) => { prompts.push(text) }, updateModelContext: async (text) => { contexts.push(text) }, openLink: async () => {},
-    displayMode: () => {}, resize: (height) => sizes.push(height), close: () => { closes++ }, ...overrides,
+    displayMode: (mode) => mode, resize: (height) => sizes.push(height), close: () => { closes++ }, ...overrides,
   })
   return { host, posted, calls, prompts, sizes, contexts, closes: () => closes }
 }
 
 describe('MCP App container dimensions', () => {
   test('an inline frame follows the app, and a full-screen frame is a box the app must fit', () => {
-    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, false)).toEqual({ width: 640, maxHeight: MCP_APP_MAX_HEIGHT })
-    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, true)).toEqual({ width: 640, height: 320 })
+    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, 'inline')).toEqual({ width: 640, maxHeight: MCP_APP_MAX_HEIGHT })
+    expect(mcpAppContainerDimensions({ width: 640, height: 320 }, 'fullscreen')).toEqual({ width: 640, height: 320 })
+  })
+
+  test('a picture-in-picture frame is a fixed box too', () => {
+    expect(mcpAppContainerDimensions(MCP_APP_PIP_SIZE, 'pip')).toEqual({ width: 384, height: 256 })
+  })
+})
+
+describe('MCP App display modes', () => {
+  const inline = { displayMode: 'inline' as const, availableDisplayModes: mcpAppAvailableDisplayModes({ conversationWidth: 800 }) }
+
+  test('a narrow conversation is not offered picture-in-picture: the frame and its margins would not fit', () => {
+    // WHY: a pane is legally about 356 px wide; a 384 px frame there would cover the conversation.
+    expect(mcpAppAvailableDisplayModes({ conversationWidth: 356 })).toEqual(['inline', 'fullscreen'])
+    expect(mcpAppAvailableDisplayModes({ conversationWidth: 479 })).not.toContain('pip')
+    expect(mcpAppAvailableDisplayModes({ conversationWidth: 480 })).toContain('pip')
+  })
+
+  test('mobile docks a new frame of the saved app, so it offers picture-in-picture only once the app is saved', () => {
+    // WHY: a client advertises only what it can do. A live card on mobile has no saved app to dock yet.
+    expect(mcpAppAvailableDisplayModes({ isSaved: false })).toEqual(['inline', 'fullscreen'])
+    expect(mcpAppAvailableDisplayModes({ isSaved: true })).toEqual(['inline', 'fullscreen', 'pip'])
+  })
+
+  test('the host grants picture-in-picture only to an app that declared it, and only where the client can give it', () => {
+    expect(mcpAppGrantedDisplayMode('pip', inline, ['inline', 'pip'])).toBe('pip')
+    expect(mcpAppGrantedDisplayMode('pip', inline, null)).toBe('inline')
+    expect(mcpAppGrantedDisplayMode('pip', inline, ['inline', 'fullscreen'])).toBe('inline')
+    const narrow = { displayMode: 'inline' as const, availableDisplayModes: mcpAppAvailableDisplayModes({ conversationWidth: 356 }) }
+    expect(mcpAppGrantedDisplayMode('pip', narrow, ['inline', 'pip'])).toBe('inline')
+    // An app that declared no modes keeps full screen, as before; one that declared a list gets only that list.
+    expect(mcpAppGrantedDisplayMode('fullscreen', inline, null)).toBe('fullscreen')
+    expect(mcpAppGrantedDisplayMode('fullscreen', inline, ['inline', 'pip'])).toBe('inline')
+  })
+
+  test("the person's controls never offer a mode the app's list leaves out, and always the way back", () => {
+    expect(mcpAppOffersDisplayMode('pip', inline.availableDisplayModes, null)).toBe(true)
+    expect(mcpAppOffersDisplayMode('pip', inline.availableDisplayModes, ['inline', 'fullscreen'])).toBe(false)
+    expect(mcpAppOffersDisplayMode('pip', ['inline', 'fullscreen'], null)).toBe(false)
+    expect(mcpAppOffersDisplayMode('inline', [], ['pip'])).toBe(true)
+  })
+
+  test('the app gets the mode that results, and the client changes only for a granted mode', async () => {
+    const asked: string[] = []
+    let current: 'inline' | 'pip' = 'inline'
+    const { host, posted } = setup({
+      context: () => ({ ...context, displayMode: current, availableDisplayModes: inline.availableDisplayModes }),
+      displayMode: (mode) => { asked.push(mode); current = mode === 'pip' ? 'pip' : 'inline'; return current },
+    })
+    await host.receive(request('ui/initialize', { appCapabilities: { availableDisplayModes: ['inline', 'pip', 'sidebar'] } }, 1))
+    await host.receive(request('ui/request-display-mode', { mode: 'fullscreen' }, 2))
+    await host.receive(request('ui/request-display-mode', { mode: 'pip' }, 3))
+    await host.receive(request('ui/request-display-mode', { mode: 'pip' }, 4))
+    expect(posted.slice(1).map((json) => JSON.parse(json).result)).toEqual([{ mode: 'inline' }, { mode: 'pip' }, { mode: 'pip' }])
+    expect(asked).toEqual(['pip'])
+  })
+
+  test('an app that did not declare picture-in-picture stays where it is', async () => {
+    const asked: string[] = []
+    const { host, posted } = setup({
+      context: () => ({ ...context, availableDisplayModes: inline.availableDisplayModes }),
+      displayMode: (mode) => { asked.push(mode); return mode },
+    })
+    await host.receive(request('ui/initialize', {}, 1))
+    await host.receive(request('ui/request-display-mode', { mode: 'pip' }, 2))
+    expect(JSON.parse(posted[1]).result).toEqual({ mode: 'inline' })
+    expect(asked).toEqual([])
+  })
+
+  test('the client hears the modes the app declared, known modes only', async () => {
+    const declared: Array<readonly string[] | null> = []
+    const { host } = setup({ declaredDisplayModes: (modes) => { declared.push(modes) } })
+    await host.receive(request('ui/initialize', { appCapabilities: { availableDisplayModes: ['pip', 'sidebar', 'inline'] } }, 1))
+    expect(declared).toEqual([['inline', 'pip']])
   })
 })
 
@@ -212,7 +285,7 @@ describe('MCP App host context', () => {
     expect(context.locale).toBe(Intl.DateTimeFormat().resolvedOptions().locale)
     expect(context.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
     expect(context.safeAreaInsets).toBeUndefined()
-    const phone = mcpAppHostContext({ theme: 'light', isFullscreen: true, size: { width: 390, height: 700 }, platform: 'mobile', touch: true, hover: false, safeAreaInsets: { top: 0, right: 0, bottom: 34, left: 0 }, palette })
+    const phone = mcpAppHostContext({ theme: 'light', displayMode: 'fullscreen', availableDisplayModes: ['inline', 'fullscreen'], size: { width: 390, height: 700 }, platform: 'mobile', touch: true, hover: false, safeAreaInsets: { top: 0, right: 0, bottom: 34, left: 0 }, palette })
     expect(phone).toMatchObject({ platform: 'mobile', displayMode: 'fullscreen', safeAreaInsets: { bottom: 34 } })
   })
 })

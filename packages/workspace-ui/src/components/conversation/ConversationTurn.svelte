@@ -23,6 +23,8 @@
   import TurnArtifacts from "./TurnArtifacts.svelte";
   import TurnImageGallery from "./TurnImageGallery.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
+  import McpAppLiveCard from "./McpAppLiveCard.svelte";
+  import { mcpAppLiveToolName } from "@solus/contracts/mcp-apps";
   import { measureMount } from "../../lib/mount-timing";
   measureMount("ConversationTurn");
   let { turn, burst = NO_BURST, index, total, expanded, isAwaitingInput, activityLabel, setupLabel, turnStart, attempt,
@@ -144,6 +146,24 @@
                 ? describeBackgroundWait(turn.body)
                 : null}
             />
+            <!-- A Solus integration tool can show its MCP App while its call
+               runs. The turn folds its tools when it ends, so the card goes
+               then and the saved card of the call shows the app. -->
+            {#if live}
+              {#each item.messages as tool (tool.id)}
+                {@const liveToolName = mcpAppLiveToolName(tool.toolName)}
+                {@const liveSession = session.sessionFor(tabId)}
+                {#if liveToolName && liveSession}
+                  <McpAppLiveCard
+                    message={tool}
+                    toolName={liveToolName}
+                    sessionId={liveSession.id}
+                    {tabId}
+                    onSend={(text) => session.dispatch.sendMessage(text, undefined, tabId, "queue")}
+                  />
+                {/if}
+              {/each}
+            {/if}
           {:else}
             {@render transcriptItem(
               item,

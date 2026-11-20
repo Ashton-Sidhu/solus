@@ -12,14 +12,18 @@ afterEach(() => {
 })
 
 function setup(isFullscreen = false) {
-  let report: () => void = () => {}
-  // SAFETY: the test drives the observer callback by hand; the code under test uses only observe and disconnect.
-  globalThis.ResizeObserver = class { constructor(callback: () => void) { report = callback } observe() {} disconnect() {} } as unknown as typeof ResizeObserver
+  // The frame's observer, then the conversation's.
+  const reports: Array<() => void> = []
+  // SAFETY: the test drives the observer callbacks by hand; the code under test uses only observe and disconnect.
+  globalThis.ResizeObserver = class { constructor(callback: () => void) { reports.push(callback) } observe() {} disconnect() {} } as unknown as typeof ResizeObserver
   // SAFETY: only the two listener methods of window are read.
   globalThis.window = { addEventListener() {}, removeEventListener() {} } as unknown as typeof globalThis.window
   const posted: string[] = []
+  const conversation = { clientWidth: 800 }
+  const widths: number[] = []
   const frame = {
     clientWidth: 640,
+    closest: () => conversation,
     clientHeight: 320,
     addEventListener() {},
     removeEventListener() {},
@@ -30,8 +34,8 @@ function setup(isFullscreen = false) {
   const context = () => ({ containerDimensions: { width: frame.clientWidth, maxHeight: 2000 } })
   // SAFETY: the bridge only forwards the context; its other callbacks are not reached here.
   const options = { snapshot: { html: '', toolInputJson: '{}', toolResultJson: '{}', csp: {} }, context } as unknown as Omit<McpAppHostOptions, 'post'>
-  const connection = connectMcpAppFrame(element, options, () => {}, () => isFullscreen)
-  return { frame, posted, connection, report: () => report() }
+  const connection = connectMcpAppFrame(element, options, { onNavigated: () => {}, displayMode: () => (isFullscreen ? 'fullscreen' : 'inline'), onConversationWidth: (width) => { widths.push(width) } })
+  return { frame, conversation, widths, posted, connection, report: () => reports[0](), reportConversation: () => reports[1]() }
 }
 
 async function ready(host: ReturnType<typeof setup>['connection']['host']) {
@@ -81,14 +85,30 @@ test('a hidden conversation keeps the size it last sent', async () => {
   s.connection.disconnect()
 })
 
+test('the frame follows the width of its conversation, which decides if it may float', () => {
+  // WHY: picture-in-picture is offered only in a conversation wide enough for it, and a pane resizes at any time.
+  const s = setup()
+  s.reportConversation()
+  s.conversation.clientWidth = 356
+  s.reportConversation()
+  // A hidden conversation has no width; it says nothing about the space it will have.
+  s.conversation.clientWidth = 0
+  s.reportConversation()
+  expect(s.widths).toEqual([800, 356])
+  s.connection.disconnect()
+})
+
 test('the context gives the app its frame', () => {
   const style = spyOn({ getComputedStyle: () => ({ getPropertyValue: () => '' }) }, 'getComputedStyle')
   // SAFETY: mcpAppContext reads only getPropertyValue from the computed style.
   globalThis.getComputedStyle = style as unknown as typeof getComputedStyle
   // SAFETY: mcpAppContext reads documentElement only to pass it to the stub above.
   globalThis.document ??= {} as unknown as Document
-  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, true, false).containerDimensions).toEqual({ width: 640, maxHeight: 2000 })
-  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, true, true).containerDimensions).toEqual({ width: 640, height: 320 })
+  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, true, 'inline', 640).containerDimensions).toEqual({ width: 640, maxHeight: 2000 })
+  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, true, 'fullscreen', 640).containerDimensions).toEqual({ width: 640, height: 320 })
+  const pip = mcpAppContext({ clientWidth: 384, clientHeight: 256 }, true, 'pip', 640)
+  expect(pip).toMatchObject({ displayMode: 'pip', availableDisplayModes: ['inline', 'fullscreen', 'pip'], containerDimensions: { width: 384, height: 256 } })
+  expect(mcpAppContext({ clientWidth: 356, clientHeight: 320 }, true, 'inline', 356).availableDisplayModes).toEqual(['inline', 'fullscreen'])
 })
 
 test('the context names the client: the desktop app, or the web client', () => {
@@ -98,10 +118,10 @@ test('the context names the client: the desktop app, or the web client', () => {
   globalThis.document ??= {} as unknown as Document
   // SAFETY: localApi reads only window.solus.getPlatform here.
   globalThis.window = { solus: { getPlatform: () => 'darwin' } } as unknown as typeof globalThis.window
-  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, false, false).platform).toBe('desktop')
+  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, false, 'inline', 640).platform).toBe('desktop')
   // SAFETY: as above.
   globalThis.window = { solus: { getPlatform: () => 'web' } } as unknown as typeof globalThis.window
-  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, false, false).platform).toBe('web')
+  expect(mcpAppContext({ clientWidth: 640, clientHeight: 320 }, false, 'inline', 640).platform).toBe('web')
 })
 
 test('a client offers only the features it can give the frame', () => {

@@ -1,15 +1,16 @@
 // Adapted from T3 Code McpAppWebView.tsx (MIT, see UPSTREAM.md).
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HostApi } from "@solus/client-core/host-api";
-import type { McpAppHost, McpAppLiveCall } from "@solus/client-core/mcp-app-host";
+import { mcpAppOffersDisplayMode, type McpAppHost, type McpAppLiveCall } from "@solus/client-core/mcp-app-host";
+import { MCP_APP_DOCKED_HEIGHT, mcpAppAvailableDisplayModes, type McpAppDisplayMode } from "@solus/client-core/mcp-app-context";
 import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
 import { mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
 import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
 import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument, type McpAppReference, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
-import { useApp } from "../../app/app-context";
+import { useApp, useListened } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
@@ -101,7 +102,9 @@ function SavedMcpApp(props: {
 /**
  * The card of one app, saved or live: the frame, its full-screen
  * presentation, and what the app gave the agent. `closedKeys` name the card in
- * the conversation store; the first one keeps its height.
+ * the conversation store; the first one keeps its height. A saved app can be
+ * docked above the composer (`docked`, `ThreadMcpPipDock`); its card in the
+ * feed then shows a line in its place.
  */
 export function McpAppCard(props: {
   readonly store: ConversationStore;
@@ -117,15 +120,33 @@ export function McpAppCard(props: {
   readonly savedCall?: Pick<McpAppSnapshot, "toolInputJson" | "toolResultJson">;
   /** A live card's call gave no result. */
   readonly onCancelled?: (reason: McpAppCancelReason) => void;
+  /** The card is the docked frame above the composer, not the card in the feed. */
+  readonly docked?: boolean;
+  /** The keyboard is open: a docked card shows its title bar only. */
+  readonly isFolded?: boolean;
 }) {
-  const { store, api, request, title, document, closedKeys, isClosed, onClosedChange } = props;
+  const { store, api, request, title, document, closedKeys, isClosed, onClosedChange, docked = false } = props;
   const heightKey = closedKeys[0]!;
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [height, setHeight] = useState(() => store.mcpAppHeights.get(heightKey) ?? INITIAL_HEIGHT);
   const [modelContext, setModelContext] = useState(() => (request.activityId ? store.mcpAppContexts.get(request.activityId) : undefined));
+  const [declaredModes, setDeclaredModes] = useState<readonly McpAppDisplayMode[] | null>(null);
   const insets = useSafeAreaInsets();
   // The frame shown now: closing through it gives the app its teardown first.
   const host = useRef<McpAppHost | null>(null);
+  const readPip = useCallback(() => store.mcpAppPip?.activityId, [store]);
+  const pipActivityId = useListened(store.mcpAppPipChanges, readPip);
+  const isPip = !!request.activityId && pipActivityId === request.activityId;
+  // The docked frame is a new frame of the saved app, so only a saved app can be docked.
+  const availableModes = mcpAppAvailableDisplayModes({ isSaved: !!request.activityId });
+  const offersPip = !docked && mcpAppOffersDisplayMode("pip", availableModes, declaredModes);
+  const offersFullscreen = mcpAppOffersDisplayMode("fullscreen", availableModes, declaredModes);
+
+  // The docked frame may close the app; its card in the feed reads that when the dock goes.
+  useEffect(() => {
+    if (docked) return;
+    return store.mcpAppPipChanges.subscribe(() => onClosedChange(closedKeys.some((key) => store.closedMcpApps.has(key))));
+  }, [docked, store, closedKeys, onClosedChange]);
 
   // The conversation store keeps these across a remount of the row.
   const setClosed = (next: boolean) => {
@@ -134,6 +155,8 @@ export function McpAppCard(props: {
     onClosedChange(next);
   };
   const rememberHeight = (next: number) => {
+    // A docked frame has a fixed height; the card keeps the height the app asked for inline.
+    if (docked) return;
     store.mcpAppHeights.set(heightKey, next);
     setHeight(next);
   };
@@ -154,20 +177,22 @@ export function McpAppCard(props: {
     if (request.activityId && store.mcpAppContexts.delete(request.activityId)) void api.mcpAppUpdateModelContext({ ...request, text: "" }).catch(() => {});
     setModelContext(undefined);
   };
+  /** A mode the bridge granted, or the person chose. Answers the mode that results. */
+  const setMode = (mode: McpAppDisplayMode): McpAppDisplayMode => {
+    // Only a saved app is docked; the bridge does not grant `pip` before (`availableModes`).
+    if (mode === "pip" && !request.activityId) return isFullscreen ? "fullscreen" : "inline";
+    setIsFullscreen(mode === "fullscreen");
+    if (mode === "pip") store.setMcpAppPip({ activityId: request.activityId, title });
+    else if (mode === "inline" && docked) store.setMcpAppPip(null);
+    return mode;
+  };
 
-  if (isClosed || !document) {
-    return (
-      <View style={{ height, marginBottom: 8 }} className="items-center justify-center gap-2 rounded-lg border border-border">
-        <Text className="text-sm text-foreground-muted">The {title} app was closed</Text>
-        <Pressable accessibilityRole="button" onPress={() => setClosed(false)} className="min-h-11 justify-center px-3">
-          <Text className="text-sm text-foreground">Show app</Text>
-        </Pressable>
-      </View>
-    );
+  if (isClosed || !document || (isPip && !docked)) {
+    return <McpAppCardLine title={title} height={height} isPip={isPip && !isClosed} onReturn={() => store.setMcpAppPip(null)} onShow={() => setClosed(false)} />;
   }
 
-  // Inline and full screen are separate frames: each presentation starts its own app.
-  const frame = (fullscreen: boolean) => (
+  // Each presentation is its own frame: the inline or docked one, and the full-screen one.
+  const frame = (displayMode: McpAppDisplayMode) => (
     <McpAppWebView
       snapshot={document}
       call={props.call}
@@ -177,14 +202,52 @@ export function McpAppCard(props: {
       store={store}
       title={title}
       hostRef={host}
-      isFullscreen={fullscreen}
-      safeAreaInsets={fullscreen ? { top: 0, right: insets.right, bottom: insets.bottom, left: insets.left } : NO_INSETS}
-      onDisplayMode={setIsFullscreen}
+      displayMode={displayMode}
+      availableDisplayModes={availableModes}
+      safeAreaInsets={displayMode === "fullscreen" ? { top: 0, right: insets.right, bottom: insets.bottom, left: insets.left } : NO_INSETS}
+      onDisplayMode={setMode}
+      onDeclaredDisplayModes={setDeclaredModes}
       onHeight={rememberHeight}
       onModelContext={rememberModelContext}
       onClose={close}
     />
   );
+  const fullscreen = (
+    <Modal visible={isFullscreen} animationType="slide" onRequestClose={() => setIsFullscreen(false)}>
+      {/* The app runs under the home indicator and reads the covered part from its safe area insets. */}
+      <View className="flex-1 bg-screen" style={{ paddingTop: insets.top }}>
+        <View className="min-h-12 flex-row items-center gap-2 px-4">
+          <Text numberOfLines={1} className="flex-1 font-t3-medium text-base text-foreground">{title}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close full screen app"
+            onPress={() => setIsFullscreen(false)}
+            className="size-11 items-center justify-center"
+          >
+            <SymbolView name="xmark" size={16} tintColorClassName="accent-icon-muted" />
+          </Pressable>
+        </View>
+        {isFullscreen ? frame("fullscreen") : null}
+      </View>
+    </Modal>
+  );
+  const closeApp = () => (host.current ? void host.current.close() : close());
+
+  if (docked) {
+    return (
+      <DockedMcpApp
+        title={title}
+        isFolded={props.isFolded === true}
+        offersFullscreen={offersFullscreen}
+        onReturn={() => setMode("inline")}
+        onFullscreen={() => setIsFullscreen(true)}
+        onClose={closeApp}
+        frame={isFullscreen ? null : frame("pip")}
+      >
+        {fullscreen}
+      </DockedMcpApp>
+    );
+  }
 
   return (
     <>
@@ -192,42 +255,38 @@ export function McpAppCard(props: {
       style={{ height: mcpAppFrameHeight(height, document.prefersBorder), marginBottom: 8 }}
       className={document.prefersBorder ? "overflow-hidden rounded-lg border border-border bg-card" : undefined}
     >
-      {isFullscreen ? null : frame(false)}
+      {isFullscreen ? null : frame("inline")}
       <View className="absolute right-1.5 top-1.5 flex-row gap-1">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open app full screen"
-          onPress={() => setIsFullscreen(true)}
-          className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
-        >
-          <SymbolView name="arrow.up.left.and.arrow.down.right" size={13} tintColorClassName="accent-icon-muted" />
-        </Pressable>
+        {offersPip ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Keep in view"
+            onPress={() => setMode("pip")}
+            className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+          >
+            <SymbolView name={{ ios: "pip.enter", android: "visibility" }} size={13} tintColorClassName="accent-icon-muted" />
+          </Pressable>
+        ) : null}
+        {offersFullscreen ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open app full screen"
+            onPress={() => setIsFullscreen(true)}
+            className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
+          >
+            <SymbolView name="arrow.up.left.and.arrow.down.right" size={13} tintColorClassName="accent-icon-muted" />
+          </Pressable>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close app"
-          onPress={() => (host.current ? void host.current.close() : close())}
+          onPress={closeApp}
           className="size-8 items-center justify-center rounded-full border border-border/60 bg-card/80"
         >
           <SymbolView name="xmark" size={13} tintColorClassName="accent-icon-muted" />
         </Pressable>
       </View>
-      <Modal visible={isFullscreen} animationType="slide" onRequestClose={() => setIsFullscreen(false)}>
-        {/* The app runs under the home indicator and reads the covered part from its safe area insets. */}
-        <View className="flex-1 bg-screen" style={{ paddingTop: insets.top }}>
-          <View className="min-h-12 flex-row items-center gap-2 px-4">
-            <Text numberOfLines={1} className="flex-1 font-t3-medium text-base text-foreground">{title}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close full screen app"
-              onPress={() => setIsFullscreen(false)}
-              className="size-11 items-center justify-center"
-            >
-              <SymbolView name="xmark" size={16} tintColorClassName="accent-icon-muted" />
-            </Pressable>
-          </View>
-          {isFullscreen ? frame(true) : null}
-        </View>
-      </Modal>
+      {fullscreen}
     </View>
     {modelContext ? (
       <Pressable
@@ -241,5 +300,52 @@ export function McpAppCard(props: {
       </Pressable>
     ) : null}
     </>
+  );
+}
+
+/** The card's place in the feed while it shows no frame: the app was closed, or it is docked in picture-in-picture. */
+function McpAppCardLine(props: { readonly title: string; readonly height: number; readonly isPip: boolean; readonly onReturn: () => void; readonly onShow: () => void }) {
+  const { title, height, isPip } = props;
+  return (
+    <View style={{ height, marginBottom: 8 }} className="items-center justify-center gap-2 rounded-lg border border-border">
+      <Text className="text-sm text-foreground-muted">{isPip ? `The ${title} app is in picture-in-picture` : `The ${title} app was closed`}</Text>
+      <Pressable accessibilityRole="button" onPress={isPip ? props.onReturn : props.onShow} className="min-h-11 justify-center px-3">
+        <Text className="text-sm text-foreground">{isPip ? "Return to card" : "Show app"}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+/** The docked frame above the composer: a title bar with its controls, and the app below it, folded while the keyboard is open. */
+function DockedMcpApp(props: {
+  readonly title: string;
+  readonly isFolded: boolean;
+  readonly offersFullscreen: boolean;
+  readonly onReturn: () => void;
+  readonly onFullscreen: () => void;
+  readonly onClose: () => void;
+  readonly frame: ReactNode;
+  readonly children: ReactNode;
+}) {
+  return (
+    <View className="mx-4 mb-3 overflow-hidden rounded-[20px] border border-border bg-card-alt">
+      <View className="min-h-11 flex-row items-center pl-4">
+        <Text numberOfLines={1} className="flex-1 font-t3-medium text-sm text-foreground">{props.title}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Return to card" onPress={props.onReturn} className="size-11 items-center justify-center">
+          <SymbolView name={{ ios: "pip.exit", android: "visibility" }} size={16} tintColorClassName="accent-icon-muted" />
+        </Pressable>
+        {props.offersFullscreen ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Open app full screen" onPress={props.onFullscreen} className="size-11 items-center justify-center">
+            <SymbolView name="arrow.up.left.and.arrow.down.right" size={16} tintColorClassName="accent-icon-muted" />
+          </Pressable>
+        ) : null}
+        <Pressable accessibilityRole="button" accessibilityLabel="Close app" onPress={props.onClose} className="size-11 items-center justify-center">
+          <SymbolView name="xmark" size={16} tintColorClassName="accent-icon-muted" />
+        </Pressable>
+      </View>
+      {/* The frame keeps running while it is folded to its title. */}
+      <View style={{ height: props.isFolded ? 0 : MCP_APP_DOCKED_HEIGHT }}>{props.frame}</View>
+      {props.children}
+    </View>
   );
 }

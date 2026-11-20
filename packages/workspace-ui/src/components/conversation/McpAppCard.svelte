@@ -99,6 +99,10 @@
       onModelContext={(text) => (text ? viewState.mcpAppContexts.set(activityId, text) : viewState.mcpAppContexts.delete(activityId))}
       permissions={viewState.mcpAppPermissions.get(activityId) ?? []}
       onPermissions={(granted) => viewState.mcpAppPermissions.set(activityId, granted)}
+      isPip={viewState.isMcpAppPip(activityId)}
+      onPip={(turnKey) => (turnKey ? viewState.showMcpAppPip(activityId, turnKey) : viewState.returnMcpAppPip(activityId))}
+      pipSide={viewState.mcpAppPipSide}
+      onMovePip={() => viewState.moveMcpAppPip()}
     />
   {:else if value.phase === "error"}
     <div class="my-2 flex min-h-28 flex-col items-center justify-center gap-2 text-sm text-muted-foreground" role="alert">

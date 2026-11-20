@@ -42,6 +42,8 @@
   let activityId = $state<string | null>(null);
   let saved = $state<McpAppRead>({ phase: "idle" });
   const request = $derived({ sessionId, activityId: activityId ?? "" });
+  /** The card's name in the view state: its call, until it takes its saved app. */
+  const appKey = $derived(activityId ?? toolUseId ?? "");
 
   $effect(() => {
     if (!toolUseId) return;
@@ -64,6 +66,7 @@
       if (height) viewState.mcpAppHeights.set(id, height);
       const granted = viewState.mcpAppPermissions.get(toolUseId);
       if (granted) viewState.mcpAppPermissions.set(id, granted);
+      viewState.renameMcpAppPip(toolUseId, id);
     });
   });
 
@@ -118,6 +121,10 @@
         viewState.mcpAppPermissions.set(toolUseId, granted);
         if (activityId) viewState.mcpAppPermissions.set(activityId, granted);
       }}
+      isPip={viewState.isMcpAppPip(appKey)}
+      onPip={(turnKey) => (turnKey ? viewState.showMcpAppPip(appKey, turnKey) : viewState.returnMcpAppPip(appKey))}
+      pipSide={viewState.mcpAppPipSide}
+      onMovePip={() => viewState.moveMcpAppPip()}
     />
   {/if}
 {/if}
