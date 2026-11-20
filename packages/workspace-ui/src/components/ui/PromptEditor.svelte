@@ -12,7 +12,7 @@
   import UnifiedAutocompleteMenu from "../input/UnifiedAutocompleteMenu.svelte";
   import type { SlashCommand } from "../input/slash-commands";
   import type { McpPromptChoice } from "../input/lib/mcp-prompt-composer.svelte";
-  import type { IntegrationResource } from "@solus/contracts/integration-types";
+  import type { IntegrationResource, IntegrationResourceTemplate } from "@solus/contracts/integration-types";
   import PlainTextEditor from "./plain-text-editor/plain-text-editor.svelte";
   import { UnifiedAutocompleteController } from "../editor/autocomplete.svelte";
   import { fleetStore } from "../fleet/fleet.store.svelte";
@@ -54,8 +54,8 @@
     /** Lists the host's MCP prompts in the slash menu and receives the chosen
      *  row. Only a composer that sends sets it (mcp-first-class.md §10). */
     onMcpPrompt?: (choice: McpPromptChoice) => void;
-    /** Attaches an MCP resource picked under `@`; without it `@` lists files only. */
-    onResource?: (resource: IntegrationResource) => void;
+    /** Attaches an MCP resource picked under `@`, or opens a template's argument form; without it `@` lists files only. */
+    onResource?: (resource: IntegrationResource | IntegrationResourceTemplate) => void;
     /** Forwarded keydown — only fires when no autocomplete menu consumed it. */
     onKeyDown?: (e: KeyboardEvent) => void;
     /** When true, plain Enter inserts a newline instead of being swallowed for a

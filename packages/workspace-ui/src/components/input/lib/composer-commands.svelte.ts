@@ -28,7 +28,8 @@ import { attachmentKind } from '@solus/contracts/media-types';
 import { uuid } from '@solus/contracts/uuid';
 import { attachmentUploads, uploadFileObjects } from './attachment-uploads.svelte';
 import { integrationResources } from '../../settings/integration-resources.store.svelte';
-import type { IntegrationResource } from '@solus/contracts/integration-types';
+import type { AttachedIntegrationResource, IntegrationResource, IntegrationResourceTemplate } from '@solus/contracts/integration-types';
+import type { ArgumentField, ArgumentValue } from '@solus/client-core/integration-prompts';
 import { checkoutPlace, runHost } from '../../../contexts/workspace/run-location';
 import { suggestionsStore } from '../../../contexts/sharing/suggestions.store.svelte';
 import { connectRequestStore } from '../../../contexts/connections/connect-request.store.svelte';
@@ -597,14 +598,44 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     }
   }
 
-  /** An MCP resource picked under `@` (mcp-first-class.md §11.3): its chip reads it on the run's host. */
-  function attachResource(resource: IntegrationResource) {
+  /**
+   * An MCP resource picked under `@` (mcp-first-class.md §11.3): its chip reads
+   * it on the run's host. A template opens the argument form first.
+   */
+  async function attachResource(resource: IntegrationResource | IntegrationResourceTemplate) {
+    if ("uriTemplate" in resource) {
+      // The form's rules load with it, not with the first screen.
+      const { templateArgumentFields } = await import('@solus/client-core/integration-prompts');
+      const fields = templateArgumentFields(resource.uriTemplate);
+      if (fields) resourceTemplateForm = { template: resource, fields };
+      return;
+    }
+    readResource(resource);
+  }
+
+  function readResource(resource: AttachedIntegrationResource) {
     const { run, prompt, targetTabId, draftId } = getOptions();
     const composerSourceId = targetTabId ?? draftId;
     const ctx = composerSourceId
       ? session.ctxFor(composerSourceId)
       : session.ctxForDirectory(checkoutPlace(run)?.path ?? session.ctx.session.workingDirectory);
     integrationResources.attach({ api: session.apiForRun(run), ctx, serverId: runHost(run) ?? LOCAL_SERVER_ID, resource, attachments: prompt.attachments });
+  }
+
+  // The argument form of a resource template: the values name one resource, and its chip reads it (§11.3).
+  let resourceTemplateForm = $state<{ template: IntegrationResourceTemplate; fields: ArgumentField[] } | null>(null);
+
+  function submitResourceTemplate(values: ArgumentValue[]) {
+    if (!resourceTemplateForm) return;
+    const { template } = resourceTemplateForm;
+    resourceTemplateForm = null;
+    readResource({ ...template, arguments: values.map((entry) => ({ name: entry.name, value: entry.value.trim() })) });
+    getOptions().refocusComposer();
+  }
+
+  function closeResourceTemplate() {
+    resourceTemplateForm = null;
+    getOptions().refocusComposer();
   }
 
   async function handlePaste(e: ClipboardEvent) {
@@ -710,5 +741,9 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     get mcpPrompts() {
       return mcpPrompts;
     },
+    get resourceTemplateForm() {
+      return resourceTemplateForm;
+    },
+    submitResourceTemplate, closeResourceTemplate,
   };
 }

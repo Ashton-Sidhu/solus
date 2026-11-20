@@ -686,6 +686,23 @@
     {/await}
   {/if}
 
+  {#if commands.resourceTemplateForm}
+    {@const templateForm = commands.resourceTemplateForm}
+    <!-- A resource template (mcp-first-class.md §11.3): the same form as an MCP prompt's arguments. -->
+    {#await import("./PromptArgumentForm.svelte") then { default: PromptArgumentForm }}
+      {#key templateForm.template.uriTemplate}
+        <PromptArgumentForm
+          title={templateForm.template.uriTemplate}
+          description={templateForm.template.description ?? templateForm.template.title ?? templateForm.template.name}
+          fields={templateForm.fields}
+          submitLabel="Attach"
+          onSubmit={commands.submitResourceTemplate}
+          onClose={commands.closeResourceTemplate}
+        />
+      {/key}
+    {/await}
+  {/if}
+
   {#if attachments.length > 0}
     <div class="pt-2">
       <AttachmentChips

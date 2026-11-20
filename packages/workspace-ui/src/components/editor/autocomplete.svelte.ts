@@ -37,6 +37,7 @@ import {
   buildRows,
   fileMenuItem,
   resourceMenuItem,
+  resourceTemplateMenuItem,
   ghostFor,
   isSelectable,
   sessionPreviewFor,
@@ -57,7 +58,8 @@ import { serverConnections } from "@solus/client-core/server-connections";
 import { integrationPromptsStore } from "../input/lib/integration-prompts.store.svelte";
 import type { McpPromptChoice } from "../input/lib/mcp-prompt-composer.svelte";
 import { mcpPromptItems } from "./unified-autocomplete/mcp-prompt-items";
-import type { IntegrationResource } from "@solus/contracts/integration-types";
+import type { IntegrationResource, IntegrationResourceTemplate } from "@solus/contracts/integration-types";
+import { templateArgumentFields } from "@solus/client-core/integration-prompts";
 import { integrationResources } from "../settings/integration-resources.store.svelte";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
@@ -89,7 +91,7 @@ export interface AutocompleteDeps {
   onMcpPrompt?: () => ((choice: McpPromptChoice) => void) | undefined;
   /** Attaches an MCP resource picked under `@`. Absent where the editor holds
    *  no attachments: the menu then lists no resources. */
-  onResource?: () => ((resource: IntegrationResource) => void) | undefined;
+  onResource?: () => ((resource: IntegrationResource | IntegrationResourceTemplate) => void) | undefined;
   onRefsChange: () =>
     | ((
         planRefs: PlanReference[],
@@ -295,12 +297,18 @@ export class UnifiedAutocompleteController {
     if (!this.deps.onResource?.()) return [];
     const serverId = this.#resourceServerId();
     const integrations = integrationResources.integrationsOf(serverId);
-    return integrationResources
-      .resourcesFor(serverId, this.deps.workingDirectory())
-      .flatMap((entry) => {
-        const integration = integrations.find((candidate) => candidate.id === entry.integrationId);
-        return integration ? [resourceMenuItem(entry, integration)] : [];
-      });
+    const projectPath = this.deps.workingDirectory();
+    const serverOf = (integrationId: string) => integrations.find((candidate) => candidate.id === integrationId);
+    const resources = integrationResources.resourcesFor(serverId, projectPath).flatMap((entry) => {
+      const integration = serverOf(entry.integrationId);
+      return integration ? [resourceMenuItem(entry, integration)] : [];
+    });
+    // A template the host can expand, after the resources: the argument form fills it (§11.3).
+    const templates = integrationResources.templatesFor(serverId, projectPath).flatMap((entry) => {
+      const integration = serverOf(entry.integrationId);
+      return integration && templateArgumentFields(entry.uriTemplate) ? [resourceTemplateMenuItem(entry, integration)] : [];
+    });
+    return [...resources, ...templates];
   });
 
   // ─── Everything else (`#`) ───
@@ -380,7 +388,7 @@ export class UnifiedAutocompleteController {
       : this.selectedRow?.type === "deadEnd"
         ? "dismiss"
         : this.selectedRow?.type === "item" && this.selectedRow.item.resource
-          ? "attach"
+          ? "uriTemplate" in this.selectedRow.item.resource.entry ? "fill in" : "attach"
           : "insert",
   );
   tabVerb = $derived(

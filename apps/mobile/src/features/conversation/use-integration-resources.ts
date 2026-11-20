@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Integration, IntegrationResource } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationResource, IntegrationResourceTemplate } from '@solus/contracts/integration-types'
 import { useApp, useListened } from '../../app/app-context'
 import { errorMessage } from '../settings/integrations'
 
-/** The MCP resource sheet's list: the person's servers and their resources on one host. */
+/** The MCP resource sheet's list: the person's servers, their resources, and their templates on one host. */
 export type IntegrationResourcesState =
   | { kind: 'loading' }
-  | { kind: 'loaded'; integrations: Integration[]; resources: IntegrationResource[] }
+  | { kind: 'loaded'; integrations: Integration[]; resources: IntegrationResource[]; templates: IntegrationResourceTemplate[] }
   | { kind: 'error'; message: string }
 
 /**
@@ -28,7 +28,7 @@ export function useIntegrationResources(hostId: string, projectPath: string): In
     Promise.all([current.api.integrationList(), current.api.integrationResourceList({ projectPath })]).then(
       ([integrations, lists]) => {
         if (at !== request.current || app.connections.connection(hostId) !== current) return
-        setState({ kind: 'loaded', integrations, resources: lists.resources })
+        setState({ kind: 'loaded', integrations, resources: lists.resources, templates: lists.templates })
       },
       (cause: unknown) => {
         if (at !== request.current || app.connections.connection(hostId) !== current) return

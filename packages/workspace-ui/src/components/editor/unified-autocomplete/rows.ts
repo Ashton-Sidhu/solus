@@ -8,7 +8,7 @@
  * however typed, can produce an empty popover.
  */
 import type { User } from "@solus/contracts/user";
-import type { IntegrationResource } from "@solus/contracts/integration-types";
+import type { IntegrationResource, IntegrationResourceTemplate } from "@solus/contracts/integration-types";
 import type { SlashCommand } from "../../input/slash-commands";
 import type { McpPromptChoice } from "../../input/lib/mcp-prompt-composer.svelte";
 import type { ReferenceToken } from "../reference-tokens";
@@ -44,9 +44,10 @@ export interface MenuItem {
   /** Present for `#` rows so the metadata pass can match the noun. */
   kindNoun?: string;
   refKind?: RefKind;
-  /** An MCP resource row: accepting it attaches the resource, so `token` is
-   *  never inserted (docs/plans/mcp-first-class.md §11.3). */
-  resource?: { entry: IntegrationResource; serverSlug: string };
+  /** An MCP resource row: accepting it attaches the resource, or opens the
+   *  argument form of a template, so `token` is never inserted
+   *  (docs/plans/mcp-first-class.md §11.3). */
+  resource?: { entry: IntegrationResource | IntegrationResourceTemplate; serverSlug: string };
   /** Extra context shown only for the selected row. Kept out of the compact
    *  result geometry so large indexes remain quick to scan. */
   preview?: string;
@@ -235,6 +236,22 @@ export function resourceMenuItem(entry: IntegrationResource, server: { name: str
     mono: false,
     monoMeta: true,
     token: { kind: "file", path: entry.uri, name: title },
+    resource: { entry, serverSlug: server.slug },
+  };
+}
+
+/** An MCP resource template as an `@` row: accepting it opens the argument form, then attaches what the values name. */
+export function resourceTemplateMenuItem(entry: IntegrationResourceTemplate, server: { name: string; slug: string }): MenuItem {
+  const title = entry.title ?? entry.name;
+  return {
+    id: `resource-template:${entry.integrationId}:${entry.uriTemplate}`,
+    title,
+    meta: `${server.name} · ${entry.uriTemplate}`,
+    when: "",
+    icon: GLYPH.resource,
+    mono: false,
+    monoMeta: true,
+    token: { kind: "file", path: entry.uriTemplate, name: title },
     resource: { entry, serverSlug: server.slug },
   };
 }

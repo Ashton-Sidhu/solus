@@ -77,7 +77,7 @@ import {
 } from "./use-thread-settings-sheet-presentation";
 import { insertSessionReference, sessionReferenceOf } from "./session-reference";
 import type { SolusThreadShell } from "./thread-directory";
-import type { IntegrationResource } from "@solus/contracts/integration-types";
+import type { AttachedIntegrationResource } from "@solus/contracts/integration-types";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -486,7 +486,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     inputRef.current?.blur();
     setPickingResource(true);
   }, [inputRef]);
-  const closeResourcePicker = useCallback((resource: IntegrationResource | null) => {
+  const closeResourcePicker = useCallback((resource: AttachedIntegrationResource | null) => {
     setPickingResource(false);
     if (resource && !locked) store.controller.attachResource(resource);
     // The sheet must be gone before the editor can take focus.

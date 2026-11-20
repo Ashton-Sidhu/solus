@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { Integration, IntegrationResource } from '@solus/contracts/integration-types'
+import { resourceAttachRequest, type AttachedIntegrationResource, type Integration, type IntegrationResource, type IntegrationResourceLists, type IntegrationResourceTemplate } from '@solus/contracts/integration-types'
 import type { Attachment, IpcContext } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
 import { attachmentUploads } from '../input/lib/attachment-uploads.svelte'
@@ -24,7 +24,7 @@ interface ResourceChipServer {
  */
 class IntegrationResourcesStore {
   /** Keyed by host and project folder. */
-  private readonly lists = new SvelteMap<string, IntegrationResource[]>()
+  private readonly lists = new SvelteMap<string, IntegrationResourceLists>()
   private readonly loading = new Map<string, number>()
   private readonly followed = new Map<string, () => void>()
   /** Chips of attached resources, by attachment id. */
@@ -44,7 +44,12 @@ class IntegrationResourcesStore {
 
   /** What the menu matches on; empty while the first list loads. */
   resourcesFor(serverId: string, projectPath: string | undefined): IntegrationResource[] {
-    return this.lists.get(listKey(serverId, projectPath)) ?? []
+    return this.lists.get(listKey(serverId, projectPath))?.resources ?? []
+  }
+
+  /** The templates the menu offers beside the resources; the argument form fills one before the attach. */
+  templatesFor(serverId: string, projectPath: string | undefined): IntegrationResourceTemplate[] {
+    return this.lists.get(listKey(serverId, projectPath))?.templates ?? []
   }
 
   /** Reads the list for this host and project once; the menu calls it when `@` opens. */
@@ -70,16 +75,17 @@ class IntegrationResourcesStore {
    * prompt sent meanwhile waits for it. The host's attachments take the chip's
    * place: one for each content item.
    */
-  attach(request: { api: Pick<HostApi, 'integrationResourceAttach'>; ctx: IpcContext; serverId: string; resource: IntegrationResource; attachments: Attachment[] }): void {
+  attach(request: { api: Pick<HostApi, 'integrationResourceAttach'>; ctx: IpcContext; serverId: string; resource: AttachedIntegrationResource; attachments: Attachment[] }): void {
     const { resource, attachments } = request
     const name = resource.title ?? resource.name
     const chip: Attachment = { id: uuid(), type: 'file', name, path: name, hostServerId: request.serverId, mimeType: resource.mimeType }
     attachments.push(chip)
     const server = { integrationId: resource.integrationId, serverId: request.serverId }
     this.chips.set(chip.id, server)
+    const read = resourceAttachRequest(resource)
     attachmentUploads.read(
       chip,
-      async () => (await request.api.integrationResourceAttach(request.ctx, { integrationId: resource.integrationId, uri: resource.uri }))
+      async () => (await request.api.integrationResourceAttach(request.ctx, read))
         .map((attachment) => ({ ...attachment, hostServerId: request.serverId })),
       (read) => {
         const index = attachments.findIndex((attachment) => attachment.id === chip.id)
@@ -111,11 +117,11 @@ class IntegrationResourcesStore {
     const attempt = (this.loading.get(key) ?? 0) + 1
     this.loading.set(key, attempt)
     try {
-      const { resources } = await serverConnections.apiFor(serverId).integrationResourceList(projectPath ? { projectPath } : {})
-      if (this.loading.get(key) === attempt) this.lists.set(key, resources)
+      const lists = await serverConnections.apiFor(serverId).integrationResourceList(projectPath ? { projectPath } : {})
+      if (this.loading.get(key) === attempt) this.lists.set(key, lists)
     } catch {
       // An older host has no `integrationResourceList`, and a failed list shows no section (§11.4).
-      if (this.loading.get(key) === attempt) this.lists.set(key, [])
+      if (this.loading.get(key) === attempt) this.lists.set(key, { resources: [], templates: [] })
     } finally {
       if (this.loading.get(key) === attempt) this.loading.delete(key)
     }

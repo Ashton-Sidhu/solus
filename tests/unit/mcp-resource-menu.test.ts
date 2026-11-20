@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { findAnchor, readTrigger } from '@solus/workspace-ui/components/editor/unified-autocomplete/trigger'
-import { buildRows, fileMenuItem, resourceMenuItem, type RowInput } from '@solus/workspace-ui/components/editor/unified-autocomplete/rows'
+import { buildRows, fileMenuItem, resourceMenuItem, resourceTemplateMenuItem, type RowInput } from '@solus/workspace-ui/components/editor/unified-autocomplete/rows'
+import { templateArgumentFields } from '@solus/client-core/integration-prompts'
 
 /** The `@` menu's MCP resource band; the controller is left out because it needs the workspace. */
 function input(text: string, overrides: Partial<RowInput> = {}): RowInput {
@@ -44,5 +45,29 @@ describe('MCP resources under @ (mcp-first-class.md §11.3)', () => {
   test('a slug no server has is an ordinary file query', () => {
     const rows = buildRows(input('@src:', { mcpResources: resources }))
     expect(rows.some((row) => row.type === 'item' && row.item.resource)).toBe(false)
+  })
+})
+
+describe('MCP resource templates under @ (mcp-first-class.md §11.3)', () => {
+  const docs = { name: 'Docs', slug: 'docs' }
+  const template = { integrationId: 'int-docs', uriTemplate: 'docs://pages/{+path}?rev={rev}', name: 'page', title: 'Page by path' }
+
+  test('a template is a row of its server that the argument form fills; the template is never typed into the message', () => {
+    // WHY: F1 attached concrete resources only. A template names many
+    // resources, so the person gives its values in E's form, and the chip reads
+    // the one they name.
+    const row = resourceTemplateMenuItem(template, docs)
+    expect(row.resource?.entry).toEqual(template)
+    const rows = buildRows(input('@docs:page', { mcpResources: [row] }))
+    expect(rows.flatMap((each) => (each.type === 'item' ? [each.item.title] : []))).toEqual(['Page by path'])
+  })
+
+  test('the form has one required field for each variable, once; another operator is not offered', () => {
+    expect(templateArgumentFields(template.uriTemplate)).toEqual([{ name: 'path', required: true }, { name: 'rev', required: true }])
+    expect(templateArgumentFields('docs://{id}/{id}')).toEqual([{ name: 'id', required: true }])
+    expect(templateArgumentFields('docs://plain')).toEqual([])
+    // The host expands only {name} and {+name} (expandUriTemplate).
+    expect(templateArgumentFields('docs://search{?q}')).toBeNull()
+    expect(templateArgumentFields('docs://{#section}')).toBeNull()
   })
 })

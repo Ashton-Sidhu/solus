@@ -291,6 +291,16 @@ export const integrationResourceAttachRequestSchema = z.union([
 ])
 export type IntegrationResourceAttachRequest = z.infer<typeof integrationResourceAttachRequestSchema>
 
+/** What an attach reads: a listed resource, or a template with the values the argument form gave (§11.3). */
+export type AttachedIntegrationResource = IntegrationResource | (IntegrationResourceTemplate & { arguments: Array<{ name: string; value: string }> })
+
+/** The host's request for one attach, on every client. */
+export function resourceAttachRequest(resource: AttachedIntegrationResource): IntegrationResourceAttachRequest {
+  return 'uri' in resource
+    ? { integrationId: resource.integrationId, uri: resource.uri }
+    : { integrationId: resource.integrationId, uriTemplate: resource.uriTemplate, arguments: resource.arguments }
+}
+
 /** What a tool does, from the server's own hints: a tool with no read-only hint may write. */
 export type ToolAccess = 'Read' | 'Write' | 'Destructive'
 

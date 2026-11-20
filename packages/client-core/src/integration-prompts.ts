@@ -72,3 +72,20 @@ export function promptsBesideCommands(prompts: readonly IntegrationPrompt[], com
   const taken = new Set(commands)
   return prompts.filter((prompt) => !taken.has(prompt.command))
 }
+
+/**
+ * The argument form's fields for an MCP resource template (§11.3): one
+ * required field for each `{name}` or `{+name}`, in order, each once. Null
+ * when the template uses another operator of RFC 6570, which the host does
+ * not expand (`expandUriTemplate`): such a template is not offered to attach.
+ */
+export function templateArgumentFields(uriTemplate: string): ArgumentField[] | null {
+  const fields: ArgumentField[] = []
+  for (const match of uriTemplate.matchAll(/\{([^}]*)\}/g)) {
+    const body = match[1] ?? ''
+    const name = body.startsWith('+') ? body.slice(1) : body
+    if (!/^[A-Za-z0-9_.%]+$/.test(name)) return null
+    if (!fields.some((field) => field.name === name)) fields.push({ name, required: true })
+  }
+  return fields
+}

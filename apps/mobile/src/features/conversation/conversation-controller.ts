@@ -42,7 +42,7 @@ import { parseAgentAuthCommand } from '@solus/contracts/agent-auth'
 import { mayWorkLocallyDuringSetup } from '@solus/contracts/setup-card'
 import { seatProviderSchema } from '@solus/contracts/seats'
 import { AgentAuthFlow } from './agent-auth-flow'
-import type { Integration, IntegrationConnectNeeded, IntegrationCustomServerNeeded, IntegrationResource } from '@solus/contracts/integration-types'
+import { resourceAttachRequest, type AttachedIntegrationResource, type Integration, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded } from '@solus/contracts/integration-types'
 import { resourceAttachments } from './lib/resource-attachments'
 import { Listeners } from '../../lib/listeners'
 import { SessionSuggestionsFeed } from './session-suggestions'
@@ -957,7 +957,7 @@ export class ConversationController {
    * host answers, so a prompt sent meanwhile waits for it; a failed read says
    * why in a notice.
    */
-  attachResource(resource: IntegrationResource): void {
+  attachResource(resource: AttachedIntegrationResource): void {
     if (this.attachments.length + this.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT) {
       this.model.addNotice(`A message can carry at most ${MAX_ATTACHMENT_UPLOAD_COUNT} attachments.`, 'error')
       this.flush()
@@ -966,7 +966,7 @@ export class ConversationController {
     const name = resource.title ?? resource.name
     const landed: Promise<UploadedAttachment | null> = Promise.resolve().then(async () => {
       try {
-        const read = resourceAttachments(await this.deps.connection.api.integrationResourceAttach(this.uploadContext(), { integrationId: resource.integrationId, uri: resource.uri }))
+        const read = resourceAttachments(await this.deps.connection.api.integrationResourceAttach(this.uploadContext(), resourceAttachRequest(resource)))
         if (!this.closed && this.uploads.includes(upload)) this.attachments = [...this.attachments, ...read]
         return read[0] ?? null
       } catch (error) {

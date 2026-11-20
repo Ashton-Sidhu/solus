@@ -1,4 +1,5 @@
-import type { Integration, IntegrationResource } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationResource, IntegrationResourceTemplate } from '@solus/contracts/integration-types'
+import { templateArgumentFields } from '@solus/client-core/integration-prompts'
 import type { Attachment } from '@solus/contracts/types'
 import type { UploadedAttachment } from './attachments'
 
@@ -8,24 +9,37 @@ import type { UploadedAttachment } from './attachments'
  * the composer's attachments like any upload.
  */
 
-/** One server of the sheet and the resources that match the search. */
+/** A row of the sheet: a resource, or a template whose values the sheet asks for before the attach. */
+export type ResourceChoice = IntegrationResource | IntegrationResourceTemplate
+
+/** One server of the sheet and the resources and templates that match the search. */
 export interface ResourceSection {
   integrationId: string
   title: string
-  data: IntegrationResource[]
+  data: ResourceChoice[]
 }
 
-/** The resources by server, in the order of the server names, with those that match `query` in name, title, or URI. */
-export function resourceSections(integrations: readonly Pick<Integration, 'id' | 'name'>[], resources: readonly IntegrationResource[], query: string): ResourceSection[] {
+/** What a row reads as: its URI, or its template. */
+export function resourceAddress(choice: ResourceChoice): string {
+  return 'uri' in choice ? choice.uri : choice.uriTemplate
+}
+
+/**
+ * The resources by server, in the order of the server names, then each
+ * server's templates that the host can expand, with those that match `query`
+ * in name, title, or address.
+ */
+export function resourceSections(integrations: readonly Pick<Integration, 'id' | 'name'>[], resources: readonly IntegrationResource[], query: string, templates: readonly IntegrationResourceTemplate[] = []): ResourceSection[] {
   const needle = query.trim().toLowerCase()
-  const matches = (resource: IntegrationResource) => !needle
-    || [resource.name, resource.title ?? '', resource.uri].some((text) => text.toLowerCase().includes(needle))
+  const matches = (choice: ResourceChoice) => !needle
+    || [choice.name, choice.title ?? '', resourceAddress(choice)].some((text) => text.toLowerCase().includes(needle))
+  const choices: ResourceChoice[] = [...resources, ...templates.filter((template) => templateArgumentFields(template.uriTemplate) !== null)]
   return [...integrations]
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((integration) => ({
       integrationId: integration.id,
       title: integration.name,
-      data: resources.filter((resource) => resource.integrationId === integration.id && matches(resource)),
+      data: choices.filter((choice) => choice.integrationId === integration.id && matches(choice)),
     }))
     .filter((section) => section.data.length > 0)
 }
