@@ -106,7 +106,7 @@
       {/if}
     </div>
     <Button variant="ghost" size="icon-sm" type="button" class="pointer-coarse:size-11" aria-label="Close" onclick={onClose} onkeydown={handleKeyDown}>
-      <XIcon />
+      <XIcon size={16} />
     </Button>
   </div>
 
