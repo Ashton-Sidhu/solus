@@ -94,7 +94,8 @@ integration's `launch` gives `[command, ...args]` for `serverCommand`.
 |---|---|---|
 | `stopped` (no record) | Never started, or a change of the record | The next use starts it |
 | `running` | A start that gave an MCP answer | Calls use it |
-| `stopped` + message | Idle 10 minutes, **Stop**, host stop (`gateway.close()`), eviction by the limit of 16 (no message), or an end by itself ("`<name>` stopped by itself.", with the standard error tail) | The next use starts it |
+| `stopped` | Idle 10 minutes, **Stop**, host stop (`gateway.close()`), or eviction by the limit of 16: no message (B2 found that only an end by itself has one) | The next use starts it |
+| `stopped` + message | An end by itself ("`<name>` stopped by itself.", with the standard error tail) | The next use starts it |
 | `failed` + message | Three ends within 10 seconds of a start in 5 minutes (a failed start counts), or a command `spawn` cannot find or run | Only `integrationProcessStart` or a change of the record starts it |
 
 A call in flight when the process ends answers "`<name>` stopped while it

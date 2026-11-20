@@ -280,10 +280,39 @@ user of the Solus server, with no sandbox. Thus:
 - A command is not part of your agent profile. It stays on the host you added
   it on.
 
-The Settings screens for commands are not in this release (phase B2 of the
-plan). The host has the whole capability: `integrationCreate` with a command
-line, `integrationProcessStart`, `integrationProcessStop`, and the values
-through `integrationConnectSubmit`.
+### Commands in Settings
+
+Settings → MCP shows a command on desktop, web, and mobile.
+
+- **Add command** (beside Installed; on mobile, the Command section) opens
+  the form: a name, the command line, the working directory, and the names
+  of the environment variables, with a field for each value. Under the line
+  the form shows the program and the arguments that the host will start, or
+  the reason it refuses the line. The form says where the command runs and
+  that it does not sync to other hosts. **Start and test** adds the record,
+  saves the values, starts the process, and lists the tools; while it runs,
+  **Cancel** stops the process. On desktop and web, a dialog that closes
+  before the end removes the command it added. The command palette has
+  "Add an MCP server command".
+- The row shows the command line in place of an address, and the state of
+  your process: **Not started**, **Running**, **Stopped** (after 10 minutes
+  with no use, at Stop, or when the host stopped), **Stopped by itself**,
+  **Failed**, **Not installed**, or **Cannot run**, with what the host said
+  and the last standard error. The actions are **Start and test**, **Stop**,
+  **Start again**, and **Test again** (it checks the protocol revision
+  again). A start or stop on another client shows at once: the row reads the
+  state again on each `integration.changed` event.
+- **Values** in the row says how many values are saved, never a value.
+  **Enter values** or **Change values** opens one masked field for each
+  name; **Disconnect** removes them. The conversation's connect card takes
+  the values the same way. A value goes to the host in the call that saves
+  it, and the client keeps no copy. The values never go to Solus Cloud.
+- **Edit** (and "Edit command" in the row menu) changes the line, the
+  folder, and the names. The host stops the process and forgets the saved
+  facts; new names remove every person's values.
+- A person without `host.admin` sees the command and its state and can stop
+  it, disconnect, and remove it. Add, Edit, and the starts are off, with
+  "Only an administrator of this host can add or change a command."
 
 ## Who may change what
 
@@ -295,6 +324,5 @@ the host owner and an organization owner included (docs/plans/access-model.md
 ## Not in this release
 
 A per-tool ask rule (only on and off exist), OpenAPI documents, renaming an
-account, several API keys for one server, and the Settings screens for stdio
-servers are later phases of the plan. The tools you turned off are part of your agent profile, so they
+account, and several API keys for one server are later phases of the plan. The tools you turned off are part of your agent profile, so they
 follow a personal server to every host.
