@@ -49,6 +49,11 @@ const recordedRunSchema = z.object({
   credential: z.string().nullable().optional(),
   /** The names of the tools the run was handed; absent on a run before the field existed. */
   tools: z.array(z.string()).optional(),
+  conversation: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('start') }),
+    z.object({ kind: z.literal('resume'), threadId: z.string() }),
+    z.object({ kind: z.literal('fork'), sourceThreadId: z.string(), excludeLatestTurn: z.boolean().optional() }),
+  ]).optional(),
 })
 export type RecordedRun = z.infer<typeof recordedRunSchema>
 

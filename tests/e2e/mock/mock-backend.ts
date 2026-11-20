@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -19,6 +20,8 @@ import type {
 } from '@solus/contracts/types'
 import type { ProviderHistoryPage, SessionLoadMessage } from '@solus/contracts/session-history'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { ThreadFile } from '@solus/server/sync/sessions/session-archive-writer'
+import { importThreadFiles, type ThreadImportRequest, type ThreadImportResult } from '@solus/server/execution/agents/thread-import'
 
 const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'
@@ -53,6 +56,7 @@ export interface MockRunRecord {
   credential: string | null
   /** The names of the tools the run was handed. */
   tools: string[]
+  conversation: AgentRunRequest['conversation']
 }
 
 /** The Lab's cloud proofs (docs/plans/cloud-service-model.md §5): the credential material a run saw. */
@@ -69,7 +73,7 @@ function credentialSeenBy(request: AgentRunRequest): string | null {
 }
 
 function recordRun(request: AgentRunRequest): void {
-  const record: MockRunRecord = { at: Date.now(), prompt: request.prompt, seat: request.seat ?? null, credential: credentialSeenBy(request), tools: request.tools.map((tool) => tool.name) }
+  const record: MockRunRecord = { at: Date.now(), prompt: request.prompt, seat: request.seat ?? null, credential: credentialSeenBy(request), tools: request.tools.map((tool) => tool.name), conversation: request.conversation }
   try {
     mkdirSync(join(solusDir(), 'lab'), { recursive: true })
     appendFileSync(MOCK_RUNS_FILE, `${JSON.stringify(record)}\n`)
@@ -86,6 +90,10 @@ function recordRun(request: AgentRunRequest): void {
  */
 function transcriptFile(sessionId: string): string {
   return join(solusDir(), 'lab', 'transcripts', `${sessionId}.json`)
+}
+
+function threadFile(threadId: string): string {
+  return join(solusDir(), 'lab', 'threads', `${threadId}.jsonl`)
 }
 
 function readTranscript(sessionId: string): SessionLoadMessage[] {
@@ -219,15 +227,22 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     // escapes so the literal trigger strings below (and in specs) still match.
     const prompt = request.prompt.replace(/\\/g, '')
     const responseText = this._responseFor(prompt)
+    if (prompt.includes('__MOCK_WRITE_FILE__')) writeFileSync(join(request.cwd, 'note.txt'), `${prompt}\n`)
 
-    this.promoteToActive(handle, MOCK_SESSION_ID)
+    const threadId = request.conversation?.kind === 'resume' ? request.conversation.threadId
+      : request.conversation?.kind === 'fork' ? `mock-fork-${createHash('sha256').update(request.prompt).digest('hex').slice(0, 12)}` : MOCK_SESSION_ID
+
+    this.promoteToActive(handle, threadId)
 
     this.emit('normalized', MOCK_SESSION_ID, {
       type: 'session_init',
-      sessionId: MOCK_SESSION_ID,
+      sessionId: threadId,
       model: 'mock-model',
       skills: [],
     } satisfies NormalizedEvent)
+
+    mkdirSync(join(solusDir(), 'lab', 'threads'), { recursive: true })
+    appendFileSync(threadFile(threadId), `${JSON.stringify({ prompt, response: responseText })}\n`)
 
     // A cloud session keeps a transcript on disk from its first prompt on.
     const keepsTranscript = prompt.includes('__MOCK_CLOUD__') || existsSync(transcriptFile(MOCK_SESSION_ID))
@@ -592,7 +607,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       } satisfies NormalizedEvent)
     }
 
-    this.emit('normalized', MOCK_SESSION_ID, {
+    this.emit('normalized', sessionId, {
       type: 'task_complete',
       result: responseText,
       costUsd: 0,
@@ -641,6 +656,15 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
     const rows = readTranscript(sessionId)
     return limit === undefined ? rows : rows.slice(-limit)
+  }
+
+  async threadFiles(threadId: string): Promise<ThreadFile[]> {
+    const path = threadFile(threadId)
+    return existsSync(path) ? [{ key: 'thread', relativePath: `${threadId}.jsonl`, path }] : []
+  }
+
+  async importThread(request: ThreadImportRequest): Promise<ThreadImportResult> {
+    return importThreadFiles(join(solusDir(), 'lab', 'threads'), request.files, request.signal)
   }
 
   // The mock keeps no transcript on disk unless a prompt asked for one, so a
