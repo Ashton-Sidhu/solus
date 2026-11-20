@@ -76,6 +76,7 @@ import { PullRequestReviewSheet } from '../features/prs/PullRequestReviewSheet'
 import { PullRequestInlineCommentScreen } from '../features/prs/PullRequestInlineCommentScreen'
 import { PullRequestDiscussionScreen } from '../features/prs/PullRequestDiscussionScreen'
 import { PullRequestFilesScreen } from '../features/prs/PullRequestFilesScreen'
+import { CloudTurnDiffScreen } from '../features/threads/CloudTurnDiffScreen'
 import { PullRequestAskScreen } from '../features/prs/PullRequestAskScreen'
 import { PullRequestReviewersScreen } from '../features/prs/PullRequestReviewersScreen'
 import { PullRequestEditSheet } from '../features/prs/PullRequestEditSheet'
@@ -443,6 +444,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="Files" component={FilesScreen} options={{ title: 'Files' }} />
           <Stack.Screen name="File" component={FileScreen} options={{ title: 'File' }} />
           <Stack.Screen name="ThreadArtifacts" component={ArtifactsScreen} options={{ title: 'Threads' }} />
+          <Stack.Screen name="ThreadTurnDiff" component={CloudTurnDiffScreen} options={{ title: 'Changes' }} />
           {/* T3 Code's device and browser viewers (Stack.tsx): the device full screen with no
               bars and no swipe to dismiss, because a drag on it is input to the device; the
               browser under a solid header. The browser keeps the edge swipe: with gestures off,
