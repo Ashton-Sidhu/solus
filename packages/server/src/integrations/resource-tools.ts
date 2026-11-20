@@ -1,24 +1,26 @@
 import { z } from 'zod'
-import type { Integration } from '@solus/contracts/integration-types'
+import { DEFAULT_INTEGRATION_ACCOUNT } from '@solus/contracts/integration-types'
 import type { AgentTool, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { currentPersonKey } from '../vault/acting-scope'
 import type { CommandStarter } from './command-admission'
 import type { IntegrationGateway } from './gateway'
 import { readAsContent } from './resource-lists'
 import { agentResultOf } from './result-content'
+import type { WatchedServer } from './resource-subscriptions'
 import { ConnectionRequiredError, errorText } from './upstream-session'
 
 /**
  * The agent's MCP resource tools (docs/plans/mcp-first-class.md §11.2). They
  * join a run when one of its integrations declares `resources`, and they reach
  * only those integrations, by slug. A read changes nothing, so they need no
- * approval. F2 adds `watch_integration_resource`.
+ * approval. `watch_integration_resource` joins when one of them sends changes
+ * (`resources.subscribe`); the resource watch owner keeps the watch (§11.5).
  */
 
 /** Entries in one page of `list_integration_resources`. */
 const PAGE_SIZE = 100
 
-type ResourceServer = Pick<Integration, 'id' | 'name' | 'slug' | 'auth'>
+type ResourceServer = WatchedServer
 
 /** What `list_integration_resources` answers: one page, and the servers that could not list. */
 interface ListAnswer {
@@ -40,7 +42,7 @@ interface ListedEntry {
   size?: number
 }
 
-export function resourceAgentTools(servers: ResourceServer[], gateway: Pick<IntegrationGateway, 'resourcesFor' | 'readResource' | 'connectionRequired'>, starter: CommandStarter): AgentTool[] {
+export function resourceAgentTools(servers: ResourceServer[], watchServers: ResourceServer[], gateway: Pick<IntegrationGateway, 'resourcesFor' | 'readResource' | 'connectionRequired' | 'resourceWatches'>, starter: CommandStarter): AgentTool[] {
   if (!servers.length) return []
   const slugs = servers.map((server) => server.slug).join(', ')
   const named = (slug: string) => servers.find((server) => server.slug === slug)
@@ -108,5 +110,30 @@ export function resourceAgentTools(servers: ResourceServer[], gateway: Pick<Inte
     },
   }
 
-  return [list, read]
+  if (!watchServers.length) return [list, read]
+  const watchSlugs = watchServers.map((server) => server.slug).join(', ')
+  const watch: AgentTool = {
+    name: 'watch_integration_resource',
+    description: `Watch one resource of the user's MCP servers. When it changes, Solus starts you again in a new message with its contents: at most once in 30 seconds, for 24 hours. Servers that send changes: ${watchSlugs}.`,
+    inputFields: {
+      server: z.string().describe('The server, by its name in the list above.'),
+      uri: z.string().min(1).max(2048).describe('The resource URI.'),
+      watching: z.boolean().describe('true to start the watch, false to stop it.'),
+    },
+    alwaysLoad: false,
+    requiresApproval: false,
+    execute: async (input, context) => {
+      const server = watchServers.find((candidate) => candidate.slug === input.server)
+      if (!server) return { ok: false, text: `No MCP server of this run that sends changes is named ${input.server}. Servers that send changes: ${watchSlugs}.` }
+      const owner = gateway.resourceWatches
+      if (!owner) return { ok: false, text: 'This host cannot watch a resource.' }
+      if (!input.watching) return owner.unwatch({ integration: server, uri: input.uri, context })
+      const personKey = currentPersonKey()
+      // The listed name, when the list has it; a watch of an unlisted URI shows the URI.
+      const listed = await gateway.resourcesFor(server.id, personKey, starter).catch(() => null)
+      const resource = listed?.resources.find((entry) => entry.uri === input.uri)
+      return owner.watch({ integration: server, uri: input.uri, name: resource?.title ?? resource?.name, personKey, accountId: DEFAULT_INTEGRATION_ACCOUNT, context, starter })
+    },
+  }
+  return [list, read, watch]
 }

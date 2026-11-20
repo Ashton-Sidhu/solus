@@ -19,6 +19,7 @@ import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_
 import { endSolusSpan } from '../execution/observability/tracer'
 import { accountLabel, callRequest, callSpanStatus, elicitFromCall, splitAccount, startCallSpan, type TurnContextOf } from './integration-call'
 import { cancelTask, MCP_TASKS_EXTENSION, ServerStoppedError, taskHandleOf, TaskAwareClient, type HeldMcpTask, type McpTaskCalls } from './mcp-task-requests'
+import { openResourceSubscription, type ResourceSubscription, type ResourceWatchCalls } from './resource-subscriptions'
 import {
   ConnectionRequiredError,
   errorText,
@@ -93,6 +94,7 @@ export class IntegrationGateway {
   private stdioStarting = 0
   private turnContextOf: TurnContextOf | null = null
   private mcpTasks: McpTaskCalls | null = null
+  private watches: ResourceWatchCalls | null = null
 
   /**
    * The integration records; the tool bridge lists a scope's integrations
@@ -131,32 +133,49 @@ export class IntegrationGateway {
     this.mcpTasks = mcpTasks
   }
 
+  /** Installed once at boot: the owner of resource watches (§11.5). Without it the watch tool refuses. */
+  useResourceWatches(watches: ResourceWatchCalls): void {
+    this.watches = watches
+  }
+
+  get resourceWatches(): ResourceWatchCalls | null {
+    return this.watches
+  }
+
   /**
-   * Runs one MCP task request (`tasks/get`, `tasks/update`, `tasks/cancel`) as
-   * the task's person and account (§12.3), on their session, opened if none is.
-   * A `stdio` integration is not started for it: with no running process this
-   * throws `ServerStoppedError`. A refused header is read again once, then the
-   * connection needs sign-in and this throws `ConnectionRequiredError`.
+   * Runs one request of the session's background work as its person and
+   * account, on their session, opened if none is: an MCP task request
+   * (`tasks/get`, `tasks/update`, `tasks/cancel`; §12.3), or a resource
+   * watch's subscription and read (§11.5). A `stdio` integration starts only
+   * for `starter`, the agent's own call; without one and with no running
+   * process this throws `ServerStoppedError`. A refused header is read again
+   * once, then the connection needs sign-in and this throws
+   * `ConnectionRequiredError`.
    */
-  async withTaskSession<T>(integrationId: string, personKey: string, accountId: string, use: (client: Client) => Promise<T>, retried = false): Promise<T> {
+  async withBackgroundSession<T>(integrationId: string, personKey: string, accountId: string, use: (client: TaskAwareClient) => Promise<T>, starter: CommandStarter = null, retried = false): Promise<T> {
     const key = sessionKey(integrationId, personKey, accountId)
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) throw new ServerStoppedError('The MCP server was removed.')
-    if (integration.kind === 'stdio' && !this.sessions.get(key)?.stdio) throw new ServerStoppedError('The server stopped.')
-    const session = await this.session(integrationId, personKey, false, accountId)
+    if (integration.kind === 'stdio' && !starter && !this.sessions.get(key)?.stdio) throw new ServerStoppedError('The server stopped.')
+    const session = await this.session(integrationId, personKey, false, accountId, starter)
     try {
       return await use(session.client)
     } catch (error) {
       if (!session.authorized || !isAuthFailure(error)) throw error
       if (!retried) {
         this.readHeaderAgain(session)
-        return this.withTaskSession(integrationId, personKey, accountId, use, true)
+        return this.withBackgroundSession(integrationId, personKey, accountId, use, starter, true)
       }
       this.signInRefused(session, integration, error)
       throw new ConnectionRequiredError()
     } finally {
       this.touch(key)
     }
+  }
+
+  /** Opens one resource subscription for a watch (§11.5); `withBackgroundSession` says which session. */
+  subscribeResource(integrationId: string, personKey: string, accountId: string, uri: string, starter: CommandStarter): Promise<ResourceSubscription> {
+    return this.withBackgroundSession(integrationId, personKey, accountId, (client) => openResourceSubscription(client, uri, CALL_TIMEOUT_MS), starter)
   }
 
   /**
@@ -751,6 +770,8 @@ export class IntegrationGateway {
       authorized, openedAt: Date.now(), retired: false, closing: false, lastUsedAt: this.clock.now(), stdio: null,
     }
     client.setRequestHandler('elicitation/create', (request) => elicitFromCall(session.calls.at(-1), request))
+    // A legacy server sends it unsolicited after `resources/subscribe`; a modern one on a `subscriptions/listen` stream (§11.5).
+    client.setNotificationHandler('notifications/resources/updated', (notification) => this.watches?.updated({ integrationId, personKey, accountId }, notification.params.uri))
     return session
   }
 
@@ -954,6 +975,7 @@ export class IntegrationGateway {
 
   private holdsUpstream(session: UpstreamSession): boolean {
     return !!this.mcpTasks?.holdsUpstream(session.integrationId, session.personKey, session.accountId)
+      || !!this.watches?.holdsUpstream({ integrationId: session.integrationId, personKey: session.personKey, accountId: session.accountId })
   }
 
   /** `stopReason`: why a running command stops, for its row; none when the host or a change closes it. */

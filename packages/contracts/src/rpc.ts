@@ -379,6 +379,8 @@ export const RPC_INVOKE_METHODS = [
   'integrationPromptGet',
   'integrationResourceList',
   'integrationResourceAttach',
+  'integrationResourceWatchList',
+  'integrationResourceWatchStop',
   'mcpTaskList',
   'mcpTaskCancel',
   'mcpTaskAnswer',

@@ -75,7 +75,7 @@ interface LiveTask {
 
 export interface McpTasksDeps {
   store: McpTaskStore
-  gateway: Pick<IntegrationGateway, 'withTaskSession' | 'store' | 'askToConnect'>
+  gateway: Pick<IntegrationGateway, 'withBackgroundSession' | 'store' | 'askToConnect'>
   /** Queues the message that gives an MCP task's end to its session (`via: 'mcp-task'`). */
   wake: (sessionId: string, text: string, images: PromptImageRef[]) => Promise<void>
   publish: (event: McpTaskChangedEvent) => void
@@ -512,7 +512,7 @@ export class McpTasks implements McpTaskCalls {
   private request<T>(address: Pick<McpTaskRow, 'integrationId' | 'personKey' | 'accountId' | 'traceparent'>, run: (client: Client, options: { traceparent: string | null; timeout: number }) => Promise<T>): Promise<T> {
     const { integrationId, personKey, accountId, traceparent } = address
     const actAs = this.deps.actAs ?? withUserScope
-    return actAs(personKey, () => this.deps.gateway.withTaskSession(integrationId, personKey, accountId, (client) => run(client, { traceparent, timeout: REQUEST_TIMEOUT_MS })))
+    return actAs(personKey, () => this.deps.gateway.withBackgroundSession(integrationId, personKey, accountId, (client) => run(client, { traceparent, timeout: REQUEST_TIMEOUT_MS })))
   }
 
   private publish(task: LiveTask): void {

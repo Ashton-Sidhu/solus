@@ -73,8 +73,19 @@ const emptyResultSchema = z.looseObject({})
  * rejects with a `ProtocolError` that `taskHandleOf` reads, so the call path
  * can hold it. Any other request that gets a task handle fails with a plain
  * message: the extension allows a task for `tools/call` only.
+ * `connectionEnded` resolves when the connection ends by any path, so a
+ * resource watch on a legacy server, which has no stream of its own, hears it
+ * (docs/plans/mcp-first-class.md §11.5).
  */
 export class TaskAwareClient extends Client {
+  private endConnection: () => void = () => undefined
+  readonly connectionEnded = new Promise<void>((resolve) => { this.endConnection = resolve })
+
+  protected override _onclose(): void {
+    super._onclose()
+    this.endConnection()
+  }
+
   protected override _onresponse(response: JSONRPCResponse): void {
     if ('result' in response && response.result.resultType === 'task') {
       super._onresponse({

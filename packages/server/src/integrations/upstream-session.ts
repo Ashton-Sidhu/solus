@@ -10,6 +10,7 @@ import type { AgentToolContext, AgentToolResult } from '../execution/agents/tool
 import type { IntegrationCredentials } from './connections'
 import { cancellableFetch } from './cancellable-fetch'
 import { stdioTransport, type StdioChild } from './stdio-process'
+import type { TaskAwareClient } from './mcp-task-requests'
 
 /**
  * One upstream session of the gateway (docs/plans/mcp-integrations.md §5.1):
@@ -64,7 +65,7 @@ export interface UpstreamSession {
   personKey: string | null
   /** Which of the person's accounts the session signs in as (§13.3). */
   accountId: string
-  client: Client
+  client: TaskAwareClient
   connected: Promise<void>
   idleTimer: ReturnType<typeof setTimeout> | null
   /** Calls in flight, newest last: an elicitation goes to the newest one. */
