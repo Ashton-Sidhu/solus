@@ -79,7 +79,7 @@
     if (confirmation) return Promise.resolve(false);
     return new Promise((resolve) => {
       confirmation = { title, detail, format, resolve };
-      // Open once the buttons render: a dialog with no control yet takes the focus and its ring itself.
+      // Open once the buttons render, so Cancel takes the focus, not the dialog.
       void tick().then(() => {
         confirmDialog?.showModal();
         cancelButton?.focus();
@@ -333,7 +333,7 @@
 <dialog
   bind:this={confirmDialog}
   oncancel={() => decide(false)}
-  class="m-auto max-h-[80dvh] w-[min(30rem,calc(100vw-2rem))] max-w-none rounded-2xl border-0 bg-(--solus-popover-bg) p-6 text-workspace-chrome text-foreground shadow-(--solus-popover-shadow) outline-none backdrop:modal-backdrop"
+  class="m-auto max-h-[80dvh] w-[min(30rem,calc(100vw-2rem))] max-w-none rounded-2xl border-0 bg-(--solus-popover-bg) p-6 text-workspace-chrome text-foreground shadow-(--solus-popover-shadow) backdrop:modal-backdrop"
 >
   {#if confirmation}
     <h2 class="m-0 font-medium text-foreground">{confirmation.title}</h2>

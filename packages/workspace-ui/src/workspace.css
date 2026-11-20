@@ -1455,6 +1455,19 @@ input::placeholder {
   }
 }
 
+/* ─── Dialog containers draw no focus ring ───
+   A dialog moves focus into itself when it opens. When it has no control to
+   take it, the container takes it, and the browser drew its own focus outline
+   (`outline: auto`, in the system accent colour on macOS) around the whole
+   dialog. The container is not a control, so it draws none. The controls
+   inside keep their own focus ring, and a dialog's border (a `border`
+   utility, not an outline) stays. In the base layer, so a utility still wins. */
+@layer base {
+  :where(dialog, [role="dialog"], [role="alertdialog"]):is(:focus, :focus-visible) {
+    outline: none;
+  }
+}
+
 /*
  * ─── Inline reference tokens (spec §7) ───
  * Shared shape for the plan / file / pr / work / session / slash atoms — both
