@@ -36,6 +36,7 @@ import { GLYPH, KINDS, kindFor, type RefKind } from "./unified-autocomplete/kind
 import {
   buildRows,
   fileMenuItem,
+  resourceMenuItem,
   ghostFor,
   isSelectable,
   sessionPreviewFor,
@@ -56,6 +57,9 @@ import { serverConnections } from "@solus/client-core/server-connections";
 import { integrationPromptsStore } from "../input/lib/integration-prompts.store.svelte";
 import type { McpPromptChoice } from "../input/lib/mcp-prompt-composer.svelte";
 import { mcpPromptItems } from "./unified-autocomplete/mcp-prompt-items";
+import type { IntegrationResource } from "@solus/contracts/integration-types";
+import { integrationResources } from "../settings/integration-resources.store.svelte";
+import { integrationsStore } from "../settings/integrations.store.svelte";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
 
@@ -84,6 +88,9 @@ export interface AutocompleteDeps {
   /** Where an MCP prompt row goes (mcp-first-class.md §10). Absent, the `/`
    *  menu lists no MCP prompts: only a composer that sends can expand one. */
   onMcpPrompt?: () => ((choice: McpPromptChoice) => void) | undefined;
+  /** Attaches an MCP resource picked under `@`. Absent where the editor holds
+   *  no attachments: the menu then lists no resources. */
+  onResource?: () => ((resource: IntegrationResource) => void) | undefined;
   onRefsChange: () =>
     | ((
         planRefs: PlanReference[],
@@ -280,6 +287,23 @@ export class UnifiedAutocompleteController {
       .filter((item) => !open.has(item.token.kind === "file" ? item.token.path : ""));
   });
 
+  /** The host whose MCP resources `@` lists: the run's, else the tab's. */
+  #resourceServerId(): string {
+    return this.deps.serverId?.() ?? this.deps.session.serverIdFor(this.deps.tabId());
+  }
+
+  #resourceItems = $derived.by((): MenuItem[] => {
+    if (!this.deps.onResource?.()) return [];
+    const serverId = this.#resourceServerId();
+    const integrations = integrationsStore.states.get(serverId)?.integrations ?? [];
+    return integrationResources
+      .resourcesFor(serverId, this.deps.workingDirectory())
+      .flatMap((entry) => {
+        const integration = integrations.find((candidate) => candidate.id === entry.integrationId);
+        return integration ? [resourceMenuItem(entry, integration)] : [];
+      });
+  });
+
   // ─── Everything else (`#`) ───
 
   #index: ReferenceIndex;
@@ -311,6 +335,7 @@ export class UnifiedAutocompleteController {
       openFiles: this.#openFileItems,
       worktreeFiles: this.#worktreeFileItems,
       worktreeFileCount: this.#fileTotal,
+      mcpResources: this.#resourceItems,
       byKind: this.#byKind,
       linked: this.#index.linkedItems,
       linkedLabel: this.#index.linkedTaskRef,
@@ -355,7 +380,9 @@ export class UnifiedAutocompleteController {
       ? "open"
       : this.selectedRow?.type === "deadEnd"
         ? "dismiss"
-        : "insert",
+        : this.selectedRow?.type === "item" && this.selectedRow.item.resource
+          ? "attach"
+          : "insert",
   );
   tabVerb = $derived(
     this.selectedRow?.type === "category"
@@ -440,7 +467,10 @@ export class UnifiedAutocompleteController {
       return;
     }
 
-    if (trigger.char === "@") this.#searchFiles(trigger.query);
+    if (trigger.char === "@") {
+      this.#searchFiles(trigger.query);
+      if (this.deps.onResource?.()) integrationResources.ensure(this.#resourceServerId(), this.deps.workingDirectory());
+    }
     if (trigger.char === "/" && this.#warmedForAnchor !== trigger.anchor) {
       this.#warmedForAnchor = trigger.anchor;
       this.#warmMcpPrompts();
@@ -561,6 +591,14 @@ export class UnifiedAutocompleteController {
 
     const pattern = triggerRunPattern(this.#textBeforeCursor, trigger.anchor);
     const editor = this.deps.getEditor();
+    // A resource becomes an attachment chip, not text: the `@` run goes.
+    if (item.resource) {
+      editor?.replaceTrigger(pattern, "");
+      this.clearCompletions();
+      this.deps.onResource?.()?.(item.resource.entry);
+      editor?.focus();
+      return;
+    }
     editor?.insertReference(item.token, pattern);
     this.#afterAccept(item);
     this.clearCompletions();

@@ -218,6 +218,61 @@ export interface IntegrationFacts {
   cliSkips?: IntegrationCliSkip[]
 }
 
+/** One resource an MCP server lists (`resources/list`, mcp-first-class.md §11.1). The server's text is data. */
+export interface IntegrationResource {
+  integrationId: string
+  uri: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  /** Bytes, when the server says. */
+  size?: number
+}
+
+/** One URI template an MCP server lists (`resources/templates/list`). */
+export interface IntegrationResourceTemplate {
+  integrationId: string
+  uriTemplate: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+}
+
+export interface IntegrationResourceLists {
+  resources: IntegrationResource[]
+  templates: IntegrationResourceTemplate[]
+}
+
+/**
+ * The caller's MCP resources and templates (§11.4): of one integration, or of
+ * every integration that joins a run in `projectPath` (§8.4). A server that
+ * does not answer in 10 seconds is left out.
+ */
+export const integrationResourceListRequestSchema = z.object({
+  integrationId: z.string().min(1).optional(),
+  projectPath: z.string().min(1).max(4096).optional(),
+}).strict()
+export type IntegrationResourceListRequest = z.infer<typeof integrationResourceListRequestSchema>
+
+const resourceUriSchema = z.string().min(1).max(2048)
+
+/**
+ * Read one MCP resource as the caller and keep its contents in the
+ * conversation's attachment store (§11.3). A template names its variables'
+ * values; the host expands `{name}` and `{+name}` only.
+ */
+export const integrationResourceAttachRequestSchema = z.union([
+  z.object({ integrationId: z.string().min(1), uri: resourceUriSchema }).strict(),
+  z.object({
+    integrationId: z.string().min(1),
+    uriTemplate: resourceUriSchema,
+    arguments: z.array(z.object({ name: z.string().min(1).max(200), value: z.string().max(2048) }).strict()).max(20),
+  }).strict(),
+])
+export type IntegrationResourceAttachRequest = z.infer<typeof integrationResourceAttachRequestSchema>
+
 /** What a tool does, from the server's own hints: a tool with no read-only hint may write. */
 export type ToolAccess = 'Read' | 'Write' | 'Destructive'
 

@@ -76,8 +76,10 @@ import { SessionReferencePicker } from "./SessionReferencePicker";
 import { McpPromptPicker } from "./McpPromptPicker";
 import { promptAttachmentRefs } from "./lib/mcp-prompt-sheet";
 import type { IntegrationPromptSignIn, IntegrationPromptText } from "@solus/contracts/integrations/prompts";
+import { IntegrationResourcePicker } from "./IntegrationResourcePicker";
 import { insertSessionReference, sessionReferenceOf } from "./session-reference";
 import type { SolusThreadShell } from "./thread-directory";
+import type { IntegrationResource } from "@solus/contracts/integration-types";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -496,6 +498,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     },
     [closePromptPicker, store],
   );
+  // "MCP Resource…" in the + menu, as desktop's `@` menu: the host reads it into the attachments.
+  const [pickingResource, setPickingResource] = useState(false);
+  const openResourcePicker = useCallback(() => {
+    inputRef.current?.blur();
+    setPickingResource(true);
+  }, [inputRef]);
+  const closeResourcePicker = useCallback((resource: IntegrationResource | null) => {
+    setPickingResource(false);
+    if (resource && !locked) store.controller.attachResource(resource);
+    // The sheet must be gone before the editor can take focus.
+    setTimeout(() => inputRef.current?.focus(), 300);
+  }, [inputRef, locked, store]);
 
   // A question that closed unanswered gives back what the user typed for it.
   // It goes to the conversation's draft, not to a queued message being edited.
@@ -660,6 +674,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         }
         pointerEvents="none"
       />
+      {pickingResource ? (
+        <IntegrationResourcePicker
+          hostId={hostId}
+          projectPath={store.controller.run.workingDirectory}
+          onPick={closeResourcePicker}
+          onClose={() => closeResourcePicker(null)}
+        />
+      ) : null}
       {referencing ? (
         <SessionReferencePicker
           hostId={hostId}
@@ -723,6 +745,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onPickFiles={onPickDraftFiles}
                 onReferenceSession={openReferencePicker}
                 onMcpPrompt={openPromptPicker}
+                onAttachResource={openResourcePicker}
               />
             ) : null}
             {usesCard && queuedAttachments !== null ? (
@@ -888,6 +911,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         onPickFiles={onPickDraftFiles}
                         onReferenceSession={openReferencePicker}
                         onMcpPrompt={openPromptPicker}
+                        onAttachResource={openResourcePicker}
                       />
                       <View className="min-w-0 shrink">
                         <ComposerInlineControl

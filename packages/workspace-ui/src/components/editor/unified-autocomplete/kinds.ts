@@ -39,6 +39,8 @@ export const GLYPH = {
   person:
     "M7 7.2a2.4 2.4 0 100-4.8 2.4 2.4 0 000 4.8M2.6 12.2a4.4 4.4 0 018.8 0",
   chevron: "M5.4 3.6L8.8 7l-3.4 3.4",
+  /** An MCP resource: a document on a server's stack. */
+  resource: "M3.4 1.8h5.2l2 2v5.4H3.4z M8.6 1.9v1.9h1.9 M5.2 11.2v1h5.6a1 1 0 001-1V5.6",
 } as const;
 
 /** Menu order at the `#` root, and the order the "Recent" band samples in. */

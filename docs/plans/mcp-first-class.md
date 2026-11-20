@@ -1,8 +1,9 @@
 # MCP as a first-class feature
 
-Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, and H1 are built
+Status: phased plan, written 2026-11-18. P0, A1, A2, A3, B1, B2, H1, and F1 are built
 (`mcp-b1-handoff.md` has the B1 contract; `mcp-wave3-handoff.md` records the
-merge of A2, A3, B1, and H1). C2 and E are built on their own branches
+merge of A2, A3, B1, and H1; `mcp-f1-handoff.md` has the F1 contract and what
+F1 left for E and F2). C2 and E are built on their own branches
 (`mcp-c2-handoff.md`, `mcp-e-handoff.md`). This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.

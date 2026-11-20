@@ -86,7 +86,7 @@ export class IntegrationApps {
     const actor = sessionId ? this.runtime.actorOfSession(sessionId) : undefined
     const signal = call.context.abortSignal
     if (!resourceUri || !sessionId || !actor || signal.aborted) return
-    const resource = await this.gateway.readAppResource(call.integration.id, resourceUri, actor.principal, { signal, timeout: CAPTURE_TIMEOUT_MS })
+    const resource = await this.gateway.readResource(call.integration.id, resourceUri, actor.principal, { signal, timeout: CAPTURE_TIMEOUT_MS })
     if (signal.aborted) return
     const snapshot = appSnapshot(resource, resourceUri, call)
     if (!snapshot) return
@@ -124,7 +124,7 @@ export class IntegrationApps {
     const kept = this.liveDocuments.get(key)
     if (kept && this.now() - kept.readAt < LIVE_DOCUMENT_TTL_MS) return kept.document
     const title = appTitle(integration, tool)
-    const document = this.gateway.readAppResource(integration.id, resourceUri, ctx.principal, { timeout: CAPTURE_TIMEOUT_MS })
+    const document = this.gateway.readResource(integration.id, resourceUri, ctx.principal, { timeout: CAPTURE_TIMEOUT_MS })
       .then((resource) => {
         const parts = appDocument(resource, resourceUri)
         return parts ? { ...parts, title } : null
@@ -194,7 +194,7 @@ export class IntegrationApps {
     const app = await this.reference(request, ctx)
     if ('claudeServer' in app) return boundedJson(await this.claude.readResource(await this.claudeAppPlace(request.sessionId, ctx), app.claudeServer, request.uri))
     await this.ownedApp(app, ctx)
-    return boundedJson(await this.gateway.readAppResource(app.integrationId, request.uri, ctx.principal))
+    return boundedJson(await this.gateway.readResource(app.integrationId, request.uri, ctx.principal))
   }
 
   /** Keeps the app's latest context for the session's next turns, whichever provider runs them. */

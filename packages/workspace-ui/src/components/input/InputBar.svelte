@@ -325,7 +325,7 @@
     draftId, composerCwd, pluginCommands, onDispatch, onDispatchInBackground,
     onSent, editor: composerEl, refocusComposer,
   }));
-  const { handleSend, handleSolusCommand, stopRun, handleKeyDown, handleEditorChange, handlePaste } = commands;
+  const { handleSend, handleSolusCommand, attachResource, stopRun, handleKeyDown, handleEditorChange, handlePaste } = commands;
 
   // Initialize voice before the fold below. The fold creates its collapsed
   // derived value immediately and reads `micHoldsBarOpen` through its recording
@@ -841,6 +841,7 @@
         includeSolusCommands
         onSolusCommand={handleSolusCommand}
         onMcpPrompt={commands.mcpPrompts?.choose}
+        onResource={attachResource}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         {placeholder}

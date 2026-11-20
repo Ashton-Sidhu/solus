@@ -10,6 +10,7 @@ import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
 import { mayRunCommands, type CommandStarter } from './command-admission'
 import { cliSkipLog, cliSkipOf, type CliSkip, type RunCliSkip } from './cli-skips'
+import { resourceAgentTools } from './resource-tools'
 
 const log = createLogger('integrations', 'integration-tools.ts')
 
@@ -32,7 +33,7 @@ export function integrationGateway(): IntegrationGateway | null {
 const reportedCollisions = new Set<string>()
 
 /** How long a run waits for one server's tool list before it starts without that server. */
-const RUN_LIST_TIMEOUT_MS = 10_000
+export const RUN_LIST_TIMEOUT_MS = 10_000
 
 /** A server's tools for a run, or null when it did not list them in time; the list goes on and the next run reads it. */
 async function toolsForRun(source: IntegrationGateway, integration: Integration, personKey: string | null): Promise<UpstreamTool[] | null> {
@@ -114,10 +115,20 @@ export async function integrationToolbox(actor: Actor, projectPath?: string | nu
       included.add(integration.id)
     }
   })
-  const instructions = (await Promise.all(integrations.filter((integration) => included.has(integration.id)).map(async (integration) => {
-    const text = (await current.factsFor(integration.id, personKey)).instructions
-    return text ? { name: integration.name, slug: integration.slug, text } : null
-  }))).filter((entry): entry is IntegrationInstruction => entry !== null)
+  // A server that listed in time gives its facts: its instructions when its tools joined, and whether it has resources (§11.2).
+  const listedIntegrations = integrations.filter((_integration, index) => listed[index] !== null)
+  const facts = await Promise.all(listedIntegrations.map((integration) => current.factsFor(integration.id, personKey)))
+  const instructions: IntegrationInstruction[] = []
+  listedIntegrations.forEach((integration, index) => {
+    const text = facts[index].instructions
+    if (text && included.has(integration.id)) instructions.push({ name: integration.name, slug: integration.slug, text })
+  })
+  const resourceServers = listedIntegrations.filter((_integration, index) => facts[index].capabilities.resources)
+  for (const resourceTool of resourceAgentTools(resourceServers, current, actor.principal)) {
+    if (names.has(resourceTool.name)) continue
+    names.add(resourceTool.name)
+    tools.push(resourceTool)
+  }
   const skips = integrations.filter((integration) => included.has(integration.id)).map(cliSkipOf).filter((skip): skip is CliSkip => skip !== null)
   return { tools, instructions, cliSkip: runCliSkip(personKey, integrations.map((integration) => integration.id), skips) }
 }

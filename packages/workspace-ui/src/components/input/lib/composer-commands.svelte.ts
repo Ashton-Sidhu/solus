@@ -27,6 +27,8 @@ import {
 import { attachmentKind } from '@solus/contracts/media-types';
 import { uuid } from '@solus/contracts/uuid';
 import { attachmentUploads, uploadFileObjects } from './attachment-uploads.svelte';
+import { integrationResources } from '../../settings/integration-resources.store.svelte';
+import type { IntegrationResource } from '@solus/contracts/integration-types';
 import { checkoutPlace, runHost } from '../../../contexts/workspace/run-location';
 import { suggestionsStore } from '../../../contexts/sharing/suggestions.store.svelte';
 import { connectRequestStore } from '../../../contexts/connections/connect-request.store.svelte';
@@ -595,6 +597,16 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     }
   }
 
+  /** An MCP resource picked under `@` (mcp-first-class.md §11.3): its chip reads it on the run's host. */
+  function attachResource(resource: IntegrationResource) {
+    const { run, prompt, targetTabId, draftId } = getOptions();
+    const composerSourceId = targetTabId ?? draftId;
+    const ctx = composerSourceId
+      ? session.ctxFor(composerSourceId)
+      : session.ctxForDirectory(checkoutPlace(run)?.path ?? session.ctx.session.workingDirectory);
+    integrationResources.attach({ api: session.apiForRun(run), ctx, serverId: runHost(run) ?? LOCAL_SERVER_ID, resource, attachments: prompt.attachments });
+  }
+
   async function handlePaste(e: ClipboardEvent) {
     const { isReadOnly, run, prompt, targetTabId, draftId } = getOptions();
     if (isReadOnly) return;
@@ -694,7 +706,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     }
   }
   return {
-    sendPrompt, handleSend, handleSolusCommand, stopRun, handleKeyDown, handleEditorChange, handlePaste,
+    sendPrompt, handleSend, handleSolusCommand, attachResource, stopRun, handleKeyDown, handleEditorChange, handlePaste,
     get mcpPrompts() {
       return mcpPrompts;
     },

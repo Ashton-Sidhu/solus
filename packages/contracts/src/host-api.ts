@@ -674,6 +674,10 @@ export interface SolusAPI {
   integrationPromptList(request: IntegrationPromptListRequest): Promise<IntegrationPromptList>
   /** Owner: expands one MCP prompt with the caller's connection; the text becomes the caller's message. */
   integrationPromptGet(request: IntegrationPromptGetRequest): Promise<IntegrationPromptText>
+  /** The caller's MCP resources and templates (docs/plans/mcp-first-class.md §11.4). A list-changed notification arrives as `integration.changed` with `change: 'facts'`. */
+  integrationResourceList(request: IntegrationResourceListRequest): Promise<IntegrationResourceLists>
+  /** Reads one MCP resource as the caller and keeps its contents in the conversation's attachment store: one attachment for each content item. */
+  integrationResourceAttach(ctx: IpcContext, request: IntegrationResourceAttachRequest): Promise<Attachment[]>
   /** The caller's own connections (§4). Changes arrive as `integration.connectionChanged`. */
   integrationConnectionList(): Promise<IntegrationConnection[]>
   /** Starts the caller's sign-in to one integration. The end of a `waiting` flow arrives as `host.integrationAuthFinished`. */
