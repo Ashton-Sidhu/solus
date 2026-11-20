@@ -1,15 +1,14 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { z } from 'zod'
 import { EMPTY_SESSION_VIEW, settleFor, type SessionState, type SessionView } from '@solus/contracts/session-state'
-import type { Session, SessionMeta, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
+import type { SessionMeta, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
 import type { ResourceRole } from '@solus/contracts/sharing'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { connectedRunnerFor, savedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionHomeId } from '@solus/client-core/session-home'
 import { onSessionMetaRead, readSessionMeta } from '@solus/client-core/session-meta'
 import { afterTurnSettled, listedSessionHost, newestSessionServer, sessionHostTurnOf, withSessionHostTurn, type SessionHostTurn } from '@solus/client-core/session-heads'
-import { conversationAwaitsMachine, sessionCloudState, type SessionCloudState } from '@solus/client-core/session-cloud-state'
-import { hasSessionStarted } from '../../lib/sessionUtils'
+import { sessionCloudState, type SessionCloudState } from '@solus/client-core/session-cloud-state'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { keepEqual } from '@solus/client-core/keep-equal'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
@@ -517,21 +516,6 @@ export class SessionListStore {
       turns: this.hostTurnsFor(sessionId),
       cloud: this.cloud.headFor(sessionId),
       runningServerId: this.cloud.runningServerFor(sessionId),
-    })
-  }
-
-  /** Whether a tab of this session on `runServerId` has no conversation to show
-   *  until a machine that has it is selected (`conversationAwaitsMachine`). */
-  awaitsMachine(session: Pick<Session, 'id' | 'agentSessionId' | 'messages' | 'status' | 'loadingHistory' | 'statusCard'>, runServerId: string, isRunHostAway: boolean): boolean {
-    return conversationAwaitsMachine({
-      hasStarted: hasSessionStarted(session),
-      messageCount: session.messages.length,
-      isLoadingHistory: session.loadingHistory,
-      hasStatusCard: !!session.statusCard && session.statusCard.status !== 'done',
-      runServerId,
-      isRunHostAway,
-      runTurn: this.hostTurnsFor(session.id).find((entry) => entry.serverId === runServerId),
-      cloud: this.cloud.headFor(session.id),
     })
   }
 

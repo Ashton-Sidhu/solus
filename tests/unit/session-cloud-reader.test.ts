@@ -70,6 +70,8 @@ test('personal rows and diff use only the recorded head', async () => {
   const newer = await repositories.commit(row.repository, { expectedHead: first, message: 'unreported', entries: [{ path: 'diff/0.patch', content: 'new patch' }, { path: 'rows/0.jsonl', content: '{"role":"user","content":"new","timestamp":3}\n' }] })
   expect(newer).not.toBe(first)
   expect((await reader.page(owner, 'private')).messages.map(message => message.content)).toEqual(['first', 'done'])
+  // A client joins the turn diff to the turn the page holds.
+  expect(await reader.page(owner, 'private')).toMatchObject({ turnIndex: 0, before: null, availability: 'available' })
   expect(await reader.diff(owner, 'private', 0)).toEqual({ status: 'available', patch: 'first patch' })
   expect((await reader.page(other, 'private')).availability).toBe('not-available')
   expect(await readRow(db, scope('person', 'alice'), 'private')).toMatchObject({ head: first })
@@ -90,7 +92,7 @@ test('absent rows return typed not available', async () => {
     turns: [{ operationId: 'old', endedAt: 1, provider: 'codex', threadId: 'thread', partial: false, head: null, snapshots: [], bundle: null, hasDiff: false }] }
   const old = await repositories.commit(row.repository, { expectedHead: first, message: 'old format', entries: [{ path: 'manifest.json', content: JSON.stringify(manifest) }] })
   await db.run(sql`UPDATE session_repositories SET head = ${old} WHERE session_id = 'old'`)
-  expect(await reader.page(owner, 'old')).toMatchObject({ availability: 'not-available', unavailableTurns: [0] })
+  expect(await reader.page(owner, 'old')).toMatchObject({ availability: 'not-available', unavailableTurns: [0], turnIndex: 0 })
   expect(await reader.diff(owner, 'old', 0)).toEqual({ status: 'not-available' })
   const omittedManifest = { ...manifest, turns: [{ ...manifest.turns[0], hasRows: false, rowCount: 0 }] }
   const omitted = await repositories.commit(row.repository, { expectedHead: old, message: 'omitted rows', entries: [{ path: 'manifest.json', content: JSON.stringify(omittedManifest) }] })

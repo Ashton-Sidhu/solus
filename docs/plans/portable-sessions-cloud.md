@@ -1067,3 +1067,110 @@ passed 34/34; `session-sync-gate` and `session-push` passed 19/19.
 Package-wide server and Lab typechecks still fail on unrelated baseline errors
 such as `src/boot-server.ts(2019,37): error TS2322` and
 `scenarios/cloud/portable-sessions.ts(3,26): error TS2307: Cannot find module 'bun:sqlite'`.
+
+### Phase 5B (desktop and web) as implemented (2026-11-19)
+
+Desktop and web (`packages/workspace-ui/`, `packages/client-core/`). Mobile is
+not changed. A signed-in person opens a session that no online host shows, and
+the usual conversation surface shows it read only. The rows and the turn diffs
+come from the Solus API, which reads the session repository at its recorded
+head (Phase 5A). A pick in Run on and a prompt continue the session as before;
+that flow is not changed.
+
+- **Source rule** (`sessionCloudReadSource`, `client-core/session-cloud-read.ts`).
+  An online run host shows the session itself, unless the cloud has turns, the
+  run host has none, and it did not run the last turn (the rule of
+  `conversationAwaitsMachine`). Then the client reads the cloud copy. With an
+  offline run host the client reads the cloud copy when the cloud has turns;
+  else it says why: `not-signed-in`, `sync-off` (the cloud list answered and
+  does not name the session), `empty` (no turn commit yet), or `listing`
+  (shown as loading).
+- **The store** (`CloudTranscriptStore`,
+  `contexts/workspace/cloud-transcript.store.svelte.ts`, on the workspace as
+  `cloudTranscripts`). `open` reads the newest page from the Solus API
+  connection that holds the session's facts (`CloudSessions.apiServerFor`) and
+  builds it with `loadSessionTranscript`, as a host's page is built. The rows go
+  into the tab's own messages with the page cursor, so the one conversation
+  renderer draws them. A newest page with no rows is passed over (at most five
+  pages). Older pages read through the tab's history paging:
+  `WorkspaceLifecycleStore` asks `cloudHistory(session)` and gives the page
+  and the Solus API id to `loadSessionTranscript`. Each read checks that its
+  copy and its tab are the ones it started for. A host's rows that arrive first
+  win, and `release` drops every read in flight. The store reads only when the
+  conversation is on screen.
+- **States** (`sessionCloudReadView`, words in `session-cloud-read-text.ts`).
+  With no rows the pane shows loading, empty, error (with **Try again**), not
+  signed in, or sync off (`SessionCloudRead`, `placement="pane"`). Over rows, one
+  line at the end of the transcript says the copy is read only, that tool
+  output is not in it, and how many older turns have no rows. Stale has two
+  reasons. `head-changed`: the cloud head is not the head the copy was read at
+  (`session.headChanged`); **Show newer turns** reads the copy again.
+  `host-online`: a host that holds the session is online; **Show it** loads that
+  host's conversation. A live turn in the tab, or a row newer than the copy,
+  clears both: the run host holds the session then, and the older rows on
+  screen are the same turns. Each action returns focus to the input bar.
+- **Live session takes the copy's place.** `RunHostChanges` treats a tab that
+  shows the copy as one that shows no conversation: `hostReady` prepares it,
+  and when the run host is current `adoptRunHost` releases the copy, clears the
+  rows, and loads the host's conversation into the same tab
+  (`resumeSession(meta, { intoTabId })`). A restored tab whose host comes back
+  releases the copy when its host rows land (`hydrateTab`). There is no page
+  reload.
+- **Turn diffs.** A turn of the copy keeps its repository index and start time.
+  `TurnChangesSummary` (split out of `ConversationView`) joins it to its
+  transcript turn by start time (`turnSnapshotFor`, now generic), and shows the
+  run host's checkpoint first. `CloudTurnDiff` reads `sessionTurnDiff` when the
+  person opens it, once, and draws each file with the diff card header and the
+  lazy `Diff`. `too-large` gives the file count and line counts and says to open
+  the session on a machine; `not-available`, an empty patch, and a failed read
+  each have their own words.
+
+#### Contract changes
+
+1. **`SessionHistoryPage.turnIndex?`** — the repository's index of the one turn
+   a cloud page holds. `SessionCloudReader.page` sets it (also on a
+   `not-available` page) and the Solus API `loadSessionPage` passes it. Without
+   it a client cannot join a page to its turn diff; the cursor is opaque.
+2. **`SolusApiClient.request` fills every path parameter.** It filled only the
+   first, so `/sessions/:sessionId/turns/:turnIndex/diff` could not be called.
+   `params` names the others; `id` still fills the first.
+3. **`sessionTurnDiff(sessionId, turnIndex)`** on the host API, the Solus API
+   only (`client-core/workspace-records.ts`).
+
+#### Client-core for mobile
+
+- `session-cloud-read.ts`: `SessionCloudReadSource`, `sessionCloudReadSource(input)`,
+  `SessionCloudReadProgress`, `SessionCloudReadView`, `sessionCloudReadView(input)`,
+  `SessionCloudPage`, `readSessionCloudPage(api, request)`, `SessionTurnDiffView`.
+- `session-cloud-read-text.ts`: `SessionCloudReadText`, `sessionCloudReadText(view, hostLabel)`,
+  `sessionTurnDiffText(view)`.
+- `workspace-records.ts`: `sessionTurnDiff(sessionId, turnIndex)`.
+
+#### Decisions
+
+1. **The copy lives in the tab's messages**, not in a second list. Find, the
+   minimap, history paging, and the virtualizer work as they do for a host's
+   rows. The store keeps only the read state, the turns, and the diffs.
+2. **One turn for each page.** The Solus API answers one turn for each call;
+   the conversation's backfill reads more while the screen is not full.
+3. **"Sync off" means the cloud list answered without the session.** The
+   client cannot read the setting of an offline host. The words say the
+   machine that ran it had sync off, and what to do.
+4. **Not signed in shows only with an offline run host**, in the pane that was
+   empty before. An online host still shows its own conversation.
+5. **The read-only line sits at the end of the transcript**, where the reader
+   is, not above the first loaded turn.
+
+#### Limits
+
+- Tool details (`loadSessionToolInputs`) read from the API, which reads only
+  the newest turn. Details of an older turn say "Tool details are no longer
+  available in this history."
+- The diff shows unified only, with no file tree; the session's total diff
+  stays a host feature (design §6.2).
+- `ConversationView` still asks the run host for its turn snapshots; the run
+  host has none for the copy, so the cloud card shows.
+- A stale `host-online` line stays until the host's conversation loads or the
+  person chooses **Show it**; an older host that cannot prepare does not load
+  it by itself.
+- No person checked the screens; the rules have unit tests only.

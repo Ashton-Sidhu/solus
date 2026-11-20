@@ -6,7 +6,7 @@ import type { WorkspaceSessionSearchResult, WorkspaceWork } from '@solus/contrac
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 
-type RecordMethods = Pick<SolusAPI, 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordGet' | 'sessionRecordSearch' | 'sessionCloudList' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
+type RecordMethods = Pick<SolusAPI, 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordGet' | 'sessionRecordSearch' | 'sessionCloudList' | 'sessionTurnDiff' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
 type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank' | 'reason' | 'target'>
 
 /** A record this host does not have. `MOVED` is not absence: the record is on
@@ -89,6 +89,7 @@ export function workspaceRecordMethods(client: SolusApiClient): RecordMethods {
       }
     },
     sessionCloudList: async () => (await client.request('listMySessions')).items,
+    sessionTurnDiff: (sessionId, turnIndex) => client.request('sessionTurnDiff', { id: sessionId, params: { turnIndex: String(turnIndex) } }),
     // A session's home keeps its list state and its pull requests (docs/plans/session-archive.md).
     sessionUpdate: (sessionId, change) => client.request('updateSession', { id: sessionId, body: change }),
     async sessionPullRequests(sessionId) {

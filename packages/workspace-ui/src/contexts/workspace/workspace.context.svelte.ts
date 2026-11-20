@@ -3,6 +3,7 @@ import { hosts } from '../hosts/hosts.svelte'
 import { SessionQueueController } from './session-queue.store.svelte'
 import { createAppContext } from '../app/create-app-context'
 import { ToolHistoryStore } from './tool-history.store'
+import { CloudTranscriptStore, workspaceCloudTranscriptDeps } from './cloud-transcript.store.svelte'
 import { recordHomeOf } from './machine-references'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
@@ -189,6 +190,8 @@ export class WorkspaceContext implements SurfaceContext {
   /** The narrow context a record surface reads is this workspace itself. */
   get workspace(): WorkspaceContext { return this }
   readonly toolHistory = new ToolHistoryStore()
+  /** The cloud copy of each session that no host shows (portable-sessions-cloud, Phase 5B). */
+  readonly cloudTranscripts = new CloudTranscriptStore(workspaceCloudTranscriptDeps(this))
   readonly presence = presenceStore
   registry: TabRegistry
   readonly controls: SessionControls
@@ -357,6 +360,7 @@ export class WorkspaceContext implements SurfaceContext {
       apiFor: (tabId) => this.apiFor(tabId),
       serverIdFor: (tabId) => this.serverIdFor(tabId),
       loadTranscript: (args) => loadSessionTranscript(this, args),
+      cloudHistory: (session) => this.cloudTranscripts.reader(session),
       rebuildAgentConversations: (session) => this.eventReducer.rebuildAgentConversations(session),
     })
     this.ui = new WorkspaceUiStore()

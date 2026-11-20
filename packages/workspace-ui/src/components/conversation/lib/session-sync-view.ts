@@ -27,6 +27,13 @@ export function sessionSyncNames(input: {
   }
 }
 
+/** A host's name. The saved list names a host that is offline too, which is
+ *  when a card needs it most. */
+export function savedHostLabel(serverId: string): string | undefined {
+  return loadServers().find((server) => server.id === serverId)?.label
+    ?? serverConnections.connectionFor(serverId)?.target.label
+}
+
 /** A status card as a session keeps it: a sync card names its hosts and agent
  *  when it arrives; every other card is kept as it came. */
 export function presentedStatusCard(session: Pick<Session, 'id' | 'run'>, card: StatusCardState): StatusCardState {
@@ -34,9 +41,7 @@ export function presentedStatusCard(session: Pick<Session, 'id' | 'run'>, card: 
   return sessionSyncCardView(card, sessionSyncNames({
     runServerId,
     newestServerId: sessionListStore.newestHostFor(session.id, runServerId),
-    // The saved list names a host that is offline too, which is when the card needs it most.
-    labelOf: (serverId) => loadServers().find((server) => server.id === serverId)?.label
-      ?? serverConnections.connectionFor(serverId)?.target.label,
+    labelOf: savedHostLabel,
     provider: agentLabel(session.run.provider ?? 'claude-code'),
   }))
 }

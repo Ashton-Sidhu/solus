@@ -7,7 +7,8 @@ type Operations = typeof solusApiOperations
 type ResponseFor<K extends SolusApiOperation> = Operations[K] extends { response: z.ZodType<infer T> } ? T : void
 type BodyFor<K extends SolusApiOperation> = Operations[K] extends { body: z.ZodType<infer T> } ? T : never
 type RequestInput<K extends SolusApiOperation> = {
-  id?: string; query?: z.input<Operations[K]['query']>; body?: BodyFor<K>; version?: string; key?: string
+  /** The first path parameter. `params` names any other, as `{ turnIndex: '3' }`. */
+  id?: string; params?: Readonly<Record<string, string>>; query?: z.input<Operations[K]['query']>; body?: BodyFor<K>; version?: string; key?: string
 }
 
 /** How requests reach the API: a client's socket (`solusApiRequest`), or `SolusApiHttp`. */
@@ -44,7 +45,12 @@ export class SolusApiClient {
     const operation = solusApiOperations[operationId]
     const key = this.transport.contextKey()
     const query = operation.query.parse(input.query ?? {})
-    const path = operation.path.replace(/:[A-Za-z]+/, () => encodeURIComponent(input.id ?? ''))
+    let isFirst = true
+    const path = operation.path.replace(/:([A-Za-z]+)/g, (_match, name: string) => {
+      const value = input.params?.[name] ?? (isFirst ? input.id : undefined)
+      isFirst = false
+      return encodeURIComponent(value ?? '')
+    })
     // The origin only lets the URL encode the path and query; the request names the route alone.
     const url = new URL(path, 'http://solus.invalid')
     for (const [name, value] of Object.entries(query)) if (value !== undefined) url.searchParams.set(name, String(value))

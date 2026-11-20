@@ -35,7 +35,7 @@ const ON_A = folderLocation({ serverId: 'host-a', path: '/a/solus' })
 const ON_B = openFolder(ON_A, { serverId: 'host-b', path: '/b/solus' })
 const REPOSITORY: DispatchRepository = { cloneUrl: 'https://github.com/solus-sh/solus.git' }
 
-function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareResult?: SessionPrepareResult; cloud?: SessionCloudHead; runningServerId?: string } = {}) {
+function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareResult?: SessionPrepareResult; cloud?: SessionCloudHead; runningServerId?: string; showsCloudCopy?: boolean } = {}) {
   let turns: readonly SessionHostTurn[] = opts.turns ?? [{ serverId: 'host-a', head: 'head-3', syncedTurn: 3 }]
   const session = {
     id: opts.forked ? 'fork-1' : 'session-1',
@@ -55,6 +55,8 @@ function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareRes
   const refreshed: string[] = []
   const pushRefusals: string[] = []
   const resumedInto: string[] = []
+  const releasedCopies: string[] = []
+  let showsCloudCopy = !!opts.showsCloudCopy
   const workspace = {
     tabOrder: ['tab-1'],
     sessionFor: () => session,
@@ -66,7 +68,11 @@ function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareRes
     refreshStartTarget: () => {},
     tabIdForSession: () => 'tab-1',
     opening: {
-      resumeSession: async (meta: SessionMeta, resume: { intoTabId: string }) => { resumedInto.push(`${meta.serverId}:${resume.intoTabId}`); return resume.intoTabId },
+      resumeSession: async (meta: SessionMeta, resume: { intoTabId: string }) => { resumedInto.push(`${meta.serverId}:${resume.intoTabId}:${session.messages.length}`); return resume.intoTabId },
+    },
+    cloudTranscripts: {
+      shows: () => showsCloudCopy,
+      release: (sessionId: string) => { releasedCopies.push(sessionId); showsCloudCopy = false },
     },
   }
   const changes = new RunHostChanges(workspace, (tabId) => { refreshed.push(tabId) }, {
@@ -90,7 +96,7 @@ function harness(opts: { turns?: SessionHostTurn[]; forked?: boolean; prepareRes
     repoKeyOf: () => 'github.com/solus-sh/solus',
     repository: async () => ({ ...REPOSITORY }),
   })
-  return { changes, session, prepared, watched, reads, metaByHost, refreshed, pushRefusals, resumedInto, setTurns: (next: SessionHostTurn[]) => { turns = next } }
+  return { changes, session, prepared, watched, reads, metaByHost, refreshed, pushRefusals, resumedInto, releasedCopies, setTurns: (next: SessionHostTurn[]) => { turns = next } }
 }
 
 async function settle(): Promise<void> {
@@ -256,7 +262,7 @@ describe('the cloud as the source', () => {
     metaByHost.set('host-b', { sessionId: 'session-1', serverId: 'host-b', cwd: '/b/solus', head: CLOUD_HEAD, syncedTurn: 5 } as SessionMeta)
     changes.change('tab-1', ON_B)
     await settle()
-    expect(resumedInto).toEqual(['host-b:tab-1'])
+    expect(resumedInto).toEqual(['host-b:tab-1:0'])
   })
 
   test('a prompt while another connected host runs a turn moves the tab there first', () => {
@@ -276,7 +282,43 @@ describe('the cloud as the source', () => {
     await changes.useNewerCopy('tab-1')
     await settle()
     expect(prepared[0]?.request).toMatchObject({ sessionId: 'session-1', knownHead: CLOUD_HEAD, sourceHostId: 'account-studio' })
-    expect(resumedInto).toEqual(['host-a:tab-1'])
+    expect(resumedInto).toEqual(['host-a:tab-1:0'])
     expect(pushRefusals).toEqual(['host-a:session-1:false'])
+  })
+})
+
+// Read-only open (portable-sessions-cloud, Phase 5B): the tab shows the cloud copy.
+describe('a tab that shows the cloud copy', () => {
+  test('a current run host replaces the copy with its own conversation', async () => {
+    // WHY: when a host that holds the session is ready, the live session takes
+    // the copy's place in the same tab, with no reload and no second history.
+    const { changes, metaByHost, resumedInto, releasedCopies } = harness({ prepareResult: { state: 'current', head: CLOUD_HEAD } as SessionPrepareResult, cloud: CLOUD, showsCloudCopy: true })
+    metaByHost.set('host-b', { sessionId: 'session-1', serverId: 'host-b', cwd: '/b/solus', head: CLOUD_HEAD, syncedTurn: 5 } as SessionMeta)
+    changes.change('tab-1', ON_B)
+    await settle()
+    expect(releasedCopies).toEqual(['session-1'])
+    // The copy's rows went before the host's conversation loaded.
+    expect(resumedInto).toEqual(['host-b:tab-1:0'])
+  })
+
+  test('a host that comes back prepares a tab that shows the copy', async () => {
+    // WHY: the copy is not the host's conversation; a returning host must load its own.
+    const shows = harness({ cloud: CLOUD, showsCloudCopy: true })
+    shows.changes.hostReady('host-a')
+    await settle()
+    expect(shows.prepared.map((entry) => entry.serverId)).toEqual(['host-a'])
+    const loaded = harness({ cloud: CLOUD })
+    loaded.changes.hostReady('host-a')
+    await settle()
+    expect(loaded.prepared).toEqual([])
+  })
+
+  test('"Show it" loads the run host conversation in place of the copy', async () => {
+    const { changes, metaByHost, resumedInto, releasedCopies } = harness({ showsCloudCopy: true })
+    metaByHost.set('host-a', { sessionId: 'session-1', serverId: 'host-a', cwd: '/a/solus', head: 'head-3', syncedTurn: 3 } as SessionMeta)
+    changes.showRunHostConversation('tab-1')
+    await settle()
+    expect(releasedCopies).toEqual(['session-1'])
+    expect(resumedInto).toEqual(['host-a:tab-1:0'])
   })
 })

@@ -111,7 +111,7 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
       ? await readTranscriptPage(scope, request.sessionId, request.turnLimit, cursor.before)
       : await deps.sessionReader.page(ctx.principal, request.sessionId, cursor.before)
     const { messages, before } = mergePageActivity(page, await sessionActivity(ctx.principal, request.sessionId, pageWindow(page, cursor.at)), cursor.at)
-    return { messages: deferSessionToolInputs(messages), before, availability: page.availability, unavailableTurns: page.unavailableTurns }
+    return { messages: deferSessionToolInputs(messages), before, availability: page.availability, unavailableTurns: page.unavailableTurns, turnIndex: page.turnIndex }
   })
   server.register('loadSessionToolInputs', async ([request], ctx) => {
     if (request.keys.length > MAX_SESSION_TOOL_INPUTS || request.keys.some(key => !/^[a-f0-9]{64}$/.test(key))) throw new Error('Invalid session tool input keys')

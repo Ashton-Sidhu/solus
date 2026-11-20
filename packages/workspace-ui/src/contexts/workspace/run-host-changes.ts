@@ -14,6 +14,8 @@ export interface RunHostWorkspace extends RunOnWorkspace {
   tabIdForSession(sessionId: string): string | undefined
   /** Loads a session's conversation into a tab that shows none of it yet. */
   opening?: { resumeSession(meta: SessionMeta, opts: { intoTabId: string }): Promise<string> }
+  /** The cloud copy a tab shows while no host shows its session (Phase 5B). */
+  cloudTranscripts?: { shows(sessionId: string): boolean; release(sessionId: string): void }
 }
 
 /** The hosts and facts the run host changes use. Replaced in tests. */
@@ -124,8 +126,19 @@ export class RunHostChanges {
   hostReady(serverId: string): void {
     for (const tabId of this.workspace.tabOrder) {
       const session = this.workspace.sessionFor(tabId)
-      if (session && this.deps.resolveId(runHost(session.run)) === serverId && showsNoConversation(session)) void this.prepare(tabId)
+      if (session && this.deps.resolveId(runHost(session.run)) === serverId && this.awaitsRunHost(session)) void this.prepare(tabId)
     }
+  }
+
+  /** The tab shows no conversation from a host: nothing, or the cloud copy. */
+  private awaitsRunHost(session: Session): boolean {
+    return showsNoConversation(session) || !!this.workspace.cloudTranscripts?.shows(session.id)
+  }
+
+  /** "Show it" on a cloud copy: the run host has the session now, so its conversation takes the copy's place. */
+  showRunHostConversation(tabId: string): void {
+    const session = this.workspace.sessionFor(tabId)
+    if (session) void this.adoptRunHost(tabId, this.deps.resolveId(runHost(session.run)))
   }
 
   /** Where the tab's run host syncs its session from (plan §7.1, with the cloud). */
@@ -241,7 +254,8 @@ export class RunHostChanges {
     if (reload) this.deps.notePushRefused(serverId, session.id, false)
     // A conversation that came from the cloud with no host, or that this host
     // replaced with the newer copy, is read from the host that has it now.
-    if (this.workspace.opening && (reload || showsNoConversation(session))) {
+    if (this.workspace.opening && (reload || this.awaitsRunHost(session))) {
+      this.workspace.cloudTranscripts?.release(session.id)
       session.messages.splice(0, session.messages.length)
       await this.workspace.opening.resumeSession(meta, { intoTabId: tabId })
         .catch((error) => console.warn('[Solus] The conversation did not load from the run host.', error))
