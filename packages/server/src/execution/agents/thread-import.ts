@@ -17,6 +17,8 @@ export interface ThreadImportRequest {
   seat?: TurnSeat
   /** The selected private provider instance, when preflight chose one. */
   providerRuntime?: ProviderRuntime
+  /** The person selected the newer cloud copy after a refused local push. */
+  replaceConflicts?: boolean
 }
 export interface ThreadImportResult {
   files: Array<{ relativePath: string; status: 'written' | 'appended' | 'identical' | 'conflict'; bytes: number }>
@@ -59,7 +61,7 @@ async function isPrefix(source: string, destination: string, length: number, sig
 }
 
 /** Refuse conflicts: a sidecar in the provider folder can be mistaken for a thread file. */
-export async function importThreadFiles(root: string, files: ThreadImportFile[], signal?: AbortSignal): Promise<ThreadImportResult> {
+export async function importThreadFiles(root: string, files: ThreadImportFile[], signal?: AbortSignal, replaceConflicts = false): Promise<ThreadImportResult> {
   const result: ThreadImportResult = { files: [], bytesWritten: 0 }
   for (const file of files) {
     signal?.throwIfAborted()
@@ -74,7 +76,18 @@ export async function importThreadFiles(root: string, files: ThreadImportFile[],
     if (old && !old.isFile()) throw new Error(`Thread destination is not a file: ${file.relativePath}`)
     if (old) {
       const matches = old.size <= sourceStat.size && await isPrefix(file.path, destination, old.size, signal)
-      if (!matches) { result.files.push({ relativePath: file.relativePath, status: 'conflict', bytes: 0 }); continue }
+      if (!matches) {
+        if (!replaceConflicts) { result.files.push({ relativePath: file.relativePath, status: 'conflict', bytes: 0 }); continue }
+        const temporary = join(dirname(destination), `.${randomUUID()}.tmp`)
+        try {
+          await pipeline(createReadStream(file.path), createWriteStream(temporary, { flags: 'wx', mode: 0o600 }), { signal })
+          signal?.throwIfAborted()
+          await rename(temporary, destination)
+        } finally { await rm(temporary, { force: true }) }
+        result.files.push({ relativePath: file.relativePath, status: 'written', bytes: sourceStat.size })
+        result.bytesWritten += sourceStat.size
+        continue
+      }
       if (old.size === sourceStat.size) { result.files.push({ relativePath: file.relativePath, status: 'identical', bytes: 0 }); continue }
       await pipeline(createReadStream(file.path, { start: old.size }), createWriteStream(destination, { flags: 'a', mode: 0o600 }), { signal })
       const bytes = sourceStat.size - old.size

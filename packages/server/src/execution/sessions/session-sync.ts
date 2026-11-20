@@ -224,7 +224,7 @@ export class SessionSync {
         }
         const backend = this.rt.backendFor(member.provider)
         if (!backend.importThread) throw new SessionSyncError('provider-unavailable', `${member.provider} cannot import its thread.`)
-        const result = await backend.importThread({ sessionId, threadId: member.threadId, files, cwd, signal, seat: seats.get(member.provider) ?? undefined })
+        const result = await backend.importThread({ sessionId, threadId: member.threadId, files, cwd, signal, seat: seats.get(member.provider) ?? undefined, replaceConflicts: wasRefused })
         if (result.files.some((file) => file.status === 'conflict')) throw new SessionSyncError('thread-conflict', `Thread ${member.threadId} differs on this host.`)
       }
       signal.throwIfAborted()

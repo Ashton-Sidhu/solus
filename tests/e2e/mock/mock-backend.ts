@@ -664,7 +664,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   async importThread(request: ThreadImportRequest): Promise<ThreadImportResult> {
-    return importThreadFiles(join(solusDir(), 'lab', 'threads'), request.files, request.signal)
+    return importThreadFiles(join(solusDir(), 'lab', 'threads'), request.files, request.signal, request.replaceConflicts)
   }
 
   // The mock keeps no transcript on disk unless a prompt asked for one, so a

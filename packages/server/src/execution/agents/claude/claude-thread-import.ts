@@ -16,5 +16,5 @@ export async function importClaudeThread(
     if (file.relativePath !== main && !file.relativePath.startsWith(`${request.threadId}/`)) throw new Error(`File is outside Claude thread: ${file.relativePath}`)
   }
   ensureImportedSessionLineage({ sessionId: request.sessionId, provider: 'claude-code', threadId: request.threadId, cwd })
-  return writeFiles(root, request.files, request.signal)
+  return writeFiles(root, request.files, request.signal, request.replaceConflicts)
 }

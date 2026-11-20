@@ -8,7 +8,7 @@ const log = createLogger('main', 'session-sync-prompt.ts')
 /** Accept a behind-host prompt now and send the same prompt after sync. */
 export function queuePromptAfterSessionSync(server: SolusServer, runtime: SessionRuntime, ctx: IpcContext, options: PromptOptions, caller: HandlerCtx): boolean {
   const forkSessionId = ctx.session.sessionId
-  const sourceSessionId = options.forked && options.forkSourceSessionId ? options.forkSourceSessionId : undefined
+  const sourceSessionId = ctx.session.forked && options.forkSourceSessionId ? options.forkSourceSessionId : undefined
   const sessionId = sourceSessionId ?? forkSessionId
   const sync = runtime.sessionSync
   if (!sync || (!sync.isRunning(sessionId) && (!options.knownHead || sync.localHead(sessionId) === options.knownHead))) return false

@@ -1032,3 +1032,38 @@ Evidence: `.solus-local/lab-cloud/evidence/2026-11-20T04-21-22-553Z/cloud.log`.
 The Lab startup command was `SOLUS_CLOUD_DIR=/Users/sidhu/solus-cloud
 SOLUS_SESSION_STORAGE=local-git bun lab up --cloud`. Its owned child processes
 were stopped by the Lab's error cleanup.
+
+### Lab rerun results (2026-11-20)
+
+`bun install` restored `node_modules/expo/tsconfig.base.json`. The local cloud
+then started. With `SOLUS_SESSION_STORAGE=local-git`, the final real-process
+Lab run passed **26/26 checks**. Evidence:
+`.solus-local/lab-cloud/evidence/run-2026-11-20T04-53-12-008Z/`.
+
+| Step | Result |
+|---|---|
+| A commits and publishes turn 1 | PASS: API head and host id; A has one turn. |
+| B prepares and resumes after A stops | PASS: same session id, tree, provider file, and resume thread; API has two turns. |
+| A restarts, syncs, and runs turn 3 | PASS: API has three turns and A's host id. |
+| B forks from A's newest turn | PASS: source sync then a distinct fork session id. |
+| Cloud sync off, B transfers from online A | PASS: B has A's repository head. |
+| Cloud sync off, A stopped | PASS: client gets typed `source-offline`. |
+| Two hosts write from the same head | PASS: B publishes; A's later push records B's head as refused; a further A prompt gets `SESSION_DIVERGED`. |
+| Fork and Use the newer copy | PASS: Fork makes a distinct local repository; A then adopts B's cloud head. |
+| Organization member with read standing only | NOT RUN: cloud Lab seeds `alice` as owner and `bob` as member, but has no persona or fixture that grants read-only standing on a published organization session. |
+
+The Lab now uses the existing host introduction RPCs to give each host a
+verified identity key. Account reach uses that key to prove the local HTTP
+route before it sends a reach token. The Lab also keeps the ordinary listener
+port after a restart, so its cloud directory route stays valid. The fork sync
+gate now reads `forked` from session context, where clients put it. After a
+refused push, explicit newer-copy recovery replaces a divergent provider
+thread; ordinary imports still refuse a conflict. The refused-push fixture
+uses the host's cloud-sync setting as its switch, then restarts A to resume
+its pending push. No separate network switch was needed.
+
+Focused unit tests: `session-sync-prompt`, `remote-hosts`, and `thread-import`
+passed 34/34; `session-sync-gate` and `session-push` passed 19/19.
+Package-wide server and Lab typechecks still fail on unrelated baseline errors
+such as `src/boot-server.ts(2019,37): error TS2322` and
+`scenarios/cloud/portable-sessions.ts(3,26): error TS2307: Cannot find module 'bun:sqlite'`.

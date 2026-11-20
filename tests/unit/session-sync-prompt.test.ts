@@ -75,8 +75,8 @@ test('a current fork source starts without sync', () => {
     prepare: () => { prepares++ },
   } as SessionSync
   const runtime = { sessionSync: sync } as SessionRuntime
-  const ctx = { session: { sessionId: 'fork' } } as IpcContext
-  const options = { prompt: 'fork here', forked: true, forkSourceSessionId: 'source', knownHead: 'source-head' }
+  const ctx = { session: { sessionId: 'fork', forked: true } } as IpcContext
+  const options = { prompt: 'fork here', forkSourceSessionId: 'source', knownHead: 'source-head' }
   expect(queuePromptAfterSessionSync({} as SolusServer, runtime, ctx, options, {} as HandlerCtx)).toBe(false)
   expect(prepares).toBe(0)
 })
@@ -98,8 +98,8 @@ test('a behind fork source syncs and then sends the fork prompt', async () => {
     ;[resumed, sent] = args
     finish()
   } } as SolusServer
-  const ctx = { session: { sessionId: 'fork', workingDirectory: '/fork' } } as IpcContext
-  const options = { prompt: 'fork here', forked: true, forkSourceSessionId: 'source', knownHead: 'source-head', sourceHostId: 'host-a' }
+  const ctx = { session: { sessionId: 'fork', forked: true, workingDirectory: '/fork' } } as IpcContext
+  const options = { prompt: 'fork here', forkSourceSessionId: 'source', knownHead: 'source-head', sourceHostId: 'host-a' }
   expect(queuePromptAfterSessionSync(server, runtime, ctx, options, {} as HandlerCtx)).toBe(true)
   await delivered
   expect(preparedSessionId).toBe('source')
@@ -125,8 +125,8 @@ test('a failed source sync reports its typed reason on the fork', async () => {
     finish()
   } } as SessionRuntime
   const server = { handle: async () => { handled = true } } as SolusServer
-  expect(queuePromptAfterSessionSync(server, runtime, { session: { sessionId: 'fork' } } as IpcContext,
-    { prompt: 'fork here', forked: true, forkSourceSessionId: 'source', knownHead: 'source-head' }, {} as HandlerCtx)).toBe(true)
+  expect(queuePromptAfterSessionSync(server, runtime, { session: { sessionId: 'fork', forked: true } } as IpcContext,
+    { prompt: 'fork here', forkSourceSessionId: 'source', knownHead: 'source-head' }, {} as HandlerCtx)).toBe(true)
   await delivered
   expect(publishedSessionId).toBe('fork')
   expect(publishedReason).toBe('source-offline')

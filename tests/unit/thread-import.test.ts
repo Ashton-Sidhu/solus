@@ -102,6 +102,15 @@ describe('thread import', () => {
     expect(readFileSync(destination, 'utf8')).toBe('local')
   })
 
+  // WHY: after a refused push, choosing the newer cloud copy must install its
+  // provider thread so the next turn resumes the accepted history.
+  test('an explicit newer-copy import replaces a divergent thread', async () => {
+    const dir = fixture(), root = join(dir, 'out'); mkdirSync(root)
+    const path = source(dir, 'cloud'), destination = join(root, 'file'); writeFileSync(destination, 'local')
+    expect((await importThreadFiles(root, [{ relativePath: 'file', path }], undefined, true)).files[0].status).toBe('written')
+    expect(readFileSync(destination, 'utf8')).toBe('cloud')
+  })
+
   // WHY: A manifest comes from another host, so it cannot name files outside the provider home.
   test('hostile manifest paths are refused', async () => {
     const root = fixture()
