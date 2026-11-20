@@ -2,11 +2,13 @@ import type { SessionPrepareResult } from '@solus/contracts/rpc'
 import type { PromptOptions, SessionMeta } from '@solus/contracts/types'
 import {
   afterTurnSettled,
-  newestSessionHost,
+  newestSessionServer,
   sessionHostTurnOf,
-  sessionSyncSource,
+  sessionSyncOrigin,
   withSessionHostTurn,
+  type SessionCloudHead,
   type SessionHostTurn,
+  type SessionSyncOrigin,
 } from '@solus/client-core/session-heads'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
@@ -16,7 +18,8 @@ import type { HostConnection } from '../hosts/host-connections'
  * (docs/plans/portable-sessions.md §10). No host owns a session: this keeps
  * what each host holds of each session's repository (its head and turn count),
  * says what a prompt carries, and starts a sync on a host. The facts come from
- * reads that already happen and from turns this device saw end.
+ * reads that already happen and from turns this device saw end. With the cloud,
+ * the newest head can be the cloud's (docs/plans/portable-sessions-cloud.md §5.4).
  */
 
 /** What a prompt carries for the run host to sync before its turn (plan §7.1). */
@@ -25,6 +28,8 @@ export type SessionSyncFields = Pick<PromptOptions, 'knownHead' | 'sourceHostId'
 export interface SessionRunHostsDeps {
   /** The host's connection when it is ready now; null never dials and never waits. */
   readyConnection(hostId: string): HostConnection | null
+  /** What the cloud knows of a session; null signed out or not in the cloud. */
+  cloudHeadFor?(sessionId: string): SessionCloudHead | null
 }
 
 const NO_TURNS: readonly SessionHostTurn[] = []
@@ -40,13 +45,13 @@ export class SessionRunHosts {
   /** What each host that answered holds of this session's repository. */
   turnsFor = (sessionId: string): readonly SessionHostTurn[] => this.turnsBySession.get(sessionId) ?? NO_TURNS
 
-  /** The host that has the newest turn of a session; a tie goes to `preferHostId`. */
+  /** The host that has the newest turn of a session, the cloud included; a tie goes to `preferHostId`. */
   newestHostOf(sessionId: string, preferHostId?: string | null): string | null {
-    return newestSessionHost(this.turnsFor(sessionId), preferHostId)?.serverId ?? null
+    return newestSessionServer(this.turnsFor(sessionId), preferHostId, this.cloudHeadFor(sessionId))
   }
 
-  /** A host answered a session's info: keep its head and turn count. */
-  noteMeta(hostId: string, meta: Pick<SessionMeta, 'sessionId' | 'head' | 'syncedTurn'> | null | undefined): void {
+  /** A host answered a session's info: keep its head, turn count, and whether the cloud refused its push. */
+  noteMeta(hostId: string, meta: Pick<SessionMeta, 'sessionId' | 'head' | 'syncedTurn' | 'pushRefused'> | null | undefined): void {
     const turn = sessionHostTurnOf(hostId, meta)
     if (!turn || !meta) return
     this.write(meta.sessionId, withSessionHostTurn(this.turnsFor(meta.sessionId), turn))
@@ -54,14 +59,14 @@ export class SessionRunHosts {
 
   /** A turn of this session ended on `hostId`: that host has its newest turn now. */
   noteTurnSettled(hostId: string, sessionId: string): void {
-    this.write(sessionId, afterTurnSettled(this.turnsFor(sessionId), hostId))
+    this.write(sessionId, afterTurnSettled(this.turnsFor(sessionId), hostId, this.cloudHeadFor(sessionId)?.syncedTurn))
   }
 
-  /** The newest head and the host that has it, when another host is ahead of
-   *  `runHostId`; else nothing, so the host starts the turn at once. No request. */
+  /** The newest head and the host that has it, when another host or the cloud
+   *  is ahead of `runHostId`; else nothing, so the host starts the turn at once. No request. */
   promptFields(sessionId: string, runHostId: string): SessionSyncFields {
-    const source = sessionSyncSource(this.turnsFor(sessionId), runHostId)
-    return source ? { knownHead: source.knownHead, sourceHostId: this.hostRef(source.sourceServerId) } : {}
+    const origin = this.originFor(sessionId, runHostId)
+    return origin ? this.syncFields(origin) : {}
   }
 
   /**
@@ -89,7 +94,7 @@ export class SessionRunHosts {
    * nothing is asked.
    */
   opened(sessionId: string, runHostId: string, previousHostId: string | null): Promise<SessionPrepareResult | null> {
-    if (!previousHostId && !sessionSyncSource(this.turnsFor(sessionId), runHostId)) return Promise.resolve(null)
+    if (!previousHostId && !this.originFor(sessionId, runHostId)) return Promise.resolve(null)
     return this.prepare(sessionId, runHostId, previousHostId)
   }
 
@@ -106,17 +111,45 @@ export class SessionRunHosts {
       const answer = await this.deps.readyConnection(newest)?.api.getSessionInfos([sessionId]).catch(() => null)
       this.noteMeta(newest, answer?.[0])
     }
-    const turns = this.turnsFor(sessionId)
-    const source = sessionSyncSource(turns, runHostId)
-    if (!source) {
-      const run = turns.find((turn) => turn.serverId === runHostId)
+    const origin = this.originFor(sessionId, runHostId)
+    if (!origin) {
+      const run = this.turnsFor(sessionId).find((turn) => turn.serverId === runHostId)
       return run && this.newestHostOf(sessionId, runHostId) === runHostId ? { state: 'current', head: run.head } : null
     }
+    return this.requestPrepare(sessionId, runHostId, origin)
+  }
+
+  /**
+   * "Use the newer copy" after a refused push (design answer 3.4): the run
+   * host syncs to the cloud head. Its own turns stay in its Git history and
+   * provider files. Null when the cloud has no head or the host cannot answer.
+   */
+  prepareNewerCopy(sessionId: string, runHostId: string): Promise<SessionPrepareResult | null> {
+    const cloud = this.cloudHeadFor(sessionId)
+    if (!cloud?.head) return Promise.resolve(null)
+    return this.requestPrepare(sessionId, runHostId, { knownHead: cloud.head, sourceServerId: cloud.lastRunServerId, sourceHostId: cloud.lastRunHostId })
+  }
+
+  private requestPrepare(sessionId: string, runHostId: string, origin: SessionSyncOrigin): Promise<SessionPrepareResult | null> {
     const connection = this.deps.readyConnection(runHostId)
-    if (!connection) return null
+    if (!connection) return Promise.resolve(null)
     // An older host has no prepare; the prompt still carries the head and syncs there.
-    return connection.api.sessionPrepare({ sessionId, knownHead: source.knownHead, sourceHostId: this.hostRef(source.sourceServerId) })
-      .catch(() => null)
+    return connection.api.sessionPrepare({ sessionId, ...this.syncFields(origin) }).catch(() => null)
+  }
+
+  private cloudHeadFor(sessionId: string): SessionCloudHead | null {
+    return this.deps.cloudHeadFor?.(sessionId) ?? null
+  }
+
+  private originFor(sessionId: string, runHostId: string): SessionSyncOrigin | null {
+    return sessionSyncOrigin(this.turnsFor(sessionId), runHostId, this.cloudHeadFor(sessionId))
+  }
+
+  /** What a prompt or a prepare carries for an origin. The cloud names its
+   *  host by the account host id, which the run host finds as it is. */
+  private syncFields(origin: SessionSyncOrigin): { knownHead: string; sourceHostId?: string } {
+    const sourceHostId = origin.sourceHostId ?? (origin.sourceServerId ? this.hostRef(origin.sourceServerId) : null)
+    return sourceHostId ? { knownHead: origin.knownHead, sourceHostId } : { knownHead: origin.knownHead }
   }
 
   forgetHost(hostId: string): void {

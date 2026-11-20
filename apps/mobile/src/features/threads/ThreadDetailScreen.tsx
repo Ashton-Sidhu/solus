@@ -69,7 +69,8 @@ import { endQueuedMessageEdit, useQueuedMessageEdit } from "./queued-message-edi
 import { agentsPillLabel } from "./agent-card-presentation";
 import { threadHostChrome, withRunHostChoice } from "./lib/thread-host-chrome";
 import { HostGraceWhisper } from "./ThreadHostLines";
-import { ThreadRunHostRow, useRunHostRow } from "./ThreadRunHostRow";
+import { ThreadRunHostRow, useRunHostRow, useRunningHostSend } from "./ThreadRunHostRow";
+import { SessionPushRefusedCard } from "./SessionPushRefusedCard";
 import { HostAsleepCard } from "../hosts/HostAsleepCard";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
 import { ThreadBrowserFloat } from "../browser/ThreadBrowserFloat";
@@ -93,6 +94,8 @@ export interface ThreadDetailScreenProps {
   readonly usesAutomaticContentInsets?: boolean;
   /** Runs the next prompt of this started session on another host (docs/plans/portable-sessions.md §10). */
   readonly onChooseHost?: (hostId: string) => void;
+  /** Opens the conversation on another host and answers it, for a prompt that goes there. */
+  readonly onFollowHost?: (hostId: string) => ConversationStore | null;
 }
 
 /** A turn is producing output: the live slot and the working timer show. */
@@ -205,6 +208,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const working = isWorkingStatus(meta.status);
   const activeWorkStartedAt = workStartedAt(store, working);
   const runHostRow = useRunHostRow(store, meta);
+  // While another host runs a turn of the session, the prompt goes to that host.
+  const sendStore = useRunningHostSend(store, runHostRow, props.onFollowHost);
   const hostChrome = withRunHostChoice(threadHostChrome(props.hostReadiness), runHostRow.keepsComposerWhileAway);
   const hostLabel = props.hostLabel ?? "This host";
   // Nobody can answer a request while the host is away: its cards come back with the host.
@@ -681,6 +686,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 activeUserInputRequestId !== null || !hostChrome.showsComposer ? { display: "none" } : undefined
               }
             >
+              <SessionPushRefusedCard
+                store={store}
+                text={runHostRow.pushRefusedText}
+                onDone={() => composerEditorRef.current?.focus()}
+              />
               <ThreadRunHostRow
                 store={store}
                 view={runHostRow}
@@ -712,6 +722,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 bottomInset={composerBottomInset}
                 onStopThread={stopThread}
                 onSent={handleSent}
+                sendStore={sendStore}
                 onExpandedChange={setComposerExpanded}
                 onHeightChange={setComposerHeight}
                 onEditorFocusChange={handleComposerFocusChange}

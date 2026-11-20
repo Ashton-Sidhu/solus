@@ -9,6 +9,7 @@ import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSym
 import { ListChoiceRow } from "../../components/ListChoiceRow";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import { hostMachineKind } from "./NewTaskContextPickerScreens";
+import { sessionCloudState, type SessionCloudState } from "@solus/client-core/session-cloud-state";
 import { runHostRowNote, runHostRowView, type RunHostRowView } from "./lib/run-host-row";
 
 /** The host control of a started session, from what this device knows now. */
@@ -25,12 +26,24 @@ export function useRunHostRow(store: ConversationStore, meta: ConversationMeta):
   const runHostId = store.controller.hostId;
   const sessionId = conversationIdOf(store);
   const newestHostId = useListened(app.runHosts.changes, () => app.runHosts.newestHostOf(sessionId, runHostId));
+  // Text, so a snapshot compares by value; the host facts and the cloud facts each change it.
+  const readCloudState = () => JSON.stringify(sessionCloudState({
+    runServerId: runHostId,
+    turns: app.runHosts.turnsFor(sessionId),
+    cloud: app.cloudSessions.headFor(sessionId),
+    runningServerId: app.cloudSessions.runningHostFor(sessionId),
+    wasPromptRefused: meta.isSessionDiverged,
+  }));
+  useListened(app.runHosts.changes, readCloudState);
+  const cloudStateText = useListened(app.cloudSessions.changes, readCloudState);
   const isStarted = store.controller.target.record !== undefined;
   const { mayDrive } = store.controller;
   const hasAttachments = meta.attachments.length + meta.uploading > 0;
   return useMemo(() => {
     const states = readiness.split("\n");
     return runHostRowView({
+      // SAFETY: the text is `JSON.stringify` of a `sessionCloudState` answer, made above.
+      cloudState: JSON.parse(cloudStateText) as SessionCloudState | null,
       runHostId,
       isStarted,
       mayDrive,
@@ -44,7 +57,24 @@ export function useRunHostRow(store: ConversationStore, meta: ConversationMeta):
         return { hostId: host.id, label: host.label, isReady: state === "ready", isAway: away === "true" };
       }),
     });
-  }, [hasAttachments, hosts, isStarted, mayDrive, meta.backgroundWorkRunning, meta.hasUnsentPrompts, meta.status, newestHostId, readiness, runHostId]);
+  }, [cloudStateText, hasAttachments, hosts, isStarted, mayDrive, meta.backgroundWorkRunning, meta.hasUnsentPrompts, meta.status, newestHostId, readiness, runHostId]);
+}
+
+/**
+ * The conversation a prompt goes to while another host runs a turn of the
+ * session (plan §4 decision 5): that host's, which opens at once. Undefined
+ * sends it here.
+ */
+export function useRunningHostSend(
+  store: ConversationStore,
+  view: RunHostRowView,
+  onFollowHost: ((hostId: string) => ConversationStore | null) | undefined,
+): (() => ConversationStore) | undefined {
+  const { runningHostId } = view;
+  return useMemo(
+    () => (runningHostId && onFollowHost ? () => onFollowHost(runningHostId) ?? store : undefined),
+    [onFollowHost, runningHostId, store],
+  );
 }
 
 /**
@@ -68,27 +98,30 @@ export function ThreadRunHostRow(props: {
   useEffect(() => store.onHostChoiceRequested(() => setChoosing(true)), [store]);
   const note = runHostRowNote(view);
   const { onChooseHost } = props;
-  if (!view.isShown || !onChooseHost) return null;
+  // The cloud's words show with no other host to choose too ("Not synced yet").
+  if (!onChooseHost || (!view.isShown && !note)) return null;
   const runHost = app.registry.host(store.controller.hostId);
   return (
     <View className="flex-row items-center gap-2 px-4">
-      <ComposerInlineControl
-        accessibilityLabel={`Host: ${view.runHostLabel}`}
-        accessibilityHint={view.isLocked ? "Available when the agent is not working" : "Chooses the host that runs the next prompt"}
-        chevronDirection="down"
-        disabled={view.isLocked}
-        label={`on ${view.runHostLabel}`}
-        maxWidth={220}
-        onPress={() => setChoosing(true)}
-        renderIcon={(size) => (
-          <EnvironmentMachineSymbol kind={hostMachineKind(runHost?.os)} size={size} tintColorClassName="accent-icon-muted" />
-        )}
-        showChevron
-      />
+      {view.isShown ? (
+        <ComposerInlineControl
+          accessibilityLabel={`Host: ${view.runHostLabel}`}
+          accessibilityHint={view.isLocked ? "Available when the agent is not working" : "Chooses the host that runs the next prompt"}
+          chevronDirection="down"
+          disabled={view.isLocked}
+          label={`on ${view.runHostLabel}`}
+          maxWidth={220}
+          onPress={() => setChoosing(true)}
+          renderIcon={(size) => (
+            <EnvironmentMachineSymbol kind={hostMachineKind(runHost?.os)} size={size} tintColorClassName="accent-icon-muted" />
+          )}
+          showChevron
+        />
+      ) : null}
       {note ? (
         <Text
           accessibilityLiveRegion="polite"
-          className="min-w-0 shrink text-xs text-warning-foreground"
+          className={note === view.cloudNote ? "min-w-0 shrink text-xs text-foreground-secondary" : "min-w-0 shrink text-xs text-warning-foreground"}
           numberOfLines={1}
         >
           {note}
