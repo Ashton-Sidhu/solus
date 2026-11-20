@@ -333,6 +333,18 @@ export class SessionEmitter {
     return traceId
   }
 
+  /**
+   * Where a span of a session's running turn hangs, for work outside the
+   * provider stream that the turn caused, such as an MCP gateway request: the
+   * tool call's span when `toolUseId` names one that is open, else the turn
+   * itself. With the dimensions the turn's spans carry. Nothing when no turn runs.
+   */
+  turnContextOf(sessionId: string, toolUseId?: string): { context: Context; dimensions: SpanDimensions } | undefined {
+    const state = this.turns.get(sessionId)
+    if (!state) return undefined
+    return { context: this.activityContext(state, toolUseId), dimensions: { ...state.spanDimensions } }
+  }
+
   completeSetup(sessionId: string, dimensions: TurnDimensions, endedAt = Date.now()): void {
     this.safe(sessionId, () => {
       const state = this.turns.get(sessionId)

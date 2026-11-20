@@ -828,6 +828,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const claudeAppProcesses = new ClaudeAppProcesses()
   const integrationApps = new IntegrationApps(integrationGateway, opts.sessionRuntime, claudeAppProcesses)
   integrationGateway.useAppCapture((call) => integrationApps.capture(call))
+  integrationGateway.useTurnContext((sessionId, toolUseId) => opts.sessionRuntime.sessionEmitter.turnContextOf(sessionId, toolUseId))
   useClaudeAppCapture((sessionId, app) => integrationApps.captureClaude(sessionId, app))
   registerMcpAppHandlers(server, integrationApps)
   // Apps (docs/plans/apps.md): a backend on this host with its own data. An app's

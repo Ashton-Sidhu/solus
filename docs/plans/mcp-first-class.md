@@ -1,6 +1,6 @@
 # MCP as a first-class feature
 
-Status: phased plan, written 2026-11-18. P0 and A1 are built. This plan continues
+Status: phased plan, written 2026-11-18. P0, A1, and A2 are built. This plan continues
 `mcp-integrations.md`. It locks the vocabulary and the ownership for steps 2 to
 5 of the MCP work. An implementation session gets one phase of §18 as its brief.
 
@@ -106,6 +106,15 @@ some of them. This plan follows the sources.
 18. **`mcp-integrations.md` §2 names the page "Integrations".** The code and
     §7 of the same plan name it Settings → MCP, and the UI says "MCP server".
     This plan follows the code (§2).
+19. **The SDK client has no `openTelemetry` option.** Version 2.4.0 of
+    `@modelcontextprotocol/client` only exports the `_meta` key names; it never
+    writes `traceparent`, `tracestate`, or `baggage` by itself. §13 sets
+    nothing on the client.
+20. **Claude settles a tool card when the call's input ends.** The desktop
+    and web reducer marks a Claude tool `completed` at `content_block_stop`,
+    before the call runs. A `tool_progress` event marks the card running
+    again until its `tool_result` (§5). Mobile keeps the card running until
+    the result, as before.
 
 ## 2. Vocabulary
 
@@ -243,15 +252,24 @@ turned off adds no text. A legacy and a modern fake server both give text.
 ## 5. Progress
 
 **Owner.** `callAs` in the gateway. It passes `onprogress` to `callTool`. The
-SDK sets the `progressToken`.
+SDK sets the `progressToken`. `integrations/call-progress.ts` holds the two
+limits (`CallLimits`) and the event rate (`ProgressEvents`), on an injected
+`CallClock` so tests use a fake clock.
 
 **Timeout.** Today a call stops 60 seconds after it starts
 (`CALL_TIMEOUT_MS`), and the timer stops while a person answers a question.
 New rule: the 60 seconds are a silence limit. Each progress notification
 starts the timer again. A second timer, `CALL_MAX_TOTAL_MS` of 30 minutes,
-never starts again. It also stops while a person answers. The phase confirms
-that neither provider ends a Solus tool call before 30 minutes. If one does,
-the limit for that provider is the provider's.
+never starts again. It also stops while a person answers, and keeps the time
+it used. A call stopped by it answers "`<server>` did not finish `<tool>`
+within 30 minutes, so Solus stopped the call."
+
+A2 confirmed that neither provider ends a Solus tool call before 30 minutes.
+Claude Code (SDK 0.3.322) gives a server of type `sdk`, which the Solus
+toolbox is, no idle timeout, and its tool timeout default is 100,000,000 ms
+(`MCP_TOOL_TIMEOUT`, which Solus does not set). The Codex app-server waits for
+the answer to `item/tool/call` with no timeout; only the end of the turn
+cancels it.
 
 **Contracts.** A new `NormalizedEvent`:
 
@@ -260,17 +278,29 @@ the limit for that provider is the provider's.
 ```
 
 The gateway emits it through `context.emit`, with the id that
-`context.parentToolUseId()` gives (the id of the tool call that the tool's own
-events hang from; the phase confirms it for both adapters). At most four
-events a second for one call; the newest wins. `message` is cut at 200
-characters. The event is live only. It is not saved in a transcript.
+`context.parentToolUseId()` gives. A2 confirmed that this is the id of the
+tool call's own card in both adapters. Claude: the CLI stamps the streamed
+`tool_use` id on each `tools/call` under `_meta["claudecode/toolUseId"]`, and
+the card's `toolId` is that block id. Codex: the dispatcher gets `callId` of
+`item/tool/call`, and the app-server makes the `dynamicToolCall` item's `id`
+from the same core id. A call with no id sends no event. At most four
+events a second for one call (one each 250 ms); the newest wins, and an event
+still waiting when the call ends is dropped. `message` is one line, cut at
+200 characters. The event is live only: it is not saved in a transcript, and
+`SessionRuntime.publish` leaves it out of the turn log that a joining client
+reads. `Message.toolProgress` (`ToolProgress`) holds it on the client.
 
 **What the agent sees.** Nothing. A tool call is one request and one answer
 for both providers.
 
 **Surfaces.** The tool row in the conversation shows the message, and a bar
 when `total` is present, on desktop, web (`components/conversation/`), and
-mobile (`ThreadFeed.tsx`). Without progress the row is as today. After a
+mobile (`ThreadFeed.tsx`). Desktop and web: the message is the running row's
+object and the bar and percent are in its rail (`ToolGroupItem.svelte`).
+Mobile: a line under the live row or the closed live group shows the bar,
+the percent, and the message (`thread-work-log.tsx`). Both read
+`toolProgressView` in `@solus/contracts/tool-progress`. The bar's only motion
+is one transition for each report, off with reduced motion. Without progress the row is as today. After a
 reconnect the row shows the tool as running, with no message, until the next
 event: no stale number. The client changes one property of the tool call in
 place and never replaces `TabState`. The reverse action is the session's
@@ -1168,8 +1198,11 @@ MCP 2026-07-28 reserves the `_meta` keys `traceparent`, `tracestate`, and
   `data/insights/registries.ts`), `isClientRequest: true`, and the
   attributes that `apps.md` §9.4 uses for an app's integration call:
   `mcp.method.name`, `gen_ai.tool.name`, `integration`. Its parent is the
-  turn's context. `SessionEmitter` gains `turnContextOf(sessionId)`, which
-  answers that context or nothing.
+  tool call's span when that span is open, else the turn.
+  `SessionEmitter.turnContextOf(sessionId, toolUseId?)` answers that context
+  and the turn's span dimensions (session, provider, organization), or
+  nothing. `IntegrationGateway.useTurnContext` installs it at boot. A2 built
+  this for `tools/call`; a `resources/read` from a tool comes with §11.
 - The request carries `_meta.traceparent` as
   `00-<trace id>-<span id>-01`. The ids are those of the Solus tracer, which
   already have the OTLP widths.
@@ -1177,8 +1210,8 @@ MCP 2026-07-28 reserves the `_meta` keys `traceparent`, `tracestate`, and
   `tasks/get`, `tasks/update`, and `tasks/cancel` carry it.
 - A request outside a turn (a Settings read, a slash command, an attach)
   carries none.
-- The SDK client is made with `openTelemetry: false`. Solus has no global
-  propagator, and this keeps the SDK from ever writing `_meta` by itself.
+- The SDK client has no `openTelemetry` option (§1, item 19), and it never
+  writes trace keys in `_meta` by itself. Solus has no global propagator.
 
 **What the agent sees.** Nothing, for both providers.
 

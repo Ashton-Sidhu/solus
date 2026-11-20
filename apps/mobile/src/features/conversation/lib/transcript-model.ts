@@ -1,7 +1,7 @@
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
-import type { ContextCompaction, PermissionOption, QuestionItem, QuestionRequest, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
+import type { ContextCompaction, PermissionOption, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import type { SecretOutcomeRecord } from '@solus/contracts/secret-request'
 import { planKey } from '@solus/contracts/types'
@@ -11,6 +11,9 @@ import { promptImageAttachments, splitAttachedFiles, type MessageAttachment } fr
 import { AgentPlans } from './agent-plans'
 import { artifactFromCreated, artifactFromHistory, type ArtifactRender } from './artifacts'
 import type { AgentSwitch } from './provider-handoff'
+import type { PendingPermission, PendingQuestion, QueuedPrompt } from './pending-requests'
+
+export { permissionForFeedback, type PendingPermission, type PendingQuestion, type QueuedPrompt } from './pending-requests'
 
 /**
  * One conversation's transcript as the native client shows it (plan 017
@@ -44,6 +47,8 @@ export type TranscriptItem =
       report: string | null
       /** Pictures the call returned, stored on the host. */
       images?: readonly ToolResultImage[]
+      /** The latest progress a running MCP call reported. Live only: history never has it. */
+      progress?: ToolProgress
       /** A `request_secret` call's outcomes: its label after the card closes. */
       secretOutcomes?: SecretOutcomeRecord[]
       /** The provider child's own transcript, kept off the parent's feed. */
@@ -91,47 +96,6 @@ export interface TranscriptChanges {
   items: string[]
   order: boolean
   meta: boolean
-}
-
-export interface PendingPermission {
-  questionId: string
-  toolName: string
-  description: string | null
-  options: PermissionOption[]
-  /** A link guest sent the turn, so it runs in Ask mode whatever the session's mode is. */
-  guestTurn?: true
-  /** A denial can carry the user's text to the agent that asked (Claude only). */
-  supportsFeedback?: true
-  /** Set when the request can no longer be answered. */
-  expired?: RequestExpiry
-}
-
-/**
- * The permission the composer's text denies, as feedback to the agent that
- * asked: the one the card shows, while it is open and its provider takes a
- * denial message (Claude). Any other request leaves the composer ordinary.
- */
-export function permissionForFeedback(permissions: readonly PendingPermission[]): { questionId: string; denyOptionId: string } | null {
-  const request = permissions[0]
-  if (!request || request.expired || !request.supportsFeedback) return null
-  const deny = request.options.find((option) => option.kind === 'deny')
-  return deny ? { questionId: request.questionId, denyOptionId: deny.id } : null
-}
-
-export interface PendingQuestion {
-  questionId: string
-  questions: QuestionItem[]
-  responseMode?: 'message'
-  /** `secret`: a `request_secret` card, answered with `secretRequestAnswer`, never `respondQuestion`. */
-  kind?: QuestionRequest['kind']
-  /** Set when the question can no longer be answered. */
-  expired?: RequestExpiry
-}
-
-export interface QueuedPrompt {
-  queueId: string
-  text: string
-  clientPromptId?: string
 }
 
 type PermissionDecision = Extract<WireNormalizedEvent, { type: 'permission_resolved' }>['decision']
@@ -378,9 +342,13 @@ export class TranscriptModel {
       case 'tool_call_complete':
         this.completeTool(event)
         return true
+      case 'tool_progress':
+        this.applyToolProgress(event)
+        return true
       case 'tool_result':
         this.patchToolById(event.toolUseId, false, (tool) => ({
           ...tool,
+          progress: undefined,
           status: event.status === 'error' ? 'error' : 'completed',
           errorHead: event.errorHead ?? null,
           images: event.toolImages ?? tool.images,
@@ -575,6 +543,27 @@ export class TranscriptModel {
   private updateToolInput(toolId: string, input: string | undefined): void {
     if (input === undefined) return
     this.patchToolById(toolId, true, (tool) => ({ ...tool, input }))
+  }
+
+  /** The call's own card, or the card inside the provider sub-agent that ran it. Only a running card takes progress. */
+  private applyToolProgress(event: Extract<WireNormalizedEvent, { type: 'tool_progress' }>): void {
+    if (this.hasRunningTool(event.toolUseId)) {
+      const progress: ToolProgress = { progress: event.progress }
+      if (event.total !== undefined) progress.total = event.total
+      if (event.message !== undefined) progress.message = event.message
+      this.patchToolById(event.toolUseId, true, (tool) => ({ ...tool, progress }))
+      return
+    }
+    for (const item of this.items.values()) {
+      if (item.kind === 'tool' && item.children?.hasRunningTool(event.toolUseId)) {
+        this.childTranscript(item.toolId, (child) => child.apply(event))
+        return
+      }
+    }
+  }
+
+  hasRunningTool(toolId: string): boolean {
+    return this.findTool(toolId, true) !== undefined
   }
 
   private completeTool(event: Extract<WireNormalizedEvent, { type: 'tool_call_complete' }>): void {
@@ -983,7 +972,7 @@ export class TranscriptModel {
 
 /** Output of a turn the user stopped; the host may still flush some of it. */
 const DROPPED_WHILE_INTERRUPTED = new Set<WireNormalizedEvent['type']>([
-  'text_chunk', 'assistant_message', 'thinking', 'tool_call', 'tool_call_update', 'tool_call_complete', 'plan',
+  'text_chunk', 'assistant_message', 'thinking', 'tool_call', 'tool_call_update', 'tool_call_complete', 'tool_progress', 'plan',
 ])
 
 /** Provider subagent calls the host names without the live flag (history, older hosts),

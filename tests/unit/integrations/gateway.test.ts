@@ -11,6 +11,7 @@ import type { Integration, IntegrationConnectNeeded } from '@solus/contracts/int
 import type { NormalizedEvent } from '@solus/contracts/types'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
+import type { CallClock } from '@solus/server/integrations/call-progress'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -344,12 +345,13 @@ test('the call timeout stays paused while the person answers', async () => {
   const clock = {
     setTimeout: (callback: () => void, delay: number) => { const id = ++nextTimer; timers.set(id, callback); deadlines.set(id, now + delay); return id as unknown as ReturnType<typeof setTimeout> },
     clearTimeout: (id: ReturnType<typeof setTimeout>) => { timers.delete(id as unknown as number); deadlines.delete(id as unknown as number) },
+    now: () => now,
     advance: (milliseconds: number) => {
       now += milliseconds
       for (const [id, deadline] of [...deadlines]) if (deadline <= now) { deadlines.delete(id); timers.get(id)?.(); timers.delete(id) }
     },
   }
-  const gateway = new IntegrationGateway({ get: () => ({ ...integration, id: 'int-clock', url: fake.modernMcpUrl }), list: () => [] }, clock as Pick<typeof globalThis, 'setTimeout' | 'clearTimeout'>)
+  const gateway = new IntegrationGateway({ get: () => ({ ...integration, id: 'int-clock', url: fake.modernMcpUrl }), list: () => [] }, clock as unknown as CallClock)
   const events: NormalizedEvent[] = []
   const inputRequests = new InputRequests(fakeRuntime(events))
   try {

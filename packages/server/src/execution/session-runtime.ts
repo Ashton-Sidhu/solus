@@ -842,7 +842,8 @@ export class SessionRuntime extends EventEmitter {
     }
     // A targeted emit is a replay or an echo to one client; logging it would
     // duplicate it for the next joiner. Only the broadcast stream is the turn.
-    if (!to) this._recordTurnEvent(sessionId, event)
+    // Progress is live only (docs/plans/mcp-first-class.md §5): a client that joins sees the call running, with no old number.
+    if (!to && event.type !== 'tool_progress') this._recordTurnEvent(sessionId, event)
     this.emit('event', sessionId, event, to)
   }
 
