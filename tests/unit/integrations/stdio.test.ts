@@ -224,8 +224,19 @@ describe('the process (§7.3)', () => {
     await stopped
     expect(isAlive(pidA)).toBe(false)
     expect(isAlive(pidB)).toBe(true)
-    expect((await asOwner(() => shared.facts(a.integration.id))).process).toEqual({ state: 'stopped' })
+    // The row says why it stopped, so it differs from a command that never ran.
+    expect((await asOwner(() => shared.facts(a.integration.id))).process).toEqual({ state: 'stopped', stopReason: 'idle' })
     expect((await asOwner(() => shared.facts(b.integration.id))).process).toEqual({ state: 'running' })
+  })
+
+  test('a command that never ran and one stopped with Stop are two states', async () => {
+    // WHY: B1 promised a stopped process says so; without a reason "Not started" and "Stopped" looked the same.
+    const { integration } = command()
+    const shared = gateway()
+    expect((await asOwner(() => shared.facts(integration.id))).process).toEqual({ state: 'stopped' })
+    await asOwner(() => shared.startProcess(integration.id, ADMIN))
+    expect(await asOwner(() => shared.stopProcess(integration.id))).toBe(true)
+    expect((await asOwner(() => shared.facts(integration.id))).process).toEqual({ state: 'stopped', stopReason: 'stop' })
   })
 
   test('a crash fails the call in flight with the defined text, and the next call starts it again', async () => {
@@ -330,6 +341,30 @@ describe('the environment (§7.1, §7.9)', () => {
     } finally {
       delete process.env.SOLUS_B1_SERVER_ONLY
     }
+  })
+
+  test('the values of a person signed in to Solus stay on the host: the reconcile does not move them to the account', async () => {
+    // WHY: a sign-in through Solus Cloud moves an MCP token into the person's
+    // account (plans/020 §5.4). A command's values are secrets for a process on
+    // this host (§7.8); they must never reach the account, whoever the person is.
+    const person = 'member-1'
+    const { integration } = command({ owner: person, auth: { kind: 'env', names: ['API_TOKEN'] } })
+    const vault = new Vault({ secrets: memorySecretStore() })
+    const uploads: unknown[] = []
+    vault.upload = async (...args) => {
+      uploads.push(args)
+      return { kind: 'uploaded', version: 1 }
+    }
+    const connections = new IntegrationConnections({
+      store: new IntegrationConnectionStore(), integrations: store, vault, clients: memoryClients(), oauth: {} as never,
+      events: { connectionChanged: () => undefined, authFinished: () => undefined },
+    })
+    connections.submitEnvironment(integration, person, [{ name: 'API_TOKEN', value: SECRET }])
+
+    const outcome = await connections.reconcile({ organizationId: 'local', ownerKey: person }, [])
+    expect(uploads).toEqual([])
+    expect(outcome).toEqual({ uploaded: [], adopted: [], kept: [] })
+    expect(connections.environmentFor(integration.id, person)).toEqual([{ name: 'API_TOKEN', value: SECRET }])
   })
 })
 

@@ -186,9 +186,18 @@ export type IntegrationToolSummary = z.infer<typeof integrationToolSummarySchema
  * `startFailure` says why a `failed` process never started: `spawn` found no
  * program (or no working directory), or found one it may not run.
  */
+export type IntegrationStopReason = 'idle' | 'stop' | 'limit'
+
 export interface IntegrationProcessFacts {
   state: 'stopped' | 'running' | 'failed'
   message?: string
+  /**
+   * Why a process that ran is `stopped` (§7.3): 10 minutes without use, the
+   * person's Stop, or room for another command at the host's limit. Absent
+   * when none ran since the host started, and after an end by itself, which
+   * has `message`.
+   */
+  stopReason?: IntegrationStopReason
   stderrTail?: string
   startFailure?: 'not-installed' | 'not-runnable'
 }

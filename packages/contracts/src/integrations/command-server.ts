@@ -1,4 +1,4 @@
-import { integrationEnvNameSchema, type IntegrationFacts, type IntegrationLaunch } from '../integration-types'
+import { integrationEnvNameSchema, type IntegrationFacts, type IntegrationLaunch, type IntegrationStopReason } from '../integration-types'
 import { splitCommandLine } from './command-line'
 
 /**
@@ -127,6 +127,13 @@ export interface CommandProcessInput {
   needsValues: boolean
 }
 
+/** Why a process that ran stopped, as the row says it (§7.3). */
+const STOP_REASON_TEXT = {
+  idle: 'It stopped after 10 minutes without use.',
+  stop: 'It stopped when Stop was pressed.',
+  limit: 'It stopped to make room for another command: at most 16 run on this host at one time.',
+} satisfies { [reason in IntegrationStopReason]: string }
+
 const ACTION_LABELS = {
   start: 'Start and test',
   'start-again': 'Start again',
@@ -152,7 +159,8 @@ export function commandProcessStatus(input: CommandProcessInput): CommandProcess
       return status('running', 'Running', 'ready', null, actions('stop', 'test-again'))
     case 'stopped':
       if (process.message) return status('ended', 'Stopped by itself', 'attention', `${process.message} The next use starts it again.`, actions('start-again', 'test-again'), stderrTail)
-      // A saved verdict or saved facts mean it ran before: it stopped when idle, on Stop, or with the host.
+      if (process.stopReason) return status('stopped', 'Stopped', 'muted', `${STOP_REASON_TEXT[process.stopReason]} The next use starts it again.`, actions('start', 'test-again'))
+      // A saved verdict or saved facts mean it ran before this host started: it stopped with the host.
       if (input.facts?.era) return status('stopped', 'Stopped', 'muted', 'It stops after 10 minutes without use. The next use starts it again.', actions('start', 'test-again'))
       return status('not-started', 'Not started', 'muted', 'It starts when an agent first uses it. Start and test it now to see its tools.', actions('start'))
     case 'failed':

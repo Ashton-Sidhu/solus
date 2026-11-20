@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { Stream } from 'node:stream'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client'
-import type { Integration, IntegrationEnvValue, IntegrationLaunch, IntegrationProcessFacts } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationEnvValue, IntegrationLaunch, IntegrationProcessFacts, IntegrationStopReason } from '@solus/contracts/integration-types'
 import { getCliPath } from '../cli-env'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
@@ -118,6 +118,7 @@ function notStartedMessage(integration: Pick<Integration, 'launch'>, cause: unkn
 interface ProcessRecord {
   state: 'stopped' | 'failed'
   message?: string
+  stopReason?: IntegrationStopReason
   stderrTail?: string
   startFailure?: IntegrationProcessFacts['startFailure']
   /** The times of the ends that came soon after a start, the oldest first. */
@@ -140,6 +141,7 @@ export class StdioProcessStates {
     if (!record) return { state: 'stopped' }
     const facts: IntegrationProcessFacts = { state: record.state }
     if (record.message) facts.message = record.message
+    if (record.stopReason) facts.stopReason = record.stopReason
     if (record.stderrTail) facts.stderrTail = record.stderrTail
     if (record.startFailure) facts.startFailure = record.startFailure
     return facts
@@ -160,11 +162,13 @@ export class StdioProcessStates {
     }
   }
 
-  /** Stop, an idle close, or the host's stop. A failed process stays failed. */
-  stopped(key: string): void {
+  /** Stop, an idle close, room at the limit, or the host's stop (no reason). A failed process stays failed. */
+  stopped(key: string, reason: IntegrationStopReason | undefined): void {
     const record = this.records.get(key)
     if (record?.state === 'failed') return
-    this.records.set(key, { state: 'stopped', quickEnds: record?.quickEnds ?? [] })
+    const next: ProcessRecord = { state: 'stopped', quickEnds: record?.quickEnds ?? [] }
+    if (reason) next.stopReason = reason
+    this.records.set(key, next)
   }
 
   /**

@@ -1,7 +1,7 @@
 import type { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { ProtocolError, SdkError, SdkErrorCode, type GetPromptResult, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
-import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationStopReason, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
 import { currentPersonKey } from '../vault/acting-scope'
@@ -274,7 +274,7 @@ export class IntegrationGateway {
   async stopProcess(integrationId: string): Promise<boolean> {
     const personKey = currentPersonKey()
     const keys = [...this.sessions].filter(([, session]) => session.integrationId === integrationId && session.personKey === personKey).map(([key]) => key)
-    await Promise.all(keys.map((key) => this.closeSession(key)))
+    await Promise.all(keys.map((key) => this.closeSession(key, 'stop')))
     return keys.length > 0
   }
 
@@ -848,7 +848,7 @@ export class IntegrationGateway {
     const idle = live.filter(([, session]) => !session.calls.length && !this.holdsUpstream(session)).sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt)[0]
     if (!idle) throw new Error('Too many MCP servers are running on this host.')
     log.info('integration_process_evicted', { integrationId: idle[1].integrationId })
-    await this.closeSession(idle[0])
+    await this.closeSession(idle[0], 'limit')
   }
 
   /** The saved verdict of one person and account, unless it is older than 7 days. */
@@ -947,7 +947,7 @@ export class IntegrationGateway {
     if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
     session.idleTimer = this.clock.setTimeout(() => {
       if (session.calls.length || this.holdsUpstream(session)) return this.touch(key)
-      void this.closeSession(key)
+      void this.closeSession(key, 'idle')
     }, IDLE_CLOSE_MS)
     session.idleTimer.unref?.()
   }
@@ -956,7 +956,8 @@ export class IntegrationGateway {
     return !!this.mcpTasks?.holdsUpstream(session.integrationId, session.personKey, session.accountId)
   }
 
-  private async closeSession(key: string): Promise<void> {
+  /** `stopReason`: why a running command stops, for its row; none when the host or a change closes it. */
+  private async closeSession(key: string, stopReason?: IntegrationStopReason): Promise<void> {
     const session = this.sessions.get(key)
     if (!session) return
     this.sessions.delete(key)
@@ -972,7 +973,7 @@ export class IntegrationGateway {
     if (session.stdio && !session.stdio.ended) {
       session.stdio.ended = true
       log.info('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: session.stdio.pid, byItself: false, stderrBytes: session.stdio.stderr.bytes })
-      this.processes.stopped(sessionKey(session.integrationId, session.personKey))
+      this.processes.stopped(sessionKey(session.integrationId, session.personKey), stopReason)
       this.mcpTasks?.processEnded(session.integrationId, session.personKey)
       this.factsChanged(session.integrationId)
     }

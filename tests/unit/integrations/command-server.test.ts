@@ -32,6 +32,10 @@ describe('the process state of a command', () => {
     // It ran before (a verdict is saved), and stopped when idle, on Stop, or with the host.
     expect(view({ facts: facts({ state: 'stopped' }, 'legacy') })).toEqual({ state: 'stopped', label: 'Stopped', actions: ['Start and test', 'Test again'] })
     expect(view({ facts: facts({ state: 'stopped', message: 'Files stopped by itself.' }, 'modern') })).toEqual({ state: 'ended', label: 'Stopped by itself', actions: ['Start again', 'Test again'] })
+    // The host says why a process that ran stopped; the row says it too.
+    expect(view({ facts: facts({ state: 'stopped', stopReason: 'stop' }, 'modern') })).toEqual({ state: 'stopped', label: 'Stopped', actions: ['Start and test', 'Test again'] })
+    expect(commandProcessStatus(input({ facts: facts({ state: 'stopped', stopReason: 'idle' }, 'modern') })).detail).toBe('It stopped after 10 minutes without use. The next use starts it again.')
+    expect(commandProcessStatus(input({ facts: facts({ state: 'stopped', stopReason: 'limit' }, 'modern') })).detail).toContain('to make room for another command')
     expect(view({ facts: facts({ state: 'failed', message: 'It ended 3 times.' }) })).toEqual({ state: 'failed', label: 'Failed', actions: ['Start again'] })
     expect(view({ facts: facts({ state: 'failed', message: '`npx` is not installed on this host.', startFailure: 'not-installed' }) })).toEqual({ state: 'not-installed', label: 'Not installed', actions: ['Start again'] })
     expect(view({ facts: facts({ state: 'failed', message: 'Not a program.', startFailure: 'not-runnable' }) })).toEqual({ state: 'cannot-run', label: 'Cannot run', actions: ['Start again'] })
