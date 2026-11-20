@@ -6,11 +6,11 @@ import {
   COMMAND_ADMIN_ONLY,
   commandLineText,
   commandProcessStatus,
-  commandValuesText,
   parseEnvNames,
   suggestedCommandName,
   type CommandProcessInput,
 } from '@solus/contracts/integrations/command-server'
+import { commandValuesText } from '@solus/contracts/integrations/command-values'
 
 // docs/plans/mcp-first-class.md §7.7: desktop, web, and mobile show one state
 // of a command's process with one label and offer the same actions, from this

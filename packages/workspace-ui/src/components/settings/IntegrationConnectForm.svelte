@@ -16,7 +16,7 @@
    */
   import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import { commandValuesText } from "@solus/contracts/integrations/command-server";
+  import { commandValuesText } from "@solus/contracts/integrations/command-values";
   import { ExternalLink, LoaderCircle } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";

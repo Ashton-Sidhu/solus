@@ -1,4 +1,4 @@
-import { integrationEnvNameSchema, type IntegrationConnection, type IntegrationFacts, type IntegrationLaunch } from '../integration-types'
+import { integrationEnvNameSchema, type IntegrationFacts, type IntegrationLaunch } from '../integration-types'
 import { splitCommandLine } from './command-line'
 
 /**
@@ -160,22 +160,4 @@ export function commandProcessStatus(input: CommandProcessInput): CommandProcess
       if (process.startFailure === 'not-runnable') return status('cannot-run', 'Cannot run', 'error', process.message ?? null, actions('start-again'), stderrTail)
       return status('failed', 'Failed', 'error', process.message ?? null, actions('start-again'), stderrTail)
   }
-}
-
-export interface CommandValuesText {
-  text: string
-  /** The names still to give, while none are saved. */
-  detail: string | null
-  /** The action that saves values; Disconnect removes them. */
-  action: 'Enter values' | 'Change values'
-  hasValues: boolean
-}
-
-/** The person's environment values of a command, in words. A value is never read back: only whether some are saved. */
-export function commandValuesText(names: readonly string[], connection: Pick<IntegrationConnection, 'status'> | null | undefined): CommandValuesText {
-  const hasValues = connection?.status === 'connected'
-  const count = names.length === 1 ? '1 value' : `${names.length} values`
-  return hasValues
-    ? { text: `${count} saved on this host`, detail: null, action: 'Change values', hasValues }
-    : { text: 'No values yet', detail: `The command needs ${names.join(', ')}.`, action: 'Enter values', hasValues }
 }

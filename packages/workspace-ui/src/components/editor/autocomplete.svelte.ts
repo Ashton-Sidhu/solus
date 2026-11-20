@@ -59,7 +59,6 @@ import type { McpPromptChoice } from "../input/lib/mcp-prompt-composer.svelte";
 import { mcpPromptItems } from "./unified-autocomplete/mcp-prompt-items";
 import type { IntegrationResource } from "@solus/contracts/integration-types";
 import { integrationResources } from "../settings/integration-resources.store.svelte";
-import { integrationsStore } from "../settings/integrations.store.svelte";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
 
@@ -295,7 +294,7 @@ export class UnifiedAutocompleteController {
   #resourceItems = $derived.by((): MenuItem[] => {
     if (!this.deps.onResource?.()) return [];
     const serverId = this.#resourceServerId();
-    const integrations = integrationsStore.states.get(serverId)?.integrations ?? [];
+    const integrations = integrationResources.integrationsOf(serverId);
     return integrationResources
       .resourcesFor(serverId, this.deps.workingDirectory())
       .flatMap((entry) => {

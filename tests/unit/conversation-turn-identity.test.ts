@@ -4,49 +4,63 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { compile } from 'svelte/compiler'
 
-// WHY: an artifact renders in an iframe, and a re-created iframe loads its page
-// again and shows blank until it does. Ending a turn folds its work and moves
-// the answer below the summary row; if either moved the artifact or the answer
-// into another block, Svelte would rebuild it and the render would flash.
-test('ending a turn keeps every on-screen item mounted and folds the work in place', async () => {
-  const root = new URL('../../', import.meta.url)
+const root = new URL('../../', import.meta.url)
+const client = new URL('node_modules/svelte/src/index-client.js', root).href
+const internal = new URL('node_modules/svelte/src/internal/client/index.js', root).href
+const turnsModule = new URL('packages/workspace-ui/src/components/conversation/lib/turns.ts', root).pathname
+const mcpAppsModule = new URL('packages/contracts/src/mcp-apps.ts', root).pathname
+
+function component(directory: string, source: string, name: string): string {
+  const path = join(directory, `${name}.mjs`)
+  const code = compile(source, { filename: `${name}.svelte`, generate: 'client', dev: false, runes: true }).js.code
+    .replaceAll(/(['"])svelte\/internal\/client\1/g, JSON.stringify(internal))
+    .replaceAll(/(['"])svelte\1/g, JSON.stringify(client))
+    .replaceAll(/import ['"]svelte\/internal\/disclose-version['"];?/g, '')
+  writeFileSync(path, code)
+  return path
+}
+
+/**
+ * The real turn markup and fold; the rows around the items are stubs. A live
+ * MCP App card renders `data-live-card` with its tool call's id.
+ */
+function turnComponent(directory: string): string {
+  const stub = component(directory, '<span></span>', 'stub')
+  const liveCard = component(directory, '<script>let { message } = $props();</script><i data-live-card={message.id}></i>', 'live-card')
+  const turnBody = component(directory, readFileSync(new URL('packages/workspace-ui/src/components/conversation/TurnBody.svelte', root), 'utf8'), 'turn-body')
+  const turnSource = readFileSync(new URL('packages/workspace-ui/src/components/conversation/ConversationTurn.svelte', root), 'utf8')
+    .replace(/^  import .*?;\n/gm, '')
+    .replace(/^  measureMount\(.*?\);\n/m, '')
+    .replace('<script lang="ts">', `<script lang="ts">
+      import { itemKey, needsLiveRow, shouldAnimateTurnEntry, visibleTurnBody } from ${JSON.stringify(turnsModule)};
+      import { mcpAppLiveToolName } from ${JSON.stringify(mcpAppsModule)};
+      import TurnBody from ${JSON.stringify(turnBody)};
+      import Stub from ${JSON.stringify(stub)};
+      import McpAppLiveCard from ${JSON.stringify(liveCard)};
+      const BackgroundWorkRow = Stub, TurnActivityRow = Stub, StatusCard = Stub, TurnEndDivider = Stub;
+      const ToolInputStatus = Stub, TurnImageGallery = Stub, ToolGroupItem = Stub, McpTaskRows = Stub;
+      const describeBackgroundWait = () => null, settledBackgroundWait = () => null;
+      const getSettingsContext = () => ({ showToolCalls: true });
+      const TurnArtifacts = Stub;
+      const NO_BURST = {};
+      // No pull request cards: the final reply renders as any other item.
+      const getWorkspaceContext = () => ({ sessionFor: () => ({ id: 'session-1' }), dispatch: { sendMessage: () => {} } });
+      const sessionArtifactsStore = { artifactsFor: () => null };
+      const turnReplyCards = () => null;
+      // No MCP tasks: the session has no run host here.
+      const runHost = () => undefined;
+      const mcpTasksStore = { ensure: () => {}, tasksFor: () => [] };
+      const shownMcpTasks = () => [], mcpTaskIsLive = () => false;
+    `)
+  return component(directory, turnSource, 'turn')
+}
+
+/** Mounts the turn, live until "End" is pressed, and runs `script` against it in a child process. */
+async function runTurn(messages: string, script: string): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), 'solus-conversation-turn-'))
-  const client = new URL('node_modules/svelte/src/index-client.js', root).href
-  const internal = new URL('node_modules/svelte/src/internal/client/index.js', root).href
-  const turnsModule = new URL('packages/workspace-ui/src/components/conversation/lib/turns.ts', root).pathname
-  function component(source: string, name: string): string {
-    const path = join(directory, `${name}.mjs`)
-    const code = compile(source, { filename: `${name}.svelte`, generate: 'client', dev: false, runes: true }).js.code
-      .replaceAll(/(['"])svelte\/internal\/client\1/g, JSON.stringify(internal))
-      .replaceAll(/(['"])svelte\1/g, JSON.stringify(client))
-      .replaceAll(/import ['"]svelte\/internal\/disclose-version['"];?/g, '')
-    writeFileSync(path, code)
-    return path
-  }
   try {
-    const stub = component('<span></span>', 'stub')
-    const turnBody = component(readFileSync(new URL('packages/workspace-ui/src/components/conversation/TurnBody.svelte', root), 'utf8'), 'turn-body')
-    // The real turn markup and fold; the rows around the items are stubs.
-    const turnSource = readFileSync(new URL('packages/workspace-ui/src/components/conversation/ConversationTurn.svelte', root), 'utf8')
-      .replace(/^  import .*?;\n/gm, '')
-      .replace(/^  measureMount\(.*?\);\n/m, '')
-      .replace('<script lang="ts">', `<script lang="ts">
-        import { itemKey, needsLiveRow, shouldAnimateTurnEntry, visibleTurnBody } from ${JSON.stringify(turnsModule)};
-        import TurnBody from ${JSON.stringify(turnBody)};
-        import Stub from ${JSON.stringify(stub)};
-        const BackgroundWorkRow = Stub, TurnActivityRow = Stub, StatusCard = Stub, TurnEndDivider = Stub;
-        const ToolInputStatus = Stub, TurnImageGallery = Stub, ToolGroupItem = Stub;
-        const describeBackgroundWait = () => null, settledBackgroundWait = () => null;
-        const getSettingsContext = () => ({ showToolCalls: true });
-        const TurnArtifacts = Stub;
-        const NO_BURST = {};
-        // No pull request cards: the final reply renders as any other item.
-        const getWorkspaceContext = () => ({ sessionFor: () => null });
-        const sessionArtifactsStore = { artifactsFor: () => null };
-        const turnReplyCards = () => null;
-      `)
-    const turn = component(turnSource, 'turn')
-    const fixture = component(`<script>
+    const turn = turnComponent(directory)
+    const fixture = component(directory, `<script>
       import ConversationTurn from ${JSON.stringify(turn)};
       let { liveTurn, settledTurn } = $props();
       let live = $state(true);
@@ -56,7 +70,7 @@ test('ending a turn keeps every on-screen item mounted and folds the work in pla
     <button onclick={() => expanded = true}>Expand</button>
     {#snippet transcriptItem(item)}<p data-id={item.message.id}>{item.kind}</p>{/snippet}
     <ConversationTurn turn={live ? liveTurn : settledTurn} index={0} total={1} {expanded} isAwaitingInput={false}
-      turnStart={null} attempt={1} history={{}} onToggle={() => {}} onRetry={() => {}} {transcriptItem} />`, 'fixture')
+      turnStart={null} attempt={1} history={{}} onToggle={() => {}} onRetry={() => {}} {transcriptItem} tabId="tab-1" />`, 'fixture')
     const runner = join(directory, 'run.ts')
     writeFileSync(runner, `
       import assert from 'node:assert/strict';
@@ -66,35 +80,14 @@ test('ending a turn keeps every on-screen item mounted and folds the work in pla
       const { mount, unmount, flushSync } = await import(${JSON.stringify(client)});
       const { buildTurns, groupMessages } = await import(${JSON.stringify(turnsModule)});
       const { default: Fixture } = await import(${JSON.stringify(fixture)});
-      const messages = [
-        { id: 'prompt', role: 'user', content: 'chart it', timestamp: 1 },
-        { id: 'narration', role: 'assistant', content: 'Building the chart.', timestamp: 2 },
-        { id: 'chart', role: 'assistant', content: '', timestamp: 3, artifact: { kind: 'html', html: '<svg></svg>' } },
-        { id: 'answer', role: 'assistant', content: 'Here is the chart.', timestamp: 4 },
-      ];
+      const messages = ${messages};
       const [liveTurn] = buildTurns(groupMessages(messages), { running: true });
       const [settledTurn] = buildTurns(groupMessages(messages), { running: false });
       const target = document.createElement('div'); document.body.append(target);
       const app = mount(Fixture, { target, props: { liveTurn, settledTurn } });
       flushSync();
       const [end, expand] = target.querySelectorAll('button');
-      const item = (id) => target.querySelector('[data-id="' + id + '"]');
-      const shown = (el) => !el.closest('[hidden]');
-      const narration = item('narration'), chart = item('chart'), answer = item('answer');
-      assert.ok(narration && chart && answer && shown(narration) && shown(chart) && shown(answer));
-
-      end.click(); flushSync();
-      // The same nodes, still on screen: nothing was rebuilt.
-      assert.equal(item('chart'), chart);
-      assert.equal(item('answer'), answer);
-      assert.ok(shown(chart) && shown(answer));
-      // The narration folded in place rather than unmounting.
-      assert.equal(item('narration'), narration);
-      assert.equal(shown(narration), false);
-
-      expand.click(); flushSync();
-      assert.ok(shown(narration));
-      assert.equal(item('chart'), chart);
+      ${script}
       await unmount(app);
       dom.window.close();
     `)
@@ -106,4 +99,53 @@ test('ending a turn keeps every on-screen item mounted and folds the work in pla
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+}
+
+// WHY: an artifact renders in an iframe, and a re-created iframe loads its page
+// again and shows blank until it does. Ending a turn folds its work and moves
+// the answer below the summary row; if either moved the artifact or the answer
+// into another block, Svelte would rebuild it and the render would flash.
+test('ending a turn keeps every on-screen item mounted and folds the work in place', async () => {
+  await runTurn(`[
+    { id: 'prompt', role: 'user', content: 'chart it', timestamp: 1 },
+    { id: 'narration', role: 'assistant', content: 'Building the chart.', timestamp: 2 },
+    { id: 'chart', role: 'assistant', content: '', timestamp: 3, artifact: { kind: 'html', html: '<svg></svg>' } },
+    { id: 'answer', role: 'assistant', content: 'Here is the chart.', timestamp: 4 },
+  ]`, `
+    const item = (id) => target.querySelector('[data-id="' + id + '"]');
+    const shown = (el) => !el.closest('[hidden]');
+    const narration = item('narration'), chart = item('chart'), answer = item('answer');
+    assert.ok(narration && chart && answer && shown(narration) && shown(chart) && shown(answer));
+
+    end.click(); flushSync();
+    // The same nodes, still on screen: nothing was rebuilt.
+    assert.equal(item('chart'), chart);
+    assert.equal(item('answer'), answer);
+    assert.ok(shown(chart) && shown(answer));
+    // The narration folded in place rather than unmounting.
+    assert.equal(item('narration'), narration);
+    assert.equal(shown(narration), false);
+
+    expand.click(); flushSync();
+    assert.ok(shown(narration));
+    assert.equal(item('chart'), chart);
+  `)
+})
+
+// WHY: a Solus integration tool shows its MCP App while its call runs
+// (docs/plans/mcp-first-class.md §14.1). The turn draws its tool groups itself,
+// so the live card must be in the turn's own markup: H1 put it in a branch of
+// TranscriptItem that a turn never reached, and no app ever showed live.
+test('a live turn shows the live MCP App card of a Solus integration tool, and the end folds it', async () => {
+  await runTurn(`[
+    { id: 'prompt', role: 'user', content: 'show the board', timestamp: 1 },
+    { id: 'app-call', role: 'tool', content: '', timestamp: 2, toolName: 'mcp__solus__linear__show_board', toolInput: '{}' },
+    { id: 'shell-call', role: 'tool', content: '', timestamp: 3, toolName: 'Bash', toolInput: '{"command":"ls"}' },
+  ]`, `
+    const cards = () => [...target.querySelectorAll('[data-live-card]')].map((card) => card.getAttribute('data-live-card'));
+    assert.deepEqual(cards(), ['app-call'], 'only the integration tool has a live card');
+    end.click(); flushSync();
+    // A finished turn folds its tools; the saved card of the call shows the app.
+    assert.deepEqual(cards(), []);
+  `)
 })

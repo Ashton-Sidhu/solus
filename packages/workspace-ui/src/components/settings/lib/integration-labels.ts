@@ -1,7 +1,7 @@
 import { firstPartyClientById } from '@solus/contracts/first-party-clients'
 import { integrationUrlSchema, solusServerIdOf, type IntegrationConnection, type IntegrationProbeResult } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
-import { commandValuesText } from '@solus/contracts/integrations/command-server'
+import { commandValuesText } from '@solus/contracts/integrations/command-values'
 
 type UndeterminedReason = Extract<IntegrationProbeResult, { outcome: 'undetermined' }>['reason']
 

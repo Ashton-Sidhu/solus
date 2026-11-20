@@ -1,11 +1,11 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { IntegrationResource } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationResource } from '@solus/contracts/integration-types'
 import type { Attachment, IpcContext } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
 import { attachmentUploads } from '../input/lib/attachment-uploads.svelte'
-import { integrationsStore } from './integrations.store.svelte'
+import type { integrationsStore } from './integrations.store.svelte'
 import { serverIconUrl } from './lib/integration-labels'
 
 /** The server an attached resource came from, for its chip's icon. */
@@ -29,6 +29,18 @@ class IntegrationResourcesStore {
   private readonly followed = new Map<string, () => void>()
   /** Chips of attached resources, by attachment id. */
   private readonly chips = new SvelteMap<string, ResourceChipServer>()
+  /**
+   * The installed integrations, which name a resource's server. Read on the
+   * first `@`, not with the first screen: the app loads that store after paint
+   * (`app-core.ts`, startup-import-graph).
+   */
+  private installed = $state<typeof integrationsStore | null>(null)
+  private installing: Promise<void> | null = null
+
+  /** The host's installed integrations, once the first `@` loaded them. */
+  integrationsOf(serverId: string): Integration[] {
+    return this.installed?.states.get(serverId)?.integrations ?? []
+  }
 
   /** What the menu matches on; empty while the first list loads. */
   resourcesFor(serverId: string, projectPath: string | undefined): IntegrationResource[] {
@@ -38,6 +50,7 @@ class IntegrationResourcesStore {
   /** Reads the list for this host and project once; the menu calls it when `@` opens. */
   ensure(serverId: string, projectPath: string | undefined): void {
     const key = listKey(serverId, projectPath)
+    this.installing ??= import('./integrations.store.svelte').then((module) => { this.installed = module.integrationsStore })
     if (this.lists.has(key) || this.loading.has(key)) return
     this.follow(serverId)
     void this.load(serverId, projectPath)
@@ -47,7 +60,7 @@ class IntegrationResourcesStore {
   chipIcon(attachmentId: string): { serverName: string; src: string } | undefined {
     const chip = this.chips.get(attachmentId)
     if (!chip) return undefined
-    const integration = integrationsStore.states.get(chip.serverId)?.integrations?.find((candidate) => candidate.id === chip.integrationId)
+    const integration = this.integrationsOf(chip.serverId).find((candidate) => candidate.id === chip.integrationId)
     return integration && { serverName: integration.name, src: serverIconUrl(integration.url) }
   }
 
