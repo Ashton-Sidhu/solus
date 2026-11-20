@@ -31,6 +31,7 @@ import type { IntegrationGateway } from './gateway'
 import { createIntegration, createStdioIntegration, probeForWrite, updateCommand, type IntegrationCreateDeps } from './integration-create'
 import type { IntegrationStore } from './integration-store'
 import { stdioServerAddress } from './stdio-process'
+import { isChat } from '@solus/contracts/chat'
 import { sameServerAddress } from './cli-skips'
 
 const log = createLogger('integrations', 'found-servers.ts')
@@ -185,7 +186,8 @@ export class FoundServers {
   /** What one caller may read: their project's files, and the user files for `host.admin`. */
   private whereFor(principal: Principal, projectPath: string | undefined) {
     const readsUserFiles = mayRunCommands(principal)
-    const projectRoot = projectPath ? resolveProjectRoot(resolveHomePath(projectPath)) : null
+    // A chat has no project, so no project file (docs/plans/projectless-chat.md); its folder is the host's own.
+    const projectRoot = projectPath && !isChat(projectPath) ? resolveProjectRoot(resolveHomePath(projectPath)) : null
     return { readsUserFiles, projectRoot, cacheKey: `${readsUserFiles ? 'user' : 'project'}\u0000${projectRoot ?? ''}` }
   }
 

@@ -118,6 +118,15 @@ describe('reading the files (§8.1)', () => {
     expect(byName(list.servers, 'desktop').foundIn[0]!.path).toBe('~/.config/Claude/claude_desktop_config.json')
   })
 
+  test('a chat has no project: its folder reads no project file', async () => {
+    // WHY: main added chats with no project (docs/plans/projectless-chat.md). The MCP
+    // page sends the open session's folder; a chat's folder is the host's own, not a repository.
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: { userTool: { command: NODE, args: ['user.js'] } } })
+    const list = await found().list(ADMIN, OWNER, { projectPath: 'solus:new-chat' })
+    expect(list.servers.map((server) => server.name)).toEqual(['userTool'])
+    expect(list.files.every((file) => file.scope === 'user')).toBe(true)
+  })
+
   test('the same command in two files is one found server that names both files', async () => {
     write(join(project, '.mcp.json'), { mcpServers: { github: { command: NODE, args: ['gh.js'], env: { TOKEN: '${TOKEN}' } } } })
     write(join(home, '.cursor', 'mcp.json'), { mcpServers: { gh: { command: NODE, args: ['gh.js'], env: { OTHER: 'x' } } } })

@@ -16,6 +16,7 @@
   import { NO_FOUND_SERVERS_TEXT, configFileLabel } from "@solus/contracts/integrations/found-server-labels";
   import { hostPathBaseName } from "@solus/contracts/host-path";
   import { projectScopeOf } from "@solus/contracts/types";
+  import { isChat } from "@solus/contracts/chat";
   import { getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -55,7 +56,9 @@
   let addError = $state("");
   const workspace = getWorkspaceContext();
   /** The project of the open session, when it is on this host: its files are read too (§8.1). */
-  const projectPath = $derived(workspace.serverIdForContext(workspace.ctx) === serverId ? projectScopeOf(workspace.ctx.session) ?? null : null);
+  const sessionScope = $derived(workspace.serverIdForContext(workspace.ctx) === serverId ? projectScopeOf(workspace.ctx.session) : null);
+  // A chat has no project (docs/plans/projectless-chat.md): only the host's own files are read then.
+  const projectPath = $derived(sessionScope && !isChat(sessionScope) ? sessionScope : null);
   const projectName = $derived(projectPath ? hostPathBaseName(projectPath) || projectPath : null);
 
   const hostState = $derived(integrationsStore.states.get(serverId));
