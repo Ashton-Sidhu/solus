@@ -39,14 +39,6 @@ export function projectRoot(run: Located | null | undefined): string | null {
   return path && path !== '~' ? path : null
 }
 
-/** The project's folder when it is on the host the agent runs on, so every
- *  worktree of the project reads one copy of what that host keeps for the
- *  project. Null while the run names none, and for a run whose project lives
- *  on another host (a dispatch, a clone): that folder is not on the run's host. */
-export function projectRootOnRunHost(run: Located | null | undefined): string | null {
-  return run && run.location.project.serverId === runHost(run) ? projectRoot(run) : null
-}
-
 /**
  * The folder the run was pointed at, before any worktree inside it. A clone
  * does not exist until Send, so until then this is the checkout it copies: the

@@ -130,7 +130,7 @@ describe('the prompt list store', () => {
 })
 
 describe('sending an MCP prompt', () => {
-  function composer(serverId: string, answer: (request: IntegrationPromptGetRequest) => Promise<IntegrationPromptText>) {
+  function composer(serverId: string, answer: (request: IntegrationPromptGetRequest) => Promise<IntegrationPromptText>, projectPath = '/repo') {
     const requests: IntegrationPromptGetRequest[] = []
     connections.registerHost(serverId, {
       integrationPromptList: async () => LIST,
@@ -142,7 +142,7 @@ describe('sending an MCP prompt', () => {
     let composerText = ''
     const prompts = useMcpPromptComposer({
       serverId: () => serverId,
-      projectPath: () => '/repo',
+      projectPath: () => projectPath,
       sessionId: () => 'session-1',
       draftId: () => undefined,
       send: (text, attachments) => { sent.push({ text, attachments }); return true },
@@ -200,6 +200,16 @@ describe('sending an MCP prompt', () => {
     await flush()
     expect(reports).toEqual(['Linear could not give the prompt standup: timeout'])
     expect(sent).toEqual([])
+  })
+
+  test('a composer in a worktree uses the list kept for its project root', async () => {
+    // WHY: every worktree of one project shares one kept list; the host answers a worktree with its project root's list.
+    const { prompts, requests } = composer('worktree-host', async () => ({ kind: 'text', text: 'Sort the bugs.', attachments: [] }), '/repo/.git/solus/worktrees/a')
+    integrationPromptsStore.ensure('worktree-host', '/repo')
+    await flush()
+    expect(prompts.startFromLine('/github:triage bug')).toBe(true)
+    await flush()
+    expect(requests).toHaveLength(1)
   })
 
   test('choosing a one-argument prompt puts its command in the line, to take the rest of it', async () => {

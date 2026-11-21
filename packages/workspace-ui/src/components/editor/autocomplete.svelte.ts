@@ -9,7 +9,7 @@
 // Editor mechanics sit behind AutocompleteEditor so the same machine drives the
 // CodeMirror prompt input and the Tiptap document editor without leaking either
 // editor's transaction model.
-import { planKey } from "@solus/contracts/types";
+import { planKey, worktreeProjectRoot } from "@solus/contracts/types";
 import { joinHostPath } from "@solus/contracts/host-path";
 import type {
   AgentId,
@@ -78,8 +78,6 @@ export interface AutocompleteDeps {
    *  detached editor has no session and therefore no session-file group. */
   sessionId?: () => string | undefined;
   workingDirectory: () => string | undefined;
-  /** The folder the MCP prompt and resource lists are kept for: the run's project. Absent, the working directory. */
-  mcpProjectPath?: () => string | undefined;
   /** The hosts of this client, for the `#` menu's Hosts category. */
   hosts: () => readonly FleetMachine[];
   useRelativeFilePaths: () => boolean;
@@ -293,8 +291,10 @@ export class UnifiedAutocompleteController {
       .filter((item) => !open.has(item.token.kind === "file" ? item.token.path : ""));
   });
 
+  /** The folder the MCP lists are kept for: the project of the working directory, so every worktree of it shares one list. */
   #mcpProjectPath(): string | undefined {
-    return this.deps.mcpProjectPath?.() ?? this.deps.workingDirectory();
+    const workingDirectory = this.deps.workingDirectory();
+    return workingDirectory && worktreeProjectRoot(workingDirectory);
   }
 
   /** The host whose MCP resources `@` lists: the run's, else the tab's. */

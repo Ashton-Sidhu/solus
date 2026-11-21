@@ -29,8 +29,6 @@
     provider: AgentId;
     /** Directory used for @-file search, plan preload, and work loading. */
     workingDirectory: string | undefined;
-    /** The folder the MCP prompt and resource lists are kept for: the run's project. Absent, the working directory. */
-    mcpProjectPath?: string;
     /** Session tab whose checkout and host own autocomplete requests. */
     tabId?: string;
     /** Host selected for a run that may not have a tab yet. */
@@ -101,7 +99,6 @@
     pluginCommands,
     provider,
     workingDirectory,
-    mcpProjectPath,
     tabId,
     serverId,
     sessionId,
@@ -174,7 +171,6 @@
     serverId: () => autocompleteScope.serverId,
     sessionId: () => sessionId,
     workingDirectory: () => autocompleteScope.workingDirectory,
-    mcpProjectPath: () => mcpProjectPath ?? autocompleteScope.workingDirectory,
     // The chip says whether a host answers, not what runs on it, so the menu needs no session counts.
     hosts: () => fleetStore.machines(new Map()),
     useRelativeFilePaths: () => useRelativeFilePaths,

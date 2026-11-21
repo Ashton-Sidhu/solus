@@ -65,7 +65,7 @@
   import { sessionComposerMode, SUGGEST_ONLY_REASON, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
 
   import type { Snippet } from "svelte";
-  import { checkoutGit, checkoutPlace, projectRootOnRunHost, runHost, workingPlace } from "../../contexts/workspace/run-location";
+  import { checkoutGit, checkoutPlace, runHost, workingPlace } from "../../contexts/workspace/run-location";
 
   interface Props {
     active: boolean;
@@ -275,8 +275,6 @@
       checkoutPlace(run)?.path ??
       statusBar.ctxForRun(run).workingDirectory,
   );
-  // The MCP prompt and resource lists are kept for the project, so every worktree of it shares one.
-  const mcpProjectPath = $derived(projectRootOnRunHost(run) ?? composerCwd);
   const composerServerId = $derived(
     runHost(run) ?? session.fallbackServerId,
   );
@@ -324,7 +322,7 @@
   const voiceOwnerId = $props.id();
   const commands = useComposerCommands(() => ({
     isReadOnly, suggestsOnly: composerMode === "suggest", isConnecting, isTouch, run, prompt, sessionId, targetTabId,
-    draftId, composerCwd, mcpProjectPath, pluginCommands, onDispatch, onDispatchInBackground,
+    draftId, composerCwd, pluginCommands, onDispatch, onDispatchInBackground,
     onSent, editor: composerEl, refocusComposer,
   }));
   const { handleSend, handleSolusCommand, attachResource, stopRun, handleKeyDown, handleEditorChange, handlePaste } = commands;
@@ -856,7 +854,6 @@
         serverId={workingPlace(run)?.serverId}
         sessionId={sessionId ?? undefined}
         workingDirectory={composerCwd}
-        {mcpProjectPath}
         onRefsChange={handleRefsChange}
         includeSolusCommands
         onSolusCommand={handleSolusCommand}

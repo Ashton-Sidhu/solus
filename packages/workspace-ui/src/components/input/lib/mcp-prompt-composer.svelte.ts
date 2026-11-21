@@ -1,5 +1,5 @@
 import type { IntegrationPrompt, IntegrationPromptSignIn } from '@solus/contracts/integrations/prompts'
-import type { Attachment } from '@solus/contracts/types'
+import { worktreeProjectRoot, type Attachment } from '@solus/contracts/types'
 import { filledArguments, promptFromLine, promptStart, type ArgumentValue } from '@solus/client-core/integration-prompts'
 import { integrationPromptsStore } from './integration-prompts.store.svelte'
 
@@ -49,7 +49,9 @@ export function useMcpPromptComposer(deps: McpPromptComposerDeps) {
 
   function knownPrompts(): IntegrationPrompt[] {
     const serverId = deps.serverId()
-    return serverId ? integrationPromptsStore.listFor(serverId, deps.projectPath()).prompts : []
+    // The lists are kept for the project, so every worktree of it shares one (§10).
+    const projectPath = deps.projectPath()
+    return serverId ? integrationPromptsStore.listFor(serverId, projectPath && worktreeProjectRoot(projectPath)).prompts : []
   }
 
   async function expand(prompt: IntegrationPrompt, values: ArgumentValue[]): Promise<void> {
