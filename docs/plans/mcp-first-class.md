@@ -1528,7 +1528,9 @@ Where the code differs from §11.5, the code is right.
   `status_message`, `wakes`, `last_wake_at`, and `updated_at`, so the limits
   and an ended row hold across a restart.
 - **The message.** `promptSession(sessionId, text, 'queue', { via:
-  'resource-watch', imageAttachmentRefs })`, with no `actor`. The first line is
+  'resource-watch', actor, imageAttachmentRefs })` through `SessionWake`
+  (§12.6, "Delivery"): the actor is the watch's person. A guest's watch ends
+  at its first change (`refused`) and does not wake the session. The first line is
   `A watched MCP resource changed: <server> · <resource name>`
   (`resourceWatchWakeHeader`). The contents are read at the start, as the
   person, and mapped by `agentResultOf` (§1, item 39).
@@ -1618,7 +1620,9 @@ to a client or to the agent. A client gets Solus's `id`.
 - `input_required`: the task holds `inputRequests`. An elicitation request
   is shown to the person (§12.5) and answered with `tasks/update`. Any other
   kind is declined; a server must not send one (§0).
-- A session that is archived or deleted cancels its live tasks.
+- A session that is deleted cancels its live tasks. An archive is a
+  person's own view state, so it cancels the live tasks of the person who
+  archived the session, as their own cancel does.
 - A task past `expires_at`, or one the server no longer knows, becomes
   `failed`, "The task expired."
 
@@ -1697,9 +1701,11 @@ Where the code differs from §12.1 to §12.5, the code is right.
 - **The table** is `mcp_task` (migration `0009_mcp_tasks`). The person
   column is `user_id`, not `person_key` (the data-model rule).
   `expires_at` is never null: the server's `ttlMs`, at most 24 hours.
-  `deleteHostRowsOfSession` deletes a session's rows; the owner finds the row
-  gone at its next request, cancels the MCP task on the server, and keeps no
-  timer.
+  `deleteHostRowsOfSession` deletes a session's rows; the owner hears
+  `onSessionRecordDeleted` (`sessionDeleted`), cancels each MCP task on the
+  server, sends nothing, and keeps no timer. It hears an archive from
+  `onSessionViewChanged` (`sessionArchived`), as the resource watch owner
+  does.
 - **Contracts.** `contracts/src/integrations/mcp-task.ts`.
   `mcpTaskCancel({ sessionId, id })` and
   `mcpTaskAnswer({ sessionId, id, key, answers })`: the access policy
@@ -1709,16 +1715,25 @@ Where the code differs from §12.1 to §12.5, the code is right.
   the mapping an in-turn elicitation uses. `McpTask` gains `cancelling` and
   `problem` (`unreachable` or `needs-sign-in`). `createdAt` and `updatedAt`
   are milliseconds.
-- **Delivery.** `promptSession(sessionId, text, 'queue', { via: 'mcp-task',
-  imageAttachmentRefs })` with no `actor`: `promptSession` uses the session's
-  person, who made the call. The first line is `An MCP task ended
+- **Delivery.** `SessionWake` (`execution/sessions/session-wake.ts`) calls
+  `promptSession(sessionId, text, 'queue', { via: 'mcp-task', actor,
+  imageAttachmentRefs })`. The actor is the task's person, resolved with
+  `unattendedActorFor` and the session's organization, as the pull request
+  watch resolves its own; so a restart does not turn the wake into the
+  host's. A guest's task ends, its row says that Solus could not start the
+  agent, and nothing wakes. `boot-server.ts` builds one `SessionWake` for the
+  pull request watch, the MCP tasks, and the resource watches. The first line is `An MCP task ended
   (<completed|failed>): <server> · <tool>` (`mcpTaskWakeHeader`), so a client
   knows the notice after a reload. Images go to the session's attachment
   store. The result is mapped by `agentResultOf` without the output schema
   check.
-- **Background status.** `SessionRuntime.mcpTaskHolds` is read beside
-  `isAwaitingReplies` in `provider-events.ts`; an end with nothing to send
-  calls `endBackgroundWait`.
+- **Background status.** `SessionRuntime.mcpTaskHolds` is one half of
+  `SessionStatuses.holdsOutsideRun`; the other half is the orchestrator's
+  `isAwaitingReplies`. The run watchdog, a client join, Stop, the background
+  row's Stop, and `provider-events.ts` read it (`docs/background-work.md`).
+  An end with nothing to send calls `endBackgroundWait`. Stop keeps its
+  rule of §12.1 item 5: after the first 30 seconds it does not touch the MCP
+  task, and the session waits in `background` until the task ends.
 - **Limits the plan did not have.** 5 live MCP tasks for one session, 50 on
   a host; 24 hours for one; a cancel the server does not confirm in 2
   minutes ends on the host; 10 results that start one session in an hour; a
@@ -1745,7 +1760,12 @@ minutes gives the background text and then one queued prompt; Stop in the
 first 30 seconds sends `tasks/cancel`; a cancel by the person sends no
 prompt; a restart polls an HTTP task again and fails a `stdio` task; a
 result is delivered once across a restart; `pollIntervalMs` is honoured; an
-expired task fails; the upstream id is in no event and no RPC answer.
+expired task fails; the upstream id is in no event and no RPC answer; a
+wake runs as the task's person, also after a restart; a guest's task wakes
+nobody; a deleted session and an archive cancel the live task.
+`tests/unit/session-runtime-mcp-task-hold.test.ts`: a watched session that a
+live MCP task holds is not marked dead, a client join keeps its record, and
+the end of the task settles it as `completed`.
 
 ## 13. Trace context
 

@@ -634,9 +634,9 @@ export function markSessionPublished(sessionId: string): Promise<void> {
  * The host tables that name a session cannot reference the ported row (on the
  * Postgres engine it is in another database): the session's execution ledger,
  * its open questions, its mirror cursors, its MCP tasks, and its resource
- * watches go with it here. The MCP task owner finds a row gone at its next
- * status request and cancels that MCP task on its server; the resource watch
- * owner hears `onSessionRecordDeleted` and closes the streams.
+ * watches go with it here. The MCP task owner hears `onSessionRecordDeleted`
+ * and cancels each MCP task on its server; the resource watch owner hears it
+ * and closes the streams.
  */
 function deleteHostRowsOfSession(sessionId: string): void {
   withTx(() => {

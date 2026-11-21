@@ -657,8 +657,9 @@ export class SessionRuntime extends EventEmitter {
     const session = this.activeSessions.get(sessionId)
     const agentSessionId = session?.agentSessionId
     const taskIds = [...(session?.backgroundTaskIds ?? [])]
-    if (session?.status === 'background' && taskIds.length === 0) {
+    if (taskIds.length === 0 && this.statuses.waitsOutsideRun(sessionId)) {
       // Read first: stopping the wait settles the messages that name the children.
+      // A live MCP task keeps holding the session until it ends (docs/plans/mcp-first-class.md §12.5).
       const children = this.orchestration?.childrenAtWork(sessionId) ?? []
       const stoppedWaiting = !!this.orchestration?.cancelSentBy(sessionId)
       if (children.length) this.orchestration?.stopChildren(sessionId, children)
@@ -745,10 +746,10 @@ export class SessionRuntime extends EventEmitter {
    *  A session that waited in 'background' for them has no run whose exit
    *  would release its record, so the record goes here. */
   private stopWaitingOnReports(sessionId: string, stopped: () => void): boolean {
-    const isWaitingOnReports = this.statuses.isWaitingOnReports(sessionId)
+    const waitsOutsideRun = this.statuses.waitsOutsideRun(sessionId)
     if (!this.orchestration?.cancelSentBy(sessionId)) return false
     stopped()
-    if (isWaitingOnReports) this.activeSessions.delete(sessionId)
+    if (waitsOutsideRun) this.activeSessions.delete(sessionId)
     return true
   }
 
