@@ -485,11 +485,11 @@ describe('MCP tasks', () => {
     // The process ends while an MCP task of it runs in the background.
     const second = held('stdio-2', 60_000)
     await w.clock.advance(1_000)
-    expect(w.owner.holdsUpstream('int-stdio', PERSON, 'default')).toBe(true)
+    expect(w.owner.holdsUpstream({ integrationId: 'int-stdio', personKey: PERSON, accountId: 'default' })).toBe(true)
     w.owner.processEnded('int-stdio', PERSON)
     expect((await second).text).toBe('Local could not finish long: The server stopped.')
     expect(w.clock.pending).toBe(0)
-    expect(w.owner.holdsUpstream('int-stdio', PERSON, 'default')).toBe(false)
+    expect(w.owner.holdsUpstream({ integrationId: 'int-stdio', personKey: PERSON, accountId: 'default' })).toBe(false)
   })
 
   test('a deleted session leaves no timer, and its MCP task is cancelled on the server', async () => {

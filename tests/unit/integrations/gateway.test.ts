@@ -7,7 +7,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import { startFakeServers } from './fake-servers'
-import type { Integration, IntegrationConnectNeeded } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationConnection, IntegrationConnectNeeded } from '@solus/contracts/integration-types'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
@@ -21,6 +21,7 @@ const { HOST_IDENTITY, HOST_SCOPE } = await import('@solus/server/execution/seat
 const { InputRequests } = await import('@solus/server/execution/sessions/input-requests')
 const { integrationToolbox, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
 const { HOST_ACTOR } = await import('@solus/server/admission/actor')
+const { ConnectionRequiredError } = await import('@solus/server/integrations/upstream-session')
 
 /**
  * The gateway (docs/plans/mcp-integrations.md §5.1) against a real streamable
@@ -374,8 +375,9 @@ test('the call timeout stays paused while the person answers', async () => {
 })
 
 describe('integration gateway with sign-in', () => {
-  /** Every `Authorization` header the server saw, in order, and the sessions it opened. */
+  /** Every `Authorization` header the server saw, in order, the header of each `tools/list`, and the sessions it opened. */
   const seen: Array<string | undefined> = []
+  const toolLists: Array<string | undefined> = []
   const opened: McpServer[] = []
   /** The headers the server takes now: a test removes one to make its token expire. */
   const accepted = new Set(['Bearer good'])
@@ -391,6 +393,7 @@ describe('integration gateway with sign-in', () => {
         return
       }
       const parsed = req.method === 'POST' ? await body(req) : undefined
+      if (parsed && typeof parsed === 'object' && 'method' in parsed && parsed.method === 'tools/list') toolLists.push(req.headers.authorization)
       const sessionId = req.headers['mcp-session-id']
       let transport = typeof sessionId === 'string' ? transports.get(sessionId) : undefined
       if (!transport) {
@@ -548,6 +551,62 @@ describe('integration gateway with sign-in', () => {
       accepted.delete('Bearer old')
       accepted.delete('Bearer new')
       toolAccepted.delete('Bearer new')
+      await gateway.close()
+    }
+  })
+
+  test('an app read reads an expired header again, then moves the connection to needs-sign-in', async () => {
+    // WHY: MCP App documents, resource reads, and attachments use the person's connection
+    // as a call does. A header that expired while its session was open must not fail them
+    // while the refresh can renew it, and a refused one must not leave the row Connected.
+    const headers = new Map([['member-1', 'Bearer old']])
+    const { gateway, credentials } = signedInGateway(headers)
+    const read = () => withActingScope(MEMBER_SCOPE, () => gateway.readResource(oauthIntegration.id, 'ui://echo', null))
+    accepted.add('Bearer old')
+    try {
+      expect((await read()).contents).toEqual([{ uri: 'ui://echo', mimeType: 'text/html;profile=mcp-app', text: '<button>Echo</button>' }])
+      accepted.delete('Bearer old')
+      accepted.add('Bearer new')
+      headers.set('member-1', 'Bearer new')
+      expect((await read()).contents).toHaveLength(1)
+      expect(credentials.asked).toEqual(['member-1', 'member-1'])
+      expect(credentials.refused).toEqual([])
+
+      accepted.delete('Bearer new')
+      expect(await read().catch((error: unknown) => error)).toBeInstanceOf(ConnectionRequiredError)
+      expect(credentials.refused).toEqual([{ integrationId: oauthIntegration.id, personKey: 'member-1' }])
+    } finally {
+      accepted.delete('Bearer old')
+      accepted.delete('Bearer new')
+      await gateway.close()
+    }
+  })
+
+  test('tools/list_changed on the session of a second account drops the person\'s tool list', async () => {
+    // WHY: the tools are the server's, and the person's first account lists them. A change
+    // heard on the session of another account must make the next read list them again.
+    const headers = new Map([['default', 'Bearer good'], ['work', 'Bearer work']])
+    const account = (accountId: string, label: string): IntegrationConnection => ({
+      integrationId: oauthIntegration.id, accountId, status: 'connected', source: 'host', label, info: null, error: null, updatedAt: '2026-11-20T00:00:00Z',
+    })
+    const gateway = gatewayFor(oauthIntegration)
+    gateway.useCredentials({
+      authorizationFor: async (_id: string, _personKey: string, accountId = 'default') => headers.get(accountId) ?? null,
+      markNeedsSignIn: () => undefined,
+      accountsFor: () => [account('default', 'Personal'), account('work', 'Work')],
+    })
+    accepted.add('Bearer work')
+    try {
+      await withActingScope(MEMBER_SCOPE, () => gateway.tools(oauthIntegration.id))
+      expect(await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'hi', solus_account: 'Work' }, context()))).toEqual({ ok: true, text: 'echo: hi' })
+      toolLists.length = 0
+      const changed = new Promise<string>((resolve) => gateway.onToolsChanged(resolve))
+      opened.at(-1)!.registerTool('added', { description: 'New.' }, async () => ({ content: [{ type: 'text', text: 'new' }] }))
+      expect(await changed).toBe(oauthIntegration.id)
+      await withActingScope(MEMBER_SCOPE, () => gateway.tools(oauthIntegration.id))
+      expect(toolLists).toEqual(['Bearer good'])
+    } finally {
+      accepted.delete('Bearer work')
       await gateway.close()
     }
   })

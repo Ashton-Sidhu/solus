@@ -3,6 +3,7 @@ import { Client, ProtocolError, type ElicitResult, type JSONRPCResponse } from '
 import { MCP_TASK_STATUSES } from '@solus/contracts/integrations/mcp-task'
 import type { Integration } from '@solus/contracts/integration-types'
 import type { AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
+import type { UpstreamAddress } from './upstream-session'
 
 /**
  * The client side of the extension `io.modelcontextprotocol/tasks`
@@ -36,7 +37,7 @@ export interface McpTaskCalls {
   /** A tool call that the server answered with a task handle: hold it, then give it to the background (§12.1). */
   hold(call: HeldMcpTask): Promise<AgentToolResult>
   /** An upstream session with a live MCP task is not closed when idle (§12.3). */
-  holdsUpstream(integrationId: string, personKey: string | null, accountId: string): boolean
+  holdsUpstream(address: UpstreamAddress): boolean
   /** A `stdio` process ended: its MCP tasks fail (§12.3). */
   processEnded(integrationId: string, personKey: string | null): void
 }

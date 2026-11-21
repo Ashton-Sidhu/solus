@@ -14,7 +14,7 @@ import { cancelTask, getTask, isUnknownTask, ServerStoppedError, updateTask, typ
 import type { McpTaskRow, McpTaskStore } from './mcp-task-store'
 import { agentResultOf } from './result-content'
 import { SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
-import { ConnectionRequiredError, errorText } from './upstream-session'
+import { ConnectionRequiredError, errorText, sameUpstream, type UpstreamAddress } from './upstream-session'
 
 const log = createLogger('integrations', 'mcp-tasks.ts')
 
@@ -174,10 +174,8 @@ export class McpTasks implements McpTaskCalls {
     })
   }
 
-  holdsUpstream(integrationId: string, personKey: string | null, accountId: string): boolean {
-    for (const task of this.live.values()) {
-      if (task.row.integrationId === integrationId && task.row.personKey === personKey && task.row.accountId === accountId) return true
-    }
+  holdsUpstream(address: UpstreamAddress): boolean {
+    for (const task of this.live.values()) if (sameUpstream(task.row, address)) return true
     return false
   }
 
@@ -510,9 +508,8 @@ export class McpTasks implements McpTaskCalls {
 
   /** One MCP task request, as the call's person, with that person's connection (§12 Security). */
   private request<T>(address: Pick<McpTaskRow, 'integrationId' | 'personKey' | 'accountId' | 'traceparent'>, run: (client: Client, options: { traceparent: string | null; timeout: number }) => Promise<T>): Promise<T> {
-    const { integrationId, personKey, accountId, traceparent } = address
     const actAs = this.deps.actAs ?? withUserScope
-    return actAs(personKey, () => this.deps.gateway.withBackgroundSession(integrationId, personKey, accountId, (client) => run(client, { traceparent, timeout: REQUEST_TIMEOUT_MS })))
+    return actAs(address.personKey, () => this.deps.gateway.withBackgroundSession(address, (client) => run(client, { traceparent: address.traceparent, timeout: REQUEST_TIMEOUT_MS })))
   }
 
   private publish(task: LiveTask): void {

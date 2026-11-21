@@ -7,6 +7,7 @@ import type { IntegrationFacts } from '@solus/contracts/integration-types'
 import { getDb } from '../db'
 import { createLogger } from '../logger'
 import type { UpstreamPrompt, UpstreamTool } from './gateway'
+import type { UpstreamAddress } from './upstream-session'
 
 const log = createLogger('integrations', 'server-facts-store.ts')
 
@@ -30,11 +31,7 @@ export interface SavedServerRow {
 }
 
 /** The owner of one saved row: the SDK guide forbids sharing a saved `DiscoverResult` between principals. */
-export interface ServerFactsKey {
-  integrationId: string
-  personKey: string
-  accountId: string
-}
+export type ServerFactsKey = UpstreamAddress & { personKey: string }
 
 const rowSchema = z.object({ verdict: z.string().nullable(), verdict_at: z.number().nullable(), facts: z.string().nullable() })
 
