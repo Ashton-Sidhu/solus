@@ -44,7 +44,6 @@ import {
   type IntegrationToolsState,
   InstalledIntegration,
   installedRowLine,
-  serverAddressLine,
 } from "./integrations";
 import { useIntegrations } from "./use-integrations";
 import { SetupGuideRow, SetupHandoffRow } from "./components/SetupHandoffRow";
@@ -292,7 +291,7 @@ function InstalledRow(props: {
   const status = installed.status(connections);
   const connection = connections.kind === "loaded" ? connections.byIntegration.get(integration.id) : undefined;
   const flow = flows.flows.get(integration.id);
-  const host = serverAddressLine(integration);
+  const host = installed.addressLine;
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
   const canEdit = resourceAllows(integration, "edit");
   const editable = busy === null && canEdit;

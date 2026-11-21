@@ -77,6 +77,12 @@ describe('one-step add', () => {
     expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: oauthAuth('client-required') }).afterAdd).toBe('oauth-client')
   })
 
+  test('the row names a command by the line that reads back as its launch, and a server by its host', () => {
+    // WHY: the person reads exactly what runs (mcp-first-class.md §7.7), as on desktop and web.
+    expect(new InstalledIntegration({ id: 'x', url: 'stdio:0123', auth: { kind: 'none' }, launch: { command: 'npx', args: ['-y', 'a b'] } }).addressLine).toBe("npx -y 'a b'")
+    expect(new InstalledIntegration({ id: 'x', url: 'https://mcp.linear.app/mcp', auth: { kind: 'none' } }).addressLine).toBe('mcp.linear.app')
+  })
+
   test('a new server without sign-in needs nothing more', () => {
     expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: { kind: 'none' } }).afterAdd).toBe('ready')
   })
