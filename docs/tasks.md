@@ -49,12 +49,22 @@ With sources, use **Add source** at the end of the row of sources, above the
 search field. You do not choose a project first. The control lists what your
 connections offer:
 
+- first, the GitHub repositories of your projects on the task host, the
+  project you used most recently first (at most 5). They show **Your
+  project**, and the list shows them before GitHub is connected;
 - the GitHub repositories that you pushed to most recently (at most 50);
 - the GitHub Projects that your GitHub connection can see;
+- the Linear teams of your Linear connection;
 - the Jira projects and the Jira boards of the connected Atlassian site.
 
-A kind that offers nothing says why in the one-row footer of the menu: the
-logo of each provider with a problem, and "Connect GitHub, Jira, and Linear",
+When Linear is not connected, the menu shows a key field. Paste a personal
+Linear API key and select **Connect**. The menu then lists the Linear teams,
+so you choose one without leaving the menu. The key goes where Settings ›
+Integrations puts it (see Connections). Only a person who may change the
+host's connections sees the field on a host where they are not signed in.
+
+Another kind that offers nothing says why in the one-row footer of the menu:
+the logo of each provider with a problem, and "Connect GitHub and Jira",
 which opens Settings › Integrations. Each logo shows its full reason as a
 tooltip, for example "Connect GitHub again to add Projects".
 
@@ -298,6 +308,7 @@ Removing a source does not change a project or delete provider issues.
 Connect GitHub, Atlassian (Jira), and Linear in **Settings › Integrations**. GitHub
 is also in **Settings › Source Control**. On mobile, open the host's settings and
 select **Integrations**. The footer of task source setup opens the same page.
+The task source menu, and the mobile task sources screen, also take a Linear key.
 
 Linear connects with a personal API key (Linear Settings › Security & access):
 

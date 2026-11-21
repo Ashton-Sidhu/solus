@@ -58,6 +58,7 @@ describe('what a person can choose as a task source', () => {
       repositories: [{ owner: 'acme', repo: 'app' }, { owner: 'octocat', repo: 'dotfiles' }],
       // A closed Project is not offered; an organization's Projects follow the person's own.
       projects: [{ owner: 'octocat', number: 7, title: 'Roadmap' }, { owner: 'acme', number: 2, title: 'Platform' }],
+      projectRepositories: [],
     })
     expect(options.jira).toEqual({
       connected: true,
@@ -77,7 +78,7 @@ describe('what a person can choose as a task source', () => {
       jiraSite: async () => null,
       jira: { request: async () => { calls.push('jira'); throw new Error('not reached') }, siteUrl: async () => null },
     }))
-    expect(options.github).toEqual({ connected: false, repositories: [], projects: [] })
+    expect(options.github).toEqual({ connected: false, repositories: [], projects: [], projectRepositories: [] })
     expect(options.jira).toEqual({ connected: false, projects: [], boards: [] })
     expect(calls).toEqual([])
   })
@@ -133,4 +134,17 @@ test('Linear with no saved key is not connected, not failed', async () => {
   // provider's own words ("to read these tasks") do not fit a source picker.
   const options = await taskSourceOptions(deps({ linear: async () => { throw new TaskProviderError('not_connected', 'Connect Linear to read these tasks.') } }))
   expect(options.linear).toEqual({ connected: false, teams: [] })
+})
+
+test('the GitHub repositories of the person\'s recent projects come first, even before GitHub is connected', async () => {
+  // WHY: the project a person works in is the likeliest source. T3 Code lists a
+  // project's own issues with no step; this makes it one click in the menu.
+  const options = await taskSourceOptions(deps({
+    githubStatus: async () => ({ connected: false }),
+    hasGithubCredential: async () => false,
+    projectRepositoryKeys: async () => ['github.com/acme/app', 'gitlab.com/acme/web', 'github.com/acme/app', 'github.com/group/sub/repo', 'github.com/octocat/dotfiles'],
+  }))
+  // Only github.com repositories, once each, in the order of last use.
+  expect(options.github.projectRepositories).toEqual([{ owner: 'acme', repo: 'app' }, { owner: 'octocat', repo: 'dotfiles' }])
+  expect(options.github.connected).toBe(false)
 })

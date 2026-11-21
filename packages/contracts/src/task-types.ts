@@ -505,6 +505,10 @@ export interface TaskSourceOptions {
     hasProjectScope?: boolean
     /** The repositories the person pushed to most recently. */
     repositories: Array<{ owner: string; repo: string }>
+    /** The GitHub repositories of the person's projects on this host, the
+     *  project used most recently first. Listed even before GitHub is
+     *  connected: a project's own repository is the likeliest source. */
+    projectRepositories?: Array<{ owner: string; repo: string }>
     projects: Array<{ owner: string; number: number; title: string }>
   }
   jira: {

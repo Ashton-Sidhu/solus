@@ -173,6 +173,21 @@ describe('what can be added', () => {
     expect(groupOf(groups, 'jira-board').choices.map((choice) => choice.source)).toEqual([JIRA_BOARD])
   })
 
+  test('the repositories of the person\'s projects come first, once, and say so', () => {
+    // WHY: the project a person works in is the likeliest source, so it is the
+    // first row and needs no search, even before GitHub lists any repository.
+    const withProjects = { ...options, github: { ...options.github, projectRepositories: [{ owner: 'acme', repo: 'site' }, { owner: 'acme', repo: 'tools' }] } }
+
+    expect(groupOf(sourceChoiceGroups(withProjects, []), 'github-repo').choices.map((choice) => [choice.label, choice.detail])).toEqual([
+      ['acme/site', 'Repository · Your project'],
+      ['acme/tools', 'Repository · Your project'],
+      ['acme/app', 'Repository'],
+    ])
+    // A project repository the person has as a source already is not offered again.
+    expect(groupOf(sourceChoiceGroups(withProjects, [{ kind: 'github-repo', owner: 'acme', repo: 'site' }]), 'github-repo').choices.map((choice) => choice.label))
+      .toEqual(['acme/tools', 'acme/app'])
+  })
+
   test('a source the person has already is not offered again', () => {
     // WHY: adding it is refused, so offering it is a control that does nothing.
     const groups = sourceChoiceGroups(options, [BOARD, JIRA])

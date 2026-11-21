@@ -2,7 +2,7 @@
   import { ChevronDown as CaretDownIcon, Plus as PlusIcon, RefreshCw as RefreshIcon } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { taskSourceKey, taskSourceProvider } from "@solus/contracts/task-sources";
-  import { getSettingsContext, getWorkspaceContext, taskSourcesStore } from "../../../contexts";
+  import { getSettingsContext, getSurfaceContext, taskHostId, taskSourcesStore } from "../../../contexts";
   import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import * as Popover from "../../ui/popover";
   import * as Command from "../../ui/command";
@@ -19,6 +19,8 @@
     type SourceChoice,
   } from "./lib/task-source-setup";
   import { saveTaskSources } from "./lib/save-task-sources.svelte";
+  import { MenuLinearKey } from "./lib/menu-linear-key.svelte";
+  import LinearKeyField from "./LinearKeyField.svelte";
 
   /**
    * Add a task source: a GitHub repository, a GitHub Project, a Jira project
@@ -38,10 +40,11 @@
   let { look, onChanged }: Props = $props();
 
   const settings = getSettingsContext();
-  const session = getWorkspaceContext();
+  const session = getSurfaceContext();
 
   let open = $state(false);
   let query = $state("");
+  let menuContent = $state<HTMLElement | null>(null);
 
   const config = $derived({ taskSources: settings.taskSources });
   const configured = $derived(config.taskSources);
@@ -57,9 +60,23 @@
       .flatMap((group) => matchingChoices(group, query))
       .filter((choice) => choice.sourceKey !== typedChoice?.sourceKey),
   );
+  // Linear connects with a pasted key, so the menu takes it in place: the person
+  // picks a team without a trip to Settings. Read again on each open.
+  const linearKey = $derived.by(() => {
+    const serverId = open ? taskHostId() : null;
+    return serverId ? new MenuLinearKey(serverId) : null;
+  });
+  const offersLinearKey = $derived(
+    !!linearKey?.canSave && !!options?.linear && !options.linear.connected && !query.trim(),
+  );
   // A connection problem is worth a line only while a person browses, not
-  // while they search for one source by name.
-  const connectionNotes = $derived(options && !query.trim() ? sourceConnectionNotes(options) : []);
+  // while they search for one source by name. Linear's is the key field when
+  // the menu offers it.
+  const connectionNotes = $derived(
+    options && !query.trim()
+      ? sourceConnectionNotes(options).filter((note) => !(offersLinearKey && note.provider === "linear"))
+      : [],
+  );
   const connectionNames = $derived(connectionProviderNames(connectionNotes));
   // The full reasons, for a pointer that rests on the action.
   const connectionHelp = $derived(connectionNotes.map((note) => note.text).join("\n") || undefined);
@@ -73,10 +90,23 @@
     if (!open) return;
     untrack(() => void taskSourcesStore.loadOptions());
   });
+  $effect(() => {
+    const key = linearKey;
+    if (!key) return;
+    const stop = key.watch();
+    untrack(() => void key.connection.load());
+    return stop;
+  });
+
+  // The teams read again, and the search takes the keys for the next step.
+  function linearConnected() {
+    void taskSourcesStore.loadOptions();
+    menuContent?.querySelector<HTMLInputElement>("input")?.focus();
+  }
 
   function openIntegrations() {
     open = false;
-    session.showSettings("integrations");
+    session.workspace?.showSettings("integrations");
   }
 
   function add(choice: SourceChoice) {
@@ -135,6 +165,7 @@
     {/snippet}
   </Popover.Trigger>
   <Popover.Content
+    bind:ref={menuContent}
     data-solus-ui
     side="bottom"
     align={look === "invite" ? "center" : "start"}
@@ -166,7 +197,7 @@
                 You have that source already.
               {:else if query.trim()}
                 Nothing matches. Type owner/repo, or paste the URL of a GitHub repository or Project.
-              {:else if connectionNotes.length === 0}
+              {:else if connectionNotes.length === 0 && !offersLinearKey}
                 You have every source your connections offer. Paste a GitHub URL to add another.
               {/if}
             </p>
@@ -174,6 +205,9 @@
         {/if}
       </Command.List>
     </Command.Root>
+    {#if offersLinearKey && linearKey}
+      <LinearKeyField {linearKey} problem={options?.linear?.error} onConnected={linearConnected} />
+    {/if}
     <!-- What keeps a source out of the list, and where to fix it, in one
          row: each logo carries its own reason as a tooltip. -->
     <div
@@ -186,13 +220,16 @@
           {/each}
         </span>
       {/if}
-      <!-- Every connection is made in Settings › Integrations, signed in or not. -->
+      <!-- Every connection is made in Settings › Integrations, signed in or not.
+           A surface with no workspace has no Settings to open. -->
+      {#if session.workspace}
       <button
         type="button"
         title={connectionHelp}
         class="min-w-0 cursor-pointer truncate rounded-md border-0 bg-transparent px-1.5 py-1 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
         onclick={openIntegrations}
       >{connectionNotes.length > 0 ? `Connect ${connectionNames}` : "Manage connections"}</button>
+      {/if}
       <button
         type="button"
         class="ml-auto flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"

@@ -58,7 +58,7 @@
       <span class="block truncate">{hostName(id)} · {remotePort}</span>
       <span class="select-text text-chrome-dense text-(--solus-text-secondary)">127.0.0.1:{localPort}</span>
     </span>
-    <Button size="sm" variant="ghost" disabled={busy} onclick={() => void run(stop)}>Stop forwarding</Button>
+    <Button size="sm" variant="destructive" disabled={busy} onclick={() => void run(stop)}>Stop forwarding</Button>
   </li>
 {/snippet}
 

@@ -164,10 +164,20 @@ export function sourceChoiceGroups(
   const { github, jira } = options
   const cloudId = jira.cloudId
 
+  // The repositories of the person's recent projects lead, marked as theirs;
+  // the ones GitHub lists by recent push follow without them.
+  const projectRepositories = github.projectRepositories ?? []
+  const isProjectRepository = (repository: { owner: string; repo: string }) =>
+    projectRepositories.some((project) => project.owner === repository.owner && project.repo === repository.repo)
+
   return [
-    group('github-repo', github.repositories.map((repository) => ({
+    group('github-repo', [
+      ...projectRepositories.map((repository) => ({ repository, detail: 'Your project' })),
+      ...github.repositories.filter((repository) => !isProjectRepository(repository)).map((repository) => ({ repository, detail: undefined })),
+    ].map(({ repository, detail }) => ({
       source: { kind: 'github-repo', owner: repository.owner, repo: repository.repo },
       label: `${repository.owner}/${repository.repo}`,
+      detail,
     }))),
     group('github-project', github.projects.map((project) => ({
       source: { kind: 'github-project', owner: project.owner, number: project.number },

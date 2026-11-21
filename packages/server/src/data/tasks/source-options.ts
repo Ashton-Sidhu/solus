@@ -19,6 +19,9 @@ import { TaskProviderError, type GithubRun, type JiraTransport } from './provide
 
 const log = createLogger('main', 'task-source-options')
 
+/** The most project repositories one answer lists first. */
+const MAX_PROJECT_REPOSITORIES = 5
+
 /** The most repositories, Projects, Jira projects or boards one answer lists. */
 const MAX_OPTIONS = 50
 
@@ -83,9 +86,11 @@ export interface TaskSourceOptionsDeps {
   jiraSite(): Promise<{ cloudId: string; siteUrl: string } | null>
   jira: JiraTransport
   linear?: typeof linearConnection
+  /** The repository keys of the caller's projects on this host, the project used most recently first. */
+  projectRepositoryKeys?: () => Promise<string[]>
 }
 
-const defaultDeps: TaskSourceOptionsDeps = {
+export const defaultTaskSourceOptionsDeps: TaskSourceOptionsDeps = {
   githubStatus: () => githubCredentials().status(),
   hasGithubCredential: () => githubCredentials().hasCredential('github.com'),
   github: githubRun,
@@ -122,11 +127,31 @@ async function githubProjects(github: GithubRun): Promise<GithubOptions['project
   return projects.slice(0, MAX_OPTIONS)
 }
 
+/** The GitHub repositories among the project repository keys (`github.com/owner/repo`), in their order. */
+export function githubProjectRepositories(keys: readonly string[]): NonNullable<GithubOptions['projectRepositories']> {
+  const repositories: NonNullable<GithubOptions['projectRepositories']> = []
+  for (const key of keys) {
+    const [host, owner, repo, ...rest] = key.split('/')
+    if (host !== 'github.com' || !owner || !repo || rest.length > 0) continue
+    if (repositories.some((each) => each.owner === owner && each.repo === repo)) continue
+    repositories.push({ owner, repo })
+  }
+  return repositories.slice(0, MAX_PROJECT_REPOSITORIES)
+}
+
 async function githubOptions(deps: TaskSourceOptionsDeps): Promise<GithubOptions> {
-  const status = await deps.githubStatus()
+  const [status, projectKeys] = await Promise.all([
+    deps.githubStatus(),
+    // A caught rejection of the project list enters here before it becomes log text.
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters
+    deps.projectRepositoryKeys?.().catch((error: unknown) => {
+      log.warn('task_source_project_repositories_unreadable', { error: error instanceof Error ? error.message : String(error) })
+      return []
+    }) ?? [],
+  ])
   // `gh` can be the person's only GitHub credential: it has no stored login, and it still reads tasks.
   const connected = status.connected || await deps.hasGithubCredential()
-  const options: GithubOptions = { connected, repositories: [], projects: [] }
+  const options: GithubOptions = { connected, repositories: [], projects: [], projectRepositories: githubProjectRepositories(projectKeys) }
   if (status.login) options.login = status.login
   if (status.scopes) options.hasProjectScope = status.scopes.includes('project') || status.scopes.includes('read:project')
   if (!connected) return options
@@ -193,7 +218,7 @@ async function linearOptions(read: typeof linearConnection): Promise<NonNullable
 }
 
 /** What the caller can choose as a task source. One provider does not hold the others. */
-export async function taskSourceOptions(deps: TaskSourceOptionsDeps = defaultDeps): Promise<TaskSourceOptions> {
+export async function taskSourceOptions(deps: TaskSourceOptionsDeps = defaultTaskSourceOptionsDeps): Promise<TaskSourceOptions> {
   const [github, jira, linear] = await Promise.all([
     githubOptions(deps), jiraOptions(deps), deps.linear ? linearOptions(deps.linear) : undefined,
   ])

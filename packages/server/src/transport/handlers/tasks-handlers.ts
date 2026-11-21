@@ -34,7 +34,10 @@ import { getDatabase } from '../../db/database'
 import { readTaskSidebarSnapshot } from '../../data/tasks/task-sidebar'
 import { taskListChangesSince, taskListRevision } from '../../data/tasks/task-revisions'
 import { searchTaskComments } from '../../data/tasks/comment-search'
-import { taskSourceOptions } from '../../data/tasks/source-options'
+import { defaultTaskSourceOptionsDeps, taskSourceOptions } from '../../data/tasks/source-options'
+import { listProjects } from '../../project-config/projects-manifest'
+import { resolveRepositoryKey } from '../../git/git-helpers'
+import { projectsVisibleTo } from './setup-handlers'
 import { loadMoreTaskSource, startTaskSourcePolling, tasksSources } from '../../data/tasks/task-sources'
 import type { TaskReader } from '../../data/tasks/task-store'
 import type { HandlerCtx, SolusServer } from '../server'
@@ -44,6 +47,9 @@ import { hostUserKey } from '../../host/host-user'
 import { createLogger, isDebugEnabled } from '../../logger'
 
 const log = createLogger('main', 'tasks-handlers')
+
+/** How many recent projects name the GitHub repositories the source menu lists first. */
+const RECENT_PROJECTS_FOR_SOURCES = 8
 /** The most changed sessions a resume looks up; more, and it sends the whole list. */
 const MAX_RESUMED_SESSION_IDS = 1000
 const taskSidebarFilterSchema = z.object({
@@ -104,7 +110,17 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
   })
 
   server.register('tasksLoadMore', ([source], ctx) => loadMoreTaskSource(taskSourceSchema.parse(source), readerOf(ctx).personKey))
-  server.register('tasksSourceOptions', () => taskSourceOptions())
+  // The caller's own projects lead the GitHub choices: a member sees only theirs.
+  server.register('tasksSourceOptions', (_args, ctx) => taskSourceOptions({
+    ...defaultTaskSourceOptionsDeps,
+    projectRepositoryKeys: async () => {
+      const recent = projectsVisibleTo(ctx.principal, await listProjects())
+        .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))
+        .slice(0, RECENT_PROJECTS_FOR_SOURCES)
+      const keys = await Promise.all(recent.map((project) => resolveRepositoryKey(project.path)))
+      return keys.filter((key): key is string => key !== null)
+    },
+  }))
   server.register('tasksReact', ([id, targetId, content, add]) => reactToTask(id, targetId, content, add))
   server.register('tasksTemplates', ([source]) => taskTemplates(taskSourceSchema.parse(source)))
   server.register('tasksResolve', ([url], ctx) => resolveTaskUrl(recordScopeOf(ctx.principal), url, readerOf(ctx).personKey))
