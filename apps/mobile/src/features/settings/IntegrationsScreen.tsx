@@ -355,6 +355,7 @@ function InstalledRow(props: {
               integration={integration}
               process={process}
               processes={props.processes}
+              hostLabel={props.hostLabel}
               isConnected={integrations.connected}
               isEditable={editable}
               isSaving={busy === `command:${integration.id}`}
