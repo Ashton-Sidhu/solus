@@ -19,22 +19,32 @@ const MANIFEST_BYTES = 1024 * 1024
 const ROW_BYTES = 4 * 1024 * 1024
 const PATCH_BYTES = 2 * 1024 * 1024
 
-/** Reads only projected rows and patches at the head the API has accepted. */
+/**
+ * Reads projected rows and patches at the head the API has accepted. Rows come
+ * only from a person's own repository: the transcript mirror holds the rows of
+ * an organization session (`transcript-reads.ts`), so that session has one
+ * source. A turn diff has no other source, so it reads either repository.
+ */
 export class SessionCloudReader {
   constructor(private readonly db: Db, private readonly storage: RepositoryProvider | null, private readonly shares: ShareManager) {}
 
-  private async repository(principal: Principal, sessionId: string): Promise<SessionRepositoryRow | null> {
+  /** The caller's own repository in their person scope. */
+  private async personalRepository(principal: Principal, sessionId: string): Promise<SessionRepositoryRow | null> {
     if (principal.kind !== 'org-member' && (principal.kind !== 'owner' || principal.via !== 'grant')) return null
     const personal = await readSessionRepository(this.db, formatSessionCloudScope('person', principal.userId), sessionId)
-    if (personal?.owner_user_id === principal.userId) return personal
-    if (principal.kind !== 'org-member') return null
+    return personal?.owner_user_id === principal.userId ? personal : null
+  }
+
+  /** The repository a turn diff is read from: the caller's own, or that of a published organization session they may read. */
+  private async diffRepository(principal: Principal, sessionId: string): Promise<SessionRepositoryRow | null> {
+    const personal = await this.personalRepository(principal, sessionId)
+    if (personal || principal.kind !== 'org-member') return personal
     const published = await this.db.get(sql`SELECT session_id FROM ${session} WHERE session_id = ${sessionId} AND organization_id = ${principal.organizationId} AND publication = 'published'`)
     if (!published || await authorize(principal, 'read.transcript', { kind: 'session', id: sessionId }, { name: 'loadSessionPage', resources: this.shares }) !== null) return null
     return await readSessionRepository(this.db, formatSessionCloudScope('organization', principal.organizationId), sessionId) ?? null
   }
 
-  private async manifest(principal: Principal, sessionId: string): Promise<{ row: SessionRepositoryRow; manifest: SessionManifest } | null> {
-    const row = await this.repository(principal, sessionId)
+  private async manifest(row: SessionRepositoryRow | null, sessionId: string): Promise<{ row: SessionRepositoryRow; manifest: SessionManifest } | null> {
     if (!row?.head || !this.storage || row.storage_scope !== this.storage.storageScope) return null
     const manifest = sessionManifestSchema.parse(JSON.parse(await this.file(row, 'manifest.json', MANIFEST_BYTES)))
     if (manifest.session.id !== sessionId) throw new Error('Session repository identity mismatch.')
@@ -51,7 +61,7 @@ export class SessionCloudReader {
   }
 
   async page(principal: Principal, sessionId: string, before?: string): Promise<SessionHistoryPage> {
-    const source = await this.manifest(principal, sessionId)
+    const source = await this.manifest(await this.personalRepository(principal, sessionId), sessionId)
     if (!source) return { messages: [], before: null, availability: 'not-available' }
     const index = before === undefined ? source.manifest.turns.length - 1 : Number(before)
     if (!Number.isSafeInteger(index) || index < 0 || index >= source.manifest.turns.length) return { messages: [], before: null, availability: 'not-available' }
@@ -69,7 +79,7 @@ export class SessionCloudReader {
   }
 
   async preview(principal: Principal, sessionId: string): Promise<SessionPreviewResult> {
-    const source = await this.manifest(principal, sessionId)
+    const source = await this.manifest(await this.personalRepository(principal, sessionId), sessionId)
     if (!source) return { head: [], tail: [], totalMessages: 0 }
     const first = source.manifest.turns.findIndex(turn => turn.hasRows)
     const last = source.manifest.turns.findLastIndex(turn => turn.hasRows)
@@ -80,7 +90,7 @@ export class SessionCloudReader {
   }
 
   async diff(principal: Principal, sessionId: string, turnIndex: number): Promise<SessionTurnDiff> {
-    const source = await this.manifest(principal, sessionId)
+    const source = await this.manifest(await this.diffRepository(principal, sessionId), sessionId)
     if (!source) return { status: 'not-available' }
     const turn = source.manifest.turns[turnIndex]
     if (!turn?.hasDiff) return { status: 'not-available' }

@@ -66,6 +66,8 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     return provider.review.listRepositories()
   })
   registerAssetHandlers(server)
+  // Each session has one source of rows: the transcript mirror for an organization session,
+  // and the caller's own session repository (`sessionReader`) for a personal one.
   const mirrored = async (principal: Principal, sessionId: string) =>
     await hasTranscript(recordScopeOf(principal), sessionId)
       && await authorize(principal, 'read.transcript', { kind: 'session', id: sessionId }, { name: 'loadSessionPage', resources: deps.shares }) === null

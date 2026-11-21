@@ -100,19 +100,49 @@ test('absent rows return typed not available', async () => {
   expect(await reader.page(owner, 'old')).toMatchObject({ availability: 'not-available', unavailableTurns: [0] })
 })
 
-// WHY: an organization transcript is visible only with published session standing.
-test('organization access requires publication and transcript standing', async () => {
+type ApiHandler = (args: unknown[], ctx: { principal: Principal; clientId: string }) => Promise<unknown>
+
+/** The history methods of the Solus API, with this file's reader. */
+async function apiHandlers(): Promise<Map<string, ApiHandler>> {
+  const handlers = new Map<string, ApiHandler>()
+  const server = { register: (name: string, handler: ApiHandler) => { handlers.set(name, handler) } }
+  const [{ registerSolusApiHandlers }, { HostEventPublisher }, { ClientEventRegistry }, { WorkLiveManager }] = await Promise.all([
+    import('@solus/server/transport/solus-api/service-handlers'), import('@solus/server/transport/events/host-event-publisher'),
+    import('@solus/server/transport/events/client-event-registry'), import('@solus/server/work-live/work-live-manager'),
+  ])
+  registerSolusApiHandlers(server as unknown as import('@solus/server/transport/server').SolusServer, {
+    shares, sessionReader: reader, events: new HostEventPublisher(new ClientEventRegistry(() => true)),
+    workLive: new WorkLiveManager({ publish: () => {} }), serviceId: 'api', host: '127.0.0.1', port: () => 0,
+    presence: { watch: () => {}, unwatch: () => {} },
+  })
+  return handlers
+}
+
+// WHY: an organization session has one source of rows, the transcript mirror. A second copy
+// from its repository can differ from the mirror, so the API must not answer it.
+test('the rows of an organization session are not read from its repository', async () => {
+  await db.run(sql`INSERT INTO ${sessionTable} (session_id, organization_id, created_by, publication, created_at, last_activity_at) VALUES ('organization-rows', 'org-a', 'alice', 'published', 1, 1)`)
+  await archive('organization-rows', scope('organization', 'org-a'), '{"role":"user","content":"repository copy","timestamp":1}\n')
+  expect(await reader.page(owner, 'organization-rows')).toEqual({ messages: [], before: null, availability: 'not-available' })
+  expect(await reader.preview(owner, 'organization-rows')).toEqual({ head: [], tail: [], totalMessages: 0 })
+  const page = await (await apiHandlers()).get('loadSessionPage')!([{ sessionId: 'organization-rows', turnLimit: 1 }], { principal: owner, clientId: 'alice' }) as { messages: unknown[] }
+  expect(page.messages).toEqual([])
+})
+
+// WHY: a turn diff shows code, and the repository is its only source. It is visible only with published session standing.
+test('an organization turn diff requires publication and transcript standing', async () => {
   await db.run(sql`INSERT INTO ${sessionTable} (session_id, organization_id, created_by, publication, created_at, last_activity_at) VALUES ('shared', 'org-a', 'alice', 'published', 1, 1), ('local-only', 'org-a', 'alice', 'local', 1, 1)`)
-  await archive('shared', scope('organization', 'org-a'), '{"role":"user","content":"shared","timestamp":1}\n')
-  await archive('local-only', scope('organization', 'org-a'), '{"role":"user","content":"hidden","timestamp":1}\n')
-  expect((await reader.page(owner, 'shared')).messages[0]?.content).toBe('shared')
-  expect((await reader.page(member, 'shared')).availability).toBe('not-available')
+  const rows = '{"role":"user","content":"change","timestamp":1}\n'
+  await archive('shared', scope('organization', 'org-a'), rows, 'shared patch')
+  await archive('local-only', scope('organization', 'org-a'), rows, 'hidden patch')
+  expect(await reader.diff(owner, 'shared', 0)).toEqual({ status: 'available', patch: 'shared patch' })
+  expect(await reader.diff(member, 'shared', 0)).toEqual({ status: 'not-available' })
   const doors = await import('@solus/server/admission/doors')
   const admitted = doors.principalForClaims({ iss: 'https://issuer.test', aud: 'urn:solus:api', sub: 'alice', jti: 'a', iat: 1, exp: 9999999999, grant_id: 'grant', access: 'org-member', organizations: [{ id: 'org-a', role: 'member', teamIds: [] }] }, 'org-a', 'api')
   if (!admitted.ok) throw new Error('Owner admission failed')
   await shares.setEntries({ resource: { kind: 'session', id: 'shared' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, admitted.principal)
-  expect((await reader.page(member, 'shared')).messages[0]?.content).toBe('shared')
-  expect((await reader.page(member, 'local-only')).availability).toBe('not-available')
+  expect(await reader.diff(member, 'shared', 0)).toEqual({ status: 'available', patch: 'shared patch' })
+  expect(await reader.diff(member, 'local-only', 0)).toEqual({ status: 'not-available' })
 })
 
 // WHY: one response must fit a client budget even when a turn patch is very large.
@@ -153,17 +183,7 @@ test('mirrored rows win when the repository also has rows', async () => {
   await archive('both', scope('person', 'alice'), '{"role":"user","content":"old repository","timestamp":1}\n')
   await db.run(sql`INSERT INTO ${sessionTable} (session_id, organization_id, created_by, publication, created_at, last_activity_at) VALUES ('both', 'org-a', 'alice', 'published', 1, 1)`)
   await db.run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, updated_at) VALUES ('org-a', 'both', 1, 'host', ${JSON.stringify({ role: 'user', content: 'live mirror', timestamp: 2 })}, 2)`)
-  const handlers = new Map<string, (args: unknown[], ctx: { principal: Principal; clientId: string }) => Promise<unknown>>()
-  const server = { register: (name: string, handler: (args: unknown[], ctx: { principal: Principal; clientId: string }) => Promise<unknown>) => { handlers.set(name, handler) } }
-  const [{ registerSolusApiHandlers }, { HostEventPublisher }, { ClientEventRegistry }, { WorkLiveManager }] = await Promise.all([
-    import('@solus/server/transport/solus-api/service-handlers'), import('@solus/server/transport/events/host-event-publisher'),
-    import('@solus/server/transport/events/client-event-registry'), import('@solus/server/work-live/work-live-manager'),
-  ])
-  registerSolusApiHandlers(server as unknown as import('@solus/server/transport/server').SolusServer, {
-    shares, sessionReader: reader, events: new HostEventPublisher(new ClientEventRegistry(() => true)),
-    workLive: new WorkLiveManager({ publish: () => {} }), serviceId: 'api', host: '127.0.0.1', port: () => 0,
-    presence: { watch: () => {}, unwatch: () => {} },
-  })
+  const handlers = await apiHandlers()
   const page = await handlers.get('loadSessionPage')!([{ sessionId: 'both', turnLimit: 1 }], { principal: owner, clientId: 'alice' }) as { messages: Array<{ content: string }> }
   expect(page.messages.map(message => message.content)).toEqual(['live mirror'])
   const bobScope = scope('person', 'bob')
