@@ -25,7 +25,7 @@
   import McpCommandProcess from "./McpCommandProcess.svelte";
   import { commandHostNote } from "@solus/contracts/integrations/command-server";
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
-  import { integrationsStore } from "./integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { toolAccess } from "@solus/contracts/integration-types";
   import type { SetupHandoff } from "@solus/contracts/integrations/setup-handoff";
   import { getWorkspaceContext, hosts } from "../../contexts";
@@ -61,7 +61,7 @@
   /** The height of the dialog's content, so the card grows and shrinks to each step instead of jumping. */
   let bodyHeight = $state(0);
 
-  const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostState = $derived(mcpStore.integrations.states.get(serverId));
   const integration = $derived(connect.integration);
   const connection = $derived(integration ? hostState?.connections.get(integration.id) ?? null : null);
   const flow = $derived(integration ? hostState?.connectFlows.get(integration.id) ?? null : null);
@@ -81,7 +81,7 @@
 
   // The tools step reads the server's tool list once the host can list it.
   $effect(() => {
-    if (step === "tools" && integration && !tools && !toolError) untrack(() => void integrationsStore.loadTools(serverId, integration.id));
+    if (step === "tools" && integration && !tools && !toolError) untrack(() => void mcpStore.integrations.loadTools(serverId, integration.id));
   });
 
   function close() {
@@ -111,7 +111,7 @@
     if (!integration) return;
     const value = pasted;
     pasted = "";
-    if (!(await integrationsStore.submit(serverId, integration.id, value))) pasted = value;
+    if (!(await mcpStore.integrations.submit(serverId, integration.id, value))) pasted = value;
   }
 
   // A modal: shortcuts behind it stay quiet while it is open.
@@ -173,7 +173,7 @@
     </RowCard>
     <p class="text-workspace-chrome text-(--solus-text-secondary)">
       Window not showing up?
-      <button type="button" class="rounded text-(--solus-accent) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring" onclick={() => integrationsStore.openInBrowser(flow.url)}>Reopen it</button>
+      <button type="button" class="rounded text-(--solus-accent) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring" onclick={() => mcpStore.integrations.openInBrowser(flow.url)}>Reopen it</button>
     </p>
     {#if flow.input === "redirect-url"}
       {@render pasteForm("Paste the address of the page you landed on", `mcp-connect-redirect-${integration.id}`, "text", flow.error)}
@@ -194,7 +194,7 @@
       <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{connectionProblem.text}{connectionProblem.detail ? `: ${connectionProblem.detail}` : ""}</p>
     {/if}
     <div>
-      <Button class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || hostState?.connectionsStatus !== "loaded"} onclick={() => integrationsStore.connect(serverId, integration.id)}>
+      <Button class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || hostState?.connectionsStatus !== "loaded"} onclick={() => mcpStore.integrations.connect(serverId, integration.id)}>
         {integration.auth.kind === "bearer" ? `Enter an API key` : `Sign in to ${name}`}{#if integration.auth.kind !== "bearer"}<ExternalLink size={14} />{/if}
       </Button>
     </div>
@@ -206,7 +206,7 @@
     <!-- The vendor's own page for the client or the key (§13.5). -->
     <p class="text-chrome-dense text-(--solus-text-secondary)">
       <button type="button" class="inline-flex items-center gap-1 rounded text-(--solus-accent) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-        onclick={() => request.authHelp && integrationsStore.openInBrowser(request.authHelp)}>{name} setup guide<ExternalLink size={12} /></button>
+        onclick={() => request.authHelp && mcpStore.integrations.openInBrowser(request.authHelp)}>{name} setup guide<ExternalLink size={12} /></button>
     </p>
   {/if}
   {#if connect.setupHandoff}
@@ -246,7 +246,7 @@
   {:else if toolError}
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{toolError}</p>
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.loadTools(serverId, integration.id)}>Retry</Button>
+      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadTools(serverId, integration.id)}>Retry</Button>
     </div>
   {:else if !tools}
     {@render pending("Loading tools…")}

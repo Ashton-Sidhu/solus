@@ -14,7 +14,7 @@
   import { Input } from "../ui/input";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import { copyText } from "../../lib/toasts";
-  import { integrationsStore } from "./integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { IntegrationLabels } from "./lib/integration-labels";
 
   interface Props {
@@ -33,12 +33,12 @@
   let isCopied = $state(false);
   let rootEl = $state<HTMLDivElement | null>(null);
 
-  const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostState = $derived(mcpStore.integrations.states.get(serverId));
   const text = $derived(new IntegrationLabels(integration).clientText);
   const isBusy = $derived(!!hostState?.saving);
   const isOffline = $derived(!!hostState?.isDisconnected);
   const showForm = $derived(text?.state === "missing" || isEditing);
-  const redirectUrl = $derived(integrationsStore.oauthRedirectUrl(serverId));
+  const redirectUrl = $derived(mcpStore.integrations.oauthRedirectUrl(serverId));
   const fieldPrefix = $derived(`integration-oauth-${integration.id}`);
 
   async function focusFirstControl() {
@@ -49,7 +49,7 @@
   /** The write's error belongs to this form, not to the Add section below. */
   function keepWriteError() {
     error = hostState?.writeError ?? "";
-    integrationsStore.clearWriteError(serverId);
+    mcpStore.integrations.clearWriteError(serverId);
   }
 
   async function save(event: SubmitEvent) {
@@ -59,7 +59,7 @@
     const clientSecret = secretDraft;
     secretDraft = "";
     error = "";
-    const saved = await integrationsStore.setOAuthClient(serverId, integration.id, clientSecret ? { clientId, clientSecret } : { clientId });
+    const saved = await mcpStore.integrations.setOAuthClient(serverId, integration.id, clientSecret ? { clientId, clientSecret } : { clientId });
     if (saved) isEditing = false;
     else { secretDraft = clientSecret; keepWriteError(); }
     await focusFirstControl();
@@ -67,7 +67,7 @@
 
   async function remove() {
     error = "";
-    if (await integrationsStore.setOAuthClient(serverId, integration.id, null)) {
+    if (await mcpStore.integrations.setOAuthClient(serverId, integration.id, null)) {
       isConfirmingRemove = false;
       clientIdDraft = "";
     } else keepWriteError();

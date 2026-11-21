@@ -15,7 +15,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import { ensureIconCollections } from "../../lib/iconify";
-  import { integrationsStore } from "../settings/integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import ConnectRequestRow from "./ConnectRequestRow.svelte";
   import { connectCardHeading, connectContinuePrompt, connectRequestCopy } from "./lib/connect-card-copy";
   import { connectRequestStatus } from "./lib/connect-request-status";
@@ -51,7 +51,7 @@
   function dismiss() {
     // A sign-in this card started ends with it, here and on the host.
     for (const { request, status } of rows) {
-      if (request.kind === "integration" && status === "pending") void integrationsStore.cancel(request.serverId, request.integrationId);
+      if (request.kind === "integration" && status === "pending") void mcpStore.integrations.cancel(request.serverId, request.integrationId);
     }
     close();
   }

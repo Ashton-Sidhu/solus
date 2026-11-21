@@ -12,8 +12,7 @@
   import BackgroundWorkRow from "./BackgroundWorkRow.svelte";
   import McpTaskRows from "./McpTaskRows.svelte";
   import ResourceWatchRows from "./ResourceWatchRows.svelte";
-  import { mcpTasksStore } from "../../contexts/sessions/mcp-tasks.store.svelte";
-  import { resourceWatchesStore } from "../../contexts/sessions/resource-watches.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { shownBackgroundRecords } from "@solus/client-core/background-item";
   import { MCP_TASKS } from "@solus/client-core/mcp-task-row";
   import { RESOURCE_WATCHES } from "@solus/client-core/resource-watch-row";
@@ -73,12 +72,12 @@
   const ownServerId = $derived(runHost(session.sessionFor(tabId)?.run));
   $effect(() => {
     if (index !== total - 1 || !ownSessionId || !ownServerId) return;
-    mcpTasksStore.follow(ownServerId, ownSessionId);
-    resourceWatchesStore.follow(ownServerId, ownSessionId);
+    mcpStore.tasks.follow(ownServerId, ownSessionId);
+    mcpStore.watches.follow(ownServerId, ownSessionId);
   });
-  const mcpTasks = $derived(index === total - 1 ? shownBackgroundRecords(MCP_TASKS, mcpTasksStore.recordsOf(ownSessionId), turn.startedAt) : []);
+  const mcpTasks = $derived(index === total - 1 ? shownBackgroundRecords(MCP_TASKS, mcpStore.tasks.recordsOf(ownSessionId), turn.startedAt) : []);
   const resourceWatches = $derived(
-    index === total - 1 ? shownBackgroundRecords(RESOURCE_WATCHES, resourceWatchesStore.recordsOf(ownSessionId), turn.startedAt) : [],
+    index === total - 1 ? shownBackgroundRecords(RESOURCE_WATCHES, mcpStore.watches.recordsOf(ownSessionId), turn.startedAt) : [],
   );
   // A live MCP task holds the session in `background`. The row of the agent's own
   // background work then says nothing the MCP task rows do not, unless the turn waits on more.

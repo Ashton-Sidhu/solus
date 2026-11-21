@@ -305,8 +305,12 @@ The UI says **MCP server**, as Settings → MCP does today.
    drops the list, and a list is not used after its `ttlMs`. A legacy server
    has no `ttlMs`; its lists live until a notification or an idle close.
 6. **No new polling in a client.** A client reads through a store and follows
-   events. Stores are in `packages/workspace-ui/src/components/settings/`
-   (`integrations.store.svelte.ts`) and their mobile hooks.
+   events. On desktop and web the MCP state lives in one store,
+   `mcpStore` in `packages/workspace-ui/src/contexts/mcp/`: `integrations`
+   (the list, tools, facts, command processes, connections, and sign-ins),
+   `prompts`, `resources`, `tasks`, and `watches`. The first screen does not
+   load it; only the chips of attached resources (`resourceAttachments`, in
+   `contexts/index.ts`) are there. Mobile has its hooks.
 7. **Input outside a turn is refused.** `prompts/get` and `resources/read` can
    answer `input_required`. Inside a tool call the gateway shows the question
    card, as for `tools/call`. For a call that a client made (a slash command,
@@ -1360,8 +1364,8 @@ Codex.
 - Mobile has no slash menu (§1, item 10). The + menu of `ThreadComposer.tsx`
   gains **MCP prompt**: a sheet that lists and searches the prompts, then an
   argument sheet, then send. Hook: `use-integration-prompts.ts`.
-- The lists are kept per host and project in
-  `components/input/lib/integration-prompts.store.svelte.ts`. A list is read
+- The lists are kept per host and project in `mcpStore.prompts`
+  (`contexts/mcp/integration-prompts.store.svelte.ts`). A list is read
   the first time a composer opens `/` in that project, not with every
   conversation: most conversations never open the menu. The kept list shows at
   once after that, and `integration.changed`, `integration.connectionChanged`,
@@ -1763,7 +1767,8 @@ Where the code differs from §12.1 to §12.5, the code is right.
   `BackgroundKind` (`client-core/background-item.ts`): the row, the live
   check, the host's list, and the change event. `SessionHostRecords` keeps
   each session's records of one kind on desktop and web
-  (`contexts/sessions/session-host-records.svelte.ts`), and
+  (`contexts/mcp/session-host-records.svelte.ts`, as `mcpStore.tasks` and
+  `mcpStore.watches`), and
   `useSessionHostRecords` does the same on mobile. `shownBackgroundRecords`
   chooses the rows that a conversation shows.
 

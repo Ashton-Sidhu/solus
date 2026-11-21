@@ -1,6 +1,6 @@
 import type { FoundFile, FoundServer, FoundServerList, IntegrationFoundAddResult } from '@solus/contracts/integration-types'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { isUnsupportedHostError } from '../integrations.store.svelte'
+import { isUnsupportedHostError } from './integration-sign-ins.svelte'
 
 /**
  * The MCP servers in the config files of one host, and those that run on its

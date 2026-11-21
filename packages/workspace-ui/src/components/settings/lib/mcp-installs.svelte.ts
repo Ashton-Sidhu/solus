@@ -2,7 +2,7 @@ import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import type { IntegrationSetupNeed } from '@solus/contracts/integrations/setup-handoff'
 import { SvelteMap } from 'svelte/reactivity'
-import { integrationsStore } from '../integrations.store.svelte'
+import { mcpStore } from '../../../contexts/mcp'
 import { probeRefusal, urlHost } from './integration-labels'
 
 /** An Add that runs, or the reason the last one stopped, for one server address. */
@@ -24,7 +24,7 @@ export class McpInstalls {
     const running = this.installs.get(url)
     if (running && running.kind !== 'failed') return null
     this.installs.set(url, { kind: 'checking' })
-    const attempt = await integrationsStore.probe(this.serverId, url)
+    const attempt = await mcpStore.integrations.probe(this.serverId, url)
     const refusal = 'error' in attempt ? attempt.error : probeRefusal(attempt.result)
     if (refusal) {
       const setupNeed = 'result' in attempt ? IntegrationSignIn.setupNeedOfProbe(attempt.result, url) : null
@@ -32,10 +32,10 @@ export class McpInstalls {
       return null
     }
     this.installs.set(url, { kind: 'adding' })
-    const integration = await integrationsStore.create(this.serverId, { name: name.trim() || urlHost(url), url })
+    const integration = await mcpStore.integrations.create(this.serverId, { name: name.trim() || urlHost(url), url })
     if (!integration) {
-      const message = integrationsStore.states.get(this.serverId)?.writeError || 'Another change is saving. Try again.'
-      integrationsStore.clearWriteError(this.serverId)
+      const message = mcpStore.integrations.states.get(this.serverId)?.writeError || 'Another change is saving. Try again.'
+      mcpStore.integrations.clearWriteError(this.serverId)
       this.installs.set(url, { kind: 'failed', message })
       return null
     }

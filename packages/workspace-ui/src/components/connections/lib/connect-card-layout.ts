@@ -1,4 +1,4 @@
-import type { ConnectionsStatus, IntegrationConnectFlow } from '../../settings/integrations.store.svelte'
+import type { ConnectionsStatus, IntegrationConnectFlow } from '../../../contexts/mcp'
 
 export interface IntegrationConnectFacts {
   connectionsStatus: ConnectionsStatus | undefined

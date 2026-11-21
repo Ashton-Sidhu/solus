@@ -7,14 +7,15 @@ import { SvelteRunes } from './helpers/svelte-runes'
 
 const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
-const { integrationsStore: store } = await import('@solus/workspace-ui/components/settings/integrations.store.svelte')
+const { mcpStore } = await import('@solus/workspace-ui/contexts/mcp')
+const store = mcpStore.integrations
 // The two forms hold runes: they run compiled on Svelte's client runtime, against the same store.
 const runes = new SvelteRunes()
 afterAll(() => runes.dispose())
 const file = SvelteRunes.file
 const shared = {
   'svelte/reactivity': file('node_modules/svelte/src/reactivity/index-client.js'),
-  '../integrations.store.svelte': file('packages/workspace-ui/src/components/settings/integrations.store.svelte.ts'),
+  '../../../contexts/mcp': file('packages/workspace-ui/src/contexts/mcp/index.ts'),
   '@solus/contracts/integrations/command-line': file('packages/contracts/src/integrations/command-line.ts'),
   '@solus/contracts/integrations/command-server': file('packages/contracts/src/integrations/command-server.ts'),
   '@solus/contracts/integrations/integration-sign-in': file('packages/contracts/src/integrations/integration-sign-in.ts'),

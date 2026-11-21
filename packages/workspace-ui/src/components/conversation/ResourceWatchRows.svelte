@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ResourceWatch } from "@solus/contracts/integrations/resource-watch";
   import { resourceWatchItem, RESOURCE_WATCH_STOP } from "@solus/client-core/resource-watch-row";
-  import { resourceWatchesStore } from "../../contexts/sessions/resource-watches.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import BackgroundItemRow from "./BackgroundItemRow.svelte";
@@ -20,7 +20,7 @@
   async function act(watch: ResourceWatch, actionId: string): Promise<void> {
     if (actionId !== RESOURCE_WATCH_STOP.id) return;
     try {
-      await resourceWatchesStore.stop(watch);
+      await mcpStore.watches.stop(watch);
     } catch {
       toasts.error(`The watch of ${watch.name} could not be stopped`);
     }

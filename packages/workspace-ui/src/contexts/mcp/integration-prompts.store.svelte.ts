@@ -1,6 +1,6 @@
 import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptText } from '@solus/contracts/integrations/prompts'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { HostProjectLists } from '../../../lib/host-project-lists.svelte'
+import { HostProjectLists } from './host-project-lists.svelte'
 
 /**
  * The MCP prompts of each host and project (docs/plans/mcp-first-class.md §10)
@@ -11,7 +11,7 @@ import { HostProjectLists } from '../../../lib/host-project-lists.svelte'
  * sign-out, and a reconnect read the kept lists of that host again; the old
  * list shows until the new one lands.
  */
-class IntegrationPromptsStore extends HostProjectLists<IntegrationPromptList> {
+export class IntegrationPromptsStore extends HostProjectLists<IntegrationPromptList> {
   constructor() {
     super({
       read: (api, projectPath) => api.integrationPromptList(projectPath ? { projectPath } : {}),
@@ -25,5 +25,3 @@ class IntegrationPromptsStore extends HostProjectLists<IntegrationPromptList> {
     return serverConnections.apiFor(serverId).integrationPromptGet(request)
   }
 }
-
-export const integrationPromptsStore = new IntegrationPromptsStore()

@@ -17,5 +17,3 @@ export class McpTasksStore extends SessionHostRecords<McpTask, 'mcpTask.changed'
     return this.sessions.hostApiOf(task.sessionId).mcpTaskAnswer({ sessionId: task.sessionId, id: task.id, key, answers })
   }
 }
-
-export const mcpTasksStore = new McpTasksStore()

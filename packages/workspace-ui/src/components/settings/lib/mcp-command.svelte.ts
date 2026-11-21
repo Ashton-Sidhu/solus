@@ -2,7 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { Integration, IntegrationEnvValue, IntegrationLaunch, IntegrationUpdateRequest } from '@solus/contracts/integration-types'
 import { splitCommandLine } from '@solus/contracts/integrations/command-line'
 import { checkCommandDraft, commandDraftOf, COMMAND_ADMIN_ONLY, parseEnvNames, type CommandDraftField } from '@solus/contracts/integrations/command-server'
-import { integrationsStore } from '../integrations.store.svelte'
+import { mcpStore } from '../../../contexts/mcp'
 
 export interface CommandFormProblem {
   field: CommandDraftField | 'form'
@@ -116,14 +116,14 @@ export class McpCommandForm {
       if (namesChanged) update.envNames = check.envNames
       // The add dialog names the command; the row's editor leaves the name to Rename.
       if (!this.editing && existing.name !== check.name) update.name = check.name
-      saved = await integrationsStore.update(this.serverId, update)
+      saved = await mcpStore.integrations.update(this.serverId, update)
     } else {
-      saved = await integrationsStore.create(this.serverId, { name: check.name, launch: check.launch, envNames: check.envNames })
+      saved = await mcpStore.integrations.create(this.serverId, { name: check.name, launch: check.launch, envNames: check.envNames })
     }
     this.isSaving = false
     if (!saved) {
-      this.problem = { field: 'form', reason: integrationsStore.states.get(this.serverId)?.writeError || 'The host did not save the command.' }
-      integrationsStore.clearWriteError(this.serverId)
+      this.problem = { field: 'form', reason: mcpStore.integrations.states.get(this.serverId)?.writeError || 'The host did not save the command.' }
+      mcpStore.integrations.clearWriteError(this.serverId)
     }
     return saved
   }

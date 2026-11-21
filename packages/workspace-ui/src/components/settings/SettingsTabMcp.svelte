@@ -30,9 +30,8 @@
   import McpServerRow from "./McpServerRow.svelte";
   import McpFoundRow from "./McpFoundRow.svelte";
   import McpFoundDialog from "./McpFoundDialog.svelte";
-  import { McpFound } from "./lib/mcp-found.svelte";
+  import { McpFound, mcpStore } from "../../contexts/mcp";
   import { mcpPageRequest } from "./lib/mcp-page-request.svelte";
-  import { integrationsStore } from "./integrations.store.svelte";
   import { McpCatalog } from "./lib/mcp-catalog.svelte";
   import type { ConnectRequest } from "./lib/mcp-connect.svelte";
   import { catalogCountText, customUrlProblem, IntegrationLabels, urlHost } from "./lib/integration-labels";
@@ -64,7 +63,7 @@
   const projectPath = $derived(sessionScope && !isChat(sessionScope) ? sessionScope : null);
   const projectName = $derived(projectPath ? hostPathBaseName(projectPath) || projectPath : null);
 
-  const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostState = $derived(mcpStore.integrations.states.get(serverId));
   const hostServers = $derived(runningServers.forHost(serverId));
   const installed = $derived(hostState?.integrations ?? []);
   const installedByUrl = $derived(new Map(installed.map((integration) => [integration.url, integration])));
@@ -79,7 +78,7 @@
 
   $effect(() => {
     const hostId = serverId;
-    return untrack(() => integrationsStore.watch(hostId));
+    return untrack(() => mcpStore.integrations.watch(hostId));
   });
   // The palette asked for the command form: it opens once the page shows.
   $effect(() => {
@@ -136,7 +135,7 @@
       toasts.success(`${server.name} added. Enter its values to start it.`);
       showView("installed");
       expanded.add(result.integration.id);
-      await integrationsStore.connect(serverId, result.integration.id);
+      await mcpStore.integrations.connect(serverId, result.integration.id);
       await revealRow(result.integration, false);
       return;
     }
@@ -287,7 +286,7 @@
     {#if hostState?.error}
       <div class="flex flex-wrap items-center justify-between gap-3 p-4">
         <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{hostState.error}</p>
-        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.load(serverId)} disabled={hostState.loading}>Retry</Button>
+        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.load(serverId)} disabled={hostState.loading}>Retry</Button>
       </div>
     {:else if visibleInstalled.length === 0}
       <p class="p-6 text-center text-workspace-chrome text-muted-foreground">
