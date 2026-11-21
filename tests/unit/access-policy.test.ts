@@ -387,6 +387,18 @@ describe('integration connections', () => {
       await expect(assertRpcAccess(method, GUEST, [{ id: 'i1' }])).rejects.toThrow(/not available to a guest/)
     }
   })
+
+  test('the MCP lists of a project refuse a guest at the door, for a path out of its checkout too', async () => {
+    // WHY (mcp-first-class.md §8.4): a project's lists run git on `projectPath`. Only a
+    // guest has a path scope, and these methods need `host.use`, which no guest holds,
+    // so the door is the one check that keeps a guest's path out of git.
+    for (const method of ['integrationPromptList', 'integrationResourceList', 'integrationFoundList', 'integrationFoundAdd'] as const) {
+      expect(permissionOf(method)).toBe('host.use')
+      expect(permissionsAllow(GUEST_PERMISSIONS, 'host.use')).toBe(false)
+      await expect(assertRpcAccess(method, GUEST, [{ projectPath: '/etc' }])).rejects.toThrow(/not available to a guest/)
+      await expect(assertRpcAccess(method, MEMBER, [{ projectPath: '/etc' }])).resolves.toBeUndefined()
+    }
+  })
 })
 
 describe('presence', () => {
