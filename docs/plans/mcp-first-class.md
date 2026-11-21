@@ -1556,9 +1556,8 @@ Where the code differs from §11.5, the code is right.
   on `BackgroundItemRow`, which gains the state `waiting` (a still eye glyph,
   no clock). Desktop and web: `ResourceWatchRows.svelte` under the last turn,
   `ResourceWatchNoticeRow.svelte` for the change. Mobile:
-  `ThreadResourceWatches.tsx` above the composer (the row of
-  `ThreadMcpTasks.tsx`, now exported as `BackgroundItemRow`) and the notice in
-  `ThreadHostNotice.tsx`.
+  `ThreadBackgroundWork.tsx` above the composer (one `BackgroundItemRow.tsx`
+  for each watch) and the notice in `ThreadHostNotice.tsx`.
 
 ## 12. MCP tasks
 
@@ -1732,6 +1731,13 @@ Where the code differs from §12.1 to §12.5, the code is right.
   `McpTaskNoticeRow.svelte`. Mobile: `ThreadMcpTasks.tsx` above the composer
   and the notice in `ThreadHostNotice.tsx`. Mobile keeps no turn start times,
   so there an ended row shows until the next turn starts on that device.
+- **One kind for each record.** `MCP_TASKS` and `RESOURCE_WATCHES` are a
+  `BackgroundKind` (`client-core/background-item.ts`): the row, the live
+  check, the host's list, and the change event. `SessionHostRecords` keeps
+  each session's records of one kind on desktop and web
+  (`contexts/sessions/session-host-records.svelte.ts`), and
+  `useSessionHostRecords` does the same on mobile. `shownBackgroundRecords`
+  chooses the rows that a conversation shows.
 
 **Tests** (`tests/unit/integrations/mcp-tasks.test.ts`, with a fake clock): a
 task that ends in 10 seconds is the tool's result; one that ends in 2
