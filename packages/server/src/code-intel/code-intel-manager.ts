@@ -18,6 +18,7 @@ import type {
 import { hostCliEnv, startableCommand } from '../cli-env'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
+import { StderrTail } from '../platform/stderr-tail'
 import { CODE_INTEL_ADAPTERS, detectLanguage, languageForPath, resolveToolBinary, type CodeIntelAdapter } from './adapters'
 import { CodeIntelIndex } from './index-store'
 import { withReferencePreviews } from './reference-previews'
@@ -34,7 +35,7 @@ const STALE_REINDEX_DEBOUNCE_MS = 2_000
 /** A file the indexer skips (generated, excluded) reads stale on every click;
  *  without this floor that click would rebuild the index forever. */
 const AUTO_REINDEX_MIN_INTERVAL_MS = 60_000
-const STDERR_TAIL_BYTES = 4_000
+const STDERR_TAIL_CHARACTERS = 4_000
 const HASH_CONCURRENCY = 32
 
 interface IndexMeta {
@@ -459,11 +460,8 @@ export class CodeIntelManager {
       const env = hostCliEnv()
       const command = startableCommand(binary, env)
       const child = spawn(command.file, [...command.args, ...args], { cwd, env, stdio: ['ignore', 'ignore', 'pipe'] })
-      let stderrTail = ''
       child.stderr.setEncoding('utf-8')
-      child.stderr.on('data', (chunk: string) => {
-        stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_BYTES)
-      })
+      const stderr = new StderrTail(child.stderr, STDERR_TAIL_CHARACTERS)
       const timeout = setTimeout(() => {
         child.kill('SIGTERM')
         reject(new Error(`indexer timed out after ${INDEX_TIMEOUT_MS / 60_000} minutes`))
@@ -480,7 +478,7 @@ export class CodeIntelManager {
         clearTimeout(timeout)
         signal.removeEventListener('abort', onAbort)
         if (code === 0) resolvePromise()
-        else reject(new Error(stderrTail.trim() || `indexer exited with code ${code}`))
+        else reject(new Error(stderr.tail?.trim() || `indexer exited with code ${code}`))
       })
     })
   }

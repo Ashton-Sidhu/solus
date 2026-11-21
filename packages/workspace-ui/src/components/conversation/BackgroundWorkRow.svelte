@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { Square as StopIcon } from "@lucide/svelte";
   import ActivityRow from "./ActivityRow.svelte";
-  import { Button } from "../ui/button";
+  import BackgroundStopButton from "./BackgroundStopButton.svelte";
   import type { BackgroundWait } from "./lib/activity-summary";
 
   /**
@@ -43,20 +42,13 @@
 <!-- Stop sits on the rail, where a finished row keeps its step count, and takes
      the rail's own type: the row adds a control, not a new style. -->
 {#snippet stopRail()}
-  <Button
-    variant="ghost"
-    size="xs"
-    class="size-5 rounded-full p-0 text-[color:color-mix(in_oklch,var(--failure)_70%,var(--foreground))] shadow-[shadow:0_0_0_0.03125rem_color-mix(in_oklch,var(--failure)_45%,transparent)] hover:bg-[color:color-mix(in_oklch,var(--failure)_10%,transparent)] hover:text-(color:--failure) dark:hover:bg-[color:color-mix(in_oklch,var(--failure)_14%,transparent)]"
+  <BackgroundStopButton
+    label={isStopping ? "Stopping the background work" : "Stop the background work"}
+    title={isStopping ? "Stopping…" : "Stop the background work"}
     disabled={isStopping}
     onclick={stop}
-    aria-label={isStopping ? "Stopping the background work" : "Stop the background work"}
-    title={isStopping ? "Stopping…" : "Stop the background work"}
-    data-testid="background-work-stop"
-  >
-    <!-- The composer's own Stop: a filled square in a thin failure ring, so it
-         reads as Stop at a glance rather than as a rail figure. -->
-    <StopIcon class="size-2" fill="currentColor" strokeWidth={0} aria-hidden="true" />
-  </Button>
+    testid="background-work-stop"
+  />
 {/snippet}
 
 <ActivityRow

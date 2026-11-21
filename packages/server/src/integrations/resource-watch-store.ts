@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { RESOURCE_WATCH_END_REASONS, type ResourceWatchEndReason } from '@solus/contracts/integrations/resource-watch'
-import { rows, runSql } from './sql'
+import { rows, runSql } from '../db/sql'
 
 /**
  * The host table `integration_resource_watch` (docs/plans/mcp-first-class.md

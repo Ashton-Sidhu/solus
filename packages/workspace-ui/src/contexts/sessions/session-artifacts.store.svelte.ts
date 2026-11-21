@@ -1,9 +1,9 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { allSessionArtifacts, type SessionArtifacts } from '@solus/contracts/session-artifacts'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from '@solus/contracts/session-pull-requests'
-import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { keepEqual } from '@solus/client-core/keep-equal'
+import { FollowedSessions } from './followed-sessions'
 import { listsSession, listsWork, newestAddedKey } from './session-artifacts'
 
 /** What one read of a session's artifacts changed. */
@@ -25,8 +25,6 @@ export interface SessionArtifactsChange {
  * `session.artifactsChanged` that names it or one of the sessions it started,
  * and on every `works.changed` for a work it lists, whose pin, time, and
  * preview the Threads row shows.
- * A read that a newer read overtook, or that answered from a connection since
- * replaced, is dropped.
  */
 export class SessionArtifactsStore {
   private readonly lists = new SvelteMap<string, SessionArtifacts>()
@@ -34,18 +32,18 @@ export class SessionArtifactsStore {
   private readonly changes = new SvelteMap<string, SessionArtifactsChange>()
   /** Sessions whose last read failed. */
   private readonly failures = new SvelteSet<string>()
-  /** The host each session asked for is read from. */
-  private readonly serverIds = new Map<string, string>()
-  private readonly reads = new Map<string, number>()
+  private readonly sessions = new FollowedSessions<SessionArtifacts>({
+    read: (api, sessionId) => api.sessionArtifactsList(sessionId),
+    apply: (sessionId, next) => this.apply(sessionId, next),
+    isLoaded: (sessionId) => this.lists.has(sessionId),
+  })
   private readonly listeners = new Set<(change: SessionArtifactsChange) => void>()
   private stopWatching: (() => void)[] | null = null
 
   /** Read a session once; later changes arrive as events. */
   ensure(serverId: string, sessionId: string): void {
     this.watch()
-    const known = this.serverIds.get(sessionId)
-    this.serverIds.set(sessionId, serverId)
-    if (known !== serverId || (!this.lists.has(sessionId) && !this.reads.has(sessionId))) void this.refresh(sessionId)
+    this.sessions.follow(serverId, sessionId)
   }
 
   artifactsFor(sessionId: string | null | undefined): SessionArtifacts | null {
@@ -59,7 +57,7 @@ export class SessionArtifactsStore {
 
   /** Read a session again: the retry after a failed read. */
   reload(sessionId: string): void {
-    void this.refresh(sessionId)
+    void this.sessions.refresh(sessionId)
   }
 
   /**
@@ -68,10 +66,8 @@ export class SessionArtifactsStore {
    * this list is read from. Answers what the host did once the list shows it.
    */
   async setPullRequestWatch(link: Pick<SessionPullRequestLink, 'sessionId' | 'repository' | 'number'>, watching: boolean): Promise<SessionPullRequestWatchOutcome> {
-    const serverId = this.serverIds.get(link.sessionId)
-    if (!serverId) throw new Error('This session is not shown here.')
-    const outcome = await serverConnections.apiFor(serverId).sessionPullRequestWatch(link.sessionId, link.repository, link.number, watching)
-    await this.refresh(link.sessionId)
+    const outcome = await this.sessions.hostApiOf(link.sessionId).sessionPullRequestWatch(link.sessionId, link.repository, link.number, watching)
+    await this.sessions.refresh(link.sessionId)
     return outcome
   }
 
@@ -100,26 +96,19 @@ export class SessionArtifactsStore {
     if (this.stopWatching) return
     this.stopWatching = [
       subscribeAllHosts('session.artifactsChanged', (_serverId, { sessionId }) => {
-        for (const owner of this.serverIds.keys()) {
-          if (listsSession(owner, this.lists.get(owner), sessionId)) void this.refresh(owner)
+        for (const owner of this.sessions.sessionIds()) {
+          if (listsSession(owner, this.lists.get(owner), sessionId)) void this.sessions.refresh(owner)
         }
       }),
       subscribeAllHosts('works.changed', (_serverId, { workId }) => {
-        for (const owner of this.serverIds.keys()) {
-          if (listsWork(this.lists.get(owner), workId)) void this.refresh(owner)
+        for (const owner of this.sessions.sessionIds()) {
+          if (listsWork(this.lists.get(owner), workId)) void this.sessions.refresh(owner)
         }
       }),
     ]
   }
 
-  private async refresh(sessionId: string): Promise<void> {
-    const serverId = this.serverIds.get(sessionId)
-    if (!serverId) return
-    const read = (this.reads.get(sessionId) ?? 0) + 1
-    this.reads.set(sessionId, read)
-    const api = serverConnections.apiFor(serverId)
-    const next = await api.sessionArtifactsList(sessionId).catch(() => null)
-    if (this.reads.get(sessionId) !== read || serverConnections.apiFor(serverId) !== api) return
+  private apply(sessionId: string, next: SessionArtifacts | null): void {
     if (!next) {
       this.failures.add(sessionId)
       return

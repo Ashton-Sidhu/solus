@@ -2159,24 +2159,6 @@
       ],
       "skipped": []
     },
-    "apps/mobile/src/features/threads/use-mcp-tasks.ts": {
-      "compiled": [
-        "useMcpTasks"
-      ],
-      "skipped": []
-    },
-    "apps/mobile/src/features/threads/use-resource-watches.ts": {
-      "compiled": [
-        "useResourceWatches"
-      ],
-      "skipped": []
-    },
-    "apps/mobile/src/features/threads/use-session-host-records.ts": {
-      "compiled": [
-        "useSessionHostRecords"
-      ],
-      "skipped": []
-    },
     "apps/mobile/src/features/threads/use-thread-list.ts": {
       "compiled": [
         "useReloadThreadLists",

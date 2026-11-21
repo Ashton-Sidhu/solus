@@ -56,11 +56,11 @@ function baseApi(): FakeApi {
 }
 
 /** The conversation's own calls, without the per-connection capability, server-info
- *  (the host introducer's read of a ready host), and agent reads, and the run-option
- *  read beside history. */
+ *  (the host introducer's read of a ready host), and agent reads, the run-option
+ *  read beside history, and the reads of the session's suggestions and background records. */
 // The host's policy is a shared host fact (plans/030 §7), read once per host, not a call of this conversation.
 const conversationCalls = (api: FakeApi) => api.calls.map((call) => call.method).filter((method) => method !== 'hostPolicy')
-  .filter((method) => method !== 'serverGetCapabilities' && method !== 'connectionsGetServerInfo' && method !== 'start' && method !== 'configGet' && method !== 'setSessionReadState' && method !== 'sessionSuggestions' && method !== 'typeSafeKeyStatus')
+  .filter((method) => method !== 'serverGetCapabilities' && method !== 'connectionsGetServerInfo' && method !== 'start' && method !== 'configGet' && method !== 'setSessionReadState' && method !== 'sessionSuggestions' && method !== 'mcpTaskList' && method !== 'integrationResourceWatchList' && method !== 'typeSafeKeyStatus')
 
 const texts = (controller: ConversationController) => controller.model.order.map((id) => {
   const item = controller.model.items.get(id)

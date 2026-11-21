@@ -3,7 +3,7 @@ import { View } from 'react-native'
 import type { Integration, IntegrationLaunch } from '@solus/contracts/integration-types'
 import { commandLineText, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
 import { AppText as Text } from '../../../components/AppText'
-import type { useCommandProcesses } from '../use-command-processes'
+import type { useIntegrations } from '../use-integrations'
 import { CommandProcessPanel } from './CommandProcessPanel'
 import { CommandServerForm } from './CommandServerForm'
 import { SettingsActionRow } from './SettingsActionRow'
@@ -17,7 +17,7 @@ import { SettingsActionRow } from './SettingsActionRow'
 export function CommandServerDetails(props: {
   readonly integration: Integration
   readonly process: CommandProcessStatus
-  readonly processes: ReturnType<typeof useCommandProcesses>
+  readonly processes: ReturnType<typeof useIntegrations>['processes']
   /** The host the command runs on, by its name. */
   readonly hostLabel: string
   readonly isConnected: boolean

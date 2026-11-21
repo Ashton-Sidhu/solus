@@ -79,6 +79,18 @@ describe('session host records', () => {
     expect(store.recordsOf('s1').map((record) => record.wakes)).toEqual([2])
   })
 
+  test('an equal list after a reconnect keeps the list it holds', async () => {
+    connections.registerHost('host-a', { mcpTaskList: async () => [{ ...task }] })
+    const store = new McpTasksStore()
+    store.follow('host-a', 's1')
+    await flush()
+    const first = store.recordsOf('s1')
+    connections.emitReadiness('host-a', 'ready')
+    await flush()
+    // WHY: a read again that changed nothing must not draw each row again.
+    expect(store.recordsOf('s1')).toBe(first)
+  })
+
   test('a host with no list method shows no rows, as a session without records does', async () => {
     connections.registerHost('host-a', { mcpTaskList: async () => { throw new Error('Unknown method') } })
     const store = new McpTasksStore()

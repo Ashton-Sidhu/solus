@@ -10,7 +10,7 @@ export class ResourceWatchesStore extends SessionHostRecords<ResourceWatch, 'int
 
   /** The row ends from the host's event. */
   async stop(watch: Pick<ResourceWatch, 'id' | 'sessionId'>): Promise<void> {
-    await this.hostApiOf(watch.sessionId).integrationResourceWatchStop({ sessionId: watch.sessionId, id: watch.id })
+    await this.sessions.hostApiOf(watch.sessionId).integrationResourceWatchStop({ sessionId: watch.sessionId, id: watch.id })
   }
 }
 

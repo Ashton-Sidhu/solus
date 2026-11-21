@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo } from "react";
 
-import { useApp, useListened } from "../../app/app-context";
-import type { ConversationStore } from "../conversation/conversation-store";
+import { useListened } from "../../app/app-context";
+import { conversationIdOf, type ConversationStore } from "../conversation/conversation-store";
+import { useHostApi } from "../projects/use-open-project";
 import { McpAppCard } from "./ThreadMcpApp";
 import { useSavedMcpApp } from "./use-saved-mcp-app";
 
@@ -12,11 +13,10 @@ import { useSavedMcpApp } from "./use-saved-mcp-app";
  * keyboard is open it folds to its title bar.
  */
 export function ThreadMcpPipDock({ store, isKeyboardVisible }: { readonly store: ConversationStore; readonly isKeyboardVisible: boolean }) {
-  const app = useApp();
-  const api = app.connections.connection(store.controller.hostId)?.api;
+  const api = useHostApi(store.controller.hostId);
   const readPip = useCallback(() => store.mcpAppPip, [store]);
   const pip = useListened(store.mcpAppPipChanges, readPip);
-  const sessionId = store.controller.run.sessionId;
+  const sessionId = conversationIdOf(store);
   const request = useMemo(() => (pip ? { sessionId, activityId: pip.activityId } : null), [pip, sessionId]);
   const { app: saved } = useSavedMcpApp(api, request);
   const closedKeys = useMemo(() => (request ? [request.activityId] : []), [request]);

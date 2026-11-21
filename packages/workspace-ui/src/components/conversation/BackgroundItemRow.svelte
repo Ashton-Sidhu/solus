@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Ban as StoppedIcon, Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon, Eye as WaitingIcon, Square as StopIcon } from "@lucide/svelte";
+  import { Ban as StoppedIcon, Check as CheckIcon, CircleAlert as AlertIcon, CircleX as FailedIcon, Eye as WaitingIcon } from "@lucide/svelte";
   import type { BackgroundItem } from "@solus/client-core/background-item";
   import ActivityRow from "./ActivityRow.svelte";
+  import BackgroundStopButton from "./BackgroundStopButton.svelte";
   import { Button } from "../ui/button";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { conversationIsVisible } from "./lib/conversation-visibility";
@@ -65,25 +66,16 @@
   {/if}
 {/snippet}
 
-<!-- The time since the start, then Stop: `BackgroundWorkRow`'s own stop
-     button, last on the rail as it is there, so every row of the session's
-     background work stops the same way and in the same place. -->
+<!-- The time since the start, then Stop, last on the rail as on `BackgroundWorkRow`. -->
 {#snippet railItems()}
   {#if elapsed}<span class="activity-rail-time">{elapsed}</span>{/if}
   {#if stopAction}
-    {@const name = busyActionId === stopAction.id ? stopAction.busyLabel : item.stopLabel}
-    <Button
-      variant="ghost"
-      size="xs"
-      class="size-5 rounded-full p-0 text-[color:color-mix(in_oklch,var(--failure)_70%,var(--foreground))] shadow-[shadow:0_0_0_0.03125rem_color-mix(in_oklch,var(--failure)_45%,transparent)] hover:bg-[color:color-mix(in_oklch,var(--failure)_10%,transparent)] hover:text-(color:--failure) dark:hover:bg-[color:color-mix(in_oklch,var(--failure)_14%,transparent)] pointer-coarse:tap-area"
+    <BackgroundStopButton
+      label={busyActionId === stopAction.id ? stopAction.busyLabel : item.stopLabel}
       disabled={busyActionId !== null}
       onclick={() => act(stopAction.id)}
-      aria-label={name}
-      title={name}
-      data-testid="background-item-{stopAction.id}"
-    >
-      <StopIcon class="size-2" fill="currentColor" strokeWidth={0} aria-hidden="true" />
-    </Button>
+      testid="background-item-{stopAction.id}"
+    />
   {/if}
 {/snippet}
 

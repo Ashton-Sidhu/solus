@@ -16,6 +16,7 @@ import type {
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { sameHostPath } from '@solus/contracts/host-path'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { upsertById } from '@solus/client-core/keep-equal'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serversStore } from '../connections/servers.store.svelte'
 import { copyText } from '../../lib/toasts'
@@ -220,10 +221,7 @@ class WebhooksStore {
     const key = webhookKey(serverId, delivery.webhookId)
     const list = this.deliveries.get(key)
     // A SvelteMap value is not deeply reactive, so the list is set again. It holds at most one page.
-    if (list) {
-      const index = list.findIndex((existing) => existing.id === delivery.id)
-      this.deliveries.set(key, index === -1 ? [delivery, ...list] : list.with(index, delivery))
-    }
+    if (list) this.deliveries.set(key, upsertById(list, delivery, 'start'))
     if (!this.entries.has(key) || this.rowReads.has(key)) return
     const read = this.read(serverId, delivery.webhookId).finally(() => this.rowReads.delete(key))
     this.rowReads.set(key, read)

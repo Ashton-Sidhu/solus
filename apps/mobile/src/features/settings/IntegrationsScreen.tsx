@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolSummary } from "@solus/contracts/integration-types";
+import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationFacts, type IntegrationToolSummary } from "@solus/contracts/integration-types";
 import { resourceAllows } from "@solus/contracts/permissions";
 import { CLI_SKIP_NOTE, cliSkipLines } from "@solus/client-core/mcp-cli-skips";
 import { NOT_RUNNING_LABEL, notRunningText, projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
@@ -50,10 +50,9 @@ import { SetupGuideRow, SetupHandoffRow } from "./components/SetupHandoffRow";
 import { IntegrationExtraAccounts } from "./components/IntegrationExtraAccounts";
 import { CommandServerForm, type CommandAdd } from "./components/CommandServerForm";
 import { CommandServerDetails } from "./components/CommandServerDetails";
-import { useCommandProcesses } from "./use-command-processes";
 
 type IntegrationsModel = ReturnType<typeof useIntegrations>;
-type CommandProcesses = ReturnType<typeof useCommandProcesses>;
+type CommandProcesses = IntegrationsModel["processes"];
 
 /**
  * The MCP servers of one host (docs/plans/mcp-integrations.md §7): one search
@@ -70,8 +69,7 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
   const { hostId } = route.params;
   const insets = useSafeAreaInsets();
   const integrations = useIntegrations(hostId);
-  const { list, connected, searchCatalog, clearCatalog, clearAdding } = integrations;
-  const processes = useCommandProcesses(hostId, list);
+  const { list, connected, searchCatalog, clearCatalog, clearAdding, processes } = integrations;
   const [query, setQuery] = useState("");
   const app = useApp();
   // The host's own name, as desktop and web name it (mcp-first-class.md §9.2).
@@ -384,6 +382,7 @@ function InstalledRow(props: {
             isNotRunning={isNotRunning}
             hostLabel={props.hostLabel}
             tools={integrations.tools.get(integration.id)}
+            facts={props.processes.factsOf(integration.id)}
             enabled={integrations.connected && editable}
             onToggle={(toolName, isOn) => {
               integrations.setToolEnabled(integration, toolName, isOn).catch((cause: unknown) => Alert.alert("Not saved", errorMessage(cause)));
@@ -442,6 +441,7 @@ function InstalledTools(props: {
   readonly isNotRunning: boolean;
   readonly hostLabel: string;
   readonly tools: IntegrationToolsState | undefined;
+  readonly facts: IntegrationFacts | undefined;
   readonly enabled: boolean;
   readonly onToggle: (toolName: string, isOn: boolean) => void;
 }) {
@@ -452,17 +452,20 @@ function InstalledTools(props: {
       </View>
     );
   }
-  return <IntegrationTools integration={props.integration} tools={props.tools} enabled={props.enabled} onToggle={props.onToggle} />;
+  return <IntegrationTools integration={props.integration} tools={props.tools} facts={props.facts} enabled={props.enabled} onToggle={props.onToggle} />;
 }
 
-/** The server's tools, each with a switch that keeps it on or turns it off for agents on this host. */
+/** The server's tools, each with a switch that keeps it on or turns it off for agents on this host, and its facts: the instructions and the CLI copies left out. */
 function IntegrationTools(props: {
   readonly integration: Integration;
   readonly tools: IntegrationToolsState | undefined;
+  readonly facts: IntegrationFacts | undefined;
   readonly enabled: boolean;
   readonly onToggle: (toolName: string, isOn: boolean) => void;
 }) {
   const { tools } = props;
+  const instructions = props.facts?.instructions;
+  const cliSkips = props.facts?.cliSkips ?? [];
   const [instructionsOpen, setInstructionsOpen] = useState(false);
   if (!tools || tools.kind === "loading") {
     return (
@@ -474,7 +477,7 @@ function IntegrationTools(props: {
   if (tools.kind === "error") return <View className="px-4 pb-2"><SettingsNote tone="danger">{`Tools could not be read: ${tools.message}`}</SettingsNote></View>;
   return (
     <View className="gap-3 px-4 pb-3 pl-[58px]">
-      {tools.instructions ? (
+      {instructions ? (
         <View>
           <Pressable
             accessibilityRole="button"
@@ -486,7 +489,7 @@ function IntegrationTools(props: {
             <Text className="text-sm text-foreground-secondary">Instructions for the agent</Text>
             <SymbolView name={instructionsOpen ? "chevron.down" : "chevron.right"} size={13} tintColorClassName="accent-icon-muted" type="monochrome" />
           </Pressable>
-          {instructionsOpen ? <Text className="text-sm text-foreground-muted" selectable>{tools.instructions}</Text> : null}
+          {instructionsOpen ? <Text className="text-sm text-foreground-muted" selectable>{instructions}</Text> : null}
         </View>
       ) : null}
       {tools.tools.length === 0 ? <SettingsNote>This server lists no tools.</SettingsNote> : null}
@@ -499,7 +502,7 @@ function IntegrationTools(props: {
           onToggle={(isOn) => props.onToggle(tool.name, isOn)}
         />
       ))}
-      {tools.cliSkips.length ? <CliCopyNote lines={cliSkipLines(tools.cliSkips)} /> : null}
+      {cliSkips.length ? <CliCopyNote lines={cliSkipLines(cliSkips)} /> : null}
     </View>
   );
 }

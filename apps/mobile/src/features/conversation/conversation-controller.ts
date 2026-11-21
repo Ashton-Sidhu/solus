@@ -46,6 +46,7 @@ import { resourceAttachRequest, type AttachedIntegrationResource, type Integrati
 import { resourceAttachments } from './lib/resource-attachments'
 import { Listeners } from '../../lib/listeners'
 import { SessionSuggestionsFeed } from './session-suggestions'
+import { McpTasksFeed, ResourceWatchesFeed } from './session-records-feed'
 import { loweredPermissionMode, workPolicy } from '../policy/lib/policy-view'
 import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
 import { SESSION_DIVERGED } from '@solus/contracts/session-repositories'
@@ -168,6 +169,9 @@ export class ConversationController {
   readonly connectNeededChanges = new Listeners()
   /** What guests suggested to this session, for whoever may prompt it to send or dismiss. */
   readonly suggestions: SessionSuggestionsFeed
+  /** The session's MCP tasks and resource watches: its background rows that the host keeps (docs/plans/mcp-first-class.md §11.5, §12.5). */
+  readonly mcpTasks: McpTasksFeed
+  readonly resourceWatches: ResourceWatchesFeed
   /** The host's agents, whether each is installed, and what each can do.
    *  Null until the host answers: unknown, not unavailable. */
   agents: readonly AgentMetadata[] | null = null
@@ -280,6 +284,9 @@ export class ConversationController {
     this.cleanups.push(() => this.auth.close())
     this.suggestions = new SessionSuggestionsFeed(connection, () => this.run.sessionId, () => this.context())
     this.cleanups.push(() => this.suggestions.close())
+    this.mcpTasks = new McpTasksFeed(connection, () => this.run.sessionId)
+    this.resourceWatches = new ResourceWatchesFeed(connection, () => this.run.sessionId)
+    this.cleanups.push(() => this.mcpTasks.close(), () => this.resourceWatches.close())
     this.cleanups.push(connection.events.subscribe('session.eventReceived', (payload) => {
       if (payload.sessionId === this.run.sessionId) this.receive(payload.event)
     }))
@@ -535,7 +542,11 @@ export class ConversationController {
       this.setPhase({ kind: 'ready' })
       void this.deps.connection.api.setSessionReadState(this.run.sessionId, Date.now()).catch(() => undefined)
       // Every load, reconnects included: a change missed while away is read again.
-      if (this.started) void this.suggestions.refresh()
+      if (this.started) {
+        void this.suggestions.refresh()
+        void this.mcpTasks.refresh()
+        void this.resourceWatches.refresh()
+      }
       this.flush(true)
       if (this.started && !this.openedOnHost) {
         this.openedOnHost = true
