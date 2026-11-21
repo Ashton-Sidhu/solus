@@ -194,6 +194,28 @@ describe('session archive writer', () => {
     expect(storageRow()?.head).toBeTruthy()
     await writer.stop()
   })
+  // WHY: the transcript mirror sends the rows of organization work. A second copy in each
+  // turn commit has no reader, so the host must not read or store it.
+  test('a turn commit of organization work stores no rows', async () => {
+    await records.upsertSessionRecord('org-a', { sessionId: SESSION, provider: 'claude-code', projectPath: '/project', lastActivityAt: 1 },
+      { organizationId: 'org-a', published: true, ownerKey: 'alice' })
+    const transcript = join(tempDir('organization-rows'), 'thread.jsonl')
+    writeFileSync(transcript, 'turn\n')
+    const repositories = new Repositories(tempDir('organization-rows-repository'))
+    let rowReads = 0
+    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => { rowReads += 1; return [{ role: 'user', content: 'first', timestamp: 1 }] } })
+    await writer.turnEnded(turnEnd({ organizationId: 'org-a' }))
+    await writer.idle()
+    const repository = repositories.named(repositoryName('org-a', SESSION))
+    const head = await repository.head()
+    const manifest = manifestSchema.parse(JSON.parse(await repository.readText(head!, 'manifest.json')))
+    expect(rowReads).toBe(0)
+    expect(manifest.turns[0]).toMatchObject({ hasRows: false, rowCount: 0 })
+    // The provider thread of the turn is still in the commit: another host continues from it.
+    expect(manifest.threads[0].files[0].parts).toEqual([0])
+    await expect(repository.readText(head!, 'rows/0.jsonl')).rejects.toThrow()
+    await writer.stop()
+  })
   // WHY: a cloud history reader must not receive a tool result body from a turn commit.
   test('projected Codex rows omit a large tool result body', async () => {
     const transcript = join(tempDir('codex-rows'), 'rollout.jsonl')

@@ -9,7 +9,7 @@ import { sessionStarterSchema } from '@solus/contracts/session-starter'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import { getSessionRecord } from '../../data/sessions/session-records'
+import { getSessionRecord, isOrganizationWork } from '../../data/sessions/session-records'
 import { readSessionStorage } from '../../data/sessions/session-storage'
 import { getDb, withTx } from '../../db'
 import { runAsync } from '../../git/exec'
@@ -99,7 +99,7 @@ export interface SessionArchiveDeps {
   repositories: SessionRepositories
   /** The provider files of a thread on this host; empty for a provider that keeps none. */
   threadFiles(provider: AgentId, threadId: string, projectPath: string | undefined): Promise<ThreadFile[]>
-  /** Reads the newest settled user turn with the same projection as the mirror. */
+  /** Reads the newest settled user turn with the same projection as the mirror. Not called for organization work. */
   turnRows?: (provider: AgentId, sessionId: string, projectPath: string | undefined, endedAt: number) => Promise<WireSessionLoadMessage[] | null>
   database?: () => DatabaseSync
   now?: () => number
@@ -209,7 +209,8 @@ export class SessionArchiveWriter {
     }
     const checkout = await this.checkoutOf(turn).catch(() => null)
     // Capture before the Git queue runs. A later turn can start before this commit.
-    const rows = await this.captureRows(turn, endedAt)
+    // The transcript mirror sends the rows of organization work, so its turn commit stores none.
+    const rows = isOrganizationWork(record) ? null : await this.captureRows(turn, endedAt)
     return {
       organizationId: turn.organizationId, provider: turn.provider, threadId: turn.threadId, partial: turn.partial, endedAt, files,
       title: record?.customTitle ?? record?.title ?? null,
