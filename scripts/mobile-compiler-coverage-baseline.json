@@ -2022,14 +2022,19 @@
     },
     "apps/mobile/src/features/threads/ThreadMcpTasks.tsx": {
       "compiled": [
-        "BackgroundItemRow",
         "ThreadMcpTasks"
       ],
       "skipped": []
     },
-    "apps/mobile/src/features/threads/ThreadResourceWatches.tsx": {
+    "apps/mobile/src/features/threads/ThreadBackgroundWork.tsx": {
       "compiled": [
-        "ThreadResourceWatches"
+        "ThreadBackgroundWork"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/BackgroundItemRow.tsx": {
+      "compiled": [
+        "BackgroundItemRow"
       ],
       "skipped": []
     },

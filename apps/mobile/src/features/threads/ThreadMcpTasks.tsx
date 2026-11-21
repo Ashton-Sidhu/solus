@@ -1,23 +1,14 @@
 import { useState } from "react";
-import { ActivityIndicator, Pressable, View, type ColorValue } from "react-native";
-import type { BackgroundItem } from "@solus/client-core/background-item";
-import { mcpTaskItem, MCP_TASK_ANSWER } from "@solus/client-core/mcp-task-row";
-import type { McpTask } from "@solus/contracts/integrations/mcp-task";
-import { SymbolView } from "../../components/AppSymbol";
-import { ControlPill } from "../../components/ControlPill";
-import { AppText as Text } from "../../components/AppText";
-import { useUniwindTheme } from "../../lib/useUniwindTheme";
+import { MCP_TASK_ANSWER, MCP_TASKS } from "@solus/client-core/mcp-task-row";
 import type { ConversationStore } from "../conversation/conversation-store";
-import { formatWorkingDuration } from "./floating-working-status";
 import { PendingUserInputCard } from "./PendingUserInputCard";
-import { useVisibleSecondClock } from "./use-visible-second-clock";
+import { ThreadBackgroundWork } from "./ThreadBackgroundWork";
 import type { McpTasksView } from "./use-mcp-tasks";
 
 /**
- * The thread's MCP tasks above the composer, as desktop shows them under the
- * last turn (docs/plans/mcp-first-class.md §12.5): one row each, in the work
- * log's row style (`HostNoticeRow`), with the stop control, and Answer while
- * the server asks. Answer opens the question card that the agent's questions use.
+ * The thread's MCP tasks above the composer (docs/plans/mcp-first-class.md
+ * §12.5), with the stop control, and Answer while the server asks. Answer
+ * opens the question card that the agent's questions use.
  */
 export function ThreadMcpTasks(props: {
   readonly view: McpTasksView;
@@ -25,33 +16,20 @@ export function ThreadMcpTasks(props: {
   readonly mayDrive: boolean;
   readonly maxHeight: number;
 }) {
-  const iconSubtleColor = useUniwindTheme()["--color-icon-subtle"];
   const [answeringId, setAnsweringId] = useState<string | null>(null);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
   const answering = props.view.tasks.find((task) => task.id === answeringId && task.input?.length) ?? null;
   const question = answering?.input?.[0] ?? null;
-  if (!props.view.tasks.length) return null;
-  const act = (task: McpTask, actionId: string) => {
-    if (actionId === MCP_TASK_ANSWER.id) {
-      setAnsweringId((current) => (current === task.id ? null : task.id));
-      return;
-    }
-    const key = `${task.id}:${actionId}`;
-    setBusyKey(key);
-    void props.view.cancel(task).catch(() => undefined).finally(() => setBusyKey((current) => (current === key ? null : current)));
-  };
   return (
-    <View className="shrink-0 gap-1 px-4 pb-2">
-      {props.view.tasks.map((task) => (
-        <BackgroundItemRow
-          key={task.id}
-          item={mcpTaskItem(task)}
-          mayDrive={props.mayDrive}
-          busyActionId={busyKey?.startsWith(`${task.id}:`) ? busyKey.slice(task.id.length + 1) : null}
-          iconSubtleColor={iconSubtleColor}
-          onAction={(actionId) => act(task, actionId)}
-        />
-      ))}
+    <ThreadBackgroundWork
+      kind={MCP_TASKS}
+      records={props.view.tasks}
+      mayDrive={props.mayDrive}
+      onAction={(task, actionId) => {
+        if (actionId !== MCP_TASK_ANSWER.id) return props.view.cancel(task);
+        setAnsweringId((current) => (current === task.id ? null : task.id));
+        return undefined;
+      }}
+    >
       {answering && question ? (
         <PendingUserInputCard
           key={question.request.questionId}
@@ -69,64 +47,6 @@ export function ThreadMcpTasks(props: {
           onUnsentRemarks={props.store.returnRemarksToDraft}
         />
       ) : null}
-    </View>
-  );
-}
-
-/** One row of the session's background work that the host keeps: an MCP task or a resource watch. */
-export function BackgroundItemRow(props: {
-  readonly item: BackgroundItem;
-  readonly mayDrive: boolean;
-  readonly busyActionId: string | null;
-  readonly iconSubtleColor: ColorValue;
-  readonly onAction: (actionId: string) => void;
-}) {
-  const { item } = props;
-  const nowMs = useVisibleSecondClock(item.startedAt !== null);
-  const stopAction = item.actions.find((action) => action.stops);
-  return (
-    <View className="min-h-9 flex-row items-center gap-1.5" accessibilityLabel={`${item.label}, ${item.detail}`}>
-      <View className="w-5 items-center">
-        {item.state === "running" ? (
-          <ActivityIndicator size="small" color={props.iconSubtleColor} />
-        ) : (
-          <SymbolView
-            name={item.state === "ended" ? "checkmark" : item.state === "stopped" ? "minus" : item.state === "waiting" ? "eye" : "exclamationmark.circle"}
-            size={14}
-            weight="medium"
-            {...(item.state === "failed" ? { tintColorClassName: "accent-danger-foreground" } : { tintColor: props.iconSubtleColor })}
-            type="monochrome"
-          />
-        )}
-      </View>
-      <Text className="shrink-0 text-sm text-foreground-muted" numberOfLines={1}>{item.label}</Text>
-      <Text className="min-w-0 flex-1 text-sm text-foreground-muted opacity-70" numberOfLines={1}>{item.detail}</Text>
-      {item.startedAt !== null ? (
-        <Text className="text-xs text-foreground-muted opacity-60">{formatWorkingDuration(item.startedAt, nowMs)}</Text>
-      ) : null}
-      {item.actions.filter((action) => !action.stops).map((action) => (
-        <Pressable
-          key={action.id}
-          accessibilityRole="button"
-          accessibilityLabel={`${action.label}, ${item.label}`}
-          disabled={!props.mayDrive || props.busyActionId !== null}
-          onPress={() => props.onAction(action.id)}
-          hitSlop={8}
-          className="h-8 justify-center rounded-full px-2.5 active:opacity-70 disabled:opacity-50"
-        >
-          <Text className="text-sm font-t3-bold text-foreground">{props.busyActionId === action.id ? action.busyLabel : action.label}</Text>
-        </Pressable>
-      ))}
-      {stopAction ? (
-        // The composer's own Stop control, at its full 44 pt tap target.
-        <ControlPill
-          icon="stop.fill"
-          variant="danger"
-          accessibilityLabel={props.busyActionId === stopAction.id ? stopAction.busyLabel : item.stopLabel}
-          disabled={!props.mayDrive || props.busyActionId !== null}
-          onPress={() => props.onAction(stopAction.id)}
-        />
-      ) : null}
-    </View>
+    </ThreadBackgroundWork>
   );
 }

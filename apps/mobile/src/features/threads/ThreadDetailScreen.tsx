@@ -56,7 +56,8 @@ import { showsBackgroundWork } from "@solus/client-core/background-work";
 import { mcpTaskIsLive } from "@solus/contracts/integrations/mcp-task";
 import { ThreadMcpTasks } from "./ThreadMcpTasks";
 import { useMcpTasks } from "./use-mcp-tasks";
-import { ThreadResourceWatches } from "./ThreadResourceWatches";
+import { ThreadBackgroundWork } from "./ThreadBackgroundWork";
+import { RESOURCE_WATCHES } from "@solus/client-core/resource-watch-row";
 import { useResourceWatches } from "./use-resource-watches";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
@@ -654,10 +655,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 </Animated.View>
               ) : null}
               {activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
-                <ThreadMcpTasks view={mcpTasks} store={store} mayDrive={mayDrive} maxHeight={pendingUserInputMaxHeight} />
-              ) : null}
-              {activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
-                <ThreadResourceWatches view={resourceWatches} mayDrive={mayDrive} />
+                <>
+                  <ThreadMcpTasks view={mcpTasks} store={store} mayDrive={mayDrive} maxHeight={pendingUserInputMaxHeight} />
+                  <ThreadBackgroundWork kind={RESOURCE_WATCHES} records={resourceWatches.watches} mayDrive={mayDrive} onAction={resourceWatches.stop} />
+                </>
               ) : null}
               {activePendingApproval || activePendingUserInput ? (
                 <Animated.View
