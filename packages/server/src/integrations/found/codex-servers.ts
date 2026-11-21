@@ -16,7 +16,8 @@ const MAX_SERVERS_PER_LAYER = 200
 
 const valueSchema = z.union([z.string(), z.number().transform(String)])
 
-const codexEntrySchema = z.object({
+/** One `mcp_servers.<name>` entry of the Codex config: the one schema of the found list and the CLI skip. */
+export const codexMcpServerSchema = z.object({
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), valueSchema).optional(),
@@ -27,8 +28,10 @@ const codexEntrySchema = z.object({
   http_headers: z.record(z.string(), valueSchema).optional(),
   env_http_headers: z.record(z.string(), z.string()).optional(),
   bearer_token_env_var: z.string().optional(),
+  // A server the person turned off. Codex does not load it, so the CLI skip leaves it alone.
+  enabled: z.boolean().optional(),
 })
-type CodexEntry = z.infer<typeof codexEntrySchema>
+type CodexEntry = z.infer<typeof codexMcpServerSchema>
 
 /** One layer of `config/read`, as far as Solus reads it. An entry that does not parse is null. */
 const codexLayerSchema = z.object({
@@ -38,7 +41,7 @@ const codexLayerSchema = z.object({
     z.object({ type: z.string() }),
   ]),
   config: z.object({
-    mcp_servers: z.record(z.string(), codexEntrySchema.nullable().catch(null)).optional().catch(undefined),
+    mcp_servers: z.record(z.string(), codexMcpServerSchema.nullable().catch(null)).optional().catch(undefined),
   }).catch({ mcp_servers: undefined }),
   disabledReason: z.string().nullable().optional(),
 })
