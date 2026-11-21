@@ -1767,8 +1767,10 @@ Where the code differs from §12.1 to §12.5, the code is right.
   `BackgroundKind` (`client-core/background-item.ts`): the row, the live
   check, the host's list, and the change event. `SessionHostRecords` keeps
   each session's records of one kind on desktop and web
-  (`contexts/mcp/session-host-records.svelte.ts`, as `mcpStore.tasks` and
-  `mcpStore.watches`), and
+  (`contexts/mcp/session-host-records.svelte.ts`). The same file has its two
+  kinds with the commands of their rows: `McpTasksStore` (Cancel, Answer) as
+  `mcpStore.tasks`, and `ResourceWatchesStore` (Stop) as `mcpStore.watches`;
+  and
   `useSessionHostRecords` does the same on mobile. `shownBackgroundRecords`
   chooses the rows that a conversation shows.
 

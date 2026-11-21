@@ -5,8 +5,7 @@ import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
-const { McpTasksStore } = await import('@solus/workspace-ui/contexts/mcp/mcp-tasks.store.svelte')
-const { ResourceWatchesStore } = await import('@solus/workspace-ui/contexts/mcp/resource-watches.store.svelte')
+const { McpTasksStore, ResourceWatchesStore } = await import('@solus/workspace-ui/contexts/mcp/session-host-records.svelte')
 
 /**
  * A session's MCP tasks and resource watches on desktop and web

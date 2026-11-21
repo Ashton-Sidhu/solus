@@ -1,8 +1,7 @@
 import { IntegrationPromptsStore } from './integration-prompts.store.svelte'
 import { IntegrationResourceListsStore } from './integration-resource-lists.svelte'
 import { IntegrationsStore } from './integrations.store.svelte'
-import { McpTasksStore } from './mcp-tasks.store.svelte'
-import { ResourceWatchesStore } from './resource-watches.store.svelte'
+import { McpTasksStore, ResourceWatchesStore } from './session-host-records.svelte'
 
 /**
  * The MCP state of this client on desktop and web (docs/plans/mcp-first-class.md):
