@@ -29,10 +29,21 @@ export function ActionButton({
     </Pressable>
   )
 }
-export function FormField({ label, ...props }: TextInputProps & { label: string }) {
+export function FormField({ label, required, missing, ...props }: TextInputProps & {
+  label: string
+  /** The field must have a value: a hint after the label says so. */
+  required?: boolean
+  /** A required field the person left empty when they tried to submit. */
+  missing?: boolean
+}) {
   return (
     <View className="gap-1">
-      <Text className="text-sm text-foreground-muted">{label}</Text>
+      <View className="flex-row items-baseline gap-2">
+        <Text className="text-sm text-foreground-muted">{label}</Text>
+        {required ? (
+          <Text className={`text-xs ${missing ? 'text-danger' : 'text-foreground-tertiary'}`}>{missing ? 'Required' : 'required'}</Text>
+        ) : null}
+      </View>
       <TextInput
         accessibilityLabel={label}
         {...props}
