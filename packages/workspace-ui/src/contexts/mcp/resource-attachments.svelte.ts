@@ -36,7 +36,7 @@ class ResourceAttachments {
 
   /** Loads the installed integrations once; the menu calls it when `@` opens. */
   loadInstalled(): void {
-    this.installing ??= import('./mcp.store.svelte').then((module) => { this.installed = module.mcpStore.integrations })
+    this.installing ??= import('./index').then((module) => { this.installed = module.mcpStore.integrations })
   }
 
   /** The logo of the server an attached resource came from, for its chip; undefined for any other attachment. */

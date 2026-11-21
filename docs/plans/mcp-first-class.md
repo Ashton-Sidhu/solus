@@ -306,10 +306,12 @@ The UI says **MCP server**, as Settings → MCP does today.
    has no `ttlMs`; its lists live until a notification or an idle close.
 6. **No new polling in a client.** A client reads through a store and follows
    events. On desktop and web the MCP state lives in one store,
-   `mcpStore` in `packages/workspace-ui/src/contexts/mcp/`: `integrations`
-   (the list, tools, facts, command processes, connections, and sign-ins),
-   `prompts`, `resources`, `tasks`, and `watches`. The first screen does not
-   load it; only the chips of attached resources (`resourceAttachments`, in
+   `mcpStore` in `packages/workspace-ui/src/contexts/mcp/index.ts`:
+   `integrations` (the list, tools, facts, command processes, and connections
+   in `integrations.store.svelte.ts`; the sign-ins and the added accounts in
+   `integration-sign-ins.svelte.ts`), `prompts` and `resources`
+   (`host-project-lists.svelte.ts`), and `tasks` and `watches`
+   (`session-host-records.svelte.ts`). The first screen does not load it; only the chips of attached resources (`resourceAttachments`, in
    `contexts/index.ts`) are there. Mobile has its hooks.
 7. **Input outside a turn is refused.** `prompts/get` and `resources/read` can
    answer `input_required`. Inside a tool call the gateway shows the question

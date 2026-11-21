@@ -136,7 +136,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     isDestroyed = true
     stopIntegrations?.()
   })
-  void afterPaint().then(() => import('../mcp/mcp.store.svelte')).then(({ mcpStore }) => {
+  void afterPaint().then(() => import('../mcp')).then(({ mcpStore }) => {
     if (isDestroyed) return
     // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
     mcpStore.integrations.useCloudSignIn({

@@ -147,7 +147,7 @@ const DEFERRED_COMPONENTS = [
   // its sign-ins, after the first paint (app-core.ts). Both then follow every host.
   'packages/workspace-ui/src/contexts/devices/devices.store.svelte.ts',
   'packages/workspace-ui/src/components/devices/lib/device-entry.ts',
-  'packages/workspace-ui/src/contexts/mcp/mcp.store.svelte.ts',
+  'packages/workspace-ui/src/contexts/mcp/index.ts',
   'packages/workspace-ui/src/contexts/mcp/integrations.store.svelte.ts',
   // An app's surface and its Manage page load when an app opens, and the apps
   // store after the first paint (app-deploy-open.svelte.ts). Startup keeps only
