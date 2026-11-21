@@ -32,8 +32,8 @@ export function McpPromptPicker(props: {
   const [hasTriedSend, setHasTriedSend] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const { state, reload, expand } = useIntegrationPrompts(props.hostId, props.projectPath);
-  const sections = useMemo(() => (state.kind === "loaded" ? mcpPromptSections(state.value, query) : []), [query, state]);
+  const { list, reload, expand } = useIntegrationPrompts(props.hostId, props.projectPath);
+  const sections = useMemo(() => (list?.status === "loaded" ? mcpPromptSections(list.value, query) : []), [query, list]);
 
   const send = async (prompt: IntegrationPrompt, entered: ArgumentValue[]) => {
     setHasTriedSend(true);
@@ -118,9 +118,9 @@ export function McpPromptPicker(props: {
                 <Text className="px-5 pt-4 pb-1 text-xs font-t3-medium uppercase text-foreground-tertiary">{section.title}</Text>
               )}
               ListEmptyComponent={
-                state.kind === "loading" ? (
+                list?.status !== "loaded" && list?.status !== "error" ? (
                   <Text className="px-5 py-6 text-sm text-foreground-muted">Loading prompts…</Text>
-                ) : state.kind === "error" ? (
+                ) : list.status === "error" ? (
                   <Pressable accessibilityRole="button" className="px-5 py-6 active:opacity-70" onPress={reload}>
                     <Text className="text-sm text-foreground-muted">Could not load the prompts. <Text className="text-primary">Try again</Text></Text>
                   </Pressable>

@@ -1,5 +1,8 @@
 import { describe, expect, mock, test } from 'bun:test'
 import type { IntegrationResourceLists } from '@solus/contracts/integration-types'
+import type { HostApi } from '@solus/client-core/host-api'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
+import type { HostListsSource } from '@solus/client-core/host-project-lists'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const saved = new Map<string, string>()
@@ -18,7 +21,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
-const { HostProjectLists } = await import('@solus/workspace-ui/lib/host-project-lists.svelte')
+const { HostProjectLists } = await import('@solus/client-core/host-project-lists')
 const { hostCatalog } = await import('@solus/client-core/host-catalog')
 const { pairPageHosts } = await import('./helpers/page-host-catalog')
 
@@ -30,13 +33,22 @@ const { pairPageHosts } = await import('./helpers/page-host-catalog')
  */
 
 const EMPTY: IntegrationResourceLists = { resources: [], templates: [] }
+
+/** The desktop and web source: the host's connection, its readiness, and the host catalog. */
+const desktopSource: HostListsSource = {
+  connection: (serverId) => ({ api: connections.apiFor(serverId), events: connections.eventsFor(serverId) }),
+  watchReconnects: (serverId, reconnected) => connections.onReadinessChange((hostId, readiness) => {
+    if (hostId === serverId && readiness === 'ready') reconnected()
+  }),
+  onForgotten: (forgotten) => hostCatalog.onForgotten((host) => forgotten(host.id)),
+}
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 function resource(name: string): IntegrationResourceLists {
   return { resources: [{ integrationId: 'docs', uri: `docs://${name}`, name }], templates: [] }
 }
 
-function hostWithLists(serverId: string, answers: Array<IntegrationResourceLists | Error | Promise<IntegrationResourceLists>>) {
+function hostWithLists(serverId: string, answers: Array<IntegrationResourceLists | Error | Promise<IntegrationResourceLists>>, source = desktopSource) {
   const reads: Array<string | undefined> = []
   connections.registerHost(serverId, {
     integrationResourceList: async (request: { projectPath?: string }) => {
@@ -50,6 +62,8 @@ function hostWithLists(serverId: string, answers: Array<IntegrationResourceLists
     read: (api, projectPath) => api.integrationResourceList(projectPath ? { projectPath } : {}),
     empty: EMPTY,
     rereadOn: ['integration.changed'],
+    source,
+    map: () => new Map(),
   })
   return { lists, reads }
 }
@@ -124,5 +138,36 @@ describe('host project lists', () => {
     connections.emitReadiness('gone-host', 'ready')
     await flush()
     expect(reads).toEqual(['/repo'])
+  })
+
+  test('a host with no connection waits, and its reconnect reads the list and follows the new connection', async () => {
+    // WHY: mobile has a connection only while the host is ready, and a new connection has new events.
+    let current: { api: HostApi; events: HostEventSubscriber } | null = null
+    let reconnected = () => {}
+    const source: HostListsSource = {
+      connection: () => current,
+      watchReconnects: (_serverId, listener) => { reconnected = listener; return () => {} },
+      onForgotten: () => () => {},
+    }
+    const { lists, reads } = hostWithLists('phone-host', [resource('a'), resource('b')], source)
+    lists.ensure('phone-host', '/repo')
+    await flush()
+    expect(reads).toEqual([])
+    expect(lists.keptFor('phone-host', '/repo')?.status).toBe('loading')
+    const events = new HostEventSubscriber()
+    current = { api: connections.apiFor('phone-host'), events }
+    reconnected()
+    await flush()
+    expect(names(lists.listFor('phone-host', '/repo'))).toEqual(['a'])
+    events.receive({ type: 'integration.changed', payload: { integrationId: 'docs', change: 'updated' }, occurredAt: Date.now() })
+    await flush()
+    expect(names(lists.listFor('phone-host', '/repo'))).toEqual(['b'])
+  })
+
+  test('a failed first read keeps its reason for the sheet', async () => {
+    const { lists } = hostWithLists('reason-host', [new Error('older host')])
+    lists.ensure('reason-host', '/repo')
+    await flush()
+    expect(lists.keptFor('reason-host', '/repo')).toEqual({ status: 'error', value: EMPTY, error: 'older host' })
   })
 })

@@ -25,17 +25,17 @@ export function IntegrationResourcePicker(props: {
   const [chosen, setChosen] = useState<IntegrationResourceTemplate | null>(null);
   const [values, setValues] = useState<ArgumentValue[]>([]);
   const [hasTriedAttach, setHasTriedAttach] = useState(false);
-  const state = useIntegrationResources(props.hostId, props.projectPath);
+  const list = useIntegrationResources(props.hostId, props.projectPath);
   const sections = useMemo(
-    () => (state.kind === "loaded" ? resourceSections(state.value.integrations, state.value.resources, query, state.value.templates) : []),
-    [query, state],
+    () => (list?.status === "loaded" ? resourceSections(list.value.integrations, list.value.resources, query, list.value.templates) : []),
+    [query, list],
   );
   const fields = useMemo(() => (chosen ? templateArgumentFields(chosen.uriTemplate) ?? [] : []), [chosen]);
   const empty =
-    state.kind === "loading"
+    list?.status !== "loaded" && list?.status !== "error"
       ? "Reading the servers' resources…"
-      : state.kind === "error"
-        ? `Could not list resources: ${state.message}`
+      : list.status === "error"
+        ? `Could not list resources: ${list.error}`
         : query
           ? "No matching resources."
           : "Your MCP servers list no resources.";

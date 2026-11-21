@@ -1,32 +1,29 @@
-import { useCallback, useMemo } from 'react'
-import type { HostEventName } from '@solus/contracts/host-events'
+import { useCallback } from 'react'
 import type { IntegrationPrompt, IntegrationPromptList, IntegrationPromptText } from '@solus/contracts/integrations/prompts'
 import { filledArguments, type ArgumentValue } from '@solus/client-core/integration-prompts'
 import { useApp } from '../../app/app-context'
-import { useHostRead, type HostReadState } from '../hosts/use-host-read'
+import type { SolusApp } from '../../app/solus-app'
+import { phoneHostProjectLists, useHostProjectList, type PhoneHostProjectLists } from '../hosts/host-project-lists'
 
-/** The last list of each host and project: an opening shows it at once while it reads again. */
-const kept = new Map<string, IntegrationPromptList>()
-
-/** A sign-in or a sign-out changes which prompts the person sees. */
-const REFRESH_ON: readonly HostEventName[] = ['integration.changed', 'integration.connectionChanged']
+const promptLists = new WeakMap<SolusApp, PhoneHostProjectLists<IntegrationPromptList>>()
 
 /**
  * The MCP prompts of one host and project for the composer's sheet
- * (docs/plans/mcp-first-class.md §10). Read when the sheet opens, again on
- * `integration.changed`, on a sign-in change, and on reconnect.
+ * (docs/plans/mcp-first-class.md §10), with the desktop rule: read when a
+ * sheet first opens and kept, read again on `integration.changed`, on a
+ * sign-in change (`integration.connectionChanged`), and on reconnect. A failed
+ * refresh keeps the list.
  */
 export function useIntegrationPrompts(hostId: string, projectPath: string) {
   const app = useApp()
-  const key = `${hostId}\u0000${projectPath}`
-  const { state: read, reload } = useHostRead(hostId, key, async (api) => {
-    const list = await api.integrationPromptList(projectPath ? { projectPath } : {})
-    kept.set(key, list)
-    return list
-  }, REFRESH_ON)
-  // A kept list stays: a failed refresh is not a reason to hide it.
-  const list = read.kind === 'loaded' ? read.value : kept.get(key)
-  const state = useMemo((): HostReadState<IntegrationPromptList> => (list ? { kind: 'loaded', value: list } : read), [list, read])
+  const prompts = phoneHostProjectLists(promptLists, app, {
+    read: (api, path) => api.integrationPromptList(path ? { projectPath: path } : {}),
+    empty: { prompts: [], signIn: [] },
+    rereadOn: ['integration.changed', 'integration.connectionChanged'],
+  })
+  const list = useHostProjectList(prompts, hostId, projectPath)
+  /** After a failed first read: read again. */
+  const reload = useCallback(() => prompts.lists.ensure(hostId, projectPath), [prompts, hostId, projectPath])
 
   /** Expands one prompt with the given values. The answer's text is the person's message. */
   const expand = useCallback(async (prompt: IntegrationPrompt, values: readonly ArgumentValue[], sessionId: string): Promise<IntegrationPromptText> => {
@@ -35,5 +32,5 @@ export function useIntegrationPrompts(hostId: string, projectPath: string) {
     return connection.api.integrationPromptGet({ integrationId: prompt.integrationId, name: prompt.name, arguments: filledArguments(values), sessionId })
   }, [app, hostId])
 
-  return { state, reload, expand }
+  return { list, reload, expand }
 }
