@@ -61,6 +61,3 @@ export interface BackgroundKind<T extends BackgroundRecord, Topic extends Sessio
 export function shownBackgroundRecords<T extends BackgroundRecord>(kind: BackgroundKind<T>, records: readonly T[], since: number): T[] {
   return records.filter((record) => kind.isLive(record) || record.updatedAt >= since)
 }
-
-// The mobile session records feed (work package P3) still imports it from here. Remove once it imports `./keep-equal`.
-export { upsertById } from './keep-equal'

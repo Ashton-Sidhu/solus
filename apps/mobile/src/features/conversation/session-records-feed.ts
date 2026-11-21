@@ -1,4 +1,5 @@
-import { upsertById, type BackgroundKind, type BackgroundRecord, type SessionRecordTopic } from '@solus/client-core/background-item'
+import type { BackgroundKind, BackgroundRecord, SessionRecordTopic } from '@solus/client-core/background-item'
+import { upsertById } from '@solus/client-core/keep-equal'
 import { MCP_TASKS } from '@solus/client-core/mcp-task-row'
 import { RESOURCE_WATCHES } from '@solus/client-core/resource-watch-row'
 import type { McpTask } from '@solus/contracts/integrations/mcp-task'
