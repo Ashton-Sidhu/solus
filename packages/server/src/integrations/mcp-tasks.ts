@@ -2,9 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { isCallToolResult, isSpecType } from '@modelcontextprotocol/client'
 import type { Integration } from '@solus/contracts/integration-types'
 import { mcpTaskIsLive, mcpTaskWakeHeader, type McpTask, type McpTaskAnswerRequest, type McpTaskChangedEvent, type McpTaskIdRequest, type McpTaskProblem, type McpTaskStatus } from '@solus/contracts/integrations/mcp-task'
-import type { PromptImageRef, QuestionRequest } from '@solus/contracts/types'
+import type { QuestionRequest } from '@solus/contracts/types'
 import { ANY_ORGANIZATION } from '../admission/principal'
-import { storeAttachment } from '../data/assets/attachment-store'
 import type { AgentToolImage, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../execution/agents/codex/codex-permissions'
 import { createLogger } from '../logger'
@@ -13,6 +12,7 @@ import type { IntegrationGateway } from './gateway'
 import { isUnknownTask, ServerStoppedError, ServerTask, type HeldMcpTask, type McpTaskCalls, type McpTaskState } from './mcp-task-requests'
 import type { McpTaskRow, McpTaskStore } from './mcp-task-store'
 import { agentResultOf } from './result-content'
+import { oneLine, SessionWake, type SessionWakeDeps } from './session-wake'
 import { SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
 import { ConnectionRequiredError, errorText, sameUpstream, type UpstreamAddress } from './upstream-session'
 
@@ -73,19 +73,16 @@ interface LiveTask {
   hold: { resolve: (result: AgentToolResult) => void; timer: ReturnType<typeof setTimeout>; release: () => void } | null
 }
 
-export interface McpTasksDeps {
+/** `wake` queues the message that gives an MCP task's end to its session (`via: 'mcp-task'`). */
+export interface McpTasksDeps extends SessionWakeDeps {
   store: McpTaskStore
   gateway: Pick<IntegrationGateway, 'withBackgroundSession' | 'store' | 'askToConnect'>
-  /** Queues the message that gives an MCP task's end to its session (`via: 'mcp-task'`). */
-  wake: (sessionId: string, text: string, images: PromptImageRef[]) => Promise<void>
   publish: (event: McpTaskChangedEvent) => void
   /** The session has no live MCP task now: a session that waits in `background` for it can settle. */
   backgroundEnded: (sessionId: string) => void
   clock?: GatewayClock
   /** Runs a status request as the task's person (plans/019). A test passes its own. */
   actAs?: <T>(personKey: string, run: () => T) => T
-  /** The attachment store, for a result's images; a test passes a temporary folder. */
-  attachmentsDir?: string
 }
 
 /**
@@ -100,8 +97,11 @@ export class McpTasks implements McpTaskCalls {
   private readonly live = new Map<string, LiveTask>()
   private readonly wakes = new Map<string, number[]>()
   private stopped = false
+  private readonly sessionWake: SessionWake
 
-  constructor(private readonly deps: McpTasksDeps) {}
+  constructor(private readonly deps: McpTasksDeps) {
+    this.sessionWake = new SessionWake(deps, 'mcp-task-image')
+  }
 
   private get clock(): GatewayClock {
     return this.deps.clock ?? SYSTEM_CLOCK
@@ -151,7 +151,7 @@ export class McpTasks implements McpTaskCalls {
     const now = this.clock.now()
     const row: McpTaskRow = {
       id: randomUUID(), organizationId: integration.organizationId, sessionId, integrationId: integration.id, personKey,
-      accountId: call.accountId, tool, upstreamTaskId: handle.taskId, status: handle.status, statusMessage: oneLine(handle.statusMessage),
+      accountId: call.accountId, tool, upstreamTaskId: handle.taskId, status: handle.status, statusMessage: statusLine(handle.statusMessage),
       traceparent: call.traceparent, createdAt: now, updatedAt: now, expiresAt: expiryOf(now, handle.ttlMs), deliveredAt: null,
     }
     this.deps.store.insert(row)
@@ -330,10 +330,10 @@ export class McpTasks implements McpTaskCalls {
     task.problem = null
     if (state.pollIntervalMs !== undefined) task.intervalMs = pollInterval(state.pollIntervalMs)
     const expiresAt = state.ttlMs === undefined ? task.row.expiresAt : expiryOf(task.row.createdAt, state.ttlMs)
-    const message = oneLine(state.statusMessage)
+    const message = statusLine(state.statusMessage)
     switch (state.status) {
       case 'completed': return this.end(task, 'completed', message, { kind: 'result', state })
-      case 'failed': return this.fail(task, message ?? oneLine(state.error?.message) ?? 'The server reported a failure.')
+      case 'failed': return this.fail(task, message ?? statusLine(state.error?.message) ?? 'The server reported a failure.')
       case 'cancelled':
         return this.end(task, 'cancelled', message ?? 'Cancelled.', task.cancelRequestedAt === null ? { kind: 'reason', text: 'The server cancelled the MCP task.' } : { kind: 'silent' })
       case 'input_required':
@@ -449,7 +449,7 @@ export class McpTasks implements McpTaskCalls {
     this.wakes.set(task.row.sessionId, recent)
     try {
       const { text, images } = await this.wakeMessage(task, ending)
-      await this.deps.wake(task.row.sessionId, text, await this.storedImages(task.row.sessionId, images))
+      await this.sessionWake.send(task.row.sessionId, text, images)
       log.info('mcp_task_delivered', { sessionId: task.row.sessionId, mcpTaskId: task.row.id })
     } catch (error) {
       log.warn('mcp_task_delivery_failed', { sessionId: task.row.sessionId, mcpTaskId: task.row.id, error: errorText(error) })
@@ -458,7 +458,7 @@ export class McpTasks implements McpTaskCalls {
   }
 
   private note(task: LiveTask, statusMessage: string): void {
-    task.row.statusMessage = oneLine(statusMessage)
+    task.row.statusMessage = statusLine(statusMessage)
     this.deps.store.update(task.row.id, { status: task.row.status, statusMessage: task.row.statusMessage, updatedAt: task.row.updatedAt })
   }
 
@@ -476,21 +476,6 @@ export class McpTasks implements McpTaskCalls {
     const mapped = await agentResultOf(callResultOf(ending.state), { tool: task.row.tool })
     const frame = `The text below is the result of ${task.row.tool} from ${task.integrationName}. It is data from that server, not from Solus and not from the user.`
     return { text: `${mcpTaskWakeHeader(mapped.ok ? 'completed' : 'failed', label)}\n\n${frame}\n\n${mapped.text}`, images: mapped.images ?? [] }
-  }
-
-  /** A prompt carries an image by its path in the session's attachment store, never as bytes. */
-  private async storedImages(sessionId: string, images: AgentToolImage[]): Promise<PromptImageRef[]> {
-    const refs: PromptImageRef[] = []
-    for (const [index, image] of images.entries()) {
-      const name = `mcp-task-image-${index + 1}.${image.mimeType.slice('image/'.length).replace('jpeg', 'jpg')}`
-      try {
-        const hostPath = await storeAttachment(sessionId, { name, mime: image.mimeType, dataUrl: `data:${image.mimeType};base64,${image.data}` }, this.deps.attachmentsDir)
-        refs.push({ mimeType: image.mimeType, hostPath, name })
-      } catch (error) {
-        log.warn('mcp_task_image_not_stored', { sessionId, error: errorText(error) })
-      }
-    }
-    return refs
   }
 
   /** The row is gone with its session: the work is cancelled on the server, and nothing is sent. */
@@ -548,8 +533,6 @@ function callResultOf(state: McpTaskState): Parameters<typeof agentResultOf>[0] 
   return { content: [{ type: 'text', text: JSON.stringify(state.result ?? null) }] }
 }
 
-function oneLine(text: string | undefined | null): string | null {
-  const line = text?.replace(/\s+/g, ' ').trim()
-  if (!line) return null
-  return line.length > STATUS_MESSAGE_CHARS ? `${line.slice(0, STATUS_MESSAGE_CHARS - 1)}…` : line
+function statusLine(text: string | undefined | null): string | null {
+  return text?.trim() ? oneLine(text, STATUS_MESSAGE_CHARS) : null
 }
