@@ -1365,7 +1365,8 @@ Codex.
   gains **MCP prompt**: a sheet that lists and searches the prompts, then an
   argument sheet, then send. Hook: `use-integration-prompts.ts`.
 - The lists are kept per host and project in `mcpStore.prompts`
-  (`contexts/mcp/integration-prompts.store.svelte.ts`). A list is read
+  (`contexts/mcp/host-project-lists.svelte.ts`, beside the resource lists of
+  the `@` menu). A list is read
   the first time a composer opens `/` in that project, not with every
   conversation: most conversations never open the menu. The kept list shows at
   once after that, and `integration.changed`, `integration.connectionChanged`,

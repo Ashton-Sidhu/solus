@@ -1,5 +1,4 @@
-import { IntegrationPromptsStore } from './integration-prompts.store.svelte'
-import { IntegrationResourceListsStore } from './integration-resource-lists.svelte'
+import { IntegrationPromptsStore, IntegrationResourceListsStore } from './host-project-lists.svelte'
 import { IntegrationsStore } from './integrations.store.svelte'
 import { McpTasksStore, ResourceWatchesStore } from './session-host-records.svelte'
 
