@@ -916,7 +916,9 @@ projected rows in its durable pending-turn record. The background Git job writes
 one JSON object per line to `rows/<n>.jsonl`. It marks the manifest turn with
 `hasRows` and the cumulative `rowCount`. Both fields are optional so an older
 manifest still parses. A failed or oversized row read leaves `hasRows: false`
-and does not stop the thread-file commit.
+and does not stop the thread-file commit. Since 2026-11-21 a turn commit of
+organization work has `hasRows: false` and no row file ("One source of rows"
+below).
 
 The host reads one history page for each ended turn. It does not parse the
 whole transcript for each Git commit. The pending row file has a 4 MiB cap;
@@ -986,7 +988,8 @@ repository has empty messages, a null cursor, and `not-available`. The
 existing `loadSession`, `loadSessionPreview`, and `loadSessionToolInputs` also
 use the repository fallback. Preview reads the first and last available turn
 and uses the manifest's cumulative `rowCount` for its total. Mirrored rows win when they
-can include a running turn. The repository fallback is read only.
+can include a running turn. The repository fallback is read only. Since
+2026-11-21 the fallback applies to a personal session only.
 
 The new Solus API operation is `sessionTurnDiff`: `GET
 /v1/sessions/:sessionId/turns/:turnIndex/diff`, with `sessions:read` scope and
@@ -1001,9 +1004,10 @@ at most 4 MiB; one patch response is at most 2 MiB. Both storage providers
 stop reading after the file cap. The writer already caps one pending row file
 at 4 MiB. The API keeps no manifest cache, so a history or diff request holds
 only its bounded files. Preview reads two row files in sequence. A personal repository requires the caller's user id to equal
-its owner id. An organization repository requires a published session and the
-same `read.transcript` standing as the mirror. The diff uses that standing too:
-the patch can contain code, and a person who can read the transcript
+its owner id. Since 2026-11-21 the API reads rows from a personal repository
+only ("One source of rows" below). The diff of an organization repository
+requires a published session and the same `read.transcript` standing as the
+mirror: the patch can contain code, and a person who can read the transcript
 can also see the turn's code changes. These are Phase 5A choices that the plan
 left open.
 
@@ -1283,3 +1287,67 @@ listed).
 ## Merge with main (2026-11-20)
 
 Main keeps SQLite `0002_task_assignees` and `0003_task_source_pages`, and PostgreSQL migrations with the same numbers. Portable sessions now uses SQLite `0004_session_storage`, `0005_session_turn_count`, `0006_session_repositories`, and `0007_session_cloud_push`, plus PostgreSQL `0004_session_repositories`. The migration order preserves existing databases.
+
+## One source of rows (2026-11-21)
+
+Solus had a read-only path before portable sessions: the transcript mirror and
+the session record page. A review compared it with the Phase 5 path. The two
+paths hold different sessions, and they overlapped in one place.
+
+| Part | Transcript mirror | Session repository |
+|---|---|---|
+| Rows of a published organization session | Yes, a running turn included (`sync/mirror/transcript-mirror.ts`) | Removed on 2026-11-21 |
+| Rows of a personal session | No: `transcriptDestination` sends only a published record of an organization | Yes: `rows/<n>.jsonl`, `SessionCloudReader.page` |
+| Diff of a turn with no host online | No: the mirror has no diff item | Yes: `diff/<n>.patch`, `sessionTurnDiff` |
+| Read-only surface on desktop and web | The session record page (`SessionRecordPage`), and a restored tab of a forgotten machine | The rows in the tab (`CloudTranscriptStore`) |
+| Read-only surface on mobile | None | The thread screen (`CloudHistory`) |
+
+### What changed
+
+- **The API reads rows from a `person:` repository only.**
+  `SessionCloudReader.page` and `.preview` do not read the repository of an
+  organization session. A session is in an `organization:` repository only when
+  it is organization work (`sessionCloudIdentity`), and the mirror sends each
+  such session. Thus an organization session has one source of rows.
+- **A turn commit of organization work stores no rows.** The archive writer
+  does not call the history reader for it. The turn has `hasRows: false`. Old
+  commits keep their row files, and no repository is written again.
+- Not changed: the diff route and `SessionCloudReader.diff` for the two scopes,
+  the patch in each turn commit, `listMySessions`, the client-core rules, and
+  the client stores and screens. The job of the session repository for a host
+  that continues a session is not changed.
+
+### Gaps that keep the second path
+
+1. **The mirror does not hold a personal session.** Options:
+   - Send personal sessions through the mirror, then remove the repository
+     rows and the reader. Large: the delivery queue, the delivery route, and
+     the intake have an organization in each step; `session_records` and
+     `session_transcripts` on the API are scoped by organization; and each
+     personal transcript, with its search text, goes into the API database.
+     Decision D2 (§5.3) and the rule "sign-in publishes nothing"
+     (`organization-scope.md`) do not permit this without a new decision.
+   - Read organization sessions from the repository also, then remove the
+     transcript mirror. Large: the repository has no running turn, no session
+     with cloud sync off, no search text, and no rows for older turns.
+   - Keep one source for each session, by its scope. This is the rule now.
+2. **The mirror has no turn diff.** The repository patch is the only cloud
+   copy of the code changes of a turn. A diff item in the mirror is a new
+   delivery kind, a table, a sink, and an access rule for code. The diff route
+   and its screens stay.
+3. **Desktop and web have two read-only surfaces.** The record page has no
+   Run on, needs a session record on the API, and is not on mobile. It cannot
+   replace the rows in the tab without new work on each client.
+
+### Limits
+
+- An organization session whose mirror delivery is late shows no rows from the
+  API until the delivery arrives. Before this change the API answered the
+  repository rows in that time.
+- No client shows the turn diff of an organization session: a page from the
+  mirror has no `turnIndex`. This was also true before this change when the
+  mirror had rows.
+- For an organization session in an open tab with its host offline, the
+  Phase 5B rule uses the repository facts. A session with no repository (cloud
+  sync off) says "Solus Cloud has no copy of this session" in the tab, but the
+  record page can read its mirror.

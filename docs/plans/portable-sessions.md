@@ -113,7 +113,9 @@ A session is not on a host, so it does not move. The run host changes.
     handoff, and the conversation says that the context was summarized.
 13. **Each turn commit also holds the rows of the turn.** Solus has no parser
     for a Codex rollout file, and the data layer must not import the provider
-    adapters. Rows let a reader with no provider process show the turn.
+    adapters. Rows let a reader with no provider process show the turn. Since
+    2026-11-21 a turn commit of organization work holds no rows: the transcript
+    mirror sends them (§22).
 14. **Fork to another host is the existing fork with Run on open.** No new
     action. A fork that names no other host behaves as today.
 15. **Not signed in: the same format, another transport.** A host gets the
@@ -141,7 +143,7 @@ One branch, `main`. One turn commit for each turn end.
 session-<48 hex>.git
   manifest.json
   threads/<threadId>/<file key>/<n>   byte ranges of one thread file, in order
-  rows/<n>.jsonl                      the rows of turn n
+  rows/<n>.jsonl                      the rows of turn n (not for organization work, §22)
   code/<n>.bundle                     the objects of turn n that origin lacks
   diff/<n>.patch                      the turn diff: turn start to turn end
 ```
@@ -1181,7 +1183,8 @@ type. A pure rule of one input object stays a function.
   `manifest.json` of each turn commit.
 - `SessionArchiveWriter`: writes each ended turn (`TurnEnd`) as a turn commit.
   `SessionRuntime` calls `turnEnded`; boot calls `resume`. `ThreadFile` is one
-  provider file. `loadSettledTurnRows` reads the rows of the ended turn.
+  provider file. `loadSettledTurnRows` reads the rows of the ended turn. A turn
+  commit of organization work stores no rows: the transcript mirror sends them.
 - `SessionPusher`: the host-wide push queue. Boot connects it: a turn commit
   calls `committed`, a running session calls `running`, sign-in and sign-out
   call `established` and `signedOut`, and prompt admission reads `refusedHead`.
@@ -1194,7 +1197,10 @@ type. A pure rule of one input object stays a function.
 - On the Solus API: `sessionRemoteProvider()`, which gives the
   `RepositoryProvider` that `SOLUS_SESSION_STORAGE` names and refuses a storage
   scope that differs from the saved rows, and `SessionCloudReader` (`page`,
-  `preview`, `diff`), which reads rows and patches at the recorded head.
+  `preview`, `diff`), which reads rows and patches at the recorded head. It
+  reads rows only from a person's own repository (the `person:` scope). A turn
+  diff comes from that repository or from the repository of a published
+  organization session.
 
 ### Server Git (`packages/server/src/git`)
 
@@ -1235,7 +1241,9 @@ type. A pure rule of one input object stays a function.
 - Solus API router: `GET /v1/me/sessions` and
   `GET /v1/sessions/:sessionId/turns/:turnIndex/diff`. `loadSessionPage`, the
   preview, and the tool inputs read from `SessionCloudReader` when the
-  transcript mirror has no rows.
+  transcript mirror has no rows. Each session has one source of rows: the
+  mirror for an organization session, and the person's own repository for a
+  personal session (`portable-sessions-cloud.md`, "One source of rows").
 
 ### Client core (`packages/client-core/src`)
 
