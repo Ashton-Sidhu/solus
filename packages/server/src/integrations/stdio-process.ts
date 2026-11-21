@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto'
-import type { Stream } from 'node:stream'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client'
 import type { Integration, IntegrationEnvValue, IntegrationLaunch, IntegrationProcessFacts, IntegrationStopReason } from '@solus/contracts/integration-types'
 import { getCliPath } from '../cli-env'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
+import type { StderrTail } from '../platform/stderr-tail'
 
 const log = createLogger('integrations', 'stdio-process.ts')
 
@@ -18,7 +18,7 @@ const log = createLogger('integrations', 'stdio-process.ts')
  */
 
 /** The last part of standard error that the owner sees (§7.3). */
-const STDERR_TAIL_BYTES = 4096
+export const STDERR_TAIL_BYTES = 4096
 /** An end this soon after a start counts toward `failed`. */
 const QUICK_END_MS = 10_000
 /** Three quick ends in this window set `failed`. */
@@ -71,26 +71,6 @@ export function stdioTransport(integration: Pick<Integration, 'launch'>, environ
     cwd: resolveHomePath(launch.cwd ?? '~'),
     stderr: 'pipe',
   })
-}
-
-/** The last 4 KB a process wrote to standard error, kept in memory only. It is never logged; a log has its size. */
-export class StderrTail {
-  private text = ''
-  /** Every byte the process wrote, for the log. */
-  bytes = 0
-
-  constructor(stream: Stream | null) {
-    // A pipe nobody reads fills up and stops the child, so the tail always reads it.
-    stream?.on('data', (chunk: Buffer) => {
-      const added = chunk.toString('utf8')
-      this.bytes += chunk.byteLength
-      this.text = (this.text + added).slice(-STDERR_TAIL_BYTES)
-    })
-  }
-
-  get tail(): string | undefined {
-    return this.text.trim() ? this.text : undefined
-  }
 }
 
 /** The code `spawn` gave a missing or unusable program, from anywhere in a chain of causes. */

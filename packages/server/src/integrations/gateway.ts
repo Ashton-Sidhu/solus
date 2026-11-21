@@ -15,7 +15,8 @@ import type { SavedServerFacts, ServerFactsKey, ServerFactsStore } from './serve
 import { commandStartRefusal, type CommandStarter } from './command-admission'
 import { listUpstreamResources, NO_RESOURCES, type UpstreamResourceLists } from './resource-lists'
 import { listUpstreamPrompts, listUpstreamTools, serverCapabilitiesOf } from './upstream-lists'
-import { STDIO_START_TIMEOUT_MS, StderrTail, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
+import { STDERR_TAIL_BYTES, STDIO_START_TIMEOUT_MS, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
+import { StderrTail } from '../platform/stderr-tail'
 import { KnownServer } from './known-server'
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
 import { endSolusSpan } from '../execution/observability/tracer'
@@ -782,7 +783,7 @@ export class IntegrationGateway {
     const session = this.newSession(address, false)
     const transport = upstreamTransport(integration, personKey, null, accountId, environment, this.credentials)
     const stdio = transport instanceof StdioClientTransport ? transport : null
-    const stderr = new StderrTail(stdio?.stderr ?? null)
+    const stderr = new StderrTail(stdio?.stderr ?? null, STDERR_TAIL_BYTES)
     const startedAt = this.clock.now()
     session.connected = session.client.connect(transport, prior ? { prior, timeout: STDIO_START_TIMEOUT_MS } : { timeout: STDIO_START_TIMEOUT_MS })
     this.sessions.set(session.key, session)
