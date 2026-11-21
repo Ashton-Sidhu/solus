@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { resourceWatchWakeHeader, type IntegrationResourceWatchStopRequest, type ResourceWatch, type ResourceWatchChangedEvent, type ResourceWatchEndReason, type ResourceWatchState } from '@solus/contracts/integrations/resource-watch'
+import { clip } from '@solus/contracts/session-exchange'
 import { isSessionBusyStatus, type SessionStatus } from '@solus/contracts/types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import type { AgentToolImage, AgentToolResult } from '../execution/agents/tools/agent-tool'
+import { UnattendedWakeRefusedError, type SessionWake } from '../execution/sessions/session-wake'
 import { createLogger } from '../logger'
 import { withUserScope } from '../vault/acting-scope'
 import { CALL_TIMEOUT_MS } from './call-progress'
@@ -12,7 +14,6 @@ import { readAsContent } from './resource-lists'
 import { openResourceSubscription, ResourceWatchRefusedError, type ResourceSubscription, type ResourceWatchCalls, type WatchedServer, type WatchRequest } from './resource-subscriptions'
 import type { ResourceWatchRow, ResourceWatchStore } from './resource-watch-store'
 import { agentResultOf } from './result-content'
-import { oneLine, SessionWake, type SessionWakeDeps } from './session-wake'
 import { SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
 import { ConnectionRequiredError, errorText, sameUpstream, type UpstreamAddress } from './upstream-session'
 
@@ -63,8 +64,9 @@ interface LiveWatch {
   delivering: boolean
 }
 
-/** `wake` queues the message that gives a change to its session (`via: 'resource-watch'`). */
-export interface ResourceWatchesDeps extends SessionWakeDeps {
+export interface ResourceWatchesDeps {
+  /** Gives a change to its session, as the watch's person (`via: 'resource-watch'`). */
+  sessionWake: Pick<SessionWake, 'send'>
   store: ResourceWatchStore
   gateway: Pick<IntegrationGateway, 'store' | 'withBackgroundSession' | 'askToConnect' | 'connectionRequired'>
   publish: (event: ResourceWatchChangedEvent) => void
@@ -86,11 +88,8 @@ export interface ResourceWatchesDeps extends SessionWakeDeps {
 export class ResourceWatches implements ResourceWatchCalls {
   private readonly live = new Map<string, LiveWatch>()
   private stopped = false
-  private readonly sessionWake: SessionWake
 
-  constructor(private readonly deps: ResourceWatchesDeps) {
-    this.sessionWake = new SessionWake(deps, 'resource-watch-image')
-  }
+  constructor(private readonly deps: ResourceWatchesDeps) {}
 
   private get clock(): GatewayClock {
     return this.deps.clock ?? SYSTEM_CLOCK
@@ -148,7 +147,7 @@ export class ResourceWatches implements ResourceWatchCalls {
         this.end(watch, 'refused', `Sign in to ${integration.name} first.`)
         return this.deps.gateway.connectionRequired(integration, context)
       }
-      this.end(watch, 'refused', oneLine(errorText(error), MESSAGE_CHARS))
+      this.end(watch, 'refused', clip(errorText(error), MESSAGE_CHARS))
       return { ok: false, text: `${integration.name} could not watch ${uri}: ${errorText(error)}` }
     }
     this.armExpiry(watch)
@@ -302,7 +301,7 @@ export class ResourceWatches implements ResourceWatchCalls {
       await this.open(watch, null)
     } catch (error) {
       if (!this.live.has(watch.row.id)) return
-      if (error instanceof ResourceWatchRefusedError) return this.end(watch, 'refused', oneLine(error.message, MESSAGE_CHARS))
+      if (error instanceof ResourceWatchRefusedError) return this.end(watch, 'refused', clip(error.message, MESSAGE_CHARS))
       if (error instanceof ServerStoppedError) {
         const removed = !this.deps.gateway.store.get(watch.row.integrationId, ANY_ORGANIZATION)
         return this.end(watch, removed ? 'removed' : 'server-stopped', error.message)
@@ -313,7 +312,7 @@ export class ResourceWatches implements ResourceWatchCalls {
         // The person signs in again from the card; the next open uses the new sign-in.
         if (state === 'needs-sign-in') this.deps.gateway.askToConnect({ id: watch.row.integrationId, name: watch.integrationName }, watch.row.sessionId)
         watch.state = state
-        this.note(watch, state === 'unreachable' ? oneLine(errorText(error), MESSAGE_CHARS) : null)
+        this.note(watch, state === 'unreachable' ? clip(errorText(error), MESSAGE_CHARS) : null)
         this.publish(watch)
       }
       watch.failures++
@@ -372,11 +371,13 @@ export class ResourceWatches implements ResourceWatchCalls {
       watch.row.statusMessage = null
       this.deps.store.woke(watch.row.id, watch.row.wakes, now)
       try {
-        await this.sessionWake.send(watch.row.sessionId, text, images)
+        await this.deps.sessionWake.send(watch.row, 'resource-watch', text, images)
         log.info('resource_watch_delivered', { sessionId: watch.row.sessionId, resourceWatchId: watch.row.id, wakes: watch.row.wakes })
       } catch (error) {
         log.warn('resource_watch_delivery_failed', { sessionId: watch.row.sessionId, resourceWatchId: watch.row.id, error: errorText(error) })
-        this.note(watch, oneLine(`Solus could not start the agent: ${errorText(error)}`, MESSAGE_CHARS))
+        // A guest's watch cannot start the agent, now or later: it ends.
+        if (error instanceof UnattendedWakeRefusedError) return this.end(watch, 'refused', error.message)
+        this.note(watch, clip(`Solus could not start the agent: ${errorText(error)}`, MESSAGE_CHARS))
       }
       if (last) return this.end(watch, 'limit', `It started the agent ${MAX_RESOURCE_WATCH_WAKES} times, its limit.`)
     } finally {

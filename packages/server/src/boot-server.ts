@@ -193,7 +193,7 @@ import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
-import type { AgentId, IpcContext, PromptOptions } from '@solus/contracts/types'
+import type { AgentId, IpcContext } from '@solus/contracts/types'
 import { DEFAULT_SERVER_PORT, isSessionBusyStatus } from '@solus/contracts/types'
 import { registerWindowHandlers, type WindowDeps } from './transport/handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './transport/handlers/session-handlers'
@@ -255,6 +255,7 @@ import { registerGoogleHandlers } from './transport/handlers/google-handlers'
 import { registerProviderHandlers } from './transport/handlers/provider-handlers'
 import { PrSync } from './prs/pr-sync'
 import { PrWatcher } from './prs/pr-watcher'
+import { SessionWake } from './execution/sessions/session-wake'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
 import { registerVaultHandlers } from './transport/handlers/vault-handlers'
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
@@ -520,6 +521,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let requireAuth = initial.requireAuth || credentialAlwaysRequired
   const port = opts.port ?? WEB_UI_PORT
   let actualPort = port
+  let tunnelPort = 0
   const tailscaleServe = new TailscaleServe()
   setOwnMagicDnsName((await readTailscaleStatus())?.Self?.DNSName ?? null)
   if (effectiveRemoteAccess() === 'off') await tailscaleServe.removeMappingsToPort(port)
@@ -779,12 +781,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     observeNeedingAttention: (repo, viewer, pullRequests) => prObserver.observe(repo, viewer, pullRequests),
   })
   prSync.start()
-  // Watched pull requests wake their sessions with news (docs/plans/pr-watch.md).
-  const prWatcher = new PrWatcher({
-    wake: async (sessionId, text, actor) => {
-      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', { via: 'pull-request-watch', actor })
+  // Work outside a turn wakes its session as the person it works for: a
+  // pull request watch, an MCP task, and a resource watch.
+  const sessionWake = new SessionWake({
+    prompt: async (sessionId, text, origin) => {
+      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', origin)
     },
   })
+  // Watched pull requests wake their sessions with news (docs/plans/pr-watch.md).
+  const prWatcher = new PrWatcher({ sessionWake })
   void prWatcher.start().catch((error) => log.warn('pr_watcher_start_failed', { error: String(error) }))
   const hasDesktopHandlers = !!opts.windowDeps && !!opts.registerHostHandlers
 
@@ -887,11 +892,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const mcpTasks = new McpTasks({
     store: new McpTaskStore(),
     gateway: integrationGateway,
-    wake: async (sessionId, text, images) => {
-      const origin: Pick<PromptOptions, 'via' | 'imageAttachmentRefs'> = { via: 'mcp-task' }
-      if (images.length) origin.imageAttachmentRefs = images
-      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', origin)
-    },
+    sessionWake,
     publish: (event) => { void events.broadcast('mcpTask.changed', event) },
     backgroundEnded: (sessionId) => opts.sessionRuntime.providerEvents.endBackgroundWait(sessionId),
   })
@@ -904,19 +905,23 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const resourceWatches = new ResourceWatches({
     store: new ResourceWatchStore(),
     gateway: integrationGateway,
-    wake: async (sessionId, text, images) => {
-      const origin: Pick<PromptOptions, 'via' | 'imageAttachmentRefs'> = { via: 'resource-watch' }
-      if (images.length) origin.imageAttachmentRefs = images
-      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', origin)
-    },
+    sessionWake,
     publish: (event) => { void events.broadcast('integration.resourceWatchChanged', event) },
     isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
   })
   integrationGateway.useResourceWatches(resourceWatches)
   opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => resourceWatches.sessionStatusChanged(event.sessionId, event.status))
+  // A deleted session ends its watches and MCP tasks; an archive ends those of the person who archived it.
   domainEventUnsubscribes.push(
-    onSessionRecordDeleted((sessionId) => resourceWatches.sessionDeleted(sessionId)),
-    onSessionViewChanged((change) => { if (change.view.archivedAt !== null) resourceWatches.sessionArchived(change.sessionId, change.personKey) }),
+    onSessionRecordDeleted((sessionId) => {
+      resourceWatches.sessionDeleted(sessionId)
+      mcpTasks.sessionDeleted(sessionId)
+    }),
+    onSessionViewChanged((change) => {
+      if (change.view.archivedAt === null) return
+      resourceWatches.sessionArchived(change.sessionId, change.personKey)
+      mcpTasks.sessionArchived(change.sessionId, change.personKey)
+    }),
   )
   registerResourceWatchHandlers(server, resourceWatches)
   resourceWatches.start()
@@ -1334,7 +1339,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     clientsForSeat,
   })
   const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) }, withHostScope)
-  const serverTunnels = registerRunningServerHandlers(server, serverRegistry)
+  const serverTunnels = registerRunningServerHandlers(server, serverRegistry, (port) => port === actualPort || port === tunnelPort)
   localMcpServers.follow(serverRegistry)
   const resourceTelemetry = new ResourceTelemetry({
     resolvePath: resolveResourceMonitorPath,
@@ -1569,7 +1574,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // verifier for its grants. All three exist on every host; only a linked host uses them.
   // The workspace service has none of them (cloud-service-model.md §15): its one
   // verifier trusts the cloud issuer for `SOLUS_API_AUDIENCE`, and it never links.
-  let tunnelPort = 0
   const isTunnelRequest = (incoming: IncomingMessage): boolean =>
     tunnelPort !== 0 && incoming.socket.localPort === tunnelPort
   // One verifier per registration: it follows the registration record, and a host

@@ -419,6 +419,12 @@ describe('presence', () => {
 })
 
 describe('host administration', () => {
+  test('forwarding an unlisted port requires host administration', async () => {
+    await expect(assertRpcAccess('portForwardTunnel', OWNER, [5432])).resolves.toBeUndefined()
+    await expect(assertRpcAccess('portForwardTunnel', MEMBER, [5432])).rejects.toThrow(RpcAccessError)
+    await expect(assertRpcAccess('portForwardTunnel', GUEST, [5432])).rejects.toThrow(RpcAccessError)
+  })
+
   test('is the personal host owner, or an organization owner on a managed host; never a plain member', async () => {
     await expect(assertRpcAccess('configUpdate', OWNER, [{}])).resolves.toBeUndefined()
     await expect(assertRpcAccess('configUpdate', ORG_OWNER_MANAGED, [{}])).resolves.toBeUndefined()

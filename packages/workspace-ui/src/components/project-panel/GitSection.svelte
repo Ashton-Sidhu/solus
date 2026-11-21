@@ -37,8 +37,7 @@
     type ActionRowIcon,
     type ActionRowItem,
   } from "./MenuRow.svelte";
-  import { checksPresentation, type ChecksPresentation } from "../prs/lib/checks";
-  import { CHECKS_ICON } from "../prs/lib/checks-icons";
+  import { checksPresentation } from "../prs/lib/checks";
   import { prStatusGlyph, prStatusOf } from "../prs/lib/prs-list-view";
   import { mergeReadiness, readinessTone } from "../pr-review/lib/merge-readiness";
   import {
@@ -465,19 +464,10 @@
   }
   // One row per other linked pull request, read the way the list and the
   // review pane read one: the lifecycle as the glyph's shape (open, draft),
-  // mergeability as its tone (red cannot merge, green can, purple merged),
-  // and the checks as a tinted glyph before the number. The row brings that
-  // pull request into the group above.
-  const CHECKS_GLYPH = {
-    passing: { icon: CHECKS_ICON.passing, tone: "success" },
-    failing: { icon: CHECKS_ICON.failing, tone: "danger" },
-    pending: { icon: CHECKS_ICON.pending, tone: "running" },
-    unavailable: { icon: CHECKS_ICON.unavailable, tone: undefined },
-    none: { icon: undefined, tone: undefined },
-  } satisfies Record<
-    ChecksPresentation["state"],
-    { icon: ActionRowIcon | undefined; tone: ActionRowItem["badgeIconTone"] }
-  >;
+  // mergeability as its tone (red cannot merge, green can, purple merged).
+  // Failing checks already read as "cannot merge", so the row draws no checks
+  // glyph of its own; the tooltip names them. The row brings that pull
+  // request into the group above.
   const READINESS_ICON_TONE = {
     positive: "success",
     negative: "danger",
@@ -501,8 +491,6 @@
       icon: status.icon,
       iconTone: READINESS_ICON_TONE[readinessTone(readiness.key)],
       phase: "idle",
-      badgeIcon: CHECKS_GLYPH[checks.state].icon,
-      badgeIconTone: CHECKS_GLYPH[checks.state].tone,
       // The repository gives way before the title, and the number never
       // does, as in the pull request heading above.
       badgePrefix: reference.repository ?? undefined,
@@ -817,6 +805,10 @@
   <!-- The session's other open pull requests, folded behind "Show N more",
        one row each. A row brings its pull request into the group. -->
   {#if otherPrRows.length && isPanelItemShown(hiddenItems, "git.otherPullRequests")}
+    <div
+      class="mx-2 mt-1.5 mb-1 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
+      aria-hidden="true"
+    ></div>
     {#if otherPrsExpanded}
       {#each otherPrs as card, index (card.key)}
         <MenuRow

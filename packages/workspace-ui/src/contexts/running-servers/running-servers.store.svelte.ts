@@ -12,7 +12,7 @@ export class RunningServersStore {
   revision = $state(0)
   readonly #controller: RunningServersController
 
-  constructor(hostId: string, connections: Pick<typeof serverConnections, 'readinessFor' | 'apiFor' | 'eventsFor' | 'onReadinessChange' | 'onConnectionCreated' | 'httpOriginFor'> = serverConnections) {
+  constructor(readonly hostId: string, connections: Pick<typeof serverConnections, 'readinessFor' | 'apiFor' | 'eventsFor' | 'onReadinessChange' | 'onConnectionCreated' | 'httpOriginFor'> = serverConnections) {
     this.#controller = new RunningServersController(() => {
       if (connections.readinessFor(hostId).readiness !== 'ready') return null
       return { api: connections.apiFor(hostId), events: connections.eventsFor(hostId), ready: true }

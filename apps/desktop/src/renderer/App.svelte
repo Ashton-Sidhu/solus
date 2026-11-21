@@ -440,6 +440,12 @@
       {/snippet}
     </LazyDialog>
 
+    {#if ui.portForwards}
+      {#await import("@solus/workspace-ui/components/port-forwards/PortForwardsDialog.svelte") then module}
+        <module.default preferredHostId={ui.portForwards.preferredHostId} onClose={() => (ui.portForwards = null)} />
+      {/await}
+    {/if}
+
     <!-- Paste-a-link import. Lazy like the other dialogs — most sessions never
      open it, and it pulls the works store's upstream path with it. -->
     {#if ui.importDocOpen}

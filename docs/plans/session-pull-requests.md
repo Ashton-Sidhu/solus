@@ -186,8 +186,9 @@ person chooses another, and the first linked one when the branch has none.
 Under it, behind "Show N more", one row for each other open pull request the
 session links, in any repository, read as the list and the review
 pane read one: the lifecycle as the glyph's shape (open, draft), mergeability
-as its tone (`readinessTone`: red cannot merge, green can, purple merged), the
-checks as a tinted glyph before the number, and the title. A row brings its
+as its tone (`readinessTone`: red cannot merge, green can, purple merged),
+and the title. Failing checks already read as cannot merge, so the row draws
+no checks glyph; its tooltip names them. A row brings its
 pull request into the group, and the group's
 number (`#412 1/3 ›`) cycles to the next one; the card grows one row per
 link, not one group. The choice is the tab's and goes back to the branch's

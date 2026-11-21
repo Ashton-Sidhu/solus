@@ -1,8 +1,5 @@
 import type { PrConversationItem, PullRequest, ReviewThread } from '@solus/contracts/providers'
-import { parseUserKey } from '@solus/contracts/user'
 import { createLogger } from '../logger'
-import { unattendedActorFor, type Actor } from '../admission/actor'
-import { organizationOfSession } from '../data/sessions/session-records'
 import {
   endPullRequestWatch,
   onPullRequestWatchesChanged,
@@ -14,6 +11,7 @@ import {
 import { recordSessionPullRequestObservation } from '../data/sessions/session-pull-requests'
 import { githubRateLimitOf, type GitHubRateLimitedError } from '../providers/github/rate-limit'
 import { asBackgroundWork } from '../providers/github/request-budget'
+import type { SessionWake } from '../execution/sessions/session-wake'
 import type { PullRequestWatchFingerprint } from '../providers/types'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex } from './pr-index'
@@ -34,8 +32,8 @@ const READ_FAILURE_LIMIT = 8
 const RATE_LIMIT_FALLBACK_MS = 5 * 60_000
 
 export interface PrWatcherDeps {
-  /** Queue a prompt on the session, after its running turn, as `actor`. */
-  wake: (sessionId: string, text: string, actor: Actor | undefined) => Promise<void>
+  /** Starts the session's agent again, as the person the watch reads for. */
+  sessionWake: Pick<SessionWake, 'send'>
   codeHost?: (repository: string) => Promise<CodeHost | null>
   now?: () => number
 }
@@ -335,9 +333,10 @@ export class PrWatcher {
 
   private async wake(watch: PullRequestWatch, text: string): Promise<void> {
     try {
-      await this.deps.wake(watch.sessionId, text, await wakeActor(watch))
+      await this.deps.sessionWake.send({ sessionId: watch.sessionId, personKey: watch.actingUserKey }, 'pull-request-watch', text)
     } catch (error) {
-      // A session that cannot take a prompt cannot act on news either.
+      // A session that cannot take a prompt cannot act on news either, and a
+      // guest's watch cannot wake an agent (docs/plans/pr-watch.md §13).
       log.warn('pr_watch_wake_failed', { sessionId: watch.sessionId, number: watch.number, error: (error instanceof Error ? error.message : String(error)) })
       await this.end(watch, 'unwatched', null)
     }
@@ -363,20 +362,6 @@ export class PrWatcher {
     this.pausedUntil.set(groupKey(group), until)
     log.warn('pr_watch_rate_limited', { repository: group.repository, retryAt: new Date(until).toISOString() })
   }
-}
-
-/**
- * Whom a wake runs for: the person the watch reads for (plans/019-acting-identity.md),
- * as the automation runner turns its creator into an actor. Undefined is the
- * host's own work, or lets the session's live turn name its person. A guest's
- * work does not run unattended, so the wake fails and the watch ends.
- */
-async function wakeActor(watch: PullRequestWatch): Promise<Actor | undefined> {
-  if (watch.actingUserKey === null) return undefined
-  const user = { id: parseUserKey(watch.actingUserKey), displayName: watch.actingUserKey }
-  const actor = unattendedActorFor(user, await organizationOfSession(watch.sessionId), 'Pull request watch')
-  if (!actor) throw new Error('This watch was started by a guest, and a guest’s work does not run unattended.')
-  return actor
 }
 
 /** Comments, review bodies and review thread comments, as the rules read them. */

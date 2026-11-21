@@ -9,6 +9,7 @@ import { resetTestDatabase } from '../helpers/test-db'
 import type { Integration } from '@solus/contracts/integration-types'
 import type { McpTaskChangedEvent, McpTaskStatus } from '@solus/contracts/integrations/mcp-task'
 import type { PromptImageRef } from '@solus/contracts/types'
+import { userKey } from '@solus/contracts/user'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { GatewayClock } from '@solus/server/integrations/stdio-process'
 
@@ -22,6 +23,8 @@ const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-ide
 const { claudeToolResponse } = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
 const { codexToolContentItems } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
 const { getDb, closeDb } = await import('@solus/server/db')
+const { SessionWake } = await import('@solus/server/execution/sessions/session-wake')
+const { useHostUser } = await import('@solus/server/host/host-user')
 
 /**
  * MCP tasks (docs/plans/mcp-first-class.md §12) against a fake server of
@@ -30,6 +33,7 @@ const { getDb, closeDb } = await import('@solus/server/db')
  * status request it starts is a real HTTP request to the fake server.
  */
 
+/** The host's owner: `useHostUser` below makes this key the host's user. */
 const PERSON = 'local:owner'
 const SCOPE = { identity: HOST_IDENTITY, personKey: PERSON }
 const SESSION = 'session-1'
@@ -150,6 +154,7 @@ function route(message: Message, res: ServerResponse): void {
 }
 
 beforeAll(async () => {
+  useHostUser({ localId: 'owner' })
   http = createServer((req, res) => {
     inFlight++
     res.on('close', () => { inFlight-- })
@@ -162,6 +167,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  useHostUser(null)
   http.closeAllConnections()
   await new Promise<void>((resolve) => http.close(() => resolve()))
   closeDb()
@@ -193,7 +199,8 @@ interface World {
   owner: InstanceType<typeof McpTasks>
   store: InstanceType<typeof McpTaskStore>
   clock: FakeClock
-  wakes: Array<{ sessionId: string; text: string; images: PromptImageRef[] }>
+  /** Each start of the agent, with the person it runs as (`actorKey`) and that person's principal. */
+  wakes: Array<{ sessionId: string; text: string; images: PromptImageRef[]; actorKey: string | null; principal: string | null }>
   events: McpTaskChangedEvent[]
   settled: string[]
 }
@@ -206,7 +213,12 @@ function world(integrations: Integration[] = [record()], clock = new FakeClock()
   const settled: string[] = []
   const owner = new McpTasks({
     store, gateway, clock,
-    wake: async (sessionId, text, images) => { wakes.push({ sessionId, text, images }) },
+    sessionWake: new SessionWake({
+      prompt: async (sessionId, text, { actor, imageAttachmentRefs }) => {
+        wakes.push({ sessionId, text, images: imageAttachmentRefs ?? [], actorKey: actor?.user ? userKey(actor.user.id) : null, principal: actor?.principal.kind ?? null })
+      },
+      attachmentsDir: mkdtempSync(join(tmpdir(), 'solus-mcp-task-attachments-')),
+    }),
     publish: (event) => events.push(event),
     backgroundEnded: (sessionId) => settled.push(sessionId),
     actAs: (_personKey, run) => {
@@ -216,7 +228,6 @@ function world(integrations: Integration[] = [record()], clock = new FakeClock()
       void Promise.resolve(out).then(done, done)
       return out
     },
-    attachmentsDir: mkdtempSync(join(tmpdir(), 'solus-mcp-task-attachments-')),
   })
   gateway.useMcpTasks(owner)
   owners.push(owner)
@@ -473,6 +484,38 @@ describe('MCP tasks', () => {
     expect(again.wakes).toEqual([])
   })
 
+  /** A stdio MCP task of `personKey`, stored before a restart: the boot fails it and delivers its end at once. */
+  async function endedAtRestart(personKey: string, id = 'task-person') {
+    const store = new McpTaskStore()
+    const clock = new FakeClock()
+    const now = clock.now()
+    store.insert({
+      id, organizationId: 'local', sessionId: SESSION, integrationId: 'int-stdio', personKey, accountId: 'default', tool: 'long',
+      upstreamTaskId: 'upstream-person', status: 'working', statusMessage: null, traceparent: null, createdAt: now, updatedAt: now, expiresAt: now + 3_600_000, deliveredAt: null,
+    })
+    const w = world([record({ id: 'int-stdio', kind: 'stdio', name: 'Local', url: 'stdio:abc', launch: { command: 'fake', args: [] } })], clock, store)
+    w.owner.start()
+    await settle()
+    return w
+  }
+
+  test('an MCP task wakes its session as its person, after a restart too', async () => {
+    // WHY: after a restart the session's live actor is gone. A wake with no
+    // actor ran the member's agent as the host, or as the session's last person.
+    const member = await endedAtRestart('member-1')
+    expect(only(member.wakes)).toMatchObject({ actorKey: 'member-1', principal: 'org-member' })
+    const owner = await endedAtRestart(PERSON, 'task-owner')
+    expect(only(owner.wakes)).toMatchObject({ actorKey: PERSON, principal: 'owner' })
+  })
+
+  test('a guest\'s MCP task ends and does not wake the session', async () => {
+    // WHY: a guest's work does not run unattended (plans/019).
+    const w = await endedAtRestart('guest:visitor')
+    expect(w.wakes).toEqual([])
+    expect(w.owner.holdsSession(SESSION)).toBe(false)
+    expect(w.store.get('task-person')).toMatchObject({ status: 'failed', statusMessage: 'Solus could not start the agent: This was started by a guest, and a guest’s work does not run unattended.' })
+  })
+
   test('a stdio MCP task fails when its process is gone, and when its process ends', async () => {
     const stdio = record({ id: 'int-stdio', kind: 'stdio', name: 'Local', url: 'stdio:abc', launch: { command: 'fake', args: [] } })
     const w = world([stdio])
@@ -497,11 +540,37 @@ describe('MCP tasks', () => {
     const { result } = await started(w)
     await w.clock.advance(MCP_TASK_HOLD_MS)
     await result
+    // As `deleteSessionRecord` does: the rows go, then the owner hears it.
     getDb().prepare('DELETE FROM mcp_task WHERE session_id = ?').run(SESSION)
-    await w.clock.advance(5_000)
+    w.owner.sessionDeleted(SESSION)
+    await settle()
     expect(w.clock.pending).toBe(0)
+    expect(w.owner.holdsSession(SESSION)).toBe(false)
     expect(requests.filter((entry) => entry.method === 'tasks/cancel').map((entry) => entry.params.taskId)).toEqual([upstreamId()])
     expect(w.wakes).toEqual([])
+  })
+
+  test('an archived session cancels the live MCP tasks of the person who archived it', async () => {
+    // WHY: mcp-first-class.md §12.3. The archive left the server's work running
+    // and kept the session in 'background' until the task ended by itself.
+    const w = world()
+    const { result } = await started(w)
+    await w.clock.advance(MCP_TASK_HOLD_MS)
+    await result
+    w.owner.sessionArchived(SESSION, 'someone-else')
+    await settle()
+    expect(requests.filter((entry) => entry.method === 'tasks/cancel')).toEqual([])
+    w.owner.sessionArchived(SESSION, PERSON)
+    await settle()
+    expect(requests.filter((entry) => entry.method === 'tasks/cancel').map((entry) => entry.params.taskId)).toEqual([upstreamId()])
+    expect(w.events.at(-1)?.task.cancelling).toBe(true)
+    // Cooperative, as the person's cancel: the server confirms, and nothing starts the agent.
+    tasks.get(upstreamId())!.status = 'cancelled'
+    await w.clock.advance(5_000)
+    expect(only(w.owner.list(SESSION))).toMatchObject({ status: 'cancelled' })
+    expect(w.wakes).toEqual([])
+    expect(w.settled).toEqual([SESSION])
+    expect(w.clock.pending).toBe(0)
   })
 
   test(`at most ${MAX_MCP_TASK_WAKES_PER_HOUR} MCP task results start one session in an hour`, async () => {

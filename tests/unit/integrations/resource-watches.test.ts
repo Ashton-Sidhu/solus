@@ -15,6 +15,7 @@ import { resetTestDatabase } from '../helpers/test-db'
 import type { Integration } from '@solus/contracts/integration-types'
 import type { ResourceWatchChangedEvent } from '@solus/contracts/integrations/resource-watch'
 import type { PromptImageRef } from '@solus/contracts/types'
+import { userKey } from '@solus/contracts/user'
 import type { AgentToolContext, AgentToolResult } from '@solus/server/execution/agents/tools/agent-tool'
 import type { GatewayClock } from '@solus/server/integrations/stdio-process'
 
@@ -32,6 +33,8 @@ const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-ide
 const { adaptClaudeTools } = await import('@solus/server/execution/agents/claude/claude-tool-adapter')
 const { adaptCodexTools } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
 const { closeDb } = await import('@solus/server/db')
+const { SessionWake } = await import('@solus/server/execution/sessions/session-wake')
+const { useHostUser } = await import('@solus/server/host/host-user')
 
 /**
  * Resource watches (docs/plans/mcp-first-class.md §11.5) against a fake server
@@ -40,6 +43,7 @@ const { closeDb } = await import('@solus/server/db')
  * timers run on a fake clock: a test moves the time, and no test waits for one.
  */
 
+/** The host's owner: `useHostUser` below makes this key the host's user. */
 const PERSON = 'local:owner'
 const SCOPE = { identity: HOST_IDENTITY, personKey: PERSON }
 const SESSION = 'session-1'
@@ -200,6 +204,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
 }
 
 beforeAll(async () => {
+  useHostUser({ localId: 'owner' })
   modern = createServer((req, res) => {
     inFlight++
     res.on('close', () => { inFlight-- })
@@ -230,6 +235,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  useHostUser(null)
   await Promise.all(legacyServers.map((server) => server.close()))
   for (const server of [modern, legacy]) {
     server.closeAllConnections()
@@ -270,7 +276,8 @@ interface World {
   owner: InstanceType<typeof ResourceWatches>
   store: InstanceType<typeof ResourceWatchStore>
   clock: FakeClock
-  wakes: Array<{ sessionId: string; text: string; images: PromptImageRef[] }>
+  /** Each start of the agent, with the person it runs as (`actorKey`) and that person's principal. */
+  wakes: Array<{ sessionId: string; text: string; images: PromptImageRef[]; actorKey: string | null; principal: string | null }>
   events: ResourceWatchChangedEvent[]
   busy: Set<string>
   asked: string[]
@@ -288,8 +295,13 @@ function world(integrations: Integration[] = [record()], clock = new FakeClock()
   const attachmentsDir = mkdtempSync(join(tmpdir(), 'solus-resource-watch-attachments-'))
   attachmentDirs.push(attachmentsDir)
   const owner = new ResourceWatches({
-    store, gateway, clock, attachmentsDir,
-    wake: async (sessionId, text, images) => { wakes.push({ sessionId, text, images }) },
+    store, gateway, clock,
+    sessionWake: new SessionWake({
+      prompt: async (sessionId, text, { actor, imageAttachmentRefs }) => {
+        wakes.push({ sessionId, text, images: imageAttachmentRefs ?? [], actorKey: actor?.user ? userKey(actor.user.id) : null, principal: actor?.principal.kind ?? null })
+      },
+      attachmentsDir,
+    }),
     publish: (event) => events.push(event),
     isSessionBusy: (sessionId) => busy.has(sessionId),
     actAs: (_personKey, run) => {
@@ -316,9 +328,9 @@ function watchTool(w: World, integration = record()) {
   return tool
 }
 
-async function watch(w: World, options: { sessionId?: string; uri?: string; watching?: boolean; integration?: Integration } = {}): Promise<AgentToolResult> {
+async function watch(w: World, options: { sessionId?: string; uri?: string; watching?: boolean; integration?: Integration; personKey?: string } = {}): Promise<AgentToolResult> {
   const tool = watchTool(w, options.integration)
-  const result = await withActingScope(SCOPE, () => tool.execute({ server: options.integration?.slug ?? 'docs', uri: options.uri ?? DOC, watching: options.watching ?? true }, context(options.sessionId)))
+  const result = await withActingScope({ ...SCOPE, personKey: options.personKey ?? PERSON }, () => tool.execute({ server: options.integration?.slug ?? 'docs', uri: options.uri ?? DOC, watching: options.watching ?? true }, context(options.sessionId)))
   await settle()
   return result
 }
@@ -354,6 +366,38 @@ describe('resource watches', () => {
     // Nothing else starts it: the time passes and the stream stays quiet.
     await w.clock.advance(10 * 60_000)
     expect(w.wakes).toHaveLength(1)
+  })
+
+  test('a change wakes the session as the watch\'s person: the owner', async () => {
+    // WHY: the watch reads as its person. A wake with no actor ran the turn as
+    // the session's last person, or as the host after a restart.
+    const owner = world()
+    await watch(owner)
+    changeModern()
+    await until(() => stateOf(owner)[0] === 'changed')
+    await owner.clock.advance(RESOURCE_WATCH_GATHER_MS)
+    expect(only(owner.wakes)).toMatchObject({ actorKey: PERSON, principal: 'owner' })
+  })
+
+  test('a member\'s watch wakes the session as the member', async () => {
+    const member = world()
+    await watch(member, { personKey: 'member-1' })
+    changeModern()
+    await until(() => stateOf(member)[0] === 'changed')
+    await member.clock.advance(RESOURCE_WATCH_GATHER_MS)
+    expect(only(member.wakes)).toMatchObject({ actorKey: 'member-1', principal: 'org-member' })
+  })
+
+  test('a guest\'s watch ends at its first change and does not wake the session', async () => {
+    // WHY: a guest's work does not run unattended (plans/019), now or at a later change.
+    const w = world()
+    await watch(w, { personKey: 'guest:visitor' })
+    changeModern()
+    await until(() => stateOf(w)[0] === 'changed')
+    await w.clock.advance(RESOURCE_WATCH_GATHER_MS)
+    expect(w.wakes).toEqual([])
+    expect(only(w.owner.list(SESSION))).toMatchObject({ state: 'ended', endReason: 'refused', message: 'This was started by a guest, and a guest’s work does not run unattended.' })
+    await until(() => listens.size === 0)
   })
 
   test('several fast changes make one start, and the next start waits the least time between two', async () => {

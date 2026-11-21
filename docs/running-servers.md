@@ -64,17 +64,25 @@ Explicit URLs supply a checkout for configured endpoints on every host.
 Open uses the Browser pane on the selected host, including for APIs. Copy host
 URL copies that host's address: `127.0.0.1` refers to the host.
 
-The desktop shell can forward an endpoint to an unused loopback TCP port on this
-computer. The forward control shows only for a host on another machine: the
+The desktop shell can forward an endpoint to a loopback TCP port on this
+computer. It tries the remote port number first and uses a free port if that
+number is taken or the operating system refuses the bind. The forward control
+shows only for a host on another machine: the
 desktop's own local server is already on this computer. The card shows the local port and a control to stop forwarding. Copy
 then uses the forwarded URL. A modified or middle click forwards the endpoint
 and opens it in the system browser. For the desktop's own local server, it opens
 the endpoint URL without a forward. HTTP paths and WebSockets work through the
 same TCP channel. HTTPS keeps its scheme and certificate behavior.
 
-The host issues a short-lived capability for one listed endpoint. The WebSocket
-upgrade checks its expiry, the current endpoint, and process identity. It connects
-only to loopback. Traffic uses stream backpressure and connection limits. The
+Use **Forwarded ports** in the desktop command palette to enter a TCP port on
+a remote host you administer. The remote service can be absent from discovery.
+The dialog shows the local address and can stop either kind of forward. Manual
+forwards target the host's loopback and exclude Solus connection ports.
+
+The host issues a short-lived capability for one endpoint. The WebSocket
+upgrade checks its expiry. Forwards started from a server row also check the
+current endpoint and process identity. The tunnel connects only to loopback.
+Traffic uses stream backpressure and connection limits. The
 client renews the ticket while forwarding is active, including when the card is
 not mounted. Stop forwarding, host disconnection, ticket expiry, and desktop
 shutdown close the relevant local listener and channels. A renderer reload

@@ -56,10 +56,17 @@ export class SessionStatuses {
     return status !== undefined && isSessionBusyStatus(status)
   }
 
-  /** True while the session's turn has ended and it waits in 'background' on
-   *  reports from the sessions it sent work to. It has no run by design. */
-  isWaitingOnReports(sessionId: string): boolean {
-    return this.rt.activeSessions.get(sessionId)?.status === 'background' && !!this.rt.orchestration?.isAwaitingReplies(sessionId)
+  /** True while work outside the provider holds the session in 'background':
+   *  the sessions it sent work to, until they report, and its live MCP tasks
+   *  (docs/plans/mcp-first-class.md §12.5), until they end. */
+  holdsOutsideRun(sessionId: string): boolean {
+    return !!this.rt.orchestration?.isAwaitingReplies(sessionId) || !!this.rt.mcpTaskHolds?.(sessionId)
+  }
+
+  /** True while the session's turn has ended and it waits in 'background' only
+   *  for work outside the provider (`holdsOutsideRun`). It has no run by design. */
+  waitsOutsideRun(sessionId: string): boolean {
+    return this.rt.activeSessions.get(sessionId)?.status === 'background' && this.holdsOutsideRun(sessionId)
   }
 
   liveSessionStatus(sessionId: string): SessionStatus | null {
@@ -113,7 +120,7 @@ export class SessionStatuses {
       // A completed provider turn can leave commands or children running.
       // Their lifecycle events own completion; no active turn is required.
       const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
-      if (alive || hasPendingRun || this.isWaitingOnReports(sessionId) || (hasBackgroundWork && !isSessionBusyStatus(session.status))) {
+      if (alive || hasPendingRun || this.waitsOutsideRun(sessionId) || (hasBackgroundWork && !isSessionBusyStatus(session.status))) {
         this.rt.missingRunCounts.delete(sessionId)
         continue
       }
@@ -343,7 +350,7 @@ export class SessionStatuses {
       turn: turnOfStatus(newStatus),
       pendingInput: input === 'awaiting_input' || input === 'awaiting_plan' ? input : null,
       rateLimitParked: !!parked && parked.deferCurrentRun !== true,
-      backgroundHolds: backgroundWorkHolds(session) || !!this.rt.orchestration?.isAwaitingReplies(sessionId) || !!this.rt.mcpTaskHolds?.(sessionId),
+      backgroundHolds: backgroundWorkHolds(session) || this.holdsOutsideRun(sessionId),
     }
     const derived = deriveSessionStatus(facts)
     if (derived === newStatus) return

@@ -732,6 +732,7 @@ export const RPC_INVOKE_METHODS = [
   'runningServersCheckoutRoots',
   'runningServersUnwatch',
   'runningServerTunnel',
+  'portForwardTunnel',
   'runningServerStop',
   'hostTelemetrySubscribe',
   'hostTelemetryUnsubscribe',

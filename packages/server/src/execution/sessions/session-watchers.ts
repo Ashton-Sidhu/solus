@@ -179,7 +179,7 @@ export class SessionWatchers {
     )
     const isRuntimeRunning = backend.isSessionRunning(agentSessionId)
     if (!isRuntimeRunning && !backend.hasBackgroundTasks?.(agentSessionId) && !pendingRateLimitEvent && !hasQueuedRateLimitRequest
-      && !this.rt.statuses.isWaitingOnReports(sessionId)) {
+      && !this.rt.statuses.waitsOutsideRun(sessionId)) {
       this.rt.activeSessions.delete(sessionId)
       return null
     }

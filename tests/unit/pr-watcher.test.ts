@@ -27,6 +27,7 @@ let watches: typeof import('@solus/server/data/sessions/pull-request-watches')
 let sessionPrs: typeof import('@solus/server/data/sessions/session-pull-requests')
 let rules: typeof import('@solus/server/prs/pr-watch-rules')
 let watcherModule: typeof import('@solus/server/prs/pr-watcher')
+let wakeModule: typeof import('@solus/server/execution/sessions/session-wake')
 let rateLimit: typeof import('@solus/server/providers/github/rate-limit')
 let actingScope: typeof import('@solus/server/vault/acting-scope')
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -39,6 +40,7 @@ beforeAll(async () => {
   sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
   rules = await import('@solus/server/prs/pr-watch-rules')
   watcherModule = await import('@solus/server/prs/pr-watcher')
+  wakeModule = await import('@solus/server/execution/sessions/session-wake')
   rateLimit = await import('@solus/server/providers/github/rate-limit')
   actingScope = await import('@solus/server/vault/acting-scope')
   installTestIdentities()
@@ -121,9 +123,11 @@ class FakeHost {
 function setup(host: FakeHost) {
   const woke: Array<{ sessionId: string; text: string; actorUserId: string | null }> = []
   const watcher = new watcherModule.PrWatcher({
-    wake: async (sessionId, text, actor) => {
-      woke.push({ sessionId, text, actorUserId: actor?.user?.id.kind === 'account' ? actor.user.id.accountId : null })
-    },
+    sessionWake: new wakeModule.SessionWake({
+      prompt: async (sessionId, text, { actor }) => {
+        woke.push({ sessionId, text, actorUserId: actor?.user?.id.kind === 'account' ? actor.user.id.accountId : null })
+      },
+    }),
     codeHost: codeHostOf(host),
   })
   return { watcher, woke }
@@ -308,6 +312,20 @@ describe('PR watcher', () => {
     expect(woke.map(({ actorUserId }) => actorUserId)).toEqual(['member-1'])
   })
 
+  test('a guest\'s watch ends and wakes nobody', async () => {
+    // WHY: a guest's work does not run unattended (plans/019). A wake with no
+    // actor would run the guest's news as the session's last person.
+    const host = new FakeHost()
+    host.checks = [check('build', 'failure')]
+    await watch('session-1', undefined, 'guest:visitor')
+    const { watcher, woke } = setup(host)
+    await watcher.start()
+    await watcher.sweep()
+    watcher.stop()
+    expect(woke).toEqual([])
+    expect(await watches.readPullRequestWatches()).toEqual([])
+  })
+
   test('a moved fingerprint costs no read of the pull request when the server holds a row that agrees with it', async () => {
     // WHY: a watched pull request is linked to its session, so PR sync keeps
     // its row fresh. A second read of the same pull request spent the quota
@@ -358,7 +376,7 @@ describe('PR watcher', () => {
     await watch('session-1', now - 60_000)
     const woke: string[] = []
     const watcher = new watcherModule.PrWatcher({
-      wake: async (_sessionId, text) => { woke.push(text) },
+      sessionWake: new wakeModule.SessionWake({ prompt: async (_sessionId, text) => { woke.push(text) } }),
       codeHost: codeHostOf(host),
       now: () => now,
     })
@@ -386,7 +404,7 @@ describe('PR watcher', () => {
     let now = Date.now()
     const woke: string[] = []
     const watcher = new watcherModule.PrWatcher({
-      wake: async (_sessionId, text) => { woke.push(text) },
+      sessionWake: new wakeModule.SessionWake({ prompt: async (_sessionId, text) => { woke.push(text) } }),
       codeHost: codeHostOf(host),
       now: () => now,
     })

@@ -50,13 +50,16 @@ export class ServerForwards {
       webSocket.once('close', close)
       socket.pipe(stream).pipe(socket)
     })
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', () => { server.removeListener('error', reject); resolve() })
-    })
+    const url = new URL(request.targetUrl)
+    const preferredPort = Number(url.port) || (url.protocol === 'https:' ? 443 : 80)
+    try {
+      await bindLoopback(server, preferredPort)
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || !['EADDRINUSE', 'EACCES'].some((code) => code === error.code)) throw error
+      await bindLoopback(server, 0)
+    }
     const address = z.object({ port: z.number().int().positive() }).safeParse(server.address())
     if (!address.success) { server.close(); throw new Error('Cannot bind a local port.') }
-    const url = new URL(request.targetUrl)
     url.hostname = '127.0.0.1'
     url.port = String(address.data.port)
     const view = { forwardId: randomUUID(), endpointKey: request.endpointKey, localPort: address.data.port, url: url.href }
@@ -81,4 +84,20 @@ export class ServerForwards {
     forward.server.close()
   }
   close(): void { for (const key of this.forwards.keys()) this.stopKey(key) }
+}
+
+function bindLoopback(server: Server, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.removeListener('listening', onListening)
+      reject(error)
+    }
+    const onListening = () => {
+      server.removeListener('error', onError)
+      resolve()
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    server.listen(port, '127.0.0.1')
+  })
 }
