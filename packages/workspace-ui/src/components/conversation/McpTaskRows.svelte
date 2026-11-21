@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { McpTask } from "@solus/contracts/integrations/mcp-task";
   import { mcpTaskItem, MCP_TASK_ANSWER, MCP_TASK_CANCEL } from "@solus/client-core/mcp-task-row";
-  import { mcpTasksStore } from "../../contexts/sessions/mcp-tasks.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import BackgroundItemRow from "./BackgroundItemRow.svelte";
@@ -30,7 +30,7 @@
     }
     if (actionId !== MCP_TASK_CANCEL.id) return;
     try {
-      await mcpTasksStore.cancel(task);
+      await mcpStore.tasks.cancel(task);
     } catch {
       toasts.error(`The MCP task ${task.tool} could not be cancelled`);
     }
@@ -39,7 +39,7 @@
 
   async function answer(task: McpTask, key: string, answers: Record<string, string>): Promise<boolean> {
     try {
-      const taken = await mcpTasksStore.answer(task, key, answers);
+      const taken = await mcpStore.tasks.answer(task, key, answers);
       if (!taken) toasts.error("This question is no longer open");
       answeringId = null;
       requestInputFocus({ tabId });

@@ -13,5 +13,3 @@ export class ResourceWatchesStore extends SessionHostRecords<ResourceWatch, 'int
     await this.sessions.hostApiOf(watch.sessionId).integrationResourceWatchStop({ sessionId: watch.sessionId, id: watch.id })
   }
 }
-
-export const resourceWatchesStore = new ResourceWatchesStore()

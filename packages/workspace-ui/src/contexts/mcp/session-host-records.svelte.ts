@@ -2,7 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { BackgroundKind, BackgroundRecord, SessionRecordTopic } from '@solus/client-core/background-item'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { keepEqual, upsertById } from '@solus/client-core/keep-equal'
-import { FollowedSessions } from './followed-sessions'
+import { FollowedSessions } from '../sessions/followed-sessions'
 
 /**
  * Each session's background records of one kind (docs/plans/mcp-first-class.md

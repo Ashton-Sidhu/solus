@@ -1,6 +1,8 @@
 import { IntegrationPromptsStore } from './integration-prompts.store.svelte'
 import { IntegrationResourceListsStore } from './integration-resource-lists.svelte'
 import { IntegrationsStore } from './integrations.store.svelte'
+import { McpTasksStore } from './mcp-tasks.store.svelte'
+import { ResourceWatchesStore } from './resource-watches.store.svelte'
 
 /**
  * The MCP state of this client on desktop and web (docs/plans/mcp-first-class.md):
@@ -18,6 +20,10 @@ class McpStore {
   readonly prompts = new IntegrationPromptsStore()
   /** The MCP resource lists of each host and project, for the `@` menu. */
   readonly resources = new IntegrationResourceListsStore()
+  /** The MCP tasks of each session. */
+  readonly tasks = new McpTasksStore()
+  /** The resource watches of each session. */
+  readonly watches = new ResourceWatchesStore()
 }
 
 export const mcpStore = new McpStore()
