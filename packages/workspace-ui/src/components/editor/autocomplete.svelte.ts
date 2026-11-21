@@ -61,6 +61,7 @@ import { mcpPromptItems } from "./unified-autocomplete/mcp-prompt-items";
 import type { IntegrationResource, IntegrationResourceTemplate } from "@solus/contracts/integration-types";
 import { templateArgumentFields } from "@solus/client-core/integration-prompts";
 import { atMenuFooter } from "./unified-autocomplete/footer";
+import { integrationResourceLists } from "../settings/integration-resource-lists.svelte";
 import { integrationResources } from "../settings/integration-resources.store.svelte";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
@@ -153,9 +154,10 @@ export class UnifiedAutocompleteController {
   #fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
   #fileSearchId = 0;
 
-  /** Anchor the `#` indexes were last warmed for. Loading is a rising-edge
-   *  event, not a per-keystroke one: an emptiness test would re-fire forever in
-   *  a repo that genuinely has no pull requests. */
+  /** Anchor the `#` indexes, the MCP prompts, or the MCP resources were last
+   *  warmed for. Loading is a rising-edge event, not a per-keystroke one: an
+   *  emptiness test would re-fire forever in a repo that genuinely has no pull
+   *  requests. */
   #warmedForAnchor: number | null = null;
   #lastKeyAt = 0;
   #pointer: { x: number; y: number } | null = null;
@@ -250,7 +252,7 @@ export class UnifiedAutocompleteController {
   #mcpPromptList = $derived.by(() => {
     const serverId = this.deps.serverId?.();
     if (!serverId || !this.deps.onMcpPrompt?.()) return null;
-    return integrationPromptsStore.stateFor(serverId, this.deps.workingDirectory());
+    return integrationPromptsStore.listFor(serverId, this.deps.workingDirectory());
   });
 
   #mcpPromptItems = $derived.by((): MenuItem[] =>
@@ -300,12 +302,13 @@ export class UnifiedAutocompleteController {
     const integrations = integrationResources.integrationsOf(serverId);
     const projectPath = this.deps.workingDirectory();
     const serverOf = (integrationId: string) => integrations.find((candidate) => candidate.id === integrationId);
-    const resources = integrationResources.resourcesFor(serverId, projectPath).flatMap((entry) => {
+    const lists = integrationResourceLists.listFor(serverId, projectPath);
+    const resources = lists.resources.flatMap((entry) => {
       const integration = serverOf(entry.integrationId);
       return integration ? [resourceMenuItem(entry, integration)] : [];
     });
     // A template the host can expand, after the resources: the argument form fills it (§11.3).
-    const templates = integrationResources.templatesFor(serverId, projectPath).flatMap((entry) => {
+    const templates = lists.templates.flatMap((entry) => {
       const integration = serverOf(entry.integrationId);
       return integration && templateArgumentFields(entry.uriTemplate) ? [resourceTemplateMenuItem(entry, integration)] : [];
     });
@@ -476,9 +479,13 @@ export class UnifiedAutocompleteController {
       return;
     }
 
-    if (trigger.char === "@") {
-      this.#searchFiles(trigger.query);
-      if (this.deps.onResource?.()) integrationResources.ensure(this.#resourceServerId(), this.deps.workingDirectory());
+    if (trigger.char === "@") this.#searchFiles(trigger.query);
+    if (trigger.char === "@" && this.#warmedForAnchor !== trigger.anchor) {
+      this.#warmedForAnchor = trigger.anchor;
+      if (this.deps.onResource?.()) {
+        integrationResources.loadInstalled();
+        integrationResourceLists.ensure(this.#resourceServerId(), this.deps.workingDirectory());
+      }
     }
     if (trigger.char === "/" && this.#warmedForAnchor !== trigger.anchor) {
       this.#warmedForAnchor = trigger.anchor;

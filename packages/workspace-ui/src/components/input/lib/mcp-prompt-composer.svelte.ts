@@ -49,7 +49,7 @@ export function useMcpPromptComposer(deps: McpPromptComposerDeps) {
 
   function knownPrompts(): IntegrationPrompt[] {
     const serverId = deps.serverId()
-    return serverId ? integrationPromptsStore.stateFor(serverId, deps.projectPath()).prompts : []
+    return serverId ? integrationPromptsStore.listFor(serverId, deps.projectPath()).prompts : []
   }
 
   async function expand(prompt: IntegrationPrompt, values: ArgumentValue[]): Promise<void> {

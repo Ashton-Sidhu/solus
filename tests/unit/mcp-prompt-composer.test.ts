@@ -118,14 +118,14 @@ describe('the prompt list store', () => {
     // WHY: the slash menu is in the typing path; a keystroke must cost no request.
     for (let index = 0; index < 5; index++) integrationPromptsStore.ensure('prompts-host', '/repo')
     expect(reads).toBe(1)
-    expect(integrationPromptsStore.stateFor('prompts-host', '/repo').prompts).toHaveLength(3)
+    expect(integrationPromptsStore.listFor('prompts-host', '/repo').prompts).toHaveLength(3)
     // A removed integration takes its prompts with it.
     answer = { prompts: [standup], signIn: [] }
     connections.emit('prompts-host', 'integration.changed', { integrationId: 'github', change: 'removed' })
-    expect(integrationPromptsStore.stateFor('prompts-host', '/repo').prompts).toHaveLength(3)
+    expect(integrationPromptsStore.listFor('prompts-host', '/repo').prompts).toHaveLength(3)
     await flush()
     expect(reads).toBe(2)
-    expect(integrationPromptsStore.stateFor('prompts-host', '/repo').prompts.map((prompt) => prompt.command)).toEqual(['/linear:standup'])
+    expect(integrationPromptsStore.listFor('prompts-host', '/repo').prompts.map((prompt) => prompt.command)).toEqual(['/linear:standup'])
   })
 })
 
