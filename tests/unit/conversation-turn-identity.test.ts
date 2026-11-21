@@ -49,7 +49,7 @@ function turnComponent(directory: string): string {
       const turnReplyCards = () => null;
       // No MCP tasks or resource watches: the session has no run host here.
       const runHost = () => undefined;
-      const mcpTasksStore = { ensure: () => {}, tasksFor: () => [] }, resourceWatchesStore = { ensure: () => {}, watchesFor: () => [] };
+      const mcpTasksStore = { follow: () => {}, recordsOf: () => [] }, resourceWatchesStore = mcpTasksStore;
       const shownBackgroundRecords = () => [], MCP_TASKS = { isLive: () => false }, RESOURCE_WATCHES = {};
       // No tool outputs: the folded turn has no strip.
       const ToolOutputStrip = Stub;

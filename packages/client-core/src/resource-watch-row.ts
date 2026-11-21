@@ -7,7 +7,13 @@ import type { BackgroundItem, BackgroundItemAction, BackgroundKind } from './bac
 
 export const RESOURCE_WATCH_STOP: BackgroundItemAction = { id: 'stop', label: 'Stop', busyLabel: 'Stopping…', stops: true }
 
-export const RESOURCE_WATCHES: BackgroundKind<ResourceWatch> = { item: resourceWatchItem, isLive: resourceWatchIsLive }
+export const RESOURCE_WATCHES: BackgroundKind<ResourceWatch, 'integration.resourceWatchChanged'> = {
+  item: resourceWatchItem,
+  isLive: resourceWatchIsLive,
+  list: (api, sessionId) => api.integrationResourceWatchList({ sessionId }),
+  topic: 'integration.resourceWatchChanged',
+  recordOf: (event) => event.watch,
+}
 
 export function resourceWatchItem(watch: ResourceWatch): BackgroundItem {
   return {

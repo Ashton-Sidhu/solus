@@ -73,12 +73,12 @@
   const ownServerId = $derived(runHost(session.sessionFor(tabId)?.run));
   $effect(() => {
     if (index !== total - 1 || !ownSessionId || !ownServerId) return;
-    mcpTasksStore.ensure(ownServerId, ownSessionId);
-    resourceWatchesStore.ensure(ownServerId, ownSessionId);
+    mcpTasksStore.follow(ownServerId, ownSessionId);
+    resourceWatchesStore.follow(ownServerId, ownSessionId);
   });
-  const mcpTasks = $derived(index === total - 1 ? shownBackgroundRecords(MCP_TASKS, mcpTasksStore.tasksFor(ownSessionId), turn.startedAt) : []);
+  const mcpTasks = $derived(index === total - 1 ? shownBackgroundRecords(MCP_TASKS, mcpTasksStore.recordsOf(ownSessionId), turn.startedAt) : []);
   const resourceWatches = $derived(
-    index === total - 1 ? shownBackgroundRecords(RESOURCE_WATCHES, resourceWatchesStore.watchesFor(ownSessionId), turn.startedAt) : [],
+    index === total - 1 ? shownBackgroundRecords(RESOURCE_WATCHES, resourceWatchesStore.recordsOf(ownSessionId), turn.startedAt) : [],
   );
   // A live MCP task holds the session in `background`. The row of the agent's own
   // background work then says nothing the MCP task rows do not, unless the turn waits on more.

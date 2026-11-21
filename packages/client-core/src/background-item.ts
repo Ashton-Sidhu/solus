@@ -3,6 +3,9 @@
 // (docs/plans/mcp-first-class.md §11.5, §12.5). The row reads only this shape,
 // so a new kind adds a mapping, not a layout. Desktop, web, and mobile share it.
 
+import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
+import type { HostApi } from './host-api'
+
 /** `running` spins; `waiting` waits for news and does not move; `attention` asks the person; `ended`, `stopped`, and `failed` are past tense. */
 export type BackgroundItemState = 'running' | 'waiting' | 'attention' | 'ended' | 'stopped' | 'failed'
 
@@ -38,13 +41,29 @@ export interface BackgroundRecord {
   readonly updatedAt: number
 }
 
-/** One kind of background record: how its row reads, and whether its work is still live. */
-export interface BackgroundKind<T extends BackgroundRecord> {
+/** A host event that carries one changed record of a session. */
+export type SessionRecordTopic = { [Name in HostEventName]: HostEventMap[Name] extends { sessionId: string } ? Name : never }[HostEventName]
+
+/**
+ * One kind of background record: how its row reads, whether its work is still
+ * live, and how a client keeps a session's records current: the host's list,
+ * then one `topic` event for each change.
+ */
+export interface BackgroundKind<T extends BackgroundRecord, Topic extends SessionRecordTopic = SessionRecordTopic> {
   item(record: T): BackgroundItem
   isLive(record: T): boolean
+  list(api: HostApi, sessionId: string): Promise<T[]>
+  readonly topic: Topic
+  recordOf(event: HostEventMap[Topic]): T
 }
 
 /** Which rows the conversation shows: the live ones, and the ones that ended after `since` (the last turn's start). */
 export function shownBackgroundRecords<T extends BackgroundRecord>(kind: BackgroundKind<T>, records: readonly T[], since: number): T[] {
   return records.filter((record) => kind.isLive(record) || record.updatedAt >= since)
+}
+
+/** The list with `record` in place of the record of its id, or at the end when the list has none. */
+export function upsertById<T extends { readonly id: string }>(list: readonly T[], record: T): T[] {
+  const index = list.findIndex((entry) => entry.id === record.id)
+  return index === -1 ? [...list, record] : list.with(index, record)
 }

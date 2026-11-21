@@ -6,7 +6,13 @@ import type { BackgroundItem, BackgroundItemAction, BackgroundKind } from './bac
 export const MCP_TASK_CANCEL: BackgroundItemAction = { id: 'cancel', label: 'Cancel', busyLabel: 'Cancelling…', stops: true }
 export const MCP_TASK_ANSWER: BackgroundItemAction = { id: 'answer', label: 'Answer', busyLabel: 'Answer' }
 
-export const MCP_TASKS: BackgroundKind<McpTask> = { item: mcpTaskItem, isLive: mcpTaskIsLive }
+export const MCP_TASKS: BackgroundKind<McpTask, 'mcpTask.changed'> = {
+  item: mcpTaskItem,
+  isLive: mcpTaskIsLive,
+  list: (api, sessionId) => api.mcpTaskList({ sessionId }),
+  topic: 'mcpTask.changed',
+  recordOf: (event) => event.task,
+}
 
 export function mcpTaskItem(task: McpTask): BackgroundItem {
   const live = mcpTaskIsLive(task)
