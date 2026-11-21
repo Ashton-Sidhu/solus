@@ -1,11 +1,10 @@
 import type { CommandProcesses } from '@solus/client-core/command-processes'
-import type { Integration, IntegrationAuthFinishedEvent, IntegrationConnection, IntegrationEnvValue, IntegrationFacts, IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { DEFAULT_INTEGRATION_ACCOUNT, isFirstIntegrationAccount, type Integration, type IntegrationAuthFinishedEvent, type IntegrationConnection, type IntegrationConnectionChangedEvent, type IntegrationEnvValue, type IntegrationFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import type { VaultSaveKeyRequest } from '@solus/contracts/vault'
-import { IntegrationAccounts } from './integration-accounts.svelte'
 
 /**
  * The caller's sign-in to one integration while it runs (§4.3). Absent when no
@@ -86,6 +85,137 @@ export function isUnsupportedHostError(cause: unknown): boolean {
 export function errorText(cause: unknown, fallback: string): string {
   const message = cause instanceof Error ? cause.message.trim() : ''
   return message || fallback
+}
+
+/** The key of one integration on one host, for the maps of its sign-ins and accounts. */
+function integrationKey(serverId: string, integrationId: string): string {
+  return `${serverId}\u0000${integrationId}`
+}
+
+/** One "Add another account" that runs: its sign-in on the host and the page to reopen, or why it stopped. */
+interface AddingAccount {
+  flowId: string | null
+  url: string | null
+  error: string
+}
+
+const STARTING: AddingAccount = { flowId: null, url: null, error: '' }
+
+function stopped(error: string): AddingAccount {
+  return { flowId: null, url: null, error }
+}
+
+/**
+ * The caller's accounts after the first on each integration
+ * (docs/plans/mcp-integrations.md §13.3), beside the integrations store, which
+ * keeps the first account and its sign-in flows. An added account lives on the
+ * host it was connected on. Its sign-in ends on the host, and the new account
+ * arrives as `integration.connectionChanged`.
+ */
+class IntegrationAccounts {
+  /** By server and integration: the accounts after the first, oldest first. */
+  private readonly extra = new SvelteMap<string, IntegrationConnection[]>()
+  /** By server and integration: an add that runs or stopped. */
+  private readonly adding = new SvelteMap<string, AddingAccount>()
+
+  /** The accounts after the first, as the integration row lists them. */
+  accounts(serverId: string, integrationId: string): IntegrationConnection[] {
+    return this.extra.get(integrationKey(serverId, integrationId)) ?? []
+  }
+
+  /** Every account after the first, on every host, that matches `test`. */
+  count(test: (connection: IntegrationConnection) => boolean): number {
+    let count = 0
+    for (const connections of this.extra.values()) count += connections.filter(test).length
+    return count
+  }
+
+  /** Forgets the accounts of a host that was removed. */
+  forget(serverId: string): void {
+    for (const key of [...this.extra.keys()]) {
+      if (key.startsWith(`${serverId}\u0000`)) this.extra.delete(key)
+    }
+  }
+
+  addState(serverId: string, integrationId: string): AddingAccount | null {
+    return this.adding.get(integrationKey(serverId, integrationId)) ?? null
+  }
+
+  /** A full connection list from the host: every account after the first, by integration. */
+  load(serverId: string, list: readonly IntegrationConnection[]): void {
+    const byIntegration = new Map<string, IntegrationConnection[]>()
+    for (const connection of list) {
+      if (isFirstIntegrationAccount(connection)) continue
+      byIntegration.set(connection.integrationId, [...(byIntegration.get(connection.integrationId) ?? []), connection])
+    }
+    this.forget(serverId)
+    for (const [integrationId, connections] of byIntegration) this.extra.set(integrationKey(serverId, integrationId), connections)
+  }
+
+  /** Applies a change to an account after the first; false for the first account, which the store keeps. */
+  apply(serverId: string, event: IntegrationConnectionChangedEvent): boolean {
+    const accountId = event.connection?.accountId ?? event.accountId ?? DEFAULT_INTEGRATION_ACCOUNT
+    if (accountId === DEFAULT_INTEGRATION_ACCOUNT) return false
+    const key = integrationKey(serverId, event.integrationId)
+    const others = this.accounts(serverId, event.integrationId).filter((connection) => connection.accountId !== accountId)
+    this.extra.set(key, event.connection ? [...others, event.connection] : others)
+    // The add that waited for this account ended.
+    if (event.connection?.status === 'connected') this.adding.delete(key)
+    return true
+  }
+
+  /** Signs in one more account in the browser; `open` opens the sign-in page on this device. */
+  async add(serverId: string, integrationId: string, open: (url: string) => Promise<void>): Promise<void> {
+    const key = integrationKey(serverId, integrationId)
+    this.adding.set(key, STARTING)
+    try {
+      const result = await serverConnections.apiFor(serverId).integrationConnectStart({
+        id: integrationId,
+        newAccount: true,
+        callbackBaseUrl: serverConnections.httpOriginFor(serverId),
+      })
+      if (result.kind !== 'waiting') {
+        this.adding.set(key, stopped('This server takes one API key per person.'))
+        return
+      }
+      this.adding.set(key, { flowId: result.flowId, url: result.url, error: '' })
+      await open(result.url)
+    } catch (cause) {
+      this.adding.set(key, stopped(errorText(cause, 'Could not start the sign-in.')))
+    }
+  }
+
+  /**
+   * A sign-in ended on the host. A failed or cancelled add stops here, with the
+   * reason; a connected one ends when its account arrives. False when the
+   * sign-in was not an add, so the store's own flows read it.
+   */
+  finished(serverId: string, event: IntegrationAuthFinishedEvent): boolean {
+    const key = integrationKey(serverId, event.integrationId)
+    if (!event.flowId || this.adding.get(key)?.flowId !== event.flowId) return false
+    if (event.outcome === 'failed') this.adding.set(key, stopped(event.message?.trim() || 'The sign-in did not finish.'))
+    else if (event.outcome === 'cancelled') this.adding.delete(key)
+    return true
+  }
+
+  /** Stops the add here and its sign-in on the host. */
+  cancelAdd(serverId: string, integrationId: string): void {
+    const key = integrationKey(serverId, integrationId)
+    const flowId = this.adding.get(key)?.flowId
+    this.adding.delete(key)
+    if (flowId) void serverConnections.apiFor(serverId).integrationConnectCancel({ flowId }).catch(() => undefined)
+  }
+
+  /** Disconnects one account after the first; the first is the store's. True when the host removed it. */
+  async disconnect(serverId: string, integrationId: string, accountId: string): Promise<boolean> {
+    try {
+      const { disconnected } = await serverConnections.apiFor(serverId).integrationDisconnect({ id: integrationId, accountId })
+      this.apply(serverId, { integrationId, accountId, connection: null })
+      return disconnected
+    } catch {
+      return false
+    }
+  }
 }
 
 /** The flow ID the host knows a flow by, when the flow waits on the host. A cloud flow has none. */
@@ -323,7 +453,7 @@ export abstract class IntegrationSignIns {
   /** Reads the account until the server is connected, or the sign-in is given up. */
   private pollCloudSignIn(serverId: string, integration: Integration, cloud: CloudSignInPort, attempt: number): void {
     const integrationId = integration.id
-    const key = this.flowKey(serverId, integrationId)
+    const key = integrationKey(serverId, integrationId)
     const deadline = Date.now() + CLOUD_SIGN_IN_TIMEOUT_MS
     const read = async () => {
       this.cloudPolls.delete(key)
@@ -418,7 +548,7 @@ export abstract class IntegrationSignIns {
   private scheduleExpiry(serverId: string, integrationId: string, flowId: string, expiresAt: string): void {
     const delay = Date.parse(expiresAt) - Date.now()
     if (!Number.isFinite(delay)) return
-    const key = this.flowKey(serverId, integrationId)
+    const key = integrationKey(serverId, integrationId)
     this.expiryTimers.set(key, setTimeout(() => {
       this.expiryTimers.delete(key)
       if (hostFlowId(this.states.get(serverId)?.connectFlows.get(integrationId)) !== flowId) return
@@ -431,19 +561,15 @@ export abstract class IntegrationSignIns {
     await serverConnections.apiFor(serverId).integrationConnectCancel({ flowId }).catch(() => {})
   }
 
-  private flowKey(serverId: string, integrationId: string): string {
-    return `${serverId}\u0000${integrationId}`
-  }
-
   protected nextAttempt(serverId: string, integrationId: string): number {
-    const key = this.flowKey(serverId, integrationId)
+    const key = integrationKey(serverId, integrationId)
     const attempt = (this.flowAttempts.get(key) ?? 0) + 1
     this.flowAttempts.set(key, attempt)
     return attempt
   }
 
   private isCurrent(serverId: string, integrationId: string, attempt: number): boolean {
-    return this.flowAttempts.get(this.flowKey(serverId, integrationId)) === attempt
+    return this.flowAttempts.get(integrationKey(serverId, integrationId)) === attempt
   }
 
   private setFlow(serverId: string, integrationId: string, flow: IntegrationConnectFlow): void {
@@ -457,7 +583,7 @@ export abstract class IntegrationSignIns {
   }
 
   private clearExpiry(serverId: string, integrationId: string): void {
-    const key = this.flowKey(serverId, integrationId)
+    const key = integrationKey(serverId, integrationId)
     const timer = this.expiryTimers.get(key)
     if (timer) clearTimeout(timer)
     this.expiryTimers.delete(key)
