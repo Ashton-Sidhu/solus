@@ -15,7 +15,7 @@
   import { SvelteSet } from "svelte/reactivity";
   import { Check, FileSearch, LayoutGrid, LoaderCircle, Plus, RefreshCw, Search, TriangleAlert, X } from "@lucide/svelte";
   import { CATALOG_CATEGORIES, type CatalogCategoryId, type CatalogEntry, type FoundServer, type Integration } from "@solus/contracts/integration-types";
-  import { NO_FOUND_SERVERS_TEXT, configFileLabel, portScanUnavailableText } from "@solus/contracts/integrations/found-server-labels";
+  import { NO_FOUND_SERVERS_TEXT, configFileLabel, foundSectionText, portScanUnavailableText } from "@solus/contracts/integrations/found-server-labels";
   import { hostPathBaseName } from "@solus/contracts/host-path";
   import { projectScopeOf } from "@solus/contracts/types";
   import { isChat } from "@solus/contracts/chat";
@@ -309,7 +309,7 @@
 {/snippet}
 
 {#snippet foundSection()}
-  <SettingsSection {...settingsDefinitions["mcp.section-found"]} description="MCP servers in the config files of Claude Code, Codex, Cursor, VS Code, and Claude Desktop on {hostLabel}{projectName ? `, and in ${projectName}` : ''}, and MCP servers that run on it. Nothing is added until you add it.">
+  <SettingsSection {...settingsDefinitions["mcp.section-found"]} description={foundSectionText(hostLabel, projectName)}>
     {#snippet action()}
       <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !found || found.loading || found.refreshing} onclick={() => found?.load(true)}>
         <RefreshCw size={14} class={found?.refreshing ? "animate-spin motion-reduce:animate-none" : ""} />Refresh

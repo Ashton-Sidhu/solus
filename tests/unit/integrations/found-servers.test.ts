@@ -135,6 +135,19 @@ describe('reading the files (§8.1)', () => {
     expect(byName(list.servers, 'desktop').foundIn[0]!.path).toBe('~/.config/Claude/claude_desktop_config.json')
   })
 
+  test('a Codex server turned off in its file says so, and the rows Solus cannot add come last', async () => {
+    // WHY: the row tells which agents use a server now (§8.6); Codex loads no server with `enabled = false`.
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: { zebra: { command: NODE, args: ['z.js'] } } })
+    codexLayers = [{ name: { type: 'user', file: join(home, '.codex', 'config.toml'), profile: null }, config: { mcp_servers: {
+      alpha: { command: './relative', cwd: '.', enabled: false },
+      beta: { url: 'https://beta.example/mcp' },
+    } }, disabledReason: null }]
+    const { servers } = await found().list(ADMIN, OWNER, {})
+    expect(servers.map((server) => [server.name, server.state])).toEqual([['beta', 'new'], ['zebra', 'new'], ['alpha', 'unsupported']])
+    expect(byName(servers, 'alpha').foundIn[0]).toMatchObject({ file: 'codex-config', turnedOff: true })
+    expect(byName(servers, 'beta').foundIn[0]).not.toHaveProperty('turnedOff')
+  })
+
   test('a chat has no project: its folder reads no project file', async () => {
     // WHY: main added chats with no project (docs/plans/projectless-chat.md). The MCP
     // page sends the open session's folder; a chat's folder is the host's own, not a repository.

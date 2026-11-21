@@ -17,6 +17,20 @@ const FILE_LABELS = {
   'claude-desktop': 'Claude Desktop',
 } satisfies Record<ConfigFileKind, string>
 
+/**
+ * The agents of Solus whose CLI loads a file's servers by itself: Claude Code
+ * reads its own file and the project `.mcp.json`, Codex reads its own. The
+ * other tools' files reach no agent until the person adds the server.
+ */
+const FILE_AGENTS = {
+  'mcp-json': ['Claude'],
+  'claude-json': ['Claude'],
+  'codex-config': ['Codex'],
+  cursor: [],
+  vscode: [],
+  'claude-desktop': [],
+} satisfies Record<ConfigFileKind, Array<'Claude' | 'Codex'>>
+
 /** The tool that keeps a config file. */
 export function configFileLabel(file: ConfigFileKind): string {
   return FILE_LABELS[file]
@@ -74,6 +88,21 @@ export class FoundServerLabels {
     return `${said} Solus did not verify this: any program on this host can answer on a port.`
   }
 
+  /**
+   * Which agents use the server now, from their own files, and what an add
+   * changes: the row's answer to "is this not installed already?". Null for a
+   * server that Solus already has, and for one it cannot add that no agent uses.
+   */
+  get reach(): string | null {
+    if (this.server.state === 'added' || this.server.state === 'changed') return null
+    const agents = new Set(this.server.foundIn.flatMap((place) => place.kind === 'file' && !place.turnedOff ? FILE_AGENTS[place.file] : []))
+    const users = agents.size === 2 ? 'Claude and Codex use' : agents.has('Claude') ? 'Claude uses' : agents.has('Codex') ? 'Codex uses' : null
+    if (this.server.state === 'unsupported') return users ? `${users} it from its own config file.` : null
+    if (agents.size === 2) return 'Claude and Codex use it now, each from its own config file. Add it to manage it in Solus.'
+    if (users) return `${users} it now. Add it to use it in ${agents.has('Claude') ? 'Codex' : 'Claude'} too.`
+    return 'No agent uses it now. Add it to use it in Claude and Codex.'
+  }
+
   /** The state in a few words, for the row's trailing text or its screen-reader label. */
   get state(): string {
     switch (this.server.state) {
@@ -122,6 +151,11 @@ export function projectOnlyLabel(projectName: string): string {
 /** The warning on a server that only a repository's files hold (§8.6). */
 export function projectCommandWarning(projectName: string): string {
   return `This command comes from a file in the repository ${projectName}. Read it before you add it.`
+}
+
+/** What the view lists, and that an agent uses only the servers of its own config file (§8.6). */
+export function foundSectionText(hostLabel: string, projectName: string | null): string {
+  return `MCP servers in the config files of Claude Code, Codex, Cursor, VS Code, and Claude Desktop on ${hostLabel}${projectName ? ` and in ${projectName}` : ''}, and MCP servers that run on it. An agent uses only the servers in its own config file. Add a server to use it in Claude and Codex and to manage its tools here.`
 }
 
 /** The empty state of the view (§8.6, §9.2). */

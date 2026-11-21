@@ -1063,7 +1063,13 @@ rail, between Installed and the categories, on desktop and web
 (`SettingsTabMcp.svelte`, a new `McpFoundRow.svelte`) and on mobile
 (`IntegrationsScreen.tsx`). A row shows the name, the full command or URL,
 the files, and **Add**, **Review change**, or the reason it is unsupported.
-The view has **Refresh**. A project row carries the warning: "This command
+A row that Solus does not have yet also says which agents use the server now
+(`FoundServerLabels.reach`): Claude Code loads its own `~/.claude.json` and
+the project `.mcp.json`, Codex its own `config.toml` unless the entry has
+`enabled = false` (`FoundPlace.turnedOff`), and the other tools' files reach
+no agent. So "Add" does not read as "not installed" for a server that one
+agent already uses. The rows that cannot be added come last. The view has
+**Refresh**. A project row carries the warning: "This command
 comes from a file in the repository `<name>`. Read it before you add it."
 The command palette gains "Find MCP servers on this host". The connect dialog
 does not change.

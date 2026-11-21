@@ -61,7 +61,7 @@ export function codexServers(layers: unknown[], displayPath: (path: string) => s
       scope: where.scope,
       path,
       entries: servers.map(([serverName, entry]) => {
-        const place: FoundPlace = { kind: 'file', file: 'codex-config', scope: where.scope, path, name: serverName }
+        const place: FoundPlace = { kind: 'file', file: 'codex-config', scope: where.scope, path, name: serverName, ...(entry?.enabled === false && { turnedOff: true }) }
         return entry ? codexEntry(place, entry) : invalidEntry(place)
       }),
     })

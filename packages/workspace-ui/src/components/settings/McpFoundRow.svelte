@@ -5,7 +5,8 @@
    * change, or why it cannot be added. Follows the installed row
    * (`McpServerRow`): the same padding, icon, name, and supporting text.
    * A server that runs on the host's loopback (§9.2) names its port and
-   * process, and what it said about itself, which Solus did not verify.
+   * process, and what it said about itself, which Solus did not verify. The
+   * row says which agents use the server now from their own files.
    */
   import { Check, TriangleAlert } from "@lucide/svelte";
   import type { FoundServer } from "@solus/contracts/integration-types";
@@ -37,6 +38,8 @@
       <!-- The full command: the person reads exactly what would run before they add it. -->
       {#if labels.target}<code class="font-mono text-chrome-dense leading-5 break-all text-(--solus-text-secondary)">{labels.target}</code>{/if}
       <span class="text-chrome-dense leading-5 text-(--solus-text-tertiary)">{labels.places}</span>
+      <!-- Which agents use it now from their own files, so "Add" does not read as "not installed". -->
+      {#if labels.reach}<span class="pt-1 text-chrome-dense leading-5 text-(--solus-text-secondary)">{labels.reach}</span>{/if}
     </div>
     {#if server.state === "new"}
       <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || isAdding}

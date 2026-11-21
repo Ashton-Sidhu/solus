@@ -1,7 +1,7 @@
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 
 import type { FoundServer, Integration } from "@solus/contracts/integration-types";
-import { FoundServerLabels, NO_FOUND_SERVERS_TEXT, configFileLabel, portScanUnavailableText } from "@solus/contracts/integrations/found-server-labels";
+import { FoundServerLabels, NO_FOUND_SERVERS_TEXT, configFileLabel, foundSectionText, portScanUnavailableText } from "@solus/contracts/integrations/found-server-labels";
 import { AppText as Text } from "../../../components/AppText";
 import { cn } from "../../../lib/cn";
 import { useFoundServers } from "../use-found-servers";
@@ -15,7 +15,8 @@ import { SettingsSection } from "./SettingsSection";
  * added. The rows follow the catalog's `AddRow`; the approval is the native
  * alert, which shows the full command the host would run. A server that runs
  * on the host's loopback (§9.2) names its port and process, and what it said
- * about itself, which Solus did not verify.
+ * about itself, which Solus did not verify. Each row says which agents use
+ * the server now from their own files.
  */
 export function FoundServersSection(props: {
   readonly hostId: string;
@@ -60,7 +61,7 @@ export function FoundServersSection(props: {
   );
 
   return (
-    <SettingsSection title="Found on this host" trailing={list.kind === "loaded" ? refresh : undefined}>
+    <SettingsSection title="Found on this host" trailing={list.kind === "loaded" ? refresh : undefined} footer={foundSectionText(props.hostLabel, null)}>
       {list.kind === "loading" ? (
         <View className="items-center p-4">
           <ActivityIndicator accessibilityLabel="Reading the config files" colorClassName="accent-icon-muted" />
@@ -101,6 +102,7 @@ function FoundRow(props: { readonly server: FoundServer; readonly labels: FoundS
           <Text className="text-lg text-foreground" numberOfLines={1}>{server.name}</Text>
           <Text className="font-mono text-sm text-foreground-muted" selectable>{labels.target}</Text>
           <Text className="text-sm text-foreground-muted">{labels.places}</Text>
+          {labels.reach ? <Text className="pt-1 text-sm text-foreground">{labels.reach}</Text> : null}
         </View>
         {props.isAdding ? (
           <ActivityIndicator size="small" colorClassName="accent-icon-muted" />

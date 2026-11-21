@@ -320,7 +320,7 @@ export class FoundServers {
     const projectKey = caller.projectRoot ? resolveProjectKey(caller.projectRoot) : null
     return mergeByAddress(entries)
       .map((merged) => ({ merged, server: this.foundServer(merged, caller, projectKey) }))
-      .sort((a, b) => a.server.name.localeCompare(b.server.name) || a.server.foundId.localeCompare(b.server.foundId))
+      .sort((a, b) => listOrder(a.server, b.server))
   }
 
   private foundServer(merged: MergedEntry, caller: FoundServersCaller, projectKey: string | null): FoundServer {
@@ -404,7 +404,7 @@ export class FoundServers {
 /**
  * The servers of the files with the ones that run on the loopback (§9.2). A
  * file's entry with the same local address gains the port; any other running
- * server is its own row. Sorted by name, as the file rows are.
+ * server is its own row, in the order of the file rows.
  */
 function withRunning(servers: FoundServer[], running: RunningMcpServer[], integrations: Integration[]): FoundServer[] {
   const rows = [...servers]
@@ -418,7 +418,12 @@ function withRunning(servers: FoundServer[], running: RunningMcpServer[], integr
     inFile.foundIn = [...inFile.foundIn, entry.place]
     if (inFile.state === 'new' && port.state === 'added') Object.assign(inFile, { state: 'added', integrationId: port.integrationId })
   }
-  return rows.sort((a, b) => a.name.localeCompare(b.name) || a.foundId.localeCompare(b.foundId))
+  return rows.sort(listOrder)
+}
+
+/** The order of the list: by name, with the rows that cannot be added last, so the person reads the ones they can act on first. */
+function listOrder(a: FoundServer, b: FoundServer): number {
+  return Number(a.state === 'unsupported') - Number(b.state === 'unsupported') || a.name.localeCompare(b.name) || a.foundId.localeCompare(b.foundId)
 }
 
 /** A server that runs on the loopback as a found server of the caller: `added` when they have an integration at the same local address. */

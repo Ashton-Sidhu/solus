@@ -482,6 +482,8 @@ export interface FoundPlace {
   scope: 'user' | 'project'
   path: string
   name: string
+  /** The file turns the server off (Codex `enabled = false`), so its tool does not load it. */
+  turnedOff?: boolean
 }
 
 /** A found server's transport, as the host read it. Names only: no value of `env` or of a header leaves the host. */

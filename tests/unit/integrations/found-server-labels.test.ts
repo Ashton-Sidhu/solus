@@ -49,6 +49,23 @@ describe('the words of a found server', () => {
     expect(new FoundServerLabels(server(), 'studio').unsupported).toBeNull()
   })
 
+  test('a row says which agents use the server now, so Add does not read as not installed', () => {
+    // WHY: Claude Code and Codex load the servers of their own files by themselves. A row
+    // of ~/.claude.json with only "Add" read as "not installed", though Claude runs used it.
+    const place = (file: 'claude-json' | 'codex-config' | 'cursor', turnedOff?: boolean) => ({ kind: 'file' as const, file, scope: 'user' as const, path: '~/x', name: 'tool', ...(turnedOff && { turnedOff }) })
+    const reach = (overrides: Partial<FoundServer>) => new FoundServerLabels(server(overrides), 'studio').reach
+    expect(reach({ foundIn: [place('claude-json')] })).toBe('Claude uses it now. Add it to use it in Codex too.')
+    expect(reach({ foundIn: [place('codex-config')] })).toBe('Codex uses it now. Add it to use it in Claude too.')
+    expect(reach({ foundIn: [place('claude-json'), place('codex-config')] })).toBe('Claude and Codex use it now, each from its own config file. Add it to manage it in Solus.')
+    expect(reach({ foundIn: [place('cursor')] })).toBe('No agent uses it now. Add it to use it in Claude and Codex.')
+    // Codex does not load a server its file turns off.
+    expect(reach({ foundIn: [place('codex-config', true)] })).toBe('No agent uses it now. Add it to use it in Claude and Codex.')
+    // A server Solus cannot add still works in the agent whose file has it.
+    expect(reach({ foundIn: [place('codex-config')], state: 'unsupported', unsupported: 'invalid' })).toBe('Codex uses it from its own config file.')
+    expect(reach({ foundIn: [place('codex-config', true)], state: 'unsupported', unsupported: 'invalid' })).toBeNull()
+    expect(reach({ foundIn: [place('claude-json')], state: 'added' })).toBeNull()
+  })
+
   test('a command offers the file values only when the file gives a value for each name', () => {
     // WHY (§8.3): a command started with part of its values fails; the values form then asks for all.
     expect(new FoundServerLabels(server({ valuesInFile: ['API_KEY'] }), 'studio').fileValues).toBe('Use the values of API_KEY in the file')
