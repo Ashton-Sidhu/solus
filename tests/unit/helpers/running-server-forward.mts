@@ -24,7 +24,7 @@ echo.on('connection', (socket) => socket.on('message', (message) => socket.send(
 const upstreamPort = await listen(upstream)
 const target = runningServer()
 target.endpoints[0] = { endpointId: 'api', address: '127.0.0.1', port: upstreamPort, url: `http://127.0.0.1:${upstreamPort}/admin?api=v1#health`, response: null }
-const tunnels = new RunningServerTunnels({ list: async () => [target], identityMatches: async () => true })
+const tunnels = new RunningServerTunnels({ list: async () => [target], identityMatches: async () => true }, (port) => port === hostPort)
 const host = createServer((_request, response) => { response.writeHead(404); response.end() })
 host.on('upgrade', (request, socket, head) => { if (!tunnels.handleUpgrade(request, socket, head)) socket.destroy() })
 const hostPort = await listen(host)
@@ -33,6 +33,7 @@ try {
   const ticket = await tunnels.issue('desktop', target.serverId, 'api')
   const request = { endpointKey: 'host:server:api', tunnelUrl: `ws://127.0.0.1:${hostPort}${ticket.relativeUrl}`, targetUrl: target.endpoints[0].url, expiresAt: ticket.expiresAt }
   const forward = await forwards.start(request)
+  assert.notEqual(forward.localPort, upstreamPort, 'Use a free port when the preferred port is taken')
   const response = await fetch(forward.url)
   assert.equal(response.status, 401)
   assert.deepEqual(await response.json(), { path: '/admin?api=v1' })
@@ -56,6 +57,29 @@ try {
   assert.equal(rejection.statusCode, 403)
   rejection.destroy()
   denied.terminate()
+
+  // The target is deliberately absent from the discovered registry. The preferred
+  // port is separate from the upstream in this fixture because both ends run here.
+  const unlisted = createServer((_request, response) => response.end('manual forward'))
+  const unlistedPort = await listen(unlisted)
+  const localReservation = createServer()
+  const preferred = await listen(localReservation)
+  await close(localReservation)
+  try {
+    assert.throws(() => tunnels.issuePort('desktop', hostPort), /reserved/)
+    assert.throws(() => tunnels.issuePort('desktop', 65536), /TCP port/)
+    const manual = tunnels.issuePort('desktop', unlistedPort)
+    const direct = await forwards.start({
+      ...request,
+      endpointKey: 'manual',
+      tunnelUrl: `ws://127.0.0.1:${hostPort}${manual.relativeUrl}`,
+      targetUrl: `http://127.0.0.1:${preferred}/`,
+      expiresAt: manual.expiresAt,
+    })
+    assert.equal(direct.localPort, preferred)
+    assert.equal(await (await fetch(direct.url)).text(), 'manual forward')
+    forwards.stop(direct.forwardId)
+  } finally { await close(unlisted) }
 } finally {
   forwards.close()
   tunnels.close()

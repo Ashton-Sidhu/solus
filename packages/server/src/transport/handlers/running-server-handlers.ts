@@ -4,8 +4,8 @@ import { z } from 'zod'
 import { resolveHomePath } from '../../platform/paths'
 import { RunningServerTunnels } from '../../host/running-servers/tunnel'
 
-export function registerRunningServerHandlers(server: SolusServer, registry: RunningServerRegistry): RunningServerTunnels {
-  const tunnels = new RunningServerTunnels(registry)
+export function registerRunningServerHandlers(server: SolusServer, registry: RunningServerRegistry, isControlPort: (port: number) => boolean): RunningServerTunnels {
+  const tunnels = new RunningServerTunnels(registry, isControlPort)
   const pathsSchema = z.array(z.string().min(1).max(4096)).max(32)
   function clientId(ctx: HandlerCtx): string {
     if (!ctx.clientId) throw new Error('Running server discovery requires a connected client')
@@ -17,5 +17,6 @@ export function registerRunningServerHandlers(server: SolusServer, registry: Run
   server.register('runningServersUnwatch', async (_args, ctx) => registry.unwatch(clientId(ctx)))
   server.register('runningServerStop', async ([serverId]) => registry.stopServer(serverId))
   server.register('runningServerTunnel', async ([serverId, endpointId], ctx) => tunnels.issue(clientId(ctx), serverId, endpointId))
+  server.register('portForwardTunnel', ([port], ctx) => tunnels.issuePort(clientId(ctx), port))
   return tunnels
 }

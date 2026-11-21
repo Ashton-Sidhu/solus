@@ -196,6 +196,7 @@ const PERMISSION_OF_METHOD = {
   runningServersWatch: HOST_USE,
   runningServersUnwatch: HOST_USE,
   runningServerTunnel: HOST_USE,
+  portForwardTunnel: 'host.admin',
   runningServersCheckoutRoots: HOST_USE,
   runningServerStop: 'host.admin',
   hostTelemetrySubscribe: 'host.admin',

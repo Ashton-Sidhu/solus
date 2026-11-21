@@ -7,6 +7,7 @@ export class DesktopDialogs {
     import("@solus/workspace-ui/lib/keybindings/types").Scope[]
   >([]);
   commandPaletteOpen = $state(false);
+  portForwards = $state<{ preferredHostId: string } | null>(null);
   projectSearchOpen = $state(false);
   goToFileOpen = $state(false);
   paletteGitTarget = $state<{

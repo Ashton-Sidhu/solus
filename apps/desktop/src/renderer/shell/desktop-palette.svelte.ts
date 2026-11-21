@@ -501,6 +501,16 @@ export function createDesktopPalette(
     });
     // Start or stop recording the page the browser pane shows.
     commands.push(...browserRecordingCommands(() => focusLeadingComposer(session.router)));
+    commands.push({
+      id: "forwarded-ports",
+      label: "Forwarded ports…",
+      group: "Connections",
+      icon: PlugsIcon,
+      keywords: ["forward port", "tunnel", "localhost", "tcp"],
+      run: () => {
+        ui.portForwards = { preferredHostId: runHost(session.activeSession?.run) ?? session.fallbackServerId };
+      },
+    });
     commands.push(...deviceCommands(session));
     commands.push(...artifactsPaletteCommands(session));
     commands.push(...appsPaletteCommands(session));

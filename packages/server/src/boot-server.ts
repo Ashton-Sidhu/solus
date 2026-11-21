@@ -520,6 +520,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let requireAuth = initial.requireAuth || credentialAlwaysRequired
   const port = opts.port ?? WEB_UI_PORT
   let actualPort = port
+  let tunnelPort = 0
   const tailscaleServe = new TailscaleServe()
   setOwnMagicDnsName((await readTailscaleStatus())?.Self?.DNSName ?? null)
   if (effectiveRemoteAccess() === 'off') await tailscaleServe.removeMappingsToPort(port)
@@ -1334,7 +1335,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     clientsForSeat,
   })
   const serverRegistry = initRunningServers((clientIds, servers, error) => { void events.publish(clientIds, 'runningServers.changed', { servers, error }) }, withHostScope)
-  const serverTunnels = registerRunningServerHandlers(server, serverRegistry)
+  const serverTunnels = registerRunningServerHandlers(server, serverRegistry, (port) => port === actualPort || port === tunnelPort)
   localMcpServers.follow(serverRegistry)
   const resourceTelemetry = new ResourceTelemetry({
     resolvePath: resolveResourceMonitorPath,
@@ -1569,7 +1570,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // verifier for its grants. All three exist on every host; only a linked host uses them.
   // The workspace service has none of them (cloud-service-model.md §15): its one
   // verifier trusts the cloud issuer for `SOLUS_API_AUDIENCE`, and it never links.
-  let tunnelPort = 0
   const isTunnelRequest = (incoming: IncomingMessage): boolean =>
     tunnelPort !== 0 && incoming.socket.localPort === tunnelPort
   // One verifier per registration: it follows the registration record, and a host

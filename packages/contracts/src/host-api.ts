@@ -957,6 +957,8 @@ export interface SolusAPI {
   runningServersCheckoutRoots(paths: string[]): Promise<{ path: string; root: string | null }[]>
   runningServersUnwatch(): Promise<void>
   runningServerTunnel(serverId: string, endpointId: string): Promise<RunningServerTunnel>
+  /** Forward a TCP port on this host's loopback interface. Requires host administration. */
+  portForwardTunnel(port: number): Promise<RunningServerTunnel>
   runningServerStop(serverId: string): Promise<StopRunningServerResult>
   /** Start or renew this client's process telemetry, and read the current state.
    *  A subscription ends 20 s after its last renewal (`host.telemetry`). */

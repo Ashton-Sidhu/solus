@@ -646,6 +646,7 @@ export const RPC_PLANES = {
   runningServersCheckoutRoots: 'execution',
   runningServersUnwatch: 'execution',
   runningServerTunnel: 'execution',
+  portForwardTunnel: 'execution',
   runningServerStop: 'execution',
   hostTelemetrySubscribe: 'execution',
   hostTelemetryUnsubscribe: 'execution',
