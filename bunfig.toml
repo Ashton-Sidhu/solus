@@ -2,4 +2,10 @@
 silent = true
 
 [test]
+# Find test files only under tests/. A path without `./` (`bun test tests/unit/x.test.ts`,
+# and each file `scripts/test-unit.ts` starts) is a filter, and Bun keeps a descriptor
+# open for each folder and file it scans. In a checkout with apps/mobile/ios/Pods that
+# passed 10240 (OPEN_MAX on macOS), and a child started with pipes above it gets no
+# standard input: every stdio MCP test failed.
+root = "./tests"
 preload = ["./tests/preload.ts"]
