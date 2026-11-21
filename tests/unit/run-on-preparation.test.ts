@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
 import type { CloneCheckout, Session, SessionCtx } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { TransportDisconnectedError } from '@solus/client-core/rpc-error'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 

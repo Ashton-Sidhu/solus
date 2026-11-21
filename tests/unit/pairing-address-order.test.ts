@@ -1,6 +1,10 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test, mock } from 'bun:test'
 import type { NetworkInterfaceInfo } from 'os'
-import { lanAddressesInReachOrder } from '../../packages/server/src/transport/endpoints'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; this code reaches the database through the host's installation id (admission/auth.ts).
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { lanAddressesInReachOrder } = await import('../../packages/server/src/transport/endpoints')
 
 function ipv4(address: string, internal = false): NetworkInterfaceInfo {
   return { address, netmask: '255.255.255.0', family: 'IPv4', mac: '00:00:00:00:00:00', internal, cidr: `${address}/24` }

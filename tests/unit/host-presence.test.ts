@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { beforeEach, describe, expect, test } from 'bun:test'
+import type { HostCatalog } from '@solus/client-core/host-catalog'
+import { catalogOf, fakeList, listingFor, memoryCredentials } from './helpers/host-catalog-world'
 import { HostGoneError } from '@solus/client-core/rpc-error'
 import { serverConnections, ServerConnections } from '@solus/client-core/server-connections'
 import { hosts } from '@solus/workspace-ui/contexts/hosts/hosts.svelte'
@@ -8,32 +10,27 @@ import { hosts } from '@solus/workspace-ui/contexts/hosts/hosts.svelte'
 // registry threw `Unknown Solus server` inside an effect. A host this client does
 // not know must be a state readers can see, never a throw they must guard.
 
-const laptop = { id: 'laptop', label: 'Laptop', routes: [{ kind: 'lan', url: 'https://laptop.test', source: 'pairing', seenAt: 1 }], sessionToken: 't', installationId: 'laptop', lastConnected: 1 }
+const laptop = listingFor('laptop', { label: 'Laptop', routes: [{ kind: 'lan', url: 'https://laptop.test', source: 'pairing', seenAt: 1 }] })
 
-let savedHosts: object[] = []
-const previousLocalStorage = globalThis.localStorage
+let catalog: HostCatalog
+let list: ReturnType<typeof fakeList>
 
-beforeEach(() => {
-  savedHosts = []
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    writable: true,
-    value: {
-      getItem: (key: string) => key === 'solus.servers' ? JSON.stringify(savedHosts) : null,
-      setItem: () => {},
-      removeItem: () => {},
-    },
-  })
+beforeEach(async () => {
+  catalog = catalogOf({ credentials: memoryCredentials([]) })
+  list = fakeList([], 'test')
+  await catalog.useListSource(list.source)
 })
 
-afterEach(() => {
-  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: previousLocalStorage })
-})
+/** The person's list names the laptop, or no longer does, and the catalog reads it. */
+async function listLaptop(isListed: boolean): Promise<void> {
+  list.state.listings = new Map(isListed ? [['laptop', laptop]] : [])
+  await catalog.refreshList()
+}
 
 describe('a host this client does not know', () => {
-  test('is gone, and a saved or registered host is present', () => {
-    savedHosts = [laptop]
-    const connections = new ServerConnections()
+  test('is gone, and a listed or registered host is present', async () => {
+    await listLaptop(true)
+    const connections = new ServerConnections(catalog)
     connections.registerTarget({ id: 'local', label: 'This computer', url: 'http://127.0.0.1:1', sessionToken: '', local: true })
 
     expect(connections.presenceOf('laptop')).toBe('present')
@@ -42,7 +39,7 @@ describe('a host this client does not know', () => {
   })
 
   test('answers every reader without a throw, and each call fails as a gone host', async () => {
-    const connections = new ServerConnections()
+    const connections = new ServerConnections(catalog)
 
     expect(() => connections.eventsFor('managed:gone')).not.toThrow()
     expect(connections.httpOriginFor('managed:gone')).toBe('')
@@ -53,19 +50,19 @@ describe('a host this client does not know', () => {
     expect(connections.connectedServerIds()).not.toContain('managed:gone')
   })
 
-  test('gets a real connection once it is listed, and a gone one again when it is removed', () => {
-    const connections = new ServerConnections()
+  test('gets a real connection once it is listed, and a gone one again when it is removed', async () => {
+    const connections = new ServerConnections(catalog)
     const gone = connections.ensure('laptop')
     expect(gone.presence).toBe('gone')
 
-    savedHosts = [laptop]
+    await listLaptop(true)
     expect(connections.presenceOf('laptop')).toBe('present')
     const live = connections.ensure('laptop')
     expect(live.presence).toBe('present')
     expect(live).not.toBe(gone)
 
     // Deleted again in the same frame, so the real connection never dials.
-    savedHosts = []
+    await listLaptop(false)
     connections.release('laptop')
     expect(connections.connectionFor('laptop')?.presence).toBe('gone')
     expect(connections.presenceOf('laptop')).toBe('gone')

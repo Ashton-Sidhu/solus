@@ -3,9 +3,12 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { Server as HttpServer } from 'http'
-import { issueSessionToken, resetAuthStateForTests } from '@solus/server/admission/auth'
 import { encodeVoiceUpload, VOICE_UPLOAD_CONTENT_TYPE, type VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { encodePcm16Wav } from '@solus/contracts/voice-audio'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { issueSessionToken, resetAuthStateForTests } = await import('@solus/server/admission/auth')
 
 mock.module('@solus/server/project-config/projects-manifest', () => ({
   listProjects: async () => [],

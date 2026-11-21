@@ -1,16 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccountHostListResponse, HostListing } from '@solus/contracts/host-list'
 import type { AccountDocumentRequest, AccountDocumentResult } from '@solus/contracts/account-documents'
-import { hostListAccountSource, listingOf, withListedHosts } from '@solus/client-core/host-list-source'
+import { hostListAccountSource } from '@solus/client-core/host-list-source'
+import { listingOf } from '@solus/client-core/host-join'
 import type { AccountDocumentCall } from '@solus/client-core/account-documents'
-import type { SavedServer } from '@solus/client-core/server-registry'
+import type { KnownHost } from '@solus/client-core/known-host'
 
 // plans/031 D7: the host list is plain requests to one source, the device host
-// signed out and the account signed in. A client shows the last answer beside the
-// hosts it keeps itself; its own tokens never leave it.
+// signed out and the account signed in. The host catalog joins the last answer
+// with this device's credentials; its own tokens never leave it.
 
 const route = (url: string, source: 'pairing' | 'directory' = 'pairing') => ({ url, kind: 'lan' as const, source, seenAt: 1 })
-const paired = (id: string, extra: Partial<SavedServer> = {}): SavedServer => ({
+const paired = (id: string, extra: Partial<KnownHost> = {}): KnownHost => ({
   id, label: `Host ${id}`, sessionToken: `token-${id}`, installationId: id, lastConnected: 1, routes: [route(`http://${id}:3020`)], ...extra,
 })
 const listing = (id: string): HostListing => ({ id, label: `Host ${id}`, installationId: id, lastConnected: 1, routes: [route(`http://${id}:3020`)] })
@@ -23,13 +24,6 @@ describe('a listing', () => {
     expect(listingOf(paired('m', { uplink: { hostId: 'm', directoryUrl: 'https://app', kind: 'managed' } }))).toBeNull()
     expect(listingOf(paired('other', { sessionToken: '' }))).toBeNull()
     expect(listingOf(paired('local'))).toBeNull()
-  })
-})
-
-describe('what a client shows', () => {
-  test('its own hosts as it keeps them, then each listed host it does not keep, with no token', () => {
-    const shown = withListedHosts([paired('mine')], [listing('mine'), listing('theirs')])
-    expect(shown.map((server) => [server.id, server.sessionToken])).toEqual([['mine', 'token-mine'], ['theirs', '']])
   })
 })
 

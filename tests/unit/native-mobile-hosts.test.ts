@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
 import { dialableRoutes, type HostRoute } from '@solus/contracts/host-routes'
-import { HostRegistry, listingOfHost } from '../../apps/mobile/src/features/hosts/host-registry'
+import type { HostListing } from '@solus/contracts/host-list'
+import { deviceHostListSource, type HostListSource } from '@solus/client-core/host-list-source'
+import { listingOf } from '@solus/client-core/host-join'
+import { HostRegistry } from '../../apps/mobile/src/features/hosts/host-registry'
 import { decodePairInput, decodeScannedCode, pairFailureMessage, previewHost } from '../../apps/mobile/src/features/hosts/lib/pair-input'
+import type { KeyValueStore, SecretStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 
@@ -17,21 +21,59 @@ const directoryHost = (overrides: Partial<DirectoryHost> = {}): DirectoryHost =>
   ...overrides,
 })
 
+/** The same phone started again: a new registry on the same storage and keychain, signed out. */
+async function restartedRegistry(storage: KeyValueStore, secrets: SecretStore): Promise<HostRegistry> {
+  const restarted = new HostRegistry(storage, secrets, () => null)
+  await restarted.load()
+  await restarted.useListSource(deviceHostListSource(storage))
+  return restarted
+}
+
+/** The account's host list as another device left it, recording each write from this phone. */
+function accountList(listings: HostListing[] = []) {
+  const held = new Map(listings.map((listing) => [listing.id, listing]))
+  const writes: string[] = []
+  const source: HostListSource = {
+    key: 'account',
+    read: async () => [...held.values()],
+    put: async (listing) => {
+      writes.push(`put ${listing.id} ${JSON.stringify(listing)}`)
+      held.set(listing.id, listing)
+    },
+    remove: async (id) => {
+      writes.push(`remove ${id}`)
+      held.delete(id)
+    },
+  }
+  return { source, held, writes }
+}
+
+const theirs: HostListing = { id: 'theirs', label: 'Theirs', installationId: 'theirs', lastConnected: 1, routes: [{ url: 'http://theirs:1', kind: 'lan', source: 'pairing', seenAt: 1 }] }
+
 describe('native host registry', () => {
   test('a paired host and its credential survive an app restart, kept apart', async () => {
     const { storage, secrets, registry } = createHostWorld()
     await registry.load()
     await registry.savePaired({ id: 'inst-a', label: 'Studio Mac', url: 'http://10.0.0.8:51234' }, 'token-a')
 
-    // The credential is in the keychain only; plain storage holds no token.
-    expect(storage.getItem('solus.mobile.hosts.v1')).not.toContain('token-a')
-    expect(secrets.values.get('solus.mobile.host.inst-a.token')).toBe('token-a')
+    // The token is in the keychain only; plain storage holds how this phone dials the host, never the token.
+    expect(storage.getItem('solus.mobile.hostCredentials')).toContain('http://10.0.0.8:51234')
+    expect(storage.getItem('solus.mobile.hostCredentials')).not.toContain('token-a')
+    expect(secrets.values.get('solus.mobile.hostToken.inst-a')).toBe('token-a')
 
-    const restarted = new HostRegistry(storage, secrets)
-    expect(restarted.hosts()).toEqual([])
-    await restarted.load()
+    const restarted = await restartedRegistry(storage, secrets)
     expect(restarted.hosts().map((host) => host.id)).toEqual(['inst-a'])
     expect(restarted.credential('inst-a')).toBe('token-a')
+  })
+
+  test('the hosts this phone kept before plan 033 are deleted, not read', async () => {
+    // WHY: plans/033 §2 rule 5. There are no users to migrate; every old pairing ends once.
+    const { storage, secrets } = createHostWorld()
+    storage.setItem('solus.mobile.hosts.v1', JSON.stringify([{ id: 'old', label: 'Old', routes: [], lastConnected: 1, paired: true }]))
+    await secrets.set('solus.mobile.host.old.token', 'old-token')
+    const restarted = await restartedRegistry(storage, secrets)
+    expect(restarted.hosts()).toEqual([])
+    expect(storage.getItem('solus.mobile.hosts.v1')).toBeNull()
   })
 
   test('pairing a second host keeps the first', async () => {
@@ -47,13 +89,14 @@ describe('native host registry', () => {
     await registry.load()
     await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
     secrets.values.clear()
-    const restarted = new HostRegistry(storage, secrets)
-    await restarted.load()
-    expect(restarted.hosts()).toEqual([])
+    const restarted = await restartedRegistry(storage, secrets)
+    // The person's list still names it, so it shows, dialed with a grant and not with a token.
+    expect(restarted.hosts().map((host) => host.id)).toEqual(['inst-a'])
+    expect(restarted.credential('inst-a')).toBe('')
   })
 
   test('forgetting a host removes its credential and tells every owner of its state', async () => {
-    const { secrets, registry } = createHostWorld()
+    const { storage, secrets, registry } = createHostWorld()
     await registry.load()
     await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
     const removed: string[] = []
@@ -61,26 +104,49 @@ describe('native host registry', () => {
     await registry.forget('inst-a')
     expect(registry.hosts()).toEqual([])
     expect(secrets.values.size).toBe(0)
+    expect(storage.getItem('solus.mobile.hostCredentials')).toBeNull()
+    expect(removed).toEqual(['inst-a'])
+  })
+
+  test('a credential that no list names is forgotten here too (plans/033 §3 Q1)', async () => {
+    // WHY: a host forgotten on another device, or a wiped list, leaves this phone as well.
+    const { secrets, registry, answerDirectory } = createHostWorld()
+    await registry.load()
+    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+    await answerDirectory([])
+    const list = accountList()
+    const removed: string[] = []
+    registry.onHostRemoved((hostId) => removed.push(hostId))
+    // Signing in moves the phone's own hosts to the account's list: nothing is forgotten.
+    await registry.useListSource(list.source)
+    await registry.refreshList()
+    expect(registry.hosts().map((host) => host.id)).toEqual(['inst-a'])
+    // Another device forgets it after it saw this phone's listing.
+    await registry.refreshList()
+    list.held.clear()
+    await registry.refreshList()
+    expect(registry.hosts()).toEqual([])
+    expect(secrets.values.size).toBe(0)
     expect(removed).toEqual(['inst-a'])
   })
 
   test('cloud sign-out drops directory hosts but keeps a host paired directly', async () => {
-    const { registry } = createHostWorld()
+    const { registry, answerDirectory } = createHostWorld()
     await registry.load()
     await registry.savePaired({ id: 'inst-cloud', label: 'Mine', hasUserLabel: true, url: 'http://10.0.0.9:51234' }, 'tc')
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost(), directoryHost({ hostId: 'h2', installationId: 'inst-only-cloud', label: 'Only cloud' })])
+    await answerDirectory([directoryHost(), directoryHost({ hostId: 'h2', installationId: 'inst-only-cloud', label: 'Only cloud' })])
 
     const merged = registry.host('inst-cloud')
-    expect(merged?.paired).toBe(true)
+    expect(merged?.sessionToken).toBe('tc')
     expect(merged?.label).toBe('Mine')
     // The paired address is kept beside the directory's tunnel, and is dialed first.
-    expect(merged?.routes.map(sourceAndUrl)).toEqual(['directory https://build.tunnel.solus.sh', 'pairing http://10.0.0.9:51234'])
+    expect(merged?.routes.map(sourceAndUrl).sort()).toEqual(['directory https://build.tunnel.solus.sh', 'pairing http://10.0.0.9:51234'])
     expect(dialableRoutes(merged?.routes ?? [], '').map((route) => route.kind)).toEqual(['lan', 'tunnel'])
-    expect(registry.host('inst-only-cloud')?.paired).toBe(false)
+    expect(registry.host('inst-only-cloud')?.sessionToken).toBe('')
 
     const removed: string[] = []
     registry.onHostRemoved((hostId) => removed.push(hostId))
-    registry.forgetAccount('user-1')
+    await answerDirectory(null)
     expect(registry.hosts().map((host) => host.id)).toEqual(['inst-cloud'])
     expect(registry.host('inst-cloud')?.uplink).toBeUndefined()
     // Only the directory's routes leave with the account.
@@ -88,68 +154,110 @@ describe('native host registry', () => {
     expect(removed).toEqual(['inst-only-cloud'])
   })
 
-  test('every saved host a scan finds is dialed on the local network, and keeps that address through directory reads', async () => {
+  test('every known host a scan finds is dialed on the local network, and keeps that address through directory reads', async () => {
     // WHY: docs/adr/0001-standard-authentication.md §2.2 rule 9 — a registered host
     // that is not linked has no route in the directory. docs/plans/host-routes.md D1:
-    // a scan gives every saved host it finds a discovery route, paired hosts too,
+    // a scan gives every known host it finds a discovery route, paired hosts too,
     // and a directory read replaces only the directory's own routes.
-    const { registry } = createHostWorld()
+    const { registry, answerDirectory } = createHostWorld()
     await registry.load()
     await registry.savePaired({ id: 'inst-paired', label: 'Paired', url: 'http://10.0.0.9:51234' }, 'tp')
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ routes: [] })])
+    await answerDirectory([directoryHost({ routes: [] })])
     expect(registry.host('inst-cloud')?.routes).toEqual([])
     const lan = (installationId: string, host: string) => ({ host, port: 7777, name: installationId, installationId, source: 'lan' as const })
     registry.applyNearby([lan('inst-cloud', '192.168.1.20'), lan('inst-paired', '192.168.1.21')])
     expect(registry.host('inst-cloud')?.routes.map(sourceAndUrl)).toEqual(['discovery http://192.168.1.20:7777'])
     // A paired host keeps the address it paired at, beside the one the scan found.
-    expect(registry.host('inst-paired')?.routes.map(sourceAndUrl)).toEqual(['discovery http://192.168.1.21:7777', 'pairing http://10.0.0.9:51234'])
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ routes: [] })])
+    expect(registry.host('inst-paired')?.routes.map(sourceAndUrl).sort()).toEqual(['discovery http://192.168.1.21:7777', 'pairing http://10.0.0.9:51234'])
+    await answerDirectory([directoryHost({ routes: [] })])
     expect(registry.host('inst-cloud')?.routes.map(sourceAndUrl)).toEqual(['discovery http://192.168.1.20:7777'])
   })
 })
 
-describe('the account host list on the phone (plans/031 D7)', () => {
+describe('the person\'s host list on the phone (plans/031 D7, plans/033)', () => {
   test('a pair and a forget here reach the list, and a token never does', async () => {
     const { registry } = createHostWorld()
     await registry.load()
-    const changes: string[] = []
-    registry.onListingChange((change) => changes.push(change.kind === 'put' ? `put ${change.listing.id} ${JSON.stringify(change.listing)}` : `remove ${change.hostId}`))
+    const list = accountList()
+    await registry.useListSource(list.source)
     await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'secret-token')
     await registry.forget('inst-a')
-    expect(changes.map((change) => change.split(' ').slice(0, 2).join(' '))).toEqual(['put inst-a', 'remove inst-a'])
-    expect(changes.join('\n')).not.toContain('secret-token')
+    expect(list.writes.map((write) => write.split(' ').slice(0, 2).join(' '))).toEqual(['put inst-a', 'remove inst-a'])
+    expect(list.writes.join('\n')).not.toContain('secret-token')
+  })
+
+  test('signed out, the list is on the phone: a host paired here is listed in device storage', async () => {
+    // WHY: plans/033 §2 — a phone has no host of its own, so signed out its list is the `device` source.
+    const { storage, registry } = createHostWorld()
+    await registry.load()
+    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+    await flushPromises()
+    expect(JSON.parse(storage.getItem('solus.hostList') ?? '[]').map((listing: HostListing) => listing.id)).toEqual(['inst-a'])
+    expect(storage.getItem('solus.hostList')).not.toContain('ta"')
   })
 
   test('a host another device paired shows without a token, beside the phone\'s own, and leaves at sign-out', async () => {
     const { storage, registry } = createHostWorld()
     await registry.load()
+    await registry.useListSource(accountList([theirs]).source)
     await registry.savePaired({ id: 'mine', label: 'Mine', url: 'http://mine:1' }, 'tm')
-    const theirs = { id: 'theirs', label: 'Theirs', installationId: 'theirs', lastConnected: 1, routes: [{ url: 'http://theirs:1', kind: 'lan' as const, source: 'pairing' as const, seenAt: 1 }] }
-    registry.setListedHosts([theirs])
-    expect(registry.hosts().map((host) => [host.id, host.paired])).toEqual([['mine', true], ['theirs', false]])
+    expect(registry.hosts().map((host) => [host.id, host.sessionToken]).sort()).toEqual([['mine', 'tm'], ['theirs', '']])
     expect(registry.credential('theirs')).toBe('')
-    // The list's hosts are held in memory: the device's own record keeps only its hosts.
-    expect(storage.getItem('solus.mobile.hosts.v1')).not.toContain('theirs')
-    registry.forgetAccount('acct')
+    // The list's hosts are held in memory: the phone's own record keeps only its credentials.
+    expect(storage.getItem('solus.mobile.hostCredentials')).not.toContain('theirs')
+    // Sign-out: the list is read from the phone again, and the phone's own host goes with it.
+    await registry.useListSource(deviceHostListSource(storage))
     expect(registry.hosts().map((host) => host.id)).toEqual(['mine'])
+  })
+
+  test('the host list shows loading before its first read, and failed while no read succeeds', async () => {
+    // WHY: plans/033 §3 Q2 — there is no cached copy, so a screen must tell "not read yet" and "could not read" from "no hosts".
+    const { registry } = createHostWorld()
+    await registry.load()
+    await registry.savePaired({ id: 'mine', label: 'Mine', url: 'http://mine:1' }, 'tm')
+    let answer: HostListing[] | null = null
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const reading = registry.useListSource({ key: 'account', read: async () => { await gate; return answer }, put: async () => {}, remove: async () => {} })
+    expect(registry.listState()).toBe('loading')
+    release()
+    await reading
+    expect(registry.listState()).toBe('failed')
+    // A failed read keeps the hosts this phone can dial with its own credential.
+    expect(registry.hosts().map((host) => host.id)).toEqual(['mine'])
+    answer = [theirs]
+    await registry.refreshList()
+    expect(registry.listState()).toBe('ready')
+    expect(registry.hosts().map((host) => host.id).sort()).toEqual(['mine', 'theirs'])
   })
 
   test('a listed host stays through a directory refresh, and forgetting it takes it off the list', async () => {
     // WHY: the directory and the list are separate reads; one never removes the other's hosts.
-    const { registry } = createHostWorld()
+    const { registry, answerDirectory } = createHostWorld()
     await registry.load()
-    const theirs = { id: 'theirs', label: 'Theirs', installationId: 'theirs', lastConnected: 1, routes: [{ url: 'http://theirs:1', kind: 'lan' as const, source: 'pairing' as const, seenAt: 1 }] }
-    registry.setListedHosts([theirs])
+    const list = accountList([theirs])
+    await registry.useListSource(list.source)
     const removed: string[] = []
     registry.onHostRemoved((hostId) => removed.push(hostId))
-    registry.applyDirectory('acct', 'https://app', [])
+    await answerDirectory([])
     expect(registry.hosts().map((host) => host.id)).toEqual(['theirs'])
     expect(removed).toEqual([])
-    const changes: string[] = []
-    registry.onListingChange((change) => changes.push(change.kind === 'remove' ? `remove ${change.hostId}` : 'put'))
     await registry.forget('theirs')
-    expect(changes).toEqual(['remove theirs'])
+    expect(list.writes).toEqual(['remove theirs'])
     expect(registry.hosts()).toEqual([])
+  })
+
+  test('a forget the list does not answer forgets nothing', async () => {
+    // WHY: plans/033 §4.1 — the listing leaves first; the credential goes only after it did.
+    const { secrets, registry } = createHostWorld()
+    await registry.load()
+    const list = accountList()
+    await registry.useListSource(list.source)
+    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+    list.source.remove = async () => { throw new Error('offline') }
+    await expect(registry.forget('inst-a')).rejects.toThrow('offline')
+    expect(registry.credential('inst-a')).toBe('ta')
+    expect(secrets.values.get('solus.mobile.hostToken.inst-a')).toBe('ta')
   })
 })
 
@@ -162,10 +270,9 @@ describe('route control on this device', () => {
     await registry.load()
     await registry.savePaired(pairedAt, 'ta')
     expect(await connections.addRoute('inst-a', NEW_URL)).toBeNull()
-    expect(listingOfHost(registry.host('inst-a')!)?.routes.map((route) => route.url)).toEqual([pairedAt.url])
-    connections.moveRoute('inst-a', NEW_URL, -1)
-    const restarted = new HostRegistry(storage, secrets)
-    await restarted.load()
+    expect(listingOf(registry.host('inst-a')!)?.routes.map((route) => route.url)).toEqual([pairedAt.url])
+    await connections.moveRoute('inst-a', NEW_URL, -1)
+    const restarted = await restartedRegistry(storage, secrets)
     expect(dialableRoutes(restarted.host('inst-a')?.routes ?? [], '', null, { order: restarted.host('inst-a')?.routeOrder }).map((route) => route.url))
       .toEqual([NEW_URL, pairedAt.url])
   })
@@ -179,13 +286,13 @@ describe('route control on this device', () => {
   })
 
   test('a directory read keeps the order, the removals, the token flag, and the identity key', async () => {
-    const { registry } = createHostWorld()
+    const { registry, answerDirectory } = createHostWorld()
     await registry.load()
     await registry.savePaired({ ...pairedAt, id: 'inst-cloud', url: 'https://box.example.com' }, 'ta')
-    registry.moveRoute('inst-cloud', 'https://box.example.com', 1)
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost()])
-    registry.moveRoute('inst-cloud', 'https://build.tunnel.solus.sh', -1)
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost()])
+    await registry.moveRoute('inst-cloud', 'https://box.example.com', 1)
+    await answerDirectory([directoryHost()])
+    await registry.moveRoute('inst-cloud', 'https://build.tunnel.solus.sh', -1)
+    await answerDirectory([directoryHost()])
     expect(registry.host('inst-cloud')).toMatchObject({
       routeOrder: ['https://build.tunnel.solus.sh', 'https://box.example.com'],
       tokenPairedOverHttps: true,
@@ -196,15 +303,18 @@ describe('route control on this device', () => {
   test('a removed paired route leaves the listing and does not come back from another device', async () => {
     const { registry } = createHostWorld()
     await registry.load()
+    const list = accountList()
+    await registry.useListSource(list.source)
     await registry.savePaired(pairedAt, 'ta')
-    const listing = listingOfHost(registry.host('inst-a')!)!
-    await registry.savePaired({ ...pairedAt, url: 'http://10.0.0.9:3000' }, 'ta')
-    const heard: string[][] = []
-    registry.onListingChange((change) => { if (change.kind === 'put') heard.push(change.listing.routes.map((route) => route.url)) })
-    registry.removeRoute('inst-a', pairedAt.url)
-    expect(heard).toEqual([['http://10.0.0.9:3000']])
-    registry.setListedHosts([listing])
-    expect(registry.host('inst-a')?.routes.map((route) => route.url)).toEqual(['http://10.0.0.9:3000'])
+    const stale = listingOf(registry.host('inst-a')!)!
+    list.writes.length = 0
+    await registry.removeRoute('inst-a', pairedAt.url)
+    await flushPromises()
+    expect(list.writes.map((write) => (JSON.parse(write.slice('put inst-a '.length)) as HostListing).routes.map((route) => route.url))).toEqual([[]])
+    // Another device still lists the old address: a pairing route is this phone's own, so it does not return.
+    list.held.set('inst-a', stale)
+    await registry.refreshList()
+    expect(registry.host('inst-a')?.routes.map((route) => route.url)).toEqual([])
   })
 
   test('a token paired over HTTPS is not dialed on a learned plain http route', async () => {
@@ -254,9 +364,9 @@ describe('native host connections', () => {
 
   test('a managed host is accepted although its server reports its own installation id', async () => {
     const url = 'https://bills.solus.sh'
-    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ [url]: 'a37b55ff' }) })
+    const { registry, answerDirectory, connections, transports } = createHostWorld({ fetch: healthFetch({ [url]: 'a37b55ff' }) })
     await registry.load()
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
+    await answerDirectory([directoryHost({
       installationId: 'managed:bills', kind: 'managed', category: 'managed', managedState: 'ready',
       routes: [{ kind: 'tunnel', url }],
     })])
@@ -271,14 +381,14 @@ describe('native host connections', () => {
     const internal: HostRoute = { kind: 'lan', url: 'http://10.0.0.1:3000', source: 'host' }
     const requested: string[] = []
     const health = healthFetch({ [url]: 'managed:test' })
-    const { registry, connections, transports, timers } = createHostWorld({
+    const { registry, answerDirectory, connections, transports, timers } = createHostWorld({
       fetch: ((input: string | URL | Request, init?: RequestInit) => {
         requested.push(String(input))
         return health(input, init)
       }) as typeof fetch,
     })
     await registry.load()
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
+    await answerDirectory([directoryHost({
       installationId: 'managed:test', kind: 'managed', category: 'managed', managedState: 'ready',
       routes: [internal, { kind: 'tunnel', url }],
     })])
@@ -297,7 +407,7 @@ describe('native host connections', () => {
     connections.disposeAll()
   })
 
-  test('a matching host is accepted and its reported name fills an unnamed label', async () => {
+  test('a matching host is accepted and the system it reports is kept', async () => {
     const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }) })
     await registry.load()
     await registry.savePaired({ id: 'inst-a', label: 'a:1', url: 'http://a:1', identityKey: identityKeyFor('inst-a') }, 'ta')
@@ -308,7 +418,8 @@ describe('native host connections', () => {
     await transports[0]?.accept()
     expect(connection?.state.readiness).toBe('ready')
     expect(accepted).toBe(1)
-    expect(registry.host('inst-a')?.label).toBe('Studio Mac')
+    // The label stays the person's list's: a pairing already took the name the host reported.
+    expect(registry.host('inst-a')).toMatchObject({ label: 'a:1', os: 'macos' })
   })
 
   test('an expired credential blocks the host; retry builds a fresh transport', async () => {
@@ -326,9 +437,9 @@ describe('native host connections', () => {
   test('a cloud host passes a refused token back to the account, and every dial goes through route choice', async () => {
     // WHY (simplify-auth-and-sync §4.4): one route policy. A failed dial is not
     // re-aimed round-robin; the next dial asks every route again, in parallel.
-    const { registry, connections, transports, timers, grantOptions } = createHostWorld()
+    const { registry, answerDirectory, connections, transports, timers, grantOptions } = createHostWorld()
     await registry.load()
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
+    await answerDirectory([directoryHost({
       routes: [{ kind: 'lan', url: 'http://10.0.0.20:51234' }, { kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
     })])
     connections.connection('inst-cloud')
@@ -355,9 +466,9 @@ describe('native host connections', () => {
     const answering: Record<string, string> = { 'https://build.tunnel.solus.sh': 'inst-cloud' }
     // Over its first connection through the tunnel, the host gives its identity key, so its LAN route can prove it later.
     const advertised = { routes: [], identityKey: identityKeyFor('inst-cloud') }
-    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch(answering), api: () => new FakeApi().on('connectionsGetServerInfo', () => advertised) })
+    const { registry, answerDirectory, connections, transports } = createHostWorld({ fetch: healthFetch(answering), api: () => new FakeApi().on('connectionsGetServerInfo', () => advertised) })
     await registry.load()
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
+    await answerDirectory([directoryHost({
       routes: [{ kind: 'lan', url: 'http://10.0.0.20:51234' }, { kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
     })])
     connections.connection('inst-cloud')
@@ -378,9 +489,9 @@ describe('native host connections', () => {
   })
 
   test('a cloud host dial names its organization at the ticket; a paired host dial names none', async () => {
-    const { registry, connections, transports } = createHostWorld()
+    const { registry, answerDirectory, connections, transports } = createHostWorld()
     await registry.load()
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ organizationIds: ['org-1'] })])
+    await answerDirectory([directoryHost({ organizationIds: ['org-1'] })])
     await registry.savePaired({ id: 'inst-a', label: 'Studio Mac', url: 'http://10.0.0.8:51234' }, 'token-a')
     connections.connection('inst-cloud')
     connections.connection('inst-a')
@@ -393,27 +504,27 @@ describe('native host connections', () => {
 
   test('a managed host whose compute is not ready is not dialed', async () => {
     // WHY: a stopped host is not "offline": the way out is Start, not Retry.
-    const { registry, connections, transports } = createHostWorld()
+    const { registry, answerDirectory, connections, transports } = createHostWorld()
     await registry.load()
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ kind: 'managed', category: 'managed', managedState: 'stopped' })])
+    await answerDirectory([directoryHost({ kind: 'managed', category: 'managed', managedState: 'stopped' })])
     expect(connections.connection('inst-cloud')).toBeNull()
     expect(connections.readiness('inst-cloud')).toMatchObject({ readiness: 'unreachable', unreachableReason: 'not-running' })
     expect(transports).toHaveLength(0)
   })
 
   test('a managed host Solus Cloud is starting is checking, so screens wait for it', async () => {
-    const { registry, connections, transports } = createHostWorld()
+    const { registry, answerDirectory, connections, transports } = createHostWorld()
     await registry.load()
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ kind: 'managed', category: 'managed', managedState: 'starting' })])
+    await answerDirectory([directoryHost({ kind: 'managed', category: 'managed', managedState: 'starting' })])
     expect(connections.connection('inst-cloud')).toBeNull()
     expect(connections.readiness('inst-cloud').readiness).toBe('checking')
     expect(transports).toHaveLength(0)
   })
 
   test('a host with no route this phone can dial has no address, and is not dialed', async () => {
-    const { registry, connections, transports } = createHostWorld()
+    const { registry, answerDirectory, connections, transports } = createHostWorld()
     await registry.load()
-    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ routes: [] })])
+    await answerDirectory([directoryHost({ routes: [] })])
     expect(connections.connection('inst-cloud')).toBeNull()
     expect(connections.readiness('inst-cloud')).toMatchObject({ readiness: 'unreachable', unreachableReason: 'no-address' })
     expect(transports).toHaveLength(0)

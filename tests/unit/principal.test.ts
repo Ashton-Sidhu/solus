@@ -1,13 +1,18 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { INTERNAL_HANDLER_CTX, SolusServer, type HandlerCtx } from '@solus/server/transport/server'
+import type { HandlerCtx } from '@solus/server/transport/server'
 import { CREDENTIAL_FREE_PRINCIPAL, type Principal } from '@solus/server/admission/principal'
-import { pairedPrincipalFor, principalForClaims } from '@solus/server/admission/doors'
 import { RpcAccessError } from '@solus/server/admission/access-policy'
 import { permissionOf } from '@solus/contracts/permissions'
-import { issueSessionToken, resetAuthStateForTests } from '@solus/server/admission/auth'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; the host records paired devices in its database (plans/033 §4.4).
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { INTERNAL_HANDLER_CTX, SolusServer } = await import('@solus/server/transport/server')
+const { pairedPrincipalFor, principalForClaims } = await import('@solus/server/admission/doors')
+const { issueSessionToken, resetAuthStateForTests } = await import('@solus/server/admission/auth')
 
 // docs/plans/personal-uplink.md P1/P2: every call names who is calling, and the
 // handful of methods that change how the host is reached take a local owner only.
@@ -53,7 +58,7 @@ describe('the local-only guard', () => {
     principal: { kind: 'owner', via: 'grant', userId: 'u', deviceId: 'session_1', expiresAt: 0, deviceLabel: 'Solus cloud' },
   }
 
-  function serverWith(): SolusServer {
+  function serverWith(): InstanceType<typeof SolusServer> {
     const server = new SolusServer()
     server.register('uplinkUnlink', () => ({ linked: false }))
     server.register('uplinkStatus', () => ({ linked: false }))
@@ -90,7 +95,7 @@ describe('the local-only guard', () => {
   })
 
   test('the set names exactly the surface that changes reachability or drives the window', () => {
-    const expected: Array<Parameters<SolusServer['hasHandler']>[0]> = [
+    const expected: Array<Parameters<InstanceType<typeof SolusServer>['hasHandler']>[0]> = [
       'connectionsSetRemoteAccess', 'connectionsSetTrustLocalNetwork', 'connectionsGeneratePairToken',
       'hostsAddOverSsh', 'hostsListForwarded', 'hostsUnlockForwarded', 'hostsRemoveForwarded', 'hostsLinkForwarded', 'uplinkLink', 'uplinkUnlink',
       'isVisible', 'getAppGlobalShortcuts', 'setAppGlobalShortcuts', 'restartApp',

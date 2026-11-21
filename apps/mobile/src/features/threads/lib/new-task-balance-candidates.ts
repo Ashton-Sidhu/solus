@@ -1,5 +1,5 @@
 import { hostBalancePreference, type HostBalancing } from '@solus/client-core/host-balance'
-import { awaitsManagedCompute, type SavedServerUplink } from '@solus/client-core/server-registry'
+import { awaitsManagedCompute, type KnownHostUplink } from '@solus/client-core/known-host'
 import type { HostBalancePreference } from '@solus/contracts/settings'
 
 export interface BalanceableEnvironment {
@@ -10,7 +10,7 @@ export interface BalanceableEnvironment {
 export interface NewTaskBalanceHost {
   readonly id: string
   readonly ready: boolean
-  readonly uplink?: SavedServerUplink
+  readonly uplink?: KnownHostUplink
   readonly runsAgent: boolean
 }
 

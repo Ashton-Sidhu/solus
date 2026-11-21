@@ -1,6 +1,7 @@
 import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SessionMeta } from '@solus/contracts/types'
 import { exchangeRequestText, type ExchangeRequest } from '@solus/contracts/session-exchange'
-import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { agentLabel } from '../../../../lib/agentAvailability'
 import type { GroupedItem } from '../../lib/turns'
 import { resolveSessionLinkMeta } from '../../lib/session-link'
@@ -197,11 +198,7 @@ export function agentConversationElapsedMs(ref: AgentConversationRef, now: numbe
  *  only a fact worth stating when it differs from where the user is. */
 export function hostLabelFor(serverId: string | undefined): string | null {
   if (!serverId || serverId === LOCAL_SERVER_ID) return null
-  try {
-    return loadServers().find((server) => server.id === serverId)?.label ?? null
-  } catch {
-    return null
-  }
+  return hostCatalog.find(serverId)?.label ?? null
 }
 
 /** `host · model effort` — provenance on demand only: this lives in the ⋯ menu,

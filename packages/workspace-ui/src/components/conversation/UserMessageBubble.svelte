@@ -23,7 +23,7 @@
   } from "@lucide/svelte";
   import { getSurfaceContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import { hostImageSources } from "./lib/host-image-src.svelte";
   import { HostVideoPlayer } from "../ui/video-player";
   import { isVideoAttachment, videoAttachmentPath } from "../../lib/video-attachment";

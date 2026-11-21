@@ -1,20 +1,20 @@
 import { randomUUID } from 'node:crypto'
-import { isCallToolResult, isSpecType, type Client } from '@modelcontextprotocol/client'
+import { isCallToolResult, isSpecType } from '@modelcontextprotocol/client'
 import type { Integration } from '@solus/contracts/integration-types'
 import { mcpTaskIsLive, mcpTaskWakeHeader, type McpTask, type McpTaskAnswerRequest, type McpTaskChangedEvent, type McpTaskIdRequest, type McpTaskProblem, type McpTaskStatus } from '@solus/contracts/integrations/mcp-task'
-import type { PromptImageRef, QuestionRequest } from '@solus/contracts/types'
+import type { QuestionRequest } from '@solus/contracts/types'
 import { ANY_ORGANIZATION } from '../admission/principal'
-import { storeAttachment } from '../data/assets/attachment-store'
 import type { AgentToolImage, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../execution/agents/codex/codex-permissions'
 import { createLogger } from '../logger'
 import { withUserScope } from '../vault/acting-scope'
 import type { IntegrationGateway } from './gateway'
-import { cancelTask, getTask, isUnknownTask, ServerStoppedError, updateTask, type HeldMcpTask, type McpTaskCalls, type McpTaskState } from './mcp-task-requests'
+import { isUnknownTask, ServerStoppedError, ServerTask, type HeldMcpTask, type McpTaskCalls, type McpTaskState } from './mcp-task-requests'
 import type { McpTaskRow, McpTaskStore } from './mcp-task-store'
 import { agentResultOf } from './result-content'
+import { oneLine, SessionWake, type SessionWakeDeps } from './session-wake'
 import { SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
-import { ConnectionRequiredError, errorText } from './upstream-session'
+import { ConnectionRequiredError, errorText, sameUpstream, type UpstreamAddress } from './upstream-session'
 
 const log = createLogger('integrations', 'mcp-tasks.ts')
 
@@ -73,19 +73,16 @@ interface LiveTask {
   hold: { resolve: (result: AgentToolResult) => void; timer: ReturnType<typeof setTimeout>; release: () => void } | null
 }
 
-export interface McpTasksDeps {
+/** `wake` queues the message that gives an MCP task's end to its session (`via: 'mcp-task'`). */
+export interface McpTasksDeps extends SessionWakeDeps {
   store: McpTaskStore
   gateway: Pick<IntegrationGateway, 'withBackgroundSession' | 'store' | 'askToConnect'>
-  /** Queues the message that gives an MCP task's end to its session (`via: 'mcp-task'`). */
-  wake: (sessionId: string, text: string, images: PromptImageRef[]) => Promise<void>
   publish: (event: McpTaskChangedEvent) => void
   /** The session has no live MCP task now: a session that waits in `background` for it can settle. */
   backgroundEnded: (sessionId: string) => void
   clock?: GatewayClock
   /** Runs a status request as the task's person (plans/019). A test passes its own. */
   actAs?: <T>(personKey: string, run: () => T) => T
-  /** The attachment store, for a result's images; a test passes a temporary folder. */
-  attachmentsDir?: string
 }
 
 /**
@@ -100,8 +97,11 @@ export class McpTasks implements McpTaskCalls {
   private readonly live = new Map<string, LiveTask>()
   private readonly wakes = new Map<string, number[]>()
   private stopped = false
+  private readonly sessionWake: SessionWake
 
-  constructor(private readonly deps: McpTasksDeps) {}
+  constructor(private readonly deps: McpTasksDeps) {
+    this.sessionWake = new SessionWake(deps, 'mcp-task-image')
+  }
 
   private get clock(): GatewayClock {
     return this.deps.clock ?? SYSTEM_CLOCK
@@ -118,8 +118,8 @@ export class McpTasks implements McpTaskCalls {
     for (const [index, row] of this.deps.store.open().entries()) {
       const integration = this.deps.gateway.store.get(row.integrationId, ANY_ORGANIZATION)
       const task = this.track(row, integration, undefined)
-      if (!integration) void this.end(task, 'failed', 'The MCP server was removed.', { kind: 'reason', text: 'The MCP server was removed.' })
-      else if (integration.kind === 'stdio') void this.end(task, 'failed', 'The host restarted and the server stopped.', { kind: 'reason', text: 'The host restarted and the server stopped.' })
+      if (!integration) void this.fail(task, 'The MCP server was removed.')
+      else if (integration.kind === 'stdio') void this.fail(task, 'The host restarted and the server stopped.')
       else if (row.status === 'failed') void this.end(task, 'failed', row.statusMessage, { kind: 'reason', text: row.statusMessage ?? 'The server reported a failure.' })
       else if (row.status === 'cancelled') void this.end(task, 'cancelled', row.statusMessage, { kind: 'silent' })
       // A completed row's result is read again from the server.
@@ -143,15 +143,15 @@ export class McpTasks implements McpTaskCalls {
     const refusal = this.refusal(sessionId, personKey, integration, tool)
     if (refusal || !sessionId || personKey === null) {
       if (personKey !== null) {
-        const address = { integrationId: integration.id, personKey, accountId: call.accountId, traceparent: call.traceparent }
-        void this.request(address, (client, options) => cancelTask(client, handle.taskId, options)).catch(() => undefined)
+        const address = { integrationId: integration.id, personKey, accountId: call.accountId, traceparent: call.traceparent, upstreamTaskId: handle.taskId }
+        void this.onServer(address, (upstream) => upstream.cancel()).catch(() => undefined)
       }
       return { ok: false, text: refusal ?? `${integration.name} runs ${tool} as an MCP task, and only a call of a session can follow one.` }
     }
     const now = this.clock.now()
     const row: McpTaskRow = {
       id: randomUUID(), organizationId: integration.organizationId, sessionId, integrationId: integration.id, personKey,
-      accountId: call.accountId, tool, upstreamTaskId: handle.taskId, status: handle.status, statusMessage: oneLine(handle.statusMessage),
+      accountId: call.accountId, tool, upstreamTaskId: handle.taskId, status: handle.status, statusMessage: statusLine(handle.statusMessage),
       traceparent: call.traceparent, createdAt: now, updatedAt: now, expiresAt: expiryOf(now, handle.ttlMs), deliveredAt: null,
     }
     this.deps.store.insert(row)
@@ -174,10 +174,8 @@ export class McpTasks implements McpTaskCalls {
     })
   }
 
-  holdsUpstream(integrationId: string, personKey: string | null, accountId: string): boolean {
-    for (const task of this.live.values()) {
-      if (task.row.integrationId === integrationId && task.row.personKey === personKey && task.row.accountId === accountId) return true
-    }
+  holdsUpstream(address: UpstreamAddress): boolean {
+    for (const task of this.live.values()) if (sameUpstream(task.row, address)) return true
     return false
   }
 
@@ -191,7 +189,7 @@ export class McpTasks implements McpTaskCalls {
     if (this.stopped) return
     for (const task of this.live.values()) {
       if (task.isStdio && task.row.integrationId === integrationId && task.row.personKey === personKey) {
-        void this.end(task, 'failed', 'The server stopped.', { kind: 'reason', text: 'The server stopped.' })
+        void this.fail(task, 'The server stopped.')
       }
     }
   }
@@ -214,7 +212,7 @@ export class McpTasks implements McpTaskCalls {
     log.info('mcp_task_cancel_requested', { sessionId, mcpTaskId: id })
     this.publish(task)
     try {
-      await this.request(task.row, (client, options) => cancelTask(client, task.row.upstreamTaskId, options))
+      await this.onServer(task.row, (upstream) => upstream.cancel())
     } catch (error) {
       if (isUnknownTask(error) || error instanceof ServerStoppedError) {
         await this.end(task, 'cancelled', 'Cancelled.', { kind: 'silent' })
@@ -232,7 +230,7 @@ export class McpTasks implements McpTaskCalls {
     const question = task?.input.get(key)
     if (!task || !question || task.row.sessionId !== sessionId) return false
     const response = mcpElicitResult(mcpElicitationResponse(question.params, answers))
-    await this.request(task.row, (client, options) => updateTask(client, task.row.upstreamTaskId, { [key]: response }, options))
+    await this.onServer(task.row, (upstream) => upstream.answer({ [key]: response }))
     task.input.delete(key)
     task.answered.add(key)
     this.publish(task)
@@ -279,7 +277,7 @@ export class McpTasks implements McpTaskCalls {
   private async stopWithTurn(task: LiveTask): Promise<void> {
     if (!task.hold) return
     task.cancelRequestedAt = this.clock.now()
-    void this.request(task.row, (client, options) => cancelTask(client, task.row.upstreamTaskId, options)).catch((error) => {
+    void this.onServer(task.row, (upstream) => upstream.cancel()).catch((error) => {
       log.warn('mcp_task_cancel_failed', { sessionId: task.row.sessionId, mcpTaskId: task.row.id, error: errorText(error) })
     })
     await this.end(task, 'cancelled', 'Stopped with the turn.', { kind: 'silent' })
@@ -306,15 +304,15 @@ export class McpTasks implements McpTaskCalls {
       if (!this.deps.store.get(task.row.id)) return this.forget(task)
       const now = this.clock.now()
       if (now >= task.row.expiresAt) {
-        void this.request(task.row, (client, options) => cancelTask(client, task.row.upstreamTaskId, options)).catch(() => undefined)
-        return await this.end(task, 'failed', 'The MCP task expired.', { kind: 'reason', text: 'The MCP task expired.' })
+        void this.onServer(task.row, (upstream) => upstream.cancel()).catch(() => undefined)
+        return await this.fail(task, 'The MCP task expired.')
       }
       if (task.cancelRequestedAt !== null && now - task.cancelRequestedAt >= MCP_TASK_CANCEL_WAIT_MS) {
         return await this.end(task, 'cancelled', 'Cancelled. The server did not confirm it.', { kind: 'silent' })
       }
       let state: McpTaskState
       try {
-        state = await this.request(task.row, (client, options) => getTask(client, task.row.upstreamTaskId, options))
+        state = await this.onServer(task.row, (upstream) => upstream.status())
       } catch (error) {
         return await this.pollFailed(task, error)
       }
@@ -332,13 +330,10 @@ export class McpTasks implements McpTaskCalls {
     task.problem = null
     if (state.pollIntervalMs !== undefined) task.intervalMs = pollInterval(state.pollIntervalMs)
     const expiresAt = state.ttlMs === undefined ? task.row.expiresAt : expiryOf(task.row.createdAt, state.ttlMs)
-    const message = oneLine(state.statusMessage)
+    const message = statusLine(state.statusMessage)
     switch (state.status) {
       case 'completed': return this.end(task, 'completed', message, { kind: 'result', state })
-      case 'failed': {
-        const reason = message ?? oneLine(state.error?.message) ?? 'The server reported a failure.'
-        return this.end(task, 'failed', reason, { kind: 'reason', text: reason })
-      }
+      case 'failed': return this.fail(task, message ?? statusLine(state.error?.message) ?? 'The server reported a failure.')
       case 'cancelled':
         return this.end(task, 'cancelled', message ?? 'Cancelled.', task.cancelRequestedAt === null ? { kind: 'reason', text: 'The server cancelled the MCP task.' } : { kind: 'silent' })
       case 'input_required':
@@ -363,8 +358,8 @@ export class McpTasks implements McpTaskCalls {
 
   /** A failed status request: the MCP task stays live until it expires (§12.5), and the next request waits longer. */
   private async pollFailed(task: LiveTask, error: unknown): Promise<void> {
-    if (error instanceof ServerStoppedError) return this.end(task, 'failed', error.message, { kind: 'reason', text: error.message })
-    if (isUnknownTask(error)) return this.end(task, 'failed', 'The MCP task expired.', { kind: 'reason', text: 'The MCP task expired.' })
+    if (error instanceof ServerStoppedError) return this.fail(task, error.message)
+    if (isUnknownTask(error)) return this.fail(task, 'The MCP task expired.')
     const problem: McpTaskProblem = error instanceof ConnectionRequiredError ? 'needs-sign-in' : 'unreachable'
     if (problem !== task.problem) {
       log.warn('mcp_task_poll_failed', { sessionId: task.row.sessionId, mcpTaskId: task.row.id, problem, error: errorText(error) })
@@ -399,7 +394,7 @@ export class McpTasks implements McpTaskCalls {
       changed = true
     }
     if (Object.keys(declined).length) {
-      void this.request(task.row, (client, options) => updateTask(client, task.row.upstreamTaskId, declined, options)).catch((error) => {
+      void this.onServer(task.row, (upstream) => upstream.answer(declined)).catch((error) => {
         log.warn('mcp_task_decline_failed', { sessionId: task.row.sessionId, mcpTaskId: task.row.id, error: errorText(error) })
       })
     }
@@ -436,6 +431,11 @@ export class McpTasks implements McpTaskCalls {
     if (!this.holdsSession(task.row.sessionId)) this.deps.backgroundEnded(task.row.sessionId)
   }
 
+  /** An end that the agent hears, with its reason as the row's message too. */
+  private fail(task: LiveTask, reason: string): Promise<void> {
+    return this.end(task, 'failed', reason, { kind: 'reason', text: reason })
+  }
+
   private async deliver(task: LiveTask, ending: Exclude<Ending, { kind: 'silent' }>): Promise<void> {
     const now = this.clock.now()
     const recent = (this.wakes.get(task.row.sessionId) ?? []).filter((at) => now - at < HOUR_MS)
@@ -449,7 +449,7 @@ export class McpTasks implements McpTaskCalls {
     this.wakes.set(task.row.sessionId, recent)
     try {
       const { text, images } = await this.wakeMessage(task, ending)
-      await this.deps.wake(task.row.sessionId, text, await this.storedImages(task.row.sessionId, images))
+      await this.sessionWake.send(task.row.sessionId, text, images)
       log.info('mcp_task_delivered', { sessionId: task.row.sessionId, mcpTaskId: task.row.id })
     } catch (error) {
       log.warn('mcp_task_delivery_failed', { sessionId: task.row.sessionId, mcpTaskId: task.row.id, error: errorText(error) })
@@ -458,7 +458,7 @@ export class McpTasks implements McpTaskCalls {
   }
 
   private note(task: LiveTask, statusMessage: string): void {
-    task.row.statusMessage = oneLine(statusMessage)
+    task.row.statusMessage = statusLine(statusMessage)
     this.deps.store.update(task.row.id, { status: task.row.status, statusMessage: task.row.statusMessage, updatedAt: task.row.updatedAt })
   }
 
@@ -478,27 +478,12 @@ export class McpTasks implements McpTaskCalls {
     return { text: `${mcpTaskWakeHeader(mapped.ok ? 'completed' : 'failed', label)}\n\n${frame}\n\n${mapped.text}`, images: mapped.images ?? [] }
   }
 
-  /** A prompt carries an image by its path in the session's attachment store, never as bytes. */
-  private async storedImages(sessionId: string, images: AgentToolImage[]): Promise<PromptImageRef[]> {
-    const refs: PromptImageRef[] = []
-    for (const [index, image] of images.entries()) {
-      const name = `mcp-task-image-${index + 1}.${image.mimeType.slice('image/'.length).replace('jpeg', 'jpg')}`
-      try {
-        const hostPath = await storeAttachment(sessionId, { name, mime: image.mimeType, dataUrl: `data:${image.mimeType};base64,${image.data}` }, this.deps.attachmentsDir)
-        refs.push({ mimeType: image.mimeType, hostPath, name })
-      } catch (error) {
-        log.warn('mcp_task_image_not_stored', { sessionId, error: errorText(error) })
-      }
-    }
-    return refs
-  }
-
   /** The row is gone with its session: the work is cancelled on the server, and nothing is sent. */
   private forget(task: LiveTask): void {
     this.live.delete(task.row.id)
     if (task.timer) this.clock.clearTimeout(task.timer)
     task.timer = null
-    void this.request(task.row, (client, options) => cancelTask(client, task.row.upstreamTaskId, options)).catch(() => undefined)
+    void this.onServer(task.row, (upstream) => upstream.cancel()).catch(() => undefined)
     if (task.hold) {
       this.clock.clearTimeout(task.hold.timer)
       task.hold.release()
@@ -508,11 +493,10 @@ export class McpTasks implements McpTaskCalls {
     log.info('mcp_task_session_gone', { sessionId: task.row.sessionId, mcpTaskId: task.row.id })
   }
 
-  /** One MCP task request, as the call's person, with that person's connection (§12 Security). */
-  private request<T>(address: Pick<McpTaskRow, 'integrationId' | 'personKey' | 'accountId' | 'traceparent'>, run: (client: Client, options: { traceparent: string | null; timeout: number }) => Promise<T>): Promise<T> {
-    const { integrationId, personKey, accountId, traceparent } = address
+  /** One request of an MCP task to its server, as the call's person, with that person's connection (§12 Security). */
+  private onServer<T>(row: Pick<McpTaskRow, 'integrationId' | 'personKey' | 'accountId' | 'traceparent' | 'upstreamTaskId'>, use: (upstream: ServerTask) => Promise<T>): Promise<T> {
     const actAs = this.deps.actAs ?? withUserScope
-    return actAs(personKey, () => this.deps.gateway.withBackgroundSession(integrationId, personKey, accountId, (client) => run(client, { traceparent, timeout: REQUEST_TIMEOUT_MS })))
+    return actAs(row.personKey, () => this.deps.gateway.withBackgroundSession(row, (client) => use(new ServerTask(client, row.upstreamTaskId, { traceparent: row.traceparent, timeout: REQUEST_TIMEOUT_MS }))))
   }
 
   private publish(task: LiveTask): void {
@@ -549,8 +533,6 @@ function callResultOf(state: McpTaskState): Parameters<typeof agentResultOf>[0] 
   return { content: [{ type: 'text', text: JSON.stringify(state.result ?? null) }] }
 }
 
-function oneLine(text: string | undefined | null): string | null {
-  const line = text?.replace(/\s+/g, ' ').trim()
-  if (!line) return null
-  return line.length > STATUS_MESSAGE_CHARS ? `${line.slice(0, STATUS_MESSAGE_CHARS - 1)}…` : line
+function statusLine(text: string | undefined | null): string | null {
+  return text?.trim() ? oneLine(text, STATUS_MESSAGE_CHARS) : null
 }

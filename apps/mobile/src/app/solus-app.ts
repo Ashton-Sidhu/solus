@@ -17,7 +17,8 @@ import { ConversationStore } from '../features/conversation/conversation-store'
 import type { RunSettings } from '../features/conversation/lib/ipc-context'
 import { HostConnections, type HostTransport } from '../features/hosts/host-connections'
 import { KeyboardCommands } from '../features/keyboard/keyboard-commands'
-import { HostRegistry, type NativeHost } from '../features/hosts/host-registry'
+import { HostRegistry } from '../features/hosts/host-registry'
+import type { PairOutcome } from '@solus/client-core/host-catalog'
 import { previewHost, type HostPreview, type PreviewResult } from '../features/hosts/lib/pair-input'
 import { ThreadDirectory } from '../features/threads/thread-directory'
 import { SessionRunHosts } from '../features/threads/session-run-hosts'
@@ -93,6 +94,8 @@ export interface LastRoute {
 }
 
 const LAST_ROUTE_KEY = 'solus.mobile.lastRoute'
+/** How long a start waits for the host list and the directory before it chooses the first screen. */
+const HOST_READ_WAIT_MS = 4_000
 const draftKey = (hostId: string, conversationKey: string) => `solus.mobile.draft.${hostId}/${conversationKey}`
 
 const lastRouteSchema = z.object({
@@ -165,7 +168,8 @@ export class SolusApp {
 
   constructor(readonly platform: PlatformAdapters) {
     const { storage, secrets } = platform
-    this.registry = new HostRegistry(storage, secrets)
+    // The account reads the directory for the catalog; it is made next, and read only later.
+    this.registry = new HostRegistry(storage, secrets, () => this.account)
     this.account = new AccountSession({
       cloudOrigin: platform.cloudOrigin ?? DEFAULT_CLOUD_ORIGIN,
       registry: this.registry,
@@ -270,35 +274,47 @@ export class SolusApp {
     this.registry.onHostRemoved((hostId) => this.cleanUpHost(hostId))
   }
 
-  /** The load barrier: credentials and saved hosts are read before any route
-   *  is restored or any host is dialed. */
+  /**
+   * The load barrier: credentials are read before any route is restored or any
+   * host is dialed. The phone keeps no copy of its hosts (plans/033 §3 Q2), so the
+   * start also waits a short time for the host list and the directory: the first
+   * screen depends on whether there are hosts.
+   */
   async load(): Promise<void> {
     this.appearance.applySaved()
     await Promise.all([this.registry.load(), this.account.load()])
     this.followAccount()
-    if (!this.account.isSignedIn) return
-    // The kept identity can be old: the name or picture may have changed on the website.
-    void this.account.refreshIdentity()
-    void this.account.refreshDirectory()
+    const reads: Promise<void>[] = [this.account.hostListRead]
+    if (this.account.isSignedIn) {
+      // The kept identity can be old: the name or picture may have changed on the website.
+      void this.account.refreshIdentity()
+      reads.push(this.account.refreshDirectory())
+    }
+    await settledWithin(Promise.all(reads), HOST_READ_WAIT_MS)
   }
 
   /** The route to restore, when its host is still known. A host that left
    *  (forgotten, or no longer listed) is not reopened. */
   lastRoute(): LastRoute | null {
+    const route = this.storedRoute()
+    if (!route || this.registry.host(route.hostId)) return route
+    // Before the list answers, its hosts are not known yet: the route stays for the next start.
+    if (this.registry.listState() === 'ready') this.platform.storage.removeItem(LAST_ROUTE_KEY)
+    return null
+  }
+
+  private storedRoute(): LastRoute | null {
     const raw = this.platform.storage.getItem(LAST_ROUTE_KEY)
     if (!raw) return null
-    let decoded: ReturnType<typeof lastRouteSchema.safeParse>
+    let decoded: ReturnType<typeof lastRouteSchema.safeParse> | null
     try {
       decoded = lastRouteSchema.safeParse(JSON.parse(raw))
     } catch {
-      this.platform.storage.removeItem(LAST_ROUTE_KEY)
-      return null
+      decoded = null
     }
-    if (!decoded.success || !this.registry.host(decoded.data.hostId)) {
-      this.platform.storage.removeItem(LAST_ROUTE_KEY)
-      return null
-    }
-    return decoded.data
+    if (decoded?.success) return decoded.data
+    this.platform.storage.removeItem(LAST_ROUTE_KEY)
+    return null
   }
 
   rememberRoute(route: LastRoute): void {
@@ -328,7 +344,7 @@ export class SolusApp {
     const found = mergeDiscovered(own, fromHosts)
     // A directory host found here is dialed here (ADR 0001 §2.2 rule 9).
     this.registry.applyNearby(found)
-    return found.filter((server) => !this.registry.host(server.installationId)?.paired)
+    return found.filter((server) => !this.registry.host(server.installationId)?.sessionToken)
   }
 
   /** The host at an address, shown to the person before pairing. */
@@ -336,7 +352,8 @@ export class SolusApp {
     return previewHost(this.platform.nativeGet ?? this.platform.fetch, url)
   }
 
-  async pair(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, pairToken: string | undefined, serverLabel?: string): Promise<NativeHost> {
+  /** Pairs a host: its credential stays on this phone, its listing goes to the person's list (`listError` when it did not). */
+  async pair(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, pairToken: string | undefined, serverLabel?: string): Promise<PairOutcome> {
     const { server, sessionToken } = await pairServer({
       url: preview.url,
       pairToken,
@@ -529,14 +546,25 @@ export class SolusApp {
     this.modelProfiles.delete(hostId)
     removeKeysWithPrefix(this.platform.storage, conversationOutboxPrefix(hostId))
     removeKeysWithPrefix(this.platform.storage, `solus.mobile.draft.${hostId}/`)
-    // The host is already out of the registry, so this drops a route to it.
-    this.lastRoute()
+    if (this.storedRoute()?.hostId === hostId) this.platform.storage.removeItem(LAST_ROUTE_KEY)
   }
 }
 
 async function readModelProfiles(api: HostApi): Promise<void> {
   const profiles = await api.modelProfilesStatus().then(({ profiles }) => profiles, () => null)
   if (profiles) replaceModelProfiles(profiles)
+}
+
+/** Resolves when `work` settles or after `ms`, whichever is first. */
+function settledWithin(work: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    const done = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    work.then(done, done)
+  })
 }
 
 function conversationKey(hostId: string, sessionId: string): string {

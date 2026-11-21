@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { SavedServer } from './server-registry'
+import type { KnownHost } from './known-host'
 import { mergeRoutes, routeForUrl } from '@solus/contracts/host-routes'
 import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
 import { DEFAULT_SERVER_PORT } from '@solus/contracts/types'
@@ -45,7 +45,8 @@ export interface PairServerInput {
 }
 
 export interface PairServerResult {
-  server: SavedServer
+  /** The host as this device paired it; `hostCatalog.pair` keeps it. */
+  server: KnownHost
   sessionToken: string
   installationId: string
 }
@@ -146,7 +147,7 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
   if (!body.installationId) throw new Error('Pair response did not include an installation id')
 
   const userLabel = input.serverLabel?.trim() ?? ''
-  const server: SavedServer = {
+  const server: KnownHost = {
     id: body.installationId,
     label: userLabel || input.reportedName || urlHost(url),
     hasUserLabel: !!userLabel,

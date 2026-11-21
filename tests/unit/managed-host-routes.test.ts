@@ -1,9 +1,13 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, mock, test } from 'bun:test'
 import { routesForMachine, type HostRoute } from '@solus/contracts/host-routes'
-import { preferredRouteUrl, savedServerTarget } from '@solus/client-core/server-connection'
-import type { SavedServer } from '@solus/client-core/server-registry'
-import { advertisedRoutes } from '@solus/server/transport/endpoints'
+import { knownHostTarget, preferredRouteUrl } from '@solus/client-core/server-connection'
+import type { KnownHost } from '@solus/client-core/known-host'
 import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; the endpoints reach the database through the host's paired devices.
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { advertisedRoutes } = await import('@solus/server/transport/endpoints')
 
 const internal: HostRoute = { kind: 'lan', url: 'http://10.0.0.1:3000', source: 'host' }
 const tunnel: HostRoute = { kind: 'tunnel', url: 'https://managed.example.test', source: 'directory' }
@@ -23,13 +27,13 @@ test('managed routes exclude all private paths; personal machines keep their rou
   expect(routesForMachine([internal], 'managed')).toEqual([])
 })
 
-test('desktop and web restore a managed host on its tunnel despite a saved internal route', () => {
-  const saved: SavedServer = {
+test('desktop and web restore a managed host on its tunnel despite a known internal route', () => {
+  const saved: KnownHost = {
     id: 'managed:test', installationId: 'managed:test', label: 'Cloud host',
     sessionToken: '', lastConnected: 0, routes: [internal, tunnel],
     uplink: { hostId: 'test', directoryUrl: 'https://account.example.test', kind: 'managed' },
   }
   expect(preferredRouteUrl(saved, 'http://localhost:3001')).toBe(tunnel.url)
-  expect(savedServerTarget(saved)).toMatchObject({ url: tunnel.url, routes: [tunnel] })
+  expect(knownHostTarget(saved)).toMatchObject({ url: tunnel.url, routes: [tunnel] })
   expect(preferredRouteUrl({ ...saved, routes: [internal] }, 'http://localhost:3001')).toBe('')
 })

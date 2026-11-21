@@ -9,7 +9,7 @@ import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSym
 import { MaterialButton } from "../../components/MaterialButton";
 import { MaterialIconButton } from "../../components/MaterialIconButton";
 import { cn } from "../../lib/cn";
-import type { NativeHost } from "../hosts/host-registry";
+import type { KnownHost } from "@solus/client-core/known-host";
 import { hostReadinessCopy } from "@solus/client-core/host-readiness";
 import { ConnectionStatusDot, isHostReadinessFailure } from "./ConnectionStatusDot";
 import { hostDisplayAddress, hostMachineKind } from "./lib/host-machine";
@@ -21,12 +21,12 @@ import { hostStallLine } from "./lib/host-stall-line";
  * keeps T3's actions: reconnect and forget.
  */
 export function ConnectionEnvironmentRow(props: {
-  readonly host: NativeHost;
+  readonly host: KnownHost;
   readonly expanded: boolean;
   readonly opensDetails?: boolean;
   readonly onToggle: () => void;
   readonly onReconnect: (hostId: string) => void;
-  readonly onRemove: (host: NativeHost) => void;
+  readonly onRemove: (host: KnownHost) => void;
 }) {
   const app = useApp();
   const state = useListened(app.connections.changes, () => app.connections.readiness(props.host.id));

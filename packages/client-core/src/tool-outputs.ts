@@ -84,6 +84,23 @@ export function audioFormat(audio: ToolResultAudio): string {
   return audio.assetId.slice(audio.assetId.lastIndexOf('.') + 1).toUpperCase()
 }
 
+/** One clip that an open tool line plays, with its label: "Audio 1 · MP3". */
+export interface OpenLineAudio {
+  readonly audio: ToolResultAudio
+  readonly label: string
+}
+
+/** The audio an open tool line plays. A call still running has none yet. */
+export function openLineAudio(tool: ToolCallOutputs): OpenLineAudio[] {
+  if (tool.toolStatus === 'running') return []
+  return (tool.toolAudio ?? []).map((audio, index) => ({ audio, label: `Audio ${index + 1} · ${audioFormat(audio)}` }))
+}
+
+/** What the host left out of the call's result, with the limit, as the agent read it. A call still running has none yet. */
+export function openLineLeftOut(tool: ToolCallOutputs): readonly string[] {
+  return tool.toolStatus === 'running' ? [] : tool.toolLeftOut ?? []
+}
+
 /** The strip shows this many thumbnails; one more tile opens the rest. */
 export const TOOL_STRIP_IMAGE_LIMIT = 6
 

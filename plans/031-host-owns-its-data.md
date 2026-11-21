@@ -1,7 +1,8 @@
 # 031 The host owns its data
 
 Status: BUILT (2026-11-03), in the working trees of `solus` and `solus-cloud`, not
-committed. Built: D1, D2, D4, D6, D7 (D3 needed no code), the mobile Shared with you rule, and the documents.
+committed. D7 amended 2026-11-20 by [033](033-client-keeps-only-credentials.md): the
+client keeps only its credentials, joined with the list; it keeps no list beside it. Built: D1, D2, D4, D6, D7 (D3 needed no code), the mobile Shared with you rule, and the documents.
 D2 needed no list change: with D1 and a fresh database every row the owner writes
 has the one key, and the list's person test lists exactly the owner's sessions plus
 the ones they opened (Q1). Each database keeps one migration file: `solus.db`'s
@@ -139,13 +140,17 @@ the list, and a fresh database does not open 30 days of history.
   (maintainer, 2026-11-03). `HostCategory`, `MachineKind`
   and the `cloud` value of `HostKind` go. In `solus-cloud`, `host.category` goes
   and `host.owner_user_id` is null for a managed host.
-- **Plain requests, no copy.** A client reads the list from its source and shows
-  the answer beside the hosts it keeps itself (`server-registry.ts`: its own
-  pairings and their tokens). Pairing a host writes it to the source; forgetting
-  one removes it. Nothing is copied back into the registry, so nothing is
-  reconciled (`client-core/src/host-list-source.ts`; the phone holds the answer in
-  memory, `HostRegistry.setListedHosts`). A host another device paired shows
-  without a token until this client pairs it.
+- **Plain requests, no copy.** *(Amended by [033](033-client-keeps-only-credentials.md),
+  2026-11-20.)* A client keeps only its credentials: for each host it paired, the
+  token and the routes that only this device knows (`host-credentials.ts`). The
+  host catalog (`client-core/src/host-catalog.ts`) joins the list's answer, the
+  account directory, and those credentials by host id, in memory; it keeps no list
+  beside the list. Pairing a host writes the credential, then the listing to the
+  source; forgetting one removes the listing, then the credential. Nothing is copied
+  back, so nothing is reconciled. A host another device paired shows without a token
+  until this client pairs it. A credential that a successful read of the list and of
+  the directory does not name is deleted (033 §3 Q1); the device host is exempt, as
+  it is never on its own list.
 - **One primitive for account documents.** `contracts/src/account-documents.ts` is
   a table with one row per document (its route and schemas), and
   `client-core/src/account-documents.ts` is one call that decodes any row. Desktop
@@ -167,7 +172,9 @@ the list, and a fresh database does not open 30 days of history.
   (maintainer, 2026-11-03). `HostCategory`, `MachineKind`
   and the `cloud` value of `HostKind` go. In `solus-cloud`, `host.category` goes
   and `host.owner_user_id` is null for a managed host.
-- **The client's registry is a cache of the list.** `server-registry.ts` keeps
+- *(Replaced by "Plain requests, no copy" above, and then by 033: a client keeps
+  only its credentials, and `server-registry.ts` and `HostListSync` are gone.)*
+  **The client's registry is a cache of the list.** `server-registry.ts` keeps
   its saved hosts and this client's own tokens; `HostListSync`
   (`client-core/src/host-list-sync.ts`) folds the source into it and writes a
   host this client pairs or forgets to the source. The source is the truth: a

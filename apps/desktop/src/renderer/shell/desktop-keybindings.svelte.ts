@@ -8,7 +8,7 @@ import { updatesStore } from "@solus/workspace-ui/contexts/updates/updates.store
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 
-import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
 
 import { desktopCaptureSupport } from "@solus/client-core/desktop-capture";
 

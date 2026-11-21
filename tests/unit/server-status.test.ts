@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostReadinessState } from '@solus/client-core/host-readiness'
+import { pairPageHosts } from './helpers/page-host-catalog'
 
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', info: () => '', dismiss: () => {} }) }))
 mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svelte', () => ({
@@ -10,24 +11,7 @@ mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svel
 const previousLocalStorage = globalThis.localStorage
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
-const values = new Map<string, string>([
-  ['solus.activeServerId', 'local'],
-  ['solus.servers', JSON.stringify([{
-    id: 'remote',
-    label: 'Build host',
-    routes: [{ kind: 'lan', url: 'http://10.10.1.22:3000', source: 'pairing', seenAt: 1 }],
-    sessionToken: 'token',
-    installationId: 'build-host',
-    lastConnected: 1,
-  }, {
-    id: 'early-host',
-    label: 'Cloud host',
-    routes: [{ kind: 'lan', url: 'https://early-host.example', source: 'pairing', seenAt: 1 }],
-    sessionToken: 'token',
-    installationId: 'early-host',
-    lastConnected: 1,
-  }])],
-])
+const values = new Map<string, string>([['solus.activeServerId', 'local']])
 
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
@@ -47,10 +31,23 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 const { serversStore } = await import('@solus/workspace-ui/contexts/connections/servers.store.svelte')
 
-// The store is a module singleton shared with other test files (e.g. server
-// removal deletes 'remote' from its in-memory list); re-read this file's
-// localStorage so the fixture host exists regardless of execution order.
-serversStore.refreshServers()
+// The page's catalog is a module singleton shared with other test files: this
+// file pairs its own hosts, so they exist regardless of execution order.
+await pairPageHosts([{
+  id: 'remote',
+  label: 'Build host',
+  routes: [{ kind: 'lan', url: 'http://10.10.1.22:3000', source: 'pairing', seenAt: 1 }],
+  sessionToken: 'token',
+  installationId: 'build-host',
+  lastConnected: 1,
+}, {
+  id: 'early-host',
+  label: 'Cloud host',
+  routes: [{ kind: 'lan', url: 'https://early-host.example', source: 'pairing', seenAt: 1 }],
+  sessionToken: 'token',
+  installationId: 'early-host',
+  lastConnected: 1,
+}])
 
 afterAll(() => {
   if (previousLocalStorage === undefined) {

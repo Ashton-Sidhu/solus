@@ -1,5 +1,5 @@
 import { onMount } from 'svelte'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { RunLocation } from '@solus/contracts/types'
 import type { WorkspaceContext } from '../../contexts/workspace/workspace.context.svelte'

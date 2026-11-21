@@ -15,6 +15,13 @@
       "when": 1795202743030,
       "tag": "0001_integration_resource_watches",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795207138657,
+      "tag": "0002_host_device",
+      "breakpoints": true
     }
   ]
 }

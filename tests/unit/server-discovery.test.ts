@@ -1,6 +1,4 @@
-import { describe, expect, test } from 'bun:test'
-import { parseTailscalePeerCandidates, tailnetEndpointFromStatus } from '@solus/server/transport/endpoints'
-import { isLanDiscoveryDisabled } from '@solus/server/transport/lan-discovery'
+import { describe, expect, test, mock } from 'bun:test'
 import {
   discoveredServersFrom,
   discoveryQuery,
@@ -15,6 +13,12 @@ import {
   NEARBY_HOST_TTL_MS,
 } from '@solus/workspace-ui/contexts/connections/discovery'
 import type { DiscoveredServer } from '@solus/contracts/types'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; this code reaches the database through the host's installation id (admission/auth.ts).
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { parseTailscalePeerCandidates, tailnetEndpointFromStatus } = await import('@solus/server/transport/endpoints')
+const { isLanDiscoveryDisabled } = await import('@solus/server/transport/lan-discovery')
 
 describe('server discovery', () => {
   test('disables LAN discovery for tests and explicitly isolated app runs', () => {
@@ -148,7 +152,7 @@ describe('server discovery', () => {
 
     expect(filterUnsavedDiscoveredServers({
       discovered,
-      savedServers: [{
+      knownHosts: [{
         id: 'saved-installation',
         label: 'Saved',
         url: 'http://100.64.0.11:3000',

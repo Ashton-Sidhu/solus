@@ -9,8 +9,8 @@ export interface PairToken {
   expiresAt: number
 }
 
-export type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+export type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo, PairedDevice } from '@solus/contracts/host-api'
 
 export interface ConnectionEndpoint {
   kind: 'loopback' | 'lan' | 'tailnet'
@@ -42,6 +42,10 @@ export class ConnectionsStore {
   serverInfo = $state<ConnectionsServerInfo | null>(null)
   endpoints = $state<ConnectionEndpoint[]>([])
   sessions = $state<ConnectionSession[]>([])
+  /** The devices this host paired, connected or not. Only the host's owner may read them. */
+  pairedDevices = $state<PairedDevice[]>([])
+  pairedDevicesLoaded = $state(false)
+  pairedDevicesError = $state<string | null>(null)
   activePair = $state<PairToken | null>(null)
   refreshing = $state(false)
   remoteAccessUpdating = $state(false)
@@ -75,6 +79,9 @@ export class ConnectionsStore {
       this.serverInfo = null
       this.endpoints = []
       this.sessions = []
+      this.pairedDevices = []
+      this.pairedDevicesLoaded = false
+      this.pairedDevicesError = null
       this.activePair = null
     }
     this.refreshing = true
@@ -84,6 +91,7 @@ export class ConnectionsStore {
         serverConnections.serverInfoFor(serverId, true),
         api.connectionsListEndpoints(),
         api.connectionsListSessions(),
+        this.refreshPairedDevices(serverId),
       ])
       if (this.metadataServerId === serverId) {
         this.serverInfo = serverInfo
@@ -94,6 +102,20 @@ export class ConnectionsStore {
       console.error('connections refresh failed', e)
     } finally {
       if (this.metadataServerId === serverId) this.refreshing = false
+    }
+  }
+
+  /** A refused read shows its reason in the paired devices section; the rest of the tab still shows. */
+  private async refreshPairedDevices(serverId: string): Promise<void> {
+    try {
+      const devices = await serverConnections.apiFor(serverId).connectionsListDevices()
+      if (this.metadataServerId !== serverId) return
+      this.pairedDevices = devices
+      this.pairedDevicesError = null
+    } catch (e) {
+      if (this.metadataServerId === serverId) this.pairedDevicesError = e instanceof Error ? e.message : String(e)
+    } finally {
+      if (this.metadataServerId === serverId) this.pairedDevicesLoaded = true
     }
   }
 

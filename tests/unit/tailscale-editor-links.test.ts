@@ -1,7 +1,11 @@
-import { expect, test } from 'bun:test'
+import { expect, test, mock } from 'bun:test'
 import { remoteEditorLink } from '../../packages/workspace-ui/src/lib/remote-editor-link'
-import { sshTargetFromStatus, tailscaleSshFromPrefs } from '../../packages/server/src/host/ssh-target'
 import { remoteEditorFileUrl } from '@solus/contracts/local-editor-links'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; this code reaches the database through the host's installation id (admission/auth.ts).
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { sshTargetFromStatus, tailscaleSshFromPrefs } = await import('../../packages/server/src/host/ssh-target')
 
 const target = { host: 'box.tail.ts.net', user: 'dev' }
 

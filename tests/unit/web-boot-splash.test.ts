@@ -176,7 +176,7 @@ describe('every web surface waits for the stylesheet and takes the place of the 
       installWindowSolusApi() {},
       installServiceWorkerMessageBridge() {},
       prefetchStartupTranscript: async () => {},
-      touchLastConnected() {},
+      hostCatalog: { touchLastConnected() {} },
       setActiveServerId() {},
       history: { replaceState() {} },
       location: { href: 'https://solus.example/w/abc', pathname: '/w/abc', hash: '' },

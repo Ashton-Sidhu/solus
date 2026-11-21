@@ -1,5 +1,5 @@
 import type { Session } from '@solus/contracts/types'
-import { loadServers } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { existingTaskId } from './session-draft.svelte'
 import { firstActivityAt } from './session-activity'
 import type { PersistedTab } from './tab-persistence'
@@ -9,7 +9,7 @@ import { projectHome, runHost } from './run-location'
 /** One tab snapshot builder for desktop and web. Reload state must not diverge
  * because two client entry points copied this mapping independently. */
 export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[] {
-  const savedServers = loadServers()
+  const knownHosts = hostCatalog.hosts()
   return session.tabOrder
     .filter((tabId) => session.tabs[tabId])
     .map((tabId) => {
@@ -24,10 +24,10 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         sessionId: tab.sessionId,
         title: restoredSession?.title ?? 'New Tab',
         titleCustom: restoredSession?.titleCustom ?? false,
-        serverInstallationId: savedServers.find(
+        serverInstallationId: knownHosts.find(
           (server) => server.id === runHost({ location: persistedLocation }),
         )?.installationId,
-        projectInstallationId: savedServers.find(
+        projectInstallationId: knownHosts.find(
           (server) => server.id === projectHome(restoredSession?.run ?? session.defaultRunConfig).serverId,
         )?.installationId,
         agentSessionId: restoredSession?.agentSessionId ?? null,

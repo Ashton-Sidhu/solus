@@ -7,7 +7,7 @@ import { useApp, useListened } from "../../app/app-context";
 import { ENVIRONMENT_MACHINE_SYMBOLS } from "../../components/EnvironmentMachineSymbol";
 import type { ScreenProps } from "../../navigation/routes";
 import { hostMachineKind } from "../connection/lib/host-machine";
-import type { NativeHost } from "../hosts/host-registry";
+import type { KnownHost } from "@solus/client-core/known-host";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -61,7 +61,7 @@ export function AboutScreen(_props: ScreenProps<"About">) {
 }
 
 /** One host's version and what its last update check found. */
-function HostVersionRow({ host }: { readonly host: NativeHost }) {
+function HostVersionRow({ host }: { readonly host: KnownHost }) {
   const { version, status } = useHostUpdateStatus(host.id);
   return (
     <SettingsValueRow

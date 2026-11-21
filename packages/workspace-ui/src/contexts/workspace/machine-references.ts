@@ -1,18 +1,18 @@
 import type { RunConfig, RunLocation, Session } from '@solus/contracts/types'
 import type { HostPresence } from '@solus/client-core/host-facts'
-import { hasDirectoryAnswered } from '@solus/client-core/server-registry'
-import { uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { solusApiId } from '@solus/contracts/uplink'
 import type { ProjectLocation } from '../app/settings.context.svelte'
 import { LOCAL_ORGANIZATION_ID } from '../../lib/organization-filter'
 import { checkoutPlace, fileTasksOn, openFolder, projectHome, runHost } from './run-location'
 /**
- * Whether a `gone` host is gone for good rather than not listed yet: a directory
- * read succeeded this load, or this client has no directory to wait for. Until
- * then nothing is moved, cleared, or made read-only; the host's calls just fail.
+ * Whether a `gone` host is gone for good rather than not listed yet: the person's
+ * host list and the account directory both answered this load (a client with no
+ * account has a directory that answers at once). Until then nothing is moved,
+ * cleared, or made read-only; the host's calls just fail.
  */
-export function savedHostsAreAuthoritative(): boolean {
-  return hasDirectoryAnswered() || !uplinkAccountSource()
+export function knownHostsAreAuthoritative(): boolean {
+  return hostCatalog.listState() === 'ready' && hostCatalog.directoryState() === 'ready'
 }
 
 /** What a started session on a gone machine says in place of its composer. */

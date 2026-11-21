@@ -1,10 +1,5 @@
-import {
-  loadServers,
-  LOCAL_SERVER_ID,
-  upsertServer,
-  type SavedServer,
-  type SavedServerUplink,
-} from './server-registry'
+import { LOCAL_SERVER_ID, type KnownHost, type KnownHostUplink } from './known-host'
+import { activeOrganizationId, hostCatalog } from './host-catalog'
 import { WsTransport, type GrantRefusal, type GrantSource, type GuestCredential } from './ws-transport'
 import { isLastingRefusal, type ResourceRefusal } from './oauth-session'
 import { withBrowserCapabilities } from './ws-browser-api'
@@ -17,7 +12,6 @@ import { answersAsSavedHost, type SavedHostIdentity } from './host-link'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import { uplinkAccountSource } from './uplink-account'
 import { organizationIdFor, type UplinkAccountSource } from './uplink-session'
-import { activeOrganizationId } from './workspace-registry'
 
 export interface LocalConnectionInfoLike {
   port: number
@@ -42,7 +36,7 @@ export interface SolusServerTarget {
   /** Routes dialed only when no route in `routes` answers: a guest's read-only mirror of the resource. */
   fallbackRoutes?: HostRoute[]
   /** Present when the host is dialable with a grant from the owner's account. */
-  uplink?: SavedServerUplink
+  uplink?: KnownHostUplink
   /** The host's identity key: an `http:` route gets a credential only after the host proves it. */
   identityKey?: string
   /** A guest of a share link (docs/plans/multiplayer-sharing.md §4.2): the link's
@@ -50,9 +44,9 @@ export interface SolusServerTarget {
   guest?: GuestCredential
 }
 
-/** The route a saved host is dialed on first, from this page's origin; empty when it has none this page can dial. */
+/** The route a known host is dialed on first, from this page's origin; empty when it has none this page can dial. */
 export function preferredRouteUrl(
-  server: Pick<SavedServer, 'routes' | 'uplink' | 'routeOrder' | 'tokenPairedOverHttps'>,
+  server: Pick<KnownHost, 'routes' | 'uplink' | 'routeOrder' | 'tokenPairedOverHttps'>,
   clientOrigin = globalThis.location?.origin ?? '',
 ): string {
   return dialableRoutes(routesForMachine(server.routes, server.uplink?.kind), clientOrigin, null, dialChoicesOf(server))[0]?.url ?? ''
@@ -80,7 +74,7 @@ export function localServerTarget(local: LocalConnectionInfoLike): SolusServerTa
   }
 }
 
-export function savedServerTarget(server: SavedServer): SolusServerTarget {
+export function knownHostTarget(server: KnownHost): SolusServerTarget {
   const clientOrigin = globalThis.location?.origin ?? ''
   const target: SolusServerTarget = {
     id: server.id,
@@ -161,21 +155,13 @@ export function createSolusConnection(
         }
       : undefined,
     onSessionTokenRefreshed: (sessionToken) => {
-      if (target.local) return
-      const saved = loadServers().find((server) => server.id === target.id)
-      upsertServer({
-        ...(saved ?? { os: undefined, routes: target.routes ?? [] }),
-        id: target.id,
-        label: target.label,
-        sessionToken,
-        installationId: target.installationId ?? saved?.installationId ?? '',
-        lastConnected: Date.now(),
-      })
+      if (!target.local) void hostCatalog.renewToken(target.id, sessionToken)
     },
     organizationId: activeOrganizationId,
   })
   const api = asHostApi(withBrowserCapabilities(transport.buildSolusApi(), transport, {
-    useHostFileDialog: target.local && !!globalThis.window?.solusNative,
+    // SAFETY: `solusNative` is what the desktop preload exposes (apps/desktop/src/renderer/env.d.ts).
+    useHostFileDialog: target.local && !!(globalThis as { window?: { solusNative?: object } }).window?.solusNative,
   }))
   return { transport, api, events: transport.events }
 }

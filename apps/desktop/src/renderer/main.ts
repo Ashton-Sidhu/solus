@@ -3,6 +3,7 @@ import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import { localServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { installWindowSolusApi, mergeNativeOnlySolusApi } from '@solus/client-core/native-api-overlay'
 import { renderFatal } from './boot-scene'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
@@ -79,8 +80,11 @@ async function boot(): Promise<void> {
     bootWithoutLocalHost(nativeApi)
   }
   void prefetchStartupTranscript()
-  // Every catalog entry is eagerly desired: saved remote hosts hold live
-  // supervised sockets from boot, so their rows go live instead of cached.
+  // Every catalog entry is eagerly desired: known remote hosts hold live
+  // supervised sockets from boot, so their rows go live instead of cached. The
+  // catalog names no listed host before its list is read (the servers store
+  // chooses the list when it starts); each host it adds then is dialed.
+  await hostCatalog.load()
   serverConnections.startCatalogSupervisors()
   performance.mark('solus.boot.transport')
 

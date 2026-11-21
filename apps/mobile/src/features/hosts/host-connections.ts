@@ -10,7 +10,7 @@ import { answersAsSavedHost, HostLink, isSavedHost, type LinkTransport, type Sav
 import { readHostHealth } from '@solus/client-core/host-http'
 import { routeNeedsProof } from '@solus/contracts/host-identity'
 import { CHECKING_HOST, GONE_HOST, type HostReadinessState } from '@solus/client-core/host-readiness'
-import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/server-registry'
+import { awaitsManagedCompute, managedHostNeedsStart, type KnownHost } from '@solus/client-core/known-host'
 import { dialableRoutes, dialChoicesOf, routesForMachine, ROUTE_CHECK_TIMEOUT_MS } from '@solus/contracts/host-routes'
 import { checkRouteToAdd, type NewRouteRefusal } from '@solus/client-core/host-route-control'
 import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wake-signals'
@@ -20,7 +20,7 @@ import { permissionsAllow, type Permission } from '@solus/contracts/permissions'
 import type { HostRoute } from '@solus/contracts/host-routes'
 import { solusApiId } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
-import type { HostRegistry, NativeHost } from './host-registry'
+import type { HostRegistry } from './host-registry'
 
 /** How long a `/health` read for a host's identity may take. */
 const HEALTH_TIMEOUT_MS = 5_000
@@ -44,11 +44,11 @@ export interface HostConnectionsDeps {
   registry: HostRegistry
   createTransport(options: WsTransportOptions): HostTransport
   /** An access token for this host, kept until a minute before its end; `refused` names a kept one the host refused. */
-  hostAccessToken(host: NativeHost, options?: { refused?: string }): Promise<string | null>
+  hostAccessToken(host: KnownHost, options?: { refused?: string }): Promise<string | null>
   /** True when the phone holds no sign-in: a directory host is then blocked until the next one. */
   isSignedOut(): boolean
   /** The organization a dial to this host names in its handshake (ADR 0001 §6.4). */
-  dialOrganizationId(host: NativeHost): string | null
+  dialOrganizationId(host: KnownHost): string | null
   /** The organization this device works in; it scopes record reads. */
   organizationId(): string | null
   /** The routes of an organization's Solus API, as the account directory lists them; empty when it lists none. */
@@ -162,14 +162,16 @@ export class HostConnections {
 
     // Set once the link exists; the callbacks below run later.
     let connection: HostConnection | null = null
+    // This phone holds a session token for the host; any other host is dialed with a grant.
+    const isPaired = !!host.sessionToken
     const transport = this.deps.createTransport({
       serverUrl: route.url,
       serverId: host.id,
       sessionToken: this.deps.registry.credential(host.id),
-      grants: host.paired ? undefined : { acquire: (options) => this.deps.hostAccessToken(this.deps.registry.host(host.id) ?? host, options), isSignedOut: () => this.deps.isSignedOut() },
-      dialOrganizationId: host.paired ? undefined : () => this.deps.dialOrganizationId(this.deps.registry.host(host.id) ?? host),
+      grants: isPaired ? undefined : { acquire: (options) => this.deps.hostAccessToken(this.deps.registry.host(host.id) ?? host, options), isSignedOut: () => this.deps.isSignedOut() },
+      dialOrganizationId: isPaired ? undefined : () => this.deps.dialOrganizationId(this.deps.registry.host(host.id) ?? host),
       // A paired host the account also lists is shown the signed-in person's token, so it keeps their delegation (ADR 0001 §6 item 5).
-      accountToken: host.paired ? () => this.deps.hostAccessToken(this.deps.registry.host(host.id) ?? host) : undefined,
+      accountToken: isPaired ? () => this.deps.hostAccessToken(this.deps.registry.host(host.id) ?? host) : undefined,
       onSessionTokenRefreshed: (sessionToken) => { void this.deps.registry.updateCredential(host.id, sessionToken) },
       verifyConnectedHost: () => this.verifyIdentity(host.id, connection?.transport.serverUrl ?? route.url),
       proveRoute: (url) => this.routeProof(host.id, url),
@@ -282,18 +284,18 @@ export class HostConnections {
       nonce: this.deps.healthNonce,
     })
     if (!checked.ok) return checked.refusal
-    this.deps.registry.addRoute(hostId, checked.url)
+    await this.deps.registry.addRoute(hostId, checked.url)
     this.connections.get(hostId)?.link.followRoutes()
     return null
   }
 
-  moveRoute(hostId: string, url: string, step: -1 | 1): void {
-    this.deps.registry.moveRoute(hostId, url, step)
+  async moveRoute(hostId: string, url: string, step: -1 | 1): Promise<void> {
+    await this.deps.registry.moveRoute(hostId, url, step)
     this.connections.get(hostId)?.link.followRoutes()
   }
 
-  removeRoute(hostId: string, url: string): void {
-    this.deps.registry.removeRoute(hostId, url)
+  async removeRoute(hostId: string, url: string): Promise<void> {
+    await this.deps.registry.removeRoute(hostId, url)
     this.connections.get(hostId)?.link.followRoutes()
   }
 
@@ -468,7 +470,7 @@ export class HostConnections {
     const health = host ? await readHostHealth(this.deps.fetch, url, AbortSignal.timeout(HEALTH_TIMEOUT_MS)) : null
     if (!host || !health) return true
     if (!isSavedHost({ installationId: host.id, uplink: host.uplink }, health)) return false
-    this.deps.registry.touch(host.id, { os: health.os, reportedName: health.name })
+    this.deps.registry.touch(host.id, health.os)
     return true
   }
 }
@@ -489,7 +491,7 @@ const NO_ADDRESS: HostReadinessState = { readiness: 'unreachable', away: true, u
  * started, and `gone` while it is deleted. A host with no route has no address.
  * Any other host is about to be dialed.
  */
-function undialedReadiness(host: NativeHost): HostReadinessState {
+function undialedReadiness(host: KnownHost): HostReadinessState {
   if (awaitsManagedCompute(host.uplink)) {
     const lifecycle = host.uplink?.managedState
     if (managedHostNeedsStart(lifecycle)) return NOT_RUNNING
@@ -506,6 +508,6 @@ export function serverInfoAllows(fact: HostFact<Pick<ConnectionsServerInfo, 'per
   return fact.value.principal === 'local-owner'
 }
 
-function savedIdentity(host: NativeHost): SavedHostIdentity {
+function savedIdentity(host: KnownHost): SavedHostIdentity {
   return { installationId: host.id, uplink: host.uplink, identityKey: host.identityKey }
 }

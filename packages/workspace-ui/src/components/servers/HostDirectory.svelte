@@ -73,9 +73,9 @@
     </Button>
   {/snippet}
 
-  {#if serversStore.servers.length === 0}
+  {#if serversStore.servers.length === 0 && serversStore.unreadHosts.length === 0}
     <p class="px-4 py-6 text-center text-xs text-(--solus-text-tertiary)">
-      No hosts have been saved yet.
+      No hosts have been added yet.
     </p>
   {:else}
     {#each serversStore.servers as server (server.id)}
@@ -109,6 +109,24 @@
         {/if}
         <CaretRightIcon size={13} class="shrink-0 text-(--solus-text-quaternary)" />
       </button>
+    {/each}
+    <!-- Nothing is kept from an earlier start (plans/033 §3 Q2): a read not answered says so. -->
+    {#each serversStore.unreadHosts as unread (unread.answer)}
+      {#if unread.state === "loading"}
+        <p role="status" class="px-4 py-3 text-chrome-dense text-(--solus-text-tertiary)">{unread.text}</p>
+      {:else}
+        <button
+          type="button"
+          class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors [@media(hover:hover)]:hover:bg-muted"
+          onclick={() => serversStore.retryHosts(unread.answer)}
+        >
+          <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
+            <ArrowsClockwiseIcon size={15} />
+          </span>
+          <span class="min-w-0 flex-1 truncate text-workspace-chrome text-(--solus-text-primary)">{unread.text}</span>
+          <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">Retry</span>
+        </button>
+      {/if}
     {/each}
   {/if}
 </SettingsSection>

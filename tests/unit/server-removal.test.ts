@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { localStorageCredentials } from '@solus/client-core/host-credentials'
+import { pairPageHosts } from './helpers/page-host-catalog'
 
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', dismiss: () => {} }) }))
 mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svelte', () => ({
@@ -43,17 +45,7 @@ describe('server removal', () => {
     // WHY: dispatch-client step 5 — removal never reloads. The active host is
     // only the new-work default, so removing it steps aside to another
     // catalog host; only the last host has nowhere to step to.
-    const values = new Map<string, string>([
-      ['solus.activeServerId', 'remote'],
-      ['solus.servers', JSON.stringify([{
-        id: 'remote',
-        label: 'Build Mac',
-        routes: [{ kind: 'lan', url: 'http://build-mac:3000', source: 'pairing', seenAt: 1 }],
-        sessionToken: 'token',
-        installationId: 'build-mac',
-        lastConnected: 1,
-      }])],
-    ])
+    const values = new Map<string, string>([['solus.activeServerId', 'remote']])
     const storage = {
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => values.set(key, value),
@@ -104,9 +96,18 @@ describe('server removal', () => {
     const { serversStore } = await import('@solus/workspace-ui/contexts/connections/servers.store.svelte')
     const { toasts } = await import('@solus/workspace-ui/lib/toasts')
     const { serverConnections } = await import('@solus/client-core/server-connections')
-    // The store is a module singleton shared with other test files; align its
-    // in-memory state with this file's fixtures regardless of import order.
-    serversStore.refreshServers()
+    const { hostCatalog } = await import('@solus/client-core/host-catalog')
+    // The catalog is a module singleton shared with other test files; this file
+    // pairs its own host regardless of import order.
+    const list = await pairPageHosts([{
+      id: 'remote',
+      label: 'Build Mac',
+      routes: [{ kind: 'lan', url: 'http://build-mac:3000', source: 'pairing', seenAt: 1 }],
+      sessionToken: 'token',
+      installationId: 'build-mac',
+      lastConnected: 1,
+    }])
+    const credentialIds = async () => [...(await localStorageCredentials().read()).keys()]
     serversStore.activeServerId = 'remote'
     const messages: string[] = []
     const originalError = toasts.error
@@ -115,7 +116,8 @@ describe('server removal', () => {
       await serversStore.remove('remote')
 
       expect(reloads).toBe(0)
-      expect(JSON.parse(storage.getItem('solus.servers') ?? '[]')).toHaveLength(1)
+      expect(await credentialIds()).toEqual(['remote'])
+      expect([...list.state.listings.keys()]).toEqual(['remote'])
       expect(storage.getItem('solus.activeServerId')).toBe('remote')
       expect(messages).toEqual(['Pair another host before forgetting Build Mac'])
 
@@ -127,7 +129,10 @@ describe('server removal', () => {
       await serversStore.remove('remote')
 
       expect(reloads).toBe(0)
-      expect(JSON.parse(storage.getItem('solus.servers') ?? '[]')).toHaveLength(0)
+      // Off the person's list, then this device's credential (plans/033 §4.1).
+      expect([...list.state.listings.keys()]).toEqual([])
+      expect(await credentialIds()).toEqual([])
+      expect(hostCatalog.find('remote')).toBeUndefined()
       expect(serversStore.servers.map((server) => server.id)).not.toContain('remote')
     } finally {
       toasts.error = originalError

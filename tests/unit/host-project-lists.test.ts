@@ -19,7 +19,8 @@ Object.defineProperty(globalThis, 'localStorage', {
 const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
 const { HostProjectLists } = await import('@solus/workspace-ui/lib/host-project-lists.svelte')
-const { removeServer } = await import('@solus/client-core/server-registry')
+const { hostCatalog } = await import('@solus/client-core/host-catalog')
+const { pairPageHosts } = await import('./helpers/page-host-catalog')
 
 /**
  * The MCP prompt and resource lists of each host and project
@@ -112,11 +113,11 @@ describe('host project lists', () => {
   })
 
   test('a removed host takes its lists and its subscriptions with it', async () => {
-    saved.set('solus.servers', JSON.stringify([{ id: 'gone-host', label: 'gone', routes: [], sessionToken: 't', installationId: 'gone-host', lastConnected: 1 }]))
+    await pairPageHosts([{ id: 'gone-host', label: 'gone', routes: [], sessionToken: 't', installationId: 'gone-host', lastConnected: 1 }])
     const { lists, reads } = hostWithLists('gone-host', [resource('a'), resource('b')])
     lists.ensure('gone-host', '/repo')
     await flush()
-    removeServer('gone-host')
+    await hostCatalog.forget('gone-host')
     // WHY: a forgotten host's resources must not stay in the `@` menu.
     expect(lists.listFor('gone-host', '/repo')).toBe(EMPTY)
     connections.emit('gone-host', 'integration.changed', { integrationId: 'docs', change: 'updated' })

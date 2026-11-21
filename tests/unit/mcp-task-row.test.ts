@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { mcpTaskWake, mcpTaskWakeHeader, type McpTask } from '@solus/contracts/integrations/mcp-task'
-import { mcpTaskItem, shownMcpTasks } from '@solus/client-core/mcp-task-row'
+import { shownBackgroundRecords } from '@solus/client-core/background-item'
+import { mcpTaskItem, MCP_TASKS } from '@solus/client-core/mcp-task-row'
 import { hostNoticeKind } from '../../packages/workspace-ui/src/components/conversation/lib/host-notice'
 
 /**
@@ -42,8 +43,8 @@ describe('MCP task row', () => {
 
   test('the conversation shows live MCP tasks, and ended ones only during the turn they ended in', () => {
     const ended = { ...base, id: 't2', status: 'completed' as const, updatedAt: 500 }
-    expect(shownMcpTasks([base, ended], 400).map((task) => task.id)).toEqual(['t1', 't2'])
-    expect(shownMcpTasks([base, ended], 600).map((task) => task.id)).toEqual(['t1'])
+    expect(shownBackgroundRecords(MCP_TASKS, [base, ended], 400).map((task) => task.id)).toEqual(['t1', 't2'])
+    expect(shownBackgroundRecords(MCP_TASKS, [base, ended], 600).map((task) => task.id)).toEqual(['t1'])
   })
 })
 

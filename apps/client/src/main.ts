@@ -2,16 +2,20 @@ import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspac
 import { mount, unmount } from 'svelte'
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
-import { savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
+import { knownHostTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, newGuestId, resolveShareLink, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { isGuestLinkResource, parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { shareLinkOpening, type GuestOpening } from './lib/share-link-opening'
 import { addressedBootIntent, type BootIntent } from './lib/boot-intent'
-import { savedRunnerFor } from '@solus/client-core/session-runner'
+import { knownRunnerFor } from '@solus/client-core/session-runner'
 import { guestBoot, type GuestShare } from './lib/guest-boot.svelte'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer } from '@solus/client-core/server-registry'
+import { getActiveServerId, setActiveServerId } from '@solus/client-core/known-host'
+import { hostCatalog } from '@solus/client-core/host-catalog'
+import { hostListSourceFor } from '@solus/client-core/host-list-source'
+import { accountDocumentCall, webAccountDocumentSend, type AccountDocumentCall } from '@solus/client-core/account-documents'
+import { cloudAccount } from '@solus/client-core/cloud-account'
 import { appPairLink, pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
@@ -19,8 +23,6 @@ import { accountOriginShell } from './lib/account-origin'
 import type { HostRoute } from '@solus/contracts/host-routes'
 import { MAX_WEB_TOKEN_HOSTS } from '@solus/contracts/uplink'
 import { WEB_SIGN_OUT_CHANNEL, WebTokenSession } from '@solus/client-core/web-token-session'
-import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
-import { saveDirectoryWorkspaces } from '@solus/client-core/workspace-registry'
 import { pairTokenFromLocation, pairHostFromLocation, probeServer } from './lib/connect'
 import { probeServingOrigin } from './lib/add-host'
 import { cloudOrigin } from './lib/cloud-origin.svelte'
@@ -172,12 +174,14 @@ async function connectToServer(target: SolusServerTarget, intent?: BootIntent): 
   installWindowSolusApi(primary.api)
   installServiceWorkerMessageBridge()
   // The server the page opens at is dialed before the rest of the catalog.
-  const firstServerId = intent?.firstServerId ? serverConnections.resolveId(intent.firstServerId) : null
+  const firstServerId = intent?.firstServerId
+    ? serverConnections.resolveId(intent.firstServerId)
+    : intent?.runnerHostId ? knownRunnerFor(intent.runnerHostId) : null
   if (firstServerId && firstServerId !== target.id) serverConnections.ensure(firstServerId)
   if (!intent?.opensResource) void prefetchStartupTranscript()
-  // Every saved host is eagerly desired, not only the one this boot chose.
+  // Every known host is eagerly desired, not only the one this boot chose.
   serverConnections.startCatalogSupervisors()
-  touchLastConnected(target.id)
+  hostCatalog.touchLastConnected(target.id)
   // Remember the choice so a refresh and the servers directory both resume here.
   setActiveServerId(target.id)
 
@@ -254,34 +258,41 @@ async function pairFromLocation(pairToken: string, hostUrl: string | null): Prom
       pairToken,
       deviceLabel: defaultDeviceLabel(),
     })
-    upsertServer(server)
+    await hostCatalog.load()
+    // Paired at the page's own address, the host is the one the page runs beside: its list is the person's.
+    if (!hostUrl) serverConnections.setServingHostId(server.id)
+    const { listError } = await hostCatalog.pair(server)
+    if (listError) toasts.error(`${server.label} is paired here but not yet on your host list`)
     setActiveServerId(server.id)
-    await connectToServer(savedServerTarget(server))
+    await connectToServer(knownHostTarget(server))
   } catch (err) {
     bootHostlessHome()
     toasts.error(err instanceof Error ? err.message : String(err))
   }
 }
 
+/**
+ * Reads the account's directory (`hostCatalog.refreshDirectory`), which takes the
+ * read the account origin's shell started. A page a host serves has no account, so
+ * its directory answers at once with no hosts.
+ */
 async function adoptCloudDirectory(): Promise<void> {
   // The same bundle is served at `/` by a host and by the account origin; only the
   // account origin's shell names itself (`accountOriginShell`).
-  if (!accountShell) {
-    cloudOrigin.kind = 'not-cloud'
-    return
-  }
-  const { kind, directory } = await adoptAccountOrigin(location.origin, webSession, accountShell)
-  cloudOrigin.kind = kind
-  // Publish the directory as soon as it answers so hosts can connect. App's
-  // onboarding cover already waits for the separate startup account read.
-  if (!directory) return
-  saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now()))
-  saveDirectoryWorkspaces(directory.workspaces, directory.directoryUrl)
-  markDirectoryAnswered()
+  if (!accountShell) cloudOrigin.kind = 'not-cloud'
+  else cloudOrigin.kind = (await adoptAccountOrigin(location.origin, webSession, accountShell)).kind
+  await hostCatalog.refreshDirectory()
+}
+
+/** The account's documents while this page is signed in at the account origin; null otherwise. */
+function webAccountDocuments(): AccountDocumentCall | null {
+  const account = cloudAccount()
+  return account ? accountDocumentCall(webAccountDocumentSend(account.consoleUrl, account.session)) : null
 }
 
 async function bootFromCatalog(intent?: BootIntent): Promise<void> {
   if (intent?.opensResource) webState.openedFromLink = true
+  await hostCatalog.load()
   const directory = adoptCloudDirectory().catch((error) => {
     console.warn("[solus:boot] cloud directory unavailable", error)
   })
@@ -289,21 +300,35 @@ async function bootFromCatalog(intent?: BootIntent): Promise<void> {
   void loadWorkspaceApp().catch(() => {})
   // The account origin is never a host; only a page a host serves asks whether it is one.
   const serving = accountShell ? null : await probeServingOrigin(location.origin)
-  const servingHost = serving?.saved ?? serving?.entry
-  if (servingHost) serverConnections.setServingHostId(servingHost.id)
-  // A catalog this browser already keeps is dialed now, and the directory refreshes it
-  // when it answers; an empty one has nothing to dial until the directory answers.
-  if (serverConnections.catalogServerIds().length === 0) await directory
-  else void directory.then(() => { if (solusApp) serverConnections.startCatalogSupervisors() })
+  const servingHost = serving?.known ?? serving?.entry
+  if (servingHost) {
+    // The host that served the page is the one it runs beside (plans/031 D7): it is
+    // dialed first, and signed out the person's list is read there.
+    serverConnections.registerTarget(knownHostTarget(servingHost))
+    // The catalog's device host: never put on its own list, and kept out of §3 Q1 (plans/033).
+    serverConnections.setServingHostId(servingHost.id)
+  }
+  // The person's list (plans/033 §4.5): the account's while signed in at the account
+  // origin, the serving host's, or this browser's own at the account origin signed out.
+  const list = hostCatalog.useListSource(hostListSourceFor({
+    accountDocuments: webAccountDocuments(),
+    deviceHost: servingHost
+      ? { id: servingHost.id, api: serverConnections.apiFor(servingHost.id), events: serverConnections.eventsFor(servingHost.id) }
+      : null,
+    deviceStorage: localStorage,
+  }))
+  // A page a host serves opens on that host at once. With no such host, the page
+  // waits for the list and the directory to know a host: nothing is kept from an
+  // earlier visit (§3 Q2).
+  if (!servingHost) await Promise.all([directory, list])
   let activeId: string | null = null
   try {
     activeId = getActiveServerId()
   } catch {}
   const catalog = serverConnections.catalogServerIds()
-  const firstId = catalog.find((serverId) => serverId === activeId) ?? catalog[0]
+  const firstId = catalog.find((serverId) => serverId === activeId) ?? servingHost?.id ?? catalog[0]
   const first = firstId ? serverConnections.ensure(firstId).target : null
   if (first) void connectToServer(first, intent)
-  else if (serving?.entry && !serving.saved) void connectToServer(savedServerTarget(serving.entry), intent)
   else bootHostlessHome()
 }
 
@@ -340,8 +365,9 @@ async function openShareLink(link: GuestLink): Promise<void> {
     return
   }
   history.replaceState(null, '', opening.address)
-  // The runner is dialed first; hosts' tokens are exchanges made at the same time.
-  void bootFromCatalog({ firstServerId: opening.runnerHostId ? savedRunnerFor(opening.runnerHostId) : null, opensResource: true })
+  // The runner is dialed first, once the directory names the known host it is; hosts'
+  // tokens are exchanges made at the same time.
+  void bootFromCatalog({ firstServerId: null, runnerHostId: opening.runnerHostId, opensResource: true })
 }
 
 async function bootGuest(link: GuestLink, opening: GuestOpening, signedIn: { name: string; userId: string } | null): Promise<void> {

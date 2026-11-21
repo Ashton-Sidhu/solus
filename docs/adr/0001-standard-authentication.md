@@ -12,6 +12,14 @@ presents one credential in its handshake and no ws-ticket exists. There is no
 protocol version check (`SOLUS_PROTOCOL` was removed 2026-10-23). Rules 3, 6
 and 7 and §2.3 below are changed to match. Sections after §2 keep their history.
 
+**Amended 2026-11-20** (plans/033-client-keeps-only-credentials.md §4.4): a pairing
+token is a random secret, not a signed token. The host records each device it paired
+in the `host_device` table of `solus.db` with the token's SHA-256 hash, never the
+token. A refresh keeps the same token and updates `last_seen_at`. Revoking a device
+sets `revoked_at` on its row, for a paired device, an account grant, or an acting
+host; `revoked-devices.json` is gone. The Access tab lists the paired devices
+(`connectionsListDevices`), also while they are offline.
+
 **Amended 2026-10-30:** sign-in requests both server resources and returns their
 access token and the initial account, settings, and host directory data immediately. The client uses
 that token and initializes its stores before any refresh. Refresh
@@ -1006,7 +1014,8 @@ the link manager's `credential()`, `currentLink()`, `attach`, `detach`, and `att
 owner's rows back to the local user.
 
 **Stays, as local access (rule 10):** pairing, host session tokens, `/auth/refresh`,
-`revoked-devices.json` for paired devices, share-secret tickets, and the CLI's
+the `host_device` table for paired devices and revocations (amended 2026-11-20),
+share-secret tickets, and the CLI's
 device flow (with OAuth tokens). **Stays, on purpose:** the desktop window's
 local-owner host session token, encrypted (stage 6, §5); the `shareSecret` field of
 the Solus API credential request, which admits nothing there (a contract change is not

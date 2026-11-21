@@ -1,7 +1,11 @@
-import { expect, test } from 'bun:test'
-import { detectCloudMachine } from '@solus/server/host/cloud-machine'
-import { cloudRoutes, discoverTailnetServers, tailnetAddressesFromStatus, tailnetEndpointFromInterfaces } from '@solus/server/transport/endpoints'
+import { expect, test, mock } from 'bun:test'
 import type { NetworkInterfaceInfo } from 'os'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; this code reaches the database through the host's installation id (admission/auth.ts).
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { detectCloudMachine } = await import('@solus/server/host/cloud-machine')
+const { cloudRoutes, discoverTailnetServers, tailnetAddressesFromStatus, tailnetEndpointFromInterfaces } = await import('@solus/server/transport/endpoints')
 
 function address(address: string, family: 'IPv4' | 'IPv6'): NetworkInterfaceInfo {
   return { address, family, internal: false, mac: '00:00:00:00:00:00', netmask: family === 'IPv4' ? '255.255.255.255' : 'ffff:ffff:ffff:ffff::', cidr: null }

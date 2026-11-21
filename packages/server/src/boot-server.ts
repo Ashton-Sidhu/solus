@@ -2270,6 +2270,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       id: s.id,
       deviceLabel: s.deviceLabel,
       deviceId: s.deviceId,
+      isActingHost: s.isActingHost,
       connectedAt: s.connectedAt,
     })),
     discoverLanServers: () => lanDiscovery.discoverServers(),

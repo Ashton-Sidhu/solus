@@ -1,10 +1,18 @@
 import { mcpTaskIsLive, type McpTask } from '@solus/contracts/integrations/mcp-task'
-import type { BackgroundItem, BackgroundItemAction } from './background-item'
+import type { BackgroundItem, BackgroundItemAction, BackgroundKind } from './background-item'
 
 // An MCP task as a background work row (docs/plans/mcp-first-class.md §12.5).
 
 export const MCP_TASK_CANCEL: BackgroundItemAction = { id: 'cancel', label: 'Cancel', busyLabel: 'Cancelling…', stops: true }
 export const MCP_TASK_ANSWER: BackgroundItemAction = { id: 'answer', label: 'Answer', busyLabel: 'Answer' }
+
+export const MCP_TASKS: BackgroundKind<McpTask, 'mcpTask.changed'> = {
+  item: mcpTaskItem,
+  isLive: mcpTaskIsLive,
+  list: (api, sessionId) => api.mcpTaskList({ sessionId }),
+  topic: 'mcpTask.changed',
+  recordOf: (event) => event.task,
+}
 
 export function mcpTaskItem(task: McpTask): BackgroundItem {
   const live = mcpTaskIsLive(task)
@@ -39,9 +47,4 @@ function mcpTaskDetail(task: McpTask): string {
       if (task.input?.length) return 'Needs your input'
       return task.statusMessage ?? 'Running in the background'
   }
-}
-
-/** Which rows the conversation shows: the live ones, and the ones that ended after `since` (the last turn's start). */
-export function shownMcpTasks(tasks: readonly McpTask[], since: number): McpTask[] {
-  return tasks.filter((task) => mcpTaskIsLive(task) || task.updatedAt >= since)
 }

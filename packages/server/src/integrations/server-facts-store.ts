@@ -1,12 +1,11 @@
-import type { SQLInputValue } from 'node:sqlite'
 import { isSpecType, type PriorDiscovery } from '@modelcontextprotocol/client'
 import { sql, type SQL } from 'drizzle-orm'
-import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { z } from 'zod'
 import type { IntegrationFacts } from '@solus/contracts/integration-types'
-import { getDb } from '../db'
 import { createLogger } from '../logger'
 import type { UpstreamPrompt, UpstreamTool } from './gateway'
+import { firstRow, runSql } from './sql'
+import type { UpstreamAddress } from './upstream-session'
 
 const log = createLogger('integrations', 'server-facts-store.ts')
 
@@ -30,11 +29,7 @@ export interface SavedServerRow {
 }
 
 /** The owner of one saved row: the SDK guide forbids sharing a saved `DiscoverResult` between principals. */
-export interface ServerFactsKey {
-  integrationId: string
-  personKey: string
-  accountId: string
-}
+export type ServerFactsKey = UpstreamAddress & { personKey: string }
 
 const rowSchema = z.object({ verdict: z.string().nullable(), verdict_at: z.number().nullable(), facts: z.string().nullable() })
 
@@ -45,14 +40,6 @@ const factsSchema = z.object({
   capabilities: z.object({ prompts: z.boolean(), resources: z.boolean(), resourceSubscribe: z.boolean(), tasks: z.boolean() }),
   prompts: z.array(z.unknown()).optional(),
 })
-
-const dialect = new SQLiteSyncDialect()
-
-function prepared(query: SQL) {
-  const { sql: text, params } = dialect.sqlToQuery(query)
-  // SAFETY: the templates below bind only strings, numbers, and null, which SQLite accepts.
-  return { statement: getDb().prepare(text), params: params as SQLInputValue[] }
-}
 
 /** A verdict as the SDK takes it, or null for a row it would refuse. `connect({ prior })` checks a modern one again. */
 function priorOf(text: string): PriorDiscovery | null {
@@ -89,13 +76,11 @@ function factsOf(text: string): SavedServerFacts | null {
  */
 export class ServerFactsStore {
   get(key: ServerFactsKey): SavedServerRow | null {
-    const { statement, params } = prepared(sql`
+    const row = firstRow(sql`
       SELECT verdict, verdict_at, facts FROM integration_server_facts
       WHERE integration_id = ${key.integrationId} AND user_id = ${key.personKey} AND account_id = ${key.accountId}
-    `)
-    const found = statement.get(...params)
-    if (!found) return null
-    const row = rowSchema.parse(found)
+    `, rowSchema)
+    if (!row) return null
     try {
       const prior = row.verdict ? priorOf(row.verdict) : null
       return {
@@ -126,11 +111,11 @@ export class ServerFactsStore {
 
   /** Test again, a failed revision, or a new command: the next start checks the revision again. */
   dropVerdicts(integrationId: string): void {
-    this.run(sql`UPDATE integration_server_facts SET verdict = NULL, verdict_at = NULL WHERE integration_id = ${integrationId}`)
+    runSql(sql`UPDATE integration_server_facts SET verdict = NULL, verdict_at = NULL WHERE integration_id = ${integrationId}`)
   }
 
   dropVerdict(key: ServerFactsKey): void {
-    this.run(sql`
+    runSql(sql`
       UPDATE integration_server_facts SET verdict = NULL, verdict_at = NULL
       WHERE integration_id = ${key.integrationId} AND user_id = ${key.personKey} AND account_id = ${key.accountId}
     `)
@@ -138,19 +123,14 @@ export class ServerFactsStore {
 
   /** A new command or names, or a removal: no row of the integration stays. */
   removeAllFor(integrationId: string): void {
-    this.run(sql`DELETE FROM integration_server_facts WHERE integration_id = ${integrationId}`)
+    runSql(sql`DELETE FROM integration_server_facts WHERE integration_id = ${integrationId}`)
   }
 
   private upsert(key: ServerFactsKey, update: SQL, values: SQL, storedAt: number): void {
-    this.run(sql`
+    runSql(sql`
       INSERT INTO integration_server_facts (integration_id, user_id, account_id, verdict, verdict_at, facts, stored_at)
       VALUES (${key.integrationId}, ${key.personKey}, ${key.accountId}, ${values}, ${storedAt})
       ON CONFLICT (integration_id, user_id, account_id) DO UPDATE SET ${update}, stored_at = ${storedAt}
     `)
-  }
-
-  private run(query: SQL): void {
-    const { statement, params } = prepared(query)
-    statement.run(...params)
   }
 }

@@ -667,7 +667,7 @@ The account's short grant is not a paired token. D3 lets it travel on a proven
 | Contracts | `contracts/host-routes.ts` and `host-identity.ts`. `rpc.ts` does not change (12.1). |
 | Reverse states | Add has Remove. A move has the opposite move. A removed route can be added again. A learned route shows why it has no Remove. |
 | Connection modes | The desktop's own host has no routes to manage. `https:` page: `http:` routes show as blocked (D5). A forwarded route shows the machine that holds it as blocked on other clients. |
-| Persistence | Web and desktop: `server-registry.ts`. Mobile: `host-registry.ts`. The directory, host list, and pairing merges keep `routeOrder` and `tokenPairedOverHttps`. |
+| Persistence | This device's routes (`pairing`, `user`, `discovery`, `ssh`, `page`), `routeOrder`, and `tokenPairedOverHttps` are in its credential (`client-core/host-credentials.ts`): `localStorage` on web and desktop, the keychain and device storage on mobile. A host's own and directory routes are read again on each start and joined in memory (`host-catalog.ts`, plan 033). A route change on a host this device holds no token for is kept as a credential with no token. |
 
 ### 12.8 Open product decisions
 

@@ -4,7 +4,7 @@ import { ownerKeyOf } from '../../admission/actor'
 import { credentialLocationOf } from '../../vault/vault'
 import { permissionsFor } from '../../admission/access-policy'
 import { wirePrincipalKind } from '../../admission/principal'
-import { generatePairToken, listRevokedDevices, revokeDevice, getInstallationId } from '../../admission/auth'
+import { generatePairToken, listPairedDevices, revokeDevice, getInstallationId } from '../../admission/auth'
 import { advertisedRoutes, discoverTailnetServers, listReachableEndpoints } from '../endpoints'
 import { hostIdentity } from '../../host/host-identity'
 import { shareRoutesFor } from '../../sharing/share-routes'
@@ -50,10 +50,12 @@ export interface ActiveConnectionSession {
   id: string
   deviceLabel: string
   deviceId: string | null
+  /** The device is a host acting for a person; a revoke records it as a host, not an account grant. */
+  isActingHost: boolean
   connectedAt: number
 }
 
-export interface AggregatedConnectionSession extends ActiveConnectionSession {
+export interface AggregatedConnectionSession extends Omit<ActiveConnectionSession, 'isActingHost'> {
   connectionCount: number
   connectionIds: string[]
 }
@@ -173,10 +175,13 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return aggregateConnectionSessionsByDevice(deps.getActiveSessions())
   })
 
+  server.register('connectionsListDevices', () => listPairedDevices())
+
   server.register('connectionsRevokeDevice', (args) => {
     const [{ deviceId }] = args
-    revokeDevice(deviceId)
-    return { ok: true, revoked: listRevokedDevices() }
+    const isActingHost = deps.getActiveSessions().some((session) => session.deviceId === deviceId && session.isActingHost)
+    revokeDevice(deviceId, isActingHost ? 'host' : 'grant')
+    return { ok: true }
   })
 
   server.register('connectionsSetRemoteAccess', async (args) => {

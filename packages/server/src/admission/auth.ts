@@ -4,9 +4,10 @@ import { join } from 'path'
 import { z } from 'zod'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
+import { closeDb, getDb } from '../db'
 import { hostIdentity } from '../host/host-identity'
 import { githubCredentials } from '../providers/github/credentials'
-import { readSignedToken, signToken } from './signed-token'
+import type { PairedDevice } from '@solus/contracts/host-api'
 
 const log = createLogger('main', 'auth')
 
@@ -32,27 +33,8 @@ const serverKeysSchema = z
   })
   .strict()
 
-const revokedDevicesSchema = z.object({ version: z.literal(1), deviceIds: z.array(z.string().min(1)) }).strict()
-
-/**
- * A paired device's session token: signed with this host's key (`signed-token.ts`).
- * `purpose` keeps it apart from every other payload signed with the same code.
- */
-const sessionTokenSchema = z.object({
-  purpose: z.literal('pairing'),
-  /** Opaque random id: what the Access tab lists and revokes. */
-  deviceId: z.string().min(1),
-  /** Human-readable label set during pairing, displayed in Connections panel. */
-  deviceLabel: z.string(),
-  /** Issuance timestamp (ms). */
-  issuedAt: z.number().int(),
-}).strict()
-type SessionToken = Omit<z.infer<typeof sessionTokenSchema>, 'purpose'>
-
 let _keys: ServerKeys | null = null
 const _activePairTokens = new Map<string, PairToken>()
-const _revokedDevices = new Set<string>()
-let _revokedDevicesLoaded = false
 
 function loadOrCreateKeys(): ServerKeys {
   if (_keys) return _keys
@@ -172,52 +154,92 @@ export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now(
   }
 }
 
-function signSessionToken(deviceId: string, deviceLabel: string, issuedAt: number): string {
-  return signToken<z.infer<typeof sessionTokenSchema>>({ purpose: 'pairing', deviceId, deviceLabel, issuedAt }, signingKey())
-}
-
-function signingKey(): Buffer {
-  return Buffer.from(loadOrCreateKeys().signingKey, 'hex')
-}
-
 interface IssuedSessionToken {
   token: string
   deviceId: string
 }
 
-/** A new paired device's session token. The signing key never leaves the server; clients store the opaque token. */
+/** A paired device as its token admits it. */
+export interface PairedSession {
+  deviceId: string
+  deviceLabel: string
+  /** When this host last admitted the token. It expires `SESSION_TOKEN_TTL_MS` after this. */
+  lastSeenAt: number
+}
+
+/** `last_seen_at` is written at most this often for one device: a busy client does not write on every request. */
+const LAST_SEEN_WRITE_INTERVAL_MS = 60_000
+
+const pairedRowSchema = z.object({
+  device_id: z.string(),
+  label: z.string(),
+  paired_at: z.number(),
+  last_seen_at: z.number(),
+  revoked_at: z.number().nullable(),
+})
+
+function hashSessionToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+/**
+ * A new paired device and its session token (plans/033 §4.4). The token is a
+ * random secret; the host keeps only its hash, in the device's `host_device` row.
+ */
 export function issueSessionToken(deviceLabel: string, now = Date.now()): IssuedSessionToken {
   const deviceId = randomBytes(12).toString('hex')
-  return { token: signSessionToken(deviceId, deviceLabel, now), deviceId }
+  const token = randomBytes(32).toString('base64url')
+  getDb().prepare(`INSERT INTO host_device (device_id, kind, label, token_hash, paired_at, last_seen_at)
+    VALUES (?, 'paired', ?, ?, ?, ?)`).run(deviceId, deviceLabel, hashSessionToken(token), now, now)
+  return { token, deviceId }
 }
 
-/** The paired device a session token names, or null when it is forged, too old, from the future, or revoked. */
-export function verifySessionToken(token: string, now = Date.now()): SessionToken | null {
+/** The paired device a session token names, or null when no row has its hash, the row is revoked, or the token was not used for `SESSION_TOKEN_TTL_MS`. */
+export function verifySessionToken(token: string, now = Date.now()): PairedSession | null {
   if (!token) return null
-  const payload = readSignedToken(token, signingKey(), sessionTokenSchema)
-  if (!payload) return null
-  if (now - payload.issuedAt > SESSION_TOKEN_TTL_MS) return null
-  if (payload.issuedAt > now + 60_000) return null
-  if (isDeviceRevoked(payload.deviceId)) return null
-  return { deviceId: payload.deviceId, deviceLabel: payload.deviceLabel, issuedAt: payload.issuedAt }
+  const db = getDb()
+  const found = db.prepare(`SELECT device_id, label, paired_at, last_seen_at, revoked_at FROM host_device
+    WHERE token_hash = ? AND kind = 'paired'`).get(hashSessionToken(token))
+  if (!found) return null
+  const row = pairedRowSchema.parse(found)
+  if (row.revoked_at !== null) return null
+  if (now - row.last_seen_at > SESSION_TOKEN_TTL_MS) return null
+  let lastSeenAt = row.last_seen_at
+  if (now - lastSeenAt >= LAST_SEEN_WRITE_INTERVAL_MS) {
+    db.prepare('UPDATE host_device SET last_seen_at = ? WHERE device_id = ?').run(now, row.device_id)
+    lastSeenAt = now
+  }
+  return { deviceId: row.device_id, deviceLabel: row.label, lastSeenAt }
 }
 
+/** Renews a session token: the same token, seen now. Null when the host does not accept it. */
 export function refreshSessionToken(token: string, now = Date.now()): string | null {
   const session = verifySessionToken(token, now)
   if (!session) return null
-  return signSessionToken(session.deviceId, session.deviceLabel, now)
+  if (session.lastSeenAt !== now) getDb().prepare('UPDATE host_device SET last_seen_at = ? WHERE device_id = ?').run(now, session.deviceId)
+  return token
 }
 
-/** Whether the owner revoked this device (a paired device or an account session) on this host. */
+/** The devices this host paired: the ones with access first, each group the most recently seen first. */
+export function listPairedDevices(): PairedDevice[] {
+  const rows = z.array(pairedRowSchema).parse(getDb().prepare(`SELECT device_id, label, paired_at, last_seen_at, revoked_at
+    FROM host_device WHERE kind = 'paired' ORDER BY revoked_at IS NOT NULL, last_seen_at DESC, device_id`).all())
+  return rows.map((row) => ({ deviceId: row.device_id, deviceLabel: row.label, pairedAt: row.paired_at, lastSeenAt: row.last_seen_at, revokedAt: row.revoked_at }))
+}
+
+/** Whether the owner revoked this device on this host: a paired device, an account grant, or an acting host. */
 export function isDeviceRevoked(deviceId: string): boolean {
-  loadRevokedDevices()
-  return _revokedDevices.has(deviceId)
+  return Boolean(getDb().prepare('SELECT 1 FROM host_device WHERE device_id = ? AND revoked_at IS NOT NULL').get(deviceId))
 }
 
-export function revokeDevice(deviceId: string): void {
-  loadRevokedDevices()
-  _revokedDevices.add(deviceId)
-  persistRevokedDevices()
+/**
+ * Revokes a device on this host. A paired device's row is marked; an id with no
+ * row (an account grant, or with `kind: 'host'` a host that acts for a person)
+ * gets a revoked row of that kind, so its next token is refused too.
+ */
+export function revokeDevice(deviceId: string, kind: 'grant' | 'host' = 'grant', now = Date.now()): void {
+  getDb().prepare(`INSERT INTO host_device (device_id, kind, revoked_at) VALUES (?, ?, ?)
+    ON CONFLICT(device_id) DO UPDATE SET revoked_at = COALESCE(host_device.revoked_at, excluded.revoked_at)`).run(deviceId, kind, now)
   try {
     // Revocation must remain recorded even when secure credential cleanup fails.
     githubCredentials().revokeDelegation(deviceId)
@@ -226,36 +248,11 @@ export function revokeDevice(deviceId: string): void {
   }
 }
 
-export function listRevokedDevices(): string[] {
-  loadRevokedDevices()
-  return [...new Set(_revokedDevices)]
-}
-
-function loadRevokedDevices(): void {
-  if (_revokedDevicesLoaded) return
-  _revokedDevicesLoaded = true
-  const file = revokedDevicesFile()
-  if (!existsSync(file)) return
-  try {
-    const parsed = revokedDevicesSchema.safeParse(JSON.parse(readFileSync(file, 'utf-8')))
-    if (!parsed.success) return
-    for (const deviceId of parsed.data.deviceIds) _revokedDevices.add(deviceId)
-  } catch (err) {
-    log.warn('revoked_devices_load_failed', { error: err instanceof Error ? err.message : String(err) })
-  }
-}
-
-function persistRevokedDevices(): void {
-  const dir = solusDir()
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(revokedDevicesFile(), JSON.stringify({ version: 1, deviceIds: listRevokedDevices() }, null, 2), { mode: 0o600 })
-}
-
+/** Forgets the keys and pair codes, and closes the database, so the next read uses the current `SOLUS_DATA_DIR`. */
 export function resetAuthStateForTests(): void {
   _keys = null
   _activePairTokens.clear()
-  _revokedDevices.clear()
-  _revokedDevicesLoaded = false
+  closeDb()
 }
 
 function persistKeys(): void {
@@ -266,8 +263,4 @@ function persistKeys(): void {
 
 function keysFile(): string {
   return join(solusDir(), 'server-keys.json')
-}
-
-function revokedDevicesFile(): string {
-  return join(solusDir(), 'revoked-devices.json')
 }

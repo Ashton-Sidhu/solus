@@ -22,7 +22,7 @@ function fixture(options: { fork?: boolean; goneHost?: boolean } = {}) {
     pendingFork: options.fork ? {} : undefined,
   }
   const create = new Function('prefetchSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
-    'serverConnections', 'loadServers', 'loadPersistedTabs',
+    'serverConnections', 'hostCatalog', 'loadPersistedTabs',
     'window', 'screen', 'performance', 'requestAnimationFrame', 'cancelAnimationFrame', 'document',
     'afterPaint', 'setTimeout', 'clearTimeout', 'checkoutPlace', 'runHost', 'workingPlace',
     `${executable}\nreturn { prefetchStartupTranscript, markStartupTranscriptApplied, observeStartupTranscriptPaint, afterStartupTranscriptPaint };`)
@@ -31,7 +31,7 @@ function fixture(options: { fork?: boolean; goneHost?: boolean } = {}) {
       requests.push({ host, ...request }); return Promise.resolve({ messages: [], before: null })
     }, 200,
     { apiFor: (host: string) => host, presenceOf: () => options.goneHost ? 'gone' : 'present' },
-    () => [{ installationId: 'installation', id: 'repaired-host' }],
+    { hosts: () => [{ installationId: 'installation', id: 'repaired-host' }] },
     () => ({ activeTabId: 'active', tabs: [tab, { ...tab, tabId: 'inactive', agentSessionId: 'other' }] }),
     { innerWidth: 1200, matchMedia: () => ({ matches: false }) },
     { width: 1200, height: 800 },

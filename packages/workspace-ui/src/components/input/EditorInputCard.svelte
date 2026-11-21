@@ -16,7 +16,7 @@
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import HostUnavailable from "../conversation/HostUnavailable.svelte";
   import { isWaitingForHost } from "@solus/client-core/host-readiness";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
 
   interface Props {
     active: boolean;

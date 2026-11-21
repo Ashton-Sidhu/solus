@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { HostApi } from '@solus/client-core/host-api'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { onServerRemoving } from '@solus/client-core/server-registry'
 import type { HostEventName } from '@solus/contracts/host-events'
 
 interface KeptList<T> {
@@ -81,7 +81,7 @@ export class HostProjectLists<T> {
     if (known) return known
     if (!this.#followsRemovals) {
       this.#followsRemovals = true
-      onServerRemoving((server) => this.#forget(server.id))
+      hostCatalog.onForgotten((host) => this.#forget(host.id))
     }
     const events = serverConnections.eventsFor(serverId)
     const stops = this.#options.rereadOn.map((topic) => events.subscribe(topic, () => this.reload(serverId)))

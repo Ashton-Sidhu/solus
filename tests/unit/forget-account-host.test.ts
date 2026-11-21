@@ -1,6 +1,8 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { configureUplinkAccountSource } from '@solus/client-core/uplink-account'
-import { webUplinkAccountSource, type UplinkAccountSource } from '@solus/client-core/uplink-session'
+import { webUplinkAccountSource } from '@solus/client-core/uplink-session'
+import { answerPageDirectory, answerPageList, directoryAccount } from './helpers/page-host-catalog'
+import { directoryHostFor } from './helpers/host-catalog-world'
 
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', info: () => '', dismiss: () => {} }) }))
 mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svelte', () => ({
@@ -54,7 +56,6 @@ Object.defineProperty(globalThis, 'document', {
 
 const { serversStore } = await import('@solus/workspace-ui/contexts/connections/servers.store.svelte')
 const { toasts } = await import('@solus/workspace-ui/lib/toasts')
-const { upsertServer } = await import('@solus/client-core/server-registry')
 
 afterAll(() => {
   configureUplinkAccountSource(null)
@@ -66,60 +67,48 @@ afterAll(() => {
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
 
-function saveHost(): void {
+/** The account lists `omarchy`; it leaves the directory when `removeHost` agrees. */
+async function listHost(removeHost: (hostId: string) => Promise<boolean>): Promise<void> {
   values.set('solus.activeServerId', 'local')
-  values.set('solus.servers', JSON.stringify([{
-    id: 'omarchy',
-    label: 'omarchy',
-    sessionToken: '',
-    installationId: 'omarchy',
-    lastConnected: 1,
-    routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'directory', seenAt: 1 }],
-    uplink: { hostId: 'host_omarchy', directoryUrl: 'https://app.solus.test' },
-  }]))
-  serversStore.refreshServers()
+  let listed = [directoryHostFor('omarchy', { hostId: 'host_omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000' }] })]
+  await answerPageList([])
+  await answerPageDirectory({
+    ...directoryAccount([]),
+    listDirectory: async () => ({ directoryUrl: 'https://app.solus.test', hosts: listed, workspaces: [] }),
+    removeHost: async (hostId) => {
+      const removed = await removeHost(hostId)
+      if (removed) listed = []
+      return removed
+    },
+  })
   serversStore.activeServerId = 'local'
 }
 
-function accountSource(removeHost: (hostId: string) => Promise<boolean>): UplinkAccountSource {
-  return {
-    listDirectory: async () => null,
-    accessToken: async () => null,
-    isSignedOut: () => false,
-    issueEnrollmentTicket: async () => null,
-    loadOrganizationDirectory: async () => null,
-    startManagedHost: async () => null,
-    removeHost,
-  }
-}
-
-const savedIds = () => (JSON.parse(values.get('solus.servers') ?? '[]') as Array<{ id: string }>).map((server) => server.id)
+const knownIds = () => serversStore.remotes.map((server) => server.id)
 
 describe('forgetting a host the account lists', () => {
   test('the host leaves the account before this device forgets it', async () => {
-    saveHost()
     const removed: string[] = []
-    configureUplinkAccountSource(accountSource(async (hostId) => { removed.push(hostId); return true }))
+    await listHost(async (hostId) => { removed.push(hostId); return true })
+    expect(knownIds()).toEqual(['omarchy'])
 
     await serversStore.remove('omarchy')
 
     expect(removed).toEqual(['host_omarchy'])
-    expect(savedIds()).toEqual([])
+    expect(knownIds()).toEqual([])
   })
 
   test('a refused removal keeps the host, so the list never claims it is gone', async () => {
-    saveHost()
-    configureUplinkAccountSource(accountSource(async () => false))
+    await listHost(async () => false)
 
     await serversStore.remove('omarchy')
 
-    expect(savedIds()).toEqual(['omarchy'])
+    expect(knownIds()).toEqual(['omarchy'])
   })
 
   test('forgetting twice at once ends with the host gone and no error', async () => {
     // WHY: a double click or a retry must not fail on a host already removed.
-    saveHost()
-    configureUplinkAccountSource(accountSource(async () => true))
+    await listHost(async () => true)
     const errors: string[] = []
     const originalError = toasts.error
     toasts.error = (message: string) => { errors.push(message) }
@@ -130,20 +119,21 @@ describe('forgetting a host the account lists', () => {
       toasts.error = originalError
     }
 
-    expect(savedIds()).toEqual([])
+    expect(knownIds()).toEqual([])
     expect(errors).toEqual([])
   })
 })
 
 describe('adding a host', () => {
-  test('pairing a host the account already lists leaves one row', () => {
+  test('pairing a host the account already lists leaves one row', async () => {
     // WHY: pairing and the account list name a host by its installation id, so
     // adding it again replaces the row instead of listing the machine twice.
-    saveHost()
-    upsertServer({ id: 'omarchy', label: 'omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'pairing', seenAt: 2 }], sessionToken: 'token', installationId: 'omarchy', lastConnected: 2 })
-    upsertServer({ id: 'omarchy', label: 'omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'pairing', seenAt: 3 }], sessionToken: 'token', installationId: 'omarchy', lastConnected: 3 })
+    await listHost(async () => true)
+    await serversStore.savePairedServer({ id: 'omarchy', label: 'omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'pairing', seenAt: 2 }], sessionToken: 'token', installationId: 'omarchy', lastConnected: 2 })
+    await serversStore.savePairedServer({ id: 'omarchy', label: 'omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'pairing', seenAt: 3 }], sessionToken: 'token', installationId: 'omarchy', lastConnected: 3 })
 
-    expect(savedIds()).toEqual(['omarchy'])
+    expect(knownIds()).toEqual(['omarchy'])
+    expect(serversStore.remotes[0]?.sessionToken).toBe('token')
   })
 })
 

@@ -178,6 +178,30 @@ transcript search, the task and PR readers) project from. `session` is the
 replicated record, and on the Postgres engine it lives in Postgres. The two
 are not merged (plan 029 §4.2: the index is keyed by provider thread).
 
+## Paired devices
+
+`host_device` (a host table) records the devices the host admits by its own
+decision (plans/033-client-keeps-only-credentials.md §4.4).
+`packages/server/src/admission/auth.ts` owns it.
+
+| Column | Holds |
+|---|---|
+| `device_id` | The device id: random for a paired device, else the account grant id or the acting host id |
+| `kind` | `paired` (paired with a code or by trusted network position), `grant` (an account grant), or `host` (a host that acts for a person) |
+| `label` | The device label from pairing; empty for `grant` and `host` |
+| `token_hash` | The SHA-256 hash of a paired device's session token (unique). The token is never stored. |
+| `paired_at`, `last_seen_at` | When the device paired, and when the host last admitted its token |
+| `revoked_at` | Set once when the owner revokes the device |
+
+- A session token is 32 random bytes. The host finds its row by hash, and
+  refuses it when the row is revoked, when `last_seen_at` is more than 30
+  days ago, or when the row is gone (a wiped database ends every pairing).
+- Each admission moves `last_seen_at`, at most once a minute. A refresh keeps
+  the token and moves `last_seen_at`.
+- A `grant` or `host` row exists only after a revoke. The host reads
+  `revoked_at` of every kind on every admission.
+- A revoked row stays. A device pairs again as a new device.
+
 ## How migrations are applied
 
 `runSqliteSchemaMigrations(db, schema, fileName)` (`db/sqlite-migrations.ts`)

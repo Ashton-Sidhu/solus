@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { resolveEffectiveServerOptions } from '@solus/server/transport/bind-policy'
 import { createTokenBucketRateLimiter } from '@solus/server/transport/rate-limit'
+import { DatabaseSync } from './helpers/bun-sqlite'
 
 mock.module('electron', () => ({
   app: {
@@ -11,6 +12,8 @@ mock.module('electron', () => ({
     getPath: () => tmpdir(),
   },
 }))
+
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const auth = await import('@solus/server/admission/auth')
 
@@ -79,7 +82,7 @@ describe('session token lifetime, refresh, and revocation persistence', () => {
     expect(auth.verifySessionToken(token)).toBeNull()
   })
 
-  test('refresh exchanges a valid token for a fresh token on the same device', () => {
+  test('refresh keeps the token on the same device and renews it', () => {
     isolateAuthStorage()
     setSystemTime(new Date('2026-01-01T00:00:00Z'))
     const { token } = auth.issueSessionToken('Test browser')
@@ -91,7 +94,8 @@ describe('session token lifetime, refresh, and revocation persistence', () => {
     const verified = auth.verifySessionToken(refreshed!)!
     expect(verified.deviceId).toBe(original.deviceId)
     expect(verified.deviceLabel).toBe('Test browser')
-    expect(verified.issuedAt).toBe(Date.now())
+    expect(refreshed).toBe(token)
+    expect(verified.lastSeenAt).toBe(Date.now())
   })
 
   test('revoked devices stay revoked after auth state reloads from disk', () => {

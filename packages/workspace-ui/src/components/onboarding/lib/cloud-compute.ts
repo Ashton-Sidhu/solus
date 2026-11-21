@@ -1,5 +1,5 @@
 import { isWaitingForHost, type HostReadiness } from '@solus/client-core/host-readiness'
-import { awaitsManagedCompute, hostInOrganization, type SavedServerUplink } from '@solus/client-core/server-registry'
+import { awaitsManagedCompute, hostInOrganization, type KnownHostUplink } from '@solus/client-core/known-host'
 import {
   MANAGED_HOST_PACKAGE_PATTERN,
   MAX_MANAGED_HOST_PACKAGES,
@@ -23,7 +23,7 @@ export interface ComputeHost {
   id: string
   label: string
   readiness: HostReadiness
-  uplink?: SavedServerUplink
+  uplink?: KnownHostUplink
 }
 
 export interface ComputeChoices<T extends ComputeHost> {

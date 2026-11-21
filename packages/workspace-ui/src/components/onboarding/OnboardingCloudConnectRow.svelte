@@ -5,7 +5,7 @@
    * an account (`accountStore.isAvailable`), so the row is absent everywhere
    * else. It never gates the landing.
    */
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import { toasts } from "../../lib/toasts";
   import { onMount } from "svelte";
   import { accountStore, uplinkStore } from "../../contexts";

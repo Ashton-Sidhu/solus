@@ -60,11 +60,17 @@ export interface ActiveCall {
   resumeTimeout: () => void
 }
 
-export interface UpstreamSession {
+/** Which upstream session: one person's, of one integration, signed in as one of their accounts (§13.3). */
+export interface UpstreamAddress {
   integrationId: string
   personKey: string | null
   /** Which of the person's accounts the session signs in as (§13.3). */
   accountId: string
+}
+
+export interface UpstreamSession extends UpstreamAddress {
+  /** `sessionKey` of its address. */
+  readonly key: string
   client: TaskAwareClient
   connected: Promise<void>
   idleTimer: ReturnType<typeof setTimeout> | null
@@ -84,7 +90,6 @@ export interface UpstreamSession {
 
 /** What one integration and person's server told the gateway: its tools and the facts of its `initialize` answer. */
 export interface ServerFacts {
-  integrationId: string
   tools: UpstreamTool[]
   era: IntegrationFacts['era']
   instructions: string | null
@@ -97,9 +102,18 @@ export interface ServerFacts {
 }
 
 /** One session per integration, person, and account (§13.3); the first account keeps the key it always had. */
-export function sessionKey(integrationId: string, personKey: string | null, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): string {
+export function sessionKey({ integrationId, personKey, accountId }: UpstreamAddress): string {
   const base = `${integrationId}\u0000${personKey ?? ''}`
   return accountId === DEFAULT_INTEGRATION_ACCOUNT ? base : `${base}\u0000${accountId}`
+}
+
+/** The address of a person's first account, where the gateway lists their tools, prompts, and resources. */
+export function firstAccount(integrationId: string, personKey: string | null): UpstreamAddress {
+  return { integrationId, personKey, accountId: DEFAULT_INTEGRATION_ACCOUNT }
+}
+
+export function sameUpstream(a: UpstreamAddress, b: UpstreamAddress): boolean {
+  return a.integrationId === b.integrationId && a.personKey === b.personKey && a.accountId === b.accountId
 }
 
 /**
@@ -166,7 +180,7 @@ export function toolNames(tools: UpstreamTool[]): string {
 }
 
 /** The prompts a new tool list keeps: a list from before a closed session may be old, so the next prompt read lists again. */
-export function promptsKept(previous: ServerFacts | undefined): ListedPrompts | null {
+export function promptsKept(previous: ServerFacts | null): ListedPrompts | null {
   return previous && !previous.stale ? previous.prompts : null
 }
 

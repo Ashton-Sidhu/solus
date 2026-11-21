@@ -1,6 +1,10 @@
 import { describe, expect, test, mock, jest } from 'bun:test'
-import { serveError, serveMappingsToPort, serveOwnership, serveUrl, TailscaleServe, verifiedServeRoute } from '@solus/server/host/tailscale-serve'
-import { isServeRequest, setOwnMagicDnsName, couldBeForgedByWebPage, requestOrigin } from '@solus/server/transport/web-page-requests'
+import { DatabaseSync } from './helpers/bun-sqlite'
+
+// Bun has no node:sqlite; this code reaches the database through the host's installation id (admission/auth.ts).
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+const { serveError, serveMappingsToPort, serveOwnership, serveUrl, TailscaleServe, verifiedServeRoute } = await import('@solus/server/host/tailscale-serve')
+const { isServeRequest, setOwnMagicDnsName, couldBeForgedByWebPage, requestOrigin } = await import('@solus/server/transport/web-page-requests')
 
 const mapping = (port: number, target: string) => JSON.stringify({ Web: { [`box.tail.ts.net:${port}`]: { Handlers: { '/': { Proxy: target } } } } })
 const status = { BackendState: 'Running', Self: { DNSName: 'box.tail.ts.net.', CapMap: { https: [] } } }

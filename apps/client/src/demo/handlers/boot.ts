@@ -23,6 +23,10 @@ const DEMO_PROJECTS_ADDED_AT = '2026-01-12T09:00:00.000Z'
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
   let config = structuredClone(DEFAULT_HOST_CONFIG)
   backend.register('start', () => store.startInfo())
+  // The demo's one host keeps the person's host list (plans/033 §4.5): it lists no other host.
+  backend.register('hostListRead', () => [])
+  backend.register('hostListPut', () => undefined)
+  backend.register('hostListRemove', () => undefined)
   backend.register('serverGetCapabilities', (): HostCapabilities => ({
     attachUpload: true,
     assetUrls: true,

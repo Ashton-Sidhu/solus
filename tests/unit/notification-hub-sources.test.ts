@@ -1,7 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import type { SavedWorkspace } from '@solus/client-core/workspace-registry'
+import { describe, expect, test } from 'bun:test'
 import { notificationSources } from '@solus/client-core/notifications/sources'
-import { ambiguousOrganizationIds, savedWorkspaceFor, saveDirectoryWorkspaces } from '@solus/client-core/workspace-registry'
+import { ambiguousOrganizationIds, workspaceFor, type KnownWorkspace } from '@solus/client-core/workspace-registry'
 import { DEFAULT_HOST_RULES } from '@solus/contracts/uplink'
 
 // plans/015-notifications-hub.md §4, stage 4: the hub reads every host and every
@@ -10,22 +9,8 @@ import { DEFAULT_HOST_RULES } from '@solus/contracts/uplink'
 // directories list names no single service: the registry dials neither, and the
 // hub shows a conflict instead of reading one service's records as the other's.
 
-class MemoryStorage implements Storage {
-  private readonly values = new Map<string, string>()
-  get length() { return this.values.size }
-  clear() { this.values.clear() }
-  getItem(key: string) { return this.values.get(key) ?? null }
-  key(index: number) { return [...this.values.keys()][index] ?? null }
-  removeItem(key: string) { this.values.delete(key) }
-  setItem(key: string, value: string) { this.values.set(key, value) }
-}
-
-const originalLocalStorage = globalThis.localStorage
-beforeEach(() => { Object.defineProperty(globalThis, 'localStorage', { value: new MemoryStorage(), configurable: true }) })
-afterEach(() => { Object.defineProperty(globalThis, 'localStorage', { value: originalLocalStorage, configurable: true }) })
-
 const hostRules = DEFAULT_HOST_RULES
-const workspace = (organizationId: string, directoryUrl: string, label = organizationId): SavedWorkspace => ({
+const workspace = (organizationId: string, directoryUrl: string, label = organizationId): KnownWorkspace => ({
   organizationId, label, routes: [{ kind: 'tunnel', url: `${directoryUrl}/tunnel` }], isActive: false, hostRules, directoryUrl,
 })
 
@@ -57,11 +42,9 @@ describe('notification sources', () => {
     expect(sources.map((source) => source.sourceId)).toEqual(['workspace:org-other'])
     expect(conflicts).toEqual(['org-same'])
 
-    saveDirectoryWorkspaces([cloud], cloud.directoryUrl)
-    expect(savedWorkspaceFor('workspace:org-same')?.label).toBe('Cloud')
-    saveDirectoryWorkspaces([selfHosted], selfHosted.directoryUrl)
+    expect(workspaceFor([cloud], 'workspace:org-same')?.label).toBe('Cloud')
     // The transport cannot be pointed at either service by the shared id.
-    expect(savedWorkspaceFor('workspace:org-same')).toBeNull()
+    expect(workspaceFor([cloud, selfHosted], 'workspace:org-same')).toBeNull()
     expect(ambiguousOrganizationIds([cloud, selfHosted])).toEqual(new Set(['org-same']))
     // One directory listing an organization once is never ambiguous.
     expect(ambiguousOrganizationIds([cloud, cloud])).toEqual(new Set())

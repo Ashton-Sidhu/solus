@@ -69,7 +69,8 @@ What did not (fixed by §8 step 5, 2026-09-26):
    `kind: 'cloud'` row whose `hostId` and `installationId` are both
    `workspace:<organizationId>` (`directoryHostSchema`,
    `packages/contracts/src/uplink.ts`; `solus-cloud/src/lib/server/uplink/hosts.ts`).
-   `mergeDirectoryIntoSaved` saves it into `solus.servers` beside the machines.
+   `mergeDirectoryIntoSaved` saved it into `solus.servers` beside the machines.
+   (Since plan 033, 2026-11-20, a client keeps no copy of the directory; see §4.)
 2. **Boot makes the service the primary.** `bootFromCatalog`
    (`apps/client/src/main.ts`) treats every saved server as a boot candidate and
    calls `serverConnections.registerPrimary` on the first that accepts. At the
@@ -178,11 +179,12 @@ export const directoryResponseSchema = z.object({
 - `workspaces` lists one entry per organization the caller belongs to. A
   malformed list reads as empty, so the machines still load. The grant route is
   unchanged (`workspace:<organizationId>`, built by `solusApiId`).
-- A client keeps the two apart: `mergeDirectoryIntoSaved` saves the machines
-  (`solus.servers`), and `saveDirectoryWorkspaces` saves the workspaces
-  (`solus.workspaces`, `packages/client-core/src/workspace-registry.ts`).
-  `ServerConnections` resolves and supervises a workspace from that registry,
-  never from the saved hosts. `isSolusApiId` answers "is this id a
+- A client keeps the two apart, in memory (plan 033, 2026-11-20): the host catalog
+  (`packages/client-core/src/host-catalog.ts`) reads the directory on each start and
+  answers its machines with `hosts()` and its workspaces with `workspaces()`. Nothing
+  of the directory is saved on the device; `solus.servers` and `solus.workspaces`
+  are deleted, not read. `ServerConnections` resolves and supervises a workspace from
+  `workspaces()`, never from the hosts. `isSolusApiId` answers "is this id a
   Solus API" from the id alone.
 
 ## 5. The client

@@ -10,7 +10,7 @@
   import * as Empty from "../../ui/empty";
   import { Skeleton } from "../../ui/skeleton";
   import { Button } from "../../ui/button";
-  import { savedRunnerFor } from "@solus/client-core/session-runner";
+  import { knownRunnerFor } from "@solus/client-core/session-runner";
   import { recordRunner, sessionRecordHeader } from "./lib/session-record-page";
   import RecordTranscript from "./RecordTranscript.svelte";
 
@@ -48,13 +48,13 @@
   const runnerHostId = $derived(record?.runnerHostId ?? null);
   // A runner that answered but could not open the session leaves the record read only, not "Connecting".
   let revealFailed = $state(false);
-  const savedRunnerId = $derived(runnerHostId ? savedRunnerFor(runnerHostId, serversStore.remotes) : null);
-  const savedRunnerState = $derived(savedRunnerId ? serversStore.readinessFor(savedRunnerId) : null);
-  const runnerServerId = $derived(savedRunnerState?.readiness === "ready" ? savedRunnerId : null);
+  const knownRunnerId = $derived(runnerHostId ? knownRunnerFor(runnerHostId, serversStore.remotes) : null);
+  const savedRunnerState = $derived(knownRunnerId ? serversStore.readinessFor(knownRunnerId) : null);
+  const runnerServerId = $derived(savedRunnerState?.readiness === "ready" ? knownRunnerId : null);
   const runner = $derived(
     recordRunner(
-      savedRunnerId && savedRunnerState
-        ? { label: serversStore.hostFor(savedRunnerId)?.label ?? "the machine that runs this session", state: savedRunnerState }
+      knownRunnerId && savedRunnerState
+        ? { label: serversStore.hostFor(knownRunnerId)?.label ?? "the machine that runs this session", state: savedRunnerState }
         : null,
     ),
   );

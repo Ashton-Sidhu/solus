@@ -4,7 +4,7 @@ import { EMPTY_SESSION_VIEW, settleFor, type SessionState, type SessionView } fr
 import type { SessionMeta, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
 import type { ResourceRole } from '@solus/contracts/sharing'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { connectedRunnerFor, savedRunnerFor } from '@solus/client-core/session-runner'
+import { connectedRunnerFor, knownRunnerFor } from '@solus/client-core/session-runner'
 import { sessionHomeId } from '@solus/client-core/session-home'
 import { onSessionMetaRead, readSessionMeta } from '@solus/client-core/session-meta'
 import { SessionHostTurns, SessionHostTurnsBook } from '@solus/client-core/session-heads'
@@ -14,7 +14,7 @@ import { keepEqual } from '@solus/client-core/keep-equal'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { rememberRoles } from '../sharing/resource-roles'
 import { usesWindowFilter, visibleInWindow } from '@solus/client-core/organization-filter'
-import { managedHostIds } from '@solus/client-core/server-registry'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import { newGrants, sessionShareOf, type SessionShare } from './shared-sessions'
 import { CloudSessions } from './cloud-sessions.svelte'
 
@@ -105,10 +105,10 @@ export interface SessionListTarget {
 
 /** The connections a session's homes are on. */
 export interface SessionListHosts {
-  /** The connected saved server a cloud record's runner host id names, or null. */
+  /** The connected known host a cloud record's runner host id names, or null. */
   connectedRunnerFor(runnerHostId: string): string | null
-  /** The saved server an account host id names, connected or not. Absent: `connectedRunnerFor`. */
-  savedRunnerFor?(hostId: string): string | null
+  /** The known host an account host id names, connected or not. Absent: `connectedRunnerFor`. */
+  knownRunnerFor?(hostId: string): string | null
   connectedServerIds(): string[]
   /** A machine provisioned for an organization; any other is personal (plans/031). Absent: every machine is personal. */
   isManagedHost?(serverId: string): boolean
@@ -116,9 +116,9 @@ export interface SessionListHosts {
 
 const registryHosts: SessionListHosts = {
   connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
-  savedRunnerFor: (hostId) => savedRunnerFor(hostId),
+  knownRunnerFor: (hostId) => knownRunnerFor(hostId),
   connectedServerIds: () => serverConnections.connectedServerIds(),
-  isManagedHost: (serverId) => managedHostIds().has(serverId),
+  isManagedHost: (serverId) => hostCatalog.managedHostIds().has(serverId),
 }
 
 
@@ -543,7 +543,7 @@ export class SessionListStore {
   /** Local sessions, the selected organization's, and every session of a personal
    *  host (plans/031 rule 1), including cached homes. */
   sessionsInOrganization(organizationId: string | null): ListedSession[] {
-    const managed = managedHostIds()
+    const managed = hostCatalog.managedHostIds()
     return this.sessions.filter((session) => visibleInWindow(session.organizationId, organizationId, usesWindowFilter(session.homeServerId, managed)))
   }
 

@@ -14,7 +14,7 @@ mock.module('@solus/workspace-ui/contexts/sessions/session-record-transcript', (
 const machineReferences = await import('@solus/workspace-ui/contexts/workspace/machine-references')
 mock.module('@solus/workspace-ui/contexts/workspace/machine-references', () => ({
   ...machineReferences,
-  savedHostsAreAuthoritative: () => true,
+  knownHostsAreAuthoritative: () => true,
 }))
 
 const { hydrateTabOnGoneMachine } = await import('@solus/workspace-ui/contexts/workspace/session-bootstrap')

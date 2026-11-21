@@ -2,7 +2,7 @@ import type { Session, Tab, Prompt, RunConfig } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import type { SettingsContext } from '../app/settings.context.svelte'
-import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { LOCAL_SERVER_ID } from '@solus/client-core/known-host'
 import { folderLocation } from './run-location'
 
 export function makePrompt(overrides?: Partial<Prompt>): Prompt {

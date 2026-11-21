@@ -60,7 +60,7 @@
     pendingQuestionForPrompt,
   } from "./lib/pending-question";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
   import { useComposerFold } from "./lib/composer-fold.svelte";
   import { sessionComposerMode, SUGGEST_ONLY_REASON, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
 

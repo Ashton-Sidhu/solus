@@ -1,7 +1,7 @@
 <script lang="ts">
   import { settingsDefinitions } from "@solus/client-core/settings-definitions";
   import { hostUpdatesStore } from '../../contexts/updates/host-updates.store.svelte';
-  import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry';
+  import { LOCAL_SERVER_ID } from '@solus/client-core/known-host';
   import { providerSummary } from '../connections/lib/host-update-rows';
   import { connectionsNav } from '../connections/connections-nav.svelte';
   import { getWorkspaceContext } from '../../contexts';
