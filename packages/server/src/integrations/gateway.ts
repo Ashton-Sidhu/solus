@@ -1,4 +1,3 @@
-import type { Client } from '@modelcontextprotocol/client'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { ProtocolError, SdkError, SdkErrorCode, type GetPromptResult, type SdkHttpError, type ReadResourceResult, type PriorDiscovery } from '@modelcontextprotocol/client'
 import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationCustomServerNeeded, type IntegrationEnvValue, type IntegrationFacts, type IntegrationProcessFacts, type IntegrationStopReason, type IntegrationToolSummary } from '@solus/contracts/integration-types'
@@ -16,15 +15,17 @@ import type { SavedServerFacts, ServerFactsKey, ServerFactsStore } from './serve
 import { commandStartRefusal, type CommandStarter } from './command-admission'
 import { listUpstreamResources, NO_RESOURCES, type UpstreamResourceLists } from './resource-lists'
 import { listUpstreamPrompts, listUpstreamTools, serverCapabilitiesOf } from './upstream-lists'
-import { STDIO_START_TIMEOUT_MS, StderrTail, StdioProcessStates, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
+import { STDIO_START_TIMEOUT_MS, StderrTail, SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
+import { KnownServer } from './known-server'
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
 import { endSolusSpan } from '../execution/observability/tracer'
 import { accountLabel, callRequest, callSpanStatus, elicitFromCall, splitAccount, startCallSpan, type TurnContextOf } from './integration-call'
-import { cancelTask, MCP_TASKS_EXTENSION, ServerStoppedError, taskHandleOf, TaskAwareClient, type HeldMcpTask, type McpTaskCalls } from './mcp-task-requests'
-import { openResourceSubscription, type ResourceSubscription, type ResourceWatchCalls } from './resource-subscriptions'
+import { MCP_TASKS_EXTENSION, ServerStoppedError, ServerTask, taskHandleOf, TaskAwareClient, type HeldMcpTask, type McpTaskCalls } from './mcp-task-requests'
+import type { ResourceWatchCalls } from './resource-subscriptions'
 import {
   ConnectionRequiredError,
   errorText,
+  firstAccount,
   isAuthFailure,
   isLostResponse,
   promptNames,
@@ -40,6 +41,7 @@ import {
   type IntegrationAppCapture,
   type ServerFacts,
   type ToolArguments,
+  type UpstreamAddress,
   type UpstreamPrompt,
   type UpstreamSession,
   type UpstreamTool,
@@ -61,6 +63,12 @@ const STDIO_VERDICT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 /** Live `stdio` sessions on one host (§7.3). */
 const STDIO_SESSION_LIMIT = 16
 
+/** How a use of a session may open it: `starter` may start a command; `allowAnonymous` opens one with no header. */
+interface SessionUse {
+  starter?: CommandStarter
+  allowAnonymous?: boolean
+}
+
 /** What `connection_status` reports about one person's connection to an integration. */
 export interface IntegrationConnectionReport {
   status: 'connected' | 'needs-sign-in' | 'not-connected'
@@ -78,12 +86,13 @@ export interface IntegrationConnectionReport {
  */
 export class IntegrationGateway {
   private readonly sessions = new Map<string, UpstreamSession>()
-  private readonly serverFacts = new Map<string, ServerFacts>()
+  /**
+   * What the gateway knows of each server for each person, by the key of the
+   * person's first-account session: the lists are read on that session, so
+   * its key finds the entry and the key of another account finds none.
+   */
+  private readonly knownServers = new Map<string, KnownServer>()
   private readonly revisions = new Map<string, { prior: PriorDiscovery; checkedAt: number }>()
-  private readonly listing = new Map<string, Promise<UpstreamTool[]>>()
-  private readonly promptListing = new Map<string, Promise<UpstreamPrompt[]>>()
-  /** The resource lists of each session key; they go with the session (§11.1). */
-  private readonly resourceLists = new Map<string, UpstreamResourceLists>()
   private readonly listeners: Array<(integrationId: string) => void> = []
   private readonly factsListeners: Array<(integrationId: string) => void> = []
   private readonly connectNeededListeners: Array<(request: IntegrationConnectNeeded) => void> = []
@@ -91,7 +100,6 @@ export class IntegrationGateway {
   private readonly opening = new Map<string, Promise<UpstreamSession>>()
   private credentials: IntegrationCredentials | null = null
   private captureApp: ((call: IntegrationAppCapture) => Promise<void>) | null = null
-  private readonly processes: StdioProcessStates
   /** `stdio` sessions that are starting, so the limit counts them. */
   private stdioStarting = 0
   private turnContextOf: TurnContextOf | null = null
@@ -107,9 +115,7 @@ export class IntegrationGateway {
     readonly store: Pick<IntegrationStore, 'get' | 'list'>,
     private readonly callClock: CallClock = SYSTEM_CALL_CLOCK,
     private readonly options: { clock?: GatewayClock; savedFacts?: ServerFactsStore } = {},
-  ) {
-    this.processes = new StdioProcessStates(() => this.clock.now())
-  }
+  ) {}
 
   private get clock(): GatewayClock {
     return this.options.clock ?? SYSTEM_CLOCK
@@ -154,30 +160,11 @@ export class IntegrationGateway {
    * once, then the connection needs sign-in and this throws
    * `ConnectionRequiredError`.
    */
-  async withBackgroundSession<T>(integrationId: string, personKey: string, accountId: string, use: (client: TaskAwareClient) => Promise<T>, starter: CommandStarter = null, retried = false): Promise<T> {
-    const key = sessionKey(integrationId, personKey, accountId)
-    const integration = this.store.get(integrationId, ANY_ORGANIZATION)
+  async withBackgroundSession<T>(address: UpstreamAddress, use: (client: TaskAwareClient) => Promise<T>, starter: CommandStarter = null): Promise<T> {
+    const integration = this.store.get(address.integrationId, ANY_ORGANIZATION)
     if (!integration) throw new ServerStoppedError('The MCP server was removed.')
-    if (integration.kind === 'stdio' && !starter && !this.sessions.get(key)?.stdio) throw new ServerStoppedError('The server stopped.')
-    const session = await this.session(integrationId, personKey, false, accountId, starter)
-    try {
-      return await use(session.client)
-    } catch (error) {
-      if (!session.authorized || !isAuthFailure(error)) throw error
-      if (!retried) {
-        this.readHeaderAgain(session)
-        return this.withBackgroundSession(integrationId, personKey, accountId, use, starter, true)
-      }
-      this.signInRefused(session, integration, error)
-      throw new ConnectionRequiredError()
-    } finally {
-      this.touch(key)
-    }
-  }
-
-  /** Opens one resource subscription for a watch (§11.5); `withBackgroundSession` says which session. */
-  subscribeResource(integrationId: string, personKey: string, accountId: string, uri: string, starter: CommandStarter): Promise<ResourceSubscription> {
-    return this.withBackgroundSession(integrationId, personKey, accountId, (client) => openResourceSubscription(client, uri, CALL_TIMEOUT_MS), starter)
+    if (integration.kind === 'stdio' && !starter && !this.sessions.get(sessionKey(address))?.stdio) throw new ServerStoppedError('The server stopped.')
+    return this.onSession(address, { starter }, (session) => use(session.client))
   }
 
   /**
@@ -187,31 +174,22 @@ export class IntegrationGateway {
    * them (`commandStartRefusal`).
    */
   async readResource(integrationId: string, uri: string, starter: CommandStarter, options: { signal?: AbortSignal; timeout?: number } = {}): Promise<ReadResourceResult> {
-    return this.withAppSession(integrationId, starter, (client) => client.readResource({ uri }, { timeout: options.timeout ?? CALL_TIMEOUT_MS, signal: options.signal }))
+    return this.onSession(firstAccount(integrationId, currentPersonKey()), { starter }, ({ client }) => client.readResource({ uri }, { timeout: options.timeout ?? CALL_TIMEOUT_MS, signal: options.signal }))
   }
 
   /** Calls one tool for an MCP App, or an app of Solus, with the current person's connection. It never starts an agent turn. */
   async callAppTool(integrationId: string, name: string, input: ToolArguments, starter: CommandStarter): Promise<AppToolResult> {
-    return this.withAppSession(integrationId, starter, async (client) => {
+    return this.onSession(firstAccount(integrationId, currentPersonKey()), { starter }, async ({ client }) => {
       try {
         return await client.callTool({ name, arguments: input }, { timeout: CALL_TIMEOUT_MS })
       } catch (error) {
         // An app waits for its answer in the frame; it cannot wait for an MCP task (§12). The work is not left running.
         const handle = taskHandleOf(error)
         if (!handle) throw error
-        void cancelTask(client, handle.taskId, { traceparent: null, timeout: CALL_TIMEOUT_MS }).catch(() => undefined)
+        void new ServerTask(client, handle.taskId, { traceparent: null, timeout: CALL_TIMEOUT_MS }).cancel().catch(() => undefined)
         throw new Error(`${name} runs as an MCP task, and an MCP App cannot wait for one. Ask the agent to run ${name}.`)
       }
     })
-  }
-
-  private async withAppSession<T>(integrationId: string, starter: CommandStarter, use: (client: Client) => Promise<T>): Promise<T> {
-    const session = await this.session(integrationId, currentPersonKey(), false, DEFAULT_INTEGRATION_ACCOUNT, starter)
-    try {
-      return await use(session.client)
-    } finally {
-      this.touch(sessionKey(integrationId, session.personKey, session.accountId))
-    }
   }
 
   /**
@@ -221,19 +199,16 @@ export class IntegrationGateway {
    * started for a list: it has none until it runs.
    */
   async resourcesFor(integrationId: string, personKey: string | null, starter: CommandStarter): Promise<UpstreamResourceLists> {
-    const key = sessionKey(integrationId, personKey)
-    const cached = this.resourceLists.get(key)
-    if (cached && (cached.expiresAt === null || Date.now() < cached.expiresAt)) return cached
-    if (!starter && !this.sessions.has(key) && this.store.get(integrationId, ANY_ORGANIZATION)?.kind === 'stdio') return NO_RESOURCES
-    const session = await this.session(integrationId, personKey, false, DEFAULT_INTEGRATION_ACCOUNT, starter)
-    try {
-      const lists = await listUpstreamResources(session.client, Date.now())
-      if (this.sessions.get(key) === session) this.resourceLists.set(key, lists)
+    const known = this.known(integrationId, personKey)
+    const fresh = known.resourcesWhileFresh(this.clock.now())
+    if (fresh) return fresh
+    if (!starter && this.isStoppedCommand(integrationId, personKey)) return NO_RESOURCES
+    return this.onSession(firstAccount(integrationId, personKey), { starter }, async (session) => {
+      const lists = await listUpstreamResources(session.client, this.clock.now())
+      if (this.sessions.get(session.key) === session) known.resources = lists
       log.info('integration_resources_listed', { integrationId, resources: lists.resources.length, templates: lists.templates.length })
       return lists
-    } finally {
-      this.touch(key)
-    }
+    })
   }
 
   /** The current person's tools of an integration, as Settings shows them. */
@@ -248,7 +223,7 @@ export class IntegrationGateway {
 
   async factsFor(integrationId: string, personKey: string | null): Promise<IntegrationFacts> {
     await this.toolsFor(integrationId, personKey)
-    const facts = this.serverFacts.get(sessionKey(integrationId, personKey))
+    const facts = this.known(integrationId, personKey).facts
     const answer: IntegrationFacts = facts
       ? { era: facts.era, instructions: facts.instructions, capabilities: facts.capabilities }
       : { era: null, instructions: null, capabilities: { prompts: false, resources: false, resourceSubscribe: false, tasks: false } }
@@ -261,7 +236,7 @@ export class IntegrationGateway {
     for (const session of this.sessions.values()) {
       if (session.integrationId === integrationId && session.personKey === personKey && session.stdio && !session.stdio.ended) return { state: 'running' }
     }
-    return this.processes.facts(sessionKey(integrationId, personKey))
+    return this.known(integrationId, personKey).process.facts()
   }
 
   /**
@@ -273,15 +248,14 @@ export class IntegrationGateway {
   async startProcess(integrationId: string, starter: CommandStarter, recheck = false): Promise<IntegrationFacts> {
     const personKey = currentPersonKey()
     if (personKey === null) throw new Error('A command runs for a person, and this connection acts for none.')
-    const key = sessionKey(integrationId, personKey)
-    this.processes.clear(key)
+    this.known(integrationId, personKey).process.clear()
     if (recheck) {
       this.options.savedFacts?.dropVerdicts(integrationId)
       await this.stopProcess(integrationId)
-      this.processes.clear(key)
+      this.known(integrationId, personKey).process.clear()
     }
     try {
-      await this.session(integrationId, personKey, false, DEFAULT_INTEGRATION_ACCOUNT, starter)
+      await this.session(firstAccount(integrationId, personKey), { starter })
       await this.list(integrationId, personKey)
     } catch (error) {
       const integration = this.store.get(integrationId, ANY_ORGANIZATION)
@@ -308,19 +282,11 @@ export class IntegrationGateway {
    * person has no connection: a prompt is the person's, never anonymous.
    */
   async promptsFor(integrationId: string, personKey: string | null): Promise<UpstreamPrompt[]> {
-    const key = sessionKey(integrationId, personKey)
-    if (!this.sessions.has(key) && this.store.get(integrationId, ANY_ORGANIZATION)?.kind === 'stdio') return this.savedFacts(integrationId, personKey)?.prompts?.prompts ?? []
+    if (this.isStoppedCommand(integrationId, personKey)) return this.savedFacts(integrationId, personKey)?.prompts?.prompts ?? []
     await this.upstreamTools(integrationId, personKey)
-    const facts = this.serverFacts.get(key)
-    if (!facts?.capabilities.prompts) return []
-    const listed = facts.prompts
-    if (listed && !facts.stale && (listed.expiresAt === null || Date.now() < listed.expiresAt)) return listed.prompts
-    let listing = this.promptListing.get(key)
-    if (!listing) {
-      listing = this.listPrompts(integrationId, personKey).finally(() => this.promptListing.delete(key))
-      this.promptListing.set(key, listing)
-    }
-    return listing
+    const known = this.known(integrationId, personKey)
+    if (!known.facts?.capabilities.prompts) return []
+    return known.promptsWhileFresh(this.clock.now()) ?? known.listPrompts(() => this.listPrompts(integrationId, personKey))
   }
 
   /**
@@ -329,17 +295,7 @@ export class IntegrationGateway {
    * `ConnectionRequiredError` when the person has no usable connection.
    */
   async getPrompt(integrationId: string, name: string, args: Record<string, string>, starter: CommandStarter): Promise<GetPromptResult> {
-    const session = await this.session(integrationId, currentPersonKey(), false, DEFAULT_INTEGRATION_ACCOUNT, starter)
-    try {
-      return await session.client.getPrompt({ name, arguments: args }, { timeout: CALL_TIMEOUT_MS })
-    } catch (error) {
-      const integration = this.store.get(integrationId, ANY_ORGANIZATION)
-      if (!session.authorized || !isAuthFailure(error) || !integration) throw error
-      this.signInRefused(session, integration, error)
-      throw new ConnectionRequiredError()
-    } finally {
-      this.touch(sessionKey(integrationId, session.personKey, session.accountId))
-    }
+    return this.onSession(firstAccount(integrationId, currentPersonKey()), { starter }, ({ client }) => client.getPrompt({ name, arguments: args }, { timeout: CALL_TIMEOUT_MS }))
   }
 
   /**
@@ -364,8 +320,8 @@ export class IntegrationGateway {
 
   /** A list any person's session cached: the tools are the server's, only their use is per person. */
   private anyCachedTools(integrationId: string): UpstreamTool[] | undefined {
-    for (const cache of this.serverFacts.values()) {
-      if (cache.integrationId === integrationId) return cache.tools
+    for (const known of this.knownServers.values()) {
+      if (known.integrationId === integrationId && known.facts) return known.facts.tools
     }
     return undefined
   }
@@ -425,7 +381,7 @@ export class IntegrationGateway {
     let session: UpstreamSession | null = null
     let ended: AgentToolResult | null = null
     try {
-      session = await this.session(integrationId, currentPersonKey(), false, accountId, starter)
+      session = await this.session({ integrationId, personKey: currentPersonKey(), accountId }, { starter })
       session.calls.push(call)
       limits.start()
       const result = await session.client.callTool(
@@ -437,7 +393,7 @@ export class IntegrationGateway {
         },
       )
       if (this.captureApp && !('isError' in result && result.isError)) await this.saveApp(this.captureApp, { integration, tool, input, result, context })
-      const facts = this.serverFacts.get(sessionKey(integrationId, session.personKey))
+      const facts = this.known(integrationId, session.personKey).facts
       const mapped = await agentResultOf(result, {
         tool,
         outputSchema: this.anyCachedTools(integrationId)?.find((candidate) => candidate.name === tool)?.outputSchema,
@@ -476,11 +432,11 @@ export class IntegrationGateway {
       if (refusal) return ended = refusal
       log.warn('integration_call_failed', { integrationId, tool, error: errorText(error) })
       if (session?.client.getProtocolEra() === 'modern' && isLostResponse(error)) {
-        void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
+        void this.closeSession(session.key)
         return { ok: false, text: `${integration.name} lost the response for ${tool}. The request may have run, so Solus did not send it again.` }
       }
       // A transport failure drops the session so the next call opens a new one; a server error keeps it.
-      if (session && !(error instanceof SdkError)) void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
+      if (session && !(error instanceof SdkError)) void this.closeSession(session.key)
       return { ok: false, text: callFailureText(integration, tool, error) }
     } finally {
       limits.pause()
@@ -491,7 +447,7 @@ export class IntegrationGateway {
         if (index >= 0) session.calls.splice(index, 1)
         if (session.retired) {
           if (!session.calls.length) void session.client.close().catch(() => undefined)
-        } else this.touch(sessionKey(integrationId, session.personKey, session.accountId))
+        } else this.touch(session.key)
       }
     }
   }
@@ -499,7 +455,7 @@ export class IntegrationGateway {
   /** Without an owner of MCP tasks, the work is not left running on the server. */
   private async heldTask(session: UpstreamSession, call: HeldMcpTask): Promise<AgentToolResult> {
     if (this.mcpTasks) return this.mcpTasks.hold(call)
-    void cancelTask(session.client, call.handle.taskId, { traceparent: call.traceparent, timeout: CALL_TIMEOUT_MS }).catch(() => undefined)
+    void new ServerTask(session.client, call.handle.taskId, { traceparent: call.traceparent, timeout: CALL_TIMEOUT_MS }).cancel().catch(() => undefined)
     return { ok: false, text: `${call.integration.name} runs ${call.tool} as an MCP task, and this host cannot follow one.` }
   }
 
@@ -514,13 +470,9 @@ export class IntegrationGateway {
 
   /** Forget an integration's sessions and tool lists, as after an edit or a removal. A change of the record also ends `failed` (§7.3). */
   invalidate(integrationId: string): void {
-    this.processes.clearIntegration(`${integrationId}\u0000`)
     this.revisions.delete(integrationId)
-    for (const [key, cache] of this.serverFacts) {
-      if (cache.integrationId === integrationId) this.serverFacts.delete(key)
-    }
-    for (const key of this.resourceLists.keys()) {
-      if (key.startsWith(`${integrationId}\u0000`)) this.resourceLists.delete(key)
+    for (const [key, known] of this.knownServers) {
+      if (known.integrationId === integrationId) this.knownServers.delete(key)
     }
     for (const [key, session] of this.sessions) {
       if (session.integrationId === integrationId) void this.closeSession(key)
@@ -598,72 +550,87 @@ export class IntegrationGateway {
    * `allowAnonymous`: with no connection, list without a header.
    */
   private async upstreamTools(integrationId: string, personKey: string | null, allowAnonymous = false): Promise<UpstreamTool[]> {
-    const key = sessionKey(integrationId, personKey)
     // A command that is not running is read from its saved facts: a run or a Settings read starts nothing (§7.5).
-    if (!this.sessions.has(key) && this.store.get(integrationId, ANY_ORGANIZATION)?.kind === 'stdio') return this.savedFacts(integrationId, personKey)?.tools ?? []
-    const cached = this.serverFacts.get(key)
-    if (cached && !cached.stale && (cached.expiresAt === null || Date.now() < cached.expiresAt)) return cached.tools
-    let listed = this.listing.get(key)
-    if (!listed) {
-      listed = this.list(integrationId, personKey, allowAnonymous).finally(() => this.listing.delete(key))
-      this.listing.set(key, listed)
-    }
-    if (!cached || (cached.expiresAt !== null && Date.now() >= cached.expiresAt)) return listed
+    if (this.isStoppedCommand(integrationId, personKey)) return this.savedFacts(integrationId, personKey)?.tools ?? []
+    const known = this.known(integrationId, personKey)
+    const now = this.clock.now()
+    const fresh = known.toolsWhileFresh(now)
+    if (fresh) return fresh
+    const old = known.toolsWhileUnexpired(now)
+    const listed = known.listTools(() => this.list(integrationId, personKey, allowAnonymous))
+    if (!old) return listed
     listed.catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
-    return cached.tools
+    return old
   }
 
   /**
-   * Reads one list on a person's session. As a call does, a refused header is
-   * read again once, on a new session, before the person is asked to sign in.
+   * Runs `use` on the address's session, opened if none is. A refused header
+   * is read again once, on a new session, before the person is asked to sign
+   * in; then the connection needs sign-in and this throws
+   * `ConnectionRequiredError`. Each use starts the idle time again.
    */
-  private async listOn<T>(integrationId: string, personKey: string | null, allowAnonymous: boolean, read: (client: Client) => Promise<T>, retried = false): Promise<{ session: UpstreamSession; listed: T }> {
-    const session = await this.session(integrationId, personKey, allowAnonymous)
+  private async onSession<T>(address: UpstreamAddress, how: SessionUse, use: (session: UpstreamSession) => Promise<T>, retried = false): Promise<T> {
+    const session = await this.session(address, how)
     try {
-      return { session, listed: await read(session.client) }
+      return await use(session)
     } catch (error) {
       if (!session.authorized || !isAuthFailure(error)) throw error
       if (!retried) {
         this.readHeaderAgain(session)
-        return this.listOn(integrationId, personKey, allowAnonymous, read, true)
+        return this.onSession(address, how, use, true)
       }
-      const integration = this.store.get(integrationId, ANY_ORGANIZATION)
+      const integration = this.store.get(address.integrationId, ANY_ORGANIZATION)
       if (integration) this.signInRefused(session, integration, error)
       throw new ConnectionRequiredError()
+    } finally {
+      this.touch(session.key)
     }
   }
 
   private async list(integrationId: string, personKey: string | null, allowAnonymous = false): Promise<UpstreamTool[]> {
-    const { session, listed: { tools, expiresAt } } = await this.listOn(integrationId, personKey, allowAnonymous, (client) => listUpstreamTools(client, Date.now()))
-    const key = sessionKey(integrationId, personKey)
-    const previous = this.serverFacts.get(key)
+    const { session, listed: { tools, expiresAt } } = await this.onSession(firstAccount(integrationId, personKey), { allowAnonymous }, async (session) => ({ session, listed: await listUpstreamTools(session.client, this.clock.now()) }))
+    const known = this.known(integrationId, personKey)
+    const previous = known.facts
     const instructions = session.client.getInstructions() ?? null
-    this.serverFacts.set(key, {
-      integrationId, tools, stale: false, expiresAt, prompts: promptsKept(previous),
+    known.facts = {
+      tools, stale: false, expiresAt, prompts: promptsKept(previous),
       era: session.client.getProtocolEra() ?? null, instructions, capabilities: serverCapabilitiesOf(session.client),
-    })
-    this.saveListed(session, key)
+    }
+    this.saveListed(session, known.facts)
     if (previous?.instructions !== instructions) {
       log.info('integration_instructions_changed', { integrationId, length: instructions?.length ?? 0 })
-      for (const listener of this.factsListeners) listener(integrationId)
+      this.factsChanged(integrationId)
     }
-    this.touch(key)
     log.info('integration_tools_listed', { integrationId, count: tools.length })
     if (previous && toolNames(previous.tools) !== toolNames(tools)) this.notify(integrationId)
     return tools
   }
 
   private async listPrompts(integrationId: string, personKey: string | null): Promise<UpstreamPrompt[]> {
-    const { session, listed: { prompts, expiresAt } } = await this.listOn(integrationId, personKey, false, (client) => listUpstreamPrompts(client, Date.now()))
-    const key = sessionKey(integrationId, personKey)
-    const facts = this.serverFacts.get(key)
+    const { session, listed: { prompts, expiresAt } } = await this.onSession(firstAccount(integrationId, personKey), {}, async (session) => ({ session, listed: await listUpstreamPrompts(session.client, this.clock.now()) }))
+    const facts = this.known(integrationId, personKey).facts
     const previous = facts?.prompts?.prompts
     if (facts) facts.prompts = { prompts, expiresAt }
-    this.saveListed(session, key)
-    this.touch(key)
+    this.saveListed(session, facts)
     log.info('integration_prompts_listed', { integrationId, count: prompts.length })
     if (previous && promptNames(previous) !== promptNames(prompts)) this.factsChanged(integrationId)
     return prompts
+  }
+
+  /** What the gateway knows of the integration's server for one person, made on first use. */
+  private known(integrationId: string, personKey: string | null): KnownServer {
+    const key = sessionKey(firstAccount(integrationId, personKey))
+    let known = this.knownServers.get(key)
+    if (!known) {
+      known = new KnownServer(integrationId, () => this.clock.now())
+      this.knownServers.set(key, known)
+    }
+    return known
+  }
+
+  /** A command that does not run for the person: a read answers from its saved facts and starts nothing (§7.5). */
+  private isStoppedCommand(integrationId: string, personKey: string | null): boolean {
+    return !this.sessions.has(sessionKey(firstAccount(integrationId, personKey))) && this.store.get(integrationId, ANY_ORGANIZATION)?.kind === 'stdio'
   }
 
   /**
@@ -672,8 +639,8 @@ export class IntegrationGateway {
    * has none, unless `allowAnonymous`. A command starts only for `starter`
    * (`commandStartRefusal`); a read names none, so it starts nothing.
    */
-  private async session(integrationId: string, personKey: string | null, allowAnonymous = false, accountId: string = DEFAULT_INTEGRATION_ACCOUNT, starter: CommandStarter = null): Promise<UpstreamSession> {
-    const key = sessionKey(integrationId, personKey, accountId)
+  private async session(address: UpstreamAddress, { allowAnonymous = false, starter = null }: SessionUse = {}): Promise<UpstreamSession> {
+    const key = sessionKey(address)
     const open = this.sessions.get(key)
     if (open && this.isCurrent(open)) {
       await open.connected
@@ -681,7 +648,7 @@ export class IntegrationGateway {
     }
     let opening = this.opening.get(key)
     if (!opening) {
-      opening = this.open(key, integrationId, personKey, allowAnonymous, accountId, starter).finally(() => this.opening.delete(key))
+      opening = this.open(address, allowAnonymous, starter).finally(() => this.opening.delete(key))
       this.opening.set(key, opening)
     }
     const session = await opening
@@ -700,21 +667,23 @@ export class IntegrationGateway {
       const integration = this.store.get(session.integrationId, ANY_ORGANIZATION)
       return integration?.kind === 'stdio' || integration?.auth.kind === 'none'
     }
-    return Date.now() - session.openedAt < AUTHORIZATION_MAX_AGE_MS
+    return this.clock.now() - session.openedAt < AUTHORIZATION_MAX_AGE_MS
   }
 
-  private async open(key: string, integrationId: string, personKey: string | null, allowAnonymous: boolean, accountId: string, starter: CommandStarter): Promise<UpstreamSession> {
+  private async open(address: UpstreamAddress, allowAnonymous: boolean, starter: CommandStarter): Promise<UpstreamSession> {
+    const { integrationId, personKey, accountId } = address
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) throw new Error('This integration was removed.')
-    if (integration.kind === 'stdio') return this.openStdio(key, integration, personKey, accountId, starter)
+    if (integration.kind === 'stdio') return this.openStdio(integration, address, starter)
     let authorization: string | null = null
     // The host's own work (null) has no connection: it lists anonymously.
     if (integration.auth.kind !== 'none' && personKey !== null) {
       authorization = (await this.credentials?.authorizationFor(integrationId, personKey, accountId)) ?? null
     }
+    const key = sessionKey(address)
     this.retire(key)
     if (integration.auth.kind !== 'none' && !authorization && !allowAnonymous) throw new ConnectionRequiredError()
-    const session = this.newSession(key, integrationId, personKey, accountId, !!authorization)
+    const session = this.newSession(address, !!authorization)
     const client = session.client
     const prior = this.priorFor(integrationId)
     session.connected = client.connect(upstreamTransport(integration, personKey, authorization, accountId, [], this.credentials), prior ? { prior } : undefined)
@@ -722,7 +691,7 @@ export class IntegrationGateway {
     try {
       await session.connected
       const discover = client.getDiscoverResult()
-      this.revisions.set(integrationId, { prior: discover ? { kind: 'modern', discover } : { kind: 'legacy' }, checkedAt: Date.now() })
+      this.revisions.set(integrationId, { prior: discover ? { kind: 'modern', discover } : { kind: 'legacy' }, checkedAt: this.clock.now() })
     } catch (error) {
       if (this.sessions.get(key) === session) this.sessions.delete(key)
       void client.close().catch(() => undefined)
@@ -736,12 +705,14 @@ export class IntegrationGateway {
     log.info('integration_session_opened', { integrationId, personKey, authorized: session.authorized })
     this.touch(key)
     // The list cached before an idle close may be old: read it again in the background.
-    if (this.serverFacts.get(key)?.stale) void this.list(integrationId, personKey, allowAnonymous).catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
+    if (this.knownServers.get(key)?.stale) void this.list(integrationId, personKey, allowAnonymous).catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
     return session
   }
 
   /** A session and its client, not yet connected. */
-  private newSession(key: string, integrationId: string, personKey: string | null, accountId: string, authorized: boolean): UpstreamSession {
+  private newSession(address: UpstreamAddress, authorized: boolean): UpstreamSession {
+    const { integrationId, personKey, accountId } = address
+    const key = sessionKey(address)
     // The tasks extension goes on each request (§12): a server may answer any tool call with an MCP task.
     const client = new TaskAwareClient({ name: 'solus', version: '1.0.0' }, {
       versionNegotiation: { mode: 'auto' },
@@ -749,31 +720,31 @@ export class IntegrationGateway {
       listChanged: {
         tools: { autoRefresh: false, onChanged: () => {
           if (this.sessions.get(key) !== session) return
-          this.serverFacts.delete(key)
+          this.known(integrationId, personKey).facts = null
           this.notify(integrationId)
         } },
         // The next read lists the prompts again; clients read again on the facts event (§10).
         prompts: { autoRefresh: false, onChanged: () => {
           if (this.sessions.get(key) !== session) return
-          const facts = this.serverFacts.get(key)
+          const facts = this.known(integrationId, personKey).facts
           if (facts) facts.prompts = null
           this.factsChanged(integrationId)
         } },
         // Clients list resources again on `integration.changed` with `change: 'facts'` (§11.4).
         resources: { autoRefresh: false, onChanged: () => {
           if (this.sessions.get(key) !== session) return
-          this.resourceLists.delete(key)
+          this.known(integrationId, personKey).resources = null
           this.factsChanged(integrationId)
         } },
       },
     })
     const session: UpstreamSession = {
-      integrationId, personKey, accountId, client, connected: Promise.resolve(), idleTimer: null, calls: [],
-      authorized, openedAt: Date.now(), retired: false, closing: false, lastUsedAt: this.clock.now(), stdio: null,
+      key, integrationId, personKey, accountId, client, connected: Promise.resolve(), idleTimer: null, calls: [],
+      authorized, openedAt: this.clock.now(), retired: false, closing: false, lastUsedAt: this.clock.now(), stdio: null,
     }
     client.setRequestHandler('elicitation/create', (request) => elicitFromCall(session.calls.at(-1), request))
     // A legacy server sends it unsolicited after `resources/subscribe`; a modern one on a `subscriptions/listen` stream (§11.5).
-    client.setNotificationHandler('notifications/resources/updated', (notification) => this.watches?.updated({ integrationId, personKey, accountId }, notification.params.uri))
+    client.setNotificationHandler('notifications/resources/updated', (notification) => this.watches?.updated(session, notification.params.uri))
     return session
   }
 
@@ -783,67 +754,67 @@ export class IntegrationGateway {
    * checked once for every path. A verdict the SDK refuses is dropped and the
    * revision is checked once more.
    */
-  private async openStdio(key: string, integration: Integration, personKey: string | null, accountId: string, starter: CommandStarter): Promise<UpstreamSession> {
+  private async openStdio(integration: Integration, { personKey, accountId }: UpstreamAddress, starter: CommandStarter): Promise<UpstreamSession> {
     const notAllowed = commandStartRefusal(integration, personKey, starter)
     if (notAllowed) throw new Error(notAllowed)
     // The rule refuses the host's own work already; this test only tells the type.
     if (personKey === null) throw new Error(`${integration.name} is a command, and the host's own work starts no command.`)
-    const refusal = this.processes.refusal(sessionKey(integration.id, personKey))
+    const refusal = this.known(integration.id, personKey).process.refusal()
     if (refusal) throw new Error(refusal)
     const environment = integration.auth.kind === 'env' ? this.credentials?.environmentFor?.(integration.id, personKey, accountId) ?? null : []
     if (!environment) throw new ConnectionRequiredError()
-    this.retire(key)
+    const address: ServerFactsKey = { integrationId: integration.id, personKey, accountId }
+    this.retire(sessionKey(address))
     this.stdioStarting++
     try {
       await this.makeRoomForStdio()
-      return await this.connectStdio(key, integration, personKey, accountId, environment, false)
+      return await this.connectStdio(integration, address, environment, false)
     } finally {
       this.stdioStarting--
     }
   }
 
-  private async connectStdio(key: string, integration: Integration, personKey: string, accountId: string, environment: IntegrationEnvValue[], retried: boolean): Promise<UpstreamSession> {
-    const processKey = sessionKey(integration.id, personKey)
-    const factsKey: ServerFactsKey = { integrationId: integration.id, personKey, accountId }
-    const prior = retried ? undefined : this.savedPrior(factsKey)
+  private async connectStdio(integration: Integration, address: ServerFactsKey, environment: IntegrationEnvValue[], retried: boolean): Promise<UpstreamSession> {
+    const { personKey, accountId } = address
+    const prior = retried ? undefined : this.savedPrior(address)
     // The saved list is the one a new list is compared with.
     this.savedFacts(integration.id, personKey)
-    const session = this.newSession(key, integration.id, personKey, accountId, false)
+    const session = this.newSession(address, false)
     const transport = upstreamTransport(integration, personKey, null, accountId, environment, this.credentials)
     const stdio = transport instanceof StdioClientTransport ? transport : null
     const stderr = new StderrTail(stdio?.stderr ?? null)
     const startedAt = this.clock.now()
     session.connected = session.client.connect(transport, prior ? { prior, timeout: STDIO_START_TIMEOUT_MS } : { timeout: STDIO_START_TIMEOUT_MS })
-    this.sessions.set(key, session)
+    this.sessions.set(session.key, session)
     try {
       await session.connected
     } catch (error) {
-      if (this.sessions.get(key) === session) this.sessions.delete(key)
+      if (this.sessions.get(session.key) === session) this.sessions.delete(session.key)
       void session.client.close().catch(() => undefined)
       if (prior && error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed) {
-        this.options.savedFacts?.dropVerdict(factsKey)
-        return this.connectStdio(key, integration, personKey, accountId, environment, true)
+        this.options.savedFacts?.dropVerdict(address)
+        return this.connectStdio(integration, address, environment, true)
       }
-      const failure = this.processes.startFailed(processKey, integration, startedAt, stderr, error)
+      const failure = this.known(integration.id, personKey).process.startFailed(integration, startedAt, stderr, error)
       this.factsChanged(integration.id)
       throw failure
     }
     session.stdio = { pid: stdio?.pid ?? null, stderr, startedAt, ended: false }
-    session.client.onclose = () => this.stdioEnded(key, session, integration.name)
+    session.client.onclose = () => this.stdioEnded(session, integration.name)
     if (!prior) {
       const discover = session.client.getDiscoverResult()
-      this.options.savedFacts?.saveVerdict(factsKey, discover ? { kind: 'modern', discover } : { kind: 'legacy' }, this.clock.now())
+      this.options.savedFacts?.saveVerdict(address, discover ? { kind: 'modern', discover } : { kind: 'legacy' }, this.clock.now())
     }
-    this.processes.started(processKey)
+    this.known(integration.id, personKey).process.started()
     log.info('integration_process_started', { integrationId: integration.id, personKey, pid: session.stdio.pid })
-    this.touch(key)
+    this.touch(session.key)
     this.factsChanged(integration.id)
-    if (this.serverFacts.get(key)?.stale) void this.list(integration.id, personKey).catch((error) => log.warn('integration_relist_failed', { integrationId: integration.id, error: errorText(error) }))
+    if (this.knownServers.get(session.key)?.stale) void this.list(integration.id, personKey).catch((error) => log.warn('integration_relist_failed', { integrationId: integration.id, error: errorText(error) }))
     return session
   }
 
   /** The process ended and the gateway did not close it (§7.3): the session goes, calls in flight fail, and the next use starts it again. */
-  private stdioEnded(key: string, session: UpstreamSession, integrationName: string): void {
+  private stdioEnded(session: UpstreamSession, integrationName: string): void {
     const child = session.stdio
     if (!child || child.ended || session.closing) return
     child.ended = true
@@ -852,26 +823,25 @@ export class IntegrationGateway {
       log.info('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: child.pid, byItself: false, stderrBytes: child.stderr.bytes })
       return
     }
-    if (this.sessions.get(key) === session) {
-      this.sessions.delete(key)
+    if (this.sessions.get(session.key) === session) {
+      this.sessions.delete(session.key)
       if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
-      const cache = this.serverFacts.get(key)
-      if (cache) cache.stale = true
+      this.knownServers.get(session.key)?.markStale()
     }
     this.mcpTasks?.processEnded(session.integrationId, session.personKey)
-    const state = this.processes.ended(sessionKey(session.integrationId, session.personKey), child.startedAt, `${integrationName} stopped by itself.`, child.stderr.tail)
+    const state = this.known(session.integrationId, session.personKey).process.ended(child.startedAt, `${integrationName} stopped by itself.`, child.stderr.tail)
     log.warn('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: child.pid, byItself: true, state, stderrBytes: child.stderr.bytes })
     this.factsChanged(session.integrationId)
   }
 
   /** At most 16 live commands (§7.3): a new one closes the idle one used least recently, or fails. */
   private async makeRoomForStdio(): Promise<void> {
-    const live = [...this.sessions].filter(([, session]) => session.stdio && !session.stdio.ended)
+    const live = [...this.sessions.values()].filter((session) => session.stdio && !session.stdio.ended)
     if (live.length + this.stdioStarting <= STDIO_SESSION_LIMIT) return
-    const idle = live.filter(([, session]) => !session.calls.length && !this.holdsUpstream(session)).sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt)[0]
+    const idle = live.filter((session) => !session.calls.length && !this.holdsUpstream(session)).sort((a, b) => a.lastUsedAt - b.lastUsedAt)[0]
     if (!idle) throw new Error('Too many MCP servers are running on this host.')
-    log.info('integration_process_evicted', { integrationId: idle[1].integrationId })
-    await this.closeSession(idle[0], 'limit')
+    log.info('integration_process_evicted', { integrationId: idle.integrationId })
+    await this.closeSession(idle.key, 'limit')
   }
 
   /** The saved verdict of one person and account, unless it is older than 7 days. */
@@ -883,21 +853,18 @@ export class IntegrationGateway {
 
   /** A command's facts in memory, else as saved; the saved ones wait for the next start to be listed again. */
   private savedFacts(integrationId: string, personKey: string | null): ServerFacts | null {
-    const key = sessionKey(integrationId, personKey)
-    const cached = this.serverFacts.get(key)
-    if (cached) return cached
+    const known = this.known(integrationId, personKey)
+    if (known.facts) return known.facts
     if (personKey === null) return null
     const saved = this.options.savedFacts?.get({ integrationId, personKey, accountId: DEFAULT_INTEGRATION_ACCOUNT })?.facts
     if (!saved) return null
     const { prompts, ...rest } = saved
-    const facts: ServerFacts = { integrationId, ...rest, prompts: prompts ? { prompts, expiresAt: null } : null, stale: true, expiresAt: null }
-    this.serverFacts.set(key, facts)
-    return facts
+    known.facts = { ...rest, prompts: prompts ? { prompts, expiresAt: null } : null, stale: true, expiresAt: null }
+    return known.facts
   }
 
   /** A command's new list is saved, so the next run reads it without a start (§7.5). */
-  private saveListed(session: UpstreamSession, key: string): void {
-    const facts = this.serverFacts.get(key)
+  private saveListed(session: UpstreamSession, facts: ServerFacts | null): void {
     if (!session.stdio || session.personKey === null || !facts) return
     const { tools, era, instructions, capabilities } = facts
     const factsKey: ServerFactsKey = { integrationId: session.integrationId, personKey: session.personKey, accountId: session.accountId }
@@ -917,18 +884,18 @@ export class IntegrationGateway {
     const saved = this.revisions.get(integrationId)
     if (!saved) return undefined
     if (saved.prior.kind === 'modern') return saved.prior
-    return Date.now() - saved.checkedAt < LEGACY_VERDICT_MAX_AGE_MS ? saved.prior : undefined
+    return this.clock.now() - saved.checkedAt < LEGACY_VERDICT_MAX_AGE_MS ? saved.prior : undefined
   }
 
   /** The session's header stopped working: the next session reads it again, past any copy the credentials keep. */
   private readHeaderAgain(session: UpstreamSession): void {
     if (session.personKey !== null) this.credentials?.forgetCached?.(session.integrationId, session.personKey, session.accountId)
-    this.retire(sessionKey(session.integrationId, session.personKey, session.accountId))
+    this.retire(session.key)
   }
 
   /** The server refused the person's header: drop the session so the next use asks for a new one. */
   private signInRefused(session: UpstreamSession, integration: Pick<Integration, 'name'>, error: SdkHttpError): void {
-    void this.closeSession(sessionKey(session.integrationId, session.personKey, session.accountId))
+    void this.closeSession(session.key)
     if (session.personKey !== null) this.credentials?.markNeedsSignIn(session.integrationId, session.personKey, refusedMessage(integration, error), session.accountId)
   }
 
@@ -976,8 +943,7 @@ export class IntegrationGateway {
   }
 
   private holdsUpstream(session: UpstreamSession): boolean {
-    return !!this.mcpTasks?.holdsUpstream(session.integrationId, session.personKey, session.accountId)
-      || !!this.watches?.holdsUpstream({ integrationId: session.integrationId, personKey: session.personKey, accountId: session.accountId })
+    return !!this.mcpTasks?.holdsUpstream(session) || !!this.watches?.holdsUpstream(session)
   }
 
   /** `stopReason`: why a running command stops, for its row; none when the host or a change closes it. */
@@ -986,10 +952,10 @@ export class IntegrationGateway {
     if (!session) return
     this.sessions.delete(key)
     if (session.idleTimer) this.clock.clearTimeout(session.idleTimer)
-    const cache = this.serverFacts.get(key)
-    if (cache) cache.stale = true
+    const known = this.knownServers.get(key)
+    known?.markStale()
     // A closed session hears no list-changed notification.
-    this.resourceLists.delete(key)
+    if (known) known.resources = null
     // The SDK closes standard input, then sends SIGTERM and SIGKILL to the one child it started (§7.3).
     session.closing = true
     await session.client.close().catch((error) => log.warn('integration_session_close_failed', { integrationId: session.integrationId, error: errorText(error) }))
@@ -997,7 +963,7 @@ export class IntegrationGateway {
     if (session.stdio && !session.stdio.ended) {
       session.stdio.ended = true
       log.info('integration_process_stopped', { integrationId: session.integrationId, personKey: session.personKey, pid: session.stdio.pid, byItself: false, stderrBytes: session.stdio.stderr.bytes })
-      this.processes.stopped(sessionKey(session.integrationId, session.personKey), stopReason)
+      this.known(session.integrationId, session.personKey).process.stopped(stopReason)
       this.mcpTasks?.processEnded(session.integrationId, session.personKey)
       this.factsChanged(session.integrationId)
     }

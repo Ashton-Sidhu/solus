@@ -2,6 +2,7 @@ import type { AgentToolContext, AgentToolResult } from '../execution/agents/tool
 import type { Integration } from '@solus/contracts/integration-types'
 import type { CommandStarter } from './command-admission'
 import type { TaskAwareClient } from './mcp-task-requests'
+import type { UpstreamAddress } from './upstream-session'
 
 /**
  * The client side of a resource subscription (docs/plans/mcp-first-class.md
@@ -21,13 +22,6 @@ export interface ResourceSubscription {
   readonly ended: Promise<void>
   /** Ends it and tells the server. `unsubscribe: false` keeps a legacy subscription that another watch shares. */
   close(options: { unsubscribe: boolean }): Promise<void>
-}
-
-/** Where a change notification came from: one person's upstream session. */
-export interface UpstreamAddress {
-  integrationId: string
-  personKey: string | null
-  accountId: string
 }
 
 /** What the resource watch owner (`resource-watches.ts`) does for the gateway and the agent tool. */

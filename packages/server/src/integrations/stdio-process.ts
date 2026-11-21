@@ -126,18 +126,17 @@ interface ProcessRecord {
 }
 
 /**
- * The state of each person's process of each `stdio` integration, by the
- * gateway's key for (integration, person). `running` is the gateway's answer:
- * a live session. This keeps what a stopped or failed process left behind.
+ * What one person's process of a `stdio` integration left behind when it
+ * stopped or failed. `running` is the gateway's answer: a live session.
  */
-export class StdioProcessStates {
-  private readonly records = new Map<string, ProcessRecord>()
+export class StdioProcessState {
+  private record: ProcessRecord | null = null
 
   constructor(private readonly now: () => number) {}
 
   /** What `IntegrationFacts.process` says when no session runs. */
-  facts(key: string): IntegrationProcessFacts {
-    const record = this.records.get(key)
+  facts(): IntegrationProcessFacts {
+    const record = this.record
     if (!record) return { state: 'stopped' }
     const facts: IntegrationProcessFacts = { state: record.state }
     if (record.message) facts.message = record.message
@@ -148,44 +147,41 @@ export class StdioProcessStates {
   }
 
   /** Why the process may not start now, or null. */
-  refusal(key: string): string | null {
-    const record = this.records.get(key)
-    return record?.state === 'failed' ? record.message ?? 'This command failed. Press Start again.' : null
+  refusal(): string | null {
+    return this.record?.state === 'failed' ? this.record.message ?? 'This command failed. Press Start again.' : null
   }
 
   /** A start that worked: what an older end left behind is gone, but the count of quick ends stays. */
-  started(key: string): void {
-    const record = this.records.get(key)
-    if (record) {
-      delete record.message
-      delete record.stderrTail
+  started(): void {
+    if (this.record) {
+      delete this.record.message
+      delete this.record.stderrTail
     }
   }
 
   /** Stop, an idle close, room at the limit, or the host's stop (no reason). A failed process stays failed. */
-  stopped(key: string, reason: IntegrationStopReason | undefined): void {
-    const record = this.records.get(key)
-    if (record?.state === 'failed') return
-    const next: ProcessRecord = { state: 'stopped', quickEnds: record?.quickEnds ?? [] }
+  stopped(reason: IntegrationStopReason | undefined): void {
+    if (this.record?.state === 'failed') return
+    const next: ProcessRecord = { state: 'stopped', quickEnds: this.record?.quickEnds ?? [] }
     if (reason) next.stopReason = reason
-    this.records.set(key, next)
+    this.record = next
   }
 
   /**
    * The process ended by itself, or ended before it answered. Three such ends
    * within 10 seconds of a start, in 5 minutes, set `failed`. Answers the state.
    */
-  ended(key: string, startedAt: number, message: string, stderrTail: string | undefined): IntegrationProcessFacts['state'] {
+  ended(startedAt: number, message: string, stderrTail: string | undefined): IntegrationProcessFacts['state'] {
     const now = this.now()
-    const quickEnds = (this.records.get(key)?.quickEnds ?? []).filter((at) => now - at <= QUICK_END_WINDOW_MS)
+    const quickEnds = (this.record?.quickEnds ?? []).filter((at) => now - at <= QUICK_END_WINDOW_MS)
     if (now - startedAt <= QUICK_END_MS) quickEnds.push(now)
     const failed = quickEnds.length >= QUICK_ENDS_TO_FAIL
-    this.records.set(key, {
+    this.record = {
       state: failed ? 'failed' : 'stopped',
       message: failed ? `${message} It ended ${QUICK_ENDS_TO_FAIL} times soon after it started, so Solus does not start it again until you press Start again.` : message,
       stderrTail,
       quickEnds,
-    })
+    }
     return failed ? 'failed' : 'stopped'
   }
 
@@ -195,25 +191,20 @@ export class StdioProcessStates {
    * in 30 seconds (each one an end soon after a start). Answers the error the
    * caller throws.
    */
-  startFailed(key: string, integration: Pick<Integration, 'id' | 'name' | 'launch'>, startedAt: number, stderr: StderrTail, cause: unknown): Error {
+  startFailed(integration: Pick<Integration, 'id' | 'name' | 'launch'>, startedAt: number, stderr: StderrTail, cause: unknown): Error {
     const notStarted = notStartedMessage(integration, cause)
     const timedOut = cause instanceof SdkError && cause.code === SdkErrorCode.RequestTimeout
     const message = notStarted
       ?? (timedOut ? `${integration.name} did not answer as an MCP server within ${STDIO_START_TIMEOUT_MS / 1000} seconds.` : `${integration.name} ended before it answered as an MCP server.`)
-    if (notStarted) this.records.set(key, { state: 'failed', message: notStarted, startFailure: spawnFailure(cause) === 'EACCES' ? 'not-runnable' : 'not-installed', quickEnds: [] })
-    else this.ended(key, startedAt, message, stderr.tail)
+    if (notStarted) this.record = { state: 'failed', message: notStarted, startFailure: spawnFailure(cause) === 'EACCES' ? 'not-runnable' : 'not-installed', quickEnds: [] }
+    else this.ended(startedAt, message, stderr.tail)
     // The size of standard error only: it can hold a secret the server printed.
     log.warn('integration_process_start_failed', { integrationId: integration.id, notInstalled: notStarted !== null, timedOut, stderrBytes: stderr.bytes })
-    return new Error(this.refusal(key) ?? message)
+    return new Error(this.refusal() ?? message)
   }
 
-  /** Start again, or a change of the record. */
-  clear(key: string): void {
-    this.records.delete(key)
-  }
-
-  /** Every person's record of one integration. */
-  clearIntegration(keyPrefix: string): void {
-    for (const key of this.records.keys()) if (key.startsWith(keyPrefix)) this.records.delete(key)
+  /** Start again. A change of the record drops the whole state with the gateway's `KnownServer`. */
+  clear(): void {
+    this.record = null
   }
 }
