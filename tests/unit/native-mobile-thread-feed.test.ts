@@ -168,6 +168,25 @@ describe('native work log wording', () => {
     expect(toolRowLabel({ toolName: 'Edit', input: '{"file_path":"/repo/a.ts","changes":"many"}' })).toBe('a.ts')
   })
 
+  test('a folded turn names the calls it hides and their work groups, for its outputs strip', () => {
+    // WHY: a strip chip opens the fold, the group, and the row of its call, so
+    // the fold row must know the group of each call it hides.
+    const rows = present([user('u1'), tool('t1'), tool('t2'), assistant('a1'), tool('t3'), assistant('a2')])
+    const fold = rows.find((row) => row.type === 'run-fold')
+    expect(fold).toMatchObject({ toolIds: ['t1', 't2', 't3'], toolGroupIds: ['work-group:t1', 'work-group:t1', 'work-group:t3'] })
+    const opened = present([user('u1'), tool('t1'), tool('t2'), assistant('a1'), tool('t3'), assistant('a2')], { expandedTurnIds: ['turn:u1'] })
+    expect(opened.filter((row) => row.type === 'work-toggle').map((row) => row.type === 'work-toggle' && row.groupId)).toEqual(['work-group:t1', 'work-group:t3'])
+    // Tool images are in the strip, not in the turn's footer.
+    expect(rows.find((row) => row.type === 'turn-artifacts')).not.toHaveProperty('toolIds')
+  })
+
+  test('the Solus tools of the MCP program have readable labels', () => {
+    const read = { toolName: 'mcp__solus__read_integration_resource', input: '{"server":"linear","uri":"issue://ENG-412"}', status: 'completed' as const }
+    expect(toolRowLabel(read)).toBe('linear · read issue://ENG-412')
+    expect(toolActivitySummary(read)).toBe('linear · read issue://ENG-412')
+    expect(toolRowLabel({ toolName: 'connect_integration', input: '{"service":"Notion"}' })).toBe('Connect Notion')
+  })
+
   test('an open call shows its images only once it has finished', () => {
     const images = [{ assetId: `${'a'.repeat(64)}.png`, mimeType: 'image/png' }]
     expect(toolDetailImages({ status: 'running', images })).toEqual([])

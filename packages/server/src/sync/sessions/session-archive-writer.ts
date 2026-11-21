@@ -20,7 +20,8 @@ import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
 import { captureActingScope, withActingScope, withUserScope } from '../../vault/acting-scope'
 import { emptySessionManifest, type SessionManifest, type SessionManifestThreadFile, type SessionManifestTurn } from './session-manifest'
-import { SessionHeadMovedError, sessionRepositoryName, type SessionRepositories, type SessionRepository, type TurnCommitEntry } from './session-repository'
+import type { GitFileEntry } from '../git-storage/git-repository'
+import { SessionHeadMovedError, sessionRepositoryName, type SessionRepositories, type SessionRepository } from './session-repository'
 
 const log = createLogger('SessionArchive', 'session-archive-writer.ts')
 
@@ -345,7 +346,7 @@ export class SessionArchiveWriter {
   }
 
   /** The code bundle and the diff patch of the snapshots this turn adds, with their facts written into `turn` and `manifest.project`. */
-  private async codeEntries(manifest: SessionManifest, turn: SessionManifestTurn, index: number, checkout: NonNullable<PendingTurn['checkout']>, scratch: string): Promise<TurnCommitEntry[]> {
+  private async codeEntries(manifest: SessionManifest, turn: SessionManifestTurn, index: number, checkout: NonNullable<PendingTurn['checkout']>, scratch: string): Promise<GitFileEntry[]> {
     const sessionId = manifest.session.id
     const baseSha = getSessionBaseSha(checkout.repoRoot, sessionId)
     if (!baseSha) return []
@@ -359,7 +360,7 @@ export class SessionArchiveWriter {
       ownsWorktree: checkout.workTree !== resolve(checkout.repoRoot),
     }
     turn.snapshots = snapshots
-    const entries: TurnCommitEntry[] = []
+    const entries: GitFileEntry[] = []
     const bundleFile = join(scratch, 'turn.bundle')
     const bundle: TurnCodeBundle | { kind: 'failed' } = await writeTurnCodeBundle(checkout.repoRoot, {
       sessionId, snapshots, previousCommit, headSha: checkout.headSha,
@@ -394,8 +395,8 @@ function manifestLineage(members: SessionLineageMember[], turn: TurnEnd, isFork:
  * The bytes each provider file gained after the last turn commit, as entries
  * of turn `index`. Updates the files of the thread in `manifest`.
  */
-function threadEntries(manifest: SessionManifest, index: number, pending: PendingTurn): TurnCommitEntry[] {
-  const entries: TurnCommitEntry[] = []
+function threadEntries(manifest: SessionManifest, index: number, pending: PendingTurn): GitFileEntry[] {
+  const entries: GitFileEntry[] = []
   for (const file of pending.files) {
     let thread = manifest.threads.find((candidate) => candidate.threadId === pending.threadId)
     if (!thread) {

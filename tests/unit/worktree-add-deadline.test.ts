@@ -11,20 +11,20 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // checkout or a slow hook (installing dependencies) takes minutes. The 60 s
 // default deadline killed it and the new worktree was deleted (t3code #23802).
 // The checkout has no deadline; Stop still ends it through its signal.
-const childProcess = await import('node:child_process')
-const realSpawn = childProcess.spawn
-const realSpawnSync = childProcess.spawnSync
+// The Git process runner owns the time limit, so the test reads the limit that
+// the checkout asks the runner for.
+const gitProcess = await import('@solus/server/git/git-process')
+const realRunGit = gitProcess.runGit
+const realSpawnSync = (await import('node:child_process')).spawnSync
 const checkoutTimeouts: Array<number | undefined> = []
-const recordingChildProcess = () => ({
-  ...childProcess,
-  spawn: (...args: Parameters<typeof realSpawn>) => {
-    const [, argv, options] = args as unknown as [string, string[], { timeout?: number } | undefined]
-    if (argv?.includes('worktree') && argv.includes('add')) checkoutTimeouts.push(options?.timeout)
-    return realSpawn(...args)
+mock.module('@solus/server/git/git-process', () => ({
+  ...gitProcess,
+  runGit: (...args: Parameters<typeof realRunGit>) => {
+    const [, argv, run] = args
+    if (argv.includes('worktree') && argv.includes('add')) checkoutTimeouts.push(run.timeout)
+    return realRunGit(...args)
   },
-})
-mock.module('child_process', recordingChildProcess)
-mock.module('node:child_process', recordingChildProcess)
+}))
 
 let createWorktree: typeof import('@solus/server/git/worktree-manager')['createWorktree']
 beforeAll(async () => {

@@ -1,4 +1,4 @@
-import { toolResultImages } from "@solus/client-core/reply-images";
+import { toolResultImages, type ReplyImage } from "@solus/client-core/reply-images";
 import type { ToolResultImage } from "@solus/contracts/types";
 import { memo, useMemo } from "react";
 import { View } from "react-native";
@@ -6,6 +6,7 @@ import { useApp } from "../../app/app-context";
 import { FilePreviewGallery } from "../../components/FilePreviewGallery";
 import type { FilePreviewItem } from "../../components/FilePreview.types";
 import type { ConversationStore } from "../conversation/conversation-store";
+import type { HostConnection } from "../hosts/host-connections";
 import { resolveHostMediaUrl } from "../files/host-media-url";
 import { useTranscriptItem } from "./use-transcript-items";
 import { ThreadMarkdown } from "./ThreadMarkdown";
@@ -27,12 +28,7 @@ export const ThreadToolImages = memo(function ThreadToolImages(props: {
   const app = useApp();
   const images = useMemo(() => toolResultImages(props.images), [props.images]);
   const connection = app.connections.connection(props.store.controller.hostId);
-  const gallery = useMemo<readonly FilePreviewItem[]>(() => images.map((image) => ({
-    key: image.href,
-    kind: "image" as const,
-    name: image.label,
-    resolveUri: async () => connection ? resolveHostMediaUrl(connection, { assetId: image.href.slice(8) }) : null,
-  })), [connection, images]);
+  const gallery = useMemo(() => images.map((image) => assetPreviewItem(connection, image)), [connection, images]);
   return (
     <FilePreviewGallery value={gallery}>
       <View className="self-stretch gap-2">
@@ -43,3 +39,13 @@ export const ThreadToolImages = memo(function ThreadToolImages(props: {
     </FilePreviewGallery>
   );
 });
+
+/** A stored tool image as the file viewer opens it: the host signs its URL when the viewer shows it. */
+export function assetPreviewItem(connection: HostConnection | null, image: ReplyImage): FilePreviewItem {
+  return {
+    key: image.href,
+    kind: "image",
+    name: image.label,
+    resolveUri: async () => connection ? resolveHostMediaUrl(connection, { assetId: image.href.slice(8) }) : null,
+  };
+}

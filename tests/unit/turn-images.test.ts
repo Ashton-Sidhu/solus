@@ -41,6 +41,6 @@ test('a tool row shows its images as asset references the host signs, and only w
   expect(markdownAssetId(images[0].href)).toBe(assetId)
   expect(toolRowImages({ ...tool, toolStatus: 'running' })).toEqual([])
   expect(toolResultImages(undefined)).toEqual([])
-  // Tool images stay in the tool row, out of the turn's gallery.
+  // Tool images stay in the tool row, out of the turn's gallery: the folded row's outputs strip shows them.
   expect(hasGallerySlides([tool])).toBe(false)
 })

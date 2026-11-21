@@ -27,11 +27,7 @@ const ambientEnvFiles = new Map([
 /** Names that mean "the host itself", and the files that may use them. */
 const hostNames = new Set(['HOST_ACTOR', 'HOST_IDENTITY', 'HOST_SCOPE', 'withHostScope', 'hostCliEnv'])
 const hostNameFiles = new Map([
-  ['packages/server/src/sync/git-remote.ts', 'runs Git for private Solus repositories with host-scoped credentials'],
-  ['packages/server/src/sync/works/git-work-transport.ts', 'writes service-owned work archives with service credentials, never a person’s code checkout'],
-  ['packages/server/src/sync/works/local-work-repositories.ts', 'maintains private work history inside the host’s Solus data directory'],
-  ['packages/server/src/sync/sessions/session-repository.ts', 'maintains private session repositories inside the host’s Solus data directory'],
-  ['packages/server/src/apps/app-repository.ts', 'maintains an app’s private repository inside the host’s Solus data directory'],
+  ['packages/server/src/sync/git-storage/git-repository.ts', 'runs Git for the private storage repositories of works, sessions, and apps as the host, never in a person’s code checkout'],
   ['packages/server/src/apps/app-builder.ts', 'builds an app’s revision inside the host’s Solus data directory, as the host'],
   ['packages/server/src/skills/registry-skill-cache.ts', 'downloads a registry skill into the host’s cache, never into a person’s home'],
   ['packages/server/src/admission/actor.ts', 'defines the host actor'],

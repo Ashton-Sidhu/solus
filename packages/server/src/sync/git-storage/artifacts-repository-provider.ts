@@ -1,15 +1,42 @@
 import { z } from 'zod'
-import type { WorkRepositoryAccess } from './git-work-transport'
+import { isStorageRepositoryName } from '../../data/storage-repository-name'
+import { RepositoryFileTooLargeError } from './git-repository'
+import type { RepositoryProvider } from './repository-provider'
 
 const repositorySchema = z.object({ success: z.literal(true), result: z.object({ remote: z.string().url() }) })
 const tokenSchema = z.object({ success: z.literal(true), result: z.object({ plaintext: z.string().min(1) }) })
 
-/** Account credentials remain in this server-side control-plane client only. */
-export class CloudflareWorkRepositories implements WorkRepositoryAccess {
+/** The variables that name the Artifacts account. Each feature has its own namespace. */
+export interface ArtifactsEnvironment {
+  SOLUS_ARTIFACTS_ACCOUNT_ID?: string
+  SOLUS_ARTIFACTS_NAMESPACE?: string
+  SOLUS_SESSION_ARTIFACTS_NAMESPACE?: string
+  SOLUS_ARTIFACTS_API_TOKEN?: string
+}
+
+/** One Cloudflare Artifacts namespace. Account credentials remain in this server-side control-plane client only. */
+export class ArtifactsRepositoryProvider implements RepositoryProvider {
+  readonly storageScope: string
   private readonly base: string
   constructor(private readonly accountId: string, namespace: string, private readonly apiToken: string, private readonly signal?: AbortSignal, private readonly requestFetch: typeof fetch = fetch) {
     if (!/^[a-f0-9]{32}$/.test(accountId) || !/^[a-z0-9][a-z0-9-]*$/.test(namespace) || !apiToken) throw new Error('Invalid Artifacts account, namespace or server credential.')
+    this.storageScope = `${accountId}/${namespace}`
     this.base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/artifacts/namespaces/${namespace}`
+  }
+
+  /** The namespace that the environment names for one feature. `feature` starts the error for a missing variable. */
+  static fromEnvironment(
+    env: ArtifactsEnvironment,
+    namespaceVariable: 'SOLUS_ARTIFACTS_NAMESPACE' | 'SOLUS_SESSION_ARTIFACTS_NAMESPACE',
+    feature: string,
+    signal?: AbortSignal,
+    requestFetch: typeof fetch = fetch,
+  ): ArtifactsRepositoryProvider {
+    const accountId = env.SOLUS_ARTIFACTS_ACCOUNT_ID
+    const namespace = env[namespaceVariable]
+    const credential = env.SOLUS_ARTIFACTS_API_TOKEN
+    if (!accountId || !namespace || !credential) throw new Error(`${feature} needs SOLUS_ARTIFACTS_ACCOUNT_ID, ${namespaceVariable} and SOLUS_ARTIFACTS_API_TOKEN.`)
+    return new ArtifactsRepositoryProvider(accountId, namespace, credential, signal, requestFetch)
   }
 
   private async request(path: string, method = 'GET', body?: string): Promise<Response> {
@@ -22,10 +49,10 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
   }
 
   private checkName(repository: string): void {
-    if (!/^(?:work|session)-[a-f0-9]{48}$/.test(repository)) throw new Error('Invalid Solus repository name.')
+    if (!isStorageRepositoryName(repository)) throw new Error('Invalid Solus repository name.')
   }
 
-  async remote(repository: string, scope: 'read' | 'write' = 'write'): Promise<{ url: string; token: string }> {
+  async remote(repository: string, access: 'read' | 'write'): Promise<{ url: string; token: string }> {
     this.checkName(repository)
     let response = await this.request(`/repos/${repository}`)
     if (response.status === 404) {
@@ -36,7 +63,7 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
     const url = repositorySchema.parse(await response.json()).result.remote
     const remote = new URL(url)
     if (remote.protocol !== 'https:' || remote.hostname !== `${this.accountId}.artifacts.cloudflare.net` || remote.username || remote.password || remote.search || remote.hash) throw new Error('Unexpected Artifacts Git remote.')
-    const issued = await this.request('/tokens', 'POST', JSON.stringify({ repo: repository, scope, ttl: 900 }))
+    const issued = await this.request('/tokens', 'POST', JSON.stringify({ repo: repository, scope: access, ttl: 900 }))
     if (!issued.ok) throw new Error('The Artifacts repository token could not be issued.')
     return { url, token: tokenSchema.parse(await issued.json()).result.plaintext }
   }
@@ -44,7 +71,7 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
   async readFile(repository: string, commit: string, path: string, maxBytes?: number): Promise<string> {
     this.checkName(repository)
     const response = await this.request(`/repos/${repository}/file?${new URLSearchParams({ ref: commit, path })}`)
-    if (!response.ok) throw new Error('The Artifacts work body could not be read.')
+    if (!response.ok) throw new Error('The Artifacts repository file could not be read.')
     if (maxBytes === undefined) return response.text()
     const reader = response.body?.getReader()
     if (!reader) throw new Error('The Artifacts file has no body.')
@@ -55,7 +82,7 @@ export class CloudflareWorkRepositories implements WorkRepositoryAccess {
         const part = await reader.read()
         if (part.done) break
         bytes += part.value.byteLength
-        if (bytes > maxBytes) throw new Error('SESSION_FILE_TOO_LARGE')
+        if (bytes > maxBytes) throw new RepositoryFileTooLargeError()
         parts.push(part.value)
       }
     } finally { await reader.cancel().catch(() => {}) }

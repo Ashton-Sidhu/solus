@@ -352,6 +352,19 @@ describe('getToolDescription', () => {
     expect(mcpToolLabel('mcp__solus__create_work')).toBeNull()
   })
 
+  // WHY: a resource read showed `mcp__solus__read_integration_resource` on its
+  // tool line. The Solus tools of the MCP program read as the other MCP rows do.
+  test('names the Solus tools of the MCP program by server and action', () => {
+    expect(getToolDescription('mcp__solus__read_integration_resource', '{"server":"linear","uri":"issue://ENG-412"}', { truncate: false }))
+      .toBe('linear · read issue://ENG-412')
+    expect(getToolDescription('read_integration_resource')).toBe('Read resource')
+    expect(getToolDescription('mcp__solus__list_integration_resources', '{"server":"linear"}')).toBe('linear · list resources')
+    expect(getToolDescription('watch_integration_resource', '{"server":"linear","uri":"issue://1","watching":true}')).toBe('linear · watch issue://1')
+    expect(getToolDescription('mcp__solus__connect_integration', '{"service":"Notion"}')).toBe('Connect Notion')
+    expect(failedToolLabel('mcp__solus__read_integration_resource')).toBe('Read resource failed')
+    expect(liveToolStep('mcp__solus__read_integration_resource').label).toBe('Reading resource')
+  })
+
   test('keeps argument-free Solus tools concise', () => {
     expect(getToolDescription('search_sessions', '{}', { truncate: false })).toBe('search_sessions')
   })

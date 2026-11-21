@@ -1,20 +1,21 @@
-import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AppRevisionStats } from '@solus/contracts/apps'
-import { hostCliEnv } from '../cli-env'
 import { dataDir } from '../platform/paths'
-import { withUserScope } from '../vault/acting-scope'
+import { GitRepository, type GitRepositoryOptions } from '../sync/git-storage/git-repository'
 
 /**
  * An app's git repository (docs/plans/apps.md §4.2): a private, bare
- * repository under the host's data folder, as a work's history is
- * (`sync/works/local-work-repositories.ts`). `refs/heads/main` is the source:
- * one commit, a revision, for each save. `refs/solus/versions/<number>` is the
- * build of that version: one commit whose parent is the revision it was built
- * from. The host writes every commit; nothing pushes to this repository.
+ * repository under the host's data folder, as a work's history is. The Git
+ * commands are those of the Git storage layer
+ * (docs/adr/0004-shared-git-storage.md); this file owns the name of an app
+ * repository, its refs, and what a revision and a build are.
+ * `refs/heads/main` is the source: one commit, a revision, for each save.
+ * `refs/solus/versions/<number>` is the build of that version: one commit
+ * whose parent is the revision it was built from. The host writes every
+ * commit; nothing pushes to this repository.
  */
 
 /** One file of a commit: a path with `/` separators, relative to the root. */
@@ -53,6 +54,19 @@ const MAX_FILE_BYTES = 32 * 1024 * 1024
 const MAX_PATCH_BYTES = 512 * 1024
 const COMMIT = /^[a-f0-9]{40}$/
 
+/** What an app repository gives to the Git storage layer (docs/adr/0005-one-git-process-runner.md). */
+const APP_REPOSITORY: GitRepositoryOptions = {
+  timeoutMs: 60_000,
+  outputLimitBytes: MAX_FILE_BYTES,
+  subject: 'app repository',
+  // A person can clone this repository: its commits keep the author they always had.
+  author: 'apps@solus.invalid',
+  // A person names the files of an app.
+  fileNames: 'any',
+  // A checkout writes each file byte for byte.
+  env: { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'false' },
+}
+
 /** The counts of git's `--shortstat` line: ` 3 files changed, 10 insertions(+), 2 deletions(-)`. No line is a revision that changed nothing. */
 export function revisionStats(shortstat: string): AppRevisionStats {
   const count = (pattern: RegExp) => Number(pattern.exec(shortstat)?.[1] ?? 0)
@@ -84,61 +98,17 @@ export class AppRepositories {
     return join(this.root(), `${repository}.git`)
   }
 
-  private git(repository: string, args: string[], options: { input?: Buffer | string; env?: NodeJS.ProcessEnv; workTree?: string } = {}): Promise<Buffer> {
-    // These are service-owned repositories, not a person's code checkout.
-    return withUserScope(null, () => new Promise<Buffer>((resolve, reject) => {
-      const env = hostCliEnv({ GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', ...options.env })
-      for (const key of Object.keys(env)) if (key.startsWith('GIT_TRACE') || key === 'GIT_CURL_VERBOSE') delete env[key]
-      const child = execFile('git', [
-        '--git-dir', this.path(repository), ...(options.workTree ? ['--work-tree', options.workTree] : []),
-        '-c', 'core.hooksPath=/dev/null', '-c', 'core.autocrlf=false', ...args,
-      ], { env, timeout: 60_000, maxBuffer: MAX_FILE_BYTES, encoding: 'buffer' }, (error, stdout) => {
-        if (error) reject(new Error(`The app repository's git ${args[0]} failed.`))
-        else resolve(stdout)
-      })
-      child.stdin?.on('error', () => {})
-      child.stdin?.end(options.input)
-    }))
+  private named(repository: string): GitRepository {
+    return new GitRepository(this.path(repository), APP_REPOSITORY)
   }
 
-  private async text(repository: string, args: string[], options: Parameters<AppRepositories['git']>[2] = {}): Promise<string> {
-    return (await this.git(repository, args, options)).toString('utf8').trim()
-  }
-
-  private async ensure(repository: string): Promise<void> {
-    await mkdir(this.path(repository), { recursive: true, mode: 0o700 })
-    await this.git(repository, ['init', '--bare', '--initial-branch=main'])
-  }
-
-  /** One commit from a set of files, on top of `parent`. Blobs and the tree are written with no checkout. */
-  private async commit(repository: string, files: readonly AppFile[], parent: string | null, message: string, at: number): Promise<string> {
-    const scratch = await mkdtemp(join(tmpdir(), 'solus-app-commit-'))
-    try {
-      const entries: string[] = []
-      for (const file of files) {
-        assertFilePath(file.path)
-        const blob = await this.text(repository, ['hash-object', '-w', '--stdin'], { input: file.bytes })
-        entries.push(`100644 ${blob}\t${file.path}\0`)
-      }
-      const index = { GIT_INDEX_FILE: join(scratch, 'index') }
-      if (entries.length > 0) await this.git(repository, ['update-index', '-z', '--add', '--index-info'], { input: entries.join(''), env: index })
-      const tree = entries.length > 0 ? await this.text(repository, ['write-tree'], { env: index }) : EMPTY_TREE
-      const date = new Date(at).toISOString()
-      return await this.text(repository, ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', message], {
-        env: {
-          GIT_AUTHOR_NAME: 'Solus', GIT_AUTHOR_EMAIL: 'apps@solus.invalid', GIT_AUTHOR_DATE: date,
-          GIT_COMMITTER_NAME: 'Solus', GIT_COMMITTER_EMAIL: 'apps@solus.invalid', GIT_COMMITTER_DATE: date,
-        },
-      })
-    } finally {
-      await rm(scratch, { recursive: true, force: true })
-    }
-  }
-
-  /** The newest revision; null for a repository with no save. */
-  async head(repository: string): Promise<string | null> {
-    const commit = await this.text(repository, ['rev-parse', '--verify', '--quiet', 'refs/heads/main']).catch(() => '')
-    return COMMIT.test(commit) ? commit : null
+  /** One commit from a set of files, on top of `parent`. Its tree is these files only. */
+  private async commit(repository: GitRepository, files: readonly AppFile[], parent: string | null, message: string, at: number): Promise<string> {
+    for (const file of files) assertFilePath(file.path)
+    return repository.writeCommit({
+      parent, message, keepParentFiles: false, date: new Date(at).toISOString(),
+      entries: files.map((file) => ({ path: file.path, content: file.bytes })),
+    })
   }
 
   /**
@@ -147,16 +117,17 @@ export class AppRepositories {
    * newest revision now, nothing is written (decision 7).
    */
   async saveRevision(repository: string, revision: { source: readonly AppFile[]; message: string; at: number; expected: string | null }): Promise<AppSavedRevision> {
-    await this.ensure(repository)
-    const parent = await this.head(repository)
+    const local = this.named(repository)
+    await local.init()
+    const parent = await local.head()
     if (parent !== revision.expected) throw new AppRevisionConflict(parent)
-    const commit = await this.commit(repository, revision.source, parent, revision.message, revision.at)
+    const commit = await this.commit(local, revision.source, parent, revision.message, revision.at)
     // The ref moves only from the parent this save read: a save that ran at the same time loses here.
-    await this.git(repository, ['update-ref', 'refs/heads/main', commit, parent ?? '']).catch(() => {
+    await local.setHead(commit, parent).catch(() => {
       throw new AppRevisionConflict(null)
     })
     const removed = parent
-      ? (await this.git(repository, ['diff', '--no-renames', '--diff-filter=D', '--name-only', '-z', parent, commit])).toString('utf8').split('\0').filter(Boolean)
+      ? (await local.git(['diff', '--no-renames', '--diff-filter=D', '--name-only', '-z', parent, commit])).split('\0').filter(Boolean)
       : []
     return { commit, parent, removed }
   }
@@ -164,22 +135,24 @@ export class AppRepositories {
   /** Writes the build of one version: one commit on top of the revision it was built from, under `refs/solus/versions/<number>`. */
   async commitBuild(repository: string, build: { number: number; revision: string; files: readonly AppFile[]; at: number }): Promise<string> {
     assertCommit(build.revision)
-    const buildCommit = await this.commit(repository, build.files, build.revision, `Build of version ${build.number}`, build.at)
-    await this.git(repository, ['update-ref', `refs/solus/versions/${build.number}`, buildCommit])
+    const local = this.named(repository)
+    const buildCommit = await this.commit(local, build.files, build.revision, `Build of version ${build.number}`, build.at)
+    await local.git(['update-ref', `refs/solus/versions/${build.number}`, buildCommit])
     return buildCommit
   }
 
   /** Whether the repository has this revision on `main`. */
   async hasRevision(repository: string, commit: string): Promise<boolean> {
     assertCommit(commit)
-    return this.git(repository, ['merge-base', '--is-ancestor', commit, 'refs/heads/main']).then(() => true, () => false)
+    return this.named(repository).isAncestor(commit, 'refs/heads/main')
   }
 
   /** The revisions, the newest first, each with how much it changed against the revision before it. */
   async revisions(repository: string, limit = 100): Promise<AppRevision[]> {
-    if (!(await this.head(repository))) return []
+    const local = this.named(repository)
+    if (!(await local.head())) return []
     // `--shortstat` writes its line after the commit's own line; a revision that changed nothing has none.
-    const listed = await this.text(repository, ['log', `--max-count=${limit}`, '--shortstat', '--format=%x1e%H%x1f%ct%x1f%s', 'refs/heads/main'])
+    const listed = await local.git(['log', `--max-count=${limit}`, '--shortstat', '--format=%x1e%H%x1f%ct%x1f%s', 'refs/heads/main'])
     return listed.split('\x1e').map((entry) => entry.trim()).filter(Boolean).map((entry) => {
       const [line = '', ...rest] = entry.split('\n')
       const [commit = '', seconds = '0', message = ''] = line.split('\x1f')
@@ -190,7 +163,7 @@ export class AppRepositories {
   /** The revision before one; null for the first. */
   async parentOf(repository: string, commit: string): Promise<string | null> {
     assertCommit(commit)
-    const parent = await this.text(repository, ['rev-parse', '--verify', '--quiet', `${commit}^`]).catch(() => '')
+    const parent = await this.named(repository).git(['rev-parse', '--verify', '--quiet', `${commit}^`]).then((output) => output.trim(), () => '')
     return COMMIT.test(parent) ? parent : null
   }
 
@@ -198,14 +171,14 @@ export class AppRepositories {
   async readFile(repository: string, commit: string, path: string): Promise<Buffer | null> {
     assertCommit(commit)
     assertFilePath(path)
-    return this.git(repository, ['show', `${commit}:${path}`]).catch(() => null)
+    return this.named(repository).readBytes(commit, path).catch(() => null)
   }
 
   async listFiles(repository: string, commit: string, folder = ''): Promise<string[]> {
     assertCommit(commit)
     if (folder) assertFilePath(folder)
-    const listed = await this.git(repository, ['ls-tree', '-r', '-z', '--name-only', commit, ...(folder ? ['--', folder] : [])])
-    return listed.toString('utf8').split('\0').filter(Boolean)
+    const listed = await this.named(repository).git(['ls-tree', '-r', '-z', '--name-only', commit, ...(folder ? ['--', folder] : [])])
+    return listed.split('\0').filter(Boolean)
   }
 
   /** Writes the files of a commit into a folder. Files already there with other names stay. */
@@ -214,7 +187,7 @@ export class AppRepositories {
     await mkdir(folder, { recursive: true })
     const scratch = await mkdtemp(join(tmpdir(), 'solus-app-checkout-'))
     try {
-      await this.git(repository, ['checkout', '-f', commit, '--', '.'], { workTree: folder, env: { GIT_INDEX_FILE: join(scratch, `index-${randomUUID()}`) } })
+      await this.named(repository).git(['checkout', '-f', commit, '--', '.'], { env: { GIT_WORK_TREE: folder, GIT_INDEX_FILE: join(scratch, `index-${randomUUID()}`) } })
     } finally {
       await rm(scratch, { recursive: true, force: true })
     }
@@ -225,7 +198,7 @@ export class AppRepositories {
   async diff(repository: string, from: string | null, to: string): Promise<{ patch: string; truncated: boolean }> {
     if (from) assertCommit(from)
     assertCommit(to)
-    const patch = await this.git(repository, ['diff', '--no-color', '--no-ext-diff', from ?? EMPTY_TREE, to])
+    const patch = await this.named(repository).gitBytes(['diff', '--no-color', '--no-ext-diff', from ?? EMPTY_TREE, to])
     return { patch: patch.subarray(0, MAX_PATCH_BYTES).toString('utf8'), truncated: patch.length > MAX_PATCH_BYTES }
   }
 

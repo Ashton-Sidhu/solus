@@ -9,7 +9,7 @@ import type { Db } from '../db/database'
 import { session } from '../data/sessions/schema'
 import { createSessionRepository, readSessionRepository, sessionRepositoryFacts } from '../data/sessions/session-repositories'
 import { sessionRepositories } from '../data/sessions/schema'
-import type { SessionRemoteProvider } from '../sync/sessions/session-remote-provider'
+import type { RepositoryProvider } from '../sync/git-storage/repository-provider'
 import { WorkspaceRequestBudgets } from './solus-api/limits'
 import { createLogger } from '../logger'
 import { SolusApiError } from '../admission/workspace-error'
@@ -18,7 +18,7 @@ const log = createLogger('server', 'session-repository-routes')
 
 export interface SessionRepositoryRoutes {
   database: Db
-  storage: SessionRemoteProvider | null
+  storage: RepositoryProvider | null
   shares: ShareManager
   changed(scope: SessionCloudScope, sessionId: string, facts: ReturnType<typeof sessionRepositoryFacts>): Promise<void>
 }
@@ -66,7 +66,7 @@ export function registerSessionRepositoryRoutes<E extends Env>(app: Hono<E>, opt
       if (row.storage_scope !== service!.storage.storageScope) return c.json({ code: 'storage_unavailable' }, 503)
       const remote = await service!.storage.remote(row.repository, access)
       log.info('session_repository_token_issued', { cloudScope: admitted.scope, sessionId, access })
-      return c.json({ repository: row.repository, remote: remote.url, token: remote.token, expiresAt: new Date(Date.now() + 900_000).toISOString(), storageScope: row.storage_scope, ...sessionRepositoryFacts(row) })
+      return c.json({ repository: row.repository, remote: remote.url, token: remote.token ?? '', expiresAt: new Date(Date.now() + 900_000).toISOString(), storageScope: row.storage_scope, ...sessionRepositoryFacts(row) })
     } finally { release() }
   })
 

@@ -133,16 +133,17 @@ test('Artifacts receives the requested token scope through injected fetch', asyn
 
 // WHY: the API must read one file at the recorded commit and stop before an oversized response enters memory.
 test('Artifacts file reads use the requested head and a byte cap', async () => {
-  const { CloudflareWorkRepositories } = await import('@solus/server/sync/works/cloudflare-work-repositories')
+  const { ArtifactsRepositoryProvider } = await import('@solus/server/sync/git-storage/artifacts-repository-provider')
+  const { RepositoryFileTooLargeError } = await import('@solus/server/sync/git-storage/git-repository')
   const urls: string[] = []
   const fake = async (url: string | URL | Request) => {
     urls.push(String(url))
     return new Response('12345')
   }
-  const cloud = new CloudflareWorkRepositories('a'.repeat(32), 'sessions', 'server-secret', undefined, fake as typeof fetch)
+  const cloud = new ArtifactsRepositoryProvider('a'.repeat(32), 'sessions', 'server-secret', undefined, fake as typeof fetch)
   const repository = cloudSessionRepositoryName('person:alice', 'fixture')
   expect(await cloud.readFile(repository, head, 'rows/0.jsonl', 5)).toBe('12345')
   expect(new URL(urls[0]!).searchParams.get('ref')).toBe(head)
   expect(new URL(urls[0]!).searchParams.get('path')).toBe('rows/0.jsonl')
-  await expect(cloud.readFile(repository, head, 'rows/0.jsonl', 4)).rejects.toThrow('SESSION_FILE_TOO_LARGE')
+  await expect(cloud.readFile(repository, head, 'rows/0.jsonl', 4)).rejects.toBeInstanceOf(RepositoryFileTooLargeError)
 })

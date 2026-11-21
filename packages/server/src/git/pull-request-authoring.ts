@@ -7,6 +7,7 @@ import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { WritingBackend } from '../execution/agents/writing-backend'
 import type { TextGenerator } from '../execution/agents/text-generator'
 import { runAsync } from './exec'
+import { GitProcessError } from './git-process'
 
 const log = createLogger('PullRequestAuthoring', 'pull-request-authoring.ts')
 
@@ -96,7 +97,7 @@ export async function readPullRequestAuthoringContext(
     runAsync('git', ['diff', '--no-ext-diff', '--unified=3', diffRange], cwd, {
       maxBuffer: MAX_DIFF_PATCH_BYTES,
     }).catch((error) => {
-      if (error instanceof Error && 'code' in error && error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return ''
+      if (error instanceof GitProcessError && error.reason === 'output-limit') return ''
       throw error
     }),
     followPullRequestTemplate ? readTemplate(cwd, baseRef) : Promise.resolve(null),

@@ -174,7 +174,8 @@ describe('the stages of a new worktree', () => {
 describe('a streamed command', () => {
   test('hands each stderr line to its reader, also lines that git rewrites with a carriage return', async () => {
     const lines: string[] = []
-    const stdout = await exec.runStreamed('sh', ['-c', 'printf "Updating files:  10%%\\rUpdating files: 100%%\\ndone" >&2; printf out'], base, {
+    // An alias that starts with `!` is a shell command, so Git itself writes these lines.
+    const stdout = await exec.runStreamed(['-c', 'alias.progress=!printf "Updating files:  10%%\\rUpdating files: 100%%\\ndone" >&2; printf out', 'progress'], base, {
       onStderrLine: (line) => lines.push(line),
     })
     expect(stdout).toBe('out')
@@ -182,7 +183,7 @@ describe('a streamed command', () => {
   })
 
   test('a failed command rejects with its stderr', async () => {
-    await expect(exec.runStreamed('sh', ['-c', 'echo broken >&2; exit 3'], base, { onStderrLine: () => {} })).rejects.toThrow('broken')
+    await expect(exec.runStreamed(['-c', 'alias.broken=!echo broken >&2; exit 3', 'broken'], base, { onStderrLine: () => {} })).rejects.toThrow('broken')
   })
 })
 

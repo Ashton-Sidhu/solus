@@ -187,3 +187,45 @@ export class SessionHostTurns {
     return this.newestHost(preferServerId)?.serverId ?? null
   }
 }
+
+/** The host turns of each session this client has heard about. The caller owns
+ * the map so its UI can observe each changed session in its own way. */
+export class SessionHostTurnsBook {
+  constructor(private readonly turnsBySession: Map<string, SessionHostTurns>) {}
+
+  forSession(sessionId: string): SessionHostTurns {
+    return this.turnsBySession.get(sessionId) ?? SessionHostTurns.none
+  }
+
+  noteMeta(serverId: string, meta: Pick<SessionMeta, 'sessionId' | 'head' | 'syncedTurn' | 'pushRefused'> | null | undefined): boolean {
+    const turn = sessionHostTurnOf(serverId, meta)
+    return turn && meta ? this.write(meta.sessionId, this.forSession(meta.sessionId).with(turn)) : false
+  }
+
+  noteTurnSettled(serverId: string, sessionId: string, cloudTurn = 0): boolean {
+    return this.write(sessionId, this.forSession(sessionId).afterTurnSettled(serverId, cloudTurn))
+  }
+
+  notePushRefused(serverId: string, sessionId: string, isRefused: boolean): boolean {
+    const turns = this.forSession(sessionId)
+    const known = turns.of(serverId)
+    if (!!known?.pushRefused === isRefused) return false
+    const turn: SessionHostTurn = { serverId, head: known?.head ?? null, syncedTurn: known?.syncedTurn ?? 0 }
+    if (isRefused) turn.pushRefused = true
+    return this.write(sessionId, turns.with(turn))
+  }
+
+  forgetHost(serverId: string): boolean {
+    let changed = false
+    for (const [sessionId, turns] of this.turnsBySession) {
+      changed = this.write(sessionId, turns.without(serverId)) || changed
+    }
+    return changed
+  }
+
+  private write(sessionId: string, turns: SessionHostTurns): boolean {
+    if (turns === this.forSession(sessionId)) return false
+    this.turnsBySession.set(sessionId, turns)
+    return true
+  }
+}

@@ -4,8 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { GitRemote } from '../../packages/server/src/sync/git-remote'
-import { CloudflareWorkRepositories } from '../../packages/server/src/sync/works/cloudflare-work-repositories'
+import { GitRemote } from '../../packages/server/src/sync/git-storage/git-remote'
+import { ArtifactsRepositoryProvider } from '../../packages/server/src/sync/git-storage/artifacts-repository-provider'
 import { actAsHostForTests } from '../../packages/server/src/execution/seats/acting-identity'
 
 actAsHostForTests()
@@ -84,7 +84,7 @@ test('token stays in askpass and askpass checks the host', async () => {
     expect(() => execFileSync(env.GIT_ASKPASS!, ['Password for \'https://other.example\':'], { env, stdio: 'pipe' })).toThrow()
     expect((client as unknown as { options: { remote: string } }).options.remote).not.toContain(token)
     expect(f.run(['config', '--list'])).not.toContain(token)
-    await expect(client.git(['show', 'missing-object'])).rejects.not.toThrow(token)
+    await expect(client.repository.git(['show', 'missing-object'])).rejects.not.toThrow(token)
   } finally { await client.close() }
 })
 
@@ -94,6 +94,20 @@ test('timeout is a failed result', async () => {
   const client = await GitRemote.open({ gitDir: f.local, remote: f.url, timeoutMs: 1 })
   try { expect((await client.checkedPush(f.commit(), null)).status).toBe('failed') }
   finally { await client.close() }
+})
+
+// WHY: the sync card shows the words of a failed Git process. A process that
+// Solus stops has no exit code of its own; the words must give the number 1,
+// as before the shared layer, and the caller must get the reason as a type.
+test('a stopped process reports the number 1 and its reason', async () => {
+  const f = fixture()
+  const commit = f.commit()
+  const writer = await GitRemote.open({ gitDir: f.local, remote: f.url, timeoutMs: 10_000 })
+  const reader = await GitRemote.open({ gitDir: f.local, remote: f.url, timeoutMs: 10_000, outputLimitBytes: 8 })
+  try {
+    await writer.checkedPush(commit, null)
+    await expect(reader.remoteHead()).rejects.toMatchObject({ reason: 'output-limit', message: 'The Git ls-remote operation failed (1).' })
+  } finally { await writer.close(); await reader.close() }
 })
 
 // WHY: Session storage needs the same scoped token route as works.
@@ -106,8 +120,17 @@ test('Cloudflare accepts session names and requests read scope', async () => {
       ? { success: true, result: { remote: `https://${account}.artifacts.cloudflare.net/repo` } }
       : { success: true, result: { plaintext: 'short-token' } })
   }
-  const access = new CloudflareWorkRepositories(account, 'test', 'account-token', undefined, mockedFetch)
+  const access = new ArtifactsRepositoryProvider(account, 'test', 'account-token', undefined, mockedFetch)
   expect(await access.remote(`session-${'b'.repeat(48)}`, 'read')).toEqual({ url: `https://${account}.artifacts.cloudflare.net/repo`, token: 'short-token' })
   expect(JSON.parse(calls[1]!.body!)).toMatchObject({ scope: 'read' })
   await expect(access.remote('session-bad', 'read')).rejects.toThrow('Invalid Solus repository name')
+})
+
+// WHY: works and sessions read their files through one Artifacts client. A
+// person who reads a session from Solus Cloud must not get an error about a
+// work body.
+test('a failed Artifacts read names the repository file, not a feature', async () => {
+  const failing: typeof fetch = async () => new Response('', { status: 500 })
+  const access = new ArtifactsRepositoryProvider('a'.repeat(32), 'test', 'account-token', undefined, failing)
+  await expect(access.readFile(`session-${'b'.repeat(48)}`, 'c'.repeat(40), 'manifest.json')).rejects.toThrow('The Artifacts repository file could not be read.')
 })

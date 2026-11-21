@@ -72,6 +72,7 @@ import { LeadPromotionDivider, CompactionDivider, HandoffDivider, HandoffPending
 import type { SessionStarterFromHost } from "@solus/contracts/types";
 import { TurnFooter } from "./CloudTurnChanges";
 import { ThreadImage } from "./ThreadImages";
+import { ThreadToolOutputStrip } from "./ThreadToolOutputStrip";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import { canShowLiveApp, ThreadMcpApp } from "./ThreadMcpApp";
@@ -145,6 +146,8 @@ interface FeedRowContext {
   readonly onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
   readonly onToggleWorkRow: (rowId: string, anchorKey: string) => void;
   readonly onToggleTurnFold: (turnId: string) => void;
+  /** A strip chip: opens the turn's fold when it names one, the work group, and the call's row. */
+  readonly onOpenToolOutput: (turnId: string | null, groupId: string, toolId: string) => void;
 }
 
 
@@ -256,7 +259,7 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   if (row.type === "mcp-app") return <ThreadMcpApp store={context.store} id={row.itemId} />;
   if (row.type === "setup") return <WorktreeSetupCard store={context.store} id={row.id} />;
   if (row.type === "run-fold") {
-    return (
+    const fold = (
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: row.expanded }}
@@ -281,6 +284,18 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
         />
       </Pressable>
     );
+    if (row.expanded || row.toolIds.length === 0) return fold;
+    return (
+      <View>
+        {fold}
+        <ThreadToolOutputStrip
+          store={context.store}
+          toolIds={row.toolIds}
+          className="mb-1 px-2"
+          onOpenTool={(toolId) => context.onOpenToolOutput(row.turnId, row.toolGroupIds[row.toolIds.indexOf(toolId)] ?? "", toolId)}
+        />
+      </View>
+    );
   }
 
   if (row.type === "thinking") {
@@ -297,6 +312,7 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
         live={row.live}
         iconSubtleColor={context.iconSubtleColor}
         onToggle={() => context.onToggleWorkGroup(row.groupId, row.id)}
+        onOpenTool={(toolId) => context.onOpenToolOutput(null, row.groupId, toolId)}
       />
     );
   }
@@ -697,6 +713,21 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     [settleDisclosure],
   );
 
+  const onOpenToolOutput = useCallback(
+    (turnId: string | null, groupId: string, toolId: string) => {
+      void Haptics.selectionAsync();
+      setDisclosureToggleSettling(true);
+      setInteractionState((current) => ({
+        ...current,
+        expandedTurnIds: turnId ? new Set(current.expandedTurnIds).add(turnId) : current.expandedTurnIds,
+        expandedWorkGroups: new Set(current.expandedWorkGroups).add(groupId),
+        expandedWorkRows: { ...current.expandedWorkRows, [toolId]: true },
+      }));
+      settleDisclosure();
+    },
+    [settleDisclosure],
+  );
+
   const rowContext = useMemo<FeedRowContext>(
     () => ({
       store,
@@ -711,6 +742,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkGroup,
       onToggleWorkRow,
       onToggleTurnFold,
+      onOpenToolOutput,
     }),
     [
       store,
@@ -725,6 +757,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkGroup,
       onToggleWorkRow,
       onToggleTurnFold,
+      onOpenToolOutput,
     ],
   );
   // Disclosures can mount existing offscreen rows as well as new work rows.

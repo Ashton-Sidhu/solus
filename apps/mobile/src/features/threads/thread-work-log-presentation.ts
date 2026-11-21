@@ -5,7 +5,8 @@ import { hostPathBaseName } from '@solus/contracts/host-path'
 import { isSecretTool, secretReceiptRows, secretReceiptText } from '@solus/contracts/secret-request'
 import { pullRequestBatchOf } from '@solus/contracts/session-pull-requests'
 import { toolCallCode, type ToolCallCode } from '@solus/client-core/tool-call-code'
-import { mcpToolLabel } from '@solus/client-core/mcp-tool-label'
+import { integrationAgentToolLabel, mcpToolLabel } from '@solus/client-core/mcp-tool-label'
+import type { ToolCallOutputs } from '@solus/client-core/tool-outputs'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 /**
@@ -151,6 +152,8 @@ function secretReceipt(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'se
 export function toolRowLabel(tool: Pick<ToolTranscriptItem, 'toolName' | 'input' | 'secretOutcomes'>, expanded = false): string {
   const receipt = secretReceipt(tool)
   if (receipt) return receipt
+  const integration = integrationAgentToolLabel(tool.toolName, tool.input)
+  if (integration) return integration
   const parsed = parseToolInput(tool.input)
   const action = toolGroupAction(tool.toolName)
   const command = commandText(parsed)
@@ -195,7 +198,7 @@ export function toolActivitySummary(tool: Pick<ToolTranscriptItem, 'toolName' | 
     case 'agent':
       return parsed?.description ? compact(parsed.description) : running ? 'Delegating' : 'Delegated'
     case 'other':
-      return pullRequestBatchSummary(tool, running) ?? tool.toolName
+      return integrationAgentToolLabel(tool.toolName, tool.input) ?? pullRequestBatchSummary(tool, running) ?? tool.toolName
   }
 }
 
@@ -277,6 +280,11 @@ export function summarizeToolGroup(tools: ReadonlyArray<Pick<ToolTranscriptItem,
 export function toolGroupSummaryKind(tools: ReadonlyArray<Pick<ToolTranscriptItem, 'toolName'>>): ToolGroupAction | 'mixed' {
   const actions = new Set(tools.map((tool) => toolGroupAction(tool.toolName)))
   return actions.size === 1 ? actions.values().next().value! : 'mixed'
+}
+
+/** A call in the wire's field names, for the rule of where its outputs show (`@solus/client-core/tool-outputs`). */
+export function toolCallOutputs(tool: ToolTranscriptItem): ToolCallOutputs {
+  return { id: tool.id, toolName: tool.toolName, toolInput: tool.input, toolStatus: tool.status, toolImages: tool.images, toolAudio: tool.audio, toolLeftOut: tool.leftOut }
 }
 
 /** The images an open call shows. A call still running has none to decode. */

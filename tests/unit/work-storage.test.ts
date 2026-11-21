@@ -310,9 +310,9 @@ test('a second writer cannot claim the same work while a push is in flight', asy
 
 test.skipIf(process.env.ARTIFACTS_WORK_ADAPTER_CLOUD !== '1')('real Cloudflare storage uses the production adapter for create, agent edit, archived read, restore and delete', async () => {
   ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
-  const { CloudflareWorkRepositories } = await import('@solus/server/sync/works/cloudflare-work-repositories')
+  const { ArtifactsRepositoryProvider } = await import('@solus/server/sync/git-storage/artifacts-repository-provider')
   const { GitWorkTransport } = await import('@solus/server/sync/works/git-work-transport')
-  const access = new CloudflareWorkRepositories(process.env.CLOUDFLARE_ACCOUNT_ID ?? '', 'default', process.env.ARTIFACTS_WORK_ADAPTER_TOKEN ?? '')
+  const access = new ArtifactsRepositoryProvider(process.env.CLOUDFLARE_ACCOUNT_ID ?? '', 'default', process.env.ARTIFACTS_WORK_ADAPTER_TOKEN ?? '')
   const transport = new GitWorkTransport(access)
   let loseReply = true
   let firstCommit: string | null = null
@@ -472,10 +472,10 @@ test('legacy NULL empty bodies still read as empty, but a missing nonempty body 
 
 test('local Git archives all work types, survives reopen, and removes only its own repository', async () => {
   ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
-  const { LocalWorkRepositories } = await import('@solus/server/sync/works/local-work-repositories')
+  const { LocalGitRepositoryProvider } = await import('@solus/server/sync/git-storage/local-git-repository-provider')
   const { GitWorkTransport } = await import('@solus/server/sync/works/git-work-transport')
   const { databaseWorkStorage } = await import('@solus/server/data/works/database-work-storage')
-  const repositories = new LocalWorkRepositories(join(root, 'local-history'))
+  const repositories = new LocalGitRepositoryProvider(join(root, 'local-history'), 'work')
   const transport = new GitWorkTransport(repositories)
   const writer = new Writer(database.getDatabase, transport, Date.now, undefined, 'local-git')
   const localGit = new archive.GitWorkStorage(transport, id => writer.drain(id), Date.now, 'local', 'local-git')
@@ -514,10 +514,10 @@ test('legacy local history moves to Git without changing versions or losing revi
   const old = await create('local')
   await old.updateContent({ content: 'Existing edit', expectedContentVersion: 1, reason: 'agent', author: null })
   const before = await works.exportWorkForCloud('local', old.id)
-  const { LocalWorkRepositories } = await import('@solus/server/sync/works/local-work-repositories')
+  const { LocalGitRepositoryProvider } = await import('@solus/server/sync/git-storage/local-git-repository-provider')
   const { GitWorkTransport } = await import('@solus/server/sync/works/git-work-transport')
   const { migrateLocalWorkHistory } = await import('@solus/server/sync/works/local-work-migration')
-  const transport = new GitWorkTransport(new LocalWorkRepositories(join(root, 'migrated-history')))
+  const transport = new GitWorkTransport(new LocalGitRepositoryProvider(join(root, 'migrated-history'), 'work'))
   const writer = new Writer(database.getDatabase, transport, Date.now, undefined, 'local-git')
   const localGit = new archive.GitWorkStorage(transport, id => writer.drain(id), Date.now, 'local', 'local-git')
   restores.push(storage.installWorkStorage({ database: databaseWorkStorage, localGit, defaultProvider: 'local-git' }))

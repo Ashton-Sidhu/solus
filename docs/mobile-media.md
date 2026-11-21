@@ -1,6 +1,6 @@
 # Mobile images
 
-The native iOS and Android conversation feed follows T3 Code's mobile image layout. Assistant image embeds stay inline in their message. Standalone image and browser screenshot records stay in transcript order. Tool images stay inside their tool details. There is no separate Images strip or filename card.
+The native iOS and Android conversation feed follows T3 Code's mobile image layout. Assistant image embeds stay inline in their message. Standalone image and browser screenshot records stay in transcript order. Tool images show inside their open tool details, and as thumbnails in the outputs strip under the row that folds them, so a folded turn still shows them. They are not in the turn's gallery ([Tool outputs](transcript-cards.md#tool-outputs)).
 
 Images keep their original aspect ratio and fit within the available width and a 480-point maximum width and height. Small images are not enlarged. Frames use T3's 10-point corners and image background; the caption is the image's alt text. Loading and failure states use the same renderer.
 

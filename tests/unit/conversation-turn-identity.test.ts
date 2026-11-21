@@ -51,6 +51,10 @@ function turnComponent(directory: string): string {
       const runHost = () => undefined;
       const mcpTasksStore = { ensure: () => {}, tasksFor: () => [] };
       const shownMcpTasks = () => [], mcpTaskIsLive = () => false;
+      // No tool outputs: the folded turn has no strip.
+      const ToolOutputStrip = Stub;
+      const EMPTY_TOOL_STRIP = {}, toolStrip = () => EMPTY_TOOL_STRIP, hasToolStrip = () => false, turnStripTools = () => [], toolGroupOf = () => null, focusToolLine = async () => {};
+      const getTranscriptDisclosure = () => ({}), openToolLine = () => {}, toolGroupKey = (id) => 'tools:' + id;
     `)
   return component(directory, turnSource, 'turn')
 }

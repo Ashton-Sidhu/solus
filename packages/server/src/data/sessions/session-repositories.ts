@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import type { SessionCloudScope, SessionRepositoryCard, SessionRepositoryFacts, ListMySessionsResponse } from '@solus/contracts/session-repositories'
 import type { Db } from '../../db/database'
+import { storageRepositoryName } from '../storage-repository-name'
 import { sessionRepositories } from './schema'
 
 export interface SessionRepositoryRow {
@@ -13,7 +13,7 @@ export interface SessionRepositoryRow {
 
 /** The name of a session repository in cloud storage. A host names its local copy with `sessionRepositoryName` (`sync/sessions/session-repository.ts`); the two names differ. */
 export function cloudSessionRepositoryName(scope: SessionCloudScope, sessionId: string): string {
-  return `session-${createHash('sha256').update(JSON.stringify([scope, sessionId])).digest('hex').slice(0, 48)}`
+  return storageRepositoryName('session', scope, sessionId)
 }
 
 export async function readSessionRepository(db: Db, scope: SessionCloudScope, sessionId: string): Promise<SessionRepositoryRow | undefined> {

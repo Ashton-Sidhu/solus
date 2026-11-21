@@ -5,7 +5,8 @@ import type { Db } from '../../db/database'
 import { session } from '../../data/sessions/schema'
 import { readSessionRepository, type SessionRepositoryRow } from '../../data/sessions/session-repositories'
 import type { ShareManager } from '../../sharing/share-manager'
-import type { SessionRemoteProvider } from './session-remote-provider'
+import { RepositoryFileTooLargeError } from '../git-storage/git-repository'
+import type { RepositoryProvider } from '../git-storage/repository-provider'
 import { sessionManifestSchema, type SessionManifest } from './session-manifest'
 import { formatSessionCloudScope } from '@solus/contracts/session-repositories'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
@@ -20,7 +21,7 @@ const PATCH_BYTES = 2 * 1024 * 1024
 
 /** Reads only projected rows and patches at the head the API has accepted. */
 export class SessionCloudReader {
-  constructor(private readonly db: Db, private readonly storage: SessionRemoteProvider | null, private readonly shares: ShareManager) {}
+  constructor(private readonly db: Db, private readonly storage: RepositoryProvider | null, private readonly shares: ShareManager) {}
 
   private async repository(principal: Principal, sessionId: string): Promise<SessionRepositoryRow | null> {
     if (principal.kind !== 'org-member' && (principal.kind !== 'owner' || principal.via !== 'grant')) return null
@@ -35,9 +36,18 @@ export class SessionCloudReader {
   private async manifest(principal: Principal, sessionId: string): Promise<{ row: SessionRepositoryRow; manifest: SessionManifest } | null> {
     const row = await this.repository(principal, sessionId)
     if (!row?.head || !this.storage || row.storage_scope !== this.storage.storageScope) return null
-    const manifest = sessionManifestSchema.parse(JSON.parse(await this.storage.readFile(row.repository, row.head, 'manifest.json', MANIFEST_BYTES)))
+    const manifest = sessionManifestSchema.parse(JSON.parse(await this.file(row, 'manifest.json', MANIFEST_BYTES)))
     if (manifest.session.id !== sessionId) throw new Error('Session repository identity mismatch.')
     return { row, manifest }
+  }
+
+  /** One file at the recorded head. A file over its limit answers with the code that a client knows. */
+  private async file(row: SessionRepositoryRow, path: string, maxBytes: number): Promise<string> {
+    try {
+      return await this.storage!.readFile(row.repository, row.head!, path, maxBytes)
+    } catch (error) {
+      throw error instanceof RepositoryFileTooLargeError ? new Error('SESSION_FILE_TOO_LARGE') : error
+    }
   }
 
   async page(principal: Principal, sessionId: string, before?: string): Promise<SessionHistoryPage> {
@@ -52,7 +62,7 @@ export class SessionCloudReader {
   }
 
   private async rows(row: SessionRepositoryRow, index: number): Promise<WireSessionLoadMessage[]> {
-    const body = await this.storage!.readFile(row.repository, row.head!, `rows/${index}.jsonl`, ROW_BYTES)
+    const body = await this.file(row, `rows/${index}.jsonl`, ROW_BYTES)
     const messages: WireSessionLoadMessage[] = body.split('\n').filter(Boolean).map(line => messageSchema.parse(JSON.parse(line)))
     return messages.some(message => (message.role === 'tool' || message.role === 'tool_result') && message.content !== '')
       ? projectSessionHistory(messages) : messages
@@ -75,7 +85,7 @@ export class SessionCloudReader {
     const turn = source.manifest.turns[turnIndex]
     if (!turn?.hasDiff) return { status: 'not-available' }
     try {
-      return { status: 'available', patch: await this.storage!.readFile(source.row.repository, source.row.head!, `diff/${turnIndex}.patch`, PATCH_BYTES) }
+      return { status: 'available', patch: await this.file(source.row, `diff/${turnIndex}.patch`, PATCH_BYTES) }
     } catch (error) {
       if (error instanceof Error && error.message === 'SESSION_FILE_TOO_LARGE') return { status: 'too-large', filesChanged: turn.snapshots.reduce((sum, snapshot) => sum + snapshot.filesChanged, 0), additions: turn.snapshots.reduce((sum, snapshot) => sum + snapshot.additions, 0), deletions: turn.snapshots.reduce((sum, snapshot) => sum + snapshot.deletions, 0) }
       throw error
