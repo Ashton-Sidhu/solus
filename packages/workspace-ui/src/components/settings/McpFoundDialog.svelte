@@ -12,7 +12,8 @@
   import { Dialog } from "bits-ui";
   import { TriangleAlert, X } from "@lucide/svelte";
   import type { FoundServer, Integration } from "@solus/contracts/integration-types";
-  import { commandLineText, fileValuesText, foundPlacesText, foundPortOf, foundTargetText, portIdentityText, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
+  import { commandLineText } from "@solus/contracts/integrations/command-server";
+  import { fileValuesText, foundPlacesText, foundPortOf, foundTargetText, portIdentityText, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import { Checkbox } from "../ui/checkbox";
   import McpServerIcon from "./McpServerIcon.svelte";
@@ -36,7 +37,7 @@
   const isChange = $derived(server.state === "changed");
   const valuesText = $derived(fileValuesText(server));
   const url = $derived(server.transport && server.transport.kind !== "stdio" ? server.transport.url : "");
-  const currentText = $derived(current?.launch ? commandLineText({ kind: "stdio", command: current.launch.command, args: current.launch.args, envNames: [] }) : current?.url ?? "");
+  const currentText = $derived(current?.launch ? commandLineText(current.launch) : current?.url ?? "");
   const checkboxId = $props.id();
   const port = $derived(foundPortOf(server));
 </script>

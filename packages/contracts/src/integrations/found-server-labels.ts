@@ -1,4 +1,5 @@
-import type { ConfigFileKind, FoundServer, FoundTransport, FoundUnsupportedReason } from '../integration-types'
+import type { ConfigFileKind, FoundServer, FoundUnsupportedReason } from '../integration-types'
+import { commandLineText } from './command-server'
 import type { FoundPortPlace } from './local-servers'
 
 /**
@@ -31,16 +32,7 @@ export function foundUnsupportedText(reason: FoundUnsupportedReason): string {
   }
 }
 
-/** A command as one line, each argument quoted when it holds a space, so the person reads exactly what will run. */
-export function commandLineText(transport: Extract<FoundTransport, { kind: 'stdio' }>): string {
-  return [transport.command, ...transport.args].map(quoted).join(' ')
-}
-
-function quoted(part: string): string {
-  return part === '' || /[\s"'\\]/.test(part) ? `'${part.replaceAll("'", "'\\''")}'` : part
-}
-
-/** What the row shows under the name: the command line, or the URL. */
+/** What the row shows under the name: the command line, as an installed command reads, or the URL. */
 export function foundTargetText(server: Pick<FoundServer, 'transport'>): string {
   const transport = server.transport
   if (!transport) return ''
