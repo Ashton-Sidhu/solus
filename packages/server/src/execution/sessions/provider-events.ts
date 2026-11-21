@@ -56,18 +56,11 @@ export class ProviderEvents {
   endBackgroundWait(sessionId: string): void {
     const session = this.rt.activeSessions.get(sessionId)
     if (session?.status !== 'background' || session.backgroundTaskIds?.size) return
-    if (this.waitsOutsideRun(sessionId)) return
+    if (this.rt.statuses.holdsOutsideRun(sessionId)) return
     const hasFailed = this.failedBeforeBackground.delete(sessionId)
     this.rt.statuses.setStatus(sessionId, hasFailed ? 'failed' : 'completed')
     this.rt.activeSessions.delete(sessionId)
     this.rt.orchestration?.backgroundEnded(sessionId)
-  }
-
-  /** Work outside the provider holds the session in 'background' too: the
-   *  sessions it sent work to, until they report, and its live MCP tasks
-   *  (docs/plans/mcp-first-class.md §12.5), until they end. */
-  private waitsOutsideRun(sessionId: string): boolean {
-    return !!this.rt.orchestration?.isAwaitingReplies(sessionId) || !!this.rt.mcpTaskHolds?.(sessionId)
   }
 
   wire(backend: AgentBackend): void {
@@ -395,7 +388,7 @@ export class ProviderEvents {
           // server, a log tail) does not: the turn completes and notifies, and
           // the query stays open for that work (docs/background-work.md). The
           // sessions the agent sent work to hold it too, until they report.
-          const isAwaitingReplies = this.waitsOutsideRun(session.sessionId)
+          const isAwaitingReplies = this.rt.statuses.holdsOutsideRun(session.sessionId)
           if (isAwaitingReplies || session.backgroundTaskIds?.size) {
             const holds = isAwaitingReplies || backgroundWorkHolds(session)
             log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds?.size ?? 0, isAwaitingReplies, holds })
@@ -555,7 +548,7 @@ export class ProviderEvents {
           exited.awaitedTaskIds = exited.awaitableTaskIds = undefined
           this.rt.publish(sessionId, { type: 'background_work', running: false })
         }
-        const newStatus = statusAfterExit(settledStatus, this.waitsOutsideRun(sessionId), hasBackgroundWork && !!exited && backgroundWorkHolds(exited))
+        const newStatus = statusAfterExit(settledStatus, this.rt.statuses.holdsOutsideRun(sessionId), hasBackgroundWork && !!exited && backgroundWorkHolds(exited))
         if (settledStatus === 'failed' && newStatus === 'background') this.failedBeforeBackground.add(sessionId)
         this.rt.sessionEmitter.recordTerminal(
           sessionId,
