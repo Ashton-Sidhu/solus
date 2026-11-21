@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { useApp, useListened } from "../../app/app-context";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { McpAppCard } from "./ThreadMcpApp";
-
-const NO_APP: McpAppRead = { phase: "idle" };
+import { useSavedMcpApp } from "./use-saved-mcp-app";
 
 /**
  * The saved app the person or the app put in picture-in-picture, docked above
@@ -19,19 +17,12 @@ export function ThreadMcpPipDock({ store, isKeyboardVisible }: { readonly store:
   const readPip = useCallback(() => store.mcpAppPip, [store]);
   const pip = useListened(store.mcpAppPipChanges, readPip);
   const sessionId = store.controller.run.sessionId;
-  const apps = useMemo(() => (api ? mcpAppsFor(api) : null), [api]);
   const request = useMemo(() => (pip ? { sessionId, activityId: pip.activityId } : null), [pip, sessionId]);
-  const subscribe = useCallback((listener: () => void) => (apps && request ? apps.subscribe(request, listener) : () => {}), [apps, request]);
-  const read = useCallback(() => (apps && request ? apps.read(request) : NO_APP), [apps, request]);
-  const saved = useSyncExternalStore(subscribe, read, read);
+  const { app: saved } = useSavedMcpApp(api, request);
   const closedKeys = useMemo(() => (request ? [request.activityId] : []), [request]);
   const onClosedChange = useCallback((isClosed: boolean) => {
     if (isClosed) store.setMcpAppPip(null);
   }, [store]);
-
-  useEffect(() => {
-    if (apps && request) void apps.load(request);
-  }, [apps, request]);
 
   // A docked app that is no longer available goes back to its card, which shows the error.
   useEffect(() => {

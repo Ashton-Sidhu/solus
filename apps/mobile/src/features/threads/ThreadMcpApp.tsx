@@ -7,7 +7,6 @@ import { mcpAppOffersDisplayMode, type McpAppHost, type McpAppLiveCall } from "@
 import { MCP_APP_DOCKED_HEIGHT, mcpAppAvailableDisplayModes, type McpAppDisplayMode } from "@solus/client-core/mcp-app-context";
 import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
 import { mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
-import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
 import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument, type McpAppReference, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -17,10 +16,10 @@ import type { ConversationStore } from "../conversation/conversation-store";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
 import { McpAppWebView } from "./McpAppWebView";
 import { ThreadMcpLiveApp } from "./ThreadMcpLiveApp";
+import { useSavedMcpApp } from "./use-saved-mcp-app";
 import { useTranscriptItem } from "./use-transcript-items";
 
 const INITIAL_HEIGHT = 320;
-const CLOSED_APP: McpAppRead = { phase: "idle" };
 const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
 /** A Solus integration tool: its call can show its MCP App while it runs. */
@@ -47,7 +46,6 @@ function SavedMcpApp(props: {
   readonly reference: McpAppReference;
 }) {
   const { store, api, activityId, sessionId, reference } = props;
-  const apps = useMemo(() => mcpAppsFor(api), [api]);
   const live = useMemo(() => mcpAppLiveFor(api), [api]);
   const request = useMemo(() => ({ sessionId, activityId }), [sessionId, activityId]);
   const closedKeys = useMemo(() => (reference.toolUseId ? [activityId, reference.toolUseId] : [activityId]), [activityId, reference.toolUseId]);
@@ -59,14 +57,7 @@ function SavedMcpApp(props: {
     if (isHeldLive && reference.toolUseId) live.handOver(sessionId, reference.toolUseId, activityId);
   }, [isHeldLive, live, sessionId, reference.toolUseId, activityId]);
 
-  const isShown = !isClosed && !isHeldLive;
-  const subscribe = useCallback((listener: () => void) => (isShown ? apps.subscribe(request, listener) : () => {}), [apps, request, isShown]);
-  const read = useCallback(() => (isShown ? apps.read(request) : CLOSED_APP), [apps, request, isShown]);
-  const state = useSyncExternalStore(subscribe, read, read);
-
-  useEffect(() => {
-    if (isShown) void apps.load(request);
-  }, [apps, request, isShown]);
+  const { app: state, reload } = useSavedMcpApp(api, !isClosed && !isHeldLive ? request : null);
 
   if (isHeldLive) return null;
   if (!isClosed && state.phase !== "ready") {
@@ -75,7 +66,7 @@ function SavedMcpApp(props: {
         {state.phase === "error" ? (
           <>
             <Text accessibilityRole="alert" className="text-sm text-foreground-muted">{state.message}</Text>
-            <Pressable accessibilityRole="button" onPress={() => void apps.load(request)} className="min-h-11 justify-center px-4">
+            <Pressable accessibilityRole="button" onPress={reload} className="min-h-11 justify-center px-4">
               <Text className="text-sm text-foreground">Try again</Text>
             </Pressable>
           </>

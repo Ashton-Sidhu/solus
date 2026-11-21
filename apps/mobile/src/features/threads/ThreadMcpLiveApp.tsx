@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useIsFocused } from "@react-navigation/native";
 import type { HostApi } from "@solus/client-core/host-api";
 import { mcpAppLiveCall, mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
-import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
 import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument } from "@solus/contracts/mcp-apps";
 
 import { useListened } from "../../app/app-context";
 import type { ConversationStore } from "../conversation/conversation-store";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
 import { McpAppCard } from "./ThreadMcpApp";
-
-const NO_APP: McpAppRead = { phase: "idle" };
+import { useSavedMcpApp } from "./use-saved-mcp-app";
 
 /**
  * The app of a tool call that has not ended (docs/plans/mcp-first-class.md
@@ -23,7 +21,6 @@ export function ThreadMcpLiveApp(props: { readonly store: ConversationStore; rea
   const { store, api, tool } = props;
   const sessionId = store.controller.run.sessionId;
   const live = useMemo(() => mcpAppLiveFor(api), [api]);
-  const apps = useMemo(() => mcpAppsFor(api), [api]);
   // Decided once: a row that mounts after its call ended leaves the app to the saved card.
   const [toolUseId] = useState(() => (tool.status === "running" ? tool.toolId : undefined));
   const toolName = mcpAppLiveToolName(tool.toolName);
@@ -60,12 +57,7 @@ export function ThreadMcpLiveApp(props: { readonly store: ConversationStore; rea
   }, [live, sessionId, toolUseId, liveDocument, cancelled, store]);
 
   const request = useMemo(() => ({ sessionId, activityId: activityId ?? "" }), [sessionId, activityId]);
-  const savedSubscribe = useCallback((listener: () => void) => (activityId ? apps.subscribe(request, listener) : () => {}), [apps, request, activityId]);
-  const readSaved = useCallback(() => (activityId ? apps.read(request) : NO_APP), [apps, request, activityId]);
-  const saved = useSyncExternalStore(savedSubscribe, readSaved, readSaved);
-  useEffect(() => {
-    if (activityId) void apps.load(request);
-  }, [apps, request, activityId]);
+  const { app: saved } = useSavedMcpApp(api, activityId ? request : null);
 
   const call = useMemo(() => mcpAppLiveCall(tool, status === "interrupted", isFocused), [tool, status, isFocused]);
   if (!toolUseId || !liveDocument || cancelled) return null;
