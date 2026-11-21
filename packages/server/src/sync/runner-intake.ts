@@ -6,6 +6,7 @@ import { PermanentApplyError } from './outbox/outbox-store'
 import { runnerDeliveryCursors } from './outbox/schema'
 import { getSessionRecord, upsertSessionRecord } from '../data/sessions/session-records'
 import { applyMirrorItem } from './mirror/mirror-sinks'
+import { personOfMirrorScope } from '../data/sessions/mirror-scope'
 import type { ShareManager } from '../sharing/share-manager'
 import type { Principal } from '../admission/principal'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
@@ -28,7 +29,10 @@ const log = createLogger('main', 'runner-intake')
 /**
  * The Solus API's side of host delivery (docs/plans/simplify-auth-and-sync.md §4.5).
  * A host's items land in the host's organization through the same sinks
- * and record store a host uses for its own. A batch is applied in one transaction
+ * and record store a host uses for its own. A personal delivery (the runner's
+ * scope is its person's, `data/sessions/mirror-scope.ts`) lands only what a reader of a
+ * personal session reads: the Solus API keeps no record and no share row of such
+ * a session. A batch is applied in one transaction
  * with one cursor write for the (host, person), which is what makes a redelivery
  * harmless: a crash cannot apply an item and leave the cursor before it.
  *
@@ -42,8 +46,8 @@ export type RunnerPrincipal = Extract<Principal, { kind: 'runner' }>
 
 export interface RunnerIntakeDeps {
   shares?: ShareManager
-  /** A mirrored session's transcript or activity changed: its readers hear it once per batch. */
-  onTranscriptChanged?: (sessionId: string) => void
+  /** A mirrored session's transcript or activity changed, in the mirror scope the runner delivered to: its readers hear it once per batch. */
+  onTranscriptChanged?: (sessionId: string, mirrorScope: string) => void
   /** Solus Cloud's admin view of webhooks; without it a `webhooks` item applies as nothing. */
   webhookAdmin?: WebhookAdminPort
 }
@@ -84,8 +88,12 @@ async function applySessionFacts(runner: RunnerPrincipal, upsert: SessionRecordU
   if (shares && !existing && !privateToOwner) await shares.shareRunnerWrite({ kind: 'session', id: facts.sessionId }, runner, stored.ownerKey)
 }
 
+/** What a personal session sends: the items its owner reads. */
+const PERSONAL_KINDS: ReadonlySet<DeliveryKind> = new Set(['transcript', 'activity'])
+
 async function applyItem(runner: RunnerPrincipal, item: RunnerDeliverItem & { kind: DeliveryKind }, deps: RunnerIntakeDeps): Promise<void> {
   const origin = { organizationId: runner.organizationId, hostId: runner.hostId }
+  if (personOfMirrorScope(runner.organizationId) && !PERSONAL_KINDS.has(item.kind)) throw new PermanentApplyError(`A personal delivery carries no ${item.kind} item`)
   switch (item.kind) {
     case 'session': {
       const facts = sessionRecordUpsertWireSchema.safeParse(item.payload)
@@ -165,6 +173,6 @@ export async function applyRunnerDelivery(runner: RunnerPrincipal, request: Runn
     if (lastSeq !== cursor) await writeCursor(db, runner, lastSeq)
     return lastSeq
   })
-  for (const sessionId of changedSessions) deps.onTranscriptChanged?.(sessionId)
+  for (const sessionId of changedSessions) deps.onTranscriptChanged?.(sessionId, runner.organizationId)
   return { lastSeq, failed }
 }

@@ -2,6 +2,7 @@ import type { Context, Env, Hono } from 'hono'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { runnerPrincipalFor, type Principal } from '../admission/principal'
 import { createLogger } from '../logger'
+import { personMirrorScope } from '../data/sessions/mirror-scope'
 import { RUNNER_DELIVER_PATH, runnerDeliverRequestSchema, type RunnerDeliverRequest, type RunnerDeliverResponse } from '../sync/runner-protocol'
 
 const log = createLogger('main', 'runner-routes')
@@ -17,8 +18,10 @@ export interface RunnerDeliveryIntake {
  * The runner route (docs/plans/simplify-auth-and-sync.md §4.5, §4.6): the Solus API
  * only. A host delivers what a person's work produced with that person's delegated
  * token (plans/010-standard-oauth.md): the token names the person and, in `act`,
- * the host acting for them. The body's `hostId` must be that host: a host cannot
- * deliver as another. A host that does not speak this protocol is told to update.
+ * the host acting for them. A token for one organization delivers to that
+ * organization; the owner's personal token delivers to their own scope
+ * (`data/sessions/mirror-scope.ts`). The body's `hostId` must be that host: a host
+ * cannot deliver as another. A host that does not speak this protocol is told to update.
  */
 export function registerRunnerRoutes<E extends Env>(app: Hono<E>, opts: {
   isApiMode?: boolean
@@ -38,12 +41,18 @@ export function registerRunnerRoutes<E extends Env>(app: Hono<E>, opts: {
       return null
     }
     const { claims } = verdict
-    // A runner is a host acting for a person in one organization; the Solus API's own delegations name no host.
-    if (!claims.act?.host_id || claims.access !== 'org-member') {
-      log.info('runner_token_rejected', { reason: !claims.act ? 'not-delegated' : claims.act.host_id ? 'personal-delegation' : 'no-acting-host' })
+    if (!claims.act?.host_id) {
+      log.info('runner_token_rejected', { reason: !claims.act ? 'not-delegated' : 'no-acting-host' })
       return null
     }
-    return runnerPrincipalFor({ hostId: claims.act.host_id, organizationId: claims.organizationId, ownerUserId: claims.sub, expiresAt: claims.exp * 1000 })
+    const runner = { hostId: claims.act.host_id, ownerUserId: claims.sub, expiresAt: claims.exp * 1000 }
+    // A host acting for a person in one organization delivers to that organization.
+    if (claims.access === 'org-member') return runnerPrincipalFor({ ...runner, organizationId: claims.organizationId })
+    // A personal host acting for its owner delivers their personal sessions to their own scope,
+    // which the token names (`sub`) and the body cannot (the rule of the session repository routes).
+    if (claims.access === 'owner' && (!claims.hostKind || claims.hostKind === 'personal')) return runnerPrincipalFor({ ...runner, organizationId: personMirrorScope(claims.sub) })
+    log.info('runner_token_rejected', { reason: 'no-delivery-scope' })
+    return null
   }
 
   app.post(RUNNER_DELIVER_PATH, async (c) => {

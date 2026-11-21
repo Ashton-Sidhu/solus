@@ -114,6 +114,29 @@ describe('runner intake', () => {
     expect(await transcriptRows()).toEqual([0, 1, 2, 3])
   })
 
+  test('a personal delivery lands its rows in its person\'s scope only, and makes no record and no share row', async () => {
+    // WHY: the Solus API holds a personal session for its owner to read with no host
+    // online, and for nobody else. A session record or a share row would put the
+    // session in an organization's lists (decision D2), so those items never apply.
+    const personal = principalModule.runnerPrincipalFor({ hostId: 'runner-1', organizationId: 'person:alice', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
+    const changed: Array<[string, string]> = []
+    const answer = await intake.applyRunnerDelivery(personal, { hostId: personal.hostId, items: [
+      { seq: 1, kind: 'transcript', payload: { sessionId: 'mine', position: 0, message: { role: 'user', content: 'private' } } },
+      { seq: 2, kind: 'session', payload: { sessionId: 'mine', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 5 } },
+      { seq: 3, kind: 'shares', payload: { resource: { kind: 'session', id: 'mine' }, rows: [] } },
+      { seq: 4, kind: 'insights', payload: { spans: [] } },
+    ] }, { shares, onTranscriptChanged: (sessionId, mirrorScope) => { changed.push([sessionId, mirrorScope]) } })
+    expect(answer.lastSeq).toBe(4)
+    expect(answer.failed.map((failure) => failure.seq)).toEqual([2, 3, 4])
+    const rows = z.array(z.object({ organization_id: z.string(), position: z.number() })).parse(
+      await database.getDatabase().all(sql`SELECT organization_id, position FROM session_transcripts WHERE session_id = 'mine'`))
+    expect(rows).toEqual([{ organization_id: 'person:alice', position: 0 }])
+    expect(await records.getSessionRecord(principalModule.ANY_ORGANIZATION, 'mine')).toBeNull()
+    expect(await shares.homeOf({ kind: 'session', id: 'mine' })).toBeNull()
+    // The reader's event names the scope, so the service tells the owner alone.
+    expect(changed).toEqual([['mine', 'person:alice']])
+  })
+
   test('session facts are stamped with the host and skipped at or below the cursor; each host has its own cursor', async () => {
     const answer = await deliver([
       { seq: 8, kind: 'session', payload: { sessionId: 's1', provider: 'claude-code', projectPath: '-repo', title: 'First', runnerHostId: 'liar', lastActivityAt: 10 } },

@@ -16,7 +16,8 @@ import { getSessionRecord, isOrganizationWork, onSessionRecordChanged } from '..
 import { isChat } from '@solus/contracts/chat'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import type { FetchLike } from '../admission/access-tokens'
-import { DelegationError } from './delegations'
+import { DelegationError, type DelegationScope } from './delegations'
+import { personOfMirrorScope } from '../data/sessions/mirror-scope'
 import { RUNNER_BATCH_LIMIT, RUNNER_DELIVER_PATH, runnerDeliverResponseSchema, unknownKindError, type DeliveryKind, type RunnerDeliverRequest } from './runner-protocol'
 
 /** Kinds that a Solus API on the release before them does not know; only these are dropped when a batch is refused whole. */
@@ -29,7 +30,9 @@ const log = createLogger('main', 'runner-delivery')
  * §4.5; plans/010-standard-oauth.md). Every queued item — a session's record facts, a
  * mirrored row, an organization write the API has no route for — names its
  * organization and the person whose work produced it, decided by the producer and
- * persisted with the row. A delivery pass visits every destination with something
+ * persisted with the row. A mirrored row of a personal session names its owner's
+ * own scope in the organization's place (`data/sessions/mirror-scope.ts`) and goes with
+ * their personal delegation. A delivery pass visits every destination with something
  * queued and sends it on one route, `/runner/deliver`, with that person's delegated
  * token, in sequence order, and acknowledges by sequence for that destination alone.
  *
@@ -45,7 +48,7 @@ const log = createLogger('main', 'runner-delivery')
 
 /** What delivery needs from the host's delegations (sync/delegations.ts). */
 export interface DeliveryDelegations {
-  accessToken(userId: string, scope: { organizationId: string }, resource: { kind: 'api' }): Promise<string>
+  accessToken(userId: string, scope: DelegationScope, resource: { kind: 'api' }): Promise<string>
 }
 
 export interface RunnerDeliveryDeps {
@@ -267,8 +270,9 @@ export class RunnerDelivery {
   private async tokenFor(destination: DeliveryDestination): Promise<TokenOutcome> {
     const actor = destination.actorUserId || this.deps.owner()
     if (!actor) return this.wait(destination, 'nobody to deliver as yet')
+    const scope: DelegationScope = personOfMirrorScope(destination.organizationId) ? 'personal' : { organizationId: destination.organizationId }
     try {
-      const token = await this.deps.delegations.accessToken(actor, { organizationId: destination.organizationId }, { kind: 'api' })
+      const token = await this.deps.delegations.accessToken(actor, scope, { kind: 'api' })
       this.waiting.delete(keyOf(destination))
       return { kind: 'ok', token }
     } catch (error) {

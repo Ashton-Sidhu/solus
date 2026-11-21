@@ -24,7 +24,7 @@ import { ANY_ORGANIZATION, CREDENTIAL_FREE_PRINCIPAL, recordScopeOf, scopeAdmits
 import type { ShareResource } from '@solus/contracts/sharing'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { workOrganizationId } from './data/works/works'
-import { transcriptDestination } from './sync/mirror/transcript-mirror'
+import { publishedDestination } from './sync/mirror/transcript-mirror'
 import { appendDelivery, deliveryBacklog, dropQueuedFor, retryUnsupportedKinds } from './sync/delivery-queue'
 import { RemoteUpdateService } from './updates/remote-update-service'
 import type { ServerUpdateSupport, SupervisorMessage } from '@solus/contracts/server-update'
@@ -72,7 +72,7 @@ import { getInsightsOptIn, hostUserSettings } from './host/settings'
 import { followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
 import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contracts/uplink'
-import { TranscriptMirror, listOwnInterruptedSessions } from './sync/mirror/transcript-mirror'
+import { TranscriptMirror, listOwnInterruptedSessions, listUnmirroredCloudSessions } from './sync/mirror/transcript-mirror'
 import { applyApiMode, isApiMode, apiModeConfig } from './host/api-mode'
 import type { HostCredential } from './host/host-credential'
 import { SOLUS_API_AUDIENCE, directoryResponseSchema, hostAudience, type HostKind, type HostRegistration } from '@solus/contracts/uplink'
@@ -413,8 +413,9 @@ function workspaceTokenVerifier(apiMode: boolean): AccessTokenVerifier | null {
  * What a host does for its organization's Solus API once it is registered
  * (cloud-service-model.md §4–§6, §16; plans/010-standard-oauth.md): the delivery of
  * its queue, each row with the delegated token of the person whose work it is, its
- * session records once at boot, and the mirror of turns its previous process left
- * unsettled. Those rows wait in the queue until their person's token can carry them.
+ * session records once at boot, the mirror of turns its previous process left
+ * unsettled, and the mirror of sessions that have a cloud copy and no mirrored row.
+ * Those rows wait in the queue until their person's token can carry them.
  */
 function startRunnerCloud(deps: {
   registrar: HostRegistrar
@@ -436,6 +437,15 @@ function startRunnerCloud(deps: {
     for (const session of sessions) deps.transcriptMirror.touch(session.sessionId, session)
   }).catch((error) => {
     log.warn('transcript_mirror_interrupted_sweep_failed', { error: String(error) })
+  })
+  // A session whose cloud copy is older than the mirror of personal sessions goes once, one history read at a time.
+  void deps.interruptSweep.then(listUnmirroredCloudSessions).then(async (sessions) => {
+    for (const session of sessions) {
+      deps.transcriptMirror.touch(session.sessionId, session)
+      await deps.transcriptMirror.flushNow(session.sessionId)
+    }
+  }).catch((error) => {
+    log.warn('transcript_mirror_cloud_copy_sweep_failed', { error: String(error) })
   })
   return delivery
 }
@@ -548,9 +558,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // An agent tool reads a record only when the turn's person may open it (plans/031 item 7).
   installToolAccess((principal, resource) => shares.roleFor(principal, resource))
   server.useResourceAccess(shares)
-  /** The host's share rows for a mirrored session, appended for its organization; nothing for a session nobody mirrors. */
+  /** The host's share rows for a published session, appended for its organization; nothing for a session that is not published. */
   const mirrorShareRows = async (resource: ShareResource): Promise<void> => {
-    const destination = await transcriptDestination(resource.id)
+    const destination = await publishedDestination(resource.id)
     if (!destination) return
     appendDelivery(destination, 'shares', [{ key: `${resource.kind}:${resource.id}`, payload: { resource, rows: await shares.mirroredRows(resource) } }])
   }
@@ -1698,10 +1708,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         sessionPusher?.established()
         // A person's client presented on this machine (a cloud machine has no local client):
         // rows that waited for someone to deliver them as go now, not at the next five-minute poll.
-        if (scope !== 'personal') {
-          runnerDelivery?.retryWaiting()
-          return
-        }
+        runnerDelivery?.retryWaiting()
+        if (scope !== 'personal') return
         void integrationConnections.recheckCloud(userId)
         // The owner's account can be read now: what the link could not upload yet moves into it (docs/plans/cloud-vault.md §2.5).
         if (currentHostUser()?.account?.accountId === userId) {
@@ -2268,7 +2276,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }),
     tunnelUrl: tunnelOrigin,
     mirrorOrigin: async (resource) => {
-      if (resource.kind !== 'session' || !(await transcriptDestination(resource.id))) return null
+      if (resource.kind !== 'session' || !(await publishedDestination(resource.id))) return null
       return registrar.current()?.directoryUrl ?? null
     },
     getActiveSessions: () => [...ws.sessions.values()].map(s => ({

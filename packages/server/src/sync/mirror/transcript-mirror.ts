@@ -1,21 +1,23 @@
 import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import type { AgentId } from '@solus/contracts/types'
+import type { AgentId, SessionRecord } from '@solus/contracts/types'
 import type { SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { getDb, withTx } from '../../db'
 import { getDatabase } from '../../db/database'
 import { createLogger } from '../../logger'
-import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
+import { ANY_ORGANIZATION } from '../../admission/principal'
 import { projectSessionHistory } from '../../data/sessions/result-projection'
-import { getSessionRecord } from '../../data/sessions/session-records'
+import { getSessionRecord, isOrganizationWork } from '../../data/sessions/session-records'
 import type { SharesMirrorPayload, ActivityMirrorPayload, TranscriptMirrorPayload } from '../runner-protocol'
 import type { Activity } from '@solus/contracts/activity'
 import type { Attribution, User } from '@solus/contracts/user'
-import { cloudUserIdOf } from '../../host/host-user'
+import { cloudAccountOf, cloudUserIdOf } from '../../host/host-user'
+import { sessionCloudSyncDecision } from '../../host/policy/host-policy-store'
 import { activityFor } from '../../data/activity/activity'
 import { session } from '../../data/sessions/schema'
 import { appendDelivery, deliveryActorOf, type DeliveryDestination } from '../delivery-queue'
+import { personMirrorScope, personOfMirrorScope } from '../../data/sessions/mirror-scope'
 
 const log = createLogger('main', 'transcript-mirror')
 
@@ -30,11 +32,14 @@ const log = createLogger('main', 'transcript-mirror')
  * marked mirrored that never reached the log. The session's activity rows
  * (plans/012 §5) travel the same way, each once (`activity_mirror_rows`).
  *
- * Whether a session is mirrored at all is the session record's fact: only a
- * `published` record of a real organization ships its transcript, to that
- * organization. An organization-attributed session that only sends Insights
- * keeps its transcript on this machine (§3). A record's organization never
- * changes, so every row of one session goes to one destination.
+ * Whether a session is mirrored at all is the session record's fact. A
+ * `published` record of a real organization ships its transcript to that
+ * organization. Each other session is personal: it ships to its owner's own
+ * scope (`data/sessions/mirror-scope.ts`), and only while the cloud sync decision allows the
+ * session a cloud copy (`sessionCloudSyncDecision`), so one switch controls the
+ * session repository and the mirror of a personal session. A record's
+ * organization never changes, so every row of one session goes to one
+ * destination.
  *
  * What is mirrored is the row a client can see (decision 2026-09-19): the
  * same projection the history RPCs apply before a row leaves a host, so a tool
@@ -69,16 +74,32 @@ function hashOf(message: WireSessionLoadMessage): string {
   return createHash('sha1').update(JSON.stringify(message)).digest('hex')
 }
 
+/** The organization a published session is mirrored to, delivered by its owner. */
+function publishedDestinationOf(record: SessionRecord | null): DeliveryDestination | null {
+  return isOrganizationWork(record) ? { organizationId: record.organizationId, actorUserId: deliveryActorOf(record.ownerKey) } : null
+}
+
 /**
- * The organization a session's transcript is mirrored to, or null when it stays
- * on this machine: a published record's own.
+ * The organization a session is published to, or null. For what only a
+ * published session sends: its share rows, and the account origin in its links.
  */
-export async function transcriptDestination(sessionId: string): Promise<DeliveryDestination | null> {
+export async function publishedDestination(sessionId: string): Promise<DeliveryDestination | null> {
+  return publishedDestinationOf(await getSessionRecord(ANY_ORGANIZATION, sessionId))
+}
+
+/**
+ * Where a session's rows and turn diffs are mirrored to, or null when they stay
+ * on this machine. The session's owner delivers them, with their delegated
+ * token (plans/010-standard-oauth.md).
+ */
+export async function mirrorDestination(sessionId: string): Promise<DeliveryDestination | null> {
   const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
-  if (!record || record.organizationId === LOCAL_ORGANIZATION_ID) return null
-  // The session's owner delivers its transcript, with their delegated token (plans/010-standard-oauth.md).
-  const destination = { organizationId: record.organizationId, actorUserId: deliveryActorOf(record.ownerKey) }
-  return record.publication === 'published' ? destination : null
+  if (!record) return null
+  const published = publishedDestinationOf(record)
+  if (published) return published
+  const accountId = cloudAccountOf(record.ownerKey)
+  if (!accountId || !sessionCloudSyncDecision(record.organizationId, { accountId }).allowed) return null
+  return { organizationId: personMirrorScope(accountId), actorUserId: accountId }
 }
 
 export class TranscriptMirror {
@@ -131,7 +152,7 @@ export class TranscriptMirror {
 
   private async sync(sessionId: string, source: TranscriptSource): Promise<number> {
     if (this.disposed) return 0
-    const destination = await transcriptDestination(sessionId)
+    const destination = await mirrorDestination(sessionId)
     if (!destination) return 0
     const messages = projectSessionHistory(await this.deps.loadSession(source.provider, sessionId, source.projectPath))
     // Whatever organization a row was recorded in: a session published from Local brings the activity it had.
@@ -139,9 +160,11 @@ export class TranscriptMirror {
     const hashes = messages.map(hashOf)
     let lastSeq = 0
     // A session's share rows go when they change (`onShareChanged`), and with its first
-    // rows, so the Solus API holds them from the start (host-sharing.md §2).
+    // rows, so the Solus API holds them from the start (host-sharing.md §2). The cloud
+    // keeps no share row of a personal session: only its owner reads it there.
     const firstSync = !getDb().prepare('SELECT 1 FROM transcript_mirror_rows WHERE session_id = ? LIMIT 1').get(sessionId)
-    const shareRows = firstSync && this.deps.shareRows ? await this.deps.shareRows(sessionId) : null
+    const isPersonal = personOfMirrorScope(destination.organizationId) !== null
+    const shareRows = firstSync && !isPersonal && this.deps.shareRows ? await this.deps.shareRows(sessionId) : null
     withTx(() => {
       const known = hashRowSchema.array().parse(getDb().prepare('SELECT position, hash FROM transcript_mirror_rows WHERE session_id = ?').all(sessionId))
       const knownHashByPosition = new Map(known.map((row) => [row.position, row.hash]))
@@ -198,7 +221,8 @@ const interruptedRowSchema = z.object({
   project_path: z.string(),
 })
 
-export interface InterruptedSession extends TranscriptSource {
+/** One of this host's own sessions, and how its history is read. */
+export interface OwnSessionSource extends TranscriptSource {
   sessionId: string
 }
 
@@ -207,12 +231,33 @@ export interface InterruptedSession extends TranscriptSource {
  * ones boot just marked `interrupted`. Each is touched once so the transcript
  * of a killed turn reaches the cloud after a restart.
  */
-export async function listOwnInterruptedSessions(): Promise<InterruptedSession[]> {
+export async function listOwnInterruptedSessions(): Promise<OwnSessionSource[]> {
   const rows = interruptedRowSchema.array().parse(await getDatabase().all(sql`
     SELECT session_id, provider, project_path FROM ${session}
     WHERE publication = 'published' AND status = 'interrupted' AND runner_host_id IS NULL AND started_at IS NOT NULL
   `))
   return rows.map((row) => ({ sessionId: row.session_id, provider: row.provider, projectPath: row.project_path }))
+}
+
+const cloudCopyRowSchema = z.object({ session_id: z.string() })
+
+/**
+ * The host's own sessions that have a cloud copy and no mirrored row: personal
+ * sessions that ran before the mirror held them. Each is mirrored once after
+ * boot, so a reader with no host online keeps the sessions that the session
+ * repository showed before.
+ */
+export async function listUnmirroredCloudSessions(): Promise<OwnSessionSource[]> {
+  const rows = cloudCopyRowSchema.array().parse(getDb().prepare(`
+    SELECT session_id FROM session_storage WHERE pushed_head IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM transcript_mirror_rows mirrored WHERE mirrored.session_id = session_storage.session_id)
+  `).all())
+  const sessions: OwnSessionSource[] = []
+  for (const row of rows) {
+    const record = await getSessionRecord(ANY_ORGANIZATION, row.session_id)
+    if (record && record.runnerHostId === null) sessions.push({ sessionId: record.sessionId, provider: record.provider, projectPath: record.projectPath })
+  }
+  return sessions
 }
 
 /** A user as the cloud knows them: the host's owner is their linked account (plans/031 D4). */

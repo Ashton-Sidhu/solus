@@ -185,11 +185,12 @@ class FakeDelegations {
   readonly away = new Set<string>()
   /** People the account plane refused: removal ends everything. */
   readonly refused = new Set<string>()
-  async accessToken(userId: string, scope: { organizationId: string }, _resource: { kind: 'api' }): Promise<string> {
+  async accessToken(userId: string, scope: import('@solus/server/sync/delegations').DelegationScope, _resource: { kind: 'api' }): Promise<string> {
     if (this.refused.has(userId)) throw new delegationsModule.DelegationError('ORGANIZATION_ACCESS_REFUSED', 'The person is not a member of the organization.')
     if (this.away.has(userId)) throw new delegationsModule.DelegationError('ORGANIZATION_AUTHORITY_MISSING', 'Nobody has connected as this person yet.')
-    this.asked.push(`${userId}/${scope.organizationId}`)
-    return `delegated-${userId}-${scope.organizationId}`
+    const scopeName = scope === 'personal' ? 'personal' : scope.organizationId
+    this.asked.push(`${userId}/${scopeName}`)
+    return `delegated-${userId}-${scopeName}`
   }
 }
 
@@ -535,6 +536,30 @@ describe('runner delivery', () => {
       runner.retryWaiting()
       await until(() => api.batches.length === 1)
       expect(api.batches[0]).toMatchObject({ authorization: 'Bearer delegated-dana-org1' })
+      await until(() => queue.deliveryDestinations().length === 0)
+    } finally {
+      await runner.stop()
+      await api.stop()
+    }
+  })
+
+  test('the rows of a personal session go with their owner\'s personal delegation, apart from their organization rows', async () => {
+    // WHY: a personal session is no organization's. Its rows must reach the Solus API
+    // as its owner alone, in their own scope, or a member token would carry them into
+    // an organization (docs/plans/portable-sessions-cloud.md, "The mirror for readers").
+    const api = new FakeApi()
+    await api.start()
+    const delegations = new FakeDelegations()
+    const runner = startDelivery(api, delegations)
+    try {
+      queue.appendDelivery({ organizationId: 'person:bob', actorUserId: 'bob' }, 'transcript', [{ key: 's-mine:0', payload: { sessionId: 's-mine', position: 0, message: { role: 'user', content: 'private' } } }])
+      queueLine('for the organization')
+      await until(() => api.batches.length === 2)
+      const personal = api.batches.find((batch) => batch.authorization === 'Bearer delegated-bob-personal')
+      const organization = api.batches.find((batch) => batch.authorization === 'Bearer delegated-bob-org1')
+      expect(personal?.body.items.map((item) => item.payload)).toEqual([{ sessionId: 's-mine', position: 0, message: { role: 'user', content: 'private' } }])
+      expect(organization?.body.items).toHaveLength(1)
+      expect(delegations.asked.sort()).toEqual(['bob/org1', 'bob/personal'])
       await until(() => queue.deliveryDestinations().length === 0)
     } finally {
       await runner.stop()

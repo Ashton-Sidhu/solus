@@ -11,14 +11,18 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // docs/plans/organization-scope.md §4, §6, §7: the transcript producer reads a
 // session's history once its events settle, and appends only the rows whose
 // content changed since the last pass — plus a truncate when the transcript
-// got shorter — to the organization the session's record names. Only a
-// `published` record of a real organization ships its transcript: a Local or
-// merely organization-attributed session reads nothing and marks nothing.
+// got shorter — to the organization the session's record names. A
+// `published` record of a real organization ships its transcript there. A
+// Local or merely organization-attributed session is personal: it ships to its
+// owner's own scope, and only while that person's cloud sync is on
+// (docs/plans/portable-sessions-cloud.md, "The mirror for readers").
 
 let TranscriptMirrorModule: typeof import('@solus/server/sync/mirror/transcript-mirror')
 let queue: typeof import('@solus/server/sync/delivery-queue')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
+let hostUser: typeof import('@solus/server/host/host-user')
+let settings: typeof import('@solus/server/host/settings')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -30,6 +34,8 @@ beforeAll(async () => {
   queue = await import('@solus/server/sync/delivery-queue')
   records = await import('@solus/server/data/sessions/session-records')
   dbModule = await import('@solus/server/db')
+  hostUser = await import('@solus/server/host/host-user')
+  settings = await import('@solus/server/host/settings')
 })
 
 afterAll(async () => {
@@ -88,16 +94,17 @@ function mirror() {
 }
 
 describe('transcript mirror', () => {
-  test('a Local session, and one assigned to an organization but not published, read nothing and remember nothing', async () => {
+  test('with no person signed in, a Local session, and one assigned to an organization but not published, read nothing and remember nothing', async () => {
     // WHY: sending Insights or picking an organization in the window publishes no
-    // transcript (§3). Only a publication does, and it says so on the record.
+    // transcript (§3). Only a publication does, and it says so on the record. A
+    // personal session has nowhere to go while its owner has no account here.
     await session('quiet', 'local')
     await session('attributed', 'assigned')
     transcripts.set('quiet', [message('a')])
     transcripts.set('attributed', [message('a')])
-    expect(await TranscriptMirrorModule.transcriptDestination('quiet')).toBeNull()
-    expect(await TranscriptMirrorModule.transcriptDestination('attributed')).toBeNull()
-    expect(await TranscriptMirrorModule.transcriptDestination('never-recorded')).toBeNull()
+    expect(await TranscriptMirrorModule.mirrorDestination('quiet')).toBeNull()
+    expect(await TranscriptMirrorModule.mirrorDestination('attributed')).toBeNull()
+    expect(await TranscriptMirrorModule.mirrorDestination('never-recorded')).toBeNull()
     const producer = mirror()
     producer.touch('quiet', { provider: 'claude-code' })
     producer.touch('attributed', { provider: 'claude-code' })
@@ -112,7 +119,7 @@ describe('transcript mirror', () => {
 
   test('the first pass appends every row to the record\'s organization; the next appends only what changed; a shorter transcript appends a truncate', async () => {
     await session('s1', 'published')
-    expect(await TranscriptMirrorModule.transcriptDestination('s1')).toEqual({ organizationId: 'org1', actorUserId: '' })
+    expect(await TranscriptMirrorModule.mirrorDestination('s1')).toEqual({ organizationId: 'org1', actorUserId: '' })
     const producer = mirror()
     transcripts.set('s1', [message('a'), message('b'), message('c')])
     producer.touch('s1', { provider: 'claude-code', projectPath: '-repo' })
@@ -151,6 +158,61 @@ describe('transcript mirror', () => {
     ])
     expect(rememberedPositions('s1')).toEqual([0, 1])
     producer.dispose()
+  })
+
+  test('a personal session is mirrored to its owner\'s own scope, with their account as the deliverer, and only while cloud sync is on', async () => {
+    // WHY: the mirror is the one store a reader with no host online reads. One
+    // switch (`sessionCloudSync`) gives a personal session its cloud copy and its
+    // mirror; with it off nothing of the session may leave the machine.
+    hostUser.useHostUser({ localId: 'mac-1', account: { accountId: 'acct-ashton' } })
+    try {
+      await session('mine', 'local')
+      const personal = { organizationId: 'person:acct-ashton', actorUserId: 'acct-ashton' }
+      expect(await TranscriptMirrorModule.mirrorDestination('mine')).toEqual(personal)
+      // A published session is its organization's, never its owner's scope.
+      expect(await TranscriptMirrorModule.mirrorDestination('s1')).toEqual({ organizationId: 'org1', actorUserId: '' })
+      expect(await TranscriptMirrorModule.publishedDestination('mine')).toBeNull()
+
+      const shareReads: string[] = []
+      const producer = new TranscriptMirrorModule.TranscriptMirror({
+        loadSession: async (_provider, sessionId) => transcripts.get(sessionId) ?? [],
+        shareRows: async (sessionId) => { shareReads.push(sessionId); return [] },
+        debounceMs: 5,
+      })
+      transcripts.set('mine', [message('private')])
+      producer.touch('mine', { provider: 'claude-code' })
+      await producer.flushNow('mine')
+      const queued = queue.listDelivery(personal, 100)
+      queue.ackDelivery(personal, queued.at(-1)!.seq, [])
+      // The rows go; the share rows of a personal session never do.
+      expect(queued.map((item) => ({ kind: item.kind, payload: item.payload }))).toEqual([
+        { kind: 'transcript', payload: { sessionId: 'mine', position: 0, message: message('private') } },
+      ])
+      expect(shareReads).toEqual([])
+      expect(queue.deliveryDestinations()).toEqual([])
+
+      // WHY: a session whose cloud copy was made before the mirror held personal
+      // sessions has no mirrored row. Boot sends it once; a mirrored session is not listed again.
+      await session('older', 'local')
+      const store = dbModule.getDb().prepare("INSERT INTO session_storage (session_id, repository, head, pushed_head) VALUES (?, ?, 'h1', 'h1')")
+      store.run('older', 'repo-older')
+      store.run('mine', 'repo-mine')
+      expect(await TranscriptMirrorModule.listUnmirroredCloudSessions()).toEqual([{ sessionId: 'older', provider: 'claude-code', projectPath: '-repo' }])
+
+      settings.setHostConfig({ sessionCloudSync: false })
+      expect(await TranscriptMirrorModule.mirrorDestination('mine')).toBeNull()
+      transcripts.set('mine', [message('private'), message('after the switch went off')])
+      producer.touch('mine', { provider: 'claude-code' })
+      expect(await producer.flushNow('mine')).toBe(0)
+      expect(queue.deliveryDestinations()).toEqual([])
+      expect(rememberedPositions('mine')).toEqual([0])
+      // The switch does not gate a published session: publication is its gate.
+      expect(await TranscriptMirrorModule.mirrorDestination('s1')).toEqual({ organizationId: 'org1', actorUserId: '' })
+      producer.dispose()
+    } finally {
+      settings.setHostConfig({ sessionCloudSync: true })
+      hostUser.useHostUser(null)
+    }
   })
 
   test('every row of one session goes to its own organization; another organization\'s queue never sees it', async () => {

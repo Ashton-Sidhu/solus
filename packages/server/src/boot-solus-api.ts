@@ -26,6 +26,7 @@ import { installWorkLiveBridge } from './data/works/work-live-bridge'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { sessionRemoteProvider } from './sync/sessions/session-remote-provider'
 import { SessionCloudReader } from './sync/sessions/session-cloud-reader'
+import { personOfMirrorScope } from './data/sessions/mirror-scope'
 import { userKey } from '@solus/contracts/user'
 import { readSessionRepository } from './data/sessions/session-repositories'
 import { formatSessionCloudScope } from '@solus/contracts/session-repositories'
@@ -159,6 +160,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   const presence = workspacePresence(server, events)
   if (options.webhookAdmin) registerWebhookAdminHandlers(server, options.webhookAdmin)
   registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port, sessionReader })
+  const people = new PersonConnections(() => clients.routableClientIds(), clientId => socket?.principalOf(clientId))
   const { requestListener, routes, solusApiRouter, doors } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares), sessionReader },
@@ -166,14 +168,18 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),
     shareLinks: new ShareLinkResolver({ shares, hostRoutes: options.hostRoutes }),
     runner: {
-      deliver: (runner, request) => applyRunnerDelivery(runner, request, { shares, webhookAdmin: options.webhookAdmin, onTranscriptChanged: sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) } }),
+      deliver: (runner, request) => applyRunnerDelivery(runner, request, { shares, webhookAdmin: options.webhookAdmin, onTranscriptChanged: (sessionId, mirrorScope) => {
+        const accountId = personOfMirrorScope(mirrorScope)
+        // A personal session has no share row here: only its owner's connections hear of it.
+        if (accountId) void events.publish(people.of(userKey({ kind: 'account', accountId })), 'session.transcriptChanged', { sessionId })
+        else void events.broadcast('session.transcriptChanged', { sessionId })
+      } }),
     },
     sessionRepositories: {
       database: db, storage: sessionStorage, shares,
       async changed(scope, sessionId, facts) {
         const payload = { sessionId, ...facts }
         if (scope.startsWith('person:')) {
-          const people = new PersonConnections(() => clients.routableClientIds(), clientId => socket?.principalOf(clientId))
           await events.publish(people.of(userKey({ kind: 'account', accountId: scope.slice(7) })), 'session.headChanged', payload)
         } else {
           const organizationId = scope.slice(13)
@@ -192,7 +198,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   // An organization session's place in the list lives here, not on the machine
   // that ran it: machines rotate and go offline (docs/plans/session-archive.md).
   const unsubscribeSessionStates = onSessionStateChanged((sessionId, state) => { void events.broadcast('session.stateChanged', { sessionId, state }) })
-  const unsubscribeSessionViews = publishSessionViewChanges(events, new PersonConnections(() => clients.routableClientIds(), clientId => socket?.principalOf(clientId)))
+  const unsubscribeSessionViews = publishSessionViewChanges(events, people)
   // The home of organization sessions keeps their pull requests fresh: their machines rotate and go offline.
   let prSync: PrSync | null = null
   if (options.accountCredential) {

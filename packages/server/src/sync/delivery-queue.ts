@@ -23,7 +23,9 @@ const log = createLogger('main', 'delivery-queue')
 /**
  * Where a queued row goes and who delivers it (plans/010-standard-oauth.md): one
  * organization's Solus API, with one person's delegated token. An empty person is the
- * person who linked the host.
+ * person who linked the host. A mirrored row of a personal session has its owner's
+ * mirror scope (`data/sessions/mirror-scope.ts`) as `organizationId`: it goes to that
+ * person's own scope, with their personal delegation.
  */
 export interface DeliveryDestination {
   organizationId: string
@@ -173,11 +175,12 @@ export function dropQueuedFor(destination: DeliveryDestination): number {
 /**
  * What waits to reach each organization's Solus API, for the status surfaces
  * (organization-vms §5): every queued item, and the items the API refused for good.
+ * The rows of a personal session are no organization's and are not counted.
  */
 export function deliveryBacklog(): Array<{ organizationId: string; pending: number; failed: number }> {
   const rows = z.array(z.object({ organization_id: z.string(), pending: z.number(), failed: z.number() })).parse(getDb().prepare(`
     SELECT organization_id, SUM(CASE WHEN error IS NULL THEN 1 ELSE 0 END) AS pending, SUM(CASE WHEN error IS NULL THEN 0 ELSE 1 END) AS failed
-    FROM delivery_queue GROUP BY organization_id ORDER BY organization_id
+    FROM delivery_queue WHERE organization_id NOT LIKE 'person:%' GROUP BY organization_id ORDER BY organization_id
   `).all())
   return rows.map((row) => ({ organizationId: row.organization_id, pending: row.pending, failed: row.failed }))
 }
