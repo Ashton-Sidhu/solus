@@ -2,17 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { isCallToolResult, isSpecType } from '@modelcontextprotocol/client'
 import type { Integration } from '@solus/contracts/integration-types'
 import { mcpTaskIsLive, mcpTaskWakeHeader, type McpTask, type McpTaskAnswerRequest, type McpTaskChangedEvent, type McpTaskIdRequest, type McpTaskProblem, type McpTaskStatus } from '@solus/contracts/integrations/mcp-task'
+import { clip } from '@solus/contracts/session-exchange'
 import type { QuestionRequest } from '@solus/contracts/types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import type { AgentToolImage, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { mcpElicitResult, mcpElicitationResponse, normalizeMcpElicitationRequest } from '../execution/agents/codex/codex-permissions'
+import type { SessionWake } from '../execution/sessions/session-wake'
 import { createLogger } from '../logger'
 import { withUserScope } from '../vault/acting-scope'
 import type { IntegrationGateway } from './gateway'
 import { isUnknownTask, ServerStoppedError, ServerTask, type HeldMcpTask, type McpTaskCalls, type McpTaskState } from './mcp-task-requests'
 import type { McpTaskRow, McpTaskStore } from './mcp-task-store'
 import { agentResultOf } from './result-content'
-import { oneLine, SessionWake, type SessionWakeDeps } from './session-wake'
 import { SYSTEM_CLOCK, type GatewayClock } from './stdio-process'
 import { ConnectionRequiredError, errorText, sameUpstream, type UpstreamAddress } from './upstream-session'
 
@@ -73,8 +74,9 @@ interface LiveTask {
   hold: { resolve: (result: AgentToolResult) => void; timer: ReturnType<typeof setTimeout>; release: () => void } | null
 }
 
-/** `wake` queues the message that gives an MCP task's end to its session (`via: 'mcp-task'`). */
-export interface McpTasksDeps extends SessionWakeDeps {
+export interface McpTasksDeps {
+  /** Gives an MCP task's end to its session, as the task's person (`via: 'mcp-task'`). */
+  sessionWake: Pick<SessionWake, 'send'>
   store: McpTaskStore
   gateway: Pick<IntegrationGateway, 'withBackgroundSession' | 'store' | 'askToConnect'>
   publish: (event: McpTaskChangedEvent) => void
@@ -97,11 +99,8 @@ export class McpTasks implements McpTaskCalls {
   private readonly live = new Map<string, LiveTask>()
   private readonly wakes = new Map<string, number[]>()
   private stopped = false
-  private readonly sessionWake: SessionWake
 
-  constructor(private readonly deps: McpTasksDeps) {
-    this.sessionWake = new SessionWake(deps, 'mcp-task-image')
-  }
+  constructor(private readonly deps: McpTasksDeps) {}
 
   private get clock(): GatewayClock {
     return this.deps.clock ?? SYSTEM_CLOCK
@@ -449,7 +448,7 @@ export class McpTasks implements McpTaskCalls {
     this.wakes.set(task.row.sessionId, recent)
     try {
       const { text, images } = await this.wakeMessage(task, ending)
-      await this.sessionWake.send(task.row.sessionId, text, images)
+      await this.deps.sessionWake.send(task.row, 'mcp-task', text, images)
       log.info('mcp_task_delivered', { sessionId: task.row.sessionId, mcpTaskId: task.row.id })
     } catch (error) {
       log.warn('mcp_task_delivery_failed', { sessionId: task.row.sessionId, mcpTaskId: task.row.id, error: errorText(error) })
@@ -534,5 +533,5 @@ function callResultOf(state: McpTaskState): Parameters<typeof agentResultOf>[0] 
 }
 
 function statusLine(text: string | undefined | null): string | null {
-  return text?.trim() ? oneLine(text, STATUS_MESSAGE_CHARS) : null
+  return text?.trim() ? clip(text, STATUS_MESSAGE_CHARS) : null
 }
