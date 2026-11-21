@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { McpTask } from '@solus/contracts/integrations/mcp-task'
-import { shownMcpTasks } from '@solus/client-core/mcp-task-row'
+import { shownBackgroundRecords } from '@solus/client-core/background-item'
+import { MCP_TASKS } from '@solus/client-core/mcp-task-row'
 import { useApp, useListened } from '../../app/app-context'
 
 export interface McpTasksView {
@@ -54,5 +55,5 @@ export function useMcpTasks(hostId: string, sessionId: string, turnActive: boole
     if (!connection) throw new Error('This host is not connected.')
     return connection.api.mcpTaskAnswer({ sessionId: task.sessionId, id: task.id, key, answers })
   }, [app, hostId])
-  return { tasks: shownMcpTasks(tasks, since), cancel, answer }
+  return { tasks: shownBackgroundRecords(MCP_TASKS, tasks, since), cancel, answer }
 }

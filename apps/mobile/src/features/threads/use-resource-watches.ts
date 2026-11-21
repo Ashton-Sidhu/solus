@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ResourceWatch } from '@solus/contracts/integrations/resource-watch'
-import { shownResourceWatches } from '@solus/client-core/resource-watch-row'
+import { shownBackgroundRecords } from '@solus/client-core/background-item'
+import { RESOURCE_WATCHES } from '@solus/client-core/resource-watch-row'
 import { useApp, useListened } from '../../app/app-context'
 
 export interface ResourceWatchesView {
@@ -48,5 +49,5 @@ export function useResourceWatches(hostId: string, sessionId: string, turnActive
     if (!connection) throw new Error('This host is not connected.')
     await connection.api.integrationResourceWatchStop({ sessionId: watch.sessionId, id: watch.id })
   }, [app, hostId])
-  return { watches: shownResourceWatches(watches, since), stop }
+  return { watches: shownBackgroundRecords(RESOURCE_WATCHES, watches, since), stop }
 }

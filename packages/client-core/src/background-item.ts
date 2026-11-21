@@ -30,3 +30,21 @@ export interface BackgroundItem {
   /** What the stop button does, as its name and tooltip: "Stop watching <resource>", "Stop <tool>". */
   stopLabel: string
 }
+
+/** The fields a host keeps on each background record that the conversation shows. */
+export interface BackgroundRecord {
+  readonly id: string
+  readonly sessionId: string
+  readonly updatedAt: number
+}
+
+/** One kind of background record: how its row reads, and whether its work is still live. */
+export interface BackgroundKind<T extends BackgroundRecord> {
+  item(record: T): BackgroundItem
+  isLive(record: T): boolean
+}
+
+/** Which rows the conversation shows: the live ones, and the ones that ended after `since` (the last turn's start). */
+export function shownBackgroundRecords<T extends BackgroundRecord>(kind: BackgroundKind<T>, records: readonly T[], since: number): T[] {
+  return records.filter((record) => kind.isLive(record) || record.updatedAt >= since)
+}

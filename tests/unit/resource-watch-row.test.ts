@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { resourceWatchWake, resourceWatchWakeHeader, type ResourceWatch } from '@solus/contracts/integrations/resource-watch'
-import { resourceWatchItem, shownResourceWatches } from '@solus/client-core/resource-watch-row'
+import { shownBackgroundRecords } from '@solus/client-core/background-item'
+import { resourceWatchItem, RESOURCE_WATCHES } from '@solus/client-core/resource-watch-row'
 import { hostNoticeKind } from '../../packages/workspace-ui/src/components/conversation/lib/host-notice'
 
 /**
@@ -44,8 +45,8 @@ describe('resource watch row', () => {
 
   test('the conversation shows live watches, and ended ones only during the turn they ended in', () => {
     const ended = { ...base, id: 'w2', state: 'ended' as const, endReason: 'stopped' as const, updatedAt: 500 }
-    expect(shownResourceWatches([base, ended], 400).map((watch) => watch.id)).toEqual(['w1', 'w2'])
-    expect(shownResourceWatches([base, ended], 600).map((watch) => watch.id)).toEqual(['w1'])
+    expect(shownBackgroundRecords(RESOURCE_WATCHES, [base, ended], 400).map((watch) => watch.id)).toEqual(['w1', 'w2'])
+    expect(shownBackgroundRecords(RESOURCE_WATCHES, [base, ended], 600).map((watch) => watch.id)).toEqual(['w1'])
   })
 })
 

@@ -1,11 +1,13 @@
 import { resourceWatchIsLive, type ResourceWatch } from '@solus/contracts/integrations/resource-watch'
-import type { BackgroundItem, BackgroundItemAction } from './background-item'
+import type { BackgroundItem, BackgroundItemAction, BackgroundKind } from './background-item'
 
 // A resource watch as a background work row (docs/plans/mcp-first-class.md §11.5).
 // A watch can stay for a day, so its row shows no running clock, and it spins
 // only while it opens or while a change is about to start the agent.
 
 export const RESOURCE_WATCH_STOP: BackgroundItemAction = { id: 'stop', label: 'Stop', busyLabel: 'Stopping…', stops: true }
+
+export const RESOURCE_WATCHES: BackgroundKind<ResourceWatch> = { item: resourceWatchItem, isLive: resourceWatchIsLive }
 
 export function resourceWatchItem(watch: ResourceWatch): BackgroundItem {
   return {
@@ -65,9 +67,4 @@ function resourceWatchDetail(watch: ResourceWatch): string {
         default: return watch.message ?? 'Ended'
       }
   }
-}
-
-/** Which rows the conversation shows: the live ones, and the ones that ended after `since` (the last turn's start). */
-export function shownResourceWatches(watches: readonly ResourceWatch[], since: number): ResourceWatch[] {
-  return watches.filter((watch) => resourceWatchIsLive(watch) || watch.updatedAt >= since)
 }

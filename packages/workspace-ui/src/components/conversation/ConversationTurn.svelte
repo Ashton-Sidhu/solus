@@ -13,8 +13,10 @@
   import McpTaskRows from "./McpTaskRows.svelte";
   import ResourceWatchRows from "./ResourceWatchRows.svelte";
   import { mcpTasksStore } from "../../contexts/sessions/mcp-tasks.store.svelte";
-  import { mcpTaskIsLive } from "@solus/contracts/integrations/mcp-task";
-  import { shownMcpTasks } from "@solus/client-core/mcp-task-row";
+  import { resourceWatchesStore } from "../../contexts/sessions/resource-watches.store.svelte";
+  import { shownBackgroundRecords } from "@solus/client-core/background-item";
+  import { MCP_TASKS } from "@solus/client-core/mcp-task-row";
+  import { RESOURCE_WATCHES } from "@solus/client-core/resource-watch-row";
   import { runHost } from "../../contexts/workspace/run-location";
   import TurnActivityRow from "./TurnActivityRow.svelte";
   import StatusCard from "./StatusCard.svelte";
@@ -65,16 +67,22 @@
     turn.live ? null : turnReplyCards(turn, sessionArtifactsStore.artifactsFor(session.sessionFor(tabId)?.id)?.own ?? [], nextStartedAt),
   );
   const NO_PLACED_PULL_REQUESTS: ReadonlySet<string> = new Set();
-  // The session's MCP tasks show on its last turn: the live ones, and those that ended during it.
+  // The session's MCP tasks and resource watches show on its last turn: the live
+  // ones, and those that ended during it.
   const ownSessionId = $derived(session.sessionFor(tabId)?.id);
   const ownServerId = $derived(runHost(session.sessionFor(tabId)?.run));
   $effect(() => {
-    if (index === total - 1 && ownSessionId && ownServerId) mcpTasksStore.ensure(ownServerId, ownSessionId);
+    if (index !== total - 1 || !ownSessionId || !ownServerId) return;
+    mcpTasksStore.ensure(ownServerId, ownSessionId);
+    resourceWatchesStore.ensure(ownServerId, ownSessionId);
   });
-  const mcpTasks = $derived(index === total - 1 ? shownMcpTasks(mcpTasksStore.tasksFor(ownSessionId), turn.startedAt) : []);
+  const mcpTasks = $derived(index === total - 1 ? shownBackgroundRecords(MCP_TASKS, mcpTasksStore.tasksFor(ownSessionId), turn.startedAt) : []);
+  const resourceWatches = $derived(
+    index === total - 1 ? shownBackgroundRecords(RESOURCE_WATCHES, resourceWatchesStore.watchesFor(ownSessionId), turn.startedAt) : [],
+  );
   // A live MCP task holds the session in `background`. The row of the agent's own
   // background work then says nothing the MCP task rows do not, unless the turn waits on more.
-  const backgroundWorkIsMcpTasks = $derived(mcpTasks.some(mcpTaskIsLive) && describeBackgroundWait(turn.body) === null);
+  const backgroundWorkIsMcpTasks = $derived(mcpTasks.some(MCP_TASKS.isLive) && describeBackgroundWait(turn.body) === null);
   // The folded turn's outputs strip. It reads the turn's own calls, and only while folded.
   const disclosure = getTranscriptDisclosure();
   const outputs = $derived(turn.live || expanded ? EMPTY_TOOL_STRIP : toolStrip(turnStripTools(turn)));
@@ -222,8 +230,8 @@
   <McpTaskRows {tabId} tasks={mcpTasks} />
 {/if}
 <!-- Its resource watches show there too. A watch waits for news, so it does not hold `background`. -->
-{#if index === total - 1 && ownSessionId && ownServerId}
-  <ResourceWatchRows {tabId} sessionId={ownSessionId} serverId={ownServerId} since={turn.startedAt} />
+{#if resourceWatches.length}
+  <ResourceWatchRows {tabId} watches={resourceWatches} />
 {/if}
 <!-- Only when nothing else is reporting the run: a tool group at
    the tail already carries the spinner. -->
