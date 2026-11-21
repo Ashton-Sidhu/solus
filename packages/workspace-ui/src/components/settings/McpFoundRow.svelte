@@ -9,7 +9,7 @@
    */
   import { Check, TriangleAlert } from "@lucide/svelte";
   import type { FoundServer } from "@solus/contracts/integration-types";
-  import { foundPlacesText, foundPortOf, foundStateText, foundTargetText, foundUnsupportedText, portIdentityText, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
+  import { FoundServerLabels, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import McpServerIcon from "./McpServerIcon.svelte";
 
@@ -25,9 +25,8 @@
   }
   let { server, projectName, hostLabel, isOffline, isAdding, onReview }: Props = $props();
 
-  const target = $derived(foundTargetText(server));
+  const labels = $derived(new FoundServerLabels(server, hostLabel));
   const url = $derived(server.transport && server.transport.kind !== "stdio" ? server.transport.url : "");
-  const port = $derived(foundPortOf(server));
 </script>
 
 <div class="flex flex-col gap-2 px-4 py-3" data-testid="mcp-found-row" data-found-id={server.foundId}>
@@ -36,8 +35,8 @@
     <div class="flex min-w-0 flex-1 flex-col">
       <span class="truncate text-workspace-chrome leading-5 font-medium text-foreground" title={server.name}>{server.name}</span>
       <!-- The full command: the person reads exactly what would run before they add it. -->
-      {#if target}<code class="font-mono text-chrome-dense leading-5 break-all text-(--solus-text-secondary)">{target}</code>{/if}
-      <span class="text-chrome-dense leading-5 text-(--solus-text-tertiary)">{foundPlacesText(server, hostLabel)}</span>
+      {#if labels.target}<code class="font-mono text-chrome-dense leading-5 break-all text-(--solus-text-secondary)">{labels.target}</code>{/if}
+      <span class="text-chrome-dense leading-5 text-(--solus-text-tertiary)">{labels.places}</span>
     </div>
     {#if server.state === "new"}
       <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || isAdding}
@@ -47,22 +46,22 @@
         onclick={() => onReview(server)} aria-label="Review the change of {server.name}">Review change</Button>
     {:else if server.state === "added"}
       <span class="flex h-7 shrink-0 items-center gap-1.5 px-2.5 text-chrome-dense text-(--solus-text-secondary) pointer-coarse:min-h-11">
-        <Check size={16} strokeWidth={2.5} class="text-(--solus-status-complete)" aria-hidden="true" />{foundStateText(server)}
+        <Check size={16} strokeWidth={2.5} class="text-(--solus-status-complete)" aria-hidden="true" />{labels.state}
       </span>
     {:else}
-      <span class="flex h-7 shrink-0 items-center px-2.5 text-chrome-dense text-(--solus-text-secondary)">{foundStateText(server)}</span>
+      <span class="flex h-7 shrink-0 items-center px-2.5 text-chrome-dense text-(--solus-text-secondary)">{labels.state}</span>
     {/if}
   </div>
-  {#if server.state === "unsupported" && server.unsupported}
-    <p class="pl-11 text-chrome-dense text-(--solus-text-secondary)">{foundUnsupportedText(server.unsupported)}</p>
+  {#if labels.unsupported}
+    <p class="pl-11 text-chrome-dense text-(--solus-text-secondary)">{labels.unsupported}</p>
   {:else if server.state !== "added"}
     {#if server.projectOnly && server.transport?.kind === "stdio" && projectName}
       <p class="flex items-start gap-1.5 pl-11 text-chrome-dense text-(--solus-status-permission)">
         <TriangleAlert size={14} class="mt-0.5 shrink-0" aria-hidden="true" />{projectCommandWarning(projectName)}
       </p>
     {/if}
-    {#if port}
-      <p class="pl-11 text-chrome-dense text-(--solus-text-secondary)">{portIdentityText(port)}</p>
+    {#if labels.portIdentity}
+      <p class="pl-11 text-chrome-dense text-(--solus-text-secondary)">{labels.portIdentity}</p>
     {/if}
     {#if server.commandMissing}
       <p class="pl-11 text-chrome-dense text-(--solus-text-secondary)">This host does not have the program {server.transport?.kind === "stdio" ? server.transport.command : ""}. Install it before you start the server.</p>

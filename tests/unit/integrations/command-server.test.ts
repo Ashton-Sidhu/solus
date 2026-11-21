@@ -11,7 +11,7 @@ import {
   type CommandProcessInput,
 } from '@solus/contracts/integrations/command-server'
 import { commandValuesText } from '@solus/contracts/integrations/command-values'
-import { foundTargetText } from '@solus/contracts/integrations/found-server-labels'
+import { FoundServerLabels } from '@solus/contracts/integrations/found-server-labels'
 
 // docs/plans/mcp-first-class.md §7.7: desktop, web, and mobile show one state
 // of a command's process with one label and offer the same actions, from this
@@ -84,7 +84,7 @@ describe('the add form of a command', () => {
     // WHY: the person approves the line they read (§8.3). A second quoting rule showed
     // one launch as two lines, and a word with | & ; $ or a backquote did not read back.
     const launch = { command: 'node', args: ['server.js', 'a|b', 'x&y', 'p;q', '$HOME', '`id`', "it's"] }
-    const line = foundTargetText({ transport: { kind: 'stdio', ...launch, envNames: [] } })
+    const line = new FoundServerLabels({ foundId: 'f', fingerprint: 'p', name: 'node', foundIn: [], transport: { kind: 'stdio', ...launch, envNames: [] }, state: 'new', projectOnly: false, valuesInFile: [] }, 'studio').target
     expect(line).toBe(commandLineText(launch))
     expect(splitCommandLine(line)).toEqual({ ok: true, launch })
   })
