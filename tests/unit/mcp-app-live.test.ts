@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { mcpAppHostContext, type McpAppPalette } from '@solus/client-core/mcp-app-context'
-import { createMcpAppHost, healPartialJson, MCP_APP_CAPTURE_WAIT_MS, MCP_APP_PARTIAL_INPUT_INTERVAL_MS, type McpAppClock, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { createMcpAppHost, MCP_APP_CAPTURE_WAIT_MS, MCP_APP_PARTIAL_INPUT_INTERVAL_MS, type McpAppClock, type McpAppHostOptions } from '@solus/client-core/mcp-app-host'
+import { healPartialJson } from '@solus/client-core/partial-json'
 import { McpAppLiveCards, mcpAppLiveCall } from '@solus/client-core/mcp-app-live'
 import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument } from '@solus/contracts/mcp-apps'
 

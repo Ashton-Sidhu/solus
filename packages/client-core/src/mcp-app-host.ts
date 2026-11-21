@@ -12,6 +12,7 @@ import {
 } from '@solus/contracts/mcp-apps'
 import { MCP_APP_DISPLAY_MODES, MCP_APP_MAX_HEIGHT, type McpAppDisplayMode, type McpAppHostContext } from './mcp-app-context'
 import { mcpAppGrantedPermissions } from './mcp-app-permissions'
+import { healPartialJson } from './partial-json'
 
 /** What a client gives the bridge: its frame, its host calls, and its own approval prompt. */
 export interface McpAppHostOptions {
@@ -442,7 +443,6 @@ export function createMcpAppHost(options: McpAppHostOptions) {
   }
 }
 
-type JsonValue = z.infer<ReturnType<typeof z.json>>
 /** Tool arguments are a JSON object. */
 const jsonObjectSchema = z.record(z.string(), z.json())
 
@@ -454,111 +454,4 @@ function wholeArguments(input: string): string | null {
   } catch {
     return null
   }
-}
-
-type JsonFrame = { kind: 'object'; expects: 'key' | 'colon' | 'value' | 'comma' } | { kind: 'array'; expects: 'value' | 'comma' }
-const WHOLE_ATOM = /^(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)$/
-
-/** A cut JSON text as it is read: what is kept, and up to where it closes into JSON. */
-interface HealState {
-  readonly text: string
-  index: number
-  out: string
-  /** The end of the last whole value or open bracket: cut there, the text closes into JSON. */
-  safe: number
-  readonly frames: JsonFrame[]
-  /** The rest of the text can still grow, so it is dropped. */
-  isCut: boolean
-}
-
-/**
- * The value of a JSON text that was cut while it streamed. A cut string is
- * closed (a cut escape is dropped first), a key with no value and a cut number
- * or literal are dropped, and each open array and object is closed. Undefined
- * when nothing whole is left or the text is not JSON.
- */
-export function healPartialJson(text: string): JsonValue | undefined {
-  const state: HealState = { text, index: 0, out: '', safe: 0, frames: [], isCut: false }
-  while (!state.isCut && state.index < text.length) readToken(state)
-  if (state.safe === 0) return undefined
-  const closers = state.frames.map((frame) => (frame.kind === 'object' ? '}' : ']')).reverse().join('')
-  try {
-    return JSON.parse(state.out.slice(0, state.safe) + closers)
-  } catch {
-    return undefined
-  }
-}
-
-function readToken(state: HealState): void {
-  const char = state.text[state.index]
-  if (char === ' ' || char === '\n' || char === '\r' || char === '\t') state.index++
-  else if (char === '"') readString(state)
-  else if (char === '{' || char === '[') {
-    state.out += char
-    state.frames.push(char === '{' ? { kind: 'object', expects: 'key' } : { kind: 'array', expects: 'value' })
-    state.safe = state.out.length
-    state.index++
-  } else if (char === '}' || char === ']') {
-    state.out += char
-    state.frames.pop()
-    valueEnded(state)
-    state.index++
-  } else if (char === ':' || char === ',') {
-    state.out += char
-    const top = state.frames.at(-1)
-    if (top) top.expects = char === ':' ? 'value' : top.kind === 'object' ? 'key' : 'value'
-    state.index++
-  } else readAtom(state)
-}
-
-function valueEnded(state: HealState): void {
-  const top = state.frames.at(-1)
-  if (top) top.expects = 'comma'
-  state.safe = state.out.length
-}
-
-/** A whole string is kept; a cut value is closed, and a cut key is dropped. */
-function readString(state: HealState): void {
-  const top = state.frames.at(-1)
-  const isKey = top?.kind === 'object' && top.expects === 'key'
-  const end = stringEnd(state.text, state.index)
-  if (end < 0) {
-    state.isCut = true
-    if (isKey) return
-    state.out += closedString(state.text.slice(state.index))
-    valueEnded(state)
-    return
-  }
-  state.out += state.text.slice(state.index, end)
-  state.index = end
-  if (isKey) top.expects = 'colon'
-  else valueEnded(state)
-}
-
-/** A number or a literal. The last one may still grow: only a whole one is kept. */
-function readAtom(state: HealState): void {
-  const atom = /^[^\s,:[\]{}"]+/.exec(state.text.slice(state.index))?.[0] ?? state.text[state.index]
-  state.index += atom.length
-  if (state.index >= state.text.length && !WHOLE_ATOM.test(atom)) {
-    state.isCut = true
-    return
-  }
-  state.out += atom
-  valueEnded(state)
-}
-
-/** The index after the closing quote of the string at `start`, or -1 when it is cut. */
-function stringEnd(text: string, start: number): number {
-  for (let index = start + 1; index < text.length; index++) {
-    if (text[index] === '\\') index++
-    else if (text[index] === '"') return index + 1
-  }
-  return -1
-}
-
-/** A cut string, closed: a cut escape at its end is dropped. */
-function closedString(cut: string): string {
-  const trailing = /\\+$/.exec(cut)?.[0].length ?? 0
-  const text = (trailing % 2 ? cut.slice(0, -1) : cut).replace(/\\u[0-9a-fA-F]{0,3}$/, '')
-  return `${text}"`
 }
