@@ -52,9 +52,15 @@ also sees `completed`, not `running`: open background work keeps the runtime
 alive after a turn that really completed.
 
 To wait for an outside result ("tell me when CI finishes"), the agent runs the
-wait as background work. The result wakes the agent. Solus has no host-side
-watch or probe of its own. Watches were removed because they duplicated this
-path.
+wait as background work. The result wakes the agent. Three host-side owners
+also wake a session from outside a turn: a pull request watch
+(`docs/plans/pr-watch.md`), an MCP task, and a resource watch
+(`docs/plans/mcp-first-class.md` §11.5 and §12). They have no probe of their
+own for a command or a URL; that stays background work. Each one wakes the
+session through one `SessionWake` (`execution/sessions/session-wake.ts`), as the
+person of its record (`unattendedActorFor`), also after a host restart. A
+guest's work does not run unattended: its wake fails, and its owner ends the
+record. Of the three, only an MCP task holds the session in `background`.
 
 A Claude session schedule (`CronCreate`, `ScheduleWakeup`, `/loop`) is unmarked
 work too. The Claude process holds the schedule, so the query stays open while
@@ -80,10 +86,17 @@ that must outlive the session is an automation (`create_automation`). See
 `background` is not busy. A new prompt is accepted and runs as the next turn.
 
 A live MCP task (`docs/integrations.md`, "Long tool calls") holds the session
-in `background` as a session it sent work to does (`mcpTaskHolds` on the
-runtime, read with `isAwaitingReplies`). Its end starts the agent with a
-queued message; a cancel settles the session as `completed`. Its own row,
-with Cancel, shows in place of the background work row.
+in `background` as a session it sent work to does. One answer,
+`SessionStatuses.holdsOutsideRun`, covers both holds, and `waitsOutsideRun`
+adds the `background` status: the session has no provider run by design. The
+run watchdog, a client join, Stop, the background row's Stop, and the
+provider events read it, so the watchdog does not mark the session dead and a
+join keeps its record. The MCP task's end starts the agent with a queued
+message; a cancel settles the session as `completed`. Its own row, with
+Cancel, shows in place of the background work row. Stop on the session does
+not touch a live MCP task after its first 30 seconds, and the background
+row's Stop does not cancel it: the session waits until the task ends. One
+Stop rule for all work that can wake a session later is not decided yet.
 
 ## Providers
 
