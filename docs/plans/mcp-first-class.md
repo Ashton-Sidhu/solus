@@ -565,7 +565,7 @@ The Claude CLI has its own size limit for an MCP result
 
 **Surfaces.** The open tool row shows each image, an audio player for each
 `toolAudio`, and the notes of `toolLeftOut`, on desktop and web
-(`ToolGroupItem.svelte`, `ToolAudioPlayer.svelte`, `lib/tool-row-media.ts`)
+(`ToolGroupItem.svelte`, `ToolAudioPlayer.svelte`, `openLineAudio` in `client-core/tool-outputs.ts`)
 and on mobile (`thread-work-log.tsx`, `ThreadToolAudio.tsx`). Loading: the
 media loads by asset id when the row opens; the player says "Loading audio…".
 Error: "This file is no longer available." after one new signed URL. There is

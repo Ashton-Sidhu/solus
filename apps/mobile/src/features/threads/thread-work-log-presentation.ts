@@ -292,20 +292,6 @@ export function toolDetailImages(tool: Pick<ToolTranscriptItem, 'status' | 'imag
   return tool.status === 'running' ? [] : tool.images ?? []
 }
 
-/** The audio an open call plays, each with its label. A call still running has none yet. */
-export function toolDetailAudio(tool: Pick<ToolTranscriptItem, 'status' | 'audio'>): Array<{ audio: NonNullable<ToolTranscriptItem['audio']>[number]; label: string }> {
-  if (tool.status === 'running') return []
-  return (tool.audio ?? []).map((audio, index) => ({
-    audio,
-    label: `Audio ${index + 1} · ${audio.assetId.slice(audio.assetId.lastIndexOf('.') + 1).toUpperCase()}`,
-  }))
-}
-
-/** What the host left out of an open call's result, with the limit. */
-export function toolDetailLeftOut(tool: Pick<ToolTranscriptItem, 'status' | 'leftOut'>): readonly string[] {
-  return tool.status === 'running' ? [] : tool.leftOut ?? []
-}
-
 /** An expanded call's full detail: the command or input, then the error head. */
 export function toolFullDetail(tool: Pick<ToolTranscriptItem, 'input' | 'errorHead'>): string | null {
   const parsed = parseToolInput(tool.input)
