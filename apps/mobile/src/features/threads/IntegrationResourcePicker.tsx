@@ -7,6 +7,7 @@ import { missingArguments, templateArgumentFields, type ArgumentValue } from "@s
 import { AppText as Text } from "../../components/AppText";
 import { resourceAddress, resourceSections } from "../conversation/lib/resource-attachments";
 import { useIntegrationResources } from "../conversation/use-integration-resources";
+import { McpArgumentFields } from "./McpArgumentFields";
 
 /** The composer's "MCP Resource…" sheet (docs/plans/mcp-first-class.md §11.3):
  *  the person's servers on this host, their resources, and their templates,
@@ -30,7 +31,6 @@ export function IntegrationResourcePicker(props: {
     [query, state],
   );
   const fields = useMemo(() => (chosen ? templateArgumentFields(chosen.uriTemplate) ?? [] : []), [chosen]);
-  const missing = missingArguments(fields, values);
   const empty =
     state.kind === "loading"
       ? "Reading the servers' resources…"
@@ -48,7 +48,7 @@ export function IntegrationResourcePicker(props: {
   const attach = () => {
     if (!chosen) return;
     setHasTriedAttach(true);
-    if (missing.length > 0) return;
+    if (missingArguments(fields, values).length > 0) return;
     props.onPick({ ...chosen, arguments: values.map((entry) => ({ name: entry.name, value: entry.value.trim() })) });
   };
 
@@ -75,32 +75,15 @@ export function IntegrationResourcePicker(props: {
           )}
         </View>
         {chosen ? (
-          <View className="gap-4 px-5 pt-2">
-            {chosen.description ?? chosen.title ? <Text className="text-sm text-foreground-muted">{chosen.description ?? chosen.title}</Text> : null}
-            {fields.map((field, index) => {
-              const isMissing = hasTriedAttach && missing.includes(field.name);
-              return (
-                <View key={field.name} className="gap-1.5">
-                  <View className="flex-row items-baseline gap-2">
-                    <Text className="font-mono text-sm text-foreground">{field.name}</Text>
-                    <Text className={`text-xs ${isMissing ? "text-danger" : "text-foreground-tertiary"}`}>{isMissing ? "Required" : "required"}</Text>
-                  </View>
-                  <TextInput
-                    accessibilityLabel={field.name}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoFocus={index === 0}
-                    onChangeText={(value) => setValues((current) => current.map((entry) => (entry.name === field.name ? { ...entry, value } : entry)))}
-                    onSubmitEditing={attach}
-                    placeholderTextColorClassName="accent-placeholder"
-                    returnKeyType={index === fields.length - 1 ? "done" : "next"}
-                    className="h-[40px] rounded-xl bg-subtle px-3 font-sans text-base text-foreground"
-                    value={values[index]?.value ?? ""}
-                  />
-                </View>
-              );
-            })}
-          </View>
+          <McpArgumentFields
+            description={chosen.description ?? chosen.title}
+            fields={fields}
+            values={values}
+            onChange={setValues}
+            showsMissing={hasTriedAttach}
+            submitKey="done"
+            onSubmit={attach}
+          />
         ) : (
           <>
             <TextInput

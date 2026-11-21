@@ -6,6 +6,7 @@ import { argumentHint, missingArguments, type ArgumentValue } from "@solus/clien
 
 import { AppText as Text } from "../../components/AppText";
 import { mcpPromptSections } from "./lib/mcp-prompt-sheet";
+import { McpArgumentFields } from "./McpArgumentFields";
 import { useIntegrationPrompts } from "./use-integration-prompts";
 
 /**
@@ -33,7 +34,6 @@ export function McpPromptPicker(props: {
   const [error, setError] = useState("");
   const { state, reload, expand } = useIntegrationPrompts(props.hostId, props.projectPath);
   const sections = useMemo(() => (state.kind === "loaded" ? mcpPromptSections(state.value, query) : []), [query, state]);
-  const missing = chosen ? missingArguments(chosen.arguments, values) : [];
 
   const send = async (prompt: IntegrationPrompt, entered: ArgumentValue[]) => {
     setHasTriedSend(true);
@@ -85,36 +85,16 @@ export function McpPromptPicker(props: {
         </View>
         {error ? <Text accessibilityRole="alert" className="px-5 pb-2 text-sm text-danger">{error}</Text> : null}
         {chosen ? (
-          <View className="gap-4 px-5 pt-2">
-            {chosen.description ? <Text className="text-sm text-foreground-muted">{chosen.description}</Text> : null}
-            {chosen.arguments.map((argument, index) => {
-              const isMissing = hasTriedSend && missing.includes(argument.name);
-              return (
-                <View key={argument.name} className="gap-1.5">
-                  <View className="flex-row items-baseline gap-2">
-                    <Text className="font-mono text-sm text-foreground">{argument.name}</Text>
-                    {argument.required ? (
-                      <Text className={`text-xs ${isMissing ? "text-danger" : "text-foreground-tertiary"}`}>{isMissing ? "Required" : "required"}</Text>
-                    ) : null}
-                  </View>
-                  <TextInput
-                    accessibilityLabel={argument.name}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoFocus={index === 0}
-                    editable={!sending}
-                    onChangeText={(value) => setValues((current) => current.map((entry) => (entry.name === argument.name ? { ...entry, value } : entry)))}
-                    onSubmitEditing={() => void send(chosen, values)}
-                    placeholder={argument.description ?? ""}
-                    placeholderTextColorClassName="accent-placeholder"
-                    returnKeyType={index === chosen.arguments.length - 1 ? "send" : "next"}
-                    className="h-[40px] rounded-xl bg-subtle px-3 font-sans text-base text-foreground"
-                    value={values[index]?.value ?? ""}
-                  />
-                </View>
-              );
-            })}
-          </View>
+          <McpArgumentFields
+            description={chosen.description}
+            fields={chosen.arguments}
+            values={values}
+            onChange={setValues}
+            showsMissing={hasTriedSend}
+            editable={!sending}
+            submitKey="send"
+            onSubmit={() => void send(chosen, values)}
+          />
         ) : (
           <>
             <TextInput
