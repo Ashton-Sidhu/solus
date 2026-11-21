@@ -173,7 +173,10 @@ function CommandAddSection(props: { readonly integrations: IntegrationsModel; re
     const integration = await integrations.addCommand(request);
     setOpen(false);
     integrations.expand(integration.id);
-    if (request.envNames.length === 0) return processes.start(integration.id);
+    if (request.envNames.length === 0) {
+      await processes.start(integration.id);
+      return;
+    }
     await integrations.flows.connect(integration);
     if (!values) return;
     await integrations.flows.submitValues(integration.id, values);

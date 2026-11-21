@@ -49,7 +49,7 @@ export function CommandServerDetails(props: {
         )}
         <CommandProcessPanel
           status={props.process}
-          error={processes.errors.get(integration.id)}
+          error={processes.errorOf(integration.id)}
           enabled={props.isConnected}
           onAction={(kind) => processes.run(integration.id, kind)}
         />

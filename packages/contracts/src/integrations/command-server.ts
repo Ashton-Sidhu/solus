@@ -1,5 +1,6 @@
-import { integrationEnvNameSchema, type IntegrationFacts, type IntegrationLaunch, type IntegrationStopReason } from '../integration-types'
+import { integrationEnvNameSchema, type Integration, type IntegrationFacts, type IntegrationLaunch, type IntegrationStopReason } from '../integration-types'
 import { splitCommandLine } from './command-line'
+import { loopbackServerPort } from './local-servers'
 
 /**
  * A command as an MCP server in Settings (docs/plans/mcp-first-class.md §7.7):
@@ -168,4 +169,9 @@ export function commandProcessStatus(input: CommandProcessInput): CommandProcess
       if (process.startFailure === 'not-runnable') return status('cannot-run', 'Cannot run', 'error', process.message ?? null, actions('start-again'), stderrTail)
       return status('failed', 'Failed', 'error', process.message ?? null, actions('start-again'), stderrTail)
   }
+}
+
+/** A command's row shows its process state, and a server on the host's loopback whether it runs (§9.3), so their facts load with the list. */
+export function showsFactsOnRow(integration: Integration | undefined): boolean {
+  return integration?.kind === 'stdio' || (integration?.kind === 'mcp' && loopbackServerPort(integration.url) !== null)
 }

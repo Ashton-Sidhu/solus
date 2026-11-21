@@ -1,59 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Integration, IntegrationConnection, IntegrationFacts } from '@solus/contracts/integration-types'
-import { loopbackServerPort } from '@solus/contracts/integrations/local-servers'
-import { commandProcessStatus, type CommandProcessActionKind, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
+import { useEffect, useMemo, useState } from 'react'
+import type { Integration, IntegrationConnection } from '@solus/contracts/integration-types'
+import { showsFactsOnRow, type CommandProcessActionKind, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
+import { CommandProcesses } from '@solus/client-core/command-processes'
 import { useApp, useListened } from '../../app/app-context'
-import { errorMessage, type IntegrationListState } from './integrations'
+import type { IntegrationListState } from './integrations'
 import { runningServers } from '../running-servers/running-servers.store'
 
 /**
  * The person's processes of the commands of one host
- * (docs/plans/mcp-first-class.md §7.7), for the MCP screen: the facts of each
- * `stdio` server, read with the list and again on `integration.changed`, so a
- * start or stop on another client shows here too; and Start and test, Start
- * again, Test again, and Stop. A read starts no command. `mayRunCommands` is
- * the person's `host.admin`: without it the screen offers no add, edit, or start.
- * A server on the host's loopback has facts too: whether it runs (§9.3). While
- * the screen is open it holds the host's running-servers lease, so the host
- * follows those servers and looks for new ones (§9.1); no screen, no scan.
+ * (docs/plans/mcp-first-class.md §7.7), for the MCP screen: the client-core
+ * `CommandProcesses`, the same rule as desktop and web. The facts of each
+ * `stdio` server are read with the list, on a reconnect, and again on
+ * `integration.changed`, so a start or stop on another client shows here too.
+ * A read starts no command. `mayRunCommands` is the person's `host.admin`:
+ * without it the screen offers no add, edit, or start. A server on the host's
+ * loopback has facts too: whether it runs (§9.3). While the screen is open it
+ * holds the host's running-servers lease, so the host follows those servers
+ * and looks for new ones (§9.1); no screen, no scan.
  */
 export function useCommandProcesses(hostId: string, list: IntegrationListState) {
   const app = useApp()
   const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const connected = readiness === 'ready'
   const mayRunCommands = useListened(app.connections.changes, () => app.connections.may(hostId, 'host.admin'))
-  const [facts, setFacts] = useState<ReadonlyMap<string, IntegrationFacts>>(new Map())
-  const [starting, setStarting] = useState<ReadonlySet<string>>(new Set())
-  const [errors, setErrors] = useState<ReadonlyMap<string, string>>(new Map())
-  /** Per integration: bumped by every read, so an older answer does not land. */
-  const reads = useRef(new Map<string, number>())
-
-  const connection = useCallback(() => app.connections.connection(hostId), [app, hostId])
-
-  const put = useCallback((integrationId: string, next: IntegrationFacts) => {
-    setFacts((previous) => new Map(previous).set(integrationId, next))
-  }, [])
-
-  const setError = (integrationId: string, message: string | null) => {
-    setErrors((previous) => {
-      const next = new Map(previous)
-      if (message) next.set(integrationId, message)
-      else next.delete(integrationId)
-      return next
-    })
-  }
-
-  const load = useCallback((integrationId: string) => {
-    const current = connection()
-    if (!current) return
-    const read = (reads.current.get(integrationId) ?? 0) + 1
-    reads.current.set(integrationId, read)
-    current.api.integrationFacts({ id: integrationId }).then(
-      (answer) => { if (reads.current.get(integrationId) === read) put(integrationId, answer) },
-      // The row keeps the last state it read; the next event or reconnect reads again.
-      () => undefined,
-    )
-  }, [connection, put])
+  /** Bumped by each change of the processes, so the screen renders their new state. */
+  const [version, setVersion] = useState(0)
+  const processes = useMemo(() => new CommandProcesses({
+    api: () => app.connections.connection(hostId)?.api ?? null,
+    facts: new Map(),
+    starting: new Set(),
+    errors: new Map(),
+    onChange: () => setVersion((previous) => previous + 1),
+  }), [app, hostId])
 
   const commandIds = list.kind === 'loaded' ? list.integrations.filter(showsFactsOnRow).map((integration) => integration.id).join('\u0000') : ''
 
@@ -62,72 +40,28 @@ export function useCommandProcesses(hostId: string, list: IntegrationListState) 
   // The list, a reconnect, or a change of the commands: each command's state is read again.
   useEffect(() => {
     if (!connected || !commandIds) return
-    for (const integrationId of commandIds.split('\u0000')) load(integrationId)
-  }, [connected, commandIds, load])
+    for (const integrationId of commandIds.split('\u0000')) void processes.load(integrationId)
+  }, [connected, commandIds, processes])
 
   useEffect(() => {
-    const current = connected ? connection() : null
+    const current = connected ? app.connections.connection(hostId) : null
     if (!current) return
     return current.events.subscribe('integration.changed', ({ integrationId, change }) => {
-      if (change !== 'removed' && commandIds.split('\u0000').includes(integrationId)) load(integrationId)
+      if (change !== 'removed' && commandIds.split('\u0000').includes(integrationId)) void processes.load(integrationId)
     })
-  }, [connected, connection, commandIds, load])
+  }, [app, hostId, connected, commandIds, processes])
 
-  /** Start and test, Start again, or with `recheck` Test again. */
-  const start = async (integrationId: string, recheck = false): Promise<void> => {
-    const current = connection()
-    if (!current || starting.has(integrationId)) return
-    setStarting((previous) => new Set(previous).add(integrationId))
-    setError(integrationId, null)
-    // The start's answer is newer than a read in flight.
-    reads.current.set(integrationId, (reads.current.get(integrationId) ?? 0) + 1)
-    await current.api.integrationProcessStart({ id: integrationId, recheck }).then(
-      (answer) => put(integrationId, answer),
-      (cause: unknown) => {
-        setError(integrationId, errorMessage(cause))
-        load(integrationId)
-      },
-    )
-    setStarting((previous) => {
-      const next = new Set(previous)
-      next.delete(integrationId)
-      return next
-    })
-  }
-
-  /** Stop, and Cancel of a start that runs: the next use starts the command again. */
-  const stop = async (integrationId: string): Promise<void> => {
-    const current = connection()
-    if (!current) return
-    setError(integrationId, null)
-    await current.api.integrationProcessStop({ id: integrationId }).then(
-      () => load(integrationId),
-      (cause: unknown) => setError(integrationId, errorMessage(cause)),
-    )
-  }
-
-  /** A command's process state for its row, or null for a server at an address. */
-  const statusOf = (integration: Integration, connection: IntegrationConnection | undefined): CommandProcessStatus | null => {
-    if (integration.kind !== 'stdio') return null
-    return commandProcessStatus({
-      facts: facts.get(integration.id),
-      isStarting: starting.has(integration.id),
-      mayRunCommands,
-      needsValues: integration.auth.kind === 'env' && connection?.status !== 'connected',
-    })
-  }
-
-  const run = (integrationId: string, kind: CommandProcessActionKind): void => {
-    void (kind === 'stop' || kind === 'cancel' ? stop(integrationId) : start(integrationId, kind === 'test-again'))
-  }
-
-  /** Whether a server on the host's loopback does not run now; false while unknown. */
-  const isNotRunning = (integration: Integration): boolean => facts.get(integration.id)?.reachable === 'not-running'
-
-  return { connected, mayRunCommands, facts, starting, errors, start, stop, run, statusOf, isNotRunning }
-}
-
-/** A command's row shows its process state, and a server on the host's loopback whether it runs. */
-function showsFactsOnRow(integration: Integration): boolean {
-  return integration.kind === 'stdio' || (integration.kind === 'mcp' && loopbackServerPort(integration.url) !== null)
+  // A new object at each change: the rows read it as a new prop and render the new state.
+  return useMemo(() => ({
+    connected,
+    mayRunCommands,
+    /** Start and test, or Start again. */
+    start: (integrationId: string) => processes.start(integrationId),
+    run: (integrationId: string, kind: CommandProcessActionKind) => { void processes.run(integrationId, kind) },
+    errorOf: (integrationId: string) => processes.errorOf(integrationId),
+    /** A command's process state for its row, or null for a server at an address. */
+    statusOf: (integration: Integration, connection: IntegrationConnection | undefined): CommandProcessStatus | null => processes.statusOf(integration, connection, mayRunCommands),
+    isNotRunning: (integration: Integration) => processes.isNotRunning(integration),
+    // `version` is read for its change: the processes changed.
+  }), [connected, mayRunCommands, processes, version])
 }

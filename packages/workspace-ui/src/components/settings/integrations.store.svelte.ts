@@ -1,5 +1,6 @@
 import { connectionNeedsAttention, isFirstIntegrationAccount } from '@solus/contracts/integration-types'
-import { loopbackServerPort } from '@solus/contracts/integrations/local-servers'
+import { showsFactsOnRow } from '@solus/contracts/integrations/command-server'
+import { CommandProcesses } from '@solus/client-core/command-processes'
 import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationCreateRequest, IntegrationEnvValue, IntegrationFacts, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from '@solus/contracts/integration-types'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -79,10 +80,8 @@ interface IntegrationsState {
   connectionsStatus: ConnectionsStatus
   /** The sign-in that runs for each integration, by integration ID. */
   connectFlows: SvelteMap<string, IntegrationConnectFlow>
-  /** The commands whose start or test from this client runs now (mcp-first-class.md §7.7). */
-  processStarts: SvelteSet<string>
-  /** Why the last start or stop of a command from this client failed, by integration ID. */
-  processErrors: SvelteMap<string, string>
+  /** The person's processes of the commands, with the facts above (mcp-first-class.md §7.7). */
+  processes: CommandProcesses
 }
 
 export type ProbeAttempt = { result: IntegrationProbeResult } | { error: string }
@@ -93,21 +92,9 @@ export function isUnsupportedHostError(cause: unknown): boolean {
   return /no handler for|unknown method|unknown rpc|not registered|not a function/i.test(message)
 }
 
-/** A command's row shows its process state, and a server on the host's loopback whether it runs (mcp-first-class.md §9.3). */
-function showsFactsOnRow(integration: Integration | undefined): boolean {
-  return integration?.kind === 'stdio' || (integration?.kind === 'mcp' && loopbackServerPort(integration.url) !== null)
-}
-
 function errorText(cause: unknown, fallback: string): string {
   const message = cause instanceof Error ? cause.message.trim() : ''
   return message || fallback
-}
-
-function emptyState(): IntegrationsState {
-  return {
-    integrations: null, tools: new SvelteMap(), facts: new SvelteMap(), toolErrors: new SvelteMap(), loading: false, error: '', saving: false, writeError: '', isUnsupported: false, isDisconnected: false, revision: 0,
-    connections: new SvelteMap(), connectionsStatus: 'loading', connectFlows: new SvelteMap(), processStarts: new SvelteSet(), processErrors: new SvelteMap(),
-  }
 }
 
 /** The flow ID the host knows a flow by, when the flow waits on the host. A cloud flow has none. */
@@ -161,8 +148,6 @@ class IntegrationsStore {
   private cloud: CloudSignInPort | null = null
   /** Set by `listen`: told when a working sign-in stops working while the app runs. */
   private onSignInExpired: ((serverId: string, integrationName: string) => void) | null = null
-  /** Per host and integration: bumped by every facts read, so an older read does not land. */
-  private factsReads = new Map<string, number>()
 
   /** Installs where a synced person's own sign-ins run. Until then every sign-in runs on the host. */
   useCloudSignIn(port: CloudSignInPort | null): void {
@@ -254,7 +239,7 @@ class IntegrationsStore {
   }
 
   async load(serverId: string): Promise<void> {
-    const state = this.states.get(serverId) ?? emptyState()
+    const state = this.states.get(serverId) ?? this.emptyState(serverId)
     const revision = state.revision + 1
     this.states.set(serverId, { ...state, loading: true, revision })
     void this.loadConnections(serverId)
@@ -264,10 +249,9 @@ class IntegrationsStore {
       if (current?.revision !== revision) return
       this.states.set(serverId, { ...current, integrations, loading: false, error: '', isUnsupported: false, isDisconnected: false })
       for (const id of current.tools.keys()) {
-        if (!integrations.some((integration) => integration.id === id)) { current.tools.delete(id); current.facts.delete(id) }
+        if (!integrations.some((integration) => integration.id === id)) { current.tools.delete(id); current.processes.forget(id) }
       }
-      // A command's row shows its process state, and a loopback server's row whether it runs, so their facts load with the list.
-      for (const integration of integrations) if (showsFactsOnRow(integration)) void this.loadFacts(serverId, integration.id)
+      for (const integration of integrations) if (showsFactsOnRow(integration)) void current.processes.load(integration.id)
     } catch (cause) {
       const current = this.states.get(serverId)
       if (current?.revision !== revision) return
@@ -282,15 +266,8 @@ class IntegrationsStore {
     if (!state) return
     state.toolErrors.delete(integrationId)
     // The facts only add the instructions section: a facts read that fails, or an
-    // older host without it, leaves the section out and keeps the tools.
-    void (async () => {
-      try {
-        const facts = await serverConnections.apiFor(serverId).integrationFacts({ id: integrationId })
-        this.states.get(serverId)?.facts.set(integrationId, facts)
-      } catch {
-        this.states.get(serverId)?.facts.delete(integrationId)
-      }
-    })()
+    // older host without it, keeps what the row had and keeps the tools.
+    void state.processes.load(integrationId)
     try {
       const tools = await serverConnections.apiFor(serverId).integrationTools({ id: integrationId })
       this.states.get(serverId)?.tools.set(integrationId, tools)
@@ -299,61 +276,22 @@ class IntegrationsStore {
     }
   }
 
-  /**
-   * The caller's server facts of one integration; for a command, its process
-   * state. A read starts no command (§7.3). An older read does not land.
-   */
-  async loadFacts(serverId: string, integrationId: string): Promise<void> {
-    const read = this.nextFactsRead(serverId, integrationId)
-    try {
-      const facts = await serverConnections.apiFor(serverId).integrationFacts({ id: integrationId })
-      if (this.factsReads.get(this.flowKey(serverId, integrationId)) !== read) return
-      const state = this.states.get(serverId)
-      state?.facts.set(integrationId, facts)
+  private emptyState(serverId: string): IntegrationsState {
+    const facts = new SvelteMap<string, IntegrationFacts>()
+    const toolErrors = new SvelteMap<string, string>()
+    const processes = new CommandProcesses({
+      api: () => serverConnections.apiFor(serverId),
+      facts,
+      starting: new SvelteSet(),
+      errors: new SvelteMap(),
       // A loopback server that runs again lists its tools in an open row, not the error of when it stopped (§9.3).
-      if (facts.reachable === 'running') state?.toolErrors.delete(integrationId)
-    } catch {
-      // The row keeps the last state it read; the next event or reconnect reads again.
-    }
-  }
-
-  /**
-   * Start and test, Start again, or with `recheck` Test again (§7.7): the host
-   * starts the caller's process and lists its tools. The answer is the new
-   * state; a refusal or a failed start is kept to show beside it.
-   */
-  async startProcess(serverId: string, integrationId: string, recheck = false): Promise<boolean> {
-    const state = this.states.get(serverId)
-    if (!state || state.processStarts.has(integrationId)) return false
-    state.processStarts.add(integrationId)
-    state.processErrors.delete(integrationId)
-    try {
-      const facts = await serverConnections.apiFor(serverId).integrationProcessStart({ id: integrationId, recheck })
-      this.nextFactsRead(serverId, integrationId)
-      state.facts.set(integrationId, facts)
-      void this.loadTools(serverId, integrationId)
-      return true
-    } catch (cause) {
-      state.processErrors.set(integrationId, errorText(cause, 'The command did not start.'))
-      void this.loadFacts(serverId, integrationId)
-      return false
-    } finally {
-      state.processStarts.delete(integrationId)
-    }
-  }
-
-  /** Stop, and Cancel of a start that runs (§7.7): the next use starts the command again. */
-  async stopProcess(serverId: string, integrationId: string): Promise<boolean> {
-    const state = this.states.get(serverId)
-    if (!state) return false
-    state.processErrors.delete(integrationId)
-    try {
-      await serverConnections.apiFor(serverId).integrationProcessStop({ id: integrationId })
-      await this.loadFacts(serverId, integrationId)
-      return true
-    } catch (cause) {
-      state.processErrors.set(integrationId, errorText(cause, 'Could not stop the command.'))
-      return false
+      onFacts: (integrationId, answer) => { if (answer.reachable === 'running') toolErrors.delete(integrationId) },
+      // A started command lists its tools for its open row (§7.7).
+      onStarted: (integrationId) => { void this.loadTools(serverId, integrationId) },
+    })
+    return {
+      integrations: null, tools: new SvelteMap(), facts, toolErrors, loading: false, error: '', saving: false, writeError: '', isUnsupported: false, isDisconnected: false, revision: 0,
+      connections: new SvelteMap(), connectionsStatus: 'loading', connectFlows: new SvelteMap(), processes,
     }
   }
 
@@ -721,7 +659,7 @@ class IntegrationsStore {
     if (change === 'tools' || change === 'facts') {
       if (state.tools.has(integrationId)) void this.loadTools(serverId, integrationId)
       // A command's process state, and whether a loopback server runs, show on its row, open or not.
-      else if (showsFactsOnRow(state.integrations?.find((item) => item.id === integrationId))) void this.loadFacts(serverId, integrationId)
+      else if (showsFactsOnRow(state.integrations?.find((item) => item.id === integrationId))) void state.processes.load(integrationId)
       return
     }
     // A list read in flight, or none yet: read the whole list again instead.
@@ -742,7 +680,7 @@ class IntegrationsStore {
       if (integration) this.upsert(serverId, integration)
       else this.drop(serverId, integrationId)
       // A changed command stopped and lost its facts (§7.6).
-      if (integration?.kind === 'stdio') void this.loadFacts(serverId, integrationId)
+      if (integration?.kind === 'stdio') void state.processes.load(integrationId)
     } catch {
       if (this.eventSequence.get(key) === sequence) void this.load(serverId)
     }
@@ -822,14 +760,6 @@ class IntegrationsStore {
     return `${serverId}\u0000${integrationId}`
   }
 
-  /** A newer facts answer is coming: an older read must not land over it. */
-  private nextFactsRead(serverId: string, integrationId: string): number {
-    const key = this.flowKey(serverId, integrationId)
-    const read = (this.factsReads.get(key) ?? 0) + 1
-    this.factsReads.set(key, read)
-    return read
-  }
-
   private nextAttempt(serverId: string, integrationId: string): number {
     const key = this.flowKey(serverId, integrationId)
     const attempt = (this.flowAttempts.get(key) ?? 0) + 1
@@ -874,10 +804,9 @@ class IntegrationsStore {
     const state = this.states.get(serverId)
     if (!state) return
     state.tools.delete(integrationId)
-    state.facts.delete(integrationId)
+    state.processes.forget(integrationId)
     state.toolErrors.delete(integrationId)
     state.connections.delete(integrationId)
-    state.processErrors.delete(integrationId)
     this.nextAttempt(serverId, integrationId)
     this.clearFlow(serverId, integrationId)
     if (state.integrations?.some((item) => item.id === integrationId)) {

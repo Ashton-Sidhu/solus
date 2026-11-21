@@ -49,7 +49,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 /** Everything the store holds for a host, as text, to look for a value in. */
 function stateText(serverId: string): string {
   const state = store.states.get(serverId)
-  return JSON.stringify({ ...state, flows: [...(state?.connectFlows ?? [])], connections: [...(state?.connections ?? [])], errors: [...(state?.processErrors ?? [])] })
+  return JSON.stringify({ ...state, processes: undefined, flows: [...(state?.connectFlows ?? [])], connections: [...(state?.connections ?? [])], errors: (state?.integrations ?? []).map((integration) => state?.processes.errorOf(integration.id)) })
 }
 // The command form never reads the catalog.
 const noCatalog = {} as Catalog
@@ -215,18 +215,18 @@ describe('the process of a command', () => {
       integrationConnectionList: async () => [],
       integrationFacts: async () => state,
       integrationProcessStart: async () => {
-        expect(store.states.get('start')?.processStarts.has('files')).toBe(true)
+        expect(store.states.get('start')?.processes.isStarting('files')).toBe(true)
         state = facts({ state: 'failed', message: '`npx` is not installed on this host.', startFailure: 'not-installed' })
         throw new Error('`npx` is not installed on this host.')
       },
     })
     await store.load('start')
     await flush()
-    expect(await store.startProcess('start', 'files')).toBe(false)
+    expect(await store.states.get('start')?.processes.start('files')).toBe(false)
     await flush()
     const host = store.states.get('start')
-    expect(host?.processStarts.has('files')).toBe(false)
-    expect(host?.processErrors.get('files')).toBe('`npx` is not installed on this host.')
+    expect(host?.processes.isStarting('files')).toBe(false)
+    expect(host?.processes.errorOf('files')).toBe('`npx` is not installed on this host.')
     expect(host?.facts.get('files')?.process?.startFailure).toBe('not-installed')
   })
 
