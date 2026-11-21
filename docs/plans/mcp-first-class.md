@@ -1359,7 +1359,12 @@ Codex.
   the first time a composer opens `/` in that project, not with every
   conversation: most conversations never open the menu. The kept list shows at
   once after that, and `integration.changed`, `integration.connectionChanged`,
-  and a reconnect read it again. A keystroke reads nothing. The composer's
+  and a reconnect read it again. A keystroke reads nothing. The project is the
+  run's project root (`projectRootOnRunHost` in `run-location.ts`), so the
+  worktrees of one project share one list; the host gives a worktree the list
+  of its project root. One rule keeps the lists on desktop, web, and mobile:
+  `HostProjectLists` in client-core. A failed refresh keeps the list, and a
+  removed host's lists go. The composer's
   prompt logic (`mcp-prompt-composer.svelte.ts`) and the form load after the
   first screen.
 
@@ -1440,7 +1445,8 @@ and raises the connect card.
   one resource (`resourceAttachRequest` in contracts).
 - Mobile: the + menu gains **MCP resource**: a sheet with the servers, their
   resources, a search field, and the argument sheet for a template. Hook:
-  `use-integration-resources.ts`.
+  `threads/use-integration-resources.ts`. The MCP sheets and the session
+  reference sheet share `PickSheet` (`components/PickSheet.tsx`).
 
 ### 11.4 Contracts
 
