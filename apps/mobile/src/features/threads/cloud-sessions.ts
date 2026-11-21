@@ -1,12 +1,14 @@
 import type { ListMySessionsResponse, SessionRepositoryFacts } from '@solus/contracts/session-repositories'
 import type { SessionRecord } from '@solus/contracts/types'
 import type { SessionCloudHead } from '@solus/client-core/session-heads'
+import { keepEqual } from '@solus/client-core/keep-equal'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 
 type CloudEntry = ListMySessionsResponse['items'][number]
 
-/** A session the cloud lists, as a thread record: the card, and the four facts as plain properties. */
+/** A session the cloud lists, as a thread record: the card, and the four facts as plain properties.
+ *  A session with no session repository has no head and no turn count. */
 export type CloudSessionRecord = SessionRecord & SessionRepositoryFacts
 
 export interface CloudSessionsDeps {
@@ -21,18 +23,20 @@ export interface CloudSessionsDeps {
 /** A session only the cloud lists, and the host its thread opens on. */
 export interface CloudOnlySession {
   hostId: string
-  /** The host that ran its last turn is one this phone keeps. */
+  /** The host that ran the session is one this phone keeps. */
   isLastRunHost: boolean
   record: CloudSessionRecord
 }
 
 /**
- * What the cloud knows of this person's sessions, on the phone
- * (docs/plans/portable-sessions-cloud.md §5.4, §5.5). It reads
- * `listMySessions` from the Solus API connection of the organization this
- * device works in, again on each reconnect, and writes each
- * `session.headChanged` into the session's record in place. Everything goes
- * when the connection goes (sign-out, another organization).
+ * What the cloud knows of the sessions this person can read, on the phone
+ * (docs/plans/portable-sessions-cloud.md §5.4, §5.5). It reads two lists from
+ * the Solus API connection of the organization this device works in:
+ * `listMySessions` (the person's own sessions that have a session repository)
+ * and the session list of the organization (its published sessions, whose rows
+ * the transcript mirror holds). It reads them again on each reconnect, and
+ * writes each `session.headChanged` into the session's record in place.
+ * Everything goes when the connection goes (sign-out, another organization).
  */
 export class CloudSessions {
   readonly changes = new Listeners()
@@ -42,8 +46,6 @@ export class CloudSessions {
   /** Bumps on each `follow`, so a list answer from an older connection is dropped. */
   private generation = 0
   private loading: Promise<void> | null = null
-  /** The followed connection answered a list read. */
-  private hasListed = false
 
   constructor(private readonly deps: CloudSessionsDeps) {}
 
@@ -55,12 +57,6 @@ export class CloudSessions {
   /** The Solus API connection followed now: the cloud's history and diffs are read through it. */
   get connection(): HostConnection | null {
     return this.followed
-  }
-
-  /** `none` with no Solus API connection, `loading` until its first list read answers. */
-  get listState(): 'none' | 'loading' | 'listed' {
-    if (!this.followed) return 'none'
-    return this.hasListed ? 'listed' : 'loading'
   }
 
   /** How many sessions the cloud lists. */
@@ -98,10 +94,11 @@ export class CloudSessions {
    * The sessions only the cloud lists (design §5.5). A session that a host
    * lists has no cloud row: the host's record wins. Nor has one whose last run
    * host is connected and does not list it, because that host archived it.
-   * The thread opens on the host that ran the last turn when this phone keeps
-   * it, so its state says that host is offline; else on a connected host,
-   * which syncs it from the cloud. With no host at all there is no row: the
-   * list already asks for a host.
+   * The thread opens on the host that ran the last turn (for a session with no
+   * session repository, the host that ran it) when this phone keeps it, so its
+   * state says that host is offline; else on a connected host, which syncs it
+   * from the cloud. With no host at all there is no row: the list already asks
+   * for a host.
    */
   onlyInCloud(isListedByHost: (sessionId: string) => boolean): CloudOnlySession[] {
     const sessions: CloudOnlySession[] = []
@@ -110,7 +107,8 @@ export class CloudSessions {
     const fallbackHostId = hostIds.find((hostId) => this.deps.isReady(hostId)) ?? hostIds[0]
     for (const record of this.records.values()) {
       if (isListedByHost(record.sessionId)) continue
-      const lastRunHostId = record.lastRunHostId ? this.deps.savedHostFor(record.lastRunHostId) : null
+      const ranOnHostId = record.lastRunHostId ?? record.runnerHostId
+      const lastRunHostId = ranOnHostId ? this.deps.savedHostFor(ranOnHostId) : null
       if (lastRunHostId && this.deps.isReady(lastRunHostId)) continue
       const hostId = lastRunHostId ?? fallbackHostId
       if (hostId) sessions.push({ hostId, isLastRunHost: hostId === lastRunHostId, record })
@@ -130,11 +128,9 @@ export class CloudSessions {
     this.generation += 1
     this.loading = null
     this.followed = connection
-    this.hasListed = false
-    if (this.records.size > 0) {
-      this.records.clear()
-      this.changes.notify()
-    }
+    this.records.clear()
+    // Also with no record: the readers of `connection` hear that it changed.
+    this.changes.notify()
     if (!connection) return
     this.stopFollowing.push(
       connection.events.subscribe('session.headChanged', ({ sessionId, ...facts }) => this.headChanged(sessionId, facts)),
@@ -143,7 +139,7 @@ export class CloudSessions {
     if (connection.state.readiness === 'ready') void this.load()
   }
 
-  /** Read this person's sessions in the cloud. A failed read keeps what it answered last time. */
+  /** Read the sessions the cloud lists for this person. A list that cannot be read keeps what it answered last time. */
   load(): Promise<void> {
     this.loading ??= this.read().finally(() => { this.loading = null })
     return this.loading
@@ -153,25 +149,45 @@ export class CloudSessions {
     const connection = this.followed
     if (!connection) return
     const generation = this.generation
-    // An older Solus API has no such route; that is "no cloud entries", not an error.
-    const items = await Promise.resolve().then(() => connection.api.sessionCloudList()).catch(() => null)
-    if (generation !== this.generation) return
-    if (!items) {
-      // A failed read still answers: what the cloud lists stays as it was.
-      if (!this.hasListed) {
-        this.hasListed = true
-        this.changes.notify()
-      }
-      return
-    }
+    const [items, organization] = await Promise.all([
+      // An older Solus API has no such route; that is "no cloud entries", not an error.
+      Promise.resolve().then(() => connection.api.sessionCloudList()).catch(() => null),
+      Promise.resolve().then(() => connection.api.sessionRecordList()).catch(() => null),
+    ])
+    if (generation !== this.generation || (!items && !organization)) return
     const answered = new Set<string>()
-    for (const item of items) {
+    for (const item of items ?? []) {
       answered.add(item.sessionId)
       this.writeEntry(item)
     }
-    for (const sessionId of this.records.keys()) if (!answered.has(sessionId)) this.records.delete(sessionId)
-    this.hasListed = true
+    for (const record of organization?.records ?? []) {
+      if (answered.has(record.sessionId) || record.publication !== 'published') continue
+      answered.add(record.sessionId)
+      this.writeOrganizationRecord(record)
+    }
+    for (const record of this.records.values()) {
+      const wasListRead = record.publication === 'published' ? organization !== null : items !== null
+      if (wasListRead && !answered.has(record.sessionId)) this.records.delete(record.sessionId)
+    }
     this.changes.notify()
+  }
+
+  /**
+   * A published session of the organization's list. The transcript mirror
+   * holds its rows, so it needs no session repository to have a record here:
+   * without one it has no head and no turn count. An unchanged record keeps
+   * its object, so its row does not draw again.
+   */
+  private writeOrganizationRecord(record: SessionRecord): void {
+    const answered: CloudSessionRecord = {
+      ...record,
+      head: record.head ?? null,
+      syncedTurn: record.syncedTurn ?? 0,
+      lastRunHostId: record.lastRunHostId ?? null,
+      runningHostId: record.runningHostId ?? null,
+    }
+    const kept = this.records.get(record.sessionId)
+    this.records.set(record.sessionId, kept ? keepEqual(answered, kept) : answered)
   }
 
   /** The event writes the four properties of the record in place. A session
@@ -208,9 +224,9 @@ function writeFacts(record: CloudSessionRecord, facts: SessionRepositoryFacts): 
 }
 
 /**
- * A cloud entry as a thread record. The phone does not know the folder a host
- * keeps the session in, so the record names none: the host that syncs the
- * session restores it in its own folder. Cloud entries are personal
+ * An entry of `listMySessions` as a thread record. The phone does not know the
+ * folder a host keeps the session in, so the record names none: the host that
+ * syncs the session restores it in its own folder. These entries are personal
  * (`person:` scope), as desktop decision 6 says.
  */
 function cloudRecord(item: CloudEntry): CloudSessionRecord {

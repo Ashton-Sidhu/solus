@@ -1404,6 +1404,7 @@ export class WorkspaceContext implements SurfaceContext {
       this.router.closeSurfacesWhere((ref) => ref.name === 'chat' && ref.params.sessionId === sessionId)
       void this.apiFor(tabId).unwatchSession(sessionId).catch(() => {})
       this.lifecycle.disposeSession(sessionId)
+      this.cloudTranscripts.release(sessionId)
       delete this.sessions.byId[sessionId]
     }
     if (serverId && !this.tabOrder.some((id) => id !== tabId && runHost(this.sessionFor(id)?.run) === serverId)) {

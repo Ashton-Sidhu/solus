@@ -1,4 +1,4 @@
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 import type { ListMySessionsResponse, SessionRepositoryFacts } from '@solus/contracts/session-repositories'
 import type { SessionRecord } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -40,8 +40,6 @@ export class CloudSessions {
   /** The sessions `listMySessions` answered, by session id. */
   private rowsBySession = new SvelteMap<string, CloudSessionRow>()
   private watchedServerIds = new Set<string>()
-  /** The Solus API connections whose list answered, or failed to answer. */
-  private listedServerIds = new SvelteSet<string>()
   /** One list read at a time for each Solus API connection. */
   private loads = new Map<string, Promise<void>>()
   /** The list row of each cloud-only session, kept while its row and host do not change. */
@@ -58,15 +56,10 @@ export class CloudSessions {
     return this.factsBySession.get(sessionId)
   }
 
-  /** The Solus API connection a session's facts came from: the one that reads its cloud copy. */
+  /** The Solus API connection a session's facts came from: it reads the session's cloud copy
+   *  (`copyApiServerFor`, which also answers for a session with no facts). */
   apiServerFor(sessionId: string): string | null {
     return this.factsBySession.has(sessionId) ? this.sourceBySession.get(sessionId) ?? null : null
-  }
-
-  /** Whether a Solus API list answered. Before it, a session the cloud does not
-   *  name may still be in it. */
-  isListed(): boolean {
-    return this.listedServerIds.size > 0
   }
 
   /** The model the cloud card names for a session. */
@@ -184,9 +177,7 @@ export class CloudSessions {
     const api = serverConnections.apiFor(serverId)
     // An older Solus API has no such route; that is "no cloud entries", not an error.
     const items = await Promise.resolve().then(() => api.sessionCloudList()).catch(() => null)
-    if (serverConnections.apiFor(serverId) !== api) return
-    this.listedServerIds.add(serverId)
-    if (!items) return
+    if (serverConnections.apiFor(serverId) !== api || !items) return
     const answered = new Set<string>()
     for (const item of items) {
       answered.add(item.sessionId)
@@ -228,7 +219,6 @@ export class CloudSessions {
   /** A Solus API connection went (sign-out, or another organization): what it gave goes too. */
   forget(serverId: string): void {
     if (!isSolusApiId(serverId)) return
-    this.listedServerIds.delete(serverId)
     for (const [sessionId, source] of this.sourceBySession) {
       if (source !== serverId) continue
       this.sourceBySession.delete(sessionId)

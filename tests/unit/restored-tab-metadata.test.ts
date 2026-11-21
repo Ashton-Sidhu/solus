@@ -5,6 +5,7 @@ import { getAttentionState } from '@solus/workspace-ui/lib/sessionUtils'
 import { makeSession, makeTab } from '@solus/workspace-ui/contexts/workspace/session.factories'
 import { applyRestoredSessionMeta } from '@solus/workspace-ui/contexts/workspace/session-bootstrap'
 import { snapshotPersistedTabs } from '@solus/workspace-ui/contexts/workspace/tab-snapshot'
+import { RUNNER_NOT_HERE_READ_ONLY_REASON } from '@solus/workspace-ui/contexts/workspace/machine-references'
 
 function restoredSession() {
   return makeSession({ rateLimitBehavior: 'ask' } as never, {
@@ -62,6 +63,25 @@ describe('restored tab metadata', () => {
       status: 'running',
       currentTurnStartedAt: 1_700_000_000_000,
     })
+  })
+
+  test('keeps that an organization session is on a host that is not its machine', () => {
+    // WHY: that host has no copy of the session. A reload that lost this fact
+    // gave the tab a composer that sends to a host without the session, and
+    // asked that host for a history it does not have.
+    const session = restoredSession()
+    const tab = makeTab(session.id, { id: 'tab-1' })
+    // SAFETY: This fixture supplies every WorkspaceContext member read by snapshotPersistedTabs.
+    const workspace = {
+      tabOrder: [tab.id],
+      tabs: { [tab.id]: tab },
+      sessionFor: () => session,
+      runHosts: { persistedLocation: (saved: { run: { location: unknown } }) => saved.run.location },
+    } as never
+
+    expect('runnerNotHere' in snapshotPersistedTabs(workspace)[0]).toBe(false)
+    session.readOnlyReason = RUNNER_NOT_HERE_READ_ONLY_REASON
+    expect(snapshotPersistedTabs(workspace)[0].runnerNotHere).toBe(true)
   })
 
   test('does not persist rate-limited status beyond the server lifetime', () => {

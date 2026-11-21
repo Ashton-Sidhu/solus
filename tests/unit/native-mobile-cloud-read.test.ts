@@ -1,14 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
-import { sessionCloudReadSource, sessionCloudReadView, type SessionCloudReadSourceInput } from '@solus/client-core/session-cloud-read'
+import { HostRpcError } from '@solus/client-core/rpc-error'
+import { sessionCloudReadView } from '@solus/client-core/session-cloud-read'
 import { sessionCloudReadText } from '@solus/client-core/session-cloud-read-text'
 import type { SessionHistoryPage } from '@solus/contracts/session-history'
 import type { ListMySessionsResponse } from '@solus/contracts/session-repositories'
 import type { SolusApiRequest } from '@solus/contracts/solus-api/request'
+import type { SessionRecord } from '@solus/contracts/types'
 import { SolusApp } from '../../apps/mobile/src/app/solus-app'
 import type { ConversationStore } from '../../apps/mobile/src/features/conversation/conversation-store'
-import { CloudSessions } from '../../apps/mobile/src/features/threads/cloud-sessions'
-import { cloudReadView } from '../../apps/mobile/src/features/threads/lib/cloud-read-view'
+import { cloudReadProgress, cloudReadView } from '../../apps/mobile/src/features/threads/lib/cloud-read-view'
 import { cloudTurnDiffView } from '../../apps/mobile/src/features/threads/lib/cloud-turn-diff-view'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
 import { FakeApi, FakeTransport, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
@@ -16,7 +17,6 @@ import { identityKeyFor } from './helpers/signing-host'
 
 const SESSION = 'session-1'
 const CLOUD_HEAD = 'c'.repeat(40)
-const NEWER_HEAD = 'd'.repeat(40)
 type CloudItem = ListMySessionsResponse['items'][number]
 
 const cloudItem = (facts: Partial<CloudItem> = {}): CloudItem => ({
@@ -24,21 +24,21 @@ const cloudItem = (facts: Partial<CloudItem> = {}): CloudItem => ({
   lastActivityAt: 20, head: CLOUD_HEAD, syncedTurn: 3, lastRunHostId: 'acct-laptop', runningHostId: null, ...facts,
 })
 
-const userRow = (id: string, text: string) => ({ role: 'user', content: text, messageId: id, timestamp: 1 })
-const replyRow = (id: string, text: string) => ({ role: 'assistant', content: text, messageId: id, timestamp: 2 })
+const userRow = (id: string, text: string, timestamp = 1) => ({ role: 'user', content: text, messageId: id, timestamp })
+const replyRow = (id: string, text: string, timestamp = 2) => ({ role: 'assistant', content: text, messageId: id, timestamp })
 
-/** The Solus API's archived turns, one page for each turn, newest first, as Phase 5A answers them. */
-function archivedTurns(turns: Array<SessionHistoryPage['messages'] | null>): (request: { before?: string }) => SessionHistoryPage {
+type MirrorPage = Pick<SessionHistoryPage, 'messages' | 'turnDiffs'>
+
+/** The Solus API's pages of a mirrored session, oldest first; a read with no cursor answers the last one. */
+function mirrorPages(pages: MirrorPage[]): (request: { before?: string }) => SessionHistoryPage {
   return ({ before }) => {
-    const index = before === undefined ? turns.length - 1 : Number(JSON.parse(before).before)
-    const next = index > 0 ? JSON.stringify({ before: String(index - 1), at: 0 }) : null
-    const rows = turns[index]
-    return rows ? { messages: rows, before: next, availability: 'available' } : { messages: [], before: next, availability: 'not-available', unavailableTurns: [index] }
+    const index = before === undefined ? pages.length - 1 : Number(before)
+    return { ...pages[index]!, before: index > 0 ? String(index - 1) : null }
   }
 }
 
-/** A Solus API connection: the cloud's list, its history pages, its turn diffs, and `session.headChanged`. */
-function cloudApi(options: { items: () => CloudItem[]; page?: (request: { before?: string }) => SessionHistoryPage; diff?: (request: SolusApiRequest) => { status: number; body: string } }) {
+/** A Solus API connection: the cloud's lists, its history pages, its turn diffs, and its events. */
+function cloudApi(options: { items?: () => CloudItem[]; organization?: () => SessionRecord[]; page?: (request: { before?: string }) => SessionHistoryPage; diff?: (request: SolusApiRequest) => { status: number; body: string } }) {
   const events = new HostEventSubscriber()
   const accepted = new Set<() => void>()
   const pages: Array<{ sessionId: string; turnLimit: number; before?: string }> = []
@@ -48,7 +48,8 @@ function cloudApi(options: { items: () => CloudItem[]; page?: (request: { before
     state: { readiness: 'ready' },
     events,
     api: {
-      sessionCloudList: async () => options.items(),
+      sessionCloudList: async () => options.items?.() ?? [],
+      sessionRecordList: async () => ({ records: options.organization?.() ?? [], indexing: false }),
       loadSessionPage: async (request: { sessionId: string; turnLimit: number; before?: string }) => {
         pages.push(request)
         if (!options.page) throw new Error('no page')
@@ -68,10 +69,12 @@ function cloudApi(options: { items: () => CloudItem[]; page?: (request: { before
     connection: connection as never,
     pages,
     diffs,
-    headChanged: (payload: { sessionId: string; head: string | null; syncedTurn: number; lastRunHostId: string | null; runningHostId: string | null }) =>
-      events.receive({ type: 'session.headChanged', payload, occurredAt: Date.now() }),
+    transcriptChanged: (sessionId: string) => events.receive({ type: 'session.transcriptChanged', payload: { sessionId }, occurredAt: Date.now() }),
   }
 }
+
+/** A session as a host listed it earlier: no fact of a session repository. */
+const HOST_RECORD = { sessionId: SESSION, provider: 'claude-code' as const, projectPath: '/a/app', cwd: '/a/app', model: null, reasoningEffort: null, title: 'Fix the login', customTitle: null }
 
 /** The phone with one saved host, Studio, signed in to the cloud; the host is offline until `accept`. */
 async function phoneWithOfflineHost(host: FakeApi, cloud: ReturnType<typeof cloudApi>) {
@@ -131,39 +134,39 @@ const texts = (store: ConversationStore) => store.orderSnapshot().map((id) => {
   return item?.kind === 'user' || item?.kind === 'assistant' ? item.text : item?.kind
 })
 
-const base: SessionCloudReadSourceInput = {
-  hasStarted: true, hasHostRows: false, isRunHostAway: true, isSignedIn: true,
-  isCloudListed: true, runServerId: 'inst-a', runTurn: undefined,
-  cloud: { head: CLOUD_HEAD, syncedTurn: 3, lastRunHostId: null, runningHostId: null, lastRunServerId: 'inst-a' },
-  isCloudSyncOn: null,
-}
-
 describe('shared cloud read rule on mobile', () => {
-  test('the run host and signed-in cloud state choose the source', () => {
-    // WHY: a host's rows win, and an absent cloud record cannot claim sync is off without the setting.
-    expect(sessionCloudReadSource({ ...base, hasHostRows: true })).toBeNull()
-    expect(sessionCloudReadSource({ ...base, hasStarted: false })).toBeNull()
-    expect(sessionCloudReadSource({ ...base, isSignedIn: false, cloud: null })).toBe('not-signed-in')
-    expect(sessionCloudReadSource({ ...base, cloud: null, isCloudListed: false })).toBe('listing')
-    expect(sessionCloudReadSource({ ...base, cloud: null, isCloudSyncOn: false })).toBe('sync-off')
-    expect(sessionCloudReadSource({ ...base, cloud: null })).toBe('not-in-cloud')
-    expect(sessionCloudReadSource({ ...base, cloud: { ...base.cloud!, head: null, syncedTurn: 0 } })).toBe('empty')
-    expect(sessionCloudReadSource({ ...base, isRunHostAway: false, isHostReadUnavailable: true })).toBe('cloud')
+  test('one view and one set of words covers no copy, error, ready, and stale', () => {
+    // WHY: mobile and desktop must give the same reason and action for the same cloud read.
+    const read = { status: 'ready' as const, error: null, hasNewerRows: false }
+    const input = { source: 'cloud' as const, read, messageCount: 2, isTurnLive: false }
+    const phone = (view: NonNullable<ReturnType<typeof sessionCloudReadView>>, liveServerId: string | null = null) => cloudReadView(view, 'Studio', liveServerId, () => 'Laptop')
+    expect(phone(sessionCloudReadView({ ...input, read: null })!)).toMatchObject({ isLoading: true, placeholder: null })
+    expect(phone(sessionCloudReadView({ ...input, read: { ...read, status: 'error', error: 'Boom' } })!)).toMatchObject({ placeholder: { title: 'Boom' }, action: { kind: 'retry' } })
+    // A read that answers no rows: the words take the conversation's place, with no action to try again.
+    const noCopy = sessionCloudReadView({ ...input, messageCount: 0 })!
+    expect(phone(noCopy)).toMatchObject({ placeholder: { title: sessionCloudReadText(noCopy, 'Studio').message }, note: null, action: null })
+    const ready = sessionCloudReadView(input)!
+    expect(phone(ready).note).toContain(sessionCloudReadText(ready, 'Studio').message)
+    const stale = sessionCloudReadView({ ...input, read: { ...read, hasNewerRows: true } })!
+    expect(phone(stale)).toMatchObject({ placeholder: null, action: { kind: 'reload', label: 'Show newer turns' } })
+    const hostStale = sessionCloudReadView({ ...input, liveServerId: 'inst-b' })!
+    expect(phone(hostStale, 'inst-b').action).toMatchObject({ kind: 'open-live', hostId: 'inst-b', label: 'Open on Laptop' })
   })
 
-  test('one view and one set of words covers empty, error, ready, and stale', () => {
-    // WHY: mobile and desktop must give the same reason and action for the same cloud read.
-    const read = { status: 'ready' as const, error: null, readHead: CLOUD_HEAD, unavailableTurnCount: 1 }
-    const input = { source: 'cloud' as const, read, messageCount: 2, isTurnLive: false, cloud: base.cloud }
-    expect(sessionCloudReadView({ ...input, read: null })).toEqual({ kind: 'loading' })
-    expect(sessionCloudReadView({ ...input, read: { ...read, status: 'error' as const, error: 'Boom' } })).toEqual({ kind: 'error', message: 'Boom' })
-    expect(sessionCloudReadView({ ...input, messageCount: 0 })).toEqual({ kind: 'empty', reason: 'no-rows' })
-    const ready = sessionCloudReadView(input)!
-    expect(cloudReadView(ready, 'Studio', null, () => 'Studio').note).toContain(sessionCloudReadText(ready, 'Studio').message)
-    const stale = sessionCloudReadView({ ...input, cloud: { ...base.cloud!, head: NEWER_HEAD } })!
-    expect(cloudReadView(stale, 'Studio', null, () => 'Studio').action).toMatchObject({ kind: 'reload' })
-    const hostStale = sessionCloudReadView({ ...input, liveServerId: 'inst-b' })!
-    expect(cloudReadView(hostStale, 'Studio', 'inst-b', () => 'Laptop').action).toMatchObject({ kind: 'open-live', hostId: 'inst-b' })
+  test('with no Solus API connection the phone says "no copy" and starts no read; a host conversation gets no note', () => {
+    // WHY: a signed-in person with no organization has no Solus API to ask. A spinner would
+    // never end and "Sign in" would be false. A conversation that a host shows must get no
+    // cloud note at all: a made-up read there said "<host> has this session now".
+    const idle = { status: { kind: 'idle' as const }, hasNewerRows: false }
+    const noConnection = cloudReadProgress({ ...idle, source: 'cloud', hasConnection: false })
+    expect(sessionCloudReadView({ source: 'cloud', read: noConnection, messageCount: 0, isTurnLive: false })).toEqual({ kind: 'not-in-cloud' })
+    // With a connection, the read is not started yet: the copy loads.
+    expect(sessionCloudReadView({ source: 'cloud', read: cloudReadProgress({ ...idle, source: 'cloud', hasConnection: true }), messageCount: 0, isTurnLive: false })).toEqual({ kind: 'loading' })
+    const onHost = cloudReadProgress({ ...idle, source: null, hasConnection: false })
+    expect(sessionCloudReadView({ source: null, read: onHost, messageCount: 4, isTurnLive: false })).toBeNull()
+    // A read that this phone made passes its news of newer rows.
+    expect(cloudReadProgress({ status: { kind: 'ready' }, source: 'cloud', hasConnection: true, hasNewerRows: true })).toEqual({ status: 'ready', error: null, hasNewerRows: true })
+    expect(cloudReadProgress({ status: { kind: 'error', message: 'Boom' }, source: 'cloud', hasConnection: true, hasNewerRows: false })).toEqual({ status: 'error', error: 'Boom', hasNewerRows: false })
   })
 
   test('the mobile diff view preserves large and absent diff states', () => {
@@ -174,38 +177,150 @@ describe('shared cloud read rule on mobile', () => {
 })
 
 describe('mobile read-only cloud read', () => {
-  test('with the host offline the thread shows the cloud read, newest turn first, and pages older turns', async () => {
-    // WHY: requirement 1 and 2: the usual thread renders the Solus API reader's rows, by page,
-    // newest first; a turn with no rows in the cloud is counted, not shown as an empty turn.
+  test('with the host offline a personal session shows the rows of the mirror, with no fact of a session repository', async () => {
+    // WHY: the mirror is the one store for a reader. The phone asks it and takes its answer;
+    // it must not wait for a repository head, which a session can lack while its rows are
+    // in the mirror. A page holds many turns, and older pages come from the mirror too.
     const cloud = cloudApi({
-      items: () => [cloudItem()],
-      page: archivedTurns([[userRow('u1', 'First prompt'), replyRow('a1', 'First reply')], null, [userRow('u3', 'Third prompt'), replyRow('a3', 'Third reply')]]),
+      page: mirrorPages([
+        { messages: [userRow('u1', 'First prompt', 10), replyRow('a1', 'First reply', 11)] },
+        { messages: [userRow('u2', 'Second prompt', 20), replyRow('a2', 'Second reply', 21), userRow('u3', 'Third prompt', 30), replyRow('a3', 'Third reply', 31)] },
+      ]),
     })
     const { app } = await phoneWithOfflineHost(studio({ online: false, hasCopy: true }), cloud)
-    const shell = app.threads.thread('inst-a', SESSION)!
-    expect(shell.cloudOnly).toBe(true)
-    const store = app.conversation('inst-a', { record: shell.record, fromCloud: true })!
+    // The cloud lists no session repository of it.
+    expect(app.cloudSessions.headFor(SESSION)).toBeNull()
+    const store = app.conversation('inst-a', { record: HOST_RECORD })!
     await untilPhase(store, 'error')
 
     await store.controller.readCloudHistory()
-    expect(texts(store)).toEqual(['Third prompt', 'Third reply'])
-    expect(cloud.pages).toEqual([{ sessionId: SESSION, provider: 'claude-code', turnLimit: 1, before: undefined, deferArtifactHtml: true }])
+    expect(texts(store)).toEqual(['Second prompt', 'Second reply', 'Third prompt', 'Third reply'])
+    expect(cloud.pages).toEqual([{ sessionId: SESSION, provider: 'claude-code', turnLimit: 10, before: undefined, deferArtifactHtml: true }])
     expect(store.metaSnapshotOf()).toMatchObject({ cloudRead: { kind: 'ready' }, showsHostConversation: false, hasOlder: true })
-    expect(app.cloudHistory.turnOf(store.controller.model, 'u3')).toBe(2)
 
-    // Older turns read from the cloud, with no host: turn 1 has no rows, so turn 0 follows.
+    // Older turns read from the mirror, with no host.
     await store.controller.loadOlder()
-    expect(texts(store)).toEqual(['First prompt', 'First reply', 'Third prompt', 'Third reply'])
-    expect(app.cloudHistory.copyOf(store.controller.model)).toEqual({ head: CLOUD_HEAD, unavailableTurns: 1 })
-    expect(app.cloudHistory.turnOf(store.controller.model, 'u1')).toBe(0)
+    expect(texts(store)).toEqual(['First prompt', 'First reply', 'Second prompt', 'Second reply', 'Third prompt', 'Third reply'])
+    expect(cloud.pages.at(-1)).toMatchObject({ before: '0' })
     expect(store.metaSnapshotOf().hasOlder).toBe(false)
+  })
+
+  test('"Changes" shows only under a turn whose diff the mirror holds, joined to its prompt by time', async () => {
+    // WHY: a page names the turn diffs of its rows by the time each turn ended, not by a row.
+    // A chip under the wrong turn opens the changes of another prompt; a chip under a turn
+    // with no diff opens a dead end.
+    const cloud = cloudApi({
+      page: mirrorPages([
+        // Turn 0 ended after its prompt (10) and before the next prompt (20).
+        { messages: [userRow('u1', 'First prompt', 10), replyRow('a1', 'First reply', 11)], turnDiffs: [{ turnIndex: 0, endedAt: 15 }] },
+        // Turn 1 has no diff in the mirror; turn 2 is the newest turn, with no prompt after it.
+        { messages: [userRow('u2', 'Second prompt', 20), replyRow('a2', 'Second reply', 21), userRow('u3', 'Third prompt', 30), replyRow('a3', 'Third reply', 31)], turnDiffs: [{ turnIndex: 2, endedAt: 35 }] },
+      ]),
+    })
+    const { app } = await phoneWithOfflineHost(studio({ online: false, hasCopy: true }), cloud)
+    const store = app.conversation('inst-a', { record: HOST_RECORD })!
+    await untilPhase(store, 'error')
+    await store.controller.readCloudHistory()
+    const turnOf = (promptId: string) => app.cloudHistory.turnOf(store.controller.model, promptId)
+    expect(turnOf('u3')).toBe(2)
+    expect(turnOf('u2')).toBeNull()
+    // A reply row is not a prompt.
+    expect(turnOf('a3')).toBeNull()
+
+    await store.controller.loadOlder()
+    expect(turnOf('u1')).toBe(0)
+    expect(turnOf('u2')).toBeNull()
+    expect(turnOf('u3')).toBe(2)
+  })
+
+  test('a session that the Solus API refuses is "no copy", not an error', async () => {
+    // WHY: the Solus API refuses a session that is not in the mirror for this person (cloud
+    // sync off, or not sent yet). "Try again" would never help; the words must say that
+    // Solus Cloud has no copy.
+    const cloud = cloudApi({ page: () => { throw new HostRpcError('This session is not shared with you', 'FORBIDDEN') } })
+    const { app } = await phoneWithOfflineHost(studio({ online: false, hasCopy: true }), cloud)
+    const store = app.conversation('inst-a', { record: HOST_RECORD })!
+    await untilPhase(store, 'error')
+    await store.controller.readCloudHistory()
+
+    expect(store.metaSnapshotOf()).toMatchObject({ cloudRead: { kind: 'ready' }, hasOlder: false })
+    expect(texts(store)).toEqual([])
+    const view = sessionCloudReadView({ source: 'cloud', read: { status: 'ready', error: null, hasNewerRows: app.cloudHistory.hasNewerRows(SESSION) }, messageCount: store.orderSnapshot().length, isTurnLive: false })!
+    expect(view).toEqual({ kind: 'not-in-cloud' })
+    expect(cloudReadView(view, 'Studio', null, () => 'Studio')).toMatchObject({ placeholder: { title: 'Solus Cloud has no copy of this session.' }, action: null })
+  })
+
+  test('a published organization session with no session repository opens its copy on a host that is not its machine', async () => {
+    // WHY: the phone had one read-only surface for personal sessions only. A published
+    // organization session is in the mirror also when cloud sync is off on its machine, so
+    // its row must open the same copy, and the phone must not ask a host to sync a session
+    // repository that does not exist.
+    const record = {
+      ...HOST_RECORD, organizationId: 'org-1', publication: 'published', ownerKey: 'bob', runnerHostId: 'acct-vm', lastActivityAt: 30, parentSessionId: null,
+    } as SessionRecord
+    const cloud = cloudApi({
+      organization: () => [record],
+      page: mirrorPages([{ messages: [userRow('u1', 'Fix the build', 10), replyRow('a1', 'Done', 11)], turnDiffs: [{ turnIndex: 0, endedAt: 12 }] }]),
+    })
+    const { app, transport } = await phoneWithOfflineHost(studio({ online: true, hasCopy: false }), cloud)
+    await transport.accept()
+    await flushPromises()
+    const shell = app.threads.thread('inst-a', SESSION)!
+    expect(shell).toMatchObject({ cloudOnly: true, hostLabel: 'Solus Cloud' })
+    expect(app.cloudSessions.headFor(SESSION)).toMatchObject({ head: null, syncedTurn: 0 })
+
+    const store = app.conversation('inst-a', { record: shell.record, fromCloud: true })!
+    await untilPhase(store, 'ready')
+    await flushPromises()
+    expect(store.metaSnapshotOf().hostHasNoCopy).toBe(true)
+    await store.controller.readCloudHistory()
+    expect(texts(store)).toEqual(['Fix the build', 'Done'])
+    expect(app.cloudHistory.turnOf(store.controller.model, 'u1')).toBe(0)
+    expect(transport.api.callsOf('sessionPrepare')).toEqual([])
+  })
+
+  test('rows that arrive in the mirror make the copy stale, and only a new read shows them', async () => {
+    // WHY: the copy must not claim to be current when the mirror has newer rows, but a read
+    // by itself resets the scroll of a person who reads (decision 2). The person asks for it.
+    let pages: MirrorPage[] = [{ messages: [userRow('u1', 'First prompt', 10)] }]
+    const cloud = cloudApi({ page: (request) => mirrorPages(pages)(request) })
+    const { app } = await phoneWithOfflineHost(studio({ online: false, hasCopy: true }), cloud)
+    const store = app.conversation('inst-a', { record: HOST_RECORD })!
+    await untilPhase(store, 'error')
+    // News of a session with no copy here says nothing.
+    cloud.transcriptChanged(SESSION)
+    expect(app.cloudHistory.hasNewerRows(SESSION)).toBe(false)
+
+    await store.controller.readCloudHistory()
+    cloud.transcriptChanged('another-session')
+    expect(app.cloudHistory.hasNewerRows(SESSION)).toBe(false)
+
+    pages = [{ messages: [userRow('u1', 'First prompt', 10), userRow('u2', 'Second prompt', 20)] }]
+    let notified = 0
+    app.cloudHistory.changes.subscribe(() => { notified += 1 })
+    cloud.transcriptChanged(SESSION)
+    expect(app.cloudHistory.hasNewerRows(SESSION)).toBe(true)
+    expect(notified).toBe(1)
+    await flushPromises()
+    expect(cloud.pages).toHaveLength(1)
+    expect(texts(store)).toEqual(['First prompt'])
+
+    // "Show newer turns" is a new read.
+    await store.controller.readCloudHistory()
+    expect(texts(store)).toEqual(['First prompt', 'Second prompt'])
+    expect(app.cloudHistory.hasNewerRows(SESSION)).toBe(false)
+
+    // Another account: its news is not this one's.
+    cloud.transcriptChanged(SESSION)
+    app.cloudSessions.follow(null)
+    expect(app.cloudHistory.hasNewerRows(SESSION)).toBe(false)
   })
 
   test('the host that comes back replaces the copy with its own history, with no reload', async () => {
     // WHY: requirement 4: when a host that holds the session comes online, the screen becomes
     // the live session; the copy never shows beside or after the host's history.
     const state = { online: false, hasCopy: true }
-    const cloud = cloudApi({ items: () => [cloudItem()], page: archivedTurns([[userRow('u1', 'First prompt')]]) })
+    const cloud = cloudApi({ items: () => [cloudItem()], page: mirrorPages([{ messages: [userRow('u1', 'First prompt')] }]) })
     const { app, transport } = await phoneWithOfflineHost(studio(state), cloud)
     const store = app.conversation('inst-a', { record: app.threads.thread('inst-a', SESSION)!.record, fromCloud: true })!
     await untilPhase(store, 'error')
@@ -228,7 +343,7 @@ describe('mobile read-only cloud read', () => {
     // WHY: requirement 5: the composer stays usable; the existing flow continues the session
     // on the run host, which syncs from the cloud head the prompt carries.
     const state = { online: true, hasCopy: false }
-    const cloud = cloudApi({ items: () => [cloudItem()], page: archivedTurns([[userRow('u1', 'First prompt'), replyRow('a1', 'First reply')]]) })
+    const cloud = cloudApi({ items: () => [cloudItem()], page: mirrorPages([{ messages: [userRow('u1', 'First prompt'), replyRow('a1', 'First reply')] }]) })
     const { app, transport } = await phoneWithOfflineHost(studio(state), cloud)
     await transport.accept()
     await flushPromises()
@@ -269,38 +384,5 @@ describe('mobile read-only cloud read', () => {
     // Sign-out ends the connection: its diffs go with it.
     app.cloudSessions.follow(null)
     expect(app.cloudHistory.diffOf(SESSION, 1)).toEqual({ kind: 'idle' })
-  })
-})
-
-describe('mobile cloud list state', () => {
-  test('is loading until the first list read answers, and a failed read still answers', async () => {
-    // WHY: requirement 4: "not in Solus Cloud" must not show before the cloud answered; an
-    // older Solus API with no list route must not leave the thread loading for ever.
-    const cloud = new CloudSessions({ savedHostFor: () => null, isReady: () => false, hostIds: () => [] })
-    expect(cloud.listState).toBe('none')
-    let fail = false
-    let answer: (items: CloudItem[]) => void = () => undefined
-    const connection = {
-      hostId: 'workspace:org-1',
-      state: { readiness: 'ready' },
-      events: new HostEventSubscriber(),
-      api: { sessionCloudList: () => (fail ? Promise.reject(new Error('no route')) : new Promise<CloudItem[]>((resolve) => { answer = resolve })) },
-      onAccepted: () => () => undefined,
-    }
-    // SAFETY: the cloud owner reads only these members of a connection.
-    cloud.follow(connection as never)
-    await flushPromises()
-    expect(cloud.listState).toBe('loading')
-    answer([cloudItem()])
-    await flushPromises()
-    expect(cloud.listState).toBe('listed')
-
-    fail = true
-    cloud.follow(null)
-    // SAFETY: as above.
-    cloud.follow({ ...connection, hostId: 'workspace:org-2' } as never)
-    await flushPromises()
-    expect(cloud.listState).toBe('listed')
-    expect(cloud.recordCount).toBe(0)
   })
 })

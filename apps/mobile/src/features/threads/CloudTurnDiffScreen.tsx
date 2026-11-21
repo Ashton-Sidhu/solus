@@ -21,8 +21,8 @@ const NO_IDS: readonly string[] = [];
 /**
  * The changes of one turn of a session's copy from Solus Cloud
  * (docs/plans/portable-sessions-cloud.md, Phase 5B), on the native diff
- * surface that pull requests use. The Solus API reads the turn's patch at the
- * head it accepted; a patch over its cap answers counts only.
+ * surface that pull requests use. The Solus API answers the turn's patch from
+ * the transcript mirror; a patch over its cap answers counts only.
  */
 export function CloudTurnDiffScreen({ route }: ScreenProps<"ThreadTurnDiff">) {
   const app = useApp();

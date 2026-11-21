@@ -92,6 +92,25 @@ test('a cloud-only entry shows, opens on the saved host that ran it, and names i
   } finally { restore() }
 })
 
+test('an organization session whose machine is saved here and not connected names that machine', async () => {
+  // WHY: its tab opens on the machine that ran it, so the conversation of that
+  // machine takes the place of the copy when it is back. The record of the Solus
+  // API is the only fact that names the machine when cloud sync is off.
+  const organizationSession = (sessionId: string, runnerHostId: string) => record(sessionId, { organizationId: 'org-1', publication: 'published', runnerHostId })
+  const { store, restore } = fakeHomes({
+    homes: { [API]: [organizationSession('saved-machine', 'account-studio'), organizationSession('other-machine', 'account-elsewhere')] },
+    cloud: [],
+    saved: { 'account-studio': 'studio' },
+  })
+  try {
+    await store.load()
+    await settle()
+    expect(store.listed('saved-machine')).toMatchObject({ serverId: API, runnerOffline: true, awayRunnerServerId: 'studio' })
+    expect(store.listed('other-machine')).toMatchObject({ serverId: API, runnerOffline: true })
+    expect(store.listed('other-machine')?.awayRunnerServerId).toBeUndefined()
+  } finally { restore() }
+})
+
 test('a cloud entry whose last run host is connected but does not list it shows no row', async () => {
   // WHY: that host archived it; a cloud row would bring an archived session back.
   const { store, restore } = fakeHomes({ homes: { studio: [] }, cloud: [entry('archived')], connected: { 'account-studio': 'studio' } })

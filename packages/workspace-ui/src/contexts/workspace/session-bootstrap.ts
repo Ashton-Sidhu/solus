@@ -11,11 +11,10 @@ import { loadRestoredSessionTranscript } from './session-transcript'
 import { applyRuntimeConfig, followThreadProvider, nextMsgId, parentSessionIdOf } from './session.utils'
 import { initDraftState, loadCachedStart, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
-import { readSessionMeta, stampSessionMeta } from '@solus/client-core/session-meta'
+import { readSessionMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hosts } from '../hosts/hosts.svelte'
-import { readSessionRecordPage } from '../sessions/session-record-transcript'
-import { GONE_MACHINE_NO_RECORD_REASON, GONE_MACHINE_READ_ONLY_REASON, LOCAL_HOST_OFF_READ_ONLY_REASON, recordHomeOf, knownHostsAreAuthoritative } from './machine-references'
+import { GONE_MACHINE_READ_ONLY_REASON, LOCAL_HOST_OFF_READ_ONLY_REASON, RUNNER_NOT_HERE_READ_ONLY_REASON, knownHostsAreAuthoritative } from './machine-references'
 import { z } from 'zod'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { checkoutGit, checkoutPlace, folderLocation, projectHome, remapHosts, runHost } from './run-location'
@@ -452,42 +451,19 @@ function startRestoredMetadataReads(
  */
 /**
  * A restored tab whose machine is gone (docs/plans/workspace-and-machines.md §6):
- * nothing on that machine can be asked, so the tab is read-only and shows the
- * transcript its record home mirrored (`recordHomeOf`), where its older pages
- * are read too (`apiForSession`). Left pending until the saved hosts are
- * authoritative, since a host missing before the directory answers may still be
- * listed, and when a read fails, so selection or reconnect tries again.
+ * nothing on that machine can be asked, so the tab is read-only. It reads no
+ * rows here: the conversation shows the session's copy in Solus Cloud, or says
+ * that there is none (`CloudTranscriptStore`), as for any session with no host
+ * online. Left pending until the saved hosts are authoritative, since a host
+ * missing before the directory answers may still be listed.
  */
-export async function hydrateTabOnGoneMachine(ctx: WorkspaceContext, snapTab: PersistedTab, session: Session): Promise<boolean> {
-  if (serverConnections.isLocalHostOff(runHost(session.run))) {
-    session.readOnlyReason = LOCAL_HOST_OFF_READ_ONLY_REASON
-    return true
-  }
-  if (!knownHostsAreAuthoritative()) return false
-  const home = recordHomeOf(session)
-  session.readOnlyReason = home ? GONE_MACHINE_READ_ONLY_REASON : GONE_MACHINE_NO_RECORD_REASON
-  if (!home) return true
-  session.loadingHistory = session.messages.length === 0
-  try {
-    const meta = stampSessionMeta(await serverConnections.apiFor(home).getSessionInfo(session.id), home)
-    if (ctx.sessionFor(snapTab.tabId) !== session) return true
-    if (!meta) {
-      session.readOnlyReason = GONE_MACHINE_NO_RECORD_REASON
-      return true
-    }
-    const page = await readSessionRecordPage(ctx, home, meta, { turnLimit: INITIAL_HISTORY_TURNS })
-    if (ctx.sessionFor(snapTab.tabId) !== session) return true
-    replaceHydratedMessages(session, page.messages)
-    session.historyCursor = page.before
-    session.historyPendingMessages = page.pendingMessages
-    session.historyTruncated = page.before !== null
-    ctx.eventReducer.rebuildAgentConversations(session)
-    return true
-  } catch {
-    return false
-  } finally {
-    session.loadingHistory = false
-  }
+export function hydrateTabOnGoneMachine(session: Session): boolean {
+  const isTurnedOff = serverConnections.isLocalHostOff(runHost(session.run))
+  if (!isTurnedOff && !knownHostsAreAuthoritative()) return false
+  session.readOnlyReason = isTurnedOff ? LOCAL_HOST_OFF_READ_ONLY_REASON : GONE_MACHINE_READ_ONLY_REASON
+  // No host reads its history, so nothing else ends the loading state. The copy is read after it ends.
+  session.loadingHistory = false
+  return true
 }
 
 /** The project path of the tab's own host, read or cached. Restore runs before
@@ -501,7 +477,14 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   const tab = ctx.tabs[snapTab.tabId]
   const session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
   if (!tab || !session || session.forked || snapTab.pendingFork) return true
-  if (serverConnections.presenceOf(runHost(session.run)) === 'gone') return hydrateTabOnGoneMachine(ctx, snapTab, session)
+  if (serverConnections.presenceOf(runHost(session.run)) === 'gone') return hydrateTabOnGoneMachine(session)
+  // An organization session on a host that is not its machine: this host has no
+  // copy of it, so no history is read here. The conversation reads the copy in Solus Cloud.
+  if (snapTab.runnerNotHere) {
+    session.readOnlyReason = RUNNER_NOT_HERE_READ_ONLY_REASON
+    session.loadingHistory = false
+    return true
+  }
 
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent

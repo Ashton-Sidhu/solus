@@ -24,8 +24,8 @@ const cloudItem = (sessionId: string, facts: Partial<CloudItem> = {}): CloudItem
   lastActivityAt: 20, head: CLOUD_HEAD, syncedTurn: 4, lastRunHostId: 'acct-laptop', runningHostId: null, ...facts,
 })
 
-/** A Solus API connection that lists `items` and sends `session.headChanged`. */
-function cloudApi(items: () => CloudItem[]) {
+/** A Solus API connection that lists `items`, and the organization's sessions when given, and sends `session.headChanged`. */
+function cloudApi(items: () => CloudItem[], organization?: () => SessionRecord[]) {
   const events = new HostEventSubscriber()
   const accepted = new Set<() => void>()
   let lists = 0
@@ -33,7 +33,10 @@ function cloudApi(items: () => CloudItem[]) {
     hostId: 'workspace:org-1',
     state: { readiness: 'ready' },
     events,
-    api: { sessionCloudList: async () => { lists += 1; return items() } },
+    api: {
+      sessionCloudList: async () => { lists += 1; return items() },
+      sessionRecordList: async () => { if (!organization) throw new Error('not listed'); return { records: organization(), indexing: false } },
+    },
     onAccepted: (listener: () => void) => { accepted.add(listener); return () => { accepted.delete(listener) } },
   }
   return {
@@ -116,6 +119,51 @@ describe('mobile cloud sessions in the thread list', () => {
     expect(shell.record).toMatchObject({ head: CLOUD_HEAD, syncedTurn: 4, lastRunHostId: 'acct-laptop', runningHostId: null, title: 'Cloud session-1' })
   })
 
+  test('a published organization session with no host online has a cloud row, with no fact of a session repository', async () => {
+    // WHY: `listMySessions` answers only personal sessions, so a published organization
+    // session whose host was offline had no row on the phone and could not open. The
+    // transcript mirror holds its rows, so the session needs no session repository (cloud
+    // sync can be off on its machine) to be listed and read.
+    const organizationSession = (sessionId: string, facts: Partial<SessionRecord> = {}) => ({
+      ...listed(sessionId, 30), organizationId: 'org-1', publication: 'published', ownerKey: 'bob', runnerHostId: 'acct-vm', ...facts,
+    }) as SessionRecord
+    const cloud = cloudSessions({ a: { accountHostId: 'acct-studio', isReady: true }, b: { accountHostId: 'acct-laptop', isReady: false } })
+    let organization: (() => SessionRecord[]) | null = () => [
+      // No repository facts: the mirror alone has it.
+      organizationSession('on-a-vm'),
+      // The machine that ran it is one this phone keeps, and it is offline.
+      organizationSession('on-my-laptop', { runnerHostId: 'acct-laptop', lastActivityAt: 25 }),
+      // A connected host lists this one: the host's record wins.
+      organizationSession('on-studio', { runnerHostId: 'acct-studio' }),
+      // Its transcript stays on its machine: the mirror has no row of it.
+      organizationSession('not-published', { publication: 'local' }),
+    ]
+    const api = cloudApi(() => [], () => { if (!organization) throw new Error('offline'); return organization() })
+    cloud.follow(api.connection)
+    const { directory } = directoryWithCloud({ a: [listed('on-studio', 40)], b: [] }, cloud)
+    await directory.load('a')
+    await flushPromises()
+
+    expect(rows(directory)).toEqual(['a:on-studio', 'a:on-a-vm:cloud', 'b:on-my-laptop:cloud'])
+    // The row opens on the machine that ran the session when the phone keeps it; else it says Solus Cloud.
+    expect(directory.thread('b', 'on-my-laptop')).toMatchObject({ cloudOnly: true, hostLabel: 'Laptop' })
+    expect(directory.thread('a', 'on-a-vm')).toMatchObject({ cloudOnly: true, hostLabel: 'Solus Cloud' })
+    // The record is the organization's own, and it claims no session repository.
+    expect(directory.thread('a', 'on-a-vm')!.record).toMatchObject({ organizationId: 'org-1', publication: 'published', head: null, syncedTurn: 0 })
+
+    // A list that cannot be read keeps what it answered last time; an unchanged record keeps its row.
+    const shown = directory.thread('a', 'on-a-vm')
+    organization = null
+    api.reconnect()
+    await flushPromises()
+    expect(rows(directory)).toEqual(['a:on-studio', 'a:on-a-vm:cloud', 'b:on-my-laptop:cloud'])
+    organization = () => [organizationSession('on-a-vm')]
+    api.reconnect()
+    await flushPromises()
+    expect(rows(directory)).toEqual(['a:on-studio', 'a:on-a-vm:cloud'])
+    expect(directory.thread('a', 'on-a-vm')).toBe(shown)
+  })
+
   test('a cloud row opens on a connected host when this phone keeps no host that ran it', async () => {
     // WHY: desktop decision 3: with no saved last run host, a connected host takes the
     // session from the cloud; the row says the session came from Solus Cloud.
@@ -161,6 +209,26 @@ describe('mobile cloud sessions in the thread list', () => {
     expect(rows(directory)).toEqual([])
     expect(cloud.headFor(SESSION)).toBeNull()
     expect(cloud.connectionId).toBeNull()
+  })
+})
+
+describe('mobile Solus API connection', () => {
+  test('a reader of the connection hears each change of it, also when the cloud lists no session', () => {
+    // WHY: a thread asks the mirror only when the phone has a Solus API connection. A change
+    // of the connection that no reader heard left the thread with "no copy" after sign-in.
+    const cloud = cloudSessions({})
+    let notified = 0
+    cloud.changes.subscribe(() => { notified += 1 })
+    const { connection } = cloudApi(() => [])
+    cloud.follow(connection)
+    expect(notified).toBe(1)
+    expect(cloud.connection).toBe(connection)
+    // The same connection again is no change.
+    cloud.follow(connection)
+    expect(notified).toBe(1)
+    cloud.follow(null)
+    expect(notified).toBe(2)
+    expect(cloud.connection).toBeNull()
   })
 })
 

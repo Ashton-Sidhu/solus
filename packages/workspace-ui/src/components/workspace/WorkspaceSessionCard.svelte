@@ -70,7 +70,7 @@
 
   <span class="flex h-[18px] min-w-0 items-center gap-[5px] text-muted-foreground">
     {#if item.runnerOffline}
-      <span class="truncate">Read only from the mirror</span>
+      <span class="truncate">Read only from Solus Cloud</span>
     {:else}
       <span class="min-w-0 truncate">{item.projectLabel}</span>
       {#if item.branch}

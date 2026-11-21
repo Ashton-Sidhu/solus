@@ -34,8 +34,9 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
     const serverId = tab.serverInstallationId
       ? hostCatalog.hosts().find((server) => server.installationId === tab.serverInstallationId)?.id ?? runHost(tab)
       : runHost(tab)
-    // A tab on a gone host restores read-only from the mirror (`hydrateTab`).
-    if (serverConnections.presenceOf(serverId) === 'gone') return
+    // A tab on a gone host, or on a host that is not its session's machine,
+    // restores read-only, from its copy in Solus Cloud (`hydrateTab`).
+    if (tab.runnerNotHere || serverConnections.presenceOf(serverId) === 'gone') return
     const api = serverConnections.apiFor(serverId)
     startupTabId = tab.tabId
     performance.mark('solus.boot.transcript.requested')

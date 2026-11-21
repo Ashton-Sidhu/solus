@@ -2,6 +2,7 @@ import type { Session } from '@solus/contracts/types'
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { existingTaskId } from './session-draft.svelte'
 import { firstActivityAt } from './session-activity'
+import { RUNNER_NOT_HERE_READ_ONLY_REASON } from './machine-references'
 import type { PersistedTab } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { projectHome, runHost } from './run-location'
@@ -19,7 +20,7 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
       const persistedLocation = restoredSession
         ? session.runHosts.persistedLocation(restoredSession)
         : session.defaultRunConfig.location
-      return {
+      const saved: PersistedTab = {
         tabId,
         sessionId: tab.sessionId,
         title: restoredSession?.title ?? 'New Tab',
@@ -58,6 +59,8 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         startedAt: restoredSession ? knownStartedAt(restoredSession) : null,
         lastSentAt: restoredSession?.lastSentAt ?? null,
       }
+      if (restoredSession?.readOnlyReason === RUNNER_NOT_HERE_READ_ONLY_REASON) saved.runnerNotHere = true
+      return saved
     })
 }
 

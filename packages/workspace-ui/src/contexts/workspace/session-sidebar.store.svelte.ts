@@ -1246,7 +1246,10 @@ export class SessionSidebarStore {
   private async openListedSession(row: SidebarTask): Promise<void> {
     if (!row.sessionId || !row.serverId) return
     // No connected host has it: it opens with no conversation until a machine is chosen.
-    if (sessionListStore.listed(row.sessionId)?.cloudOnly) return this.session.opening.openCloudSession(row.sessionId)
+    if (sessionListStore.listed(row.sessionId)?.cloudOnly) {
+      await this.session.opening.openCloudSession(row.sessionId)
+      return
+    }
     const prepared = this.preparedOpen?.rowKey === row.key && Date.now() - this.preparedOpen.at < 2_000
       ? this.preparedOpen.meta
       : null

@@ -24,6 +24,7 @@ runes.$derived = Object.assign(<T>(value: T) => value, { by: <T>(fn: () => T) =>
 afterAll(() => Object.assign(runes, previousRunes))
 
 const { RunHostChanges } = await import('@solus/workspace-ui/contexts/workspace/run-host-changes')
+const { RUNNER_NOT_HERE_READ_ONLY_REASON } = await import('@solus/workspace-ui/contexts/workspace/machine-references')
 const { isRunOnHostLocked } = await import('@solus/workspace-ui/components/servers/run-on')
 const { folderLocation, openFolder, runHost, workingPlace } = await import('@solus/workspace-ui/contexts/workspace/run-location')
 
@@ -313,7 +314,20 @@ describe('a tab that shows the cloud copy', () => {
     expect(loaded.prepared).toEqual([])
   })
 
+  test('a host that is not the machine of an organization session is asked for no sync', async () => {
+    // WHY: the tab is on that host only to have a place to read the copy. An
+    // organization session stays on its machine: a sync would copy it to a
+    // personal machine that must not hold it.
+    const { changes, session, prepared, reads } = harness({ cloud: CLOUD, showsCloudCopy: true })
+    session.readOnlyReason = RUNNER_NOT_HERE_READ_ONLY_REASON
+    changes.hostReady('host-a')
+    await settle()
+    expect(prepared).toEqual([])
+    expect(reads).toEqual([])
+  })
+
   test('"Show it" loads the run host conversation in place of the copy', async () => {
+    // WHY: the reader chose the live session; the copy must go before its rows mix with the host's.
     const { changes, metaByHost, resumedInto, releasedCopies } = harness({ showsCloudCopy: true })
     metaByHost.set('host-a', { sessionId: 'session-1', serverId: 'host-a', cwd: '/a/solus', head: 'head-3', syncedTurn: 3 } as SessionMeta)
     changes.showRunHostConversation('tab-1')

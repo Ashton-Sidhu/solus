@@ -14,7 +14,7 @@ import type { Turn } from './turns'
  * With `latestOnly`, only the last prompt-led turn shows its card, so the card
  * steps aside when the next prompt lands.
  *
- * A turn of a session's cloud copy joins its turn the same way, by when it started.
+ * A turn diff of a session's cloud copy joins its turn the same way, by when the turn ended.
  */
 export function turnSnapshotFor<Snapshot extends Pick<TurnSnapshot, 'timestamp'>>(
   turns: readonly Turn[],

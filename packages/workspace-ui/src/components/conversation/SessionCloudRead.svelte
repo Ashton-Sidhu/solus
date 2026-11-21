@@ -14,14 +14,15 @@
    * (docs/plans/portable-sessions-cloud.md, Phase 5B). `pane` fills an empty
    * conversation with its state; `notice` is one line above the rows of the
    * copy. Not an error unless reading failed: the copy is read only, and the
-   * composer below still sends.
+   * composer below still sends unless the tab is read only.
    */
   let { tabId, view, placement }: { tabId: string; view: SessionCloudReadView; placement: "pane" | "notice" } = $props();
 
   const workspace = getWorkspaceContext();
   const sess = $derived(workspace.sessionFor(tabId));
   const hostLabel = $derived((sess && knownHostLabel(serverConnections.resolveId(runHost(sess.run)))) || "This machine");
-  const text = $derived(sessionCloudReadText(view, hostLabel));
+  // A read-only tab (a removed machine, an organization session away from its machine) has no Run on to pick.
+  const text = $derived(sessionCloudReadText(view, hostLabel, !sess?.readOnlyReason));
 
   function act(): void {
     if (text.action === "show-live") workspace.runHosts.showRunHostConversation(tabId);

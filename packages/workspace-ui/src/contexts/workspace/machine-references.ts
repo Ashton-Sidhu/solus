@@ -21,12 +21,12 @@ export const GONE_MACHINE_READ_ONLY_REASON = 'This machine was removed. Its conv
 /** What a started session on a turned-off local host says in place of its composer. */
 export const LOCAL_HOST_OFF_READ_ONLY_REASON = 'The local host is off. Turn it on in Settings → Hosts to open this conversation.'
 
-/** The same, when nothing holds a copy: a personal session's record went with its machine, or the workspace service has none. */
-export const GONE_MACHINE_NO_RECORD_REASON = 'This machine was removed, and Solus Cloud holds no copy of its conversation.'
+/** What the composer of an organization session says on a host that is not its machine. */
+export const RUNNER_NOT_HERE_READ_ONLY_REASON = 'Read only: the machine that ran this session is not on this device.'
 
 /**
- * Where a session's record and mirrored transcript live apart from its machine
- * (docs/plans/workspace-and-machines.md §3): an organization session's are on
+ * Where a session's record lives apart from its machine
+ * (docs/plans/workspace-and-machines.md §3): an organization session's is on
  * that organization's workspace service. A personal session's record lives on
  * its machine only, so it has none.
  */

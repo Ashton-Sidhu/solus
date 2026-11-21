@@ -7,6 +7,7 @@ import { isSessionSyncCard } from '@solus/client-core/session-sync-card'
 import { moveTabToHost, repoKeyForPath, syncRepository, type RunOnWorkspace } from '../../components/servers/run-on'
 import { serversStore } from '../connections/servers.store.svelte'
 import { sessionListStore } from './session-list.store.svelte'
+import { RUNNER_NOT_HERE_READ_ONLY_REASON } from './machine-references'
 import { checkoutGit, checkoutPlace, openFolder, pendingClone, runHost, workingPlace } from './run-location'
 
 /** What the run host changes read and call on the workspace. */
@@ -130,8 +131,10 @@ export class RunHostChanges {
     }
   }
 
-  /** The tab shows no conversation from a host: nothing, or the cloud copy. */
+  /** The tab shows no conversation from a host, and its run host can have one: nothing, or the cloud copy. */
   private awaitsRunHost(session: Session): boolean {
+    // A host that is not the machine of an organization session gets no copy of it: it is asked for no sync.
+    if (session.readOnlyReason === RUNNER_NOT_HERE_READ_ONLY_REASON) return false
     return showsNoConversation(session) || !!this.workspace.cloudTranscripts?.shows(session.id)
   }
 

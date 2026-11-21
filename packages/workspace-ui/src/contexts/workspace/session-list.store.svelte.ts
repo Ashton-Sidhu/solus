@@ -28,8 +28,11 @@ export interface ListedSession {
    *  the machine. */
   homeServerId: string
   /** The machine that ran this cloud session is not connected: it opens from
-   *  the Solus API, read-only (docs/plans/cloud-service-model.md, R8). */
+   *  the Solus API, as its copy in a tab or as its record
+   *  (`SessionOpening.openCloudSession`). */
   runnerOffline: boolean
+  /** That machine, when this client keeps it: the tab of the copy opens on it. */
+  awayRunnerServerId?: string
   sessionId: string
   organizationId?: string
   title: string | null
@@ -326,6 +329,8 @@ export class SessionListStore {
       opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
       share: sessionShareOf(record),
     }
+    const awayRunner = listed.runnerOffline && record.runnerHostId ? this.hosts.knownRunnerFor?.(record.runnerHostId) : null
+    if (awayRunner) listed.awayRunnerServerId = awayRunner
     if (record.isLead) listed.isLead = true
     if (record.role) listed.role = record.role
     this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))

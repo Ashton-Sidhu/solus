@@ -1,101 +1,74 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test'
-import type { Message, SessionMeta } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 
-// A tab whose machine was removed reads the transcript its organization's
-// workspace service mirrored. These stand in for that service.
-const pageReads: string[] = []
-mock.module('@solus/workspace-ui/contexts/sessions/session-record-transcript', () => ({
-  readSessionRecordPage: async (_workspace: unknown, serverId: string) => {
-    pageReads.push(serverId)
-    return { messages: [message('newest')], before: 'older-cursor', pendingMessages: [] }
-  },
-}))
+// A tab whose machine was removed is read only. Its rows come from the
+// session's copy in Solus Cloud, which the conversation reads as it does for
+// any session with no host online (`CloudTranscriptStore`). The restore reads none.
 const machineReferences = await import('@solus/workspace-ui/contexts/workspace/machine-references')
+let hostsAreAuthoritative = true
 mock.module('@solus/workspace-ui/contexts/workspace/machine-references', () => ({
   ...machineReferences,
-  knownHostsAreAuthoritative: () => true,
+  knownHostsAreAuthoritative: () => hostsAreAuthoritative,
 }))
 
 const { hydrateTabOnGoneMachine } = await import('@solus/workspace-ui/contexts/workspace/session-bootstrap')
 const { makeSession } = await import('@solus/workspace-ui/contexts/workspace/session.factories')
-const { GONE_MACHINE_NO_RECORD_REASON, GONE_MACHINE_READ_ONLY_REASON } = machineReferences
+const { GONE_MACHINE_READ_ONLY_REASON, LOCAL_HOST_OFF_READ_ONLY_REASON } = machineReferences
 
-function message(id: string): Message {
-  return { id, role: 'user', content: id, timestamp: 1 } as Message
-}
-
-function meta(): SessionMeta {
-  return { provider: 'claude-code', sessionId: 'session', slug: null, firstMessage: null, lastTimestamp: '', size: 0, cwd: '/repo', projectPath: '/repo' }
-}
-
-/** The record each workspace service answers with, by service id. */
-function servicesHolding(records: Record<string, SessionMeta | null>) {
-  const asked: string[] = []
-  spyOn(serverConnections, 'apiFor').mockImplementation(((serverId: string) => ({
-    getSessionInfo: async () => {
-      asked.push(serverId)
-      return records[serverId] ?? null
-    },
-  })) as never)
-  return asked
-}
-
-function restoredTab(organizationId: string | null) {
-  const session = makeSession({ rateLimitBehavior: 'ask' } as never, { id: 'session', agentSessionId: 'provider-session', organizationId, run: { serverId: 'removed-vm' } })
-  const ctx = { sessionFor: () => session, eventReducer: { rebuildAgentConversations: () => {} } }
-  return { session, ctx: ctx as never, snapTab: { tabId: 'tab' } as never }
+/** A restored tab that is on screen: its history shows as loading until a read ends. */
+function restoredSession(organizationId: string | null) {
+  return makeSession({ rateLimitBehavior: 'ask' } as never, {
+    id: 'session', agentSessionId: 'provider-session', organizationId, run: { serverId: 'removed-vm' }, loadingHistory: true,
+  })
 }
 
 describe('a restored tab on a removed machine', () => {
-  test('reads the transcript from its organization\'s workspace service', async () => {
-    // WHY: the machine's own copy went with it. The organization's workspace
-    // service mirrored the transcript, so that is where the tab reads it — not
-    // the window's default host, which never held another machine's work.
-    pageReads.length = 0
-    const asked = servicesHolding({ 'workspace:org': meta() })
-    const { session, ctx, snapTab } = restoredTab('org')
+  test('is read only and asks no host or service for rows', () => {
+    // WHY: the mirror is the one source of rows with no host online, and the
+    // conversation reads it. A second read here, from the record home, gave an
+    // organization session two paths and a personal session none.
+    hostsAreAuthoritative = true
+    const asked = spyOn(serverConnections, 'apiFor')
+    for (const organizationId of ['org', 'local', null]) {
+      const session = restoredSession(organizationId)
 
-    expect(await hydrateTabOnGoneMachine(ctx, snapTab, session)).toBe(true)
+      expect(hydrateTabOnGoneMachine(session)).toBe(true)
+      expect(session.readOnlyReason).toBe(GONE_MACHINE_READ_ONLY_REASON)
+      expect(session.messages).toEqual([])
+    }
+    expect(asked).not.toHaveBeenCalled()
+    asked.mockRestore()
+  })
 
-    expect(asked).toEqual(['workspace:org'])
-    expect(pageReads).toEqual(['workspace:org'])
-    expect(session.messages.map((m) => m.id)).toEqual(['newest'])
-    expect(session.historyCursor).toBe('older-cursor')
-    expect(session.historyTruncated).toBe(true)
-    expect(session.readOnlyReason).toBe(GONE_MACHINE_READ_ONLY_REASON)
+  test('ends the loading state, so the conversation reads the copy in Solus Cloud', () => {
+    // WHY: the copy is read only when no host reads the history. No host read ends
+    // here, so a restore that left the loading state on showed a skeleton with no end.
+    hostsAreAuthoritative = true
+    const session = restoredSession('org')
+
+    hydrateTabOnGoneMachine(session)
+
     expect(session.loadingHistory).toBe(false)
   })
 
-  test('a personal session says no copy exists without asking anyone', async () => {
-    // WHY: a personal session's record lived on its machine only.
-    const asked = servicesHolding({})
-    for (const organizationId of ['local', null]) {
-      const { session, ctx, snapTab } = restoredTab(organizationId)
+  test('stays pending until the saved hosts are authoritative', () => {
+    // WHY: a host missing before the directory answers may still be listed;
+    // the tab must not say its machine was removed yet.
+    hostsAreAuthoritative = false
+    const session = restoredSession('org')
 
-      expect(await hydrateTabOnGoneMachine(ctx, snapTab, session)).toBe(true)
-      expect(session.readOnlyReason).toBe(GONE_MACHINE_NO_RECORD_REASON)
-    }
-    expect(asked).toEqual([])
+    expect(hydrateTabOnGoneMachine(session)).toBe(false)
+    expect(session.readOnlyReason).toBeNull()
   })
 
-  test('says no copy exists when the workspace service has none', async () => {
-    // WHY: an empty read-only tab with no reason reads as a loading failure.
-    servicesHolding({})
-    const { session, ctx, snapTab } = restoredTab('org')
+  test('a local host that is turned off says how to turn it on', () => {
+    // WHY: a turned-off local host is not removed; its tab restores when it is back.
+    hostsAreAuthoritative = false
+    const off = spyOn(serverConnections, 'isLocalHostOff').mockReturnValue(true)
+    const session = restoredSession(null)
 
-    expect(await hydrateTabOnGoneMachine(ctx, snapTab, session)).toBe(true)
-    expect(session.readOnlyReason).toBe(GONE_MACHINE_NO_RECORD_REASON)
-  })
-
-  test('stays pending when the workspace service cannot be read', async () => {
-    // WHY: an unreachable service is not an answer; selection or reconnect retries.
-    spyOn(serverConnections, 'apiFor').mockImplementation((() => ({
-      getSessionInfo: async () => { throw new Error('offline') },
-    })) as never)
-    const { session, ctx, snapTab } = restoredTab('org')
-
-    expect(await hydrateTabOnGoneMachine(ctx, snapTab, session)).toBe(false)
-    expect(session.readOnlyReason).toBe(GONE_MACHINE_READ_ONLY_REASON)
+    expect(hydrateTabOnGoneMachine(session)).toBe(true)
+    expect(session.readOnlyReason).toBe(LOCAL_HOST_OFF_READ_ONLY_REASON)
+    off.mockRestore()
   })
 })

@@ -29,7 +29,9 @@ import { ownedTaskId } from './session-draft.svelte'
 import { type GitRefreshResult } from '../git/session-environment.store.svelte'
 import { findLastUserIndex, parentSessionIdOf } from './session.utils'
 import { SessionUnavailableError } from './session-errors'
-import { sessionListStore } from './session-list.store.svelte'
+import { sessionListStore, type ListedSession } from './session-list.store.svelte'
+import { RUNNER_NOT_HERE_READ_ONLY_REASON } from './machine-references'
+import { rememberRoles } from '../sharing/resource-roles'
 import { quotedReplyDraft } from '@solus/client-core/quoted-reply'
 import { applyWorktreeOfferResolution } from '../../components/conversation/lib/worktree-offer'
 import type { SessionEnvironmentWorkspace } from '../git/session-environment.store.svelte'
@@ -80,6 +82,24 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'tasksStore'
   | 'ui'
 > & SurfaceContext & SessionEnvironmentWorkspace
+
+/**
+ * Whether a listed session opens in a tab that reads its copy in Solus Cloud:
+ * a session only the cloud lists, or an organization session whose machine is
+ * not connected. The mirror holds each published organization session, so no
+ * fact of its session repository is needed. A turn that runs now is on a
+ * machine this client cannot connect to; the record page shows its rows as
+ * they arrive.
+ */
+function opensFromCloudCopy(listed: ListedSession): boolean {
+  return !!listed.cloudOnly || (listed.runnerOffline && listed.status !== 'running')
+}
+
+/** The machine that ran a listed session, when this client keeps it: the session repository names it, else the record. */
+function machineOf(listed: ListedSession): string | null {
+  if (!isSolusApiId(listed.serverId)) return listed.serverId
+  return sessionListStore.cloud.headFor(listed.sessionId)?.lastRunServerId ?? listed.awayRunnerServerId ?? null
+}
 
 /**
  * Conversations that start from another one: a saved session resumed from
@@ -387,12 +407,7 @@ export class SessionOpening {
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
     // Every way into a session without a tab comes here: a shared one is no longer new.
     sessionListStore.markOpened({ serverId: meta.serverId, sessionId: meta.sessionId, organizationId: meta.organizationId, publication: meta.publication })
-    // The workspace service keeps the record and no transcript: while the runner
-    // is offline the session opens read-only (docs/plans/cloud-service-model.md R8).
-    if (!hosts.hasExecution(meta.serverId)) {
-      this.workspace.openSessionRecord(meta.sessionId, meta.serverId)
-      return ''
-    }
+    if (!hosts.hasExecution(meta.serverId)) return this.openFromRecordHome(meta.sessionId, meta.serverId)
     const selectedServerId = meta.serverId
     const selectedApi = serverConnections.apiFor(selectedServerId)
     if (!opts?.intoTabId) this.prefetchFirstPage(meta)
@@ -678,25 +693,45 @@ export class SessionOpening {
   }
 
   /**
-   * Open a session only the cloud lists (portable-sessions-cloud §5.5). No
-   * host that this client reaches has its conversation, so the tab opens with
-   * none: on the host that ran its last turn when this client keeps it (the
-   * composer then says that host is offline), else on the Run on host. The
-   * person can type at once and pick a host in Run on; the host syncs from the
-   * cloud, and the conversation shows when it is current.
+   * Open a session from a home that keeps its record and runs nothing (the
+   * Solus API). A session with no host online opens in a tab that shows its
+   * copy in Solus Cloud. The record page is for the rest: a turn that runs on
+   * a machine this client cannot connect to, a session that is not in this
+   * person's list (a link), and a client with no machine for a tab.
    */
-  async openCloudSession(sessionId: string): Promise<void> {
+  private async openFromRecordHome(sessionId: string, serverId: string): Promise<string> {
+    const tabId = await this.openCloudSession(sessionId)
+    if (tabId) return tabId
+    this.workspace.openSessionRecord(sessionId, serverId)
+    return ''
+  }
+
+  /**
+   * Open a session that no connected host shows, in a tab that reads its copy
+   * in Solus Cloud (portable-sessions-cloud §5.5, "The mirror for readers"): a
+   * session only the cloud lists, or an organization session whose machine is
+   * not connected. The tab opens with no conversation, on the machine that ran
+   * the session when this client keeps it (the composer then says that host is
+   * offline), else on the Run on host. For a session only the cloud lists, the
+   * person can type at once and pick a host in Run on; the host syncs from the
+   * cloud, and the conversation shows when it is current. An organization
+   * session on a host that is not its machine is read only.
+   *
+   * Null when no tab opens: the caller shows the session record.
+   */
+  async openCloudSession(sessionId: string): Promise<string | null> {
     const listed = sessionListStore.listed(sessionId)
-    if (!listed?.cloudOnly) return
+    if (!listed || !opensFromCloudCopy(listed)) return null
     const openTabId = findOpenTabForSession(sessionId, this.workspace.tabs, this.workspace.sessions.byId, this.workspace.tabOrder)
     if (openTabId) {
       this.workspace.selectTab(openTabId, 'click')
-      return
+      return openTabId
     }
-    const serverId = isSolusApiId(listed.serverId) ? (hosts.runOn?.id ?? null) : listed.serverId
+    const machineServerId = machineOf(listed)
+    const serverId = machineServerId ?? hosts.runOn?.id ?? null
     if (!serverId) {
-      toasts.error('Connect a machine to continue this session')
-      return
+      if (listed.cloudOnly) toasts.error('Connect a machine to continue this session')
+      return null
     }
     const provider = listed.opensWith.provider ?? this.workspace.settings.activeAgent
     const tabId = await this.workspace.createTab(NEW_CHAT_DIRECTORY, {
@@ -709,15 +744,21 @@ export class SessionOpening {
       thread: { provider, model: sessionListStore.cloud.modelOf(sessionId) },
     })
     const session = this.workspace.sessionFor(tabId)
-    if (!session) return
+    if (!session) return null
     session.threadProvider = provider
     session.agentSessionId = sessionId
     session.title = listed.title ?? 'Session'
-    session.organizationId = null
+    session.organizationId = listed.cloudOnly ? null : listed.organizationId ?? null
+    // The reader's role came with the record of the Solus API; the composer asks it of the tab's host.
+    if (listed.role) rememberRoles(serverId, [{ kind: 'session', id: sessionId, role: listed.role }])
     this.workspace.adoptSessionId(tabId, sessionId)
     this.workspace.revealConversation()
-    this.workspace.runHosts.opened(tabId)
+    // A host that is not the session's machine has no copy of an organization
+    // session and syncs none: the tab reads, and asks that host for nothing.
+    if (!listed.cloudOnly && !machineServerId) session.readOnlyReason = RUNNER_NOT_HERE_READ_ONLY_REASON
+    else this.workspace.runHosts.opened(tabId)
     requestInputFocus({ tabId })
+    return tabId
   }
 
   /**

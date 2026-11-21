@@ -56,6 +56,10 @@ export interface PersistedTab {
   /** The organization of the session's record. Kept so a tab whose machine is
    *  later removed still knows where its record lives. */
   organizationId: string | null
+  /** An organization session on a host that is not its machine
+   *  (`RUNNER_NOT_HERE_READ_ONLY_REASON`): the tab restores read only and
+   *  reads the session's copy in Solus Cloud. */
+  runnerNotHere?: true
   /** Lightweight live state restored before transcripts. This lets every sidebar
    * row show its status and turn clock on the first frame. */
   status?: SessionStatus
