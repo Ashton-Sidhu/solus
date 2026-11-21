@@ -58,7 +58,7 @@ export function useFoundServers(hostId: string) {
     return current.events.subscribe('integration.changed', () => load())
   }, [connected, connection, load])
 
-  // The screen holds the lease (`useCommandProcesses`); a changed list can start or stop a server on the loopback.
+  // The screen holds the lease (`useIntegrations`); a changed list can start or stop a server on the loopback.
   useEffect(() => runningServers.forHost(app.connections, hostId).subscribe(() => load()), [app, hostId, load])
 
   /** Adds what the person saw; the host refuses an entry that changed since, and the list reads again. */

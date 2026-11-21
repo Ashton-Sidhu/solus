@@ -3,6 +3,8 @@ import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sig
 import { DEFAULT_INTEGRATION_ACCOUNT } from '@solus/contracts/integration-types'
 import { useFocusEffect } from '@react-navigation/native'
 import type { HostApi } from '@solus/client-core/host-api'
+import { CommandProcesses } from '@solus/client-core/command-processes'
+import { showsFactsOnRow, type CommandProcessActionKind, type CommandProcessStatus } from '@solus/contracts/integrations/command-server'
 import type { CatalogCategoryId, Integration, IntegrationCatalogListRequest, IntegrationCommandCreateRequest, IntegrationConnection, IntegrationEnvValue, IntegrationLaunch, IntegrationOAuthClientInput } from '@solus/contracts/integration-types'
 import { useApp, useListened } from '../../app/app-context'
 import {
@@ -43,6 +45,7 @@ import {
 } from './integrations'
 import { CloudConnect } from './lib/cloud-connect'
 import { timerClock } from '../account/account-sync'
+import { runningServers } from '../running-servers/running-servers.store'
 
 const CATALOG_DELAY_MS = 250
 
@@ -56,6 +59,16 @@ const CATALOG_DELAY_MS = 250
  * flows are `useIntegrationConnect`'s. Tools are read only for an open row
  * whose server can answer (`mayLoadTools`), so a server that is not connected
  * never shows an error for them.
+ *
+ * `processes` are the person's processes of the commands
+ * (docs/plans/mcp-first-class.md §7.7): the client-core `CommandProcesses`,
+ * with the one facts map of every row, as desktop and web keep them. The facts
+ * of each command and loopback server are read with the list, on a reconnect,
+ * and again on `integration.changed`, so a start or stop on another client
+ * shows here too. A read starts no command. `mayRunCommands` is the person's
+ * `host.admin`: without it the screen offers no add, edit, or start. While the
+ * screen is open it holds the host's running-servers lease, so the host
+ * follows the servers on its loopback and looks for new ones (§9.1).
  */
 export function useIntegrations(hostId: string) {
   const app = useApp()
@@ -100,6 +113,23 @@ export function useIntegrations(hostId: string) {
 
   const connection = useCallback(() => app.connections.connection(hostId), [app, hostId])
 
+  const mayRunCommands = useListened(app.connections.changes, () => app.connections.may(hostId, 'host.admin'))
+  /** Bumped by each change of the processes, so the screen renders their new state. */
+  const [processesVersion, setProcessesVersion] = useState(0)
+  const processes = useMemo(() => new CommandProcesses({
+    api: () => app.connections.connection(hostId)?.api ?? null,
+    facts: new Map(),
+    starting: new Set(),
+    errors: new Map(),
+    onChange: () => setProcessesVersion((previous) => previous + 1),
+    // A loopback server that runs again lists its tools in an open row, not the error of when it stopped (§9.3).
+    onFacts: (integrationId, answer) => {
+      if (answer.reachable === 'running') setTools((previous) => (previous.get(integrationId)?.kind === 'error' ? withoutKey(previous, integrationId) : previous))
+    },
+    // A started command lists its tools for its open row (§7.7): the row's tools are read again.
+    onStarted: (integrationId) => setTools((previous) => (previous.has(integrationId) ? withoutKey(previous, integrationId) : previous)),
+  }), [app, hostId])
+
   const reload = useCallback(() => {
     const current = connection()
     if (!current) return
@@ -141,12 +171,12 @@ export function useIntegrations(hostId: string) {
     })
   }, [])
 
-  /** Reads the tools of an open row, only when its server can answer. */
+  /** Reads the tools of an open row, and its facts, only when its server can answer. False when it does not read. */
   const loadTools = useCallback((integrationId: string) => {
     const current = connection()
     const state = listRef.current
     const integration = state.kind === 'loaded' ? state.integrations.find((entry) => entry.id === integrationId) : undefined
-    if (!current || !openIds.current.has(integrationId) || !integration || !new InstalledIntegration(integration).mayLoadTools(connectionsRef.current)) return
+    if (!current || !openIds.current.has(integrationId) || !integration || !new InstalledIntegration(integration).mayLoadTools(connectionsRef.current)) return false
     const request = (toolsRequests.current.get(integrationId) ?? 0) + 1
     toolsRequests.current.set(integrationId, request)
     const put = (next: IntegrationToolsState) => {
@@ -155,15 +185,13 @@ export function useIntegrations(hostId: string) {
     }
     setTools((previous) => (previous.get(integrationId)?.kind === 'loaded' ? previous : new Map(previous).set(integrationId, { kind: 'loading' })))
     // The facts only add the instructions and the CLI copies left out: a facts read that fails, or an older host without it, keeps the tools.
-    const facts = current.api.integrationFacts({ id: integrationId }).then(
-      (read) => ({ instructions: read.instructions, cliSkips: read.cliSkips ?? [] }),
-      () => ({ instructions: null, cliSkips: [] }),
-    )
-    Promise.all([current.api.integrationTools({ id: integrationId }), facts]).then(
-      ([summaries, read]) => put({ kind: 'loaded', tools: summaries, ...read }),
+    void processes.load(integrationId)
+    current.api.integrationTools({ id: integrationId }).then(
+      (summaries) => put({ kind: 'loaded', tools: summaries }),
       (cause: unknown) => put({ kind: 'error', message: errorMessage(cause) }),
     )
-  }, [connection])
+    return true
+  }, [connection, processes])
 
   const expand = useCallback((integrationId: string) => {
     openIds.current.add(integrationId)
@@ -203,18 +231,33 @@ export function useIntegrations(hostId: string) {
 
   useFocusEffect(reload)
 
+  useEffect(() => runningServers.forHost(app.connections, hostId).retain(), [app, hostId])
+
+  const commandIds = list.kind === 'loaded' ? list.integrations.filter(showsFactsOnRow).map((integration) => integration.id).join('\u0000') : ''
+
+  // The list, a reconnect, or a change of the commands: each command's state is read again.
+  useEffect(() => {
+    if (!connected || !commandIds) return
+    for (const integrationId of commandIds.split('\u0000')) void processes.load(integrationId)
+  }, [connected, commandIds, processes])
+
   useEffect(() => {
     const current = connected ? connection() : null
     if (!current) return
     return current.events.subscribe('integration.changed', ({ integrationId, change }) => {
       if (change === 'removed') collapse(integrationId)
+      // A command's process state, and whether a loopback server runs, show on its row, open or not.
+      const state = listRef.current
+      const showsFacts = change !== 'removed' && state.kind === 'loaded' && showsFactsOnRow(state.integrations.find((entry) => entry.id === integrationId))
       if (change === 'tools' || change === 'facts') {
-        loadTools(integrationId)
+        // An open row reads the facts with its tools.
+        if (!loadTools(integrationId) && showsFacts) void processes.load(integrationId)
         return
       }
+      if (showsFacts) void processes.load(integrationId)
       reload()
     })
-  }, [connected, connection, reload, loadTools, collapse])
+  }, [connected, connection, reload, loadTools, collapse, processes])
 
   useEffect(() => {
     const current = connected ? connection() : null
@@ -465,6 +508,22 @@ export function useIntegrations(hostId: string) {
     applyToList((integrations) => upsertIntegration(integrations, updated))
   }
 
+  // A new object at each change: the rows read it as a new prop and render the new state.
+  const processesView = useMemo(() => ({
+    connected,
+    mayRunCommands,
+    /** Start and test, or Start again. */
+    start: (integrationId: string) => processes.start(integrationId),
+    run: (integrationId: string, kind: CommandProcessActionKind) => { void processes.run(integrationId, kind) },
+    errorOf: (integrationId: string) => processes.errorOf(integrationId),
+    /** The last facts the host gave for the server: its instructions, and the CLI copies left out. */
+    factsOf: (integrationId: string) => processes.factsOf(integrationId),
+    /** A command's process state for its row, or null for a server at an address. */
+    statusOf: (integration: Integration, connection: IntegrationConnection | undefined): CommandProcessStatus | null => processes.statusOf(integration, connection, mayRunCommands),
+    isNotRunning: (integration: Integration) => processes.isNotRunning(integration),
+    // `processesVersion` is read for its change: the processes changed.
+  }), [connected, mayRunCommands, processes, processesVersion])
+
   const hostUrl = connection()?.transport.serverUrl
   const oauthRedirectUrl = hostUrl ? `${new URL(hostUrl.replace(/^ws/, 'http')).origin}/oauth/integration/callback` : ''
 
@@ -504,6 +563,7 @@ export function useIntegrations(hostId: string) {
     disconnect,
     setOAuthClient,
     setToolEnabled,
+    processes: processesView,
   }
 }
 

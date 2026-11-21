@@ -5,7 +5,7 @@ import { mcpAppLiveCall, mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
 import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument } from "@solus/contracts/mcp-apps";
 
 import { useListened } from "../../app/app-context";
-import type { ConversationStore } from "../conversation/conversation-store";
+import { conversationIdOf, type ConversationStore } from "../conversation/conversation-store";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
 import { McpAppCard } from "./ThreadMcpApp";
 import { useSavedMcpApp } from "./use-saved-mcp-app";
@@ -19,7 +19,7 @@ import { useSavedMcpApp } from "./use-saved-mcp-app";
  */
 export function ThreadMcpLiveApp(props: { readonly store: ConversationStore; readonly api: HostApi; readonly tool: Extract<TranscriptItem, { kind: "tool" }> }) {
   const { store, api, tool } = props;
-  const sessionId = store.controller.run.sessionId;
+  const sessionId = conversationIdOf(store);
   const live = useMemo(() => mcpAppLiveFor(api), [api]);
   // Decided once: a row that mounts after its call ended leaves the app to the saved card.
   const [toolUseId] = useState(() => (tool.status === "running" ? tool.toolId : undefined));

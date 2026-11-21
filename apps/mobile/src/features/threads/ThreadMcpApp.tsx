@@ -9,10 +9,11 @@ import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
 import { mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
 import { mcpAppLiveToolName, type McpAppCancelReason, type McpAppLiveDocument, type McpAppReference, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
 
-import { useApp, useListened } from "../../app/app-context";
+import { useListened } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
+import { useHostApi } from "../projects/use-open-project";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
 import { McpAppWebView } from "./McpAppWebView";
 import { ThreadMcpLiveApp } from "./ThreadMcpLiveApp";
@@ -29,9 +30,9 @@ export function canShowLiveApp(item: TranscriptItem): boolean {
 
 /** An MCP App row of the feed: the app a tool call saved, or the live app of a Solus integration tool's call. */
 export function ThreadMcpApp({ store, id }: { store: ConversationStore; id: string }) {
-  const app = useApp();
   const item = useTranscriptItem(store, id);
-  const api = app.connections.connection(store.controller.hostId)?.api;
+  // No card while the host is not ready: an app's calls would fail.
+  const api = useHostApi(store.controller.hostId);
   if (!api) return null;
   if (item?.kind === "tool") return <ThreadMcpLiveApp store={store} api={api} tool={item} />;
   if (item?.kind !== "mcp_app") return null;
