@@ -20,7 +20,7 @@ import { KnownServer } from './known-server'
 import { CALL_MAX_TOTAL_MS, CALL_TIMEOUT_MS, CallLimits, ProgressEvents, SYSTEM_CALL_CLOCK, type CallClock, type CallLimit } from './call-progress'
 import { endSolusSpan } from '../execution/observability/tracer'
 import { accountLabel, callRequest, callSpanStatus, elicitFromCall, splitAccount, startCallSpan, type TurnContextOf } from './integration-call'
-import { cancelTask, MCP_TASKS_EXTENSION, ServerStoppedError, taskHandleOf, TaskAwareClient, type HeldMcpTask, type McpTaskCalls } from './mcp-task-requests'
+import { MCP_TASKS_EXTENSION, ServerStoppedError, ServerTask, taskHandleOf, TaskAwareClient, type HeldMcpTask, type McpTaskCalls } from './mcp-task-requests'
 import type { ResourceWatchCalls } from './resource-subscriptions'
 import {
   ConnectionRequiredError,
@@ -186,7 +186,7 @@ export class IntegrationGateway {
         // An app waits for its answer in the frame; it cannot wait for an MCP task (§12). The work is not left running.
         const handle = taskHandleOf(error)
         if (!handle) throw error
-        void cancelTask(client, handle.taskId, { traceparent: null, timeout: CALL_TIMEOUT_MS }).catch(() => undefined)
+        void new ServerTask(client, handle.taskId, { traceparent: null, timeout: CALL_TIMEOUT_MS }).cancel().catch(() => undefined)
         throw new Error(`${name} runs as an MCP task, and an MCP App cannot wait for one. Ask the agent to run ${name}.`)
       }
     })
@@ -455,7 +455,7 @@ export class IntegrationGateway {
   /** Without an owner of MCP tasks, the work is not left running on the server. */
   private async heldTask(session: UpstreamSession, call: HeldMcpTask): Promise<AgentToolResult> {
     if (this.mcpTasks) return this.mcpTasks.hold(call)
-    void cancelTask(session.client, call.handle.taskId, { traceparent: call.traceparent, timeout: CALL_TIMEOUT_MS }).catch(() => undefined)
+    void new ServerTask(session.client, call.handle.taskId, { traceparent: call.traceparent, timeout: CALL_TIMEOUT_MS }).cancel().catch(() => undefined)
     return { ok: false, text: `${call.integration.name} runs ${call.tool} as an MCP task, and this host cannot follow one.` }
   }
 

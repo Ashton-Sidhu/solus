@@ -112,23 +112,31 @@ export function isUnknownTask(error: unknown): boolean {
   return error instanceof ProtocolError && error.code === -32602
 }
 
-type TaskRequestOptions = { traceparent: string | null; timeout: number }
+/** The server's side of one MCP task, on one client: its status, the answers to its questions, and its cancel. */
+export class ServerTask {
+  constructor(
+    private readonly client: Client,
+    private readonly taskId: string,
+    private readonly options: { traceparent: string | null; timeout: number },
+  ) {}
 
-/** A task request carries the call's `traceparent` (§13); never `tracestate` or `baggage`. */
-function taskParams(taskId: string, traceparent: string | null): { taskId: string; _meta?: { traceparent: string } } {
-  return traceparent ? { taskId, _meta: { traceparent } } : { taskId }
-}
+  status(): Promise<McpTaskState> {
+    return this.client.request({ method: 'tasks/get', params: this.params() }, getTaskResultSchema, { timeout: this.options.timeout })
+  }
 
-export function getTask(client: Client, taskId: string, options: TaskRequestOptions): Promise<McpTaskState> {
-  return client.request({ method: 'tasks/get', params: taskParams(taskId, options.traceparent) }, getTaskResultSchema, { timeout: options.timeout })
-}
+  /** Answers questions of an `input_required` MCP task. The server reads the answers later. */
+  async answer(inputResponses: Record<string, ElicitResult>): Promise<void> {
+    await this.client.request({ method: 'tasks/update', params: { ...this.params(), inputResponses } }, emptyResultSchema, { timeout: this.options.timeout })
+  }
 
-/** Answers questions of an `input_required` MCP task. The server reads the answers later. */
-export async function updateTask(client: Client, taskId: string, inputResponses: Record<string, ElicitResult>, options: TaskRequestOptions): Promise<void> {
-  await client.request({ method: 'tasks/update', params: { ...taskParams(taskId, options.traceparent), inputResponses } }, emptyResultSchema, { timeout: options.timeout })
-}
+  /** Cooperative: the server acknowledges, and may still end the task in another state. */
+  async cancel(): Promise<void> {
+    await this.client.request({ method: 'tasks/cancel', params: this.params() }, emptyResultSchema, { timeout: this.options.timeout })
+  }
 
-/** Cooperative: the server acknowledges, and may still end the task in another state. */
-export async function cancelTask(client: Client, taskId: string, options: TaskRequestOptions): Promise<void> {
-  await client.request({ method: 'tasks/cancel', params: taskParams(taskId, options.traceparent) }, emptyResultSchema, { timeout: options.timeout })
+  /** A task request carries the call's `traceparent` (§13); never `tracestate` or `baggage`. */
+  private params(): { taskId: string; _meta?: { traceparent: string } } {
+    const { traceparent } = this.options
+    return traceparent ? { taskId: this.taskId, _meta: { traceparent } } : { taskId: this.taskId }
+  }
 }
