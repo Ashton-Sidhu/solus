@@ -10,11 +10,11 @@ export class McpTasksStore extends SessionHostRecords<McpTask, 'mcpTask.changed'
 
   /** Cooperative: the row says "Cancelling…" from the host's event until the server reports an end. */
   async cancel(task: Pick<McpTask, 'id' | 'sessionId'>): Promise<void> {
-    await this.hostApiOf(task.sessionId).mcpTaskCancel({ sessionId: task.sessionId, id: task.id })
+    await this.sessions.hostApiOf(task.sessionId).mcpTaskCancel({ sessionId: task.sessionId, id: task.id })
   }
 
   async answer(task: Pick<McpTask, 'id' | 'sessionId'>, key: string, answers: Record<string, string>): Promise<boolean> {
-    return this.hostApiOf(task.sessionId).mcpTaskAnswer({ sessionId: task.sessionId, id: task.id, key, answers })
+    return this.sessions.hostApiOf(task.sessionId).mcpTaskAnswer({ sessionId: task.sessionId, id: task.id, key, answers })
   }
 }
 
