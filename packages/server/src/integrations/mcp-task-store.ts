@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { MCP_TASK_STATUSES, type McpTaskStatus } from '@solus/contracts/integrations/mcp-task'
-import { firstRow, rows, runSql } from './sql'
+import { firstRow, rows, runSql } from '../db/sql'
 
 /**
  * The host table `mcp_task` (docs/plans/mcp-first-class.md §12.2). A row is

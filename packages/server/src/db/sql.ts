@@ -2,19 +2,28 @@ import type { SQLInputValue } from 'node:sqlite'
 import type { SQL } from 'drizzle-orm'
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import type { ZodType } from 'zod'
-import { getDb } from '../db'
+import { getDb } from '.'
 
-/** One statement on the host tables of the MCP owners: MCP tasks, resource watches, and saved server facts. */
+/**
+ * One `sql` template on a synchronous SQLite connection, so a host store's
+ * scope or visibility condition renders through drizzle (`scopeClause`, `visibleTo`).
+ */
 
 const dialect = new SQLiteSyncDialect()
 
-function prepared(query: SQL) {
+/** The template as SQLite text and the values its placeholders bind. */
+export function sqliteQuery(query: SQL): { text: string; params: SQLInputValue[] } {
   const { sql: text, params } = dialect.sqlToQuery(query)
   // SAFETY: the stores' templates bind only strings, numbers, and null, which SQLite accepts.
-  return { statement: getDb().prepare(text), params: params as SQLInputValue[] }
+  return { text, params: params as SQLInputValue[] }
 }
 
-/** Runs one statement and answers how many rows it changed. */
+function prepared(query: SQL) {
+  const { text, params } = sqliteQuery(query)
+  return { statement: getDb().prepare(text), params }
+}
+
+/** Runs one statement on the host connection and answers how many rows it changed. */
 export function runSql(query: SQL): number {
   const { statement, params } = prepared(query)
   return Number(statement.run(...params).changes)

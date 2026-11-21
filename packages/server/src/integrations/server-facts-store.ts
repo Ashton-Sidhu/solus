@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { IntegrationFacts } from '@solus/contracts/integration-types'
 import { createLogger } from '../logger'
 import type { UpstreamPrompt, UpstreamTool } from './gateway'
-import { firstRow, runSql } from './sql'
+import { firstRow, runSql } from '../db/sql'
 import type { UpstreamAddress } from './upstream-session'
 
 const log = createLogger('integrations', 'server-facts-store.ts')

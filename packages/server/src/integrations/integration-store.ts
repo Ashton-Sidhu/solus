@@ -1,12 +1,11 @@
-import type { SQLInputValue } from 'node:sqlite'
 import { sql, type SQL } from 'drizzle-orm'
-import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { z } from 'zod'
 import { integrationAuthSchema, integrationKindSchema, integrationLaunchSchema, solusServerIdOf, stdioServerAddressSchema, type Integration, type IntegrationAuth, type IntegrationKind, type IntegrationLaunch } from '@solus/contracts/integration-types'
 import { ulid } from '@solus/contracts/ulid'
 import type { RecordScope } from '../admission/principal'
 import { scopeClause } from '../data/scope'
-import { getDb, withTx } from '../db'
+import { withTx } from '../db'
+import { firstRow, rows, runSql } from '../db/sql'
 
 /**
  * The integrations this host knows (docs/plans/mcp-integrations.md §3.3). A host
@@ -39,8 +38,6 @@ const integrationRowSchema = z.object({
 type IntegrationRow = z.infer<typeof integrationRowSchema>
 
 const INTEGRATION_COLUMNS = sql.raw('id, organization_id, created_by, kind, slug, name, url, auth, disabled_tools, launch, project_key, project_name, created_at, updated_at')
-
-const dialect = new SQLiteSyncDialect()
 
 /**
  * `slug` is the wanted slug; the store adds a suffix when the owner already has
@@ -98,27 +95,6 @@ function integrationFromRow(row: IntegrationRow): Integration {
   return integration
 }
 
-/** Runs a `sql` template on the host connection, so a scope renders through `scopeClause`. */
-function prepared(query: SQL) {
-  const { sql: text, params } = dialect.sqlToQuery(query)
-  // SAFETY: the templates below bind only strings and null, which SQLite accepts.
-  return { statement: getDb().prepare(text), params: params as SQLInputValue[] }
-}
-
-function all(query: SQL): IntegrationRow[] {
-  const { statement, params } = prepared(query)
-  return integrationRowSchema.array().parse(statement.all(...params))
-}
-
-function one(query: SQL): IntegrationRow | null {
-  return all(query)[0] ?? null
-}
-
-function run(query: SQL): number {
-  const { statement, params } = prepared(query)
-  return Number(statement.run(...params).changes)
-}
-
 /** One person's records. The host's own work and a runner (null) own none. */
 function ownerClause(ownerKey: string | null): SQL {
   return ownerKey === null ? sql`1 = 0` : sql`created_by = ${ownerKey}`
@@ -134,34 +110,34 @@ function slugCandidate(base: string, attempt: number): string {
 export class IntegrationStore {
   /** One person's records in `scope`. */
   list(scope: RecordScope, ownerKey: string | null): Integration[] {
-    return all(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} ORDER BY name, id`).map(integrationFromRow)
+    return rows(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} ORDER BY name, id`, integrationRowSchema).map(integrationFromRow)
   }
 
   /** Every record in `scope`, whoever owns it: for host work that follows a fact of the host, such as a loopback port (mcp-first-class.md §9.3). */
   listAnyOwner(scope: RecordScope): Integration[] {
-    return all(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} ORDER BY name, id`).map(integrationFromRow)
+    return rows(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} ORDER BY name, id`, integrationRowSchema).map(integrationFromRow)
   }
 
   /** Any record by id in `scope`, whoever owns it: for the gateway and the flows, which act on a record a person already reached. */
   get(id: string, scope: RecordScope): Integration | null {
-    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND id = ${id}`)
+    const row = firstRow(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND id = ${id}`, integrationRowSchema)
     return row ? integrationFromRow(row) : null
   }
 
   /** A record by id, when it is this person's. */
   getOwned(id: string, scope: RecordScope, ownerKey: string | null): Integration | null {
-    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND id = ${id}`)
+    const row = firstRow(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND id = ${id}`, integrationRowSchema)
     return row ? integrationFromRow(row) : null
   }
 
   getBySlug(slug: string, scope: RecordScope, ownerKey: string | null): Integration | null {
-    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND slug = ${slug} ORDER BY organization_id LIMIT 1`)
+    const row = firstRow(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND slug = ${slug} ORDER BY organization_id LIMIT 1`, integrationRowSchema)
     return row ? integrationFromRow(row) : null
   }
 
   /** The person's first record with this URL. */
   findByUrl(url: string, scope: RecordScope, ownerKey: string | null): Integration | null {
-    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND url = ${url} ORDER BY created_at LIMIT 1`)
+    const row = firstRow(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND url = ${url} ORDER BY created_at LIMIT 1`, integrationRowSchema)
     return row ? integrationFromRow(row) : null
   }
 
@@ -176,9 +152,9 @@ export class IntegrationStore {
     withTx(() => {
       for (let attempt = 1; ; attempt++) {
         const slug = slugCandidate(input.slug, attempt)
-        const taken = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE organization_id = ${organizationId} AND ${ownerClause(ownerKey)} AND slug = ${slug}`)
+        const taken = firstRow(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE organization_id = ${organizationId} AND ${ownerClause(ownerKey)} AND slug = ${slug}`, integrationRowSchema)
         if (taken) continue
-        run(sql`
+        runSql(sql`
           INSERT INTO integration (id, organization_id, created_by, kind, slug, name, url, auth, launch, project_key, project_name, created_at, updated_at)
           VALUES (${id}, ${organizationId}, ${ownerKey}, ${kind}, ${slug}, ${input.name}, ${input.url}, ${auth}, ${launch}, ${input.projectKey ?? null}, ${input.projectName ?? null}, ${now}, ${now})
         `)
@@ -201,7 +177,7 @@ export class IntegrationStore {
     // The kind never changes: a URL cannot become a command, nor a command a URL.
     if (kindOf(url) !== existing.kind) throw new Error('An integration keeps its kind: add a new one for another kind of server.')
     const launch = launchColumn(url, patch.launch ?? existing.launch)
-    run(sql`
+    runSql(sql`
       UPDATE integration SET name = ${name}, url = ${url}, auth = ${auth}, disabled_tools = ${disabledTools}, launch = ${launch}, updated_at = ${new Date().toISOString()}
       WHERE ${scopeClause(scope)} AND id = ${id}
     `)
@@ -209,6 +185,6 @@ export class IntegrationStore {
   }
 
   remove(id: string, scope: RecordScope): boolean {
-    return run(sql`DELETE FROM integration WHERE ${scopeClause(scope)} AND id = ${id}`) > 0
+    return runSql(sql`DELETE FROM integration WHERE ${scopeClause(scope)} AND id = ${id}`) > 0
   }
 }

@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { visibleTo } from '../../admission/access'
 import type { Actor } from '../../admission/actor'
+import { sqliteQuery } from '../../db/sql'
 import { getReadOnlyMetricsDb } from './metrics-db'
 
 /** A WHERE condition on `spans` or one of its views, with the values its placeholders bind. */
@@ -9,8 +9,6 @@ export interface InsightFilter {
   sql: string
   params: Array<string | number>
 }
-
-const dialect = new SQLiteSyncDialect()
 
 /**
  * The spans `actor` may read in Insights (docs/plans/access-model.md §4 D2): a
@@ -21,8 +19,8 @@ const dialect = new SQLiteSyncDialect()
  */
 export function visibleInsights(actor: Actor): InsightFilter {
   const predicate = visibleTo(actor, 'insight', { id: sql`span_id`, organization: sql`COALESCE(organization_id, 'local')`, owner: sql`user_id` })
-  const { sql: text, params } = dialect.sqlToQuery(predicate)
-  // SAFETY: the predicate binds only person keys and organization ids, which are strings.
+  const { text, params } = sqliteQuery(predicate)
+  // SAFETY: for an insight the predicate binds only person keys and organization ids, which are strings.
   return { sql: text, params: params as string[] }
 }
 
