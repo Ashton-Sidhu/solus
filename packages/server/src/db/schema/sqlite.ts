@@ -44,6 +44,7 @@ export const pull_request_observations = linksSchema.pullRequestObservations.sql
 export const personal_resource_state = personalStateSchema.personalResourceState.sqlite
 export const runner_delivery_cursors = outboxSchema.runnerDeliveryCursors.sqlite
 export const session_transcripts = transcriptSchema.sessionTranscripts.sqlite
+export const session_turn_diffs = transcriptSchema.sessionTurnDiffs.sqlite
 export const insight_spans = insightSchema.insightSpans.sqlite
 export const insight_span_texts = insightSchema.insightSpanTexts.sqlite
 export const insight_log_events = insightSchema.insightLogEvents.sqlite

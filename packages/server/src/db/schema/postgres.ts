@@ -42,6 +42,7 @@ export const pull_request_observations = linksSchema.pullRequestObservations.pg
 export const personal_resource_state = personalStateSchema.personalResourceState.pg
 export const runner_delivery_cursors = outboxSchema.runnerDeliveryCursors.pg
 export const session_transcripts = transcriptSchema.sessionTranscripts.pg
+export const session_turn_diffs = transcriptSchema.sessionTurnDiffs.pg
 export const insight_spans = insightSchema.insightSpans.pg
 export const insight_span_texts = insightSchema.insightSpanTexts.pg
 export const insight_log_events = insightSchema.insightLogEvents.pg

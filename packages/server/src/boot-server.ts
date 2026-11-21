@@ -73,6 +73,7 @@ import { followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
 import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contracts/uplink'
 import { TranscriptMirror, listOwnInterruptedSessions, listUnmirroredCloudSessions } from './sync/mirror/transcript-mirror'
+import { mirrorTurnDiff } from './sync/mirror/turn-diff-mirror'
 import { applyApiMode, isApiMode, apiModeConfig } from './host/api-mode'
 import type { HostCredential } from './host/host-credential'
 import { SOLUS_API_AUDIENCE, directoryResponseSchema, hostAudience, type HostKind, type HostRegistration } from '@solus/contracts/uplink'
@@ -660,6 +661,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const sessionArchive = new SessionArchiveWriter({
     repositories: sessionRepositories,
     onCommit: sessionId => sessionPusher?.committed(sessionId),
+    turnDiff: mirrorTurnDiff,
     threadFiles: async (provider, threadId, projectPath) => await opts.sessionRuntime.backendFor(provider).threadFiles?.(threadId, projectPath) ?? [],
     turnRows: (provider, sessionId, projectPath, endedAt) => loadSettledTurnRows(endedAt,
       before => opts.sessionRuntime.history.loadSessionPage({ provider, sessionId, projectPath, turnLimit: 1, before })),

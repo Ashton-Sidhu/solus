@@ -18,10 +18,10 @@ import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import type { FetchLike } from '../admission/access-tokens'
 import { DelegationError, type DelegationScope } from './delegations'
 import { personOfMirrorScope } from '../data/sessions/mirror-scope'
-import { RUNNER_BATCH_LIMIT, RUNNER_DELIVER_PATH, runnerDeliverResponseSchema, unknownKindError, type DeliveryKind, type RunnerDeliverRequest } from './runner-protocol'
+import { RUNNER_BATCH_BYTES, RUNNER_BATCH_LIMIT, RUNNER_DELIVER_PATH, runnerDeliverResponseSchema, unknownKindError, type DeliveryKind, type RunnerDeliverRequest } from './runner-protocol'
 
 /** Kinds that a Solus API on the release before them does not know; only these are dropped when a batch is refused whole. */
-const ROLLOUT_KINDS: ReadonlySet<DeliveryKind> = new Set(['webhooks'])
+const ROLLOUT_KINDS: ReadonlySet<DeliveryKind> = new Set(['webhooks', 'turn-diff'])
 
 const log = createLogger('main', 'runner-delivery')
 
@@ -300,7 +300,7 @@ export class RunnerDelivery {
    */
   private async deliverDestination(apiUrl: string, hostId: string, destination: DeliveryDestination, token: string): Promise<'ok' | 'failed'> {
     for (;;) {
-      const items = listDelivery(destination, RUNNER_BATCH_LIMIT)
+      const items = listDelivery(destination, RUNNER_BATCH_LIMIT, RUNNER_BATCH_BYTES)
       if (items.length === 0) return 'ok'
       const body: RunnerDeliverRequest = { hostId, items }
       const answered = await this.post(apiUrl, token, destination.organizationId, body)

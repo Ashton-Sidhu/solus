@@ -9,25 +9,28 @@ import {
   insightsMirrorPayloadSchema,
   sharesMirrorPayloadSchema,
   transcriptMirrorPayloadSchema,
+  turnDiffMirrorPayloadSchema,
   type DeliveryKind,
   type InsightsMirrorPayload,
   type TranscriptMirrorPayload,
+  type TurnDiffMirrorPayload,
 } from '../runner-protocol'
 import { insightLogEvents, insightSpans, insightSpanTexts } from '../../data/insights/insight-schema'
-import { sessionTranscripts } from '../../data/sessions/transcript-schema'
+import { sessionTranscripts, sessionTurnDiffs } from '../../data/sessions/transcript-schema'
 import { storeMirroredActivity } from '../../data/activity/activity'
 
 /**
  * Where a host's mirrored items land on the Solus API
  * (docs/plans/cloud-service-model.md §6). Each sink is idempotent by the item's
- * own key — a transcript row by its position, a span by its id, a log event by
- * the host's event id, an activity by its id — so a redelivery writes the
- * same row again. A payload the schema does not accept is a
+ * own key — a transcript row by its position, a turn diff by its turn index, a
+ * span by its id, a log event by the host's event id, an activity by its id —
+ * so a redelivery writes the same row again. A payload the schema does not accept is a
  * `PermanentApplyError`: the batch moves past it, because the host would only
  * send the same bytes again.
  */
 
 export interface MirrorOrigin {
+  /** The mirror scope the items land in: the runner's organization, or its person's own scope (`data/sessions/mirror-scope.ts`). */
   organizationId: string
   /** The runner the item came from; part of every key, so two runners never collide. */
   hostId: string
@@ -48,6 +51,16 @@ async function applyTranscript(origin: MirrorOrigin, payload: TranscriptMirrorPa
     VALUES (${origin.organizationId}, ${payload.sessionId}, ${payload.position}, ${origin.hostId}, ${JSON.stringify(payload.message ?? null)}, ${searchableMessageText(message) || ' '}, ${Date.now()})
     ON CONFLICT (organization_id, session_id, position) DO UPDATE SET
       runner_host_id = excluded.runner_host_id, message = excluded.message, search_text = excluded.search_text, updated_at = excluded.updated_at
+  `)
+}
+
+async function applyTurnDiff(origin: MirrorOrigin, payload: TurnDiffMirrorPayload): Promise<void> {
+  await getDatabase().run(sql`
+    INSERT INTO ${sessionTurnDiffs} (organization_id, session_id, turn_index, runner_host_id, ended_at, files_changed, additions, deletions, patch, updated_at)
+    VALUES (${origin.organizationId}, ${payload.sessionId}, ${payload.turnIndex}, ${origin.hostId}, ${payload.endedAt}, ${payload.filesChanged}, ${payload.additions}, ${payload.deletions}, ${payload.patch}, ${Date.now()})
+    ON CONFLICT (session_id, turn_index, organization_id) DO UPDATE SET
+      runner_host_id = excluded.runner_host_id, ended_at = excluded.ended_at, files_changed = excluded.files_changed,
+      additions = excluded.additions, deletions = excluded.deletions, patch = excluded.patch, updated_at = excluded.updated_at
   `)
 }
 
@@ -115,6 +128,11 @@ export async function applyMirrorItem(origin: MirrorOrigin, item: { kind: Exclud
       const parsed = transcriptMirrorPayloadSchema.safeParse(payload)
       if (!parsed.success) throw new PermanentApplyError(`Malformed transcript mirror payload: ${parsed.error.message}`)
       return applyTranscript(origin, parsed.data)
+    }
+    case 'turn-diff': {
+      const parsed = turnDiffMirrorPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new PermanentApplyError(`Malformed turn diff mirror payload: ${parsed.error.message}`)
+      return applyTurnDiff(origin, parsed.data)
     }
     case 'insights': {
       const parsed = insightsMirrorPayloadSchema.safeParse(payload)

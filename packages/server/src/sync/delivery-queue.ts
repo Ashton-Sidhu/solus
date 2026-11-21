@@ -130,13 +130,31 @@ export function queueSessionFacts(destination: DeliveryDestination, record: Sess
   return seq
 }
 
-/** One destination's queued items in delivery order, oldest first; an item the API refused for good is not sent again. */
-export function listDelivery(destination: DeliveryDestination, limit: number): DeliveryItem[] {
+const sizeRowSchema = z.object({ seq: z.number(), size: z.number() })
+
+/**
+ * One destination's queued items in delivery order, oldest first; an item the API refused for good is not sent again.
+ * At most `limit` items, and at most `maxBytes` of payload text; the first item always goes.
+ */
+export function listDelivery(destination: DeliveryDestination, limit: number, maxBytes = Number.POSITIVE_INFINITY): DeliveryItem[] {
+  // The sizes are read first, so a queue of large payloads is never loaded whole.
+  const sizes = sizeRowSchema.array().parse(getDb().prepare(`
+    SELECT seq, length(payload) AS size FROM delivery_queue
+    WHERE organization_id = ? AND user_id = ? AND error IS NULL
+    ORDER BY seq LIMIT ?
+  `).all(destination.organizationId, destination.actorUserId, limit))
+  let count = 0
+  let total = 0
+  for (const row of sizes) {
+    if (count > 0 && total + row.size > maxBytes) break
+    total += row.size
+    count += 1
+  }
   const rows = rowSchema.array().parse(getDb().prepare(`
     SELECT seq, kind, payload FROM delivery_queue
     WHERE organization_id = ? AND user_id = ? AND error IS NULL
     ORDER BY seq LIMIT ?
-  `).all(destination.organizationId, destination.actorUserId, limit))
+  `).all(destination.organizationId, destination.actorUserId, count))
   return rows.map((row) => ({ seq: row.seq, kind: row.kind, payload: z.unknown().parse(JSON.parse(row.payload)) }))
 }
 

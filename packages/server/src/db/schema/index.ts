@@ -11,14 +11,14 @@ import { PLAN_TABLES } from '../../plans/schema'
 import { PERSONAL_STATE_TABLES } from '../../data/personal-state/schema'
 import { PROJECT_TABLES } from '../../projects/schema'
 import { SESSION_TABLES } from '../../data/sessions/schema'
-import { sessionTranscripts } from '../../data/sessions/transcript-schema'
+import { sessionTranscripts, sessionTurnDiffs } from '../../data/sessions/transcript-schema'
 import { SHARING_TABLES } from '../../sharing/schema'
 import { TASK_TABLES } from '../../data/tasks/schema'
 import { WEBHOOK_TABLES } from '../../data/webhooks/schema'
 import type { TableDefinition } from './define-table'
 
-/** The mirrored transcript and Insights tables, in their registration order. */
-const MIRROR_TABLES = [sessionTranscripts, insightSpans, insightSpanTexts, insightLogEvents]
+/** The mirrored transcript, turn diff, and Insights tables, in their registration order. */
+const MIRROR_TABLES = [sessionTranscripts, insightSpans, insightSpanTexts, insightLogEvents, sessionTurnDiffs]
 
 /** Every table a ported domain declares. A domain adds its list here when it is ported. */
 export const PORTED_TABLES: readonly TableDefinition[] = [

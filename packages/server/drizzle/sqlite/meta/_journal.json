@@ -22,6 +22,13 @@
       "when": 1795207138657,
       "tag": "0002_host_device",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795282976632,
+      "tag": "0003_session_turn_diffs",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,7 @@ import {
   unknownKindError,
   type DeliveryKind,
   transcriptMirrorPayloadSchema,
+  turnDiffMirrorPayloadSchema,
   type RunnerDeliverItem,
   type RunnerDeliverRequest,
   type RunnerDeliverResponse,
@@ -89,7 +90,7 @@ async function applySessionFacts(runner: RunnerPrincipal, upsert: SessionRecordU
 }
 
 /** What a personal session sends: the items its owner reads. */
-const PERSONAL_KINDS: ReadonlySet<DeliveryKind> = new Set(['transcript', 'activity'])
+const PERSONAL_KINDS: ReadonlySet<DeliveryKind> = new Set(['transcript', 'turn-diff', 'activity'])
 
 async function applyItem(runner: RunnerPrincipal, item: RunnerDeliverItem & { kind: DeliveryKind }, deps: RunnerIntakeDeps): Promise<void> {
   const origin = { organizationId: runner.organizationId, hostId: runner.hostId }
@@ -122,11 +123,15 @@ async function applyWebhookAdminItem(runner: RunnerPrincipal, item: RunnerDelive
   if (!outcome.ok) throw new PermanentApplyError(`Solus Cloud refused the webhook records: ${outcome.error}`)
 }
 
-/** The session an applied item changed the history of, for the readers who watch it. */
+/** The session an applied item changed the history or a turn diff of, for the readers who watch it. */
 function changedSessionOf(item: RunnerDeliverItem): string | null {
   if (item.kind === 'transcript') {
     const transcript = transcriptMirrorPayloadSchema.safeParse(item.payload)
     return transcript.success ? transcript.data.sessionId : null
+  }
+  if (item.kind === 'turn-diff') {
+    const diff = turnDiffMirrorPayloadSchema.safeParse(item.payload)
+    return diff.success ? diff.data.sessionId : null
   }
   if (item.kind === 'activity') {
     const subject = activityMirrorPayloadSchema.safeParse(item.payload)

@@ -29,3 +29,25 @@ export const sessionTranscripts = defineTable('session_transcripts', {
   // The rows whose search text is still to be derived (`db/session-search-rebuild.ts`).
   indexes: [{ name: 'session_transcripts_search_pending', columns: ['session_id'], where: "search_text = ''" }],
 })
+
+/**
+ * The code changes of one ended turn, as its runner mirrored them (`turn-diff`
+ * items). It is the only copy of a turn's diff that a reader with no host
+ * online can read. `patch` is null when the patch was over the limit; the
+ * counts stay. `organization_id` is the mirror scope of the session, as in
+ * `session_transcripts`. `ended_at` joins the diff to its turn by time.
+ */
+export const sessionTurnDiffs = defineTable('session_turn_diffs', {
+  organization_id: text({ notNull: true }),
+  session_id: text({ notNull: true }),
+  turn_index: integer({ notNull: true }),
+  runner_host_id: text({ notNull: true }),
+  ended_at: bigint({ notNull: true }),
+  files_changed: integer({ notNull: true }),
+  additions: integer({ notNull: true }),
+  deletions: integer({ notNull: true }),
+  patch: text(),
+  updated_at: bigint({ notNull: true }),
+}, {
+  primaryKey: ['session_id', 'turn_index', 'organization_id'],
+})

@@ -22,6 +22,7 @@ import { captureActingScope, withActingScope, withUserScope } from '../../vault/
 import { emptySessionManifest, type SessionManifest, type SessionManifestThreadFile, type SessionManifestTurn } from './session-manifest'
 import type { GitFileEntry } from '../git-storage/git-repository'
 import { SessionHeadMovedError, sessionRepositoryName, type SessionRepositories, type SessionRepository } from './session-repository'
+import type { EndedTurn } from '../mirror/turn-diff-mirror'
 
 const log = createLogger('SessionArchive', 'session-archive-writer.ts')
 
@@ -106,6 +107,8 @@ export interface SessionArchiveDeps {
   /** The wait before a failed turn commit is tried again; it doubles up to `MAX_RETRY_MS`. */
   retryMs?: number
   onCommit?: (sessionId: string) => void
+  /** Gives the diff of a committed turn to the mirror (`mirror/turn-diff-mirror.ts`), where a reader with no host online reads it. */
+  turnDiff?: (turn: EndedTurn) => Promise<void>
 }
 
 const MAX_RETRY_MS = 30 * 60_000
@@ -291,12 +294,27 @@ export class SessionArchiveWriter {
       const commit = manifest.turns.some((turn) => turn.operationId === row.operation_id)
         ? head
         : await this.commitTurn(repository, head, manifest, row.operation_id, pending)
+      await this.giveTurnDiff(manifest, row.operation_id, pending)
       withTx(() => {
         db.prepare('UPDATE session_storage SET head = ?, turn_count = ?, error = NULL WHERE session_id = ?').run(commit, manifest.turns.length, sessionId)
         db.prepare('DELETE FROM session_storage_turns WHERE operation_id = ?').run(row.operation_id)
       })
       this.deps.onCommit?.(sessionId)
     }
+  }
+
+  /**
+   * The mirror gets the diff of a committed turn before its pending row goes,
+   * so a restart between the two gives it again. A failure leaves the turn
+   * with no diff for readers; it never holds the commit back.
+   */
+  private async giveTurnDiff(manifest: SessionManifest, operationId: string, pending: PendingTurn): Promise<void> {
+    const turnIndex = manifest.turns.findIndex((turn) => turn.operationId === operationId)
+    if (turnIndex < 0 || !pending.checkout || !this.deps.turnDiff) return
+    const sessionId = manifest.session.id
+    await this.deps.turnDiff({ sessionId, turnIndex, endedAt: pending.endedAt, repoRoot: pending.checkout.repoRoot, snapshots: manifest.turns[turnIndex]!.snapshots }).catch((error) => {
+      log.warn('session_turn_diff_failed', { sessionId, turnIndex, error: error instanceof Error ? error.message : String(error) })
+    })
   }
 
   /** Build and write the commit of one turn; answers the head after it. A turn with nothing new writes no commit. */

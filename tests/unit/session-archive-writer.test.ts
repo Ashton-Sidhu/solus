@@ -409,7 +409,13 @@ describe('session archive writer', () => {
 
     const transcript = join(tempDir('thread'), 'thread.jsonl')
     const repositories = new Repositories(tempDir('repositories'))
-    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript) })
+    // WHY: a reader with no host online reads a turn's diff from the mirror. Each committed
+    // turn is given to it once, and a mirror that fails must not hold the turn commit back.
+    const given: Array<{ turnIndex: number; repoRoot: string; snapshots: number[] }> = []
+    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnDiff: async (turn) => {
+      given.push({ turnIndex: turn.turnIndex, repoRoot: turn.repoRoot, snapshots: turn.snapshots.map((snapshot) => snapshot.filesChanged) })
+      if (turn.turnIndex === 0) throw new Error('The mirror is away.')
+    } })
     const target = { sessionId: SESSION, workTree: hostA }
     for (const turn of [1, 2]) {
       await checkpoints.beginTurnCheckpoint(target)
@@ -421,6 +427,8 @@ describe('session archive writer', () => {
     await writer.idle()
 
     const manifest = await readManifest(repositories)
+    expect(given.map((turn) => [turn.turnIndex, turn.snapshots])).toEqual([[0, [1]], [1, [1]]])
+    expect(pendingCount()).toBe(0)
     expect(manifest.project).toEqual({ repositoryKey: null, baseSha: git(hostA, ['rev-parse', 'HEAD']), ownsWorktree: false })
     expect(manifest.turns.map((turn) => [turn.snapshots.map((snapshot) => snapshot.index), turn.bundle?.kind, turn.hasDiff]))
       .toEqual([[[0], 'written', true], [[1], 'written', true]])

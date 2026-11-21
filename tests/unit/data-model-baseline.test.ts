@@ -24,7 +24,7 @@ const SOLUS_TABLES = [
   'plan_annotations', 'plan_index_providers', 'projects', 'pull_request_observations',
   'resource_links', 'run_exchanges', 'run_queue', 'runner_delivery_cursors', 'runs', 'saved_metrics_queries',
   'session_files', 'session_fts', 'session_keys', 'session_lineage_members', 'session_messages', 'session_records', 'session_repositories',
-  'session_storage', 'session_storage_turns', 'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts', 'task_source_access', 'task_source_items',
+  'session_storage', 'session_storage_turns', 'session_thread_aliases', 'session_transcripts', 'session_transcripts_fts', 'session_turn_diffs', 'task_source_access', 'task_source_items',
   'task_sources', 'tasks', 'transcript_index', 'transcript_mirror_rows', 'turn_flags', 'webhook_deliveries',
   'webhooks', 'work_live_docs', 'work_reviewers', 'work_revisions', 'work_storage', 'work_storage_bodies', 'works',
   'works_fts', 'works_fts_rows', 'workspace_projects',
@@ -66,7 +66,7 @@ const POSTGRES_TABLES = [
   'comment_threads', 'indexed_plans', 'insight_log_events',
   'insight_span_texts', 'insight_spans', 'notifications', 'operation_receipts', 'personal_resource_state',
   'plan_annotations', 'plan_index_providers', 'pull_request_observations', 'resource_links',
-  'runner_delivery_cursors', 'session_records', 'session_repositories', 'session_transcripts', 'task_source_access', 'task_source_items',
+  'runner_delivery_cursors', 'session_records', 'session_repositories', 'session_transcripts', 'session_turn_diffs', 'task_source_access', 'task_source_items',
   'task_sources', 'tasks', 'webhook_deliveries', 'webhooks', 'work_live_docs', 'work_reviewers',
   'work_revisions', 'work_storage', 'work_storage_bodies', 'works', 'workspace_projects',
 ]

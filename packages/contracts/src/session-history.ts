@@ -62,9 +62,17 @@ export interface SessionSubagentRequest {
   before?: string
 }
 
+/** A turn whose diff the Solus API holds (`sessionTurnDiff`), and when the turn ended. A reader joins it to a turn of its page by time. */
+export interface SessionTurnDiffRef {
+  turnIndex: number
+  endedAt: number
+}
+
 export interface SessionHistoryPage {
   messages: WireSessionLoadMessage[]
   before: string | null
+  /** The turn diffs of the turns on this page. Only a page that the Solus API reads from the mirror has them. */
+  turnDiffs?: SessionTurnDiffRef[]
   /** The cloud repository has no rows for this turn or session. */
   availability?: 'available' | 'not-available'
   unavailableTurns?: number[]

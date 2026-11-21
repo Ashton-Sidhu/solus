@@ -23,6 +23,8 @@ export const RUNNER_DELIVER_PATH = '/runner/deliver'
 
 /** How many items a host sends per request. */
 export const RUNNER_BATCH_LIMIT = 100
+/** The most payload text one request carries. One item over it goes alone: a turn diff can be megabytes. */
+export const RUNNER_BATCH_BYTES = 8 * 1024 * 1024
 
 const seqSchema = z.number().int().positive()
 
@@ -64,6 +66,7 @@ export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.o
  * What an item is, and the payload its kind reads:
  * - `session`: the facts of one session record (`SessionRecordUpsert`), coalesced on the host per session.
  * - `transcript`: `{ sessionId, position, message }`, one history row; `{ sessionId, truncateFrom }` when the transcript got shorter.
+ * - `turn-diff`: `{ sessionId, turnIndex, endedAt, filesChanged, additions, deletions, patch }`, the code changes of one ended turn; `patch` is null when it is over the limit.
  * - `activity`: `{ activity }`, one activity row of a mirrored session (plans/012 §5).
  * - `shares`: `{ resource, rows }`, a mirrored session's share list but the owner's row, replaced whole (host-sharing.md §2); sent when it changes.
  * - `insights`: `{ spans: [{ span, events }] }`, every span of one turn, sent once when the turn's root span ends.
@@ -71,7 +74,7 @@ export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.o
  *
  * A write an agent makes (a task, a work, a comment, a link) is not an item: it calls the Solus API directly.
  */
-export const DELIVERY_KINDS = ['session', 'transcript', 'activity', 'shares', 'insights', 'webhooks'] as const
+export const DELIVERY_KINDS = ['session', 'transcript', 'turn-diff', 'activity', 'shares', 'insights', 'webhooks'] as const
 export const deliveryKindSchema = z.enum(DELIVERY_KINDS)
 export type DeliveryKind = z.infer<typeof deliveryKindSchema>
 
@@ -107,6 +110,23 @@ export const transcriptMirrorPayloadSchema = z.union([
   z.object({ sessionId: z.string().min(1), truncateFrom: z.number().int().nonnegative() }),
 ])
 export type TranscriptMirrorPayload = z.infer<typeof transcriptMirrorPayloadSchema>
+
+/** The most bytes of one turn's patch that the mirror holds. A larger patch sends its counts only, and a reader gets `too-large`. */
+export const TURN_DIFF_PATCH_BYTES = 2 * 1024 * 1024
+
+const lineCount = z.number().int().nonnegative()
+export const turnDiffMirrorPayloadSchema = z.object({
+  sessionId: z.string().min(1),
+  /** The turn's index in the session repository of the host that ran it. */
+  turnIndex: z.number().int().nonnegative(),
+  /** When the turn ended, on the host's clock: a reader joins the diff to its turn by time. */
+  endedAt: z.number().int().nonnegative(),
+  filesChanged: lineCount,
+  additions: lineCount,
+  deletions: lineCount,
+  patch: z.string().max(TURN_DIFF_PATCH_BYTES).nullable(),
+})
+export type TurnDiffMirrorPayload = z.infer<typeof turnDiffMirrorPayloadSchema>
 
 export const activityMirrorPayloadSchema = z.object({ activity: activitySchema })
 export type ActivityMirrorPayload = z.infer<typeof activityMirrorPayloadSchema>

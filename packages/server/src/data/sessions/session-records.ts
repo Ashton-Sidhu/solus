@@ -23,7 +23,7 @@ import { deleteEdgesOf } from '../links/resource-links'
 import { session } from './schema'
 import { machineSessionHome, sessionIdentityOf, type SessionHome } from './session-identity'
 import { stateFromColumns, viewFromColumns } from './session-state-columns'
-import { sessionTranscripts } from './transcript-schema'
+import { sessionTranscripts, sessionTurnDiffs } from './transcript-schema'
 
 /**
  * The collaboration plane's session records (docs/plans/cloud-service-model.md;
@@ -653,7 +653,7 @@ function deleteHostRowsOfSession(sessionId: string): void {
  * the row goes, and everything of the session with it (plans/029 §4.1). Its
  * edges (`resource_links`: its pull requests with their watches, its links, its
  * memberships, and the tasks' edges to it), the personal state, the activity, and
- * the mirrored transcript rows have no foreign key and are deleted here.
+ * the mirrored transcript rows and turn diffs have no foreign key and are deleted here.
  */
 export function deleteSessionRecord(scope: RecordScope, sessionId: string): Promise<void> {
   return serialized(sessionId, async () => {
@@ -665,6 +665,7 @@ export function deleteSessionRecord(scope: RecordScope, sessionId: string): Prom
       await deleteEdgesOf(db, 'session', sessionId)
       await db.run(sql`DELETE FROM ${personalResourceState} WHERE resource_kind = 'session' AND resource_id = ${sessionId}`)
       await db.run(sql`DELETE FROM ${sessionTranscripts} WHERE session_id = ${sessionId}`)
+      await db.run(sql`DELETE FROM ${sessionTurnDiffs} WHERE session_id = ${sessionId}`)
       await deleteActivityFor({ kind: 'session', id: sessionId }, db)
       return true
     })
