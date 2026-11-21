@@ -125,7 +125,7 @@ import { ClaudeAppProcesses, useClaudeAppCapture } from './execution/agents/clau
 import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
 import { installConnectIntegrationTool } from './integrations/connect-integration-tool'
-import { createIntegration } from './integrations/integration-create'
+import { IntegrationWrites } from './integrations/integration-create'
 import { FoundServers } from './integrations/found-servers'
 import { LocalMcpServers } from './integrations/local-servers'
 import type { Integration } from '@solus/contracts/integration-types'
@@ -1106,10 +1106,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (target) await profiles.integrationRemoving(target, integration)
     },
   }
+  // Settings, the agent, and Found write integration records through one writer.
+  const integrationWrites = new IntegrationWrites({ store: integrations, events, profile: integrationProfile, gateway: integrationGateway, connections: integrationConnections })
   // The agent adds and connects a service from the same catalog and create path as Settings (§13.2).
   installConnectIntegrationTool({
     catalog: integrationCatalog,
-    create: (principal, owner, request) => createIntegration({ store: integrations, events, profile: integrationProfile }, principal, owner, request),
+    create: (principal, owner, request) => integrationWrites.addServer(principal, owner, request),
   })
   // The MCP servers on this host's loopback follow the running-servers list once it exists (mcp-first-class.md §9).
   const localMcpServers = new LocalMcpServers({
@@ -1128,11 +1130,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     clients: hostIntegrationClients,
     getServerInfo: () => ({ host, port: actualPort }),
     profile: integrationProfile,
+    writes: integrationWrites,
     found: new FoundServers({
       store: integrations,
-      events,
-      profile: integrationProfile,
-      gateway: integrationGateway,
+      writes: integrationWrites,
       connections: integrationConnections,
       // Codex reads its own files, with its rule for a trusted project (mcp-first-class.md §8.1).
       codexLayers: codexBackend ? async (cwd) => (await getCodexAppServerClient().request('config/read', { includeLayers: true, cwd })).layers ?? [] : undefined,

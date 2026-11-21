@@ -17,6 +17,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { LocalMcpServers, discoverOnLoopback } = await import('@solus/server/integrations/local-servers')
 const { FoundServers } = await import('@solus/server/integrations/found-servers')
+const { IntegrationWrites } = await import('@solus/server/integrations/integration-create')
 const { IntegrationStore } = await import('@solus/server/integrations/integration-store')
 const { IntegrationGateway } = await import('@solus/server/integrations/gateway')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
@@ -519,9 +520,8 @@ describe('the suggestion', () => {
   function found(local: InstanceType<typeof LocalMcpServers>) {
     return new FoundServers({
       store,
-      events: { broadcast: () => 1 } as never,
-      gateway: { forget: () => undefined, invalidate: () => undefined },
-      connections: { removeAllFor: () => undefined, submitEnvironment: () => ({}) as never, environmentFor: () => null, submitKey: async () => ({}) as never },
+      writes: new IntegrationWrites({ store, events: { broadcast: () => 1 } as never, gateway: { forget: () => undefined, invalidate: () => undefined }, connections: { removeAllFor: () => undefined } }),
+      connections: { submitEnvironment: () => ({}) as never, environmentFor: () => null, submitKey: async () => ({}) as never },
       home: '/nonexistent-home-for-test',
       env: { NODE_ENV: 'test' },
       platform: 'linux',
