@@ -86,6 +86,33 @@ interface MergedEntry {
 }
 
 /**
+ * One caller of a list or an add: who asks, what they may read (§8.1), and
+ * their integrations, read from the store once for the call. `Owner` is a
+ * string for an add, which needs a person.
+ */
+class FoundServersCaller<Owner extends string | null = string | null> {
+  /** `host.admin`: the caller reads the files of the host's OS user, and may add a command (§8.1, §7.2). */
+  readonly isHostAdmin: boolean
+  readonly projectRoot: string | null
+  private listed: Integration[] | null = null
+
+  constructor(private readonly store: IntegrationStore, readonly principal: Principal, readonly ownerKey: Owner, projectPath: string | undefined) {
+    this.isHostAdmin = mayRunCommands(principal)
+    // A chat has no project, so no project file (docs/plans/projectless-chat.md); its folder is the host's own.
+    this.projectRoot = projectPath && !isChat(projectPath) ? resolveProjectRoot(resolveHomePath(projectPath)) : null
+  }
+
+  /** What this caller may read, as the key of the list cache. */
+  get cacheKey(): string {
+    return `${this.isHostAdmin ? 'user' : 'project'}\u0000${this.projectRoot ?? ''}`
+  }
+
+  get integrations(): Integration[] {
+    return (this.listed ??= this.store.list(recordScopeOf(this.principal), this.ownerKey))
+  }
+}
+
+/**
  * The MCP servers in the config files of this host (docs/plans/mcp-first-class.md
  * §8): one reader for each file kind under `found/`, the merge by address, the
  * state of each found server for the caller, and the add. It reads on request,
@@ -104,32 +131,11 @@ export class FoundServers {
   constructor(private readonly deps: FoundServersDeps) {}
 
   async list(principal: Principal, ownerKey: string | null, request: IntegrationFoundListRequest): Promise<FoundServerList> {
-    const where = this.whereFor(principal, request.projectPath)
-    const [read, local] = await Promise.all([this.cachedRead(where, request.refresh === true), this.deps.local?.runningNow()])
-    const servers = this.foundServers(read.entries, principal, ownerKey, where).map(({ server }) => server)
+    const caller = new FoundServersCaller(this.deps.store, principal, ownerKey, request.projectPath)
+    const [read, local] = await Promise.all([this.cachedRead(caller, request.refresh === true), this.deps.local?.runningNow()])
+    const servers = this.foundServers(read.entries, caller).map(({ server }) => server)
     if (!local) return { servers, files: read.files }
-    return { servers: this.withRunning(servers, local.servers, principal, ownerKey), files: read.files, portScan: local.portScan }
-  }
-
-  /**
-   * The servers of the files with the ones that run on the loopback (§9.2). A
-   * file's entry with the same local address gains the port; any other running
-   * server is its own row. Sorted by name, as the file rows are.
-   */
-  private withRunning(servers: FoundServer[], running: RunningMcpServer[], principal: Principal, ownerKey: string | null): FoundServer[] {
-    const integrations = this.deps.store.list(recordScopeOf(principal), ownerKey)
-    const rows = [...servers]
-    for (const entry of running) {
-      const port = portServer(entry, integrations)
-      const inFile = rows.find((server) => server.transport?.kind === 'http' && sameLocalAddress(server.transport.url, entry.url))
-      if (!inFile) {
-        rows.push(port)
-        continue
-      }
-      inFile.foundIn = [...inFile.foundIn, entry.place]
-      if (inFile.state === 'new' && port.state === 'added') Object.assign(inFile, { state: 'added', integrationId: port.integrationId })
-    }
-    return rows.sort((a, b) => a.name.localeCompare(b.name) || a.foundId.localeCompare(b.foundId))
+    return { servers: withRunning(servers, local.servers, caller.integrations), files: read.files, portScan: local.portScan }
   }
 
   /**
@@ -137,13 +143,12 @@ export class FoundServers {
    * `addServer`, exactly as a typed loopback URL. Another process on
    * the port, or another answer, adds nothing: the person approves what they saw.
    */
-  private async addRunning(principal: Principal, ownerKey: string, request: IntegrationFoundAddRequest): Promise<IntegrationFoundAddResult> {
+  private async addRunning(caller: FoundServersCaller<string>, request: IntegrationFoundAddRequest): Promise<IntegrationFoundAddResult> {
     const running = (await this.deps.local?.runningNow())?.servers ?? []
-    const integrations = this.deps.store.list(recordScopeOf(principal), ownerKey)
-    const server = running.map((entry) => portServer(entry, integrations)).find((candidate) => candidate.foundId === request.foundId)
+    const server = running.map((entry) => portServer(entry, caller.integrations)).find((candidate) => candidate.foundId === request.foundId)
     if (!server || server.fingerprint !== request.fingerprint || server.transport?.kind !== 'http') return { kind: 'found-changed' }
     if (server.state === 'added') throw new Error(`${server.name} is already added.`)
-    const integration = await this.deps.writes.addServer(principal, ownerKey, { name: server.name, url: server.transport.url })
+    const integration = await this.deps.writes.addServer(caller.principal, caller.ownerKey, { name: server.name, url: server.transport.url })
     log.info('integration_found_added', { integrationId: integration.id, files: [], port: true, project: false, changed: false, copiedValues: 0 })
     return { kind: 'saved', integration }
   }
@@ -154,21 +159,21 @@ export class FoundServers {
    * needs `host.admin` and does not start.
    */
   async add(principal: Principal, ownerKey: string, request: IntegrationFoundAddRequest): Promise<IntegrationFoundAddResult> {
-    const where = this.whereFor(principal, request.projectPath)
-    const read = await this.readFiles(where)
-    this.cache.delete(where.cacheKey)
-    const found = this.foundServers(read.entries, principal, ownerKey, where).find(({ server }) => server.foundId === request.foundId)
-    if (!found) return this.addRunning(principal, ownerKey, request)
+    const caller = new FoundServersCaller(this.deps.store, principal, ownerKey, request.projectPath)
+    const read = await this.readFiles(caller)
+    this.cache.delete(caller.cacheKey)
+    const found = this.foundServers(read.entries, caller).find(({ server }) => server.foundId === request.foundId)
+    if (!found) return this.addRunning(caller, request)
     if (found.server.fingerprint !== request.fingerprint) return { kind: 'found-changed' }
     const { server, merged } = found
     if (server.state === 'added') throw new Error(`${server.name} is already added.`)
     if (server.unsupported === 'not-allowed') throw new Error(COMMAND_CHANGE_REFUSAL)
     if (server.state === 'unsupported' || !server.transport) throw new Error(`${server.name} cannot be added. ${foundUnsupportedText(server.unsupported ?? 'invalid')}`)
-    const existing = server.integrationId ? this.deps.store.getOwned(server.integrationId, recordScopeOf(principal), ownerKey) : null
-    const projectPath = server.projectOnly ? where.projectRoot ?? undefined : undefined
+    const existing = caller.integrations.find((integration) => integration.id === server.integrationId) ?? null
+    const projectPath = server.projectOnly ? caller.projectRoot ?? undefined : undefined
     const integration = server.transport.kind === 'stdio'
-      ? this.saveCommand(principal, ownerKey, server, server.transport, existing, projectPath)
-      : await this.saveUrl(principal, ownerKey, server.name, server.transport.kind === 'http' ? server.transport.url : '', existing, projectPath)
+      ? this.saveCommand(caller, server.name, server.transport, existing, projectPath)
+      : await this.saveUrl(caller, server.name, server.transport.kind === 'http' ? server.transport.url : '', existing, projectPath)
     const copied = request.useFileValues ? await this.copyValues(integration, ownerKey, merged.secrets) : 0
     // Names and counts only: a command, an argument, or a value can hold a secret.
     log.info('integration_found_added', { integrationId: integration.id, files: server.foundIn.map((place) => place.kind === 'file' ? place.file : 'port'), project: server.projectOnly, changed: existing !== null, copiedValues: copied })
@@ -176,21 +181,21 @@ export class FoundServers {
     return needsValues ? { kind: 'saved', integration, needsValues } : { kind: 'saved', integration }
   }
 
-  private saveCommand(principal: Principal, ownerKey: string, server: FoundServer, transport: Extract<FoundTransport, { kind: 'stdio' }>, existing: Integration | null, projectPath: string | undefined): Integration {
-    if (!mayRunCommands(principal)) throw new Error(COMMAND_CHANGE_REFUSAL)
+  private saveCommand(caller: FoundServersCaller<string>, name: string, transport: Extract<FoundTransport, { kind: 'stdio' }>, existing: Integration | null, projectPath: string | undefined): Integration {
+    if (!caller.isHostAdmin) throw new Error(COMMAND_CHANGE_REFUSAL)
     const launch: IntegrationLaunch = { command: transport.command, args: transport.args }
     if (transport.cwd) launch.cwd = transport.cwd
-    if (!existing) return this.deps.writes.addCommand(principal, ownerKey, { name: server.name, launch, envNames: transport.envNames, projectPath })
+    if (!existing) return this.deps.writes.addCommand(caller.principal, caller.ownerKey, { name, launch, envNames: transport.envNames, projectPath })
     // A project command keeps running in its project when the file names no folder (§8.4).
     launch.cwd ??= existing.launch?.cwd
     const names = existing.auth.kind === 'env' ? existing.auth.names : []
-    const sameNames = names.length === transport.envNames.length && names.every((name) => transport.envNames.includes(name))
-    return this.deps.writes.changeCommand(existing, { launch, envNames: sameNames ? undefined : transport.envNames }, principal)
+    const sameNames = names.length === transport.envNames.length && names.every((envName) => transport.envNames.includes(envName))
+    return this.deps.writes.changeCommand(existing, { launch, envNames: sameNames ? undefined : transport.envNames }, caller.principal)
   }
 
-  private async saveUrl(principal: Principal, ownerKey: string, name: string, url: string, existing: Integration | null, projectPath: string | undefined): Promise<Integration> {
-    if (!existing) return this.deps.writes.addServer(principal, ownerKey, { name, url }, projectPath)
-    return this.deps.writes.changeServer(existing, { url, auth: (await probeForWrite(url)).auth }, principal)
+  private async saveUrl(caller: FoundServersCaller<string>, name: string, url: string, existing: Integration | null, projectPath: string | undefined): Promise<Integration> {
+    if (!existing) return this.deps.writes.addServer(caller.principal, caller.ownerKey, { name, url }, projectPath)
+    return this.deps.writes.changeServer(existing, { url, auth: (await probeForWrite(url)).auth }, caller.principal)
   }
 
   /**
@@ -218,40 +223,32 @@ export class FoundServers {
     }
   }
 
-  /** What one caller may read: their project's files, and the user files for `host.admin`. */
-  private whereFor(principal: Principal, projectPath: string | undefined) {
-    const readsUserFiles = mayRunCommands(principal)
-    // A chat has no project, so no project file (docs/plans/projectless-chat.md); its folder is the host's own.
-    const projectRoot = projectPath && !isChat(projectPath) ? resolveProjectRoot(resolveHomePath(projectPath)) : null
-    return { readsUserFiles, projectRoot, cacheKey: `${readsUserFiles ? 'user' : 'project'}\u0000${projectRoot ?? ''}` }
-  }
-
-  private async cachedRead(where: ReturnType<FoundServers['whereFor']>, refresh: boolean): Promise<FileRead> {
+  private async cachedRead(caller: FoundServersCaller, refresh: boolean): Promise<FileRead> {
     const now = this.now()
-    const cached = this.cache.get(where.cacheKey)
+    const cached = this.cache.get(caller.cacheKey)
     if (!refresh && cached && now - cached.at < LIST_CACHE_MS) return cached.read
-    const read = await this.readFiles(where)
+    const read = await this.readFiles(caller)
     // The cache keeps names only: the values the files hold are read again at an add.
     const kept: FileRead = { files: read.files, entries: read.entries.map((entry) => ({ ...entry, secrets: NO_SECRETS })) }
-    this.cache.delete(where.cacheKey)
-    this.cache.set(where.cacheKey, { at: now, read: kept })
+    this.cache.delete(caller.cacheKey)
+    this.cache.set(caller.cacheKey, { at: now, read: kept })
     while (this.cache.size > LIST_CACHE_ENTRIES) this.cache.delete(this.cache.keys().next().value ?? '')
     return kept
   }
 
-  private async readFiles(where: ReturnType<FoundServers['whereFor']>): Promise<FileRead> {
+  private async readFiles(caller: FoundServersCaller): Promise<FileRead> {
     const read: FileRead = { entries: [], files: [] }
-    const { projectRoot } = where
+    const { projectRoot } = caller
     if (projectRoot) {
       for (const spot of this.projectFiles(projectRoot)) await this.readJsonFile(read, spot, 'project')
     }
-    if (where.readsUserFiles) {
+    if (caller.isHostAdmin) {
       for (const spot of this.userFiles()) {
         if (spot.file === 'claude-json') await this.readClaudeJson(read, spot, projectRoot)
         else await this.readJsonFile(read, spot, 'user')
       }
     }
-    await this.readCodex(read, where)
+    await this.readCodex(read, caller)
     return read
   }
 
@@ -298,36 +295,36 @@ export class FoundServers {
   }
 
   /** Codex reads its own files and applies its own rule for a trusted project (§8.1). */
-  private async readCodex(read: FileRead, where: ReturnType<FoundServers['whereFor']>): Promise<void> {
-    if (!this.deps.codexLayers || (!where.readsUserFiles && !where.projectRoot)) return
+  private async readCodex(read: FileRead, caller: FoundServersCaller): Promise<void> {
+    if (!this.deps.codexLayers || (!caller.isHostAdmin && !caller.projectRoot)) return
     let layers: unknown[]
     try {
-      layers = await this.deps.codexLayers(where.projectRoot)
+      layers = await this.deps.codexLayers(caller.projectRoot)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       // A host with no Codex has no Codex files to show.
       if (/ENOENT|not found|not installed/i.test(message)) return
       log.warn('integration_found_codex_unread', { error: message })
-      read.files.push({ file: 'codex-config', scope: where.readsUserFiles ? 'user' : 'project', path: '~/.codex/config.toml', servers: 0, problem: 'Codex did not answer, so its config was not read.' })
+      read.files.push({ file: 'codex-config', scope: caller.isHostAdmin ? 'user' : 'project', path: '~/.codex/config.toml', servers: 0, problem: 'Codex did not answer, so its config was not read.' })
       return
     }
     for (const layer of codexServers(layers, (path) => this.displayPath(path))) {
-      if (layer.scope === 'user' ? !where.readsUserFiles : !where.projectRoot) continue
+      if (layer.scope === 'user' ? !caller.isHostAdmin : !caller.projectRoot) continue
       read.entries.push(...layer.entries)
       read.files.push({ file: 'codex-config', scope: layer.scope, path: layer.path, servers: layer.entries.length })
     }
   }
 
   /** The found servers of these entries, for this caller, with the merged entry each came from. */
-  private foundServers(entries: ConfigEntry[], principal: Principal, ownerKey: string | null, where: ReturnType<FoundServers['whereFor']>): Array<{ server: FoundServer; merged: MergedEntry }> {
-    const integrations = this.deps.store.list(recordScopeOf(principal), ownerKey)
-    const projectKey = where.projectRoot ? resolveProjectKey(where.projectRoot) : null
+  private foundServers(entries: ConfigEntry[], caller: FoundServersCaller): Array<{ server: FoundServer; merged: MergedEntry }> {
+    const projectKey = caller.projectRoot ? resolveProjectKey(caller.projectRoot) : null
     return mergeByAddress(entries)
-      .map((merged) => ({ merged, server: this.foundServer(merged, integrations, principal, projectKey, where.projectRoot) }))
+      .map((merged) => ({ merged, server: this.foundServer(merged, caller, projectKey) }))
       .sort((a, b) => a.server.name.localeCompare(b.server.name) || a.server.foundId.localeCompare(b.server.foundId))
   }
 
-  private foundServer(merged: MergedEntry, integrations: Integration[], principal: Principal, projectKey: string | null, projectRoot: string | null): FoundServer {
+  private foundServer(merged: MergedEntry, caller: FoundServersCaller, projectKey: string | null): FoundServer {
+    const { integrations, projectRoot } = caller
     const projectOnly = merged.places.every((place) => place.scope === 'project')
     const transport = merged.transport
     const server: FoundServer = {
@@ -349,7 +346,7 @@ export class FoundServers {
       : integration.kind === 'mcp' && sameServerAddress({ kind: 'url', url: integration.url }, { kind: 'url', url: transport.url }))
     if (added) return { ...server, state: 'added', integrationId: added.id }
     if (transport.kind === 'stdio') {
-      if (!mayRunCommands(principal)) return { ...server, state: 'unsupported', unsupported: 'not-allowed' }
+      if (!caller.isHostAdmin) return { ...server, state: 'unsupported', unsupported: 'not-allowed' }
       if (!findsProgram(transport.command, transport.cwd ?? (projectOnly && projectRoot ? projectRoot : '~'))) server.commandMissing = true
     }
     // Added from this entry before, by its name, kind, and scope, with another command or URL now.
@@ -402,6 +399,26 @@ export class FoundServers {
   private now(): number {
     return this.deps.now?.() ?? Date.now()
   }
+}
+
+/**
+ * The servers of the files with the ones that run on the loopback (§9.2). A
+ * file's entry with the same local address gains the port; any other running
+ * server is its own row. Sorted by name, as the file rows are.
+ */
+function withRunning(servers: FoundServer[], running: RunningMcpServer[], integrations: Integration[]): FoundServer[] {
+  const rows = [...servers]
+  for (const entry of running) {
+    const port = portServer(entry, integrations)
+    const inFile = rows.find((server) => server.transport?.kind === 'http' && sameLocalAddress(server.transport.url, entry.url))
+    if (!inFile) {
+      rows.push(port)
+      continue
+    }
+    inFile.foundIn = [...inFile.foundIn, entry.place]
+    if (inFile.state === 'new' && port.state === 'added') Object.assign(inFile, { state: 'added', integrationId: port.integrationId })
+  }
+  return rows.sort((a, b) => a.name.localeCompare(b.name) || a.foundId.localeCompare(b.foundId))
 }
 
 /** A server that runs on the loopback as a found server of the caller: `added` when they have an integration at the same local address. */
