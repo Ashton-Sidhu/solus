@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
-import { upsertById, type BackgroundKind, type BackgroundRecord, type SessionRecordTopic } from '@solus/client-core/background-item'
+import type { BackgroundKind, BackgroundRecord, SessionRecordTopic } from '@solus/client-core/background-item'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import { keepEqual } from '@solus/client-core/keep-equal'
+import { keepEqual, upsertById } from '@solus/client-core/keep-equal'
 import { FollowedSessions } from './followed-sessions'
 
 /**

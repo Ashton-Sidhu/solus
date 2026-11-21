@@ -62,8 +62,5 @@ export function shownBackgroundRecords<T extends BackgroundRecord>(kind: Backgro
   return records.filter((record) => kind.isLive(record) || record.updatedAt >= since)
 }
 
-/** The list with `record` in place of the record of its id, or at the end when the list has none. */
-export function upsertById<T extends { readonly id: string }>(list: readonly T[], record: T): T[] {
-  const index = list.findIndex((entry) => entry.id === record.id)
-  return index === -1 ? [...list, record] : list.with(index, record)
-}
+// The mobile session records feed (work package P3) still imports it from here. Remove once it imports `./keep-equal`.
+export { upsertById } from './keep-equal'

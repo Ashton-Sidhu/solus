@@ -1,6 +1,7 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationsChangedEvent, AutomationTrigger } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { upsertById } from '@solus/client-core/keep-equal'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { recordVisibleInWindow } from '../../lib/organization-filter'
@@ -225,13 +226,7 @@ export class AutomationsStore {
       this.applyRecentRun(event.run)
       const existing = this.runs.get(event.automation.id)
       if (!existing) return // history not loaded for this row; loaded lazily on demand
-      const i = existing.findIndex((r) => r.id === event.run.id)
-      if (i === -1) this.runs.set(event.automation.id, [event.run, ...existing])
-      else {
-        const next = existing.slice()
-        next[i] = event.run
-        this.runs.set(event.automation.id, next)
-      }
+      this.runs.set(event.automation.id, upsertById(existing, event.run, 'start'))
     }
   }
 
