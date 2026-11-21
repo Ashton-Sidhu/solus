@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import { useListened } from "../../app/app-context";
 import { conversationIdOf, type ConversationStore } from "../conversation/conversation-store";
-import { useHostApi } from "../projects/use-open-project";
+import { useHostApi } from "../hosts/use-host-api";
 import { McpAppCard } from "./ThreadMcpApp";
 import { useSavedMcpApp } from "./use-saved-mcp-app";
 

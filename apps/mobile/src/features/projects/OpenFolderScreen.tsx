@@ -9,7 +9,8 @@ import { AppText as Text } from '../../components/AppText'
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
 import { AddProjectShell, AddProjectTextInput, ListRow, ListRowSymbol, ListSection, ListStateCard, PrimaryActionButton, SectionTitle } from './components/add-project-ui'
 import { cloneDestinationPath, folderEntries, folderNameOf, openExistingProjectFolder } from './lib/open-project'
-import { errorText, useHostApi, useMounted, useProjectsFolder, useShowProject } from './use-open-project'
+import { errorText, useMounted, useProjectsFolder, useShowProject } from './use-open-project'
+import { useHostApi } from '../hosts/use-host-api'
 
 type Listing =
   | { kind: 'loading' }

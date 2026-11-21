@@ -22,7 +22,7 @@ import Animated, {
   useDerivedValue,
   withTiming,
 } from "react-native-reanimated";
-import { isSessionBusyStatus, isSteerableStatus } from "@solus/contracts/types";
+import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from "@solus/contracts/types";
 import { quotedReplyDraft } from "@solus/client-core/quoted-reply";
 import { draftWithUnsentRemarks } from "@solus/contracts/question-answer";
 
@@ -663,7 +663,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       {pickingResource ? (
         <IntegrationResourcePicker
           hostId={hostId}
-          projectPath={store.controller.run.workingDirectory}
+          projectPath={worktreeProjectRoot(store.controller.run.workingDirectory)}
           onPick={closeResourcePicker}
           onClose={() => closeResourcePicker(null)}
         />
@@ -679,7 +679,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       {pickingPrompt ? (
         <McpPromptPicker
           hostId={hostId}
-          projectPath={store.controller.run.workingDirectory}
+          projectPath={worktreeProjectRoot(store.controller.run.workingDirectory)}
           sessionId={store.controller.run.sessionId}
           onExpanded={sendExpandedPrompt}
           onSignIn={signInFromPrompts}

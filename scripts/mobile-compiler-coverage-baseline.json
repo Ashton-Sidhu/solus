@@ -1061,7 +1061,6 @@
     },
     "apps/mobile/src/features/projects/use-open-project.ts": {
       "compiled": [
-        "useHostApi",
         "useMounted",
         "useProjectsFolder"
       ],
@@ -2480,6 +2479,12 @@
     "apps/mobile/src/features/threads/use-worktree-branches.ts": {
       "compiled": [
         "useWorktreeBranches"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/hosts/use-host-api.ts": {
+      "compiled": [
+        "useHostApi"
       ],
       "skipped": []
     }

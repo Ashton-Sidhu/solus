@@ -13,7 +13,7 @@ import { useListened } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
-import { useHostApi } from "../projects/use-open-project";
+import { useHostApi } from "../hosts/use-host-api";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
 import { McpAppWebView } from "./McpAppWebView";
 import { ThreadMcpLiveApp } from "./ThreadMcpLiveApp";

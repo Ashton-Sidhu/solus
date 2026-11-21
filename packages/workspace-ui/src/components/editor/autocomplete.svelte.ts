@@ -9,7 +9,7 @@
 // Editor mechanics sit behind AutocompleteEditor so the same machine drives the
 // CodeMirror prompt input and the Tiptap document editor without leaking either
 // editor's transaction model.
-import { planKey } from "@solus/contracts/types";
+import { planKey, worktreeProjectRoot } from "@solus/contracts/types";
 import { joinHostPath } from "@solus/contracts/host-path";
 import type {
   AgentId,
@@ -252,7 +252,7 @@ export class UnifiedAutocompleteController {
   #mcpPromptList = $derived.by(() => {
     const serverId = this.deps.serverId?.();
     if (!serverId || !this.deps.onMcpPrompt?.()) return null;
-    return integrationPromptsStore.listFor(serverId, this.deps.workingDirectory());
+    return integrationPromptsStore.listFor(serverId, this.#mcpProjectPath());
   });
 
   #mcpPromptItems = $derived.by((): MenuItem[] =>
@@ -291,6 +291,12 @@ export class UnifiedAutocompleteController {
       .filter((item) => !open.has(item.token.kind === "file" ? item.token.path : ""));
   });
 
+  /** The folder the MCP lists are kept for: the project of the working directory, so every worktree of it shares one list. */
+  #mcpProjectPath(): string | undefined {
+    const workingDirectory = this.deps.workingDirectory();
+    return workingDirectory && worktreeProjectRoot(workingDirectory);
+  }
+
   /** The host whose MCP resources `@` lists: the run's, else the tab's. */
   #resourceServerId(): string {
     return this.deps.serverId?.() ?? this.deps.session.serverIdFor(this.deps.tabId());
@@ -300,7 +306,7 @@ export class UnifiedAutocompleteController {
     if (!this.deps.onResource?.()) return [];
     const serverId = this.#resourceServerId();
     const integrations = integrationResources.integrationsOf(serverId);
-    const projectPath = this.deps.workingDirectory();
+    const projectPath = this.#mcpProjectPath();
     const serverOf = (integrationId: string) => integrations.find((candidate) => candidate.id === integrationId);
     const lists = integrationResourceLists.listFor(serverId, projectPath);
     const resources = lists.resources.flatMap((entry) => {
@@ -484,7 +490,7 @@ export class UnifiedAutocompleteController {
       this.#warmedForAnchor = trigger.anchor;
       if (this.deps.onResource?.()) {
         integrationResources.loadInstalled();
-        integrationResourceLists.ensure(this.#resourceServerId(), this.deps.workingDirectory());
+        integrationResourceLists.ensure(this.#resourceServerId(), this.#mcpProjectPath());
       }
     }
     if (trigger.char === "/" && this.#warmedForAnchor !== trigger.anchor) {
@@ -537,7 +543,7 @@ export class UnifiedAutocompleteController {
   /** Opening `/` reads the MCP prompts once if they were never read; a kept list stays fresh through host events. */
   #warmMcpPrompts() {
     const serverId = this.deps.serverId?.();
-    if (serverId && this.deps.onMcpPrompt?.()) integrationPromptsStore.ensure(serverId, this.deps.workingDirectory());
+    if (serverId && this.deps.onMcpPrompt?.()) integrationPromptsStore.ensure(serverId, this.#mcpProjectPath());
   }
 
   /** One key, one index: opening `#` warms all six categories concurrently,
