@@ -1,18 +1,11 @@
-import { connectionNeedsAttention, isFirstIntegrationAccount } from '@solus/contracts/integration-types'
-import { showsFactsOnRow } from '@solus/contracts/integrations/command-server'
-import { CommandProcesses } from '@solus/client-core/command-processes'
-import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationCreateRequest, IntegrationEnvValue, IntegrationFacts, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from '@solus/contracts/integration-types'
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import type { CommandProcesses } from '@solus/client-core/command-processes'
+import type { Integration, IntegrationAuthFinishedEvent, IntegrationConnection, IntegrationEnvValue, IntegrationFacts, IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { upsertById } from '@solus/client-core/keep-equal'
-import { hostCatalog } from '@solus/client-core/host-catalog'
 import { localApi } from '@solus/client-core/local-api'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import type { VaultSaveKeyRequest } from '@solus/contracts/vault'
-import { oauthRedirectUrl } from './lib/integration-labels'
-import { IntegrationAccounts } from './lib/integration-accounts.svelte'
-import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
-import type { SetupHandoff } from '@solus/contracts/integrations/setup-handoff'
+import { IntegrationAccounts } from './integration-accounts.svelte'
 
 /**
  * The caller's sign-in to one integration while it runs (§4.3). Absent when no
@@ -55,8 +48,7 @@ export const CLOUD_SIGN_IN_POLL_MS = 3_000
 export const CLOUD_SIGN_IN_TIMEOUT_MS = 10 * 60_000
 
 export type ConnectionsStatus = 'loading' | 'loaded' | 'unsupported' | 'error'
-
-interface IntegrationsState {
+export interface IntegrationsState {
   /** Null until the first list arrives. */
   integrations: Integration[] | null
   /** The tools of each integration whose tools were asked for. */
@@ -85,15 +77,13 @@ interface IntegrationsState {
   processes: CommandProcesses
 }
 
-export type ProbeAttempt = { result: IntegrationProbeResult } | { error: string }
-
 /** An older host answers an unknown RPC with one of these messages. */
 export function isUnsupportedHostError(cause: unknown): boolean {
   const message = cause instanceof Error ? cause.message : String(cause)
   return /no handler for|unknown method|unknown rpc|not registered|not a function/i.test(message)
 }
 
-function errorText(cause: unknown, fallback: string): string {
+export function errorText(cause: unknown, fallback: string): string {
   const message = cause instanceof Error ? cause.message.trim() : ''
   return message || fallback
 }
@@ -122,33 +112,22 @@ function cloudFailureText(result: { kind: 'signed-out' } | { kind: 'offline' } |
 const MAX_TIMER_MS = 2_147_483_647
 
 /**
- * The integrations of each host (docs/plans/mcp-integrations.md §7). The list
- * follows `integration.changed` and reloads on reconnect. Catalog results and
- * probe results are not kept here: they belong to the Add flow that asked.
- *
- * The caller's own connections (§4) load beside the list and follow
- * `integration.connectionChanged`. A sign-in runs here, not in a component, so
- * the Settings row and the conversation card show the same flow.
+ * The caller's sign-ins to the integrations of each host while they run (§4.3),
+ * over the per-host state they share with the list. A sign-in runs here, not
+ * in a component, so the Settings row and the conversation card show the same
+ * flow. `IntegrationsStore` extends it with the list, the tools, and the
+ * connections; it reads the connections again when a sign-in ends.
  */
-class IntegrationsStore {
+export abstract class IntegrationSignIns {
   states = new SvelteMap<string, IntegrationsState>()
   /** The caller's accounts after the first (§13.3); `connections` keeps the first. */
   readonly accounts = new IntegrationAccounts()
-  private watches = new Map<string, { count: number; stop: () => void }>()
-  /** Per host and integration: bumped by every event, so an older read for that id does not land. */
-  private eventSequence = new Map<string, number>()
-  /** Per host: bumped by every connection list load; an older load does not land. */
-  private connectionRevisions = new Map<string, number>()
-  /** Per host: the integrations whose connection changed while a list load ran. The event is newer. */
-  private connectionEventsDuringLoad = new Map<string, Set<string>>()
   /** Per host and integration: bumped by every flow command, so an older answer does not land. */
   private flowAttempts = new Map<string, number>()
   private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Per host and integration: stops the read-back of a cloud sign-in. */
   private cloudPolls = new Map<string, () => void>()
   private cloud: CloudSignInPort | null = null
-  /** Set by `listen`: told when a working sign-in stops working while the app runs. */
-  private onSignInExpired: ((serverId: string, integrationName: string) => void) | null = null
 
   /** Installs where a synced person's own sign-ins run. Until then every sign-in runs on the host. */
   useCloudSignIn(port: CloudSignInPort | null): void {
@@ -168,250 +147,17 @@ class IntegrationsStore {
     return integration.auth.kind === 'oauth' && (integration.auth.registration === 'client-required' || !!integration.auth.clientId) ? null : cloud
   }
 
-  /**
-   * Called once at boot. A sign-in can expire while no surface that shows it
-   * is open, so every connected host is watched for the life of the app. That
-   * also keeps `attentionCount` true for the Settings nav.
-   */
-  listen(onSignInExpired: (serverId: string, integrationName: string) => void): () => void {
-    this.onSignInExpired = onSignInExpired
-    const releases = new Map<string, () => void>()
-    const follow = (serverId: string) => { if (!releases.has(serverId)) releases.set(serverId, this.watch(serverId)) }
-    for (const serverId of serverConnections.connectedServerIds()) follow(serverId)
-    const stopCreated = serverConnections.onConnectionCreated((connection) => follow(connection.serverId))
-    const stopRemoving = hostCatalog.onForgotten((server) => {
-      releases.get(server.id)?.()
-      releases.delete(server.id)
-      // A removed host's connections must not stay in the count.
-      if (!this.watches.has(server.id)) {
-        this.states.delete(server.id)
-        this.accounts.forget(server.id)
-      }
-    })
-    return () => {
-      stopCreated()
-      stopRemoving()
-      for (const release of releases.values()) release()
-      releases.clear()
-      this.onSignInExpired = null
-    }
-  }
-
-  /** The caller's connections, on every host, that need them to act: the number beside MCP in Settings. */
-  get attentionCount(): number {
-    let count = this.accounts.count(connectionNeedsAttention)
-    for (const state of this.states.values()) {
-      for (const connection of state.connections.values()) if (connectionNeedsAttention(connection)) count++
-    }
-    return count
-  }
-
-  watch(serverId: string): () => void {
-    let watch = this.watches.get(serverId)
-    if (!watch) {
-      const stopChanged = serverConnections.eventsFor(serverId).subscribe('integration.changed', (event) => {
-        void this.applyChange(serverId, event)
-      })
-      const events = serverConnections.eventsFor(serverId)
-      const stopConnection = events.subscribe('integration.connectionChanged', (event) => this.applyConnectionChange(serverId, event))
-      const stopAuth = events.subscribe('host.integrationAuthFinished', (event) => this.applyAuthFinished(serverId, event))
-      const stopStatus = serverConnections.onReadinessChange((hostId, status) => {
-        if (hostId !== serverId) return
-        if (status === 'ready') void this.load(serverId)
-        else {
-          const state = this.states.get(serverId)
-          // A load in flight answers from a host that is gone; drop it.
-          if (state) this.states.set(serverId, { ...state, isDisconnected: true, loading: false, revision: state.revision + 1 })
-          this.connectionRevisions.set(serverId, (this.connectionRevisions.get(serverId) ?? 0) + 1)
-          this.dropHostFlows(serverId)
-        }
-      })
-      watch = { count: 0, stop: () => { stopChanged(); stopConnection(); stopAuth(); stopStatus() } }
-      this.watches.set(serverId, watch)
-      void this.load(serverId)
-    }
-    watch.count++
-    return () => { if (--watch.count === 0) { watch.stop(); this.watches.delete(serverId) } }
-  }
-
-  /** Every loaded integration name, on every host: what settings search matches. */
-  names(): string[] {
-    return [...this.states.values()].flatMap((state) => state.integrations?.map((integration) => integration.name) ?? [])
-  }
-
-  async load(serverId: string): Promise<void> {
-    const state = this.states.get(serverId) ?? this.emptyState(serverId)
-    const revision = state.revision + 1
-    this.states.set(serverId, { ...state, loading: true, revision })
-    void this.loadConnections(serverId)
-    try {
-      const integrations = await serverConnections.apiFor(serverId).integrationList()
-      const current = this.states.get(serverId)
-      if (current?.revision !== revision) return
-      this.states.set(serverId, { ...current, integrations, loading: false, error: '', isUnsupported: false, isDisconnected: false })
-      for (const id of current.tools.keys()) {
-        if (!integrations.some((integration) => integration.id === id)) { current.tools.delete(id); current.processes.forget(id) }
-      }
-      for (const integration of integrations) if (showsFactsOnRow(integration)) void current.processes.load(integration.id)
-    } catch (cause) {
-      const current = this.states.get(serverId)
-      if (current?.revision !== revision) return
-      const isUnsupported = isUnsupportedHostError(cause)
-      const isDisconnected = serverConnections.readinessFor(serverId).readiness !== 'ready'
-      this.states.set(serverId, { ...current, loading: false, isUnsupported, isDisconnected, error: isUnsupported ? '' : 'Could not load integrations.' })
-    }
-  }
-
-  async loadTools(serverId: string, integrationId: string): Promise<void> {
-    const state = this.states.get(serverId)
-    if (!state) return
-    state.toolErrors.delete(integrationId)
-    // The facts only add the instructions section: a facts read that fails, or an
-    // older host without it, keeps what the row had and keeps the tools.
-    void state.processes.load(integrationId)
-    try {
-      const tools = await serverConnections.apiFor(serverId).integrationTools({ id: integrationId })
-      this.states.get(serverId)?.tools.set(integrationId, tools)
-    } catch (cause) {
-      this.states.get(serverId)?.toolErrors.set(integrationId, errorText(cause, 'Could not load the tools.'))
-    }
-  }
-
-  private emptyState(serverId: string): IntegrationsState {
-    const facts = new SvelteMap<string, IntegrationFacts>()
-    const toolErrors = new SvelteMap<string, string>()
-    const processes = new CommandProcesses({
-      api: () => serverConnections.apiFor(serverId),
-      facts,
-      starting: new SvelteSet(),
-      errors: new SvelteMap(),
-      // A loopback server that runs again lists its tools in an open row, not the error of when it stopped (§9.3).
-      onFacts: (integrationId, answer) => { if (answer.reachable === 'running') toolErrors.delete(integrationId) },
-      // A started command lists its tools for its open row (§7.7).
-      onStarted: (integrationId) => { void this.loadTools(serverId, integrationId) },
-    })
-    return {
-      integrations: null, tools: new SvelteMap(), facts, toolErrors, loading: false, error: '', saving: false, writeError: '', isUnsupported: false, isDisconnected: false, revision: 0,
-      connections: new SvelteMap(), connectionsStatus: 'loading', connectFlows: new SvelteMap(), processes,
-    }
-  }
-
-  async create(serverId: string, request: IntegrationCreateRequest): Promise<Integration | null> {
-    return this.write(serverId, 'Could not add the integration.', async () => {
-      const integration = await serverConnections.apiFor(serverId).integrationCreate(request)
-      this.upsert(serverId, integration)
-      return integration
-    })
-  }
-
-  async update(serverId: string, request: IntegrationUpdateRequest): Promise<Integration | null> {
-    return this.write(serverId, 'Could not save the integration.', async () => {
-      const integration = await serverConnections.apiFor(serverId).integrationUpdate(request)
-      this.upsert(serverId, integration)
-      return integration
-    })
-  }
-
-  /**
-   * Saves or, with null, removes the owner's custom OAuth client. A custom
-   * client selects host sign-in. The secret goes to the host in this one
-   * call and is not kept: the record that comes back says only whether it has one.
-   */
-  async setOAuthClient(serverId: string, integrationId: string, oauthClient: IntegrationOAuthClientInput | null): Promise<Integration | null> {
-    return this.write(serverId, oauthClient ? 'Could not save the OAuth client.' : 'Could not remove the OAuth client.', async () => {
-      await this.cancel(serverId, integrationId)
-      const integration = await serverConnections.apiFor(serverId).integrationUpdate({ id: integrationId, oauthClient })
-      this.upsert(serverId, integration)
-      return integration
-    })
-  }
-
-  /** The redirect URL the service's OAuth app must list: the host at the origin this client reaches it on. */
-  oauthRedirectUrl(serverId: string): string {
-    return oauthRedirectUrl(serverConnections.httpOriginFor(serverId))
-  }
-
-  async remove(serverId: string, integrationId: string): Promise<boolean> {
-    const removed = await this.write(serverId, 'Could not remove the integration.', async () => {
-      await serverConnections.apiFor(serverId).integrationRemove({ id: integrationId })
-      this.drop(serverId, integrationId)
-      return true
-    })
-    return removed === true
-  }
-
-  /** Probes an address from the host. The result is the caller's to show; it is not kept. */
-  async probe(serverId: string, url: string): Promise<ProbeAttempt> {
-    try {
-      return { result: await serverConnections.apiFor(serverId).integrationProbe({ url }) }
-    } catch (cause) {
-      return { error: errorText(cause, 'Could not check this address.') }
-    }
-  }
-
-  /** One page of the catalog. Throws when the catalog is unavailable. */
-  catalogPage(serverId: string, query: string, category: CatalogCategoryId | null, offset: number, limit: number): Promise<CatalogPage> {
-    const request: IntegrationCatalogListRequest = { query: query || undefined, offset, limit }
-    // A host from before categories refuses the field, so it is sent only when set.
-    if (category) request.category = category
-    return serverConnections.apiFor(serverId).integrationCatalogList(request)
-  }
+  /** Reads the caller's connections on one host again. */
+  abstract loadConnections(serverId: string): Promise<void>
 
   /** The caller's connection to one integration, or null when they have none. */
   connection(serverId: string, integrationId: string): IntegrationConnection | null {
     return this.states.get(serverId)?.connections.get(integrationId) ?? null
   }
 
-  /**
-   * The caller's own integration that cannot start a sign-in until its owner
-   * enters an OAuth client (§13.2), or null. Integrations are personal, so only
-   * the owner's list holds it and only the owner gets the form.
-   */
-  /** What the caller must set up at the vendor before their own integration can connect (§13.4), as its hand-off; null when nothing. */
-  setupHandoff(serverId: string, integrationId: string): SetupHandoff | null {
-    const integration = this.states.get(serverId)?.integrations?.find((item) => item.id === integrationId)
-    if (!integration) return null
-    return new IntegrationSignIn(integration).setupHandoffFor(this.connection(serverId, integrationId), { name: integration.name, callbackUrl: this.oauthRedirectUrl(serverId) })
-  }
-
-  integrationNeedingClient(serverId: string, integrationId: string): Integration | null {
-    const integration = this.states.get(serverId)?.integrations?.find((item) => item.id === integrationId)
-    return integration && new IntegrationSignIn(integration).needsOwnerClient ? integration : null
-  }
-
   /** The sign-in that runs for one integration, or null when none runs. */
   connectFlow(serverId: string, integrationId: string): IntegrationConnectFlow | null {
     return this.states.get(serverId)?.connectFlows.get(integrationId) ?? null
-  }
-
-  async loadConnections(serverId: string): Promise<void> {
-    const state = this.states.get(serverId)
-    if (!state) return
-    const revision = (this.connectionRevisions.get(serverId) ?? 0) + 1
-    this.connectionRevisions.set(serverId, revision)
-    const changed = new Set<string>()
-    this.connectionEventsDuringLoad.set(serverId, changed)
-    if (state.connectionsStatus !== 'loaded') this.states.set(serverId, { ...state, connectionsStatus: 'loading' })
-    try {
-      const all = await serverConnections.apiFor(serverId).integrationConnectionList()
-      const current = this.states.get(serverId)
-      if (!current || this.connectionRevisions.get(serverId) !== revision) return
-      this.accounts.load(serverId, all)
-      const list = all.filter(isFirstIntegrationAccount)
-      for (const id of current.connections.keys()) {
-        if (!changed.has(id) && !list.some((connection) => connection.integrationId === id)) current.connections.delete(id)
-      }
-      for (const connection of list) {
-        if (!changed.has(connection.integrationId)) current.connections.set(connection.integrationId, connection)
-      }
-      this.states.set(serverId, { ...current, connectionsStatus: 'loaded' })
-    } catch (cause) {
-      const current = this.states.get(serverId)
-      if (!current || this.connectionRevisions.get(serverId) !== revision) return
-      this.states.set(serverId, { ...current, connectionsStatus: isUnsupportedHostError(cause) ? 'unsupported' : 'error' })
-    } finally {
-      if (this.connectionEventsDuringLoad.get(serverId) === changed) this.connectionEventsDuringLoad.delete(serverId)
-    }
   }
 
   /**
@@ -633,79 +379,7 @@ class IntegrationsStore {
     if (!opened) globalThis.window?.open(url, '_blank', 'noopener,noreferrer')
   }
 
-  clearWriteError(serverId: string): void {
-    const state = this.states.get(serverId)
-    if (state?.writeError) this.states.set(serverId, { ...state, writeError: '' })
-  }
-
-  private async write<T>(serverId: string, fallback: string, run: () => Promise<T>): Promise<T | null> {
-    const state = this.states.get(serverId)
-    if (!state || state.saving) return null
-    this.states.set(serverId, { ...state, saving: true, writeError: '' })
-    try {
-      const value = await run()
-      const current = this.states.get(serverId)
-      if (current) this.states.set(serverId, { ...current, saving: false })
-      return value
-    } catch (cause) {
-      const current = this.states.get(serverId)
-      if (current) this.states.set(serverId, { ...current, saving: false, writeError: errorText(cause, fallback) })
-      return null
-    }
-  }
-
-  private async applyChange(serverId: string, { integrationId, change }: IntegrationChangedEvent): Promise<void> {
-    const state = this.states.get(serverId)
-    if (!state) return
-    if (change === 'tools' || change === 'facts') {
-      if (state.tools.has(integrationId)) void this.loadTools(serverId, integrationId)
-      // A command's process state, and whether a loopback server runs, show on its row, open or not.
-      else if (showsFactsOnRow(state.integrations?.find((item) => item.id === integrationId))) void state.processes.load(integrationId)
-      return
-    }
-    // A list read in flight, or none yet: read the whole list again instead.
-    if (state.integrations === null || state.loading) {
-      void this.load(serverId)
-      return
-    }
-    const key = `${serverId}\u0000${integrationId}`
-    const sequence = (this.eventSequence.get(key) ?? 0) + 1
-    this.eventSequence.set(key, sequence)
-    if (change === 'removed') {
-      this.drop(serverId, integrationId)
-      return
-    }
-    try {
-      const integration = await serverConnections.apiFor(serverId).integrationGet({ id: integrationId })
-      if (this.eventSequence.get(key) !== sequence || this.states.get(serverId)?.loading) return
-      if (integration) this.upsert(serverId, integration)
-      else this.drop(serverId, integrationId)
-      // A changed command stopped and lost its facts (§7.6).
-      if (integration?.kind === 'stdio') void state.processes.load(integrationId)
-    } catch {
-      if (this.eventSequence.get(key) === sequence) void this.load(serverId)
-    }
-  }
-
-  private applyConnectionChange(serverId: string, event: IntegrationConnectionChangedEvent): void {
-    const state = this.states.get(serverId)
-    if (!state) return
-    const { integrationId, connection } = event
-    const accountId = connection?.accountId ?? event.accountId
-    const previous = accountId && !isFirstIntegrationAccount({ accountId })
-      ? this.accounts.accounts(serverId, integrationId).find((account) => account.accountId === accountId)
-      : state.connections.get(integrationId)
-    if (previous?.status === 'connected' && connection?.status === 'needs-sign-in') {
-      const name = state.integrations?.find((integration) => integration.id === integrationId)?.name ?? 'An MCP server'
-      this.onSignInExpired?.(serverId, name)
-    }
-    if (this.accounts.apply(serverId, event)) return
-    this.connectionEventsDuringLoad.get(serverId)?.add(integrationId)
-    if (connection) state.connections.set(integrationId, connection)
-    else state.connections.delete(integrationId)
-  }
-
-  private applyAuthFinished(serverId: string, event: IntegrationAuthFinishedEvent): void {
+  protected applyAuthFinished(serverId: string, event: IntegrationAuthFinishedEvent): void {
     if (this.accounts.finished(serverId, event)) return
     const flowId = hostFlowId(this.states.get(serverId)?.connectFlows.get(event.integrationId))
     if (!flowId || flowId !== event.flowId) return
@@ -731,7 +405,7 @@ class IntegrationsStore {
   }
 
   /** The host is gone: a flow that waits on it cannot report its end here. Reconnect reloads the connections. */
-  private dropHostFlows(serverId: string): void {
+  protected dropHostFlows(serverId: string): void {
     const state = this.states.get(serverId)
     if (!state) return
     for (const [integrationId, flow] of state.connectFlows) {
@@ -761,7 +435,7 @@ class IntegrationsStore {
     return `${serverId}\u0000${integrationId}`
   }
 
-  private nextAttempt(serverId: string, integrationId: string): number {
+  protected nextAttempt(serverId: string, integrationId: string): number {
     const key = this.flowKey(serverId, integrationId)
     const attempt = (this.flowAttempts.get(key) ?? 0) + 1
     this.flowAttempts.set(key, attempt)
@@ -777,7 +451,7 @@ class IntegrationsStore {
     this.states.get(serverId)?.connectFlows.set(integrationId, flow)
   }
 
-  private clearFlow(serverId: string, integrationId: string): void {
+  protected clearFlow(serverId: string, integrationId: string): void {
     this.clearExpiry(serverId, integrationId)
     this.states.get(serverId)?.connectFlows.delete(integrationId)
   }
@@ -791,25 +465,4 @@ class IntegrationsStore {
     this.cloudPolls.delete(key)
   }
 
-  private upsert(serverId: string, integration: Integration): void {
-    const state = this.states.get(serverId)
-    if (!state?.integrations) return
-    this.states.set(serverId, { ...state, integrations: upsertById(state.integrations, integration) })
-  }
-
-  private drop(serverId: string, integrationId: string): void {
-    const state = this.states.get(serverId)
-    if (!state) return
-    state.tools.delete(integrationId)
-    state.processes.forget(integrationId)
-    state.toolErrors.delete(integrationId)
-    state.connections.delete(integrationId)
-    this.nextAttempt(serverId, integrationId)
-    this.clearFlow(serverId, integrationId)
-    if (state.integrations?.some((item) => item.id === integrationId)) {
-      this.states.set(serverId, { ...state, integrations: state.integrations.filter((item) => item.id !== integrationId) })
-    }
-  }
 }
-
-export const integrationsStore = new IntegrationsStore()

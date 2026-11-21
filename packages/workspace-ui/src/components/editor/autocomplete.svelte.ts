@@ -26,7 +26,7 @@ import {
   type SlashCommand,
   type CategorizedSlashCommands,
 } from "../input/slash-commands";
-import { type WorkspaceContext, type PlanStore } from "../../contexts";
+import { resourceAttachments, type WorkspaceContext, type PlanStore } from "../../contexts";
 import type { PrsStore } from "../../contexts/prs/prs.store.svelte";
 import {
   autocompleteSelectionAction,
@@ -55,14 +55,12 @@ import { ReferenceIndex } from "./unified-autocomplete/reference-index.svelte";
 import type { FleetMachine } from "../fleet/lib/fleet-model";
 import { autocompleteSessionChangedFiles } from "./autocomplete-scope";
 import { serverConnections } from "@solus/client-core/server-connections";
-import { integrationPromptsStore } from "../input/lib/integration-prompts.store.svelte";
+import { mcpStore } from "../../contexts/mcp";
 import type { McpPromptChoice } from "../input/lib/mcp-prompt-composer.svelte";
 import { mcpPromptItems } from "./unified-autocomplete/mcp-prompt-items";
 import type { IntegrationResource, IntegrationResourceTemplate } from "@solus/contracts/integration-types";
 import { templateArgumentFields } from "@solus/client-core/integration-prompts";
 import { atMenuFooter } from "./unified-autocomplete/footer";
-import { integrationResourceLists } from "../settings/integration-resource-lists.svelte";
-import { integrationResources } from "../settings/integration-resources.store.svelte";
 
 export { filterPlanAutocompleteDescriptors } from "./unified-autocomplete/reference-index.svelte";
 
@@ -252,7 +250,7 @@ export class UnifiedAutocompleteController {
   #mcpPromptList = $derived.by(() => {
     const serverId = this.deps.serverId?.();
     if (!serverId || !this.deps.onMcpPrompt?.()) return null;
-    return integrationPromptsStore.listFor(serverId, this.#mcpProjectPath());
+    return mcpStore.prompts.listFor(serverId, this.#mcpProjectPath());
   });
 
   #mcpPromptItems = $derived.by((): MenuItem[] =>
@@ -305,10 +303,10 @@ export class UnifiedAutocompleteController {
   #resourceItems = $derived.by((): MenuItem[] => {
     if (!this.deps.onResource?.()) return [];
     const serverId = this.#resourceServerId();
-    const integrations = integrationResources.integrationsOf(serverId);
+    const integrations = resourceAttachments.integrationsOf(serverId);
     const projectPath = this.#mcpProjectPath();
     const serverOf = (integrationId: string) => integrations.find((candidate) => candidate.id === integrationId);
-    const lists = integrationResourceLists.listFor(serverId, projectPath);
+    const lists = mcpStore.resources.listFor(serverId, projectPath);
     const resources = lists.resources.flatMap((entry) => {
       const integration = serverOf(entry.integrationId);
       return integration ? [resourceMenuItem(entry, integration)] : [];
@@ -489,8 +487,8 @@ export class UnifiedAutocompleteController {
     if (trigger.char === "@" && this.#warmedForAnchor !== trigger.anchor) {
       this.#warmedForAnchor = trigger.anchor;
       if (this.deps.onResource?.()) {
-        integrationResources.loadInstalled();
-        integrationResourceLists.ensure(this.#resourceServerId(), this.#mcpProjectPath());
+        resourceAttachments.loadInstalled();
+        mcpStore.resources.ensure(this.#resourceServerId(), this.#mcpProjectPath());
       }
     }
     if (trigger.char === "/" && this.#warmedForAnchor !== trigger.anchor) {
@@ -543,7 +541,7 @@ export class UnifiedAutocompleteController {
   /** Opening `/` reads the MCP prompts once if they were never read; a kept list stays fresh through host events. */
   #warmMcpPrompts() {
     const serverId = this.deps.serverId?.();
-    if (serverId && this.deps.onMcpPrompt?.()) integrationPromptsStore.ensure(serverId, this.#mcpProjectPath());
+    if (serverId && this.deps.onMcpPrompt?.()) mcpStore.prompts.ensure(serverId, this.#mcpProjectPath());
   }
 
   /** One key, one index: opening `#` warms all six categories concurrently,

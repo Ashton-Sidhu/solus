@@ -3,7 +3,7 @@
    * The caller's own connection to one integration, and the sign-in that changes
    * it (docs/plans/mcp-integrations.md §4). Shared by the Settings row and the
    * conversation's connect card, so the two never disagree about a flow: the
-   * flow lives in `integrationsStore`, and only the typed value lives here.
+   * flow lives in `mcpStore.integrations`, and only the typed value lives here.
    *
    * A pasted API key stays in this field for one call and is cleared after it.
    * A command's connection is the person's environment values
@@ -22,7 +22,7 @@
   import { Input } from "../ui/input";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import McpCommandValues from "./McpCommandValues.svelte";
-  import { integrationsStore } from "./integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { connectionStatusText, IntegrationLabels } from "./lib/integration-labels";
 
   interface Props {
@@ -39,7 +39,7 @@
   const valueDrafts = new SvelteMap<string, string>();
   let rootEl = $state<HTMLDivElement | null>(null);
 
-  const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostState = $derived(mcpStore.integrations.states.get(serverId));
   const connection = $derived(hostState?.connections.get(integrationId) ?? null);
   const flow = $derived(hostState?.connectFlows.get(integrationId) ?? null);
   const isOffline = $derived(!!hostState?.isDisconnected);
@@ -58,7 +58,7 @@
   // The card can stand before any Settings page has read this host.
   $effect(() => {
     const hostId = serverId;
-    return untrack(() => integrationsStore.watch(hostId));
+    return untrack(() => mcpStore.integrations.watch(hostId));
   });
 
   /** After an action, the caret goes to the next control the person needs. */
@@ -68,8 +68,8 @@
   }
 
   async function runAction() {
-    if (status.action === "Disconnect") await integrationsStore.disconnect(serverId, integrationId);
-    else await integrationsStore.connect(serverId, integrationId);
+    if (status.action === "Disconnect") await mcpStore.integrations.disconnect(serverId, integrationId);
+    else await mcpStore.integrations.connect(serverId, integrationId);
     await focusNextControl();
   }
 
@@ -77,7 +77,7 @@
     event.preventDefault();
     const submitted = value;
     value = "";
-    if (!(await integrationsStore.submit(serverId, integrationId, submitted))) value = submitted;
+    if (!(await mcpStore.integrations.submit(serverId, integrationId, submitted))) value = submitted;
     await focusNextControl();
   }
 
@@ -86,14 +86,14 @@
     event.preventDefault();
     const values = names.map((name) => ({ name, value: valueDrafts.get(name) ?? "" }));
     valueDrafts.clear();
-    await integrationsStore.submitValues(serverId, integrationId, values);
+    await mcpStore.integrations.submitValues(serverId, integrationId, values);
     await focusNextControl();
   }
 
   function cancel() {
     value = "";
     valueDrafts.clear();
-    void integrationsStore.cancel(serverId, integrationId);
+    void mcpStore.integrations.cancel(serverId, integrationId);
     void focusNextControl();
   }
 
@@ -151,7 +151,7 @@
       {:else if hostState.connectionsStatus === "error"}
         <div class="flex flex-wrap items-center gap-2">
           <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">Could not read your connection.</p>
-          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.loadConnections(serverId)} disabled={isOffline}>Retry</Button>
+          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadConnections(serverId)} disabled={isOffline}>Retry</Button>
         </div>
       {:else if compact && flow?.kind === "failed"}
         <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{flow.message}</p>
@@ -163,14 +163,14 @@
       {/if}
     </div>
     {#if compact && hostState?.connectionsStatus === "error"}
-      <TranscriptCardAction disabled={isOffline} onclick={() => integrationsStore.loadConnections(serverId)}>Retry</TranscriptCardAction>
+      <TranscriptCardAction disabled={isOffline} onclick={() => mcpStore.integrations.loadConnections(serverId)}>Retry</TranscriptCardAction>
     {:else if showAction && compact && status.action !== "Disconnect"}
       <TranscriptCardAction kind="filled" disabled={isOffline || !!connectHint} onclick={runAction}>{actionLabel}</TranscriptCardAction>
     {:else if showAction}
       <div class="flex flex-wrap items-center gap-2">
         {#if valuesText?.hasValues}
           <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" aria-label="Change the values of {integrationName}"
-            disabled={isOffline} onclick={() => integrationsStore.connect(serverId, integrationId).then(focusNextControl)}>Change values</Button>
+            disabled={isOffline} onclick={() => mcpStore.integrations.connect(serverId, integrationId).then(focusNextControl)}>Change values</Button>
         {/if}
         <Button variant={status.action === "Disconnect" ? "ghost" : "outline"} size="sm"
           class="text-workspace-chrome pointer-coarse:min-h-11 {status.action === 'Disconnect' ? 'text-muted-foreground hover:text-destructive' : ''}"
@@ -190,9 +190,9 @@
       <p class="min-w-0 flex-1 text-workspace-chrome text-muted-foreground">{flow.through === "cloud" ? "Finish signing in in your browser. Solus Cloud keeps the connection for every host." : "Finish signing in in your browser"}</p>
       {#if compact}
         {#if flow.input === "callback"}{@render ghostAction("Cancel", cancel)}{/if}
-        <TranscriptCardAction kind="filled" onclick={() => integrationsStore.openInBrowser(flow.url)}>Open sign-in<ExternalLink size={14} aria-hidden="true" /></TranscriptCardAction>
+        <TranscriptCardAction kind="filled" onclick={() => mcpStore.integrations.openInBrowser(flow.url)}>Open sign-in<ExternalLink size={14} aria-hidden="true" /></TranscriptCardAction>
       {:else}
-        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.openInBrowser(flow.url)}>
+        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.openInBrowser(flow.url)}>
           Open sign-in<ExternalLink size={14} />
         </Button>
         {#if flow.input === "callback"}{@render ghostAction("Cancel", cancel)}{/if}

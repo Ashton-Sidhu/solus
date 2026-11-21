@@ -136,10 +136,10 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     isDestroyed = true
     stopIntegrations?.()
   })
-  void afterPaint().then(() => import('../../components/settings/integrations.store.svelte')).then(({ integrationsStore }) => {
+  void afterPaint().then(() => import('../mcp/mcp.store.svelte')).then(({ mcpStore }) => {
     if (isDestroyed) return
     // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
-    integrationsStore.useCloudSignIn({
+    mcpStore.integrations.useCloudSignIn({
       requests: accountAgentProfileRequests,
       accountUserId: () => (accountStore.state.kind === 'signed-in' ? accountStore.state.identity.sub : null),
       pullHosts: async (serverId) => {
@@ -148,7 +148,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
       },
       setTimer: browserSyncClock.setTimer,
     })
-    stopIntegrations = integrationsStore.listen((_serverId, integrationName) => {
+    stopIntegrations = mcpStore.integrations.listen((_serverId, integrationName) => {
       toasts.error(`${integrationName} needs you to sign in again`, {
         description: 'Its sign-in expired, so agents cannot use its tools.',
         duration: 10_000,

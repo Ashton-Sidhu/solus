@@ -10,8 +10,8 @@ const integrations = [
   { id: 'keyed', auth: { kind: 'bearer', scheme: 'bearer' } },
 ]
 
-mock.module('@solus/workspace-ui/components/settings/integrations.store.svelte', () => ({
-  integrationsStore: { states: new Map([['studio', { integrations }]]), connection: () => null },
+mock.module('@solus/workspace-ui/contexts/mcp', () => ({
+  mcpStore: { integrations: { states: new Map([['studio', { integrations }]]), connection: () => null } },
 }))
 mock.module('@solus/workspace-ui/contexts', () => ({ connectionsStore: {} }))
 mock.module('@solus/workspace-ui/contexts/atlassian/atlassian.store.svelte', () => ({ atlassianStore: {} }))

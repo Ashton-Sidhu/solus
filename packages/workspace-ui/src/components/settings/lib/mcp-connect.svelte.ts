@@ -2,7 +2,7 @@ import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { SetupHandoff, type IntegrationSetupNeed } from '@solus/contracts/integrations/setup-handoff'
 import { SvelteSet } from 'svelte/reactivity'
-import { integrationsStore } from '../integrations.store.svelte'
+import { mcpStore } from '../../../contexts/mcp'
 import { IntegrationLabels, type ConnectStep } from './integration-labels'
 import type { McpCatalog } from './mcp-catalog.svelte'
 import { envNamesOf, McpCommandForm } from './mcp-command.svelte'
@@ -55,13 +55,13 @@ export class McpConnect {
 
   get integration(): Integration | null {
     const id = this.integrationId
-    return id ? integrationsStore.states.get(this.serverId)?.integrations?.find((item) => item.id === id) ?? null : null
+    return id ? mcpStore.integrations.states.get(this.serverId)?.integrations?.find((item) => item.id === id) ?? null : null
   }
 
   get step(): ConnectStep {
     if (this.command && !this.isCommandStarted) return 'command'
     const integration = this.integration
-    return integration ? new IntegrationLabels(integration).connectStep(integrationsStore.connection(this.serverId, integration.id)) : 'adding'
+    return integration ? new IntegrationLabels(integration).connectStep(mcpStore.integrations.connection(this.serverId, integration.id)) : 'adding'
   }
 
   /** The reason the last Add stopped, while no record exists. */
@@ -82,7 +82,7 @@ export class McpConnect {
     return new SetupHandoff(need, {
       name: this.integration?.name ?? this.request.name,
       url: this.integration?.url ?? this.request.url,
-      callbackUrl: need === 'oauth-client' ? integrationsStore.oauthRedirectUrl(this.serverId) : undefined,
+      callbackUrl: need === 'oauth-client' ? mcpStore.integrations.oauthRedirectUrl(this.serverId) : undefined,
       guideUrl: this.request.authHelp,
     })
   }
@@ -93,7 +93,7 @@ export class McpConnect {
       const state = this.catalog.installs.get(this.request.url)
       return state?.kind === 'failed' ? state.setupNeed ?? null : null
     }
-    return new IntegrationSignIn(integration).setupNeedFor(integrationsStore.connection(this.serverId, integration.id))
+    return new IntegrationSignIn(integration).setupNeedFor(mcpStore.integrations.connection(this.serverId, integration.id))
   }
 
   /**
@@ -118,7 +118,7 @@ export class McpConnect {
   private isSendingValues = $state(false)
 
   private get processes() {
-    return integrationsStore.states.get(this.serverId)?.processes
+    return mcpStore.integrations.states.get(this.serverId)?.processes
   }
 
   /**
@@ -137,15 +137,15 @@ export class McpConnect {
       this.integrationId = integration.id
     }
     const values = form.takeValues()
-    const hasValues = integrationsStore.connection(this.serverId, integration.id)?.status === 'connected'
+    const hasValues = mcpStore.integrations.connection(this.serverId, integration.id)?.status === 'connected'
     if (values) {
       this.isSendingValues = true
-      const saved = await integrationsStore.submitValues(this.serverId, integration.id, values)
+      const saved = await mcpStore.integrations.submitValues(this.serverId, integration.id, values)
       this.isSendingValues = false
       if (!saved) {
-        const flow = integrationsStore.connectFlow(this.serverId, integration.id)
+        const flow = mcpStore.integrations.connectFlow(this.serverId, integration.id)
         form.problem = { field: 'envNames', reason: flow?.kind === 'values' && flow.error ? flow.error : 'The host did not save the values.' }
-        await integrationsStore.cancel(this.serverId, integration.id)
+        await mcpStore.integrations.cancel(this.serverId, integration.id)
         return
       }
     } else if (envNamesOf(integration).length > 0 && !hasValues) {
@@ -184,11 +184,11 @@ export class McpConnect {
     if (!integration || this.isSaving) return
     this.isSaving = true
     this.saveError = ''
-    const saved = await integrationsStore.update(this.serverId, { id: integration.id, disabledTools: [...this.disabledDraft] })
+    const saved = await mcpStore.integrations.update(this.serverId, { id: integration.id, disabledTools: [...this.disabledDraft] })
     this.isSaving = false
     if (!saved) {
-      this.saveError = integrationsStore.states.get(this.serverId)?.writeError || 'Could not save the tools. Try again.'
-      integrationsStore.clearWriteError(this.serverId)
+      this.saveError = mcpStore.integrations.states.get(this.serverId)?.writeError || 'Could not save the tools. Try again.'
+      mcpStore.integrations.clearWriteError(this.serverId)
       return
     }
     this.addedHere = false
@@ -205,9 +205,9 @@ export class McpConnect {
     }
     // Remove stops the process too; a command kept stops only a start that runs.
     if (this.command && !this.addedHere && this.processes?.isStarting(id)) await this.processes.stop(id)
-    const flow = integrationsStore.connectFlow(this.serverId, id)
-    if (flow && flow.kind !== 'failed') await integrationsStore.cancel(this.serverId, id)
-    if (this.addedHere) await integrationsStore.remove(this.serverId, id)
+    const flow = mcpStore.integrations.connectFlow(this.serverId, id)
+    if (flow && flow.kind !== 'failed') await mcpStore.integrations.cancel(this.serverId, id)
+    if (this.addedHere) await mcpStore.integrations.remove(this.serverId, id)
   }
 
   private seedDraft(integration: Integration): void {

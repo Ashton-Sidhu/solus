@@ -10,7 +10,7 @@
   import { connectRequestStore, type CustomServerConnectRequest } from "../../contexts/connections/connect-request.store.svelte";
   import { Input } from "../ui/input";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
-  import { integrationsStore } from "../settings/integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { customUrlProblem, urlHost } from "../settings/lib/integration-labels";
   import { McpInstalls } from "../settings/lib/mcp-installs.svelte";
 
@@ -32,7 +32,7 @@
   const install = $derived(adds.installs.get(url));
   const isAdding = $derived(!!install && install.kind !== "failed");
   const failure = $derived(install?.kind === "failed" ? install : null);
-  const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostState = $derived(mcpStore.integrations.states.get(serverId));
   const isOffline = $derived(!!hostState?.isDisconnected);
   const error = $derived(problem ?? failure?.message ?? null);
   const setupHandoff = $derived(
@@ -40,7 +40,7 @@
       ? new SetupHandoff(failure.setupNeed, {
           name,
           url,
-          callbackUrl: failure.setupNeed === "oauth-client" ? integrationsStore.oauthRedirectUrl(serverId) : undefined,
+          callbackUrl: failure.setupNeed === "oauth-client" ? mcpStore.integrations.oauthRedirectUrl(serverId) : undefined,
         })
       : null,
   );

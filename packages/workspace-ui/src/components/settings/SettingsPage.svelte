@@ -46,7 +46,7 @@
   import { SearchField } from "../ui/search-field";
   import SettingsSections from "./SettingsSections.svelte";
   import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
-  import { integrationsStore } from "./integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import {
     mcpSearchWords as mcpSearch,
     analyticsSearchWords as analyticsSearch,
@@ -78,7 +78,7 @@
     return (
       settingsPageMatches(tab.id, query) ||
       wordsMatch(query, [tab.label, tab.description, ...(SEARCH_WORDS[tab.id] ?? [])]) ||
-      (tab.id === "mcp" && wordsMatch(query, integrationsStore.names())) ||
+      (tab.id === "mcp" && wordsMatch(query, mcpStore.integrations.names())) ||
       (tab.id === "agent-profile" && wordsMatch(query, agentProfileSearchWords(agentProfileLocalStore.entries))) ||
       dataMatches(tab.id, query, settings.keybindings)
     );
@@ -383,7 +383,7 @@
   $effect(() => {
     const serverId = selectedSettingsHost?.serverId;
     if (!serverId) return;
-    return untrack(() => integrationsStore.watch(serverId));
+    return untrack(() => mcpStore.integrations.watch(serverId));
   });
 
   let searchInputEl = $state<HTMLInputElement | null>(null);
@@ -479,7 +479,7 @@
  ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
  : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground active:bg-[var(--wash-1)]'}"
       >
-        <Icon size={15} strokeWidth={1.5} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}{#if tab.id === "mcp" && integrationsStore.attentionCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{integrationsStore.attentionCount} MCP servers need attention">{integrationsStore.attentionCount}</span>{/if}
+        <Icon size={15} strokeWidth={1.5} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}{#if tab.id === "mcp" && mcpStore.integrations.attentionCount > 0}<span class="text-xs font-normal tabular-nums opacity-60" aria-label="{mcpStore.integrations.attentionCount} MCP servers need attention">{mcpStore.integrations.attentionCount}</span>{/if}
       </button>
     {/each}
   </div>
@@ -616,7 +616,7 @@
                         >{tab.label}</span
                       >
                       {#if tab.id === "api-access" && hostUpdatesStore.pendingCount > 0}<span class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums" aria-label="{hostUpdatesStore.pendingCount} updates available">{hostUpdatesStore.pendingCount}</span>{/if}
-                      {#if tab.id === "mcp" && integrationsStore.attentionCount > 0}<span class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums" aria-label="{integrationsStore.attentionCount} MCP servers need attention">{integrationsStore.attentionCount}</span>{/if}
+                      {#if tab.id === "mcp" && mcpStore.integrations.attentionCount > 0}<span class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums" aria-label="{mcpStore.integrations.attentionCount} MCP servers need attention">{mcpStore.integrations.attentionCount}</span>{/if}
                     </Sidebar.MenuButton>
                   </Sidebar.MenuItem>
                 {/each}

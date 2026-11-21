@@ -6,7 +6,8 @@ import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
-const { integrationsStore: store } = await import('@solus/workspace-ui/components/settings/integrations.store.svelte')
+const { mcpStore } = await import('@solus/workspace-ui/contexts/mcp')
+const store = mcpStore.integrations
 type CloudSignInPort = Parameters<typeof store.useCloudSignIn>[0] & object
 const { connectionStatusText, IntegrationLabels } = await import('@solus/workspace-ui/components/settings/lib/integration-labels')
 

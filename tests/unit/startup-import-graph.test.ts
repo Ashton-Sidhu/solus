@@ -143,11 +143,12 @@ const DEFERRED_COMPONENTS = [
   'packages/workspace-ui/src/components/work/WorkPane.svelte',
   'packages/workspace-ui/src/components/layout/CompanionSurfaceStrip.svelte',
   'apps/client/src/routes/HostlessHome.svelte',
-  // Devices load at their first event (device-feature.ts); the MCP sign-ins
-  // after the first paint (app-core.ts). Both then follow every host.
+  // Devices load at their first event (device-feature.ts); the MCP store, with
+  // its sign-ins, after the first paint (app-core.ts). Both then follow every host.
   'packages/workspace-ui/src/contexts/devices/devices.store.svelte.ts',
   'packages/workspace-ui/src/components/devices/lib/device-entry.ts',
-  'packages/workspace-ui/src/components/settings/integrations.store.svelte.ts',
+  'packages/workspace-ui/src/contexts/mcp/mcp.store.svelte.ts',
+  'packages/workspace-ui/src/contexts/mcp/integrations.store.svelte.ts',
   // An app's surface and its Manage page load when an app opens, and the apps
   // store after the first paint (app-deploy-open.svelte.ts). Startup keeps only
   // the rule that opens an app beside the conversation that deployed it.

@@ -1,5 +1,5 @@
 import type { VaultConnection, VaultProvider } from '@solus/contracts/vault'
-import type { CloudSignInPort } from '../settings/integrations.store.svelte'
+import type { CloudSignInPort } from '../../contexts/mcp'
 import { accountReadFailureText, providerAccountStatus, type AccountConnectionStatus } from './lib/cloud-connections'
 
 /** The account calls this store uses: the same port the integrations store signs in through. */

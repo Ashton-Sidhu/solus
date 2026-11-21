@@ -19,7 +19,7 @@
   import type { HostMediaRequest } from '../../lib/host-media-url.svelte'
   import { attachmentUploads } from './lib/attachment-uploads.svelte'
   import { uploadProgressPercent } from './lib/attachment-upload'
-  import { integrationResources } from '../settings/integration-resources.store.svelte'
+  import { resourceAttachments } from '../../contexts'
   import type { Attachment } from '@solus/contracts/types'
 
   interface Props {
@@ -66,7 +66,7 @@
       {@const isVideo = !!host && isVideoAttachment(a)}
       {@const upload = attachmentUploads.stateFor(a.id)}
       {@const marks = isAnnotation ? browserMarkChips(a) : []}
-      {@const resourceIcon = integrationResources.chipIcon(a.id)}
+      {@const resourceIcon = resourceAttachments.chipIcon(a.id)}
       <!-- One animated root per item (Svelte requires the `animate:` element to
            be the each's only child); the branch lives inside. A browser
            annotation is not one chip: it is one chip per mark, in pin order,

@@ -1,5 +1,5 @@
 import type { CatalogCategoryId, CatalogEntry } from '@solus/contracts/integration-types'
-import { integrationsStore } from '../integrations.store.svelte'
+import { mcpStore } from '../../../contexts/mcp'
 import { McpInstalls } from './mcp-installs.svelte'
 
 export const CATALOG_PAGE_SIZE = 24
@@ -59,7 +59,7 @@ export class McpCatalog extends McpInstalls {
     this.loadingMore = false
     this.error = ''
     try {
-      const page = await integrationsStore.catalogPage(this.serverId, this.query.trim(), this.category, 0, CATALOG_PAGE_SIZE)
+      const page = await mcpStore.integrations.catalogPage(this.serverId, this.query.trim(), this.category, 0, CATALOG_PAGE_SIZE)
       if (sequence !== this.sequence) return
       this.entries = page.entries
       this.total = page.total
@@ -78,7 +78,7 @@ export class McpCatalog extends McpInstalls {
     const sequence = this.sequence
     this.loadingMore = true
     try {
-      const page = await integrationsStore.catalogPage(this.serverId, this.query.trim(), this.category, this.entries.length, CATALOG_PAGE_SIZE)
+      const page = await mcpStore.integrations.catalogPage(this.serverId, this.query.trim(), this.category, this.entries.length, CATALOG_PAGE_SIZE)
       if (sequence !== this.sequence) return
       const shown = new Set(this.entries.map((entry) => entry.id))
       this.entries.push(...page.entries.filter((entry) => !shown.has(entry.id)))

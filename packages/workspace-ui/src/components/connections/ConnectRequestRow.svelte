@@ -23,7 +23,7 @@
   import GitHubConnectForm from "./GitHubConnectForm.svelte";
   import IntegrationConnectForm from "../settings/IntegrationConnectForm.svelte";
   import IntegrationOAuthClientForm from "../settings/IntegrationOAuthClientForm.svelte";
-  import { integrationsStore } from "../settings/integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { IntegrationLabels } from "../settings/lib/integration-labels";
   import { connectRequestCopy } from "./lib/connect-card-copy";
   import { connectsInOneLine } from "./lib/connect-card-layout";
@@ -42,9 +42,9 @@
   const status = $derived(connectRequestStatus(request));
   const connected = $derived(status === "connected");
   const integrationId = $derived(request.kind === "integration" ? request.integrationId : null);
-  const hostState = $derived(integrationId ? integrationsStore.states.get(serverId) : undefined);
-  const setupHandoff = $derived(integrationId ? integrationsStore.setupHandoff(serverId, integrationId) : null);
-  const integrationNeedingClient = $derived(integrationId ? integrationsStore.integrationNeedingClient(serverId, integrationId) : null);
+  const hostState = $derived(integrationId ? mcpStore.integrations.states.get(serverId) : undefined);
+  const setupHandoff = $derived(integrationId ? mcpStore.integrations.setupHandoff(serverId, integrationId) : null);
+  const integrationNeedingClient = $derived(integrationId ? mcpStore.integrations.integrationNeedingClient(serverId, integrationId) : null);
   const isOneLine = $derived.by(() => {
     if (!integrationId) return false;
     const integration = hostState?.integrations?.find((item) => item.id === integrationId);
@@ -62,7 +62,7 @@
   $effect(() => {
     if (request.kind === "account") return;
     const hostId = serverId;
-    return untrack(() => integrationsStore.watch(hostId));
+    return untrack(() => mcpStore.integrations.watch(hostId));
   });
 </script>
 
@@ -100,7 +100,7 @@
           <TranscriptCardAction
             kind="filled"
             disabled={hostState?.isDisconnected}
-            onclick={() => void integrationsStore.connect(serverId, integrationId)}
+            onclick={() => void mcpStore.integrations.connect(serverId, integrationId)}
           >
             Connect
           </TranscriptCardAction>

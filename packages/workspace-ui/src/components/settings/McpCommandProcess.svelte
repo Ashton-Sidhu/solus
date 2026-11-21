@@ -10,7 +10,7 @@
   import type { CommandProcessActionKind } from "@solus/contracts/integrations/command-server";
   import type { Integration } from "@solus/contracts/integration-types";
   import { Button } from "../ui/button";
-  import { integrationsStore } from "./integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
 
   interface Props {
     serverId: string;
@@ -24,7 +24,7 @@
 
   let rootEl = $state<HTMLDivElement | null>(null);
 
-  const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostState = $derived(mcpStore.integrations.states.get(serverId));
   const isOffline = $derived(!!hostState?.isDisconnected);
   const status = $derived(hostState?.processes.statusOf(integration, hostState.connections.get(integration.id), mayRunCommands));
   const processError = $derived(hostState?.processes.errorOf(integration.id));

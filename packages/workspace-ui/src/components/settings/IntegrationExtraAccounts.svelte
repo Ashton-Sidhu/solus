@@ -9,7 +9,7 @@
   import type { Integration } from "@solus/contracts/integration-types";
   import { IntegrationSignIn } from "@solus/contracts/integrations/integration-sign-in";
   import { Button } from "../ui/button";
-  import { integrationsStore } from "./integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { connectionStatusText } from "./lib/integration-labels";
 
   interface Props {
@@ -19,10 +19,10 @@
 
   let { serverId, integration }: Props = $props();
 
-  const accounts = $derived(integrationsStore.accounts.accounts(serverId, integration.id));
-  const adding = $derived(integrationsStore.accounts.addState(serverId, integration.id));
-  const first = $derived(integrationsStore.connection(serverId, integration.id));
-  const isOffline = $derived(!!integrationsStore.states.get(serverId)?.isDisconnected);
+  const accounts = $derived(mcpStore.integrations.accounts.accounts(serverId, integration.id));
+  const adding = $derived(mcpStore.integrations.accounts.addState(serverId, integration.id));
+  const first = $derived(mcpStore.integrations.connection(serverId, integration.id));
+  const isOffline = $derived(!!mcpStore.integrations.states.get(serverId)?.isDisconnected);
   /** One more account signs in only beside a connected first one, and only with OAuth. */
   const canAdd = $derived(new IntegrationSignIn(integration).acceptsAnotherAccount && first?.status === "connected");
 </script>
@@ -36,7 +36,7 @@
           {account.label ?? "Another account"}<span class="text-muted-foreground"> · {account.status === "connected" ? "Connected" : status.text}</span>
         </p>
         <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground hover:text-destructive pointer-coarse:min-h-11" disabled={isOffline}
-          aria-label="Disconnect {account.label ?? 'this account'}" onclick={() => integrationsStore.accounts.disconnect(serverId, integration.id, account.accountId)}>Disconnect</Button>
+          aria-label="Disconnect {account.label ?? 'this account'}" onclick={() => mcpStore.integrations.accounts.disconnect(serverId, integration.id, account.accountId)}>Disconnect</Button>
       </div>
     {/each}
     {#if adding?.url}
@@ -44,13 +44,13 @@
         <p role="status" class="flex min-w-0 flex-1 items-center gap-2 text-workspace-chrome text-muted-foreground">
           <LoaderCircle size={14} class="shrink-0 animate-spin motion-reduce:animate-none" />Finish signing in to the other account in your browser
         </p>
-        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => adding.url && integrationsStore.openInBrowser(adding.url)}>Reopen<ExternalLink size={14} /></Button>
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => integrationsStore.accounts.cancelAdd(serverId, integration.id)}>Cancel</Button>
+        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => adding.url && mcpStore.integrations.openInBrowser(adding.url)}>Reopen<ExternalLink size={14} /></Button>
+        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.accounts.cancelAdd(serverId, integration.id)}>Cancel</Button>
       </div>
     {:else if canAdd}
       <div>
         <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" disabled={isOffline || (adding !== null && !adding.error)}
-          onclick={() => integrationsStore.accounts.add(serverId, integration.id, (url) => integrationsStore.openInBrowser(url))}>
+          onclick={() => mcpStore.integrations.accounts.add(serverId, integration.id, (url) => mcpStore.integrations.openInBrowser(url))}>
           <Plus size={14} />Add another account
         </Button>
       </div>

@@ -29,7 +29,7 @@
   import McpCommandFields from "./McpCommandFields.svelte";
   import McpCommandProcess from "./McpCommandProcess.svelte";
   import { McpCommandForm } from "./lib/mcp-command.svelte";
-  import { integrationsStore } from "./integrations.store.svelte";
+  import { mcpStore } from "../../contexts/mcp";
   import { hosts } from "../../contexts";
   import { IntegrationLabels, urlHost } from "./lib/integration-labels";
 
@@ -53,7 +53,7 @@
   /** The open editor of a command's line, folder, and names. */
   let commandEditor = $state<McpCommandForm | null>(null);
 
-  const hostState = $derived(integrationsStore.states.get(serverId));
+  const hostState = $derived(mcpStore.integrations.states.get(serverId));
   const connection = $derived(hostState?.connections.get(integration.id) ?? null);
   const flow = $derived(hostState?.connectFlows.get(integration.id) ?? null);
   const labels = $derived(new IntegrationLabels(integration));
@@ -87,13 +87,13 @@
     const next = new Set(integration.disabledTools);
     if (isOn) next.delete(toolName);
     else next.add(toolName);
-    void integrationsStore.update(serverId, { id: integration.id, disabledTools: [...next] });
+    void mcpStore.integrations.update(serverId, { id: integration.id, disabledTools: [...next] });
   }
 
   // Tools load once the row is open and the host can list them; never for a server the person has not connected, or one that does not run.
   $effect(() => {
     if (isOpen && toolsListable && !isNotRunning && !hostState?.tools.has(integration.id) && !hostState?.toolErrors.has(integration.id)) {
-      void integrationsStore.loadTools(serverId, integration.id);
+      void mcpStore.integrations.loadTools(serverId, integration.id);
     }
   });
 
@@ -106,13 +106,13 @@
   async function saveRename() {
     const name = renameDraft.trim();
     if (!name || name === integration.name) { isRenaming = false; return; }
-    if (await integrationsStore.update(serverId, { id: integration.id, name })) isRenaming = false;
+    if (await mcpStore.integrations.update(serverId, { id: integration.id, name })) isRenaming = false;
   }
 
   /** A command without values asks for them in place: there is no sign-in page. */
   function enterValues() {
     if (!isOpen) onToggle();
-    void integrationsStore.connect(serverId, integration.id);
+    void mcpStore.integrations.connect(serverId, integration.id);
   }
 
   function editCommand() {
@@ -127,12 +127,12 @@
   /** The confirm opens beside the menu button once the menu has closed and handed focus back. */
   function startRemove() {
     isRenaming = false;
-    integrationsStore.clearWriteError(serverId);
+    mcpStore.integrations.clearWriteError(serverId);
     requestAnimationFrame(() => { isConfirmingRemove = true; });
   }
 
   async function remove() {
-    if (await integrationsStore.remove(serverId, integration.id)) {
+    if (await mcpStore.integrations.remove(serverId, integration.id)) {
       isConfirmingRemove = false;
       onRemoved();
     }
@@ -200,7 +200,7 @@
   {:else if toolError}
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{toolError}</p>
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.loadTools(serverId, integration.id)}>Retry</Button>
+      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => mcpStore.integrations.loadTools(serverId, integration.id)}>Retry</Button>
     </div>
   {:else if !list}
     <p role="status" class="flex items-center gap-2 text-workspace-chrome text-muted-foreground"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Loading tools…</p>

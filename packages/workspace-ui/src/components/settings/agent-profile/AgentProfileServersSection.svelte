@@ -18,7 +18,7 @@
   import SettingsSection from "../SettingsSection.svelte";
   import McpServerIcon from "../McpServerIcon.svelte";
   import McpConnectDialog from "../McpConnectDialog.svelte";
-  import { integrationsStore } from "../integrations.store.svelte";
+  import { mcpStore } from "../../../contexts/mcp";
   import { McpCatalog } from "../lib/mcp-catalog.svelte";
   import type { ConnectRequest } from "../lib/mcp-connect.svelte";
   import { customUrlProblem, probeRefusal, urlHost } from "../lib/integration-labels";
@@ -36,7 +36,7 @@
 
   let { integrations, probeHostId, hostLabel }: Props = $props();
 
-  const hostState = $derived(probeHostId ? integrationsStore.states.get(probeHostId) : undefined);
+  const hostState = $derived(probeHostId ? mcpStore.integrations.states.get(probeHostId) : undefined);
   /** The rows show a status only when the host can say one. */
   const showsStatus = $derived(!!hostState && !hostState.isUnsupported && !hostState.error);
   const isHostOffline = $derived(!!hostState?.isDisconnected);
@@ -47,7 +47,7 @@
   $effect(() => {
     const hostId = probeHostId;
     if (!hostId) return;
-    return untrack(() => integrationsStore.watch(hostId));
+    return untrack(() => mcpStore.integrations.watch(hostId));
   });
 
   onDestroy(() => connectCatalog?.dispose());
@@ -97,7 +97,7 @@
     checking = true;
     problem = null;
     try {
-      const attempt = await integrationsStore.probe(hostId, address);
+      const attempt = await mcpStore.integrations.probe(hostId, address);
       if ("error" in attempt) {
         problem = attempt.error;
         return;

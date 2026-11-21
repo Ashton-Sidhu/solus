@@ -1,7 +1,7 @@
 import { connectionsStore } from '../../../contexts'
 import { atlassianStore } from '../../../contexts/atlassian/atlassian.store.svelte'
 import type { ConnectRequest } from '../../../contexts/connections/connect-request.store.svelte'
-import { integrationsStore } from '../../settings/integrations.store.svelte'
+import { mcpStore } from '../../../contexts/mcp'
 
 /**
  * Where one row of the connect card stands. `external` is a sign-in that ends
@@ -14,9 +14,9 @@ export type ConnectRequestStatus = 'pending' | 'connected' | 'external'
 export function connectRequestStatus(request: ConnectRequest): ConnectRequestStatus {
   if (request.kind === 'integration') {
     // A server with no sign-in has no connection record, so its auth is the answer.
-    const integration = integrationsStore.states.get(request.serverId)?.integrations?.find((item) => item.id === request.integrationId)
+    const integration = mcpStore.integrations.states.get(request.serverId)?.integrations?.find((item) => item.id === request.integrationId)
     if (integration?.auth.kind === 'none') return 'connected'
-    return integrationsStore.connection(request.serverId, request.integrationId)?.status === 'connected' ? 'connected' : 'pending'
+    return mcpStore.integrations.connection(request.serverId, request.integrationId)?.status === 'connected' ? 'connected' : 'pending'
   }
   if (request.kind === 'custom-server') return 'pending'
   if (request.accountConnectionsUrl) return 'external'

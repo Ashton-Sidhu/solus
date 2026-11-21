@@ -1,7 +1,7 @@
 import type { IntegrationPrompt, IntegrationPromptSignIn } from '@solus/contracts/integrations/prompts'
 import { worktreeProjectRoot, type Attachment } from '@solus/contracts/types'
 import { filledArguments, promptFromLine, promptStart, type ArgumentValue } from '@solus/client-core/integration-prompts'
-import { integrationPromptsStore } from './integration-prompts.store.svelte'
+import { mcpStore } from '../../../contexts/mcp'
 
 /**
  * MCP prompts in one composer (docs/plans/mcp-first-class.md §10): a row of
@@ -51,7 +51,7 @@ export function useMcpPromptComposer(deps: McpPromptComposerDeps) {
     const serverId = deps.serverId()
     // The lists are kept for the project, so every worktree of it shares one (§10).
     const projectPath = deps.projectPath()
-    return serverId ? integrationPromptsStore.listFor(serverId, projectPath && worktreeProjectRoot(projectPath)).prompts : []
+    return serverId ? mcpStore.prompts.listFor(serverId, projectPath && worktreeProjectRoot(projectPath)).prompts : []
   }
 
   async function expand(prompt: IntegrationPrompt, values: ArgumentValue[]): Promise<void> {
@@ -61,7 +61,7 @@ export function useMcpPromptComposer(deps: McpPromptComposerDeps) {
     const sessionId = deps.sessionId()
     const draftId = deps.draftId()
     try {
-      const answer = await integrationPromptsStore.expand(serverId, {
+      const answer = await mcpStore.prompts.expand(serverId, {
         integrationId: prompt.integrationId,
         name: prompt.name,
         arguments: filledArguments(values),

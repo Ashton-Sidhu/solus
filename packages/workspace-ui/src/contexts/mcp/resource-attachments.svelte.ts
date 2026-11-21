@@ -3,9 +3,9 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { resourceAttachRequest, type AttachedIntegrationResource, type Integration } from '@solus/contracts/integration-types'
 import type { Attachment, IpcContext } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
-import { attachmentUploads } from '../input/lib/attachment-uploads.svelte'
-import type { integrationsStore } from './integrations.store.svelte'
-import { serverIconUrl } from './lib/integration-labels'
+import { attachmentUploads } from '../../components/input/lib/attachment-uploads.svelte'
+import { serverIconUrl } from '../../components/settings/lib/integration-labels'
+import type { IntegrationsStore } from './integrations.store.svelte'
 
 /** The server an attached resource came from, for its chip's icon. */
 interface ResourceChipServer {
@@ -15,19 +15,18 @@ interface ResourceChipServer {
 
 /**
  * The MCP resources a person attaches from the `@` menu, and their chips
- * (docs/plans/mcp-first-class.md §11.3). The lists the menu matches on are in
- * `integration-resource-lists.svelte.ts`, which loads with the menu, not with
- * the first screen.
+ * (docs/plans/mcp-first-class.md §11.3). The lists the menu matches on are
+ * `mcpStore.resources`, which loads with the menu, not with the first screen.
  */
-class IntegrationResourcesStore {
+class ResourceAttachments {
   /** Chips of attached resources, by attachment id. */
   private readonly chips = new SvelteMap<string, ResourceChipServer>()
   /**
    * The installed integrations, which name a resource's server. Read on the
-   * first `@`, not with the first screen: the app loads that store after paint
+   * first `@`, not with the first screen: the app loads `mcpStore` after paint
    * (`app-core.ts`, startup-import-graph).
    */
-  private installed = $state<typeof integrationsStore | null>(null)
+  private installed = $state<IntegrationsStore | null>(null)
   private installing: Promise<void> | null = null
 
   /** The host's installed integrations, once the first `@` loaded them. */
@@ -37,7 +36,7 @@ class IntegrationResourcesStore {
 
   /** Loads the installed integrations once; the menu calls it when `@` opens. */
   loadInstalled(): void {
-    this.installing ??= import('./integrations.store.svelte').then((module) => { this.installed = module.integrationsStore })
+    this.installing ??= import('./mcp.store.svelte').then((module) => { this.installed = module.mcpStore.integrations })
   }
 
   /** The logo of the server an attached resource came from, for its chip; undefined for any other attachment. */
@@ -78,4 +77,4 @@ class IntegrationResourcesStore {
   }
 }
 
-export const integrationResources = new IntegrationResourcesStore()
+export const resourceAttachments = new ResourceAttachments()

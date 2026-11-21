@@ -18,7 +18,8 @@ afterAll(() => {
 
 const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
-const { integrationPromptsStore } = await import('@solus/workspace-ui/components/input/lib/integration-prompts.store.svelte')
+const { mcpStore } = await import('@solus/workspace-ui/contexts/mcp')
+const integrationPromptsStore = mcpStore.prompts
 const { useMcpPromptComposer } = await import('@solus/workspace-ui/components/input/lib/mcp-prompt-composer.svelte')
 
 /**

@@ -1,5 +1,5 @@
 import type { IntegrationResourceLists } from '@solus/contracts/integration-types'
-import { HostProjectLists } from '../../lib/host-project-lists.svelte'
+import { HostProjectLists } from './host-project-lists.svelte'
 
 /**
  * The caller's MCP resources on each host, for the `@` menu
@@ -9,9 +9,13 @@ import { HostProjectLists } from '../../lib/host-project-lists.svelte'
  * lists again, so a list-changed notification on the server reaches the menu.
  * A host that cannot list, or fails, has no section.
  */
-export const integrationResourceLists = new HostProjectLists<IntegrationResourceLists>({
-  // An older host has no `integrationResourceList`, and a failed list shows no section (§11.4).
-  read: (api, projectPath) => api.integrationResourceList(projectPath ? { projectPath } : {}),
-  empty: { resources: [], templates: [] },
-  rereadOn: ['integration.changed'],
-})
+export class IntegrationResourceListsStore extends HostProjectLists<IntegrationResourceLists> {
+  constructor() {
+    super({
+      // An older host has no `integrationResourceList`, and a failed list shows no section (§11.4).
+      read: (api, projectPath) => api.integrationResourceList(projectPath ? { projectPath } : {}),
+      empty: { resources: [], templates: [] },
+      rereadOn: ['integration.changed'],
+    })
+  }
+}

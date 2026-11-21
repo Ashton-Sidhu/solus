@@ -108,6 +108,9 @@ export { agentProfileLocalStore } from './seats/agent-profile-local.store.svelte
 export { presenceStore } from './presence/presence.store.svelte'
 export type { SeatRequest } from './seats/seats.store.svelte'
 
+/** MCP resource chips. The rest of MCP is `mcpStore` (`./mcp`), off the first screen. */
+export { resourceAttachments } from './mcp/resource-attachments.svelte'
+
 /** Session sidebar navigation and historical-session loading. */
 export { getSessionSidebarStore } from './workspace/session-sidebar.store.svelte'
 
