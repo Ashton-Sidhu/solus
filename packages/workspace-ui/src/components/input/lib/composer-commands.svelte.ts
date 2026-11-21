@@ -47,6 +47,8 @@ interface ComposerCommandOptions {
   targetTabId?: string;
   draftId?: string;
   composerCwd: string;
+  /** The folder the MCP lists are kept for: the run's project. */
+  mcpProjectPath: string;
   pluginCommands: PluginCommandsResult;
   onDispatch?: (text: string, delivery: PromptDelivery) => boolean;
   onDispatchInBackground?: (text: string) => boolean;
@@ -151,7 +153,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   let mcpPrompts = $state<McpPromptComposer | null>(null);
   void import('./mcp-prompt-composer.svelte').then(({ useMcpPromptComposer }) => mcpPrompts = useMcpPromptComposer({
     serverId: () => runHost(getOptions().run),
-    projectPath: () => getOptions().composerCwd || undefined,
+    projectPath: () => getOptions().mcpProjectPath || undefined,
     sessionId: () => getOptions().sessionId,
     draftId: () => getOptions().draftId,
     send: (text, attachments) => {

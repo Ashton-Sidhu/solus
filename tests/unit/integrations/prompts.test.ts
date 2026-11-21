@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -252,6 +253,26 @@ describe('MCP prompts', () => {
       expect((await withActingScope(HOST_SCOPE, () => integrationPromptList(gateway, HOST_ACTOR, projectB))).prompts).toEqual([])
       records.length = 0
       expect((await withActingScope(HOST_SCOPE, () => integrationPromptList(gateway, HOST_ACTOR, projectA))).prompts).toEqual([])
+    } finally {
+      await gateway.close()
+    }
+  })
+
+  test('a worktree of a project lists what the project root lists, so a client keeps one list for the project', async () => {
+    // WHY: desktop and mobile key the MCP lists by the project root; the host must answer that key as it answers each worktree.
+    const root = mkdtempSync(join(workDir, 'repo-'))
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, stdio: 'ignore' })
+    git('init', '-q')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'first')
+    const worktree = join(root, '.git', 'solus', 'worktrees', 'one')
+    git('worktree', 'add', '-q', '-b', 'one', worktree)
+    const scoped: Integration = { ...base, projectKey: withActingScope(HOST_SCOPE, () => resolveProjectKey(worktree)) }
+    const gateway = new IntegrationGateway({ get: (id) => (id === scoped.id ? scoped : null), list: () => [scoped] })
+    try {
+      const inWorktree = await withActingScope(HOST_SCOPE, () => integrationPromptList(gateway, HOST_ACTOR, worktree))
+      const inRoot = await withActingScope(HOST_SCOPE, () => integrationPromptList(gateway, HOST_ACTOR, realpathSync(root)))
+      expect(inWorktree.prompts.length).toBeGreaterThan(0)
+      expect(inRoot).toEqual(inWorktree)
     } finally {
       await gateway.close()
     }

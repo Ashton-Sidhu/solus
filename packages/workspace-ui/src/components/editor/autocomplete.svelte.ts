@@ -78,6 +78,8 @@ export interface AutocompleteDeps {
    *  detached editor has no session and therefore no session-file group. */
   sessionId?: () => string | undefined;
   workingDirectory: () => string | undefined;
+  /** The folder the MCP prompt and resource lists are kept for: the run's project. Absent, the working directory. */
+  mcpProjectPath?: () => string | undefined;
   /** The hosts of this client, for the `#` menu's Hosts category. */
   hosts: () => readonly FleetMachine[];
   useRelativeFilePaths: () => boolean;
@@ -252,7 +254,7 @@ export class UnifiedAutocompleteController {
   #mcpPromptList = $derived.by(() => {
     const serverId = this.deps.serverId?.();
     if (!serverId || !this.deps.onMcpPrompt?.()) return null;
-    return integrationPromptsStore.listFor(serverId, this.deps.workingDirectory());
+    return integrationPromptsStore.listFor(serverId, this.#mcpProjectPath());
   });
 
   #mcpPromptItems = $derived.by((): MenuItem[] =>
@@ -291,6 +293,10 @@ export class UnifiedAutocompleteController {
       .filter((item) => !open.has(item.token.kind === "file" ? item.token.path : ""));
   });
 
+  #mcpProjectPath(): string | undefined {
+    return this.deps.mcpProjectPath?.() ?? this.deps.workingDirectory();
+  }
+
   /** The host whose MCP resources `@` lists: the run's, else the tab's. */
   #resourceServerId(): string {
     return this.deps.serverId?.() ?? this.deps.session.serverIdFor(this.deps.tabId());
@@ -300,7 +306,7 @@ export class UnifiedAutocompleteController {
     if (!this.deps.onResource?.()) return [];
     const serverId = this.#resourceServerId();
     const integrations = integrationResources.integrationsOf(serverId);
-    const projectPath = this.deps.workingDirectory();
+    const projectPath = this.#mcpProjectPath();
     const serverOf = (integrationId: string) => integrations.find((candidate) => candidate.id === integrationId);
     const lists = integrationResourceLists.listFor(serverId, projectPath);
     const resources = lists.resources.flatMap((entry) => {
@@ -484,7 +490,7 @@ export class UnifiedAutocompleteController {
       this.#warmedForAnchor = trigger.anchor;
       if (this.deps.onResource?.()) {
         integrationResources.loadInstalled();
-        integrationResourceLists.ensure(this.#resourceServerId(), this.deps.workingDirectory());
+        integrationResourceLists.ensure(this.#resourceServerId(), this.#mcpProjectPath());
       }
     }
     if (trigger.char === "/" && this.#warmedForAnchor !== trigger.anchor) {
@@ -537,7 +543,7 @@ export class UnifiedAutocompleteController {
   /** Opening `/` reads the MCP prompts once if they were never read; a kept list stays fresh through host events. */
   #warmMcpPrompts() {
     const serverId = this.deps.serverId?.();
-    if (serverId && this.deps.onMcpPrompt?.()) integrationPromptsStore.ensure(serverId, this.deps.workingDirectory());
+    if (serverId && this.deps.onMcpPrompt?.()) integrationPromptsStore.ensure(serverId, this.#mcpProjectPath());
   }
 
   /** One key, one index: opening `#` warms all six categories concurrently,

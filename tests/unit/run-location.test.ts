@@ -16,6 +16,7 @@ import {
   pendingClone,
   projectHome,
   projectRoot,
+  projectRootOnRunHost,
   remapHosts,
   runHost,
   startsWorktree,
@@ -131,6 +132,21 @@ describe('a Git answer', () => {
     const dispatched = openFolder(local(), { serverId: 'omarchy', path: '/home/me/solus' }, { keepProject: true })
     const answered = adoptGit(dispatched, { serverId: 'omarchy', path: '/home/me/solus' }, { ...main, repoRoot: '/home/me/solus' })
     expect(projectHome(run(answered))).toEqual({ serverId: 'mac', path: '/Users/me/solus' })
+  })
+})
+
+describe('the project root on the run host', () => {
+  test('every worktree of a project answers the project root, so they share its MCP lists', () => {
+    const worktreePath = '/Users/me/solus/.git/solus/worktrees/a'
+    const worktree = folderLocation({ serverId: 'mac', path: worktreePath }, { git: { ...main, worktreePath } })
+    expect(projectRootOnRunHost(run(worktree))).toBe('/Users/me/solus')
+    expect(projectRootOnRunHost(run(local()))).toBe('/Users/me/solus')
+  })
+
+  test('a dispatch answers none: its project folder is on another host', () => {
+    // WHY: the run host keys its lists by its own folders; a path from the home host names nothing there.
+    const dispatched = openFolder(local(), { serverId: 'omarchy', path: '/home/me/solus' }, { keepProject: true })
+    expect(projectRootOnRunHost(run(dispatched))).toBeNull()
   })
 })
 
