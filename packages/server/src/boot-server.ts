@@ -6,7 +6,6 @@ import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { SessionArchiveWriter } from './sync/sessions/session-archive-writer'
-import { loadSettledTurnRows } from './sync/sessions/settled-turn-rows'
 import { SessionPusher } from './sync/sessions/session-push'
 import { DelegatedSessionRemoteAccess } from './sync/sessions/session-remote-access'
 import { sessionCloudIdentity } from './sync/sessions/session-cloud-identity'
@@ -663,8 +662,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onCommit: sessionId => sessionPusher?.committed(sessionId),
     turnDiff: mirrorTurnDiff,
     threadFiles: async (provider, threadId, projectPath) => await opts.sessionRuntime.backendFor(provider).threadFiles?.(threadId, projectPath) ?? [],
-    turnRows: (provider, sessionId, projectPath, endedAt) => loadSettledTurnRows(endedAt,
-      before => opts.sessionRuntime.history.loadSessionPage({ provider, sessionId, projectPath, turnLimit: 1, before })),
   })
   opts.sessionRuntime.useSessionArchive(sessionArchive)
   sessionArchive.resume()

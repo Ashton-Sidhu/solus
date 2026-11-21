@@ -9,7 +9,7 @@ export interface RepositoryProvider {
   readonly storageScope: string
   /** The Git remote of a repository, made on the first call, with a token for that repository only. A local remote has no token. */
   remote(repository: string, access: 'read' | 'write'): Promise<{ url: string; token?: string }>
-  /** One file at `commit`, read with no clone. More than `maxBytes` gives `RepositoryFileTooLargeError`. */
-  readFile(repository: string, commit: string, path: string, maxBytes?: number): Promise<string>
+  /** One file at `commit`, read with no clone. */
+  readFile(repository: string, commit: string, path: string): Promise<string>
   remove(repository: string): Promise<void>
 }

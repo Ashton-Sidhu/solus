@@ -163,86 +163,34 @@ describe('session archive writer', () => {
     await writer.stop()
   })
 
-  // WHY: a late Git commit must stop at the history that belonged to its ended turn.
-  test('a pending turn keeps its projected rows after the next turn starts', async () => {
-    const transcript = join(tempDir('rows-thread'), 'thread.jsonl')
-    writeFileSync(transcript, 'first\n')
-    const repositories = new Repositories(tempDir('rows-repository'))
-    let latest = [{ role: 'user', content: 'first', timestamp: 1 }]
-    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => latest })
-    await writer.turnEnded(turnEnd())
-    latest = [{ role: 'user', content: 'second', timestamp: 2 }]
-    appendFileSync(transcript, 'second\n')
-    await writer.turnEnded(turnEnd())
-    await writer.idle()
-    const manifest = await readManifest(repositories)
-    const head = await repositories.named(REPOSITORY()).head()
-    expect(manifest.turns.map(turn => [turn.hasRows, turn.rowCount])).toEqual([[true, 1], [true, 2]])
-    expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).toContain('"first"')
-    expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).not.toContain('"second"')
-    await writer.stop()
-  })
-  // WHY: a failed history read must not lose the provider thread of an ended turn.
-  test('unreadable rows leave a turn commit with an absent row marker', async () => {
+  // WHY: the session repository is for a host that continues a session. A reader gets the
+  // rows and the diff of a turn from the transcript mirror, so a second copy in each turn
+  // commit has no reader.
+  test('a new turn commit stores no rows and no patch, and still holds the thread of the turn', async () => {
     const transcript = join(tempDir('no-rows'), 'thread.jsonl')
     writeFileSync(transcript, 'turn\n')
     const repositories = new Repositories(tempDir('no-rows-repository'))
-    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => { throw new Error('unreadable') } })
+    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript) })
     await writer.turnEnded(turnEnd())
     await writer.idle()
-    expect((await readManifest(repositories)).turns[0]).toMatchObject({ hasRows: false, rowCount: 0 })
-    expect(storageRow()?.head).toBeTruthy()
-    await writer.stop()
-  })
-  // WHY: the transcript mirror sends the rows of organization work. A second copy in each
-  // turn commit has no reader, so the host must not read or store it.
-  test('a turn commit of organization work stores no rows', async () => {
-    await records.upsertSessionRecord('org-a', { sessionId: SESSION, provider: 'claude-code', projectPath: '/project', lastActivityAt: 1 },
-      { organizationId: 'org-a', published: true, ownerKey: 'alice' })
-    const transcript = join(tempDir('organization-rows'), 'thread.jsonl')
-    writeFileSync(transcript, 'turn\n')
-    const repositories = new Repositories(tempDir('organization-rows-repository'))
-    let rowReads = 0
-    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => { rowReads += 1; return [{ role: 'user', content: 'first', timestamp: 1 }] } })
-    await writer.turnEnded(turnEnd({ organizationId: 'org-a' }))
-    await writer.idle()
-    const repository = repositories.named(repositoryName('org-a', SESSION))
+    const repository = repositories.named(REPOSITORY())
     const head = await repository.head()
-    const manifest = manifestSchema.parse(JSON.parse(await repository.readText(head!, 'manifest.json')))
-    expect(rowReads).toBe(0)
-    expect(manifest.turns[0]).toMatchObject({ hasRows: false, rowCount: 0 })
-    // The provider thread of the turn is still in the commit: another host continues from it.
-    expect(manifest.threads[0].files[0].parts).toEqual([0])
-    await expect(repository.readText(head!, 'rows/0.jsonl')).rejects.toThrow()
-    await writer.stop()
-  })
-  // WHY: a cloud history reader must not receive a tool result body from a turn commit.
-  test('projected Codex rows omit a large tool result body', async () => {
-    const transcript = join(tempDir('codex-rows'), 'rollout.jsonl')
-    writeFileSync(transcript, 'turn\n')
-    const repositories = new Repositories(tempDir('codex-rows-repository'))
-    const body = 'private result '.repeat(100_000)
-    const { projectSessionHistory } = await import('@solus/server/data/sessions/result-projection')
-    const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript),
-      turnRows: async () => projectSessionHistory([
-        { role: 'user', content: 'run command', timestamp: 1 },
-        { role: 'tool_result', content: body, timestamp: 2, toolResultForId: 'tool-1' },
-      ]),
-    })
-    await writer.turnEnded(turnEnd({ provider: 'codex' }))
-    await writer.idle()
-    const head = await repositories.named(REPOSITORY()).head()
-    const rows = await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')
-    expect(rows).not.toContain('private result')
-    expect(rows).toContain('"contentBytes":1500000')
-    await writer.stop()
-  })
-  // WHY: a host must still read the manifest of a turn made before row files existed.
-  test('an older manifest without row facts still parses', () => {
-    const manifest = manifestSchema.parse({ schemaVersion: 1, session: { id: SESSION, organizationId: 'local' }, threads: [], project: null,
-      turns: [{ operationId: 'old', endedAt: 1, provider: 'codex', threadId: THREAD, partial: false,
-        head: null, snapshots: [], bundle: null, hasDiff: false }] })
+    const manifest = await readManifest(repositories)
+    expect(manifest.turns[0]).toMatchObject({ hasDiff: false })
     expect(manifest.turns[0].hasRows).toBeUndefined()
+    expect(manifest.turns[0].rowCount).toBeUndefined()
+    expect(manifest.threads[0].files[0].parts).toEqual([0])
+    expect(git(repository.path, ['ls-tree', '-r', '--name-only', head!]).split('\n').sort()).toEqual(['manifest.json', `threads/${THREAD}/main/0`])
+    await writer.stop()
+  })
+  // WHY: no repository is written again. A host must still read the manifest of a turn
+  // made before row files existed, and of a turn that has a row file and a patch.
+  test('a manifest of an older commit still parses, with and without row and diff facts', () => {
+    const turn = { operationId: 'old', endedAt: 1, provider: 'codex', threadId: THREAD, partial: false, head: null, snapshots: [], bundle: null }
+    const manifest = manifestSchema.parse({ schemaVersion: 1, session: { id: SESSION, organizationId: 'local' }, threads: [], project: null,
+      turns: [{ ...turn, hasDiff: false }, { ...turn, operationId: 'with-files', hasDiff: true, hasRows: true, rowCount: 4 }] })
+    expect(manifest.turns[0].hasRows).toBeUndefined()
+    expect(manifest.turns[1]).toMatchObject({ hasDiff: true, hasRows: true, rowCount: 4 })
   })
   // WHY: a bundle requested at turn end must include the commit even while its transcript is still being captured.
   test('the per-session wait includes an in-progress capture and commit', async () => {
@@ -431,7 +379,7 @@ describe('session archive writer', () => {
     expect(pendingCount()).toBe(0)
     expect(manifest.project).toEqual({ repositoryKey: null, baseSha: git(hostA, ['rev-parse', 'HEAD']), ownsWorktree: false })
     expect(manifest.turns.map((turn) => [turn.snapshots.map((snapshot) => snapshot.index), turn.bundle?.kind, turn.hasDiff]))
-      .toEqual([[[0], 'written', true], [[1], 'written', true]])
+      .toEqual([[[0], 'written', false], [[1], 'written', false]])
 
     const hostB = tempDir('host-b')
     git(hostB, ['clone', origin, '.'])
@@ -443,85 +391,7 @@ describe('session archive writer', () => {
       git(hostB, ['fetch', bundle, spec])
       expect(git(hostB, ['rev-parse', `${bundleRef(SESSION, `${turn}/to`)}^{tree}`])).toBe(manifest.turns[turn].snapshots[0].toTreeSha)
     }
-    const patch = join(tempDir('patch'), '1.patch')
-    await repositories.named(REPOSITORY()).appendFiles(head!, ['diff/1.patch'], patch)
-    expect(readFileSync(patch, 'utf8')).toContain('turn-2.txt')
-    expect(readFileSync(patch, 'utf8')).not.toContain('turn-1.txt')
+    // The patch of a turn is the mirror's, not the commit's.
+    expect(git(repositories.named(REPOSITORY()).path, ['ls-tree', '-r', '--name-only', head!])).not.toContain('diff/')
   })
-})
-
-describe('settled row boundaries', () => {
-  for (const provider of ['claude-code', 'codex'] as const) {
-    // WHY: a provider can start the next turn before the ended turn's archive capture reads its history.
-    test(`${provider} finds the ended turn after the next turn starts`, async () => {
-      const { loadSettledTurnRows } = await import('@solus/server/sync/sessions/settled-turn-rows')
-      const pages = [
-        { messages: [{ role: 'user', content: 'next', timestamp: 200 }], before: 'older' },
-        { messages: [{ role: 'user', content: 'ended', timestamp: 100 }, { role: 'assistant', content: 'done', timestamp: 120 }], before: null },
-      ]
-      const calls: Array<string | undefined> = []
-      const rows = await loadSettledTurnRows(150, async before => { calls.push(before); return before ? pages[1] : pages[0] })
-      expect(rows?.map(row => row.content)).toEqual(['ended', 'done'])
-      expect(calls).toEqual([undefined, 'older'])
-    })
-    // WHY: two settled turns can wait for Git; each pending record must keep its own projected rows through a restart.
-    test(`${provider} keeps two captured turns distinct until commit`, async () => {
-      const transcript = join(tempDir(`${provider}-two-rows`), 'thread.jsonl')
-      writeFileSync(transcript, 'first\n')
-      let releaseCommit: (() => void) | undefined
-      const commitGate = new Promise<void>(resolve => { releaseCommit = resolve })
-      const repositories = withCommit(new Repositories(tempDir(`${provider}-two-repository`)), async (real, turn) => { await commitGate; return real(turn) })
-      let rows = [{ role: 'user', content: 'first', timestamp: 100 }]
-      const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows })
-      await writer.turnEnded(turnEnd({ provider, endedAt: 150 }))
-      rows = [{ role: 'user', content: 'second', timestamp: 200 }]
-      appendFileSync(transcript, 'second\n')
-      await writer.turnEnded(turnEnd({ provider, endedAt: 250 }))
-      expect(pendingCount()).toBe(2)
-      releaseCommit?.()
-      await writer.idle()
-      const head = await repositories.named(REPOSITORY()).head()
-      expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).toContain('first')
-      expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/1.jsonl')).toContain('second')
-      await writer.stop()
-    })
-  }
-})
-
-// WHY: a restart must commit the projected rows saved at turn end, not reread a later provider turn.
-test('restart uses pending turn rows', async () => {
-  const transcript = join(tempDir('restart-rows'), 'thread.jsonl')
-  writeFileSync(transcript, 'first\n')
-  let attempts = 0
-  const repositories = withCommit(new Repositories(tempDir('restart-row-repository')), async (real, turn) => {
-    if (++attempts === 1) throw new Error('Git stopped before commit')
-    return real(turn)
-  })
-  let rows = [{ role: 'user', content: 'first', timestamp: 100 }]
-  const writer = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows, retryMs: 60_000 })
-  await writer.turnEnded(turnEnd({ endedAt: 150 }))
-  await writer.idle()
-  expect(pendingCount()).toBe(1)
-  await writer.stop()
-  rows = [{ role: 'user', content: 'later', timestamp: 200 }]
-  const resumed = new Writer({ repositories, threadFiles: oneThreadFile(transcript), turnRows: async () => rows })
-  resumed.resume()
-  await resumed.idle()
-  const head = await repositories.named(REPOSITORY()).head()
-  expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).toContain('first')
-  expect(await repositories.named(REPOSITORY()).readText(head!, 'rows/0.jsonl')).not.toContain('later')
-  expect(pendingCount()).toBe(0)
-  await resumed.stop()
-})
-
-// WHY: capture can run after two later provider turns; it must still find the settled turn's start.
-test('a late capture skips two completed turns', async () => {
-  const { loadSettledTurnRows } = await import('@solus/server/sync/sessions/settled-turn-rows')
-  const pages = [
-    { messages: [{ role: 'user', content: 'third', timestamp: 300 }, { role: 'assistant', content: 'done', timestamp: 320 }], before: '1' },
-    { messages: [{ role: 'user', content: 'second', timestamp: 200 }, { role: 'assistant', content: 'done', timestamp: 220 }], before: '0' },
-    { messages: [{ role: 'user', content: 'first', timestamp: 100 }, { role: 'assistant', content: 'done', timestamp: 120 }], before: null },
-  ]
-  const rows = await loadSettledTurnRows(150, before => Promise.resolve(pages[before === undefined ? 0 : before === '1' ? 1 : 2]!))
-  expect(rows?.map(row => row.content)).toEqual(['first', 'done'])
 })

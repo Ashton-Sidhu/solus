@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { hostCliEnv } from '../../cli-env'
 import { isStorageRepositoryName, type StorageRepositoryKind } from '../../data/storage-repository-name'
-import { GitProcessError, runGit, type GitPolicy } from '../../git/git-process'
+import { runGit, type GitPolicy } from '../../git/git-process'
 
 /**
  * The Git storage layer (docs/adr/0004-shared-git-storage.md): the bare
@@ -43,8 +43,6 @@ export interface GitIo {
   input?: string | Buffer | Readable
   output?: Writable
   env?: NodeJS.ProcessEnv
-  /** The limit of a file read. More output gives `RepositoryFileTooLargeError`. */
-  maxBytes?: number
 }
 
 /** New content of one file: text or bytes, a whole file on disk, or the bytes `[from, to)` of a file on disk. */
@@ -65,11 +63,6 @@ export interface GitCommit {
   keepParentFiles: boolean
   /** The author and committer date. A retry with the same date and input gives the same commit. */
   date?: string
-}
-
-/** A file is larger than the limit that its reader gave. */
-export class RepositoryFileTooLargeError extends Error {
-  constructor() { super('The repository file is larger than the read limit.') }
 }
 
 /** Where the repository `name` of one feature is in the folder `root`. */
@@ -126,11 +119,9 @@ export class GitRepository {
       env: io.env,
       signal: signal && deadline ? AbortSignal.any([signal, deadline]) : signal ?? deadline,
       timeout: this.options.timeoutMs,
-      outputLimit: io.maxBytes ?? this.options.outputLimitBytes ?? MAX_TEXT_BYTES,
+      outputLimit: this.options.outputLimitBytes ?? MAX_TEXT_BYTES,
       input: io.input,
       output: io.output,
-    }).catch((error: Error) => {
-      throw io.maxBytes !== undefined && error instanceof GitProcessError && error.reason === 'output-limit' ? new RepositoryFileTooLargeError() : error
     })
   }
 
@@ -165,14 +156,14 @@ export class GitRepository {
     await writeFile(join(this.path, 'objects', 'info', 'alternates'), `${join(repositoryPath, 'objects')}\n`)
   }
 
-  /** The content of one file at `commit`. More than `maxBytes` gives `RepositoryFileTooLargeError`. */
-  async readBytes(commit: string, path: string, maxBytes?: number): Promise<Buffer> {
-    return this.gitBytes(['cat-file', 'blob', this.blobAt(commit, path)], { maxBytes })
+  /** The content of one file at `commit`. */
+  async readBytes(commit: string, path: string): Promise<Buffer> {
+    return this.gitBytes(['cat-file', 'blob', this.blobAt(commit, path)])
   }
 
   /** `readBytes` for a text file. */
-  async readText(commit: string, path: string, maxBytes?: number): Promise<string> {
-    return (await this.readBytes(commit, path, maxBytes)).toString('utf8')
+  async readText(commit: string, path: string): Promise<string> {
+    return (await this.readBytes(commit, path)).toString('utf8')
   }
 
   /** Append the content of each path at `commit`, in order, to `outFile`. */

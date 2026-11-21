@@ -15,8 +15,6 @@ import { WorkspaceRequestBudgets } from './limits'
 import { LIST_MY_SESSIONS_OPERATION_PATH } from '@solus/contracts/session-repositories'
 import { listPersonalSessionRepositories } from '../../data/sessions/session-repositories'
 import { getDatabase } from '../../db/database'
-import { requireScope } from '../../data/workspace/context'
-import type { SessionCloudReader } from '../../sync/sessions/session-cloud-reader'
 
 const log = createLogger('server', 'solus-api')
 
@@ -29,7 +27,6 @@ interface SolusApiRouterOptions {
   operations: WorkspaceOperations
   capabilities: WorkspaceCapabilities
   openApi: () => string
-  sessionReader?: SessionCloudReader
 }
 
 const WORK_BODY_BYTES = 16 * 1024 * 1024
@@ -111,12 +108,9 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
   })
   app.get(routes.sessionTurnDiff.path, async c => {
     query(c, routes.sessionTurnDiff.query)
-    requireScope(authority(c), 'sessions:read')
     const turnIndex = Number(c.req.param('turnIndex'))
     if (!Number.isSafeInteger(turnIndex) || turnIndex < 0) throw new SolusApiError(400, 'INVALID_REQUEST', 'Invalid turn index.')
-    return c.json(options.sessionReader
-      ? await options.sessionReader.diff(authority(c).principal, id(c, 'sessionId'), turnIndex)
-      : { status: 'not-available' as const })
+    return c.json(await operations.sessionTurnDiff(authority(c), id(c, 'sessionId'), turnIndex))
   })
 
   app.put(routes.putLink.path, limitBody(16 * 1024), async c => {

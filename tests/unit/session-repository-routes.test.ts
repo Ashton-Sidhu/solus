@@ -131,10 +131,9 @@ test('Artifacts receives the requested token scope through injected fetch', asyn
   expect(JSON.parse(String(requests.at(-1)?.init.body))).toMatchObject({ scope: 'read', ttl: 900 })
 })
 
-// WHY: the API must read one file at the recorded commit and stop before an oversized response enters memory.
-test('Artifacts file reads use the requested head and a byte cap', async () => {
+// WHY: a file read names the commit, so a reader never gets a file of a commit that the API has not accepted.
+test('Artifacts file reads use the requested head', async () => {
   const { ArtifactsRepositoryProvider } = await import('@solus/server/sync/git-storage/artifacts-repository-provider')
-  const { RepositoryFileTooLargeError } = await import('@solus/server/sync/git-storage/git-repository')
   const urls: string[] = []
   const fake = async (url: string | URL | Request) => {
     urls.push(String(url))
@@ -142,8 +141,7 @@ test('Artifacts file reads use the requested head and a byte cap', async () => {
   }
   const cloud = new ArtifactsRepositoryProvider('a'.repeat(32), 'sessions', 'server-secret', undefined, fake as typeof fetch)
   const repository = cloudSessionRepositoryName('person:alice', 'fixture')
-  expect(await cloud.readFile(repository, head, 'rows/0.jsonl', 5)).toBe('12345')
+  expect(await cloud.readFile(repository, head, 'rows/0.jsonl')).toBe('12345')
   expect(new URL(urls[0]!).searchParams.get('ref')).toBe(head)
   expect(new URL(urls[0]!).searchParams.get('path')).toBe('rows/0.jsonl')
-  await expect(cloud.readFile(repository, head, 'rows/0.jsonl', 4)).rejects.toBeInstanceOf(RepositoryFileTooLargeError)
 })

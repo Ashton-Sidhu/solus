@@ -47,6 +47,7 @@ export function remoteWorkspaceOperations(client: SolusApiClient): WorkspaceOper
     putLink: (_context, input) => call(() => client.request('putLink', { body: input })),
     deleteLink: (_context, input) => call(() => client.request('deleteLink', { body: input })),
     listSessionMessages: (_context, sessionId, query) => call(() => client.request('listSessionMessages', { id: sessionId, query })),
+    sessionTurnDiff: (_context, sessionId, turnIndex) => call(() => client.request('sessionTurnDiff', { id: sessionId, params: { turnIndex: String(turnIndex) } })),
     listInsights: (_context, query) => call(() => client.request('listInsights', { query })),
     getInsight: (_context, insightId) => call(() => client.request('getInsight', { id: insightId })),
     getInsightSpans: (_context, insightId) => call(() => client.request('getInsightSpans', { id: insightId })),

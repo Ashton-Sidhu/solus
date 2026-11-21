@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { isStorageRepositoryName } from '../../data/storage-repository-name'
-import { RepositoryFileTooLargeError } from './git-repository'
 import type { RepositoryProvider } from './repository-provider'
 
 const repositorySchema = z.object({ success: z.literal(true), result: z.object({ remote: z.string().url() }) })
@@ -68,25 +67,11 @@ export class ArtifactsRepositoryProvider implements RepositoryProvider {
     return { url, token: tokenSchema.parse(await issued.json()).result.plaintext }
   }
 
-  async readFile(repository: string, commit: string, path: string, maxBytes?: number): Promise<string> {
+  async readFile(repository: string, commit: string, path: string): Promise<string> {
     this.checkName(repository)
     const response = await this.request(`/repos/${repository}/file?${new URLSearchParams({ ref: commit, path })}`)
     if (!response.ok) throw new Error('The Artifacts repository file could not be read.')
-    if (maxBytes === undefined) return response.text()
-    const reader = response.body?.getReader()
-    if (!reader) throw new Error('The Artifacts file has no body.')
-    const parts: Uint8Array[] = []
-    let bytes = 0
-    try {
-      for (;;) {
-        const part = await reader.read()
-        if (part.done) break
-        bytes += part.value.byteLength
-        if (bytes > maxBytes) throw new RepositoryFileTooLargeError()
-        parts.push(part.value)
-      }
-    } finally { await reader.cancel().catch(() => {}) }
-    return Buffer.concat(parts).toString('utf8')
+    return response.text()
   }
 
   async remove(repository: string): Promise<void> {

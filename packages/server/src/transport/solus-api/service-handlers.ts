@@ -1,4 +1,4 @@
-import { authorize, permissionsFor } from '../../admission/access-policy'
+import { permissionsFor } from '../../admission/access-policy'
 import { wirePrincipalKind } from '../../admission/principal'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { z } from 'zod'
@@ -14,10 +14,11 @@ import { registerNotificationHubHandlers } from '../handlers/notification-hub-ha
 import { registerWorkLiveHandlers } from '../handlers/work-live-handlers'
 import type { WorkLiveManager } from '../../work-live/work-live-manager'
 import { registerCapabilityHandlers } from '../handlers/capability-handlers'
-import { recordScopeOf } from '../../admission/principal'
+import { recordScopeOf, type RecordScope } from '../../admission/principal'
 import { getSessionRecord } from '../../data/sessions/session-records'
-import { hasTranscript, readTranscript, readTranscriptPage } from '../../data/sessions/transcript-reads'
-import type { SessionCloudReader } from '../../sync/sessions/session-cloud-reader'
+import { readTranscript, readTranscriptPage } from '../../data/sessions/transcript-reads'
+import { readerMirrorScope } from '../../data/sessions/mirror-scope'
+import { turnDiffsOfPage } from '../../data/sessions/turn-diffs'
 import { deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
 import { MAX_SESSION_TOOL_INPUTS } from '@solus/contracts/session-history'
 import { appVersion } from '../../platform/paths'
@@ -25,7 +26,7 @@ import { registerWorkspaceProjectHandlers } from '../handlers/workspace-project-
 import { registerAssetHandlers } from '../handlers/asset-handlers'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { upsertSessionRecord } from '../../data/sessions/session-records'
-import { organizationForNew, type Principal } from '../../admission/principal'
+import { organizationForNew } from '../../admission/principal'
 import { activityFor, historyWindow, mergePageActivity, mergeWindowActivity, pageWindow, readActivityPageCursor, type ActivityWindow } from '../../data/activity/activity'
 import { getProvider } from '../../providers/registry'
 import { registerAuthHandlers } from '../handlers/auth-handlers'
@@ -33,7 +34,7 @@ import { registerAuthHandlers } from '../handlers/auth-handlers'
 /** The retained collaboration operations; record CRUD exists only on HTTP. */
 export function registerSolusApiHandlers(server: SolusServer, deps: {
   presence: { watch(clientId: string, sessionId: string): void; unwatch(clientId: string, sessionId: string): void }
-  shares: ShareManager; events: HostEventPublisher; workLive: WorkLiveManager; serviceId: string; host: string; port(): number; sessionReader?: SessionCloudReader
+  shares: ShareManager; events: HostEventPublisher; workLive: WorkLiveManager; serviceId: string; host: string; port(): number
 }): void {
   registerSharingHandlers(server, { shares: deps.shares })
   registerTasksHandlers(server, { attachmentsOnly: true })
@@ -66,11 +67,6 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     return provider.review.listRepositories()
   })
   registerAssetHandlers(server)
-  // Each session has one source of rows: the transcript mirror for an organization session,
-  // and the caller's own session repository (`sessionReader`) for a personal one.
-  const mirrored = async (principal: Principal, sessionId: string) =>
-    await hasTranscript(recordScopeOf(principal), sessionId)
-      && await authorize(principal, 'read.transcript', { kind: 'session', id: sessionId }, { name: 'loadSessionPage', resources: deps.shares }) === null
   server.register('sessionRecordUpsert', ([record], ctx) => {
     const organizationId = organizationForNew(ctx.principal)
     // A runner's new record is its person's (docs/plans/access-model.md §2.2).
@@ -90,37 +86,32 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     const record = await getSessionRecord(recordScopeOf(ctx.principal), sessionId)
     return { lineage: null, meta: record ? sessionMetaFromRecord(record) : null }
   })
+  // A reader's rows, activity, and turn diffs come from the mirror alone, in the scope
+  // `readerMirrorScope` gives: the session repository is for a host that continues a session.
   server.register('loadSessionPreview', async ([sessionId], ctx) => {
-    const scope = recordScopeOf(ctx.principal)
-    if (!await mirrored(ctx.principal, sessionId) && deps.sessionReader) return deps.sessionReader.preview(ctx.principal, sessionId)
-    const messages = await readTranscript(scope, sessionId)
+    const messages = await readTranscript(await readerMirrorScope(ctx.principal, sessionId), sessionId)
     return { head: messages.slice(0, 5), tail: messages.slice(5).slice(-5), totalMessages: messages.length }
   })
   // The mirrored history with the activity its runner mirrored beside it, placed as a host places it (plans/012 §5).
-  const sessionActivity = (principal: Principal, sessionId: string, window: ActivityWindow) => activityFor(recordScopeOf(principal), { kind: 'session', id: sessionId }, { window })
+  const sessionActivity = (scope: RecordScope, sessionId: string, window: ActivityWindow) => activityFor(scope, { kind: 'session', id: sessionId }, { window })
   server.register('loadSession', async ([sessionId, _path, _context, _provider, limit, options], ctx) => {
-    const scope = recordScopeOf(ctx.principal)
-    const history = await mirrored(ctx.principal, sessionId) || !deps.sessionReader
-      ? await readTranscript(scope, sessionId, limit) : (await deps.sessionReader.page(ctx.principal, sessionId)).messages
-    const messages = mergeWindowActivity(history, await sessionActivity(ctx.principal, sessionId, historyWindow(history, !!limit)), !!limit)
+    const scope = await readerMirrorScope(ctx.principal, sessionId)
+    const history = await readTranscript(scope, sessionId, limit)
+    const messages = mergeWindowActivity(history, await sessionActivity(scope, sessionId, historyWindow(history, !!limit)), !!limit)
     return options?.deferToolInputs ? deferSessionToolInputs(messages) : messages
   })
   server.register('loadSessionPage', async ([input], ctx) => {
     const request = z.object({ sessionId: z.string().min(1), turnLimit: z.number().int().min(1).max(100), before: z.string().max(16384).optional() }).parse(input)
     const cursor = readActivityPageCursor(request.before)
-    const scope = recordScopeOf(ctx.principal)
-    const page = await mirrored(ctx.principal, request.sessionId) || !deps.sessionReader
-      ? await readTranscriptPage(scope, request.sessionId, request.turnLimit, cursor.before)
-      : await deps.sessionReader.page(ctx.principal, request.sessionId, cursor.before)
-    const { messages, before } = mergePageActivity(page, await sessionActivity(ctx.principal, request.sessionId, pageWindow(page, cursor.at)), cursor.at)
-    return { messages: deferSessionToolInputs(messages), before, availability: page.availability, unavailableTurns: page.unavailableTurns, turnIndex: page.turnIndex }
+    const scope = await readerMirrorScope(ctx.principal, request.sessionId)
+    const page = await readTranscriptPage(scope, request.sessionId, request.turnLimit, cursor.before)
+    const turnDiffs = await turnDiffsOfPage(scope, request.sessionId, page, cursor.before)
+    const { messages, before } = mergePageActivity(page, await sessionActivity(scope, request.sessionId, pageWindow(page, cursor.at)), cursor.at)
+    return { messages: deferSessionToolInputs(messages), before, turnDiffs }
   })
   server.register('loadSessionToolInputs', async ([request], ctx) => {
     if (request.keys.length > MAX_SESSION_TOOL_INPUTS || request.keys.some(key => !/^[a-f0-9]{64}$/.test(key))) throw new Error('Invalid session tool input keys')
-    const scope = recordScopeOf(ctx.principal)
-    const messages = await mirrored(ctx.principal, request.sessionId) || !deps.sessionReader
-      ? await readTranscript(scope, request.sessionId) : (await deps.sessionReader.page(ctx.principal, request.sessionId)).messages
-    return selectSessionToolInputs(messages, request.keys)
+    return selectSessionToolInputs(await readTranscript(await readerMirrorScope(ctx.principal, request.sessionId), request.sessionId), request.keys)
   })
   server.register('watchSession', async ([{ sessionId }], ctx) => {
     const record = await getSessionRecord(recordScopeOf(ctx.principal), sessionId)

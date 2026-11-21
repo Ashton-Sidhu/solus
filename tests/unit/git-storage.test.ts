@@ -8,7 +8,7 @@ import { storageRepositoryName } from '@solus/server/data/storage-repository-nam
 import type { WorkArchiveOperation } from '@solus/server/data/works/git-work-storage'
 import { documentContentHash } from '@solus/server/docs/content-hash'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
-import { GitRepository, RepositoryFileTooLargeError } from '@solus/server/sync/git-storage/git-repository'
+import { GitRepository } from '@solus/server/sync/git-storage/git-repository'
 import { LocalGitRepositoryProvider } from '@solus/server/sync/git-storage/local-git-repository-provider'
 import type { RepositoryProvider } from '@solus/server/sync/git-storage/repository-provider'
 import { sessionRepositoryName } from '@solus/server/sync/sessions/session-repository'
@@ -115,10 +115,8 @@ test('a commit names a blob that only the remote has', async () => {
   expect(git(scratch.path, ['rev-parse', `${next}:bodies/older`])).toBe(older)
 })
 
-// WHY: the Solus API holds a session file in memory for a client, so a file
-// over its limit must stop the read. A provider of one feature must not open
-// the repository of the other feature.
-test('a local provider reads a file up to the limit and opens only the repositories of its feature', async () => {
+// WHY: a provider of one feature must not open the repository of the other feature.
+test('a local provider reads a file at a commit and opens only the repositories of its feature', async () => {
   const provider: RepositoryProvider = new LocalGitRepositoryProvider(join(root, 'sessions'), 'session')
   const repository = cloudSessionRepositoryName('person:alice', 'session-1')
   const { url } = await provider.remote(repository, 'write')
@@ -127,8 +125,7 @@ test('a local provider reads a file up to the limit and opens only the repositor
   await copy.setHead(head, null)
 
   expect(provider.storageScope).toBe(`file://${join(root, 'sessions')}`)
-  expect(await provider.readFile(repository, head, 'rows/0.jsonl', 5)).toBe('12345')
-  await expect(provider.readFile(repository, head, 'rows/0.jsonl', 4)).rejects.toBeInstanceOf(RepositoryFileTooLargeError)
+  expect(await provider.readFile(repository, head, 'rows/0.jsonl')).toBe('12345')
   await expect(provider.remote(storageRepositoryName('work', 'org-a', 'work-1'), 'write')).rejects.toThrow('Invalid session repository name')
   await expect(provider.remove('../outside')).rejects.toThrow('Invalid session repository name')
 })

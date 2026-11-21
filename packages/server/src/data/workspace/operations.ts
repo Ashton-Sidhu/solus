@@ -7,6 +7,7 @@ import type {
   WorkspaceNotificationArchived, WorkspaceNotificationPage, WorkspaceNotificationQuery, WorkspaceNotificationRead,
 } from '@solus/contracts/solus-api'
 import type { HubNotification, NotificationCount } from '@solus/contracts/notification-hub'
+import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 
 /** Transport-independent operations: HTTP and admitted in-process tools share these rules. */
@@ -36,6 +37,8 @@ export interface WorkspaceOperations {
   putLink(context: WorkspaceRequestContext, input: WorkspaceLink): Promise<void>
   deleteLink(context: WorkspaceRequestContext, input: WorkspaceLinkDelete): Promise<void>
   listSessionMessages(context: WorkspaceRequestContext, sessionId: string, query: WorkspacePageQuery): Promise<WorkspaceTranscriptPage>
+  /** The code changes of one ended turn, from the mirror. */
+  sessionTurnDiff(context: WorkspaceRequestContext, sessionId: string, turnIndex: number): Promise<SessionTurnDiff>
   listInsights(context: WorkspaceRequestContext, query: WorkspaceInsightQuery): Promise<WorkspaceInsightPage>
   getInsight(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsight>
   getInsightSpans(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsightTree>

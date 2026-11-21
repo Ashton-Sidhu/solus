@@ -26,6 +26,9 @@ import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { workspaceResourceVisibility } from '../tasks/resource-visibility'
 import { getSessionRecord, readSessionListPage, readSessionMetadataPage, sessionRecordsIndexing, upsertSessionRecord, type SessionPageReader } from './session-records'
 import { readApiTranscript } from './api-transcript'
+import { personOfMirrorScope, readerMirrorScope } from './mirror-scope'
+import { readTurnDiff } from './turn-diffs'
+import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
 import { admitSession, SessionAdmissionConflict, type SessionAdmission } from './session-identity'
 import { onSessionPullRequestsChanged, readSessionPullRequests } from './session-pull-requests'
 import { sessionsWithPendingAsyncQuestion } from './async-questions'
@@ -404,6 +407,22 @@ export class SessionApiOperations {
         }
       }),
     }
+  }
+
+  /**
+   * The code changes of one ended turn, from the mirror. A patch can hold code:
+   * an organization session needs a member with the standing that reads its
+   * transcript, and each other session is read in the caller's own person
+   * scope. A turn the caller may not read answers as a turn with no diff.
+   */
+  async turnDiff(context: WorkspaceRequestContext, sessionId: string, turnIndex: number): Promise<SessionTurnDiff> {
+    requireScope(context, 'sessions:read')
+    const scope = await readerMirrorScope(context.principal, sessionId)
+    const isPersonal = !isAnyOrganization(scope) && personOfMirrorScope(scope) !== null
+    const mayReadOrganization = context.principal.kind === 'org-member'
+      && await authorize(context.principal, 'read.transcript', { kind: 'session', id: sessionId }, { name: 'sessionTurnDiff', resources: this.shares }) === null
+    if (!isPersonal && !mayReadOrganization) return { status: 'not-available' }
+    return readTurnDiff(scope, sessionId, turnIndex)
   }
 
   async messages(context: WorkspaceRequestContext, sessionId: string, query: WorkspacePageQuery): Promise<WorkspaceTranscriptPage> {

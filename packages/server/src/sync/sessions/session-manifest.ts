@@ -59,11 +59,15 @@ const turnSchema = z.object({
   /** The snapshots of the session that this turn commit covers. */
   snapshots: z.array(turnSnapshotSchema),
   bundle: codeBundleSchema.nullable(),
-  /** True when `diff/<n>.patch` exists. */
+  /**
+   * True when `diff/<n>.patch` exists. A commit written before 2026-11-21 can have
+   * one. A new commit writes false: the transcript mirror holds the diff of a turn.
+   * The field stays required, so a host on an older release still reads the manifest.
+   */
   hasDiff: z.boolean(),
-  /** True when `rows/<n>.jsonl` exists. Absent in older commits. False for organization work (the transcript mirror has its rows) and when the history reader failed. */
+  /** True when `rows/<n>.jsonl` exists: only in a commit written before 2026-11-21. The transcript mirror holds the rows. */
   hasRows: z.boolean().optional(),
-  /** Number of projected rows through this turn; absent in older commits. */
+  /** Number of projected rows through this turn; only in a commit written before 2026-11-21. */
   rowCount: z.number().int().nonnegative().optional(),
 })
 

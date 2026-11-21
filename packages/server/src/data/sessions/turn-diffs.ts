@@ -1,10 +1,11 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import type { SessionTurnDiffRef } from '@solus/contracts/session-history'
+import type { SessionHistoryPage, SessionTurnDiffRef } from '@solus/contracts/session-history'
 import type { SessionTurnDiff } from '@solus/contracts/session-repositories'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase } from '../../db/database'
 import { scopeClause } from '../scope'
+import { transcriptRowTimestamp } from './transcript-reads'
 import { sessionTurnDiffs } from './transcript-schema'
 
 /**
@@ -36,4 +37,16 @@ export async function turnDiffsEndedIn(scope: RecordScope, sessionId: string, wi
     ORDER BY turn_index
   `))
   return rows.map((row) => ({ turnIndex: row.turn_index, endedAt: row.ended_at }))
+}
+
+/**
+ * The turn diffs of one mirrored history page (`readTranscriptPage`): the turns
+ * that ended from its first row up to the first row of the next newer page,
+ * which the cursor `before` names. Each diff is thus on one page only.
+ */
+export async function turnDiffsOfPage(scope: RecordScope, sessionId: string, page: SessionHistoryPage, before?: string): Promise<SessionTurnDiffRef[]> {
+  const from = page.messages[0]?.timestamp
+  if (from === undefined) return []
+  const until = before === undefined ? undefined : await transcriptRowTimestamp(scope, sessionId, before)
+  return turnDiffsEndedIn(scope, sessionId, { from, until })
 }

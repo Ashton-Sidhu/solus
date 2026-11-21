@@ -7,7 +7,6 @@ import { getDatabase } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { sessionTranscripts } from './transcript-schema'
-import { session } from './schema'
 
 /**
  * The workspace service's history reads (docs/plans/cloud-service-model.md §6):
@@ -71,10 +70,9 @@ export const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
 
 const rowSchema = z.object({ position: z.number(), message: z.string() })
 
-/** A mirrored session keeps its live source even if its repository is behind. */
+/** Whether the mirror holds a row of the session in `scope`. */
 export async function hasTranscript(scope: RecordScope, sessionId: string): Promise<boolean> {
-  const rows = await getDatabase().all(sql`SELECT t.position FROM ${sessionTranscripts} t JOIN ${session} s ON s.session_id = t.session_id AND s.organization_id = t.organization_id
-    WHERE ${scopeClause(scope, sql`t.organization_id`)} AND t.session_id = ${sessionId} AND s.publication = 'published' LIMIT 1`)
+  const rows = await getDatabase().all(sql`SELECT position FROM ${sessionTranscripts} WHERE ${scopeClause(scope)} AND session_id = ${sessionId} LIMIT 1`)
   return rows.length > 0
 }
 
@@ -169,6 +167,15 @@ function positionOf(cursor: string): number {
   const position = Number(cursor)
   if (!Number.isSafeInteger(position) || position < 0) throw new Error('Invalid history cursor')
   return position
+}
+
+/** When the row that a page cursor names was written; undefined when the mirror has no such row. */
+export async function transcriptRowTimestamp(scope: RecordScope, sessionId: string, cursor: string): Promise<number | undefined> {
+  const [row] = rowSchema.array().parse(await getDatabase().all(sql`
+    SELECT position, message FROM ${sessionTranscripts}
+    WHERE ${scopeClause(scope)} AND session_id = ${sessionId} AND position = ${positionOf(cursor)}
+  `))
+  return row ? messageSchema.parse(JSON.parse(row.message)).timestamp : undefined
 }
 
 const PAGE_SCAN_ROWS = 500

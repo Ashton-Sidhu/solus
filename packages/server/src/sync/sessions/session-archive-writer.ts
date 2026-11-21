@@ -6,15 +6,14 @@ import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import type { AgentId, PermissionMode, ReasoningEffort, SessionLineageMember, TurnSnapshot } from '@solus/contracts/types'
 import { sessionStarterSchema } from '@solus/contracts/session-starter'
-import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import { getSessionRecord, isOrganizationWork } from '../../data/sessions/session-records'
+import { getSessionRecord } from '../../data/sessions/session-records'
 import { readSessionStorage } from '../../data/sessions/session-storage'
 import { getDb, withTx } from '../../db'
 import { runAsync } from '../../git/exec'
 import { resolveRepoRoot, resolveRepositoryKey } from '../../git/git-helpers'
-import { writeTurnCodeBundle, writeTurnDiffPatch, type TurnCodeBundle } from '../../git/session-code-bundle'
+import { writeTurnCodeBundle, type TurnCodeBundle } from '../../git/session-code-bundle'
 import { getSessionBaseSha, getSessionPaths, listTurnSnapshots } from '../../git/session-snapshots'
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
@@ -28,7 +27,10 @@ const log = createLogger('SessionArchive', 'session-archive-writer.ts')
 
 /**
  * Writes each ended turn to the local session repository
- * (docs/plans/portable-sessions.md §7.2).
+ * (docs/plans/portable-sessions.md §7.2). The repository is for a host that
+ * continues the session: a turn commit holds the provider thread files and the
+ * code state. It holds no rows and no patch; a reader gets those from the
+ * transcript mirror (`sync/mirror/`).
  *
  * `turnEnded` records the turn in a durable row and answers; the turn commit is
  * built after that, one at a time on this host, so nothing in a turn waits for
@@ -81,7 +83,6 @@ const pendingTurnSchema = z.object({
   sessionPaths: z.object({ turnPaths: z.array(z.string()), sessionChangedFiles: z.array(z.string()) }).nullable().optional(),
   lastProjectRoot: z.string().nullable().optional(),
   files: z.array(z.object({ key: z.string(), relativePath: z.string(), path: z.string(), length: z.number() })),
-  rows: z.array(z.custom<WireSessionLoadMessage>()).nullable().optional(),
   /** The checkout facts when the turn ended; null for a session with no repository. */
   checkout: z.object({
     workTree: z.string(),
@@ -100,8 +101,6 @@ export interface SessionArchiveDeps {
   repositories: SessionRepositories
   /** The provider files of a thread on this host; empty for a provider that keeps none. */
   threadFiles(provider: AgentId, threadId: string, projectPath: string | undefined): Promise<ThreadFile[]>
-  /** Reads the newest settled user turn with the same projection as the mirror. Not called for organization work. */
-  turnRows?: (provider: AgentId, sessionId: string, projectPath: string | undefined, endedAt: number) => Promise<WireSessionLoadMessage[] | null>
   database?: () => DatabaseSync
   now?: () => number
   /** The wait before a failed turn commit is tried again; it doubles up to `MAX_RETRY_MS`. */
@@ -150,7 +149,7 @@ export class SessionArchiveWriter {
 
   private async record(turn: TurnEnd): Promise<void> {
     const pending = await this.capture(turn)
-    if (!pending.files.length && !pending.checkout && !pending.rows) return
+    if (!pending.files.length && !pending.checkout) return
     withTx(() => {
       const db = this.database()
       db.prepare('INSERT INTO session_storage (session_id, repository) VALUES (?, ?) ON CONFLICT(session_id) DO NOTHING')
@@ -211,9 +210,6 @@ export class SessionArchiveWriter {
       if (length !== null) files.push({ ...file, length })
     }
     const checkout = await this.checkoutOf(turn).catch(() => null)
-    // Capture before the Git queue runs. A later turn can start before this commit.
-    // The transcript mirror sends the rows of organization work, so its turn commit stores none.
-    const rows = isOrganizationWork(record) ? null : await this.captureRows(turn, endedAt)
     return {
       organizationId: turn.organizationId, provider: turn.provider, threadId: turn.threadId, partial: turn.partial, endedAt, files,
       title: record?.customTitle ?? record?.title ?? null,
@@ -222,15 +218,9 @@ export class SessionArchiveWriter {
       lineage: manifestLineage(resolveSessionLineageById(turn.sessionId, this.database())?.members ?? [], turn, !!record?.parentSessionId),
       lastProjectRoot: turn.projectPath ?? null,
       // A folder that cannot be read as a checkout still leaves the thread of the turn to write.
-      checkout, rows,
+      checkout,
       sessionPaths: checkout ? await getSessionPaths(checkout.repoRoot, turn.sessionId) : null,
     }
-  }
-
-  private async captureRows(turn: TurnEnd, endedAt: number): Promise<WireSessionLoadMessage[] | null> {
-    const rows = await this.deps.turnRows?.(turn.provider, turn.sessionId, turn.projectPath, endedAt).catch(() => null) ?? null
-    if (!rows) return null
-    return Buffer.byteLength(rows.map(row => JSON.stringify(row) + '\n').join('')) <= 4 * 1024 * 1024 ? rows : null
   }
 
   private async checkoutOf(turn: TurnEnd): Promise<PendingTurn['checkout']> {
@@ -329,17 +319,9 @@ export class SessionArchiveWriter {
         snapshots: [], bundle: null, hasDiff: false,
       }
       if (pending.checkout) entries.push(...await this.codeEntries(manifest, turn, index, pending.checkout, scratch))
-      const previousCount = manifest.turns.at(-1)?.rowCount ?? 0
-      const rowText = pending.rows?.map(row => JSON.stringify(row) + '\n').join('') ?? null
-      if (rowText !== null) {
-        turn.hasRows = true
-        turn.rowCount = previousCount + pending.rows!.length
-        entries.push({ path: `rows/${index}.jsonl`, content: rowText })
-      } else {
-        turn.hasRows = false
-        turn.rowCount = previousCount
-      }
-      if (!entries.length) return head
+      // A turn that changed files is recorded although no file of the commit is new: its snapshots are in the manifest.
+      const changedFiles = turn.snapshots.length > 0 && turn.snapshots[0]!.fromTreeSha !== turn.snapshots.at(-1)!.toTreeSha
+      if (!entries.length && !changedFiles) return head
       Object.assign(manifest.session, {
         title: pending.title ?? null, model: pending.model ?? null,
         reasoningEffort: pending.reasoningEffort ?? null, permissionMode: pending.permissionMode ?? null,
@@ -364,7 +346,7 @@ export class SessionArchiveWriter {
     }
   }
 
-  /** The code bundle and the diff patch of the snapshots this turn adds, with their facts written into `turn` and `manifest.project`. */
+  /** The code bundle of the snapshots this turn adds, with their facts written into `turn` and `manifest.project`. */
   private async codeEntries(manifest: SessionManifest, turn: SessionManifestTurn, index: number, checkout: NonNullable<PendingTurn['checkout']>, scratch: string): Promise<GitFileEntry[]> {
     const sessionId = manifest.session.id
     const baseSha = getSessionBaseSha(checkout.repoRoot, sessionId)
@@ -391,13 +373,6 @@ export class SessionArchiveWriter {
     })
     turn.bundle = bundle
     if (bundle.kind === 'written') entries.push({ path: `code/${index}.bundle`, file: bundleFile })
-    const first = snapshots[0]
-    const last = snapshots.at(-1)
-    if (first && last) {
-      const patchFile = join(scratch, 'turn.patch')
-      turn.hasDiff = await writeTurnDiffPatch(checkout.repoRoot, first.fromTreeSha, last.toTreeSha, patchFile).catch(() => false)
-      if (turn.hasDiff) entries.push({ path: `diff/${index}.patch`, file: patchFile })
-    }
     return entries
   }
 }

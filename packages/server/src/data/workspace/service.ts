@@ -38,6 +38,7 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
     putLink: withWorkspaceBudget((context, input) => links.put(context, input)),
     deleteLink: withWorkspaceBudget((context, input) => links.delete(context, input)),
     listSessionMessages: withWorkspaceBudget((context, sessionId, query) => sessions.messages(context, sessionId, query)),
+    sessionTurnDiff: withWorkspaceBudget((context, sessionId, turnIndex) => sessions.turnDiff(context, sessionId, turnIndex)),
     listInsights: withWorkspaceBudget((context, query) => readInsightPage(context, query)),
     getInsight: withWorkspaceBudget((context, insightId) => readInsight(context, insightId)),
     getInsightSpans: withWorkspaceBudget((context, insightId) => readInsightTree(context, insightId)),

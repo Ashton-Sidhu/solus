@@ -25,8 +25,8 @@ import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
 import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { sessionRemoteProvider } from './sync/sessions/session-remote-provider'
-import { SessionCloudReader } from './sync/sessions/session-cloud-reader'
-import { personOfMirrorScope } from './data/sessions/mirror-scope'
+import { personMirrorScope, personOfMirrorScope } from './data/sessions/mirror-scope'
+import { hasTranscript } from './data/sessions/transcript-reads'
 import { userKey } from '@solus/contracts/user'
 import { readSessionRepository } from './data/sessions/session-repositories'
 import { formatSessionCloudScope } from '@solus/contracts/session-repositories'
@@ -134,7 +134,10 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
       const organization = await readSessionRepository(db, formatSessionCloudScope('organization', principal.organizationId), event.payload.sessionId)
       return !!organization && await shares.roleFor(principal, { kind: 'session', id: event.payload.sessionId }) !== 'none'
     }
-    return eventVisibleTo(principal, event, shares)
+    if (await eventVisibleTo(principal, event, shares)) return true
+    // The share rows give no role on a personal session: its owner hears of the rows in their own mirror scope.
+    return event.type === 'session.transcriptChanged' && principal.kind === 'org-member'
+      && hasTranscript(personMirrorScope(principal.userId), event.payload.sessionId)
   })
   const events = new HostEventPublisher(clients)
   // Organization works are edited live here, where they are stored (work review plan, phase 3b).
@@ -149,21 +152,19 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     await closeDatabase(); closeDb(); throw error
   }
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
-  const sessionReader = new SessionCloudReader(db, sessionStorage, shares)
+  // A personal session has no record and no share row here. Its owner is the person
+  // whose own mirror scope holds its rows; only their personal token writes that scope.
   server.useResourceAccess({ standingFor: async (principal, resource) => {
-    if (resource.kind === 'session' && (principal.kind === 'org-member' || principal.kind === 'owner' && principal.via === 'grant')) {
-      const row = await readSessionRepository(db, formatSessionCloudScope('person', principal.userId), resource.id)
-      if (row?.owner_user_id === principal.userId) return { role: 'owner' }
-    }
+    if (resource.kind === 'session' && principal.kind === 'org-member' && await hasTranscript(personMirrorScope(principal.userId), resource.id)) return { role: 'owner' }
     return shares.standingFor(principal, resource)
   } })
   const presence = workspacePresence(server, events)
   if (options.webhookAdmin) registerWebhookAdminHandlers(server, options.webhookAdmin)
-  registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port, sessionReader })
+  registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
   const people = new PersonConnections(() => clients.routableClientIds(), clientId => socket?.principalOf(clientId))
   const { requestListener, routes, solusApiRouter, doors } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
-    solusApi: { ...settings, operations: createWorkspaceOperations(shares), sessionReader },
+    solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
     verifyAccessToken: (token) => tokens.verify(token),
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),
     shareLinks: new ShareLinkResolver({ shares, hostRoutes: options.hostRoutes }),
