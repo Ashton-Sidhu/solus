@@ -1,18 +1,7 @@
 import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 
 import type { FoundServer, Integration } from "@solus/contracts/integration-types";
-import {
-  NO_FOUND_SERVERS_TEXT,
-  configFileLabel,
-  fileValuesText,
-  foundPlacesText,
-  foundPortOf,
-  foundStateText,
-  foundTargetText,
-  foundUnsupportedText,
-  portIdentityText,
-  portScanUnavailableText,
-} from "@solus/contracts/integrations/found-server-labels";
+import { FoundServerLabels, NO_FOUND_SERVERS_TEXT, configFileLabel, portScanUnavailableText } from "@solus/contracts/integrations/found-server-labels";
 import { AppText as Text } from "../../../components/AppText";
 import { cn } from "../../../lib/cn";
 import { useFoundServers } from "../use-found-servers";
@@ -30,6 +19,8 @@ import { SettingsSection } from "./SettingsSection";
  */
 export function FoundServersSection(props: {
   readonly hostId: string;
+  /** The host's name, for the place of a server on its loopback. */
+  readonly hostLabel: string;
   /** A command added without all its values: the screen opens its values panel (§7.6). */
   readonly onNeedsValues: (integration: Integration) => void;
 }) {
@@ -38,11 +29,11 @@ export function FoundServersSection(props: {
 
   const review = (server: FoundServer) => {
     const isChange = server.state === "changed";
-    const port = foundPortOf(server);
+    const labels = new FoundServerLabels(server, props.hostLabel);
     const lines = [
-      foundTargetText(server),
-      foundPlacesText(server),
-      port ? portIdentityText(port) : "",
+      labels.target,
+      labels.places,
+      labels.portIdentity ?? "",
       server.transport?.kind === "stdio" ? "It runs on this host as the Solus server's user. It does not start until you start it." : "",
     ].filter(Boolean);
     const confirm = (useFileValues: boolean) => {
@@ -52,7 +43,7 @@ export function FoundServersSection(props: {
         else if (result.needsValues) props.onNeedsValues(result.integration);
       });
     };
-    const valuesText = fileValuesText(server);
+    const valuesText = labels.fileValues;
     const verb = isChange ? "Update" : "Add";
     Alert.alert(isChange ? `Review the change to ${server.name}` : `Add ${server.name}?`, lines.join("\n\n"), [
       { text: "Cancel", style: "cancel" },
@@ -82,7 +73,7 @@ export function FoundServersSection(props: {
         <View>
           {list.servers.length === 0 ? <View className="p-4"><SettingsNote>{NO_FOUND_SERVERS_TEXT}</SettingsNote></View> : null}
           {list.servers.map((server, index) => (
-            <FoundRow key={server.foundId} server={server} first={index === 0} isAdding={found.adding === server.foundId} canAdd={found.connected && found.adding === null} onReview={review} />
+            <FoundRow key={server.foundId} server={server} labels={new FoundServerLabels(server, props.hostLabel)} first={index === 0} isAdding={found.adding === server.foundId} canAdd={found.connected && found.adding === null} onReview={review} />
           ))}
           {list.portScan?.state === "unavailable" ? (
             <View className="border-t border-border-subtle p-4"><SettingsNote>{portScanUnavailableText(list.portScan.reason)}</SettingsNote></View>
@@ -98,19 +89,18 @@ export function FoundServersSection(props: {
   );
 }
 
-function FoundRow(props: { readonly server: FoundServer; readonly first: boolean; readonly isAdding: boolean; readonly canAdd: boolean; readonly onReview: (server: FoundServer) => void }) {
-  const { server } = props;
+function FoundRow(props: { readonly server: FoundServer; readonly labels: FoundServerLabels; readonly first: boolean; readonly isAdding: boolean; readonly canAdd: boolean; readonly onReview: (server: FoundServer) => void }) {
+  const { server, labels } = props;
   const url = server.transport && server.transport.kind !== "stdio" ? server.transport.url : "";
   const canReview = server.state === "new" || server.state === "changed";
-  const port = foundPortOf(server);
   return (
     <View className={cn("gap-1 p-4", !props.first && "border-t border-border-subtle")}>
       <View className="flex-row items-center gap-3">
         <ServerIcon url={url} name={server.name} />
         <View className="min-w-0 flex-1 gap-0.5">
           <Text className="text-lg text-foreground" numberOfLines={1}>{server.name}</Text>
-          <Text className="font-mono text-sm text-foreground-muted" selectable>{foundTargetText(server)}</Text>
-          <Text className="text-sm text-foreground-muted">{foundPlacesText(server)}</Text>
+          <Text className="font-mono text-sm text-foreground-muted" selectable>{labels.target}</Text>
+          <Text className="text-sm text-foreground-muted">{labels.places}</Text>
         </View>
         {props.isAdding ? (
           <ActivityIndicator size="small" colorClassName="accent-icon-muted" />
@@ -126,11 +116,11 @@ function FoundRow(props: { readonly server: FoundServer; readonly first: boolean
             <Text className="text-xs font-t3-bold text-foreground">{server.state === "changed" ? "Review change" : "Add"}</Text>
           </Pressable>
         ) : (
-          <Text className="text-sm text-foreground-muted">{foundStateText(server)}</Text>
+          <Text className="text-sm text-foreground-muted">{labels.state}</Text>
         )}
       </View>
-      {server.state === "unsupported" && server.unsupported ? <SettingsNote>{foundUnsupportedText(server.unsupported)}</SettingsNote> : null}
-      {port && server.state !== "added" ? <SettingsNote>{portIdentityText(port)}</SettingsNote> : null}
+      {labels.unsupported ? <SettingsNote>{labels.unsupported}</SettingsNote> : null}
+      {labels.portIdentity && server.state !== "added" ? <SettingsNote>{labels.portIdentity}</SettingsNote> : null}
     </View>
   );
 }

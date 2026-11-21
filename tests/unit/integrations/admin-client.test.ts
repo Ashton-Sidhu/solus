@@ -19,6 +19,7 @@ const { IntegrationConnectionStore } = await import('@solus/server/integrations/
 const { Vault } = await import('@solus/server/vault/vault')
 const { IntegrationStore } = await import('@solus/server/integrations/integration-store')
 const { registerIntegrationHandlers } = await import('@solus/server/transport/handlers/integration-handlers')
+const { IntegrationWrites } = await import('@solus/server/integrations/integration-create')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ANY_ORGANIZATION } = await import('@solus/server/admission/principal')
 const { actorFor, ownerKeyOf } = await import('@solus/server/admission/actor')
@@ -49,11 +50,14 @@ function setup(fetchImpl?: typeof fetch, now?: () => number) {
   const server = new SolusServer()
   const changed: IntegrationChangedEvent[] = []
   const invalidated: string[] = []
+  const gateway = { invalidate: (id: string) => { invalidated.push(id) }, warm: async () => undefined } as never
+  const hostEvents = { broadcast: (_topic: string, event: IntegrationChangedEvent) => { changed.push(event); return 1 } } as never
   registerIntegrationHandlers(server, {
     store,
     catalog: {} as never,
-    gateway: { invalidate: (id: string) => { invalidated.push(id) }, warm: async () => undefined } as never,
-    events: { broadcast: (_topic: string, event: IntegrationChangedEvent) => { changed.push(event); return 1 } } as never,
+    gateway,
+    events: hostEvents,
+    writes: new IntegrationWrites({ store, events: hostEvents, gateway, connections: {} as never }),
     connectionStore: {} as never,
     connections: {} as never,
     oauth,

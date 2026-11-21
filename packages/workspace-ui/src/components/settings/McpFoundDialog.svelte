@@ -12,7 +12,8 @@
   import { Dialog } from "bits-ui";
   import { TriangleAlert, X } from "@lucide/svelte";
   import type { FoundServer, Integration } from "@solus/contracts/integration-types";
-  import { commandLineText, fileValuesText, foundPlacesText, foundPortOf, foundTargetText, portIdentityText, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
+  import { commandLineText } from "@solus/contracts/integrations/command-server";
+  import { FoundServerLabels, projectCommandWarning } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import { Checkbox } from "../ui/checkbox";
   import McpServerIcon from "./McpServerIcon.svelte";
@@ -34,11 +35,11 @@
   let open = $state(true);
   let useFileValues = $state(true);
   const isChange = $derived(server.state === "changed");
-  const valuesText = $derived(fileValuesText(server));
+  const labels = $derived(new FoundServerLabels(server, hostLabel));
+  const valuesText = $derived(labels.fileValues);
   const url = $derived(server.transport && server.transport.kind !== "stdio" ? server.transport.url : "");
-  const currentText = $derived(current?.launch ? commandLineText({ kind: "stdio", command: current.launch.command, args: current.launch.args, envNames: [] }) : current?.url ?? "");
+  const currentText = $derived(current?.launch ? commandLineText(current.launch) : current?.url ?? "");
   const checkboxId = $props.id();
-  const port = $derived(foundPortOf(server));
 </script>
 
 {#snippet targetBlock(label: string, text: string)}
@@ -65,20 +66,20 @@
         <McpServerIcon name={server.name} {url} />
         <div class="flex min-w-0 flex-col">
           <Dialog.Title class="truncate font-medium text-foreground">{isChange ? `Review the change to ${server.name}` : `Add ${server.name}`}</Dialog.Title>
-          <Dialog.Description class="text-chrome-dense text-(--solus-text-secondary)">{foundPlacesText(server, hostLabel)}</Dialog.Description>
+          <Dialog.Description class="text-chrome-dense text-(--solus-text-secondary)">{labels.places}</Dialog.Description>
         </div>
       </div>
 
       {#if isChange && currentText}
         {@render targetBlock("In use now", currentText)}
-        {@render targetBlock("In the file", foundTargetText(server))}
+        {@render targetBlock("In the file", labels.target)}
       {:else}
-        {@render targetBlock(server.transport?.kind === "stdio" ? "Command" : "Address", foundTargetText(server))}
+        {@render targetBlock(server.transport?.kind === "stdio" ? "Command" : "Address", labels.target)}
       {/if}
 
-      {#if port}
+      {#if labels.portIdentity}
         <p class="flex items-start gap-1.5 text-(--solus-status-permission)">
-          <TriangleAlert size={16} class="mt-0.5 shrink-0" aria-hidden="true" />{portIdentityText(port)}
+          <TriangleAlert size={16} class="mt-0.5 shrink-0" aria-hidden="true" />{labels.portIdentity}
         </p>
         <p class="text-pretty text-(--solus-text-secondary)">Solus checks the address again before it adds it. Agents on {hostLabel} then get its tools while it runs.</p>
       {/if}

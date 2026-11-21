@@ -112,10 +112,14 @@ export class McpConnect {
   /** A save, the values, or the start of the command runs. */
   get isStartingCommand(): boolean {
     const id = this.integrationId
-    return !!this.command?.isSaving || this.isSendingValues || (!!id && !!integrationsStore.states.get(this.serverId)?.processStarts.has(id))
+    return !!this.command?.isSaving || this.isSendingValues || (!!id && !!this.processes?.isStarting(id))
   }
 
   private isSendingValues = $state(false)
+
+  private get processes() {
+    return integrationsStore.states.get(this.serverId)?.processes
+  }
 
   /**
    * Start and test (§7.7): add the command, or save its changes, hand over the
@@ -148,7 +152,7 @@ export class McpConnect {
       form.problem = { field: 'envNames', reason: 'Enter a value for each environment variable.' }
       return
     }
-    if (await integrationsStore.startProcess(this.serverId, integration.id)) {
+    if (await this.processes?.start(integration.id)) {
       this.isCommandStarted = true
       this.seedDraft(integration)
     }
@@ -156,7 +160,7 @@ export class McpConnect {
 
   /** Cancel of a start that runs: the host stops the process (§7.7). */
   async cancelCommandStart(): Promise<void> {
-    if (this.integrationId) await integrationsStore.stopProcess(this.serverId, this.integrationId)
+    if (this.integrationId) await this.processes?.stop(this.integrationId)
   }
 
   /** Adds the server when the dialog opened for a catalog entry. */
@@ -200,7 +204,7 @@ export class McpConnect {
       return
     }
     // Remove stops the process too; a command kept stops only a start that runs.
-    if (this.command && !this.addedHere && integrationsStore.states.get(this.serverId)?.processStarts.has(id)) await integrationsStore.stopProcess(this.serverId, id)
+    if (this.command && !this.addedHere && this.processes?.isStarting(id)) await this.processes.stop(id)
     const flow = integrationsStore.connectFlow(this.serverId, id)
     if (flow && flow.kind !== 'failed') await integrationsStore.cancel(this.serverId, id)
     if (this.addedHere) await integrationsStore.remove(this.serverId, id)

@@ -22,6 +22,7 @@ const { IntegrationConnectionStore } = await import('@solus/server/integrations/
 const { integrationToolbox, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
 const { stdioServerAddress } = await import('@solus/server/integrations/stdio-process')
 const { registerIntegrationHandlers } = await import('@solus/server/transport/handlers/integration-handlers')
+const { IntegrationWrites } = await import('@solus/server/integrations/integration-create')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { Vault } = await import('@solus/server/vault/vault')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
@@ -375,11 +376,14 @@ describe('who may add a command (§7.2)', () => {
     installTestIdentities()
     const server = new SolusServer()
     const changed: IntegrationChangedEvent[] = []
+    const events = { broadcast: (_topic: string, event: IntegrationChangedEvent) => { changed.push(event); return 1 } } as never
+    const shared = { invalidate: () => undefined, forget: () => undefined } as never
     registerIntegrationHandlers(server, {
       store,
       catalog: {} as never,
-      gateway: { invalidate: () => undefined, forget: () => undefined } as never,
-      events: { broadcast: (_topic: string, event: IntegrationChangedEvent) => { changed.push(event); return 1 } } as never,
+      gateway: shared,
+      events,
+      writes: new IntegrationWrites({ store, events, gateway: shared, connections: {} as never }),
       connectionStore: {} as never,
       connections: {} as never,
       oauth: {} as never,
@@ -425,11 +429,14 @@ describe('new environment names (§7.6)', () => {
     connections.submitEnvironment(integration, OWNER, [{ name: 'API_TOKEN', value: SECRET }])
     changes.length = 0
     const server = new SolusServer()
+    const shared = gateway()
+    const events = { broadcast: () => 1 } as never
     registerIntegrationHandlers(server, {
       store,
       catalog: {} as never,
-      gateway: gateway(),
-      events: { broadcast: () => 1 } as never,
+      gateway: shared,
+      events,
+      writes: new IntegrationWrites({ store, events, gateway: shared, connections }),
       connectionStore: {} as never,
       connections,
       oauth: {} as never,
@@ -479,6 +486,7 @@ describe('who may start a command (§7.2, §7.8)', () => {
       catalog: {} as never,
       gateway: gateway(),
       events: { broadcast: () => 1 } as never,
+      writes: {} as never,
       connectionStore: {} as never,
       connections: {} as never,
       oauth: {} as never,

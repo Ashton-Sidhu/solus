@@ -14,7 +14,7 @@
   import { ChevronRight, Ellipsis, LoaderCircle } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import type { Integration } from "@solus/contracts/integration-types";
-  import { COMMAND_ADMIN_ONLY, commandLineText, commandProcessStatus } from "@solus/contracts/integrations/command-server";
+  import { COMMAND_ADMIN_ONLY, commandLineText } from "@solus/contracts/integrations/command-server";
   import { NOT_RUNNING_LABEL, notRunningText, projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -67,18 +67,13 @@
   const offersOAuthClientSetup = $derived(integration.auth.kind === "oauth");
   const disabledTools = $derived(new Set(integration.disabledTools));
   const cliSkips = $derived(hostState?.facts.get(integration.id)?.cliSkips ?? []);
-  const isNotRunning = $derived(hostState?.facts.get(integration.id)?.reachable === "not-running");
+  const isNotRunning = $derived(!!hostState?.processes.isNotRunning(integration));
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
   const canEdit = $derived(hosts.get(serverId)?.me.may("edit", { kind: "integration", id: integration.id, role: integration.role }) ?? true);
   const isCommand = $derived(integration.kind === "stdio");
   // A command runs as code on the host: only `host.admin` changes or starts it (§7.2).
   const mayRunCommands = $derived(hosts.get(serverId)?.me.may("host.admin") ?? true);
-  const processStatus = $derived(isCommand ? commandProcessStatus({
-    facts: hostState?.facts.get(integration.id),
-    isStarting: !!hostState?.processStarts.has(integration.id),
-    mayRunCommands,
-    needsValues: integration.auth.kind === "env" && connection?.status !== "connected",
-  }) : null);
+  const processStatus = $derived(hostState?.processes.statusOf(integration, connection, mayRunCommands) ?? null);
   /** The row's short state: a command's process, or that a loopback server does not run, else the sign-in. */
   const rowStatus = $derived(processStatus && (status.tone === "ready" || !status.canConnect)
     ? { text: processStatus.label, isError: processStatus.tone === "error" }

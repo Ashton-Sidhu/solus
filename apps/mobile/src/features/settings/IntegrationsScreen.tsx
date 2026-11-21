@@ -15,6 +15,7 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { ScreenScrollView } from "../../components/ScreenScrollView";
 import { cn } from "../../lib/cn";
 import type { ScreenProps } from "../../navigation/routes";
+import { useApp, useListened } from "../../app/app-context";
 import { HostStatusBanner } from "../hosts/HostStatusBanner";
 import { AddProjectTextInput } from "../projects/components/add-project-ui";
 import { IntegrationConnectPanel } from "./components/IntegrationConnectPanel";
@@ -43,7 +44,6 @@ import {
   type IntegrationToolsState,
   InstalledIntegration,
   installedRowLine,
-  serverAddressLine,
 } from "./integrations";
 import { useIntegrations } from "./use-integrations";
 import { SetupGuideRow, SetupHandoffRow } from "./components/SetupHandoffRow";
@@ -73,6 +73,9 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
   const { list, connected, searchCatalog, clearCatalog, clearAdding } = integrations;
   const processes = useCommandProcesses(hostId, list);
   const [query, setQuery] = useState("");
+  const app = useApp();
+  // The host's own name, as desktop and web name it (mcp-first-class.md §9.2).
+  const hostLabel = useListened(app.registry.changes, () => app.registry.host(hostId)?.label ?? "this host");
 
   // The most popular entries show before the person types.
   useEffect(() => {
@@ -134,11 +137,12 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
               keyboardType={Platform.OS === "ios" ? "web-search" : "default"}
               returnKeyType="search"
             />
-            <CommandAddSection integrations={integrations} processes={processes} />
-            <InstalledSection integrations={integrations} processes={processes} installed={list.integrations} query={query} />
+            <CommandAddSection integrations={integrations} processes={processes} hostLabel={hostLabel} />
+            <InstalledSection integrations={integrations} processes={processes} installed={list.integrations} query={query} hostLabel={hostLabel} />
             {query.trim() ? null : (
               <FoundServersSection
                 hostId={hostId}
+                hostLabel={hostLabel}
                 onNeedsValues={(integration) => {
                   integrations.expand(integration.id);
                   void integrations.flows.connect(integration);
@@ -161,14 +165,17 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
  * Add command (§7.7): the form, then the record, the values, and Start and
  * test. The new row opens on its process state; a start that fails says why there.
  */
-function CommandAddSection(props: { readonly integrations: IntegrationsModel; readonly processes: CommandProcesses }) {
+function CommandAddSection(props: { readonly integrations: IntegrationsModel; readonly processes: CommandProcesses; readonly hostLabel: string }) {
   const { integrations, processes } = props;
   const [isOpen, setOpen] = useState(false);
   const add = async ({ values, ...request }: CommandAdd) => {
     const integration = await integrations.addCommand(request);
     setOpen(false);
     integrations.expand(integration.id);
-    if (request.envNames.length === 0) return processes.start(integration.id);
+    if (request.envNames.length === 0) {
+      await processes.start(integration.id);
+      return;
+    }
     await integrations.flows.connect(integration);
     if (!values) return;
     await integrations.flows.submitValues(integration.id, values);
@@ -179,7 +186,7 @@ function CommandAddSection(props: { readonly integrations: IntegrationsModel; re
       {isOpen ? (
         <View className="p-4">
           <CommandServerForm
-            hostName="this host"
+            hostName={props.hostLabel}
             mayRunCommands={processes.mayRunCommands}
             enabled={integrations.connected && integrations.busy === null}
             onAdd={add}
@@ -193,7 +200,7 @@ function CommandAddSection(props: { readonly integrations: IntegrationsModel; re
   );
 }
 
-function InstalledSection(props: { readonly integrations: IntegrationsModel; readonly processes: CommandProcesses; readonly installed: readonly Integration[]; readonly query: string }) {
+function InstalledSection(props: { readonly integrations: IntegrationsModel; readonly processes: CommandProcesses; readonly installed: readonly Integration[]; readonly query: string; readonly hostLabel: string }) {
   const { integrations, installed } = props;
   const shown = filterInstalled(installed, looksLikeUrl(props.query) ? "" : props.query);
 
@@ -254,6 +261,7 @@ function InstalledSection(props: { readonly integrations: IntegrationsModel; rea
               first={index === 0}
               integrations={integrations}
               processes={props.processes}
+              hostLabel={props.hostLabel}
               onRename={() => promptRename(integration)}
               onRemove={() => confirmRemove(integration)}
               onDisconnect={() => confirmDisconnect(integration)}
@@ -271,6 +279,7 @@ function InstalledRow(props: {
   readonly first: boolean;
   readonly integrations: IntegrationsModel;
   readonly processes: CommandProcesses;
+  readonly hostLabel: string;
   readonly onRename: () => void;
   readonly onRemove: () => void;
   readonly onDisconnect: () => void;
@@ -282,7 +291,7 @@ function InstalledRow(props: {
   const status = installed.status(connections);
   const connection = connections.kind === "loaded" ? connections.byIntegration.get(integration.id) : undefined;
   const flow = flows.flows.get(integration.id);
-  const host = serverAddressLine(integration);
+  const host = installed.addressLine;
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
   const canEdit = resourceAllows(integration, "edit");
   const editable = busy === null && canEdit;
@@ -346,6 +355,7 @@ function InstalledRow(props: {
               integration={integration}
               process={process}
               processes={props.processes}
+              hostLabel={props.hostLabel}
               isConnected={integrations.connected}
               isEditable={editable}
               isSaving={busy === `command:${integration.id}`}
@@ -372,6 +382,7 @@ function InstalledRow(props: {
             integration={integration}
             mayLoad={installed.mayLoadTools(connections)}
             isNotRunning={isNotRunning}
+            hostLabel={props.hostLabel}
             tools={integrations.tools.get(integration.id)}
             enabled={integrations.connected && editable}
             onToggle={(toolName, isOn) => {
@@ -429,6 +440,7 @@ function InstalledTools(props: {
   readonly integration: Integration;
   readonly mayLoad: boolean;
   readonly isNotRunning: boolean;
+  readonly hostLabel: string;
   readonly tools: IntegrationToolsState | undefined;
   readonly enabled: boolean;
   readonly onToggle: (toolName: string, isOn: boolean) => void;
@@ -436,7 +448,7 @@ function InstalledTools(props: {
   if (!props.mayLoad || props.isNotRunning) {
     return (
       <View className="px-4 pb-3 pl-[58px]">
-        <SettingsNote>{props.mayLoad ? notRunningText(props.integration.name) : "Connect to see its tools."}</SettingsNote>
+        <SettingsNote>{props.mayLoad ? notRunningText(props.integration.name, props.hostLabel) : "Connect to see its tools."}</SettingsNote>
       </View>
     );
   }

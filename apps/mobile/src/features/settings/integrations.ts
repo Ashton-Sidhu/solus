@@ -195,11 +195,6 @@ export function urlHost(url: string): string {
   return match?.[1] ?? url
 }
 
-/** The row's address line: a command's line, else the host of the address. */
-export function serverAddressLine(integration: Pick<Integration, 'url' | 'launch'>): string {
-  return integration.launch ? commandLineText(integration.launch) : urlHost(integration.url)
-}
-
 /** A custom URL is added under the name of its host; the person may rename it later. */
 export function customCandidate(url: string): IntegrationCandidate {
   const trimmed = url.trim()
@@ -355,10 +350,17 @@ export function installedRowLine(status: InstalledStatus, process: Pick<CommandP
  */
 export class InstalledIntegration extends IntegrationSignIn {
   private readonly integrationId: string
+  private readonly launch: Integration['launch']
 
-  constructor(integration: Pick<Integration, 'id' | 'auth' | 'url'>) {
+  constructor(integration: Pick<Integration, 'id' | 'auth' | 'url' | 'launch'>) {
     super(integration)
     this.integrationId = integration.id
+    this.launch = integration.launch
+  }
+
+  /** The row's address line: a command's line, else the host of the address. */
+  get addressLine(): string {
+    return this.launch ? commandLineText(this.launch) : urlHost(this.integration.url)
   }
 
   /** The row's status line, and the connect action it shows without opening. */

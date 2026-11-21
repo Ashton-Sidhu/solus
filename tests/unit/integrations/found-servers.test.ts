@@ -1,22 +1,25 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from '../helpers/bun-sqlite'
 import { resetTestDatabase } from '../helpers/test-db'
 import { TEST_HANDLER_CTX } from '../helpers/handler-ctx'
-import type { FoundServer, IntegrationEnvValue } from '@solus/contracts/integration-types'
+import type { FoundServer, Integration, IntegrationEnvValue } from '@solus/contracts/integration-types'
+import { startFakeServers, type FakeServers } from './fake-servers'
 import type { Principal } from '@solus/server/admission/principal'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { FoundServers } = await import('@solus/server/integrations/found-servers')
+const { IntegrationWrites } = await import('@solus/server/integrations/integration-create')
 const { IntegrationStore } = await import('@solus/server/integrations/integration-store')
 const { stdioServerAddress } = await import('@solus/server/integrations/stdio-process')
 const { ownerKeyOf } = await import('@solus/server/admission/actor')
 const { recordScopeOf } = await import('@solus/server/admission/principal')
 const { resolveProjectKey } = await import('@solus/server/project-config/project-config')
 const { closeDb } = await import('@solus/server/db')
+const { cliSkipLog } = await import('@solus/server/integrations/cli-skips')
 
 /**
  * Found servers (docs/plans/mcp-first-class.md §8): the host reads the config
@@ -37,6 +40,12 @@ let home: string
 let project: string
 let submitted: Array<{ integrationId: string; values: IntegrationEnvValue[] }>
 let codexLayers: unknown[]
+let profileSaves: string[]
+let fake: FakeServers
+
+beforeAll(async () => {
+  fake = await startFakeServers()
+})
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'solus-found-'))
@@ -46,6 +55,7 @@ beforeEach(() => {
   mkdirSync(project, { recursive: true })
   submitted = []
   codexLayers = []
+  profileSaves = []
 })
 
 afterEach(async () => {
@@ -54,7 +64,10 @@ afterEach(async () => {
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(process.env.SOLUS_DATA_DIR!, `solus.db${suffix}`), { force: true })
 })
 
-afterAll(() => closeDb())
+afterAll(async () => {
+  closeDb()
+  await fake.close()
+})
 
 function write(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true })
@@ -64,10 +77,14 @@ function write(path: string, value: unknown): void {
 function found() {
   return new FoundServers({
     store,
-    events: { broadcast: () => 1 } as never,
-    gateway: { forget: () => undefined, invalidate: () => undefined },
+    writes: new IntegrationWrites({
+      store,
+      events: { broadcast: () => 1 } as never,
+      profile: { saved: async (_principal, integration: Integration) => { profileSaves.push(integration.name) } },
+      gateway: { forget: () => undefined, invalidate: () => undefined },
+      connections: { removeAllFor: () => undefined },
+    }),
     connections: {
-      removeAllFor: () => undefined,
       submitEnvironment: (integration, _person, values) => {
         submitted.push({ integrationId: integration.id, values })
         return {} as never
@@ -265,5 +282,28 @@ describe('adding (§8.3, §8.4)', () => {
     const { servers } = await found().list(ADMIN, OWNER, {})
     expect(byName(servers, 'slash').state).toBe('added')
     expect(byName(servers, 'query').state).toBe('new')
+  })
+
+  test('a URL that changed in a file is the same write as Settings: the CLI copy comes back, and a project record is no profile entry', async () => {
+    // WHY: Found and Settings write through one IntegrationWrites. Before, Found's
+    // address change kept the CLI skips of the old address (§8.5), and told the
+    // profile by its own rule (§8.4).
+    const repo = store.create({ name: 'repo', url: 'https://old-repo.example/mcp', slug: 'repo', auth: { kind: 'none' }, projectKey: resolveProjectKey(project), projectName: 'project' }, 'local', OWNER)
+    const user = store.create({ name: 'user', url: 'https://old-user.example/mcp', slug: 'user', auth: { kind: 'none' } }, 'local', OWNER)
+    for (const integration of [repo, user]) cliSkipLog.record(OWNER, 'claude-code', [integration.id], [{ integrationId: integration.id, serverName: integration.name }])
+    write(join(project, '.mcp.json'), { mcpServers: { repo: { type: 'http', url: fake.mcpUrl } } })
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: { user: { url: fake.modernMcpUrl } } })
+    const finder = found()
+    const servers = (await finder.list(ADMIN, OWNER, { projectPath: project })).servers
+    for (const name of ['repo', 'user']) {
+      const changed = byName(servers, name)
+      expect(changed.state).toBe('changed')
+      const result = await finder.add(ADMIN, OWNER, { foundId: changed.foundId, fingerprint: changed.fingerprint, projectPath: project })
+      if (result.kind !== 'saved') throw new Error('not saved')
+      expect(result.integration.url).toBe(name === 'repo' ? fake.mcpUrl : fake.modernMcpUrl)
+    }
+    expect(cliSkipLog.for(repo.id, OWNER)).toEqual([])
+    expect(cliSkipLog.for(user.id, OWNER)).toEqual([])
+    expect(profileSaves).toEqual(['user'])
   })
 })

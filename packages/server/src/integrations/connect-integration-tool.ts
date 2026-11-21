@@ -20,7 +20,7 @@ const ADD_BY_URL_HINT = 'The user can add a server by its URL in Settings → MC
 
 interface ConnectIntegrationDeps {
   catalog: Pick<IntegrationCatalog, 'list'>
-  /** `createIntegration` with the host's store, events, and profile bound. */
+  /** `IntegrationWrites.addServer` of the host: the same create path as Settings. */
   create(principal: Principal, owner: string, request: IntegrationUrlCreateRequest): Promise<Integration>
 }
 

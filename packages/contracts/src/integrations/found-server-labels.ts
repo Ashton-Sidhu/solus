@@ -1,4 +1,5 @@
-import type { ConfigFileKind, FoundServer, FoundTransport, FoundUnsupportedReason } from '../integration-types'
+import type { ConfigFileKind, FoundServer, FoundUnsupportedReason } from '../integration-types'
+import { commandLineText } from './command-server'
 import type { FoundPortPlace } from './local-servers'
 
 /**
@@ -31,67 +32,86 @@ export function foundUnsupportedText(reason: FoundUnsupportedReason): string {
   }
 }
 
-/** A command as one line, each argument quoted when it holds a space, so the person reads exactly what will run. */
-export function commandLineText(transport: Extract<FoundTransport, { kind: 'stdio' }>): string {
-  return [transport.command, ...transport.args].map(quoted).join(' ')
-}
-
-function quoted(part: string): string {
-  return part === '' || /[\s"'\\]/.test(part) ? `'${part.replaceAll("'", "'\\''")}'` : part
-}
-
-/** What the row shows under the name: the command line, or the URL. */
-export function foundTargetText(server: Pick<FoundServer, 'transport'>): string {
-  const transport = server.transport
-  if (!transport) return ''
-  return transport.kind === 'stdio' ? commandLineText(transport) : transport.url
-}
-
 /**
- * Where a found server is, as one line: its files, "Claude Code (~/.claude.json),
- * Cursor (.cursor/mcp.json)", and the port it answered on (§9.2).
+ * The words of one found server on one host: what the row, the add dialog,
+ * and the phone's alert say. The host's name is part of the place of a server
+ * on its loopback, so each client names the host it shows (§9.2).
  */
-export function foundPlacesText(server: Pick<FoundServer, 'foundIn'>, hostLabel = 'this host'): string {
-  return server.foundIn.map((place) => place.kind === 'port' ? portPlaceText(place, hostLabel) : `${configFileLabel(place.file)} (${place.path})`).join(', ')
+export class FoundServerLabels {
+  constructor(private readonly server: FoundServer, private readonly hostLabel: string) {}
+
+  /** What the row shows under the name: the command line, as an installed command reads, or the URL. */
+  get target(): string {
+    const transport = this.server.transport
+    if (!transport) return ''
+    return transport.kind === 'stdio' ? commandLineText(transport) : transport.url
+  }
+
+  /**
+   * Where the server is, as one line: its files, "Claude Code (~/.claude.json),
+   * Cursor (.cursor/mcp.json)", and the port it answered on (§9.2).
+   */
+  get places(): string {
+    return this.server.foundIn.map((place) => place.kind === 'port' ? portPlaceText(place, this.hostLabel) : `${configFileLabel(place.file)} (${place.path})`).join(', ')
+  }
+
+  /** The port place, when the server runs on the host's loopback. */
+  get port(): FoundPortPlace | null {
+    return this.server.foundIn.find((place): place is FoundPortPlace => place.kind === 'port') ?? null
+  }
+
+  /**
+   * What a running local server said about itself, and that Solus did not
+   * check it (§9.2): any program on the host can answer on a port, so the
+   * person reads the port and the process before they add it. Null for a
+   * server of the files only.
+   */
+  get portIdentity(): string | null {
+    const port = this.port
+    if (!port) return null
+    const info = port.serverInfo
+    const said = info ? `It says it is ${info.title ?? info.name}${info.version ? ` ${info.version}` : ''}.` : 'It answered as an MCP server but did not say its name.'
+    return `${said} Solus did not verify this: any program on this host can answer on a port.`
+  }
+
+  /** The state in a few words, for the row's trailing text or its screen-reader label. */
+  get state(): string {
+    switch (this.server.state) {
+      case 'new': return 'Not added'
+      case 'added': return 'Added'
+      case 'changed': return 'Changed in the file'
+      case 'unsupported': return this.server.unsupported === 'not-allowed' ? 'Administrators only' : 'Not supported'
+    }
+  }
+
+  /** Why the server cannot be added, or null when it can. */
+  get unsupported(): string | null {
+    return this.server.state === 'unsupported' && this.server.unsupported ? foundUnsupportedText(this.server.unsupported) : null
+  }
+
+  /** What an add does with the file's plain values, or null when it has none to copy. */
+  get fileValues(): string | null {
+    const { transport, valuesInFile } = this.server
+    if (!transport || valuesInFile.length === 0) return null
+    if (transport.kind === 'http') return 'Use the Authorization header in the file as your key'
+    if (transport.kind !== 'stdio') return null
+    // A command takes the file's values only when the file gives one for each name (§8.3).
+    if (!transport.envNames.every((name) => valuesInFile.includes(name))) return null
+    return `Use the values of ${transport.envNames.join(', ')} in the file`
+  }
 }
 
 /** A running local server's place: "Port 8000 on studio · node · main". The port and the process are the host's. */
-export function portPlaceText(place: FoundPortPlace, hostLabel = 'this host'): string {
+function portPlaceText(place: FoundPortPlace, hostLabel: string): string {
   return [`Port ${place.port} on ${hostLabel}`, place.processName, place.checkout].filter(Boolean).join(' · ')
-}
-
-/** The port place of a found server, when it runs on the host's loopback. */
-export function foundPortOf(server: Pick<FoundServer, 'foundIn'>): FoundPortPlace | null {
-  return server.foundIn.find((place): place is FoundPortPlace => place.kind === 'port') ?? null
-}
-
-/**
- * What a running local server said about itself, and that Solus did not check
- * it (§9.2): any program on the host can answer on a port, so the person reads
- * the port and the process before they add it.
- */
-export function portIdentityText(place: FoundPortPlace): string {
-  const info = place.serverInfo
-  const said = info ? `It says it is ${info.title ?? info.name}${info.version ? ` ${info.version}` : ''}.` : 'It answered as an MCP server but did not say its name.'
-  return `${said} Solus did not verify this: any program on this host can answer on a port.`
 }
 
 /** The short state of an installed server on the host's loopback that does not run now (§9.3). Neutral, never an error. */
 export const NOT_RUNNING_LABEL = 'Not running'
 
 /** Why an installed server on the host's loopback shows no tools now (§9.3). */
-export function notRunningText(name: string, hostLabel = 'this host'): string {
+export function notRunningText(name: string, hostLabel: string): string {
   return `${name} is not running on ${hostLabel}. Start it, and its tools show here.`
-}
-
-/** The state of a found server in a few words, for the row's trailing text or its screen-reader label. */
-export function foundStateText(server: Pick<FoundServer, 'state' | 'unsupported'>): string {
-  switch (server.state) {
-    case 'new': return 'Not added'
-    case 'added': return 'Added'
-    case 'changed': return 'Changed in the file'
-    case 'unsupported': return server.unsupported === 'not-allowed' ? 'Administrators only' : 'Not supported'
-  }
 }
 
 /** The label of an installed server that joins only one project's runs (§8.4), on every client's row. */
@@ -102,17 +122,6 @@ export function projectOnlyLabel(projectName: string): string {
 /** The warning on a server that only a repository's files hold (§8.6). */
 export function projectCommandWarning(projectName: string): string {
   return `This command comes from a file in the repository ${projectName}. Read it before you add it.`
-}
-
-/** What an add does with the file's plain values, or null when it has none to copy. */
-export function fileValuesText(server: Pick<FoundServer, 'transport' | 'valuesInFile'>): string | null {
-  const transport = server.transport
-  if (!transport || server.valuesInFile.length === 0) return null
-  if (transport.kind === 'http') return 'Use the Authorization header in the file as your key'
-  if (transport.kind !== 'stdio') return null
-  // A command takes the file's values only when the file gives one for each name (§8.3).
-  if (!transport.envNames.every((name) => server.valuesInFile.includes(name))) return null
-  return `Use the values of ${transport.envNames.join(', ')} in the file`
 }
 
 /** The empty state of the view (§8.6, §9.2). */

@@ -33,7 +33,7 @@ import type { IntegrationConnections } from '../../integrations/connections'
 import type { IntegrationGateway } from '../../integrations/gateway'
 import type { IntegrationStore } from '../../integrations/integration-store'
 import type { IntegrationOAuth } from '../../integrations/oauth'
-import { createIntegration, createStdioIntegration, probeAddress, probeForWrite, updateCommand } from '../../integrations/integration-create'
+import { probeAddress, probeForWrite, type IntegrationWrites } from '../../integrations/integration-create'
 import { integrationPromptList, integrationPromptText } from '../../integrations/integration-prompts'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
 import type { FoundServers } from '../../integrations/found-servers'
@@ -102,21 +102,20 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   /** Where the owner's OAuth client secret is kept; `oauth` reads it from the same store. */
   clients: Pick<IntegrationClients, 'saveClient' | 'removeClient'>
   getServerInfo(): { host: string; port: number }
+  /** The one writer of integration records; Found writes through the same one. */
+  writes: IntegrationWrites
   /** The MCP servers in this host's config files (docs/plans/mcp-first-class.md §8). */
   found: FoundServers
   /** Whether a server on this host's loopback runs (§9.3). Absent where the host does not follow its running servers. */
   local?: Pick<LocalMcpServers, 'reachable'>
   /**
    * The caller's agent profile (plans/020-agent-profile.md): signed in, the
-   * caller's own servers are part of it, so a change here goes to their account
-   * and every host follows. Absent where no profile applies.
+   * caller's own servers are part of it, so a removal here leaves their account
+   * and every host follows. `writes` tells it of a save. Absent where no profile applies.
    */
-  profile?: {
-    saved(principal: Principal, integration: Integration): Promise<void>
-    removing(principal: Principal, integration: Integration): Promise<void>
-  }
+  profile?: { removing(principal: Principal, integration: Integration): Promise<void> }
 }): void {
-  const { store, catalog, gateway, events, connectionStore, connections, oauth, clients } = deps
+  const { store, catalog, gateway, events, connectionStore, connections, oauth, clients, writes } = deps
   const requireIntegration = (id: string, actor: Actor) => {
     const integration = store.get(id, recordScopeOf(actor.principal))
     if (!integration || forReader(actor, integration).role !== 'owner') throw new Error('That integration is no longer on this host.')
@@ -143,19 +142,18 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     // A server is its creator's own, on every host (D3); the host's own work adds none.
     const owner = ownerKeyOf(ctx.actor)
     if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
-    if ('url' in request) return forReader(ctx.actor, await createIntegration({ store, events, profile: deps.profile }, ctx.principal, owner, request))
+    if ('url' in request) return forReader(ctx.actor, await writes.addServer(ctx.principal, owner, request))
     requireHostAdmin(ctx.principal)
-    return forReader(ctx.actor, createStdioIntegration({ store, events }, ctx.principal, owner, request))
+    return forReader(ctx.actor, writes.addCommand(ctx.principal, owner, request))
   })
 
   server.register('integrationUpdate', async (args, ctx) => {
     const request = integrationUpdateRequestSchema.parse(args[0])
     const { id, name, url, oauthClient, disabledTools } = request
-    const scope = recordScopeOf(ctx.principal)
     const existing = requireIntegration(id, ctx.actor)
     const commandChanged = request.launch !== undefined || request.envNames !== undefined
     if (existing.kind === 'stdio' ? url !== undefined || oauthClient !== undefined : commandChanged) throw new Error(`${existing.name} cannot take that change: a command has a launch and names, a server an address.`)
-    if (commandChanged) return forReader(ctx.actor, updateCommand({ store, events, gateway, connections }, existing, request, ctx.principal))
+    if (commandChanged) return forReader(ctx.actor, writes.changeCommand(existing, request, ctx.principal))
     let auth: IntegrationAuth | undefined = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
     if (oauthClient !== undefined) {
       auth = withOAuthClient(auth ?? existing.auth, oauthClient)
@@ -168,15 +166,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
           : { clientId, tokenEndpointAuthMethod: 'none', redirectUris: [] })
       }
     }
-    const integration = store.update(id, { name, url, auth, disabledTools }, scope)
-    if (!integration) throw new Error('That integration is no longer on this host.')
-    // Turning tools on or off keeps the upstream session: the filter is on the record.
-    if (name !== undefined || url !== undefined || oauthClient !== undefined) gateway.invalidate(id)
-    // Every tool off, or a new address, can give the CLI its copy back at the next run (§8.5).
-    cliSkipLog.forget(id)
-    void events.broadcast('integration.changed', { integrationId: id, change: 'updated' })
-    void deps.profile?.saved(ctx.principal, integration)
-    return forReader(ctx.actor, integration)
+    return forReader(ctx.actor, writes.changeServer(existing, { name, url, auth, disabledTools }, ctx.principal))
   })
 
   server.register('integrationRemove', async (args, ctx) => {

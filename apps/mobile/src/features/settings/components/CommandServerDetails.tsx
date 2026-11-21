@@ -18,6 +18,8 @@ export function CommandServerDetails(props: {
   readonly integration: Integration
   readonly process: CommandProcessStatus
   readonly processes: ReturnType<typeof useCommandProcesses>
+  /** The host the command runs on, by its name. */
+  readonly hostLabel: string
   readonly isConnected: boolean
   /** No other change runs, and the person owns the server. */
   readonly isEditable: boolean
@@ -31,7 +33,7 @@ export function CommandServerDetails(props: {
       <View className="gap-4 px-4 pb-4 pl-[58px]">
         {isEditing ? (
           <CommandServerForm
-            hostName="this host"
+            hostName={props.hostLabel}
             mayRunCommands={processes.mayRunCommands}
             editing={integration}
             enabled={props.isConnected && props.isEditable}
@@ -44,12 +46,12 @@ export function CommandServerDetails(props: {
         ) : (
           <View className="gap-1">
             <Text className="font-mono text-sm text-foreground" selectable>{integration.launch ? commandLineText(integration.launch) : ''}</Text>
-            <Text className="text-sm text-foreground-muted">{`In ${integration.launch?.cwd ?? '~'} on this host`}</Text>
+            <Text className="text-sm text-foreground-muted">{`In ${integration.launch?.cwd ?? '~'} on ${props.hostLabel}`}</Text>
           </View>
         )}
         <CommandProcessPanel
           status={props.process}
-          error={processes.errors.get(integration.id)}
+          error={processes.errorOf(integration.id)}
           enabled={props.isConnected}
           onAction={(kind) => processes.run(integration.id, kind)}
         />
