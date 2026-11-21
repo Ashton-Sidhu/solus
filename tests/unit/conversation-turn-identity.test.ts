@@ -47,10 +47,10 @@ function turnComponent(directory: string): string {
       const getWorkspaceContext = () => ({ sessionFor: () => ({ id: 'session-1' }), dispatch: { sendMessage: () => {} } });
       const sessionArtifactsStore = { artifactsFor: () => null };
       const turnReplyCards = () => null;
-      // No MCP tasks: the session has no run host here.
+      // No MCP tasks or resource watches: the session has no run host here.
       const runHost = () => undefined;
-      const mcpTasksStore = { ensure: () => {}, tasksFor: () => [] };
-      const shownMcpTasks = () => [], mcpTaskIsLive = () => false;
+      const mcpTasksStore = { follow: () => {}, recordsOf: () => [] }, resourceWatchesStore = mcpTasksStore;
+      const shownBackgroundRecords = () => [], MCP_TASKS = { isLive: () => false }, RESOURCE_WATCHES = {};
       // No tool outputs: the folded turn has no strip.
       const ToolOutputStrip = Stub;
       const EMPTY_TOOL_STRIP = {}, toolStrip = () => EMPTY_TOOL_STRIP, hasToolStrip = () => false, turnStripTools = () => [], toolGroupOf = () => null, focusToolLine = async () => {};

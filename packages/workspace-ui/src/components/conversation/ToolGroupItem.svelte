@@ -7,7 +7,6 @@
   import { toolProgressView } from "@solus/contracts/tool-progress";
   import { getMarkdownImageContext } from "./lib/markdown-image";
   import { toolRowImages } from "./lib/turn-images";
-  import { toolRowAudio, toolRowLeftOut } from "./lib/tool-row-media";
   import { toasts } from "../../lib/toasts";
   import { toolCallCode } from "@solus/client-core/tool-call-code";
   import CodeBlock from "../ui/CodeBlock.svelte";
@@ -16,7 +15,7 @@
   import MarkdownImage from "./MarkdownImage.svelte";
   import ToolAudioPlayer from "./ToolAudioPlayer.svelte";
   import ToolOutputStrip from "./ToolOutputStrip.svelte";
-  import { EMPTY_TOOL_STRIP, hasToolStrip, toolStrip } from "@solus/client-core/tool-outputs";
+  import { EMPTY_TOOL_STRIP, hasToolStrip, openLineAudio, openLineLeftOut, toolStrip } from "@solus/client-core/tool-outputs";
   import { focusToolLine } from "./lib/tool-output-strip";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
@@ -370,7 +369,7 @@
                 {/each}
               </div>
             {/if}
-            {@const audio = toolRowAudio(step)}
+            {@const audio = openLineAudio(step)}
             {#if audio.length > 0}
               <div class="flex flex-col gap-2 pb-1 ps-8">
                 {#each audio as clip (clip.audio.assetId)}
@@ -382,7 +381,7 @@
           <!-- What the host left out of the result, as the agent read it. Text
                only, so it needs no host behind the transcript. -->
           {#if open}
-            {@const leftOut = toolRowLeftOut(step)}
+            {@const leftOut = openLineLeftOut(step)}
             {#if leftOut.length > 0}
               <ul class="m-0 list-none space-y-0.5 pb-1 ps-8 text-transcript-meta text-muted-foreground" aria-label="Left out of this result">
                 {#each leftOut as note, index (index)}

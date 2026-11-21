@@ -2022,14 +2022,19 @@
     },
     "apps/mobile/src/features/threads/ThreadMcpTasks.tsx": {
       "compiled": [
-        "BackgroundItemRow",
         "ThreadMcpTasks"
       ],
       "skipped": []
     },
-    "apps/mobile/src/features/threads/ThreadResourceWatches.tsx": {
+    "apps/mobile/src/features/threads/ThreadBackgroundWork.tsx": {
       "compiled": [
-        "ThreadResourceWatches"
+        "ThreadBackgroundWork"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/BackgroundItemRow.tsx": {
+      "compiled": [
+        "BackgroundItemRow"
       ],
       "skipped": []
     },
@@ -2164,6 +2169,12 @@
     "apps/mobile/src/features/threads/use-resource-watches.ts": {
       "compiled": [
         "useResourceWatches"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/use-session-host-records.ts": {
+      "compiled": [
+        "useSessionHostRecords"
       ],
       "skipped": []
     },

@@ -28,6 +28,7 @@ import Animated, {
 } from "react-native-reanimated";
 import type { ToolProgress } from "@solus/contracts/types";
 import { toolProgressView } from "@solus/contracts/tool-progress";
+import { openLineAudio, openLineLeftOut } from "@solus/client-core/tool-outputs";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { ThreadToolImages } from "./ThreadImages";
 import { ThreadToolAudio } from "./ThreadToolAudio";
@@ -37,9 +38,8 @@ import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
 import {
   summarizeToolGroup,
   toolActivitySummary,
-  toolDetailAudio,
+  toolCallOutputs,
   toolDetailImages,
-  toolDetailLeftOut,
   toolFullDetail,
   toolGroupAction,
   toolGroupSummaryKind,
@@ -468,8 +468,9 @@ const ThreadWorkLogRow = memo(function ThreadWorkLogRow(props: {
   const failed = row.status === "error";
   const live = row.status === "running";
   const images = toolDetailImages(row);
-  const audio = toolDetailAudio(row);
-  const leftOut = toolDetailLeftOut(row);
+  const outputs = toolCallOutputs(row);
+  const audio = openLineAudio(outputs);
+  const leftOut = openLineLeftOut(outputs);
   const canExpand = fullDetail !== null || images.length > 0 || audio.length > 0 || leftOut.length > 0;
   const { label: displayText, body } = toolRowView(row, expanded);
   const icon = toolGroupSummarySymbolName(toolGroupAction(row.toolName));

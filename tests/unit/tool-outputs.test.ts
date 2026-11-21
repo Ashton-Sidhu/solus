@@ -6,12 +6,15 @@ import {
   TOOL_OUTPUT_PLACES,
   TOOL_STRIP_IMAGE_LIMIT,
   hasToolStrip,
+  openLineAudio,
+  openLineLeftOut,
   toolStrip,
 } from '@solus/client-core/tool-outputs'
 import { integrationAgentToolLabel, toolServerName } from '@solus/client-core/mcp-tool-label'
 import { hasGallerySlides } from '@solus/workspace-ui/components/conversation/lib/turn-images'
 import { threadTurnImages } from '../../apps/mobile/src/features/threads/thread-turn-images'
 import type { ToolItem } from '../../apps/mobile/src/features/conversation/lib/tool-item'
+import { toolCallOutputs } from '../../apps/mobile/src/features/threads/thread-work-log-presentation'
 
 const asset = (letter: string, extension = 'png') => `${letter.repeat(64)}.${extension}`
 const image = (letter: string) => ({ assetId: asset(letter), mimeType: 'image/png' })
@@ -68,6 +71,28 @@ describe('the rule for the visible outputs of a tool call', () => {
   test('a running call gives no thumbnail and no chip, so the stream does no work for them', () => {
     const running = call('t1', { toolStatus: 'running', toolImages: [image('a')], toolLeftOut: ['x'] })
     expect(hasToolStrip(toolStrip([running]))).toBe(false)
+  })
+
+  test('an open tool line plays each clip with its number and format, and lists what the host left out, on every client', () => {
+    // WHY: the open line is where the person plays the audio and reads why
+    // part of the result is missing. Desktop and mobile read one rule, so a
+    // label or a running call reads the same on each.
+    const speech = call('t1', {
+      toolAudio: [{ assetId: asset('b', 'mp3'), mimeType: 'audio/mpeg' }, { assetId: asset('c', 'wav'), mimeType: 'audio/wav' }],
+      toolLeftOut: ['Panel "errors": past the 5 MB limit'],
+    })
+    expect(openLineAudio(speech).map((clip) => clip.label)).toEqual(['Audio 1 · MP3', 'Audio 2 · WAV'])
+    expect(openLineLeftOut(speech)).toEqual(['Panel "errors": past the 5 MB limit'])
+    const mobileTool: ToolItem = {
+      kind: 'tool', id: 't1', toolId: 't1', toolName: 'mcp__solus__elevenlabs__text_to_speech', input: null, status: 'completed',
+      errorHead: null, childCount: 0, subagent: null, report: null, audio: speech.toolAudio, leftOut: speech.toolLeftOut,
+    }
+    expect(openLineAudio(toolCallOutputs(mobileTool))).toEqual(openLineAudio(speech))
+    expect(openLineLeftOut(toolCallOutputs(mobileTool))).toEqual(openLineLeftOut(speech))
+    // A call still running has no clip and no note yet.
+    const running = call('t2', { ...speech, toolStatus: 'running' })
+    expect(openLineAudio(running)).toEqual([])
+    expect(openLineLeftOut(running)).toEqual([])
   })
 
   test('a browser capture shows once, as its capture card outside the folds', () => {
