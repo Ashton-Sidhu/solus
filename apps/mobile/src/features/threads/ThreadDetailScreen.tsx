@@ -37,6 +37,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useWorkspaceContentWidth } from "../layout/workspace-content-width";
+import { useListened } from "../../app/app-context";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
@@ -55,10 +56,7 @@ import { backgroundFloatingStatus, type FloatingWorkingStatus } from "./floating
 import { showsBackgroundWork } from "@solus/client-core/background-work";
 import { mcpTaskIsLive } from "@solus/contracts/integrations/mcp-task";
 import { ThreadMcpTasks } from "./ThreadMcpTasks";
-import { useMcpTasks } from "./use-mcp-tasks";
 import { ThreadBackgroundWork } from "./ThreadBackgroundWork";
-import { RESOURCE_WATCHES } from "@solus/client-core/resource-watch-row";
-import { useResourceWatches } from "./use-resource-watches";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
 import { ThreadMcpPipDock } from "./ThreadMcpPipDock";
@@ -123,23 +121,31 @@ function isWorkingStatus(status: SessionStatus): boolean {
 }
 
 /**
- * When this device first saw the conversation working. Solus reports no turn
- * start time, so the timer counts from then; it survives remounts of the
- * screen for the same conversation.
+ * When this device first saw the conversation's newest turn, and that turn
+ * working. Solus reports no turn start time, so the working timer counts from
+ * then, and the background rows show what ended since the turn started (before
+ * a turn, since this device first showed the conversation). It survives
+ * remounts of the screen for the same conversation.
  */
-const workStartedAtByStore = new WeakMap<ConversationStore, number>();
+interface TurnStart {
+  turnActive: boolean;
+  turnStartedAt: number;
+  workStartedAt: number | null;
+}
 
-function workStartedAt(store: ConversationStore, working: boolean): number | null {
-  if (!working) {
-    workStartedAtByStore.delete(store);
-    return null;
+const turnStartByStore = new WeakMap<ConversationStore, TurnStart>();
+
+function turnStartOf(store: ConversationStore, turnActive: boolean, working: boolean): TurnStart {
+  const now = Date.now();
+  let start = turnStartByStore.get(store);
+  if (!start) {
+    start = { turnActive: false, turnStartedAt: now, workStartedAt: null };
+    turnStartByStore.set(store, start);
   }
-  let startedAt = workStartedAtByStore.get(store);
-  if (startedAt === undefined) {
-    startedAt = Date.now();
-    workStartedAtByStore.set(store, startedAt);
-  }
-  return startedAt;
+  if (turnActive && !start.turnActive) start.turnStartedAt = now;
+  start.turnActive = turnActive;
+  start.workStartedAt = working ? (start.workStartedAt ?? now) : null;
+  return start;
 }
 
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
@@ -237,15 +243,15 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   // Answering the agent's cards is its own action, apart from prompting (docs/plans/custom-roles.md §3).
   const mayApprove = store.controller.mayApprove;
   // A live MCP task holds the session in `background`; its own row says so, with its own Cancel.
-  const mcpTasks = useMcpTasks(store.controller.hostId, conversationIdOf(store), turnActive);
-  const backgroundIsMcpTasks = mcpTasks.tasks.some(mcpTaskIsLive) && !meta.backgroundWorkRunning;
-  // A resource watch waits for news: its row shows, and it does not hold `background`.
-  const resourceWatches = useResourceWatches(store.controller.hostId, conversationIdOf(store), turnActive);
+  const { mcpTasks, resourceWatches } = store.controller;
+  const hasLiveMcpTask = useListened(mcpTasks.changes, () => mcpTasks.list.some(mcpTaskIsLive));
+  const backgroundIsMcpTasks = hasLiveMcpTask && !meta.backgroundWorkRunning;
   // A settled turn can leave background work running; Stop ends it too.
   const isBackground = showsBackgroundWork(meta.status, meta.backgroundWorkRunning) && !backgroundIsMcpTasks;
   const canStop = mayDrive && (turnActive || isBackground);
   const working = isWorkingStatus(meta.status);
-  const activeWorkStartedAt = workStartedAt(store, working);
+  const turnStart = turnStartOf(store, turnActive, working);
+  const activeWorkStartedAt = turnStart.workStartedAt;
   const runHostRow = useRunHostRow(store, meta);
   // While another host runs a turn of the session, the prompt goes to that host.
   const sendStore = useRunningHostSend(store, runHostRow, props.onFollowHost);
@@ -656,8 +662,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               ) : null}
               {activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
                 <>
-                  <ThreadMcpTasks view={mcpTasks} store={store} mayDrive={mayDrive} maxHeight={pendingUserInputMaxHeight} />
-                  <ThreadBackgroundWork kind={RESOURCE_WATCHES} records={resourceWatches.watches} mayDrive={mayDrive} onAction={resourceWatches.stop} />
+                  <ThreadMcpTasks feed={mcpTasks} since={turnStart.turnStartedAt} store={store} mayDrive={mayDrive} maxHeight={pendingUserInputMaxHeight} />
+                  {/* A resource watch waits for news: its row shows, and it does not hold `background`. */}
+                  <ThreadBackgroundWork feed={resourceWatches} since={turnStart.turnStartedAt} mayDrive={mayDrive} onAction={(watch) => resourceWatches.stop(watch)} />
                 </>
               ) : null}
               {activePendingApproval || activePendingUserInput ? (

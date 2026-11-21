@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
+import type { DatabaseSync } from 'node:sqlite'
 import { sql } from 'drizzle-orm'
-import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { z } from 'zod'
 import { getDb, withTx } from '../../db'
+import { sqliteQuery } from '../../db/sql'
 import { createLogger } from '../../logger'
 import { nextRunFrom, scheduleHasEnded, validateTrigger } from './automation-schedule'
 import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../../host/host-category'
@@ -360,17 +360,13 @@ export async function createAutomation(
   return automation
 }
 
-const dialect = new SQLiteSyncDialect()
-
 /**
  * The automations `actor` may see (docs/plans/access-model.md §4 D4): their own,
  * and every one in their scope for an administrator. A WHERE condition on
  * `automations`, with the values it binds.
  */
 function visibleAutomations(actor: Actor) {
-  const { sql: text, params } = dialect.sqlToQuery(visibleTo(actor, 'automation', { id: sql`id`, organization: sql`organization_id`, owner: sql`created_by` }))
-  // SAFETY: the predicate binds only person keys and organization ids, which are strings.
-  return { text, params: params as SQLInputValue[] }
+  return sqliteQuery(visibleTo(actor, 'automation', { id: sql`id`, organization: sql`organization_id`, owner: sql`created_by` }))
 }
 
 export async function listAutomations(actor: Actor): Promise<Automation[]> {

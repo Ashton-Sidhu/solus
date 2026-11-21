@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { sameServerAddress, type AppliedCliSkip, type CliSkip, type McpServerAddress, type RunCliSkip } from '../../../integrations/cli-skips'
+import { codexMcpServerSchema } from '../../../integrations/found/codex-servers'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
 import type { CodexAppServerClient } from './codex-agent'
@@ -7,14 +8,9 @@ import type { ConfigReadResponse } from './generated/v2/ConfigReadResponse'
 
 const log = createLogger('CodexCliSkip', 'codex-cli-skip.ts')
 
-/** The fields of one `mcp_servers.<name>` entry that make its address. Codex adds others (`env`, `enabled`, timeouts). */
-const codexMcpServerSchema = z.object({
-  command: z.string().optional(),
-  args: z.array(z.string()).optional(),
-  url: z.string().optional(),
-  enabled: z.boolean().optional(),
-})
-const codexMcpServersSchema = z.record(z.string(), codexMcpServerSchema)
+/** The fields of one `mcp_servers.<name>` entry that make its address, and whether it is on. */
+const codexAddressSchema = codexMcpServerSchema.pick({ command: true, args: true, url: true, enabled: true })
+const codexMcpServersSchema = z.record(z.string(), codexAddressSchema)
 
 /** The thread config keys that turn the run's CLI copies off, and the copies they name. */
 export interface CodexCliSkip {
@@ -73,7 +69,7 @@ export async function readCodexSkipConfig(client: Pick<CodexAppServerClient, 're
   }
 }
 
-function addressOf(entry: z.infer<typeof codexMcpServerSchema>): McpServerAddress | null {
+function addressOf(entry: z.infer<typeof codexAddressSchema>): McpServerAddress | null {
   if (entry.url) return { kind: 'url', url: entry.url }
   if (entry.command) return { kind: 'command', command: entry.command, args: entry.args ?? [] }
   return null

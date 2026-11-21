@@ -6,6 +6,7 @@ import { appLogLineSchema, appSpanSchema, type AppCaller, type AppConfigValue, t
 import { launchedProcess } from '../cli-env'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
+import { StderrTail } from '../platform/stderr-tail'
 import type { AppMigration } from './app-project'
 import { appNode } from './app-node'
 import { APP_RUNNER_SCRIPT } from './app-runner-script'
@@ -195,7 +196,7 @@ class Runner {
   readonly ready: Promise<string[]>
   private readonly pending = new Map<number, PendingCall>()
   private nextId = 1
-  private stderrTail = ''
+  private readonly stderr: StderrTail
   private readonly startedAt = Date.now()
   private rssBytes: number | null = null
   private idleTimer: ReturnType<typeof setTimeout> | null = null
@@ -225,9 +226,7 @@ class Runner {
     // A caller that never awaits `ready` (the runner was replaced first) must not leave a rejection unhandled.
     this.ready.catch(() => {})
 
-    child.stderr?.setEncoding('utf8').on('data', (text: string) => {
-      this.stderrTail = (this.stderrTail + text).slice(-STDERR_TAIL_CHARACTERS)
-    })
+    this.stderr = new StderrTail(child.stderr?.setEncoding('utf8') ?? null, STDERR_TAIL_CHARACTERS)
     if (child.stdout) {
       createInterface({ input: child.stdout }).on('line', (line) => {
         let message: z.infer<typeof runnerMessageSchema>
@@ -345,7 +344,7 @@ class Runner {
   }
 
   private exitReason(): string {
-    const lastLine = this.stderrTail.trim().split('\n').pop()
+    const lastLine = this.stderr.tail?.trim().split('\n').pop()
     return lastLine ? `The app's backend stopped: ${lastLine}` : 'The app\'s backend stopped.'
   }
 

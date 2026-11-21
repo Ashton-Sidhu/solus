@@ -4,6 +4,7 @@ import { CommandProcesses } from '@solus/client-core/command-processes'
 import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationCreateRequest, IntegrationEnvValue, IntegrationFacts, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from '@solus/contracts/integration-types'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { upsertById } from '@solus/client-core/keep-equal'
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { localApi } from '@solus/client-core/local-api'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
@@ -793,11 +794,7 @@ class IntegrationsStore {
   private upsert(serverId: string, integration: Integration): void {
     const state = this.states.get(serverId)
     if (!state?.integrations) return
-    const index = state.integrations.findIndex((item) => item.id === integration.id)
-    const integrations = index === -1
-      ? [...state.integrations, integration]
-      : state.integrations.map((item, i) => (i === index ? integration : item))
-    this.states.set(serverId, { ...state, integrations })
+    this.states.set(serverId, { ...state, integrations: upsertById(state.integrations, integration) })
   }
 
   private drop(serverId: string, integrationId: string): void {
