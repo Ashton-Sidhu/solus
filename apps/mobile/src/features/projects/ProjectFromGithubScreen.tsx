@@ -6,7 +6,8 @@ import { HostStatusBanner } from '../hosts/HostStatusBanner'
 import { AddProjectShell, AddProjectTextInput, ListRow, ListSection, ListStateCard, LIST_ROW_ICON_SIZE } from './components/add-project-ui'
 import { GithubProjectIcon } from './components/GithubProjectIcon'
 import { matchingRepos } from './lib/open-project'
-import { errorText, useHostApi } from './use-open-project'
+import { errorText } from './use-open-project'
+import { useHostApi } from '../hosts/use-host-api'
 
 type Repos =
   | { kind: 'loading' }

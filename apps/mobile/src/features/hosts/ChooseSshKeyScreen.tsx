@@ -4,7 +4,8 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import type { ScreenProps } from '../../navigation/routes'
 import { AddProjectShell, ListRow, ListRowSymbol, ListSection, ListStateCard, SectionTitle } from '../projects/components/add-project-ui'
 import { folderNameOf } from '../projects/lib/open-project'
-import { errorText, useHostApi } from '../projects/use-open-project'
+import { errorText } from '../projects/use-open-project'
+import { useHostApi } from './use-host-api'
 import { HostStatusBanner } from './HostStatusBanner'
 
 type Listing =

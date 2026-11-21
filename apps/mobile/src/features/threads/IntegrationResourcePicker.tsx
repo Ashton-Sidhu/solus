@@ -6,7 +6,7 @@ import { missingArguments, templateArgumentFields, type ArgumentValue } from "@s
 import { AppText as Text } from "../../components/AppText";
 import { PickRow, PickSheet } from "../../components/PickSheet";
 import { resourceAddress, resourceSections } from "../conversation/lib/resource-attachments";
-import { useIntegrationResources } from "../conversation/use-integration-resources";
+import { useIntegrationResources } from "./use-integration-resources";
 import { McpArgumentFields } from "./McpArgumentFields";
 
 /** The composer's "MCP Resource…" sheet (docs/plans/mcp-first-class.md §11.3):

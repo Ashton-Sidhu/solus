@@ -6,7 +6,7 @@ import type { ScreenProps } from '../../navigation/routes'
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
 import { AddProjectShell, ListRow, ListRowSymbol, ListSection, SectionTitle, LIST_ROW_ICON_SIZE } from './components/add-project-ui'
 import { GithubProjectIcon } from './components/GithubProjectIcon'
-import { useHostApi } from './use-open-project'
+import { useHostApi } from '../hosts/use-host-api'
 import { ProjectHostPicker } from './components/ProjectHostPicker'
 
 /** The four ways to get a project onto the host, as T3 Code's Add project sources. */

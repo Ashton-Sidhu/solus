@@ -5,7 +5,7 @@ import type { ScreenProps } from '../../navigation/routes'
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
 import { AddProjectShell, AddProjectTextInput, PrimaryActionButton } from './components/add-project-ui'
 import { cloneUrlFromInput } from './lib/open-project'
-import { useHostApi } from './use-open-project'
+import { useHostApi } from '../hosts/use-host-api'
 
 /** Clones any repository the host can reach, as T3 Code's Git URL source. The host checks the address. */
 export function CloneProjectScreen({ navigation, route }: ScreenProps<'CloneProject'>) {
