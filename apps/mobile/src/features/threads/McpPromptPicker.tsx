@@ -31,8 +31,8 @@ export function McpPromptPicker(props: {
   const [hasTriedSend, setHasTriedSend] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const { state, reload, expand } = useIntegrationPrompts(props.hostId, props.projectPath, true);
-  const sections = useMemo(() => (state.kind === "loaded" ? mcpPromptSections(state.list, query) : []), [query, state]);
+  const { state, reload, expand } = useIntegrationPrompts(props.hostId, props.projectPath);
+  const sections = useMemo(() => (state.kind === "loaded" ? mcpPromptSections(state.value, query) : []), [query, state]);
   const missing = chosen ? missingArguments(chosen.arguments, values) : [];
 
   const send = async (prompt: IntegrationPrompt, entered: ArgumentValue[]) => {

@@ -26,7 +26,7 @@ export function IntegrationResourcePicker(props: {
   const [hasTriedAttach, setHasTriedAttach] = useState(false);
   const state = useIntegrationResources(props.hostId, props.projectPath);
   const sections = useMemo(
-    () => (state.kind === "loaded" ? resourceSections(state.integrations, state.resources, query, state.templates) : []),
+    () => (state.kind === "loaded" ? resourceSections(state.value.integrations, state.value.resources, query, state.value.templates) : []),
     [query, state],
   );
   const fields = useMemo(() => (chosen ? templateArgumentFields(chosen.uriTemplate) ?? [] : []), [chosen]);

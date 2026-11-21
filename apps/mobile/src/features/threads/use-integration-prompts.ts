@@ -1,64 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useMemo } from 'react'
+import type { HostEventName } from '@solus/contracts/host-events'
 import type { IntegrationPrompt, IntegrationPromptList, IntegrationPromptText } from '@solus/contracts/integrations/prompts'
 import { filledArguments, type ArgumentValue } from '@solus/client-core/integration-prompts'
-import { useApp, useListened } from '../../app/app-context'
-
-export type IntegrationPromptsState =
-  | { kind: 'loading' }
-  | { kind: 'loaded'; list: IntegrationPromptList }
-  | { kind: 'error'; message: string }
+import { useApp } from '../../app/app-context'
+import { useHostRead, type HostReadState } from '../hosts/use-host-read'
 
 /** The last list of each host and project: an opening shows it at once while it reads again. */
 const kept = new Map<string, IntegrationPromptList>()
 
+/** A sign-in or a sign-out changes which prompts the person sees. */
+const REFRESH_ON: readonly HostEventName[] = ['integration.changed', 'integration.connectionChanged']
+
 /**
  * The MCP prompts of one host and project for the composer's sheet
  * (docs/plans/mcp-first-class.md §10). Read when the sheet opens, again on
- * `integration.changed`, on a sign-in change, and on reconnect, only while
- * it is open. A reply from an older read or a gone connection is dropped.
+ * `integration.changed`, on a sign-in change, and on reconnect.
  */
-export function useIntegrationPrompts(hostId: string, projectPath: string, open: boolean) {
+export function useIntegrationPrompts(hostId: string, projectPath: string) {
   const app = useApp()
-  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const key = `${hostId}\u0000${projectPath}`
-  const [state, setState] = useState<IntegrationPromptsState>(() => {
-    const list = kept.get(key)
-    return list ? { kind: 'loaded', list } : { kind: 'loading' }
-  })
-  const request = useRef(0)
-
-  const reload = useCallback(() => {
-    const connection = app.connections.connection(hostId)
-    if (!connection) return
-    const at = ++request.current
-    const list = kept.get(key)
-    setState(list ? { kind: 'loaded', list } : { kind: 'loading' })
-    connection.api.integrationPromptList(projectPath ? { projectPath } : {}).then(
-      (answer) => {
-        if (at !== request.current || app.connections.connection(hostId) !== connection) return
-        kept.set(key, answer)
-        setState({ kind: 'loaded', list: answer })
-      },
-      (cause: unknown) => {
-        if (at !== request.current || app.connections.connection(hostId) !== connection) return
-        // A kept list stays: a failed refresh is not a reason to hide it.
-        if (!kept.has(key)) setState({ kind: 'error', message: cause instanceof Error ? cause.message : String(cause) })
-      },
-    )
-  }, [app, hostId, key, projectPath])
-
-  useEffect(() => {
-    if (!open || readiness !== 'ready') return
-    reload()
-    const connection = app.connections.connection(hostId)
-    if (!connection) return
-    const stopChanged = connection.events.subscribe('integration.changed', reload)
-    const stopConnection = connection.events.subscribe('integration.connectionChanged', reload)
-    return () => {
-      stopChanged()
-      stopConnection()
-    }
-  }, [app, hostId, open, readiness, reload])
+  const { state: read, reload } = useHostRead(hostId, key, async (api) => {
+    const list = await api.integrationPromptList(projectPath ? { projectPath } : {})
+    kept.set(key, list)
+    return list
+  }, REFRESH_ON)
+  // A kept list stays: a failed refresh is not a reason to hide it.
+  const list = read.kind === 'loaded' ? read.value : kept.get(key)
+  const state = useMemo((): HostReadState<IntegrationPromptList> => (list ? { kind: 'loaded', value: list } : read), [list, read])
 
   /** Expands one prompt with the given values. The answer's text is the person's message. */
   const expand = useCallback(async (prompt: IntegrationPrompt, values: readonly ArgumentValue[], sessionId: string): Promise<IntegrationPromptText> => {
