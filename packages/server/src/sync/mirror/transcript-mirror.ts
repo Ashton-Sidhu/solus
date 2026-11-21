@@ -87,19 +87,38 @@ export async function publishedDestination(sessionId: string): Promise<DeliveryD
   return publishedDestinationOf(await getSessionRecord(ANY_ORGANIZATION, sessionId))
 }
 
+/** The account of a session's owner when the cloud sync decision allows the session a cloud copy; else null. */
+function cloudCopyAccountOf(record: SessionRecord): string | null {
+  const accountId = cloudAccountOf(record.ownerKey)
+  return accountId && sessionCloudSyncDecision(record.organizationId, { accountId }).allowed ? accountId : null
+}
+
 /**
- * Where a session's rows and turn diffs are mirrored to, or null when they stay
- * on this machine. The session's owner delivers them, with their delegated
- * token (plans/010-standard-oauth.md).
+ * Where a session's rows are mirrored to, or null when they stay on this
+ * machine. The session's owner delivers them, with their delegated token
+ * (plans/010-standard-oauth.md).
  */
 export async function mirrorDestination(sessionId: string): Promise<DeliveryDestination | null> {
   const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
   if (!record) return null
   const published = publishedDestinationOf(record)
   if (published) return published
-  const accountId = cloudAccountOf(record.ownerKey)
-  if (!accountId || !sessionCloudSyncDecision(record.organizationId, { accountId }).allowed) return null
-  return { organizationId: personMirrorScope(accountId), actorUserId: accountId }
+  const accountId = cloudCopyAccountOf(record)
+  return accountId ? { organizationId: personMirrorScope(accountId), actorUserId: accountId } : null
+}
+
+/**
+ * Where the diffs of a session's turns are mirrored to, or null. A patch holds
+ * code that is not committed, so the cloud sync decision gates it for each
+ * session, a published one too: publication alone sends the rows of a
+ * session, not its code. The diff then goes where the rows go.
+ */
+export async function turnDiffDestination(sessionId: string): Promise<DeliveryDestination | null> {
+  const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
+  if (!record) return null
+  const accountId = cloudCopyAccountOf(record)
+  if (!accountId) return null
+  return publishedDestinationOf(record) ?? { organizationId: personMirrorScope(accountId), actorUserId: accountId }
 }
 
 export class TranscriptMirror {

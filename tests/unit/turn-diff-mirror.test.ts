@@ -15,6 +15,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 // patch over the limit keeps only its counts.
 
 let turnDiffMirror: typeof import('@solus/server/sync/mirror/turn-diff-mirror')
+let transcriptMirror: typeof import('@solus/server/sync/mirror/transcript-mirror')
 let protocol: typeof import('@solus/server/sync/runner-protocol')
 let queue: typeof import('@solus/server/sync/delivery-queue')
 let intake: typeof import('@solus/server/sync/runner-intake')
@@ -25,6 +26,7 @@ let checkpoints: typeof import('@solus/server/git/turn-checkpoints')
 let snapshots: typeof import('@solus/server/git/session-snapshots')
 let hostUser: typeof import('@solus/server/host/host-user')
 let settings: typeof import('@solus/server/host/settings')
+let policy: typeof import('@solus/server/host/policy/host-policy-store')
 let dbModule: typeof import('@solus/server/db')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -41,6 +43,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-turn-diff-mirror-'))
   process.env.SOLUS_DATA_DIR = dataDir
   turnDiffMirror = await import('@solus/server/sync/mirror/turn-diff-mirror')
+  transcriptMirror = await import('@solus/server/sync/mirror/transcript-mirror')
   protocol = await import('@solus/server/sync/runner-protocol')
   queue = await import('@solus/server/sync/delivery-queue')
   intake = await import('@solus/server/sync/runner-intake')
@@ -51,6 +54,7 @@ beforeAll(async () => {
   snapshots = await import('@solus/server/git/session-snapshots')
   hostUser = await import('@solus/server/host/host-user')
   settings = await import('@solus/server/host/settings')
+  policy = await import('@solus/server/host/policy/host-policy-store')
   dbModule = await import('@solus/server/db')
   // The producer starts Git in the project; with no caller, it acts as the host (plans/019).
   ;(await import('@solus/server/execution/seats/acting-identity')).actAsHostForTests()
@@ -134,15 +138,36 @@ describe('turn diff mirror', () => {
     expect(refused.failed.map((failure) => failure.seq)).toEqual([oversized.seq])
   })
 
-  test('with cloud sync off a personal turn sends nothing; a turn that changed no file sends nothing', async () => {
+  test('with cloud sync off no turn sends its diff, a published session included; a turn that changed no file sends nothing', async () => {
+    // WHY: `sessionCloudSync` off means that code that is not committed does not leave the
+    // machine. Publication sends the rows of an organization session; it is no consent for its code.
     await records.upsertOwnSessionRecord({ sessionId: 'quiet', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
+    await records.upsertOwnSessionRecord({ sessionId: 'published', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
+    await records.assignSessionOrganization('published', 'org1', { published: true })
+    const organizationPolicy = (limits: { sessionCloudSync?: boolean }) => policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => ({
+      hostId: 'host-1', category: 'personal', owner: null, hostOwnerOrganizationId: null, refreshedAt: 1,
+      organizations: [{ organizationId: 'org1', name: 'Org', shared: false, hostRules: { allowsCloudHosts: true, allowsPersonalHosts: true },
+        policy: { schemaVersion: 1, organization: { name: 'Org' }, sessions: { limits } }, hostPolicy: null }],
+    }) }))
+    organizationPolicy({})
     const turn = await endedTurn('quiet', 0, 'quiet.txt', 'kept on this machine\n')
-    settings.setHostConfig({ sessionCloudSync: false })
     try {
+      const published = { organizationId: 'org1', actorUserId: '' }
+      expect(await transcriptMirror.turnDiffDestination('published')).toEqual(published)
+      // The policy of the organization stops the code of its sessions, and not their rows.
+      organizationPolicy({ sessionCloudSync: false })
+      expect(await transcriptMirror.turnDiffDestination('published')).toBeNull()
+      expect(await transcriptMirror.mirrorDestination('published')).toEqual(published)
+      expect(await transcriptMirror.turnDiffDestination('quiet')).toEqual(PERSONAL)
+      // The host switch stops each session.
+      organizationPolicy({})
+      settings.setHostConfig({ sessionCloudSync: false })
+      expect(await transcriptMirror.turnDiffDestination('published')).toBeNull()
       await turnDiffMirror.mirrorTurnDiff(turn)
       expect(queue.deliveryDestinations()).toEqual([])
     } finally {
       settings.setHostConfig({ sessionCloudSync: true })
+      policy.useHostPolicyStore(new policy.HostPolicyStore({ mdm: null, standing: () => null }))
     }
     const [snapshot] = turn.snapshots
     await turnDiffMirror.mirrorTurnDiff({ ...turn, snapshots: [{ ...snapshot!, toTreeSha: snapshot!.fromTreeSha }] })

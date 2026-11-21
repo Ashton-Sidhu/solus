@@ -6,7 +6,7 @@ import { writeTurnDiffPatch } from '../../git/session-code-bundle'
 import { createLogger } from '../../logger'
 import { appendDelivery, kindSupported } from '../delivery-queue'
 import { TURN_DIFF_PATCH_BYTES, type TurnDiffMirrorPayload } from '../runner-protocol'
-import { mirrorDestination } from './transcript-mirror'
+import { turnDiffDestination } from './transcript-mirror'
 
 const log = createLogger('main', 'turn-diff-mirror')
 
@@ -26,8 +26,9 @@ export interface EndedTurn {
  * The turn diff producer of the mirror (docs/plans/portable-sessions-cloud.md,
  * "The mirror for readers"). The mirror holds the code changes of each ended
  * turn for a reader with no host online; the session repository holds none.
- * A turn goes where its session's rows go (`mirrorDestination`), so the same
- * publication and the same cloud sync switch gate it. A patch over
+ * A turn goes where its session's rows go, and only when the cloud sync
+ * decision allows the session a cloud copy (`turnDiffDestination`): a patch
+ * holds code that is not committed. A patch over
  * `TURN_DIFF_PATCH_BYTES` sends its counts only. The item's key is the turn,
  * and the sink writes by key, so a turn that is given again changes nothing.
  */
@@ -35,7 +36,7 @@ export async function mirrorTurnDiff(turn: EndedTurn): Promise<void> {
   const first = turn.snapshots[0]
   const last = turn.snapshots.at(-1)
   if (!first || !last || first.fromTreeSha === last.toTreeSha) return
-  const destination = await mirrorDestination(turn.sessionId)
+  const destination = await turnDiffDestination(turn.sessionId)
   if (!destination || !kindSupported(destination.organizationId, 'turn-diff')) return
   const scratch = await mkdtemp(join(tmpdir(), 'solus-turn-diff-'))
   try {
