@@ -26,7 +26,7 @@ Marks on each claim:
 6. **Head report.** After a confirmed push the host posts `head` and the turn count to `POST /runner/session-repositories/head`. The API accepts a larger turn count only, and broadcasts `session.headChanged`. At turn start the host posts `running` and does not wait.
 7. **Clients.** `WorkspaceSession`, `SessionRecord`, and `SessionMeta` get the four fields. The list is: the records of connected hosts, plus the cloud entries of sessions that no connected host has (`GET /v1/me/sessions`).
 8. **Refused push, first version.** The host stops the push for that session, keeps its turns, refuses new prompts for that session with a typed reason, and offers Fork. No automatic fork in phase 3.
-9. **Read-only open (phase 5).** The Solus API reads `manifest.json`, `rows/<n>.jsonl`, and `diff/<n>.patch` from Artifacts at the recorded head with the REST file read. The rows are the projected wire rows (no tool result bodies). The API serves them through the history RPC names it has, plus one diff method.
+9. **Read-only open (phase 5).** The Solus API reads `manifest.json`, `rows/<n>.jsonl`, and `diff/<n>.patch` from Artifacts at the recorded head with the REST file read. The rows are the projected wire rows (no tool result bodies). The API serves them through the history RPC names it has, plus one diff method. **Replaced on 2026-11-21:** a reader gets the rows and the turn diffs from the transcript mirror, and no reader path reads a session repository ("The mirror for readers" at the end).
 10. **Gate.** One host setting and one new policy key (`sessions.limits.sessionCloudSync`). Organization work fails closed when its policy is not available.
 
 ### Decisions the maintainers must make
@@ -440,7 +440,7 @@ Limits of the index, to state: archive and snooze of a session are still for eac
 
 **Unknown:** the size limit of the REST file read (answer 4.2 item 6). Rows are split by turn, so one file is small, but one turn with very many tool calls can still be large. If the measurement shows a low limit, split `rows/<n>.jsonl` into parts of a fixed row count.
 
-**Alternative, not recommended:** widen the transcript mirror to each pushed session. The readers exist, but `session_transcripts` is keyed by an organization, Postgres would hold each personal transcript, and the diff still needs another source.
+**Alternative, not recommended:** widen the transcript mirror to each pushed session. The readers exist, but `session_transcripts` is keyed by an organization, Postgres would hold each personal transcript, and the diff still needs another source. **Chosen on 2026-11-21** in place of the design above; see "The mirror for readers".
 
 ---
 
@@ -916,9 +916,8 @@ projected rows in its durable pending-turn record. The background Git job writes
 one JSON object per line to `rows/<n>.jsonl`. It marks the manifest turn with
 `hasRows` and the cumulative `rowCount`. Both fields are optional so an older
 manifest still parses. A failed or oversized row read leaves `hasRows: false`
-and does not stop the thread-file commit. Since 2026-11-21 a turn commit of
-organization work has `hasRows: false` and no row file ("One source of rows"
-below).
+and does not stop the thread-file commit. Since 2026-11-21 no new turn commit
+has a row file or a patch file ("The mirror for readers" below).
 
 The host reads one history page for each ended turn. It does not parse the
 whole transcript for each Git commit. The pending row file has a 4 MiB cap;
@@ -988,8 +987,10 @@ repository has empty messages, a null cursor, and `not-available`. The
 existing `loadSession`, `loadSessionPreview`, and `loadSessionToolInputs` also
 use the repository fallback. Preview reads the first and last available turn
 and uses the manifest's cumulative `rowCount` for its total. Mirrored rows win when they
-can include a running turn. The repository fallback is read only. Since
-2026-11-21 the fallback applies to a personal session only.
+can include a running turn. The repository fallback is read only. On
+2026-11-21 the fallback and `SessionCloudReader` were deleted: each history
+RPC and `sessionTurnDiff` read the transcript mirror ("The mirror for
+readers" below). The route, its scope, and its three answers did not change.
 
 The new Solus API operation is `sessionTurnDiff`: `GET
 /v1/sessions/:sessionId/turns/:turnIndex/diff`, with `sessions:read` scope and
@@ -1079,6 +1080,11 @@ such as `src/boot-server.ts(2019,37): error TS2322` and
 `scenarios/cloud/portable-sessions.ts(3,26): error TS2307: Cannot find module 'bun:sqlite'`.
 
 ### Phase 5B (desktop and web) as implemented (2026-11-19)
+
+**Changed on 2026-11-21** ("The mirror for readers" at the end): the copy
+comes from the transcript mirror, a page holds many turns, the states `empty`,
+`listing`, and `head-changed` are deleted, and a client asks the mirror with no
+repository fact. The text below is the record of 2026-11-19.
 
 Desktop and web (`packages/workspace-ui/`, `packages/client-core/`) use
 the same shared cloud read rule as mobile. A signed-in person opens a session
@@ -1188,6 +1194,13 @@ that flow is not changed.
 
 ### Phase 5B (mobile) as implemented (2026-11-19)
 
+**Changed on 2026-11-21** ("The mirror for readers" at the end): the copy
+comes from the transcript mirror, a page holds many turns, the turn index of a
+diff comes from `turnDiffs` (decision 4 below is replaced), turns with no rows
+are not counted (decision 5 is replaced), and a published organization session
+with no host online has a cloud row. The text below is the record of
+2026-11-19.
+
 Mobile (`apps/mobile/`) uses the shared `session-cloud-read.ts` and
 `session-cloud-read-text.ts` modules. No server, contract, or Svelte change.
 The phone uses the Phase 5A reader.
@@ -1290,6 +1303,9 @@ Main keeps SQLite `0002_task_assignees` and `0003_task_source_pages`, and Postgr
 
 ## One source of rows (2026-11-21)
 
+**Replaced on the same day** by "The mirror for readers" below. This section
+stays as the record of the review that found the two paths.
+
 Solus had a read-only path before portable sessions: the transcript mirror and
 the session record page. A review compared it with the Phase 5 path. The two
 paths hold different sessions, and they overlapped in one place.
@@ -1351,3 +1367,199 @@ paths hold different sessions, and they overlapped in one place.
   Phase 5B rule uses the repository facts. A session with no repository (cloud
   sync off) says "Solus Cloud has no copy of this session" in the tab, but the
   record page can read its mirror.
+
+## The mirror for readers (2026-11-21)
+
+Decision of the maintainers after "One source of rows" (its gap 1, first
+option): the two stores have separate roles.
+
+- **The transcript mirror is for readers.** Each reader that does not read a
+  live host reads the mirror on the Solus API: the read-only view with no host
+  online, the diff of a turn with no host online, search, `read_session`
+  (`listSessionMessages`), API clients, and the live rows of a turn that runs
+  on a host the reader cannot connect to.
+- **The session repository is for hosts.** Only a host that continues a
+  session reads it. It holds the provider thread files, the code bundles, and
+  the manifest. A new turn commit holds no rows and no patch.
+- The client rule does not change: read the host when a host that holds the
+  session can be reached, else the Solus API.
+
+### What the mirror holds
+
+| Session | Rows (`session_transcripts`) | Turn diffs (`session_turn_diffs`) |
+|---|---|---|
+| Published organization session | Always. Publication is the gate, as before. | Only when the cloud sync decision allows the session a cloud copy. |
+| Each other session of a signed-in person (personal) | Only when the cloud sync decision allows it. | The same. |
+| A session of a person who is not signed in | Never. | Never. |
+
+- **The mirror scope.** A mirrored row is in the organization of a published
+  session, or in the owner's own scope, `person:<accountId>`
+  (`data/sessions/mirror-scope.ts`). The scope text is in the place of the
+  organization id: in a delivery destination, in the runner principal of the
+  Solus API, and in `organization_id` of the mirror tables. An organization id
+  has no colon. The text is the same as the cloud scope of the person's session
+  repositories.
+- **One switch.** `sessionCloudSyncDecision` (the host setting
+  `sessionCloudSync`, the policy `sessions.limits.sessionCloudSync`, and a
+  signed-in person) decides the cloud copy of a session, the mirror of a
+  personal session, and each turn diff. A person with the switch off gets no
+  cloud copy, no mirrored rows of a personal session, and no turn diff in the
+  cloud; each client then says that Solus Cloud has no copy. Rows that were
+  mirrored before stay. A published organization session still sends its rows:
+  that is its publication. Its patches are code, so they need the switch.
+- **Delivery.** `/runner/deliver` also admits the owner's personal delegated
+  token from a personal host (the rule of the session repository routes). The
+  scope comes from the token (`sub`); the body cannot name one. A personal
+  delivery applies only `transcript`, `turn-diff`, and `activity` items. The
+  Solus API keeps no session record and no share row of a personal session, so
+  decision D2 (§5.3) stays: the home of a personal session is its machines.
+- **Turn diffs.** The archive writer gives each committed turn to
+  `mirrorTurnDiff` before its pending row goes, so a restart gives it again.
+  The item (`turn-diff`) has the manifest turn index, the end time of the turn,
+  the counts, and the patch. The limit of a patch is 2 MiB
+  (`TURN_DIFF_PATCH_BYTES`), as before: a larger patch sends its counts only,
+  and the intake refuses a larger one. One delivery request has a byte budget
+  (`RUNNER_BATCH_BYTES`, 8 MiB).
+- **Old sessions.** A session that has a cloud copy and no mirrored row is
+  mirrored once after boot (`listUnmirroredCloudSessions`), one history read at
+  a time. The patches of turns that ended before this change are not sent; such
+  a turn has no diff for a reader. No repository is written again, and old
+  commits stay readable (`hasRows`, `rowCount` are optional; a new commit
+  writes `hasDiff: false`, because a host on an older release needs the field).
+
+### How a reader reads
+
+- `loadSessionPage`, `loadSession`, `loadSessionPreview`, and
+  `loadSessionToolInputs` on the Solus API read `session_transcripts` in the
+  scope that `readerMirrorScope` gives: the reader's organization when the
+  session has a record there, else the reader's own person scope. No request
+  names a scope.
+- A page holds up to `turnLimit` turns. `turnDiffs` names the turn diffs of its
+  rows: the turns that ended from the first row of the page up to the first row
+  of the next newer page. A client joins a diff to its turn by time, as it
+  joins a host's checkpoint (`turnSnapshotFor`).
+- `sessionTurnDiff` answers `available` (a row with a patch), `too-large` (a
+  row with no patch; the counts are in the row), or `not-available` (no row,
+  or a reader with no standing). For an organization session it needs a member
+  with the `read.transcript` standing; for a personal session it reads the
+  caller's own scope.
+- `loadSessionToolInputs` reads the whole mirrored transcript, so the tool
+  details of each turn of the copy are available (the repository reader gave
+  only the newest turn).
+
+### Access to a personal session
+
+Only its owner reads it. The cloud keeps no share row of a personal session.
+
+- Write: the scope of a delivered row is `person:<sub>` of the verified
+  personal token (`transport/runner-routes.ts`).
+- Read: the Solus API admits a person only as a member of an organization, with
+  a verified user id. The gate gives the owner role on a session with no record
+  only to the person whose own scope holds its rows (`boot-solus-api.ts`); each
+  other caller gets `FORBIDDEN`. The reads take the scope from the principal.
+- Search (`searchMirroredSessions`) and `listSessionMessages` need a session
+  record in the caller's organization, and a personal session has none. So no
+  person finds it there, its owner included.
+- `session.transcriptChanged` of a personal session goes only to the
+  connections of its owner.
+
+### Clients
+
+The rules are in `client-core/session-cloud-read.ts`. They depend on the
+mirror's answer, not on repository facts:
+
+- With no host to read, a client that has a Solus API connection asks the
+  mirror. It does not wait for the cloud list. The states are `not-signed-in`,
+  `loading`, `error`, `ready`, `not-in-cloud` (the read answered no rows),
+  `sync-off` (no rows, and the run host's switch is known to be off), and
+  `stale` (`host-online`, or `newer-rows` after `session.transcriptChanged`).
+  The states `empty`, `listing`, and `head-changed`, and the count of turns
+  with no rows, are deleted.
+- The repository facts (`SessionCloudHead`, `listMySessions`) stay for what a
+  host needs: which host ran the last turn, where a run host syncs from, and
+  the list of personal sessions that a host can continue. In the read rule they
+  decide only whether an online run host holds the session.
+- Desktop and web: one read-only surface, the rows in the tab
+  (`CloudTranscriptStore`), for a personal session and for an organization
+  session with no host online. The session record page stays for a turn that
+  runs on a machine this client cannot connect to, a guest link, a member link
+  by address, and a client with no machine for a tab.
+  - `SessionOpening.openCloudSession` opens the tab: on the machine that ran
+    the session when this client keeps it (`lastRunServerId` of the cloud
+    facts, else `ListedSession.awayRunnerServerId` from the record), else on
+    the Run on host. On a host that is not the machine of an organization
+    session the tab is read only (`RUNNER_NOT_HERE_READ_ONLY_REASON`), that
+    host is asked for no sync, and a reload keeps the tab read only
+    (`PersistedTab.runnerNotHere`).
+  - A restored tab on a removed machine (`hydrateTabOnGoneMachine`) reads no
+    rows by a second path. It shows the same copy and states.
+  - The copy is read from the connection that gave facts for the session, else
+    from its record home when that is a Solus API, else from a ready Solus API
+    connection of the client (`copyApiServerFor`).
+  - `session.transcriptChanged` on that connection makes the copy stale
+    (`newer-rows`). **Show newer turns** reads it again; the copy does not read
+    again by itself, because a new read resets the scroll.
+- Mobile: the thread screen (`CloudHistory`), for a personal session and for a
+  published organization session with no host online.
+  - `CloudHistory.read` asks the Solus API connection and uses no repository
+    fact. It joins each turn diff of a page to the prompt row of its turn by
+    time; **Changes** shows only under a turn that has a diff in the mirror.
+  - `CloudSessions` also reads the session list of the organization and keeps
+    each published session, with or without repository facts. `listMySessions`
+    and its strict schema do not change.
+
+### Deleted
+
+- `SessionCloudReader` (`sync/sessions/session-cloud-reader.ts`) and each read
+  of a session repository on a reader path.
+- `rows/<n>.jsonl` and `diff/<n>.patch` in new turn commits, the row capture
+  (`sync/sessions/settled-turn-rows.ts`, the `turnRows` dependency, the `rows`
+  of a pending turn), and their tests.
+- The byte limit of `RepositoryProvider.readFile` and
+  `RepositoryFileTooLargeError`. `readFile` stays: the work transport uses it.
+- The fields `availability`, `unavailableTurns`, and `turnIndex` of
+  `SessionHistoryPage`.
+
+### Kept, and why
+
+- The session repository for continuation: the sync, the thread import, the
+  code restore, the checked push, the `session_repositories` facts,
+  `session.headChanged`, and `listMySessions` (the list of personal sessions
+  that a host can continue; the offline list of a personal session still comes
+  from it).
+- The transcript producer, the `transcript` kind, the sink, the search index,
+  `readApiTranscript`, and `session.transcriptChanged`: they are the reader
+  path now.
+
+### Limits
+
+- The owner cannot search a personal session on the Solus API, and
+  `read_session` on another host cannot read it there. The two need a session
+  record on the API (D2).
+- A session that a person deletes on a host leaves its mirrored rows and turn
+  diffs in the person's scope, as it leaves its cloud repository. Retention and
+  delete (D9) are not decided.
+- A personal session is listed with no host online only after its first turn
+  commit reaches the cloud (`listMySessions`), although its rows reach the
+  mirror during the first turn.
+- The join of a turn diff to its turn uses two clocks of one host (the row time
+  of the provider and the end time of the turn). A queued prompt whose row time
+  is before the end of the turn before it can put a diff on the wrong turn, as
+  for a host's checkpoint.
+- Rollout order: the Solus API first, then hosts. A Solus API on an older
+  release answers 401 to a personal delivery; the host keeps the rows and tries
+  again with backoff. It skips or refuses the `turn-diff` kind; the host then
+  sends none until the next read of the organization facts.
+- Desktop and web: a read-only tab of an organization session on a host that
+  is not its machine does not move when its machine connects later. A click on
+  the session row can then open a second tab; the person closes the read-only
+  tab first.
+- Mobile: the composer of an organization session on a host that is not its
+  machine is not blocked. A prompt there can fail (the host has no copy, or its
+  sync fails). Desktop and web make that tab read only.
+- A signed-in person with no Solus API connection (no organization, or none
+  that is ready) gets the words of `not-signed-in` on desktop and web, and
+  "Solus Cloud has no copy" on mobile. Client-core has no state for this.
+- Mobile: a session that is published while the phone is connected gets its
+  cloud row at the next reconnect.
+- No person checked the screens on any client.

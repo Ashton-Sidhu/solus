@@ -336,3 +336,8 @@ lists them by name.
   that also runs on a host should seek on a key that comes before the
   organization, as `session_transcripts` does with `(session_id, position,
   organization_id)`.
+- In the two mirror tables of a session, `session_transcripts` and
+  `session_turn_diffs`, `organization_id` holds the mirror scope: the id of an
+  organization, or `person:<accountId>` for a personal session
+  (`data/sessions/mirror-scope.ts`). An organization id has no colon, so a read
+  that names an organization never gets a personal row.

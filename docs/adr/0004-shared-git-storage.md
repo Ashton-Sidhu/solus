@@ -62,7 +62,7 @@ import `sync/` and the name is a value that records keep.
 - **`GitRemote`**: the remote of one `GitRepository`, with a token that only
   an askpass file holds. `repository`, `remoteHead`, `checkedPush`, `close`.
 - **`RepositoryProvider`**: the place that holds the remote copies. `remote(name,
-  access)` gives a URL and a token, `readFile(name, commit, path, maxBytes?)`
+  access)` gives a URL and a token, `readFile(name, commit, path)`
   reads one file without a clone, `remove(name)` deletes a repository, and
   `storageScope` identifies the place. Two adapters:
   `ArtifactsRepositoryProvider` (Cloudflare Artifacts) and
@@ -79,11 +79,15 @@ A feature gives only what is its own:
   durable batches (`WorkArchiveWriter`), and the choice of the provider
   (`SOLUS_WORK_STORAGE`, `startWorkStorage`).
 - **Sessions**: the names `session-…` for a local copy and for a cloud copy,
-  the repository layout (`manifest.json`, `rows/`, `diff/`, `code/`,
-  `threads/`), the rules of a turn commit and of a bundle between hosts
-  (`SessionRepository`, which extends `GitRepository`), the push queue, the
-  Solus API routes and their admission, the choice of the provider
-  (`SOLUS_SESSION_STORAGE`, `sessionRemoteProvider`), and `SessionCloudReader`.
+  the repository layout (`manifest.json`, `code/`, `threads/`; a commit made
+  before 2026-11-21 can also have `rows/` and `diff/`), the rules of a turn
+  commit and of a bundle between hosts (`SessionRepository`, which extends
+  `GitRepository`), the push queue, the Solus API routes and their admission,
+  and the choice of the provider (`SOLUS_SESSION_STORAGE`,
+  `sessionRemoteProvider`). No reader reads a session repository: the Solus
+  API answers a reader from the transcript mirror
+  (`docs/plans/portable-sessions-cloud.md`, "The mirror for readers"), and
+  `SessionCloudReader` was deleted.
 
 ### Differences that stay as parameters
 
@@ -95,7 +99,6 @@ the shared layer and not a second copy of the code:
 | `GitRepositoryOptions.timeoutMs` (one process) | 10 minutes for a local session copy; 30 seconds for a local provider | A session blob can be a large transcript or a code bundle. A provider read is one small file. |
 | `GitRepositoryOptions.deadline` (all processes of one remote) | 120 seconds for a work push; 10 minutes for a session fetch; 60 minutes for a session push | A remote operation is many processes with one limit. The process that the deadline stops answers "The Git operation timed out.", which `checkedPush` reports as `timeout`. |
 | `GitRepositoryOptions.outputLimitBytes` | 16 MiB by default; 1 MiB for a session fetch | The fetch reads only commit ids. |
-| `readText(…, maxBytes)` | 1 MiB, 4 MiB, and 2 MiB in `SessionCloudReader`; none for a work body | The Solus API holds a session file in memory for a client. A larger file gives `RepositoryFileTooLargeError`. |
 | `GitRepositoryOptions.subject` | `session repository` for a local session copy | The sync card shows the words of a failed Git process to a person. They stay the same. |
 | `GitCommit.keepParentFiles` | `true` for a turn commit; `false` for a work archive | A session adds the files of a turn to its history. A work archive writes its whole tree from the manifest. |
 | A commit entry that names a blob (`{ path, blob }`) | Works only | A work archive is a partial clone. The older bodies are only in the remote, so the tree names their blobs and Git does not check that they are local. |
@@ -137,6 +140,11 @@ can see.
   configuration with the two faults reports the other fault first.
 - The local provider checks a file path with the general rule (plain path
   segments). The local session provider had a list of the three session file
-  patterns; `SessionCloudReader` asks only for those three.
+  patterns; `SessionCloudReader` asked only for those three.
+- Changed on 2026-11-21: `SessionCloudReader` was deleted, because a reader
+  gets the rows and the diff of a turn from the transcript mirror. The byte
+  limit of a file read (`readText(…, maxBytes)`, `RepositoryFileTooLargeError`)
+  had no other user and was deleted with it. `readFile` stays for the work
+  transport.
 - Not in this decision: `apps/app-repository.ts` had its own Git runner and
   commit builder for app repositories. ADR 0005 moved it to `GitRepository`.

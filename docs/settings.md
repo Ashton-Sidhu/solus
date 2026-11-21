@@ -99,6 +99,18 @@ It is stored in that host's config and applies with no client connected. The
 `sessions.limits.sessionCloudSync` policy can stop upload for organization work;
 an MDM policy can also lock the host switch and stop upload for Local work.
 
+The switch controls two copies of a session that is not published to an
+organization. The first is the cloud copy that another machine continues the
+session from. The second is the read-only copy that you read when no machine
+that has the session is online: the conversation with no tool output, and the
+changes of each turn. Only you can read that copy. With the switch off, neither
+copy is made, and a client with no machine online says that Solus Cloud has no
+copy of the session. A copy that was made before the switch went off stays.
+
+A session that is published to an organization always sends its conversation to
+the organization, so its members can read it. The switch controls only the cloud
+copy and the changes of each turn of such a session.
+
 ## Personal sync
 
 - Signed in to Solus Cloud, your settings sync through your account. There is no

@@ -113,9 +113,11 @@ A session is not on a host, so it does not move. The run host changes.
     handoff, and the conversation says that the context was summarized.
 13. **Each turn commit also holds the rows of the turn.** Solus has no parser
     for a Codex rollout file, and the data layer must not import the provider
-    adapters. Rows let a reader with no provider process show the turn. Since
-    2026-11-21 a turn commit of organization work holds no rows: the transcript
-    mirror sends them (§22).
+    adapters. Rows let a reader with no provider process show the turn.
+    **Replaced on 2026-11-21:** no new turn commit holds rows or a patch. The
+    transcript mirror is the one store for a reader, and the session
+    repository is only for a host that continues a session
+    (`portable-sessions-cloud.md`, "The mirror for readers"; §22).
 14. **Fork to another host is the existing fork with Run on open.** No new
     action. A fork that names no other host behaves as today.
 15. **Not signed in: the same format, another transport.** A host gets the
@@ -143,10 +145,14 @@ One branch, `main`. One turn commit for each turn end.
 session-<48 hex>.git
   manifest.json
   threads/<threadId>/<file key>/<n>   byte ranges of one thread file, in order
-  rows/<n>.jsonl                      the rows of turn n (not for organization work, §22)
+  rows/<n>.jsonl                      the rows of turn n (only in a commit before 2026-11-21)
   code/<n>.bundle                     the objects of turn n that origin lacks
-  diff/<n>.patch                      the turn diff: turn start to turn end
+  diff/<n>.patch                      the turn diff (only in a commit before 2026-11-21)
 ```
+
+Since 2026-11-21 a new turn commit has `manifest.json`, `threads/`, and
+`code/` only. The rows and the diff of a turn go to the transcript mirror
+(`portable-sessions-cloud.md`, "The mirror for readers").
 
 - **Thread files are stored as byte ranges.** Turn `n` adds the bytes that the
   provider wrote after turn `n-1`. A host builds a thread file again by joining
@@ -271,10 +277,13 @@ waits for it.
 3. A background job builds the turn commit in the local repository:
    - `AgentBackend.exportThread` gives the byte ranges of each thread file up
      to the recorded lengths;
-   - the rows of the turn come from the history reader of the provider;
+   - (until 2026-11-21) the rows of the turn come from the history reader of
+     the provider;
    - the code bundle holds the turn-start and turn-end snapshots, each wrapped
      in a commit, and the commits of the branch that origin does not have;
-   - the diff patch comes from the two snapshot trees;
+   - (until 2026-11-21) the diff patch comes from the two snapshot trees; since
+     then the job gives the committed turn to the transcript mirror, which
+     sends the patch (`mirrorTurnDiff`);
    - the manifest gets the new turn.
 4. Signed in: the job gets a token and pushes the commit with the checked
    push. Then it reports the new head to the session record.
@@ -403,7 +412,8 @@ Desktop and web share the Svelte code. Mobile needs its own implementation in
   <host>", and "<host> is offline" with the Run on list when the last run host
   is away.
 - **With no host online** (signed in), the session opens read-only from the
-  home. The composer keeps the text and says "Choose a machine".
+  Solus API, which reads the transcript mirror. The composer keeps the text
+  and says "Choose a machine".
 - **Fork.** `forkTab` does not change. Run on stays open on a fork that has no
   prompt yet. A fork whose run host is the source's host behaves as today. A
   fork with another run host: that host syncs from the source session
@@ -527,7 +537,7 @@ Each phase leaves the tree green and is useful alone.
 | 2 | `SessionSync`, `importThread`, the tree check, `sessionRepositoryBundle`, `sessionPrepare`, `knownHead`; the Lab scenario with paired hosts | A session continues on a second host when the person is not signed in |
 | 3 | The transport core shared with works (§6.1); solus-cloud token route; push and fetch with Artifacts; the record fields and the home for a signed-in person; the refused-push fork | A session continues when the last run host is offline |
 | 4 | Run on for a started session, the states, the fork option, on desktop and web; then mobile | The person can use all of it |
-| 5 | The rows of each turn (§4 decision 13); read-only open with no host online from rows and diff patches; `read_session` from the session repository | A session is readable everywhere |
+| 5 | The rows of each turn (§4 decision 13); read-only open with no host online from rows and diff patches; `read_session` from the session repository. Since 2026-11-21 the rows and the diff patches are in the transcript mirror, and no reader reads the session repository | A session is readable everywhere |
 
 The reuse survey of 2026-11-17 (session "Session repository reuse survey")
 lists more places that can read the session repository after phase 3.
@@ -1105,7 +1115,8 @@ type. A pure rule of one input object stays a function.
 
 - `SessionCloudScope` (`person:<id>` or `organization:<id>`), with
   `formatSessionCloudScope` and `parseSessionCloudScope`: where a session
-  repository is in the cloud. Hosts, the Solus API routes, and the readers use it.
+  repository is in the cloud. Hosts and the Solus API routes use it. The
+  `person:<id>` text is also the mirror scope of a personal session.
 - `SessionRepositoryFacts`: `head`, `syncedTurn`, `lastRunHostId`,
   `runningHostId`. Each Solus API answer, `session.headChanged`, and each
   client use these four facts.
@@ -1126,8 +1137,9 @@ type. A pure rule of one input object stays a function.
 - Fields on older types: `PromptOptions.knownHead`, `.sourceHostId`,
   `.forkSourceSessionId`; `SessionMeta.head`, `.syncedTurn`, `.pushRefused`;
   the four facts on `SessionRecord`; `StatusCardState.syncFailureReason`;
-  `SessionHistoryPage.availability`, `.unavailableTurns`, `.turnIndex`; the
-  prompt refusal code `SESSION_DIVERGED`.
+  `SessionHistoryPage.turnDiffs` (`SessionTurnDiffRef`: the turn diffs of the
+  turns on a page that the Solus API reads from the mirror); the prompt
+  refusal code `SESSION_DIVERGED`.
 - The host setting and the policy limit `sessionCloudSync`, and
   `sessionCloudSyncSwitchState` for the switch.
 
@@ -1144,8 +1156,19 @@ type. A pure rule of one input object stays a function.
   owns it: `SessionRepositoryRow`, `readSessionRepository`,
   `createSessionRepository`, `listPersonalSessionRepositories`,
   `sessionRepositoryFacts`, `cloudSessionRepositoryName`.
-- `ensureImportedSessionLineage`, `hasTranscript`, and `messageSchema`: used by
-  the sync and by the cloud read.
+- `ensureImportedSessionLineage`: used by the sync.
+- The reader path, which is the transcript mirror and not the session
+  repository (`portable-sessions-cloud.md`, "The mirror for readers"):
+  - `mirror-scope.ts`: `personMirrorScope`, `personOfMirrorScope`, and
+    `readerMirrorScope` (the scope that a reader on the Solus API reads a
+    session in).
+  - `transcript-reads.ts`: `readTranscript`, `readTranscriptPage`,
+    `hasTranscript`, `transcriptRowTimestamp`, `messageSchema`.
+  - `turn-diffs.ts`: `readTurnDiff`, `turnDiffsEndedIn`, `turnDiffsOfPage`.
+  - Solus API tables `session_transcripts` and `session_turn_diffs`
+    (`transcript-schema.ts`); `organization_id` holds the mirror scope.
+  - `SessionApiOperations.turnDiff`: the access rule and the read of
+    `sessionTurnDiff`.
 
 ### Server sync (`packages/server/src/sync`)
 
@@ -1169,7 +1192,7 @@ type. A pure rule of one input object stays a function.
     `readFile`, `remove`, and `storageScope`. Its adapters are
     `ArtifactsRepositoryProvider` (Cloudflare Artifacts) and
     `LocalGitRepositoryProvider` (a folder of bare repositories).
-    `RepositoryFileTooLargeError` is the answer for a file over the read limit.
+    `readFile` has no byte limit: the work transport is its one user.
   - `storageRepositoryName(kind, owner, id)` and `isStorageRepositoryName`
     (`data/storage-repository-name.ts`): the one name rule.
 - `SessionRepositories`: the folder of local copies. `named(name, signal?)`
@@ -1183,8 +1206,16 @@ type. A pure rule of one input object stays a function.
   `manifest.json` of each turn commit.
 - `SessionArchiveWriter`: writes each ended turn (`TurnEnd`) as a turn commit.
   `SessionRuntime` calls `turnEnded`; boot calls `resume`. `ThreadFile` is one
-  provider file. `loadSettledTurnRows` reads the rows of the ended turn. A turn
-  commit of organization work stores no rows: the transcript mirror sends them.
+  provider file. A turn commit holds no rows and no patch: a reader gets them
+  from the transcript mirror. `SessionArchiveDeps.turnDiff` gives each
+  committed turn (`EndedTurn`) to the mirror.
+- The mirror producers on a host (`sync/mirror`): `TranscriptMirror` (rows,
+  activity, share rows), `mirrorTurnDiff` (the diff of an ended turn, kind
+  `turn-diff`, limit `TURN_DIFF_PATCH_BYTES`), `mirrorDestination`,
+  `turnDiffDestination`, `publishedDestination`, and
+  `listUnmirroredCloudSessions`. `RunnerDelivery` sends a personal destination
+  with the personal delegation; `/runner/deliver` and `applyRunnerDelivery`
+  admit it.
 - `SessionPusher`: the host-wide push queue. Boot connects it: a turn commit
   calls `committed`, a running session calls `running`, sign-in and sign-out
   call `established` and `signedOut`, and prompt admission reads `refusedHead`.
@@ -1196,17 +1227,14 @@ type. A pure rule of one input object stays a function.
   RPC parts.
 - On the Solus API: `sessionRemoteProvider()`, which gives the
   `RepositoryProvider` that `SOLUS_SESSION_STORAGE` names and refuses a storage
-  scope that differs from the saved rows, and `SessionCloudReader` (`page`,
-  `preview`, `diff`), which reads rows and patches at the recorded head. It
-  reads rows only from a person's own repository (the `person:` scope). A turn
-  diff comes from that repository or from the repository of a published
-  organization session.
+  scope that differs from the saved rows. The API reads no file of a session
+  repository: `SessionCloudReader` was deleted on 2026-11-21.
 
 ### Server Git (`packages/server/src/git`)
 
-- `writeTurnCodeBundle` (`TurnCodeState`, `TurnCodeBundle`, `bundleRef`) and
-  `writeTurnDiffPatch`: the code state and the diff of a turn. The archive
-  writer uses them.
+- `writeTurnCodeBundle` (`TurnCodeState`, `TurnCodeBundle`, `bundleRef`): the
+  code state of a turn, for the archive writer. `writeTurnDiffPatch`: the diff
+  of a turn, for `mirrorTurnDiff`.
 - `restoreSessionCode` (`RestoreSessionCodeInput`, `RestoredSessionCode`,
   `CodeRestoreError`): the checkout of a synced session. `SessionSync` uses it.
 - `getSessionPaths`, `snapshotLiveTree`, `writeRestoredSessionSnapshots`, and
@@ -1228,7 +1256,8 @@ type. A pure rule of one input object stays a function.
 - `PromptDispatch.refusedHead` and `assertSessionCurrent`: a host with a
   refused push admits no prompt.
 - `sessionCloudSyncDecision` (`SessionCloudSyncDecision`): the one answer to
-  "may this session go to the cloud now".
+  "may this session go to the cloud now". It gates the push, the fetch, the
+  mirror of a personal session, and each turn diff.
 - `portableSessionPathNote`: the first-turn note after the project root changed.
 
 ### Server transport (`packages/server/src/transport`)
@@ -1239,11 +1268,10 @@ type. A pure rule of one input object stays a function.
 - `registerSessionRepositoryRoutes`: `POST /runner/session-repositories/token`
   and `POST /runner/session-repositories/head`.
 - Solus API router: `GET /v1/me/sessions` and
-  `GET /v1/sessions/:sessionId/turns/:turnIndex/diff`. `loadSessionPage`, the
-  preview, and the tool inputs read from `SessionCloudReader` when the
-  transcript mirror has no rows. Each session has one source of rows: the
-  mirror for an organization session, and the person's own repository for a
-  personal session (`portable-sessions-cloud.md`, "One source of rows").
+  `GET /v1/sessions/:sessionId/turns/:turnIndex/diff`. `loadSessionPage`,
+  `loadSession`, the preview, the tool inputs, and the turn diff read the
+  transcript mirror only, for an organization session and for a personal one
+  (`portable-sessions-cloud.md`, "The mirror for readers").
 
 ### Client core (`packages/client-core/src`)
 
@@ -1262,7 +1290,8 @@ type. A pure rule of one input object stays a function.
   `conversationAwaitsMachine`: the cloud state of a session on its run host.
 - `sessionCloudReadSource`, `sessionCloudReadView`, `readSessionCloudPage`,
   `readSessionTurnDiff`, with `sessionCloudReadText` and `sessionTurnDiffText`:
-  the read-only open from the Solus API.
+  the read-only open from the Solus API. They depend on the mirror's answer;
+  the cloud facts decide only whether an online run host holds the session.
 - `isSessionSyncCard`, `sessionSyncCardView`, `sessionSyncFailureText`,
   `sessionSyncFailureAction`, `sessionSyncStepLabel` (`SessionSyncCardNames`):
   the sync card in the words of a client.
@@ -1277,7 +1306,11 @@ type. A pure rule of one input object stays a function.
   `noteSessionMeta`, `noteTurnSettled`, `notePushRefused`.
 - `RunHostChanges`: the change of the run host of a started tab, the prepare,
   and the fields of a prompt.
-- `CloudTranscriptStore`: the read-only conversation and the turn diffs.
+- `CloudTranscriptStore`: the read-only conversation and the turn diffs, read
+  from the transcript mirror. `copyApiServerFor` gives the Solus API connection
+  that reads a copy. `SessionOpening.openCloudSession` opens the one read-only
+  surface; `RUNNER_NOT_HERE_READ_ONLY_REASON` and `PersistedTab.runnerNotHere`
+  mark a tab of an organization session on a host that is not its machine.
 - Pure view rules: `input/lib/run-host-row.ts`,
   `conversation/lib/session-sync-view.ts`, `conversation/lib/cloud-turn-diff.ts`,
   `turnSnapshotFor`, `isRunOnHostLocked`, `syncRepository`.
@@ -1291,7 +1324,8 @@ type. A pure rule of one input object stays a function.
   and the prepare.
 - `CloudSessions`: the cloud facts and the cloud-only sessions.
 - `CloudHistory` and `useCloudRead`: the read-only conversation and the turn
-  diffs.
+  diffs, read from the transcript mirror. `CloudSessions` also keeps each
+  published session of the organization's list.
 - Pure view rules: `lib/run-host-row.ts`, `lib/cloud-read-view.ts`,
   `lib/cloud-turn-diff-view.ts`.
 - Components and hooks: `ThreadRunHostRow`, `useRunHostRow`,
@@ -1326,5 +1360,9 @@ type. A pure rule of one input object stays a function.
 | `sync/git-remote.ts`; `GitRemote.git(args, input)`; `GitRemoteOptions.authorDate` | `sync/git-storage/git-remote.ts`; `GitRemote.repository.git(args, io)`; `GitCommit.date` |
 | `CloudflareWorkRepositories` (`sync/works/cloudflare-work-repositories.ts`) | `ArtifactsRepositoryProvider` (`sync/git-storage/artifacts-repository-provider.ts`) |
 | The interface `SessionRemoteProvider`, and the local Git adapter inside `sessionRemoteProvider()` | `RepositoryProvider`, and `LocalGitRepositoryProvider` with the kind `session` |
-| The error message `SESSION_FILE_TOO_LARGE` from each adapter | `RepositoryFileTooLargeError`; `SessionCloudReader` gives a client the same code as before |
+| The error message `SESSION_FILE_TOO_LARGE` from each adapter | `RepositoryFileTooLargeError`; deleted with `SessionCloudReader` on 2026-11-21 |
+| `SessionCloudReader` (`page`, `preview`, `diff`), `loadSettledTurnRows`, `SessionArchiveDeps.turnRows` | Deleted. `readTranscriptPage`, `readTranscript`, `readTurnDiff`, and `turnDiffsOfPage` read the mirror |
+| `transcriptDestination(sessionId)` | `mirrorDestination` (rows), `turnDiffDestination` (turn diffs), `publishedDestination` (share rows and link origin) |
+| `SessionHistoryPage.availability`, `.unavailableTurns`, `.turnIndex` | `SessionHistoryPage.turnDiffs` |
+| The sources `sync-off`, `not-in-cloud`, `empty`, `listing` of `sessionCloudReadSource`; the view states `empty` and `stale` with `head-changed`; `SessionCloudReadProgress.readHead`, `.unavailableTurnCount`; `SessionCloudPage` | The source is `cloud` or `not-signed-in`; the view has `not-in-cloud`, `sync-off`, and `stale` with `newer-rows`; `SessionCloudReadProgress.hasNewerRows` |
 | The name hash in `sessionRepositoryName` and in `cloudSessionRepositoryName` | Each calls `storageRepositoryName('session', …)`; the names are the same |

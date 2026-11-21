@@ -41,7 +41,10 @@ These are separate facts. Sharing one conversation must not require sharing
 the machine that runs it. Selecting an organization must not publish scratch
 work. Signing in, linking a host, and joining an organization do not publish
 Local sessions or works. The default-enabled Insights copy below is separate
-from record publication.
+from record publication. So is the read-only copy of a personal session in its
+owner's own scope of the transcript mirror: no organization and no other person
+reads it, and the cloud sync switch controls it
+(`portable-sessions-cloud.md`, "The mirror for readers").
 
 | Concept | Responsibility | Identity |
 |---|---|---|

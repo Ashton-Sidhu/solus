@@ -160,7 +160,13 @@ The phone app has its own thread list and does not have this setting
 A record from the Solus API names its runner (`runnerHostId`). When a
 saved server with that `uplink.hostId` is connected, the picker row opens on that
 runner. If no such server is connected, the row stays on the service and shows
-as read-only with its runner offline (`session-home.ts`).
+as read-only with its runner offline (`session-home.ts`). Such a row opens in a
+tab that reads the session's copy in Solus Cloud (the transcript mirror), on
+the machine that ran it when this client keeps that machine, else on the Run
+on host, read only. A session whose turn runs on a machine this client cannot
+connect to opens as its record, which shows the rows as they arrive
+(`SessionOpening.openCloudSession`; `docs/plans/portable-sessions-cloud.md`,
+"The mirror for readers").
 
 The message ID of a service hit is a position in the mirrored transcript. The
 runner's index does not know that position. So when a row opens on its runner,

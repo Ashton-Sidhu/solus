@@ -145,6 +145,10 @@ same pattern: a second or third mechanism beside the first, not in place of it.
   for each (host, actor), and a collect window of about one second before a send.
   The API applies a batch in one transaction with one cursor write. A permanent
   failure skips and names its item; a transient one stops the batch.
+  Since 2026-11-21 the route also admits the owner's personal delegated token
+  from a personal host: the rows and the turn diffs of a personal session go to
+  the owner's own mirror scope (`portable-sessions-cloud.md`, "The mirror for
+  readers").
 - Delete the cloud outbox: the six queued writes (task comment, link, link
   session, link PR, session link, worktree) call the Solus API directly, as task
   and work creation already do.

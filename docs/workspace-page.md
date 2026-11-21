@@ -51,7 +51,7 @@ link · 6h left": the widest reach leads. The host answers this with the listing
 instead. A session card leads
 with the sidebar's own status glyph and the host that runs it, the reader's
 role at the right, then the title, the project and branch, the owner, and who
-is in it. A session whose host does not answer says "Read only from the mirror".
+is in it. A session whose host does not answer says "Read only from Solus Cloud".
 
 Opening a shared work opens it as any work. Opening a shared session resumes it
 where it runs, as a tab; in the cloud console it opens the session's record.
