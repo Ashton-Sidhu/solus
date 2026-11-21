@@ -38,7 +38,7 @@ export class McpAppLiveCards {
 
   /** A mounted live card holds its call; `adopt` gets the activity of the call's saved app. Returns the release. */
   hold(sessionId: string, toolUseId: string, adopt: (activityId: string) => void): () => void {
-    const key = `${sessionId}\0${toolUseId}`
+    const key = callKey(sessionId, toolUseId)
     let holders = this.holders.get(key)
     if (!holders) {
       holders = new Set()
@@ -54,12 +54,12 @@ export class McpAppLiveCards {
   }
 
   isHeld(sessionId: string, toolUseId: string | undefined): boolean {
-    return toolUseId !== undefined && this.holders.has(`${sessionId}\0${toolUseId}`)
+    return toolUseId !== undefined && this.holders.has(callKey(sessionId, toolUseId))
   }
 
   /** The saved card of a held call gives its activity to the live card. */
   handOver(sessionId: string, toolUseId: string, activityId: string): void {
-    for (const adopt of this.holders.get(`${sessionId}\0${toolUseId}`) ?? []) adopt(activityId)
+    for (const adopt of this.holders.get(callKey(sessionId, toolUseId)) ?? []) adopt(activityId)
   }
 
   subscribe(listener: () => void): () => void {
@@ -70,6 +70,11 @@ export class McpAppLiveCards {
   private changed(): void {
     for (const listener of this.listeners) listener()
   }
+}
+
+/** One tool call of one session. */
+function callKey(sessionId: string, toolUseId: string): string {
+  return `${sessionId}\0${toolUseId}`
 }
 
 const cards = new WeakMap<HostApi, McpAppLiveCards>()
