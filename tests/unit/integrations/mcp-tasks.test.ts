@@ -540,11 +540,37 @@ describe('MCP tasks', () => {
     const { result } = await started(w)
     await w.clock.advance(MCP_TASK_HOLD_MS)
     await result
+    // As `deleteSessionRecord` does: the rows go, then the owner hears it.
     getDb().prepare('DELETE FROM mcp_task WHERE session_id = ?').run(SESSION)
-    await w.clock.advance(5_000)
+    w.owner.sessionDeleted(SESSION)
+    await settle()
     expect(w.clock.pending).toBe(0)
+    expect(w.owner.holdsSession(SESSION)).toBe(false)
     expect(requests.filter((entry) => entry.method === 'tasks/cancel').map((entry) => entry.params.taskId)).toEqual([upstreamId()])
     expect(w.wakes).toEqual([])
+  })
+
+  test('an archived session cancels the live MCP tasks of the person who archived it', async () => {
+    // WHY: mcp-first-class.md §12.3. The archive left the server's work running
+    // and kept the session in 'background' until the task ended by itself.
+    const w = world()
+    const { result } = await started(w)
+    await w.clock.advance(MCP_TASK_HOLD_MS)
+    await result
+    w.owner.sessionArchived(SESSION, 'someone-else')
+    await settle()
+    expect(requests.filter((entry) => entry.method === 'tasks/cancel')).toEqual([])
+    w.owner.sessionArchived(SESSION, PERSON)
+    await settle()
+    expect(requests.filter((entry) => entry.method === 'tasks/cancel').map((entry) => entry.params.taskId)).toEqual([upstreamId()])
+    expect(w.events.at(-1)?.task.cancelling).toBe(true)
+    // Cooperative, as the person's cancel: the server confirms, and nothing starts the agent.
+    tasks.get(upstreamId())!.status = 'cancelled'
+    await w.clock.advance(5_000)
+    expect(only(w.owner.list(SESSION))).toMatchObject({ status: 'cancelled' })
+    expect(w.wakes).toEqual([])
+    expect(w.settled).toEqual([SESSION])
+    expect(w.clock.pending).toBe(0)
   })
 
   test(`at most ${MAX_MCP_TASK_WAKES_PER_HOUR} MCP task results start one session in an hour`, async () => {

@@ -193,6 +193,18 @@ export class McpTasks implements McpTaskCalls {
     }
   }
 
+  /** The session was deleted, and its rows with it: the server's work is cancelled, and nothing is sent. */
+  sessionDeleted(sessionId: string): void {
+    for (const task of this.live.values()) if (task.row.sessionId === sessionId) this.forget(task)
+  }
+
+  /** The person archived the session: their live MCP tasks in it are cancelled, as their own cancel does (§12.3). */
+  sessionArchived(sessionId: string, personKey: string): void {
+    for (const task of this.live.values()) {
+      if (task.row.sessionId === sessionId && task.row.personKey === personKey) void this.cancel({ sessionId, id: task.row.id })
+    }
+  }
+
   /** A session's MCP tasks that are live or ended in the last day, as a client shows them. */
   list(sessionId: string): McpTask[] {
     return this.deps.store.listForSession(sessionId, this.clock.now() - MCP_TASK_HISTORY_MS)
@@ -299,8 +311,6 @@ export class McpTasks implements McpTaskCalls {
     task.polling = true
     task.timer = null
     try {
-      // The session was deleted, and its rows with it: the server's work is not left running.
-      if (!this.deps.store.get(task.row.id)) return this.forget(task)
       const now = this.clock.now()
       if (now >= task.row.expiresAt) {
         void this.onServer(task.row, (upstream) => upstream.cancel()).catch(() => undefined)

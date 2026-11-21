@@ -910,9 +910,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   integrationGateway.useResourceWatches(resourceWatches)
   opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => resourceWatches.sessionStatusChanged(event.sessionId, event.status))
+  // A deleted session ends its watches and MCP tasks; an archive ends those of the person who archived it.
   domainEventUnsubscribes.push(
-    onSessionRecordDeleted((sessionId) => resourceWatches.sessionDeleted(sessionId)),
-    onSessionViewChanged((change) => { if (change.view.archivedAt !== null) resourceWatches.sessionArchived(change.sessionId, change.personKey) }),
+    onSessionRecordDeleted((sessionId) => {
+      resourceWatches.sessionDeleted(sessionId)
+      mcpTasks.sessionDeleted(sessionId)
+    }),
+    onSessionViewChanged((change) => {
+      if (change.view.archivedAt === null) return
+      resourceWatches.sessionArchived(change.sessionId, change.personKey)
+      mcpTasks.sessionArchived(change.sessionId, change.personKey)
+    }),
   )
   registerResourceWatchHandlers(server, resourceWatches)
   resourceWatches.start()
