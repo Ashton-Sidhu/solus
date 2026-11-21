@@ -1922,7 +1922,7 @@ adds none:
 - The transcript keeps that item mounted while it is in `pip`: the
   virtualizer keeps the card's turn (`TranscriptVirtualizer`'s `keptRows`).
 - The person moves the frame between the two lower corners with the title
-  bar's move control (`ConversationViewState.mcpAppPipSide`). A free move and
+  bar's move control (`McpAppView.movePip`, one corner for each conversation). A free move and
   a resize are left out (§20): they need pointer capture, a keyboard way to do
   the same, clamping on each pane resize, and a saved place, for little gain
   over two corners. Two corners already let the person uncover what they
@@ -1933,14 +1933,15 @@ adds none:
   open it shows its title bar only; the frame keeps running at no height. A
   live card on mobile has no saved app to dock yet, so it does not offer
   `pip` until its call ended (`mcpAppAvailableDisplayModes({ isSaved })`).
-- One `pip` frame for one conversation (`ConversationViewState.mcpAppPip` on
+- One `pip` frame for one conversation (`ConversationViewState.mcpApps` on
   desktop and web, `ConversationStore.mcpAppPip` on mobile). A second request
   puts the first back inline, and that app hears its new mode.
 - A conversation that is hidden hides its frame (the pool hides it with
-  `display: none`). `ConversationViewState` keeps `mcpAppPip` (the card's key
-  and its turn), so a conversation that was unmounted comes back with its app
-  in `pip`, in a new frame. A live card's key is its tool-use id until it
-  takes its saved app; then the key becomes the activity id.
+  `display: none`). `ConversationViewState.mcpApps` keeps the card's key and
+  its turn, so a conversation that was unmounted comes back with its app in
+  `pip`, in a new frame. A live card's key is its tool-use id until it takes
+  its saved app; then `McpAppViews.adopt` moves all the person set up for the
+  card (closed, height, context, permissions, `pip`) to the activity id.
 - When the conversation is narrower than 480 pixels
   (`MCP_APP_PIP_MIN_CONVERSATION_WIDTH`, measured on the conversation, not
   the screen), the host does not offer or grant `pip`, and a frame in `pip`

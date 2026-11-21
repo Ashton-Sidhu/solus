@@ -7,11 +7,12 @@
   import { mcpAppFrameHeight } from "@solus/client-core/mcp-app-document";
   import { mcpAppOffersDisplayMode, type McpAppConfirmFormat, type McpAppHost, type McpAppLiveCall } from "@solus/client-core/mcp-app-host";
   import { mcpAppAllowAttribute, mcpAppPermissionAction, mcpAppPermissionPrompt, mcpAppPermissionRequest } from "@solus/client-core/mcp-app-permissions";
-  import { mcpAppDocument, type McpAppCancelReason, type McpAppLiveDocument, type McpAppPermission, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
+  import { mcpAppDocument, type McpAppCancelReason, type McpAppLiveDocument, type McpAppRequest, type McpAppSnapshot } from "@solus/contracts/mcp-apps";
   import { Button } from "../ui/button";
   import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { connectMcpAppFrame, mcpAppContext, mcpAppSupportedPermissions, mcpAppTurnKey } from "./lib/mcp-app-frame";
+  import type { McpAppView } from "./lib/mcp-app-views.svelte";
 
   /**
    * One MCP App in an opaque-origin frame. Writes, messages, links, and
@@ -30,38 +31,25 @@
     request: McpAppRequest;
     title: string;
     onSend: (text: string) => boolean;
-    /** With a reason when a live card's call gave no result. */
-    onClose: (cancelled?: McpAppCancelReason) => void;
-    initialHeight?: number;
-    onHeight: (height: number) => void;
-    /** The context this app gave the agent; undefined when it gave none. */
-    modelContext: string | undefined;
-    onModelContext: (text: string) => void;
-    /** The browser features the person granted this app. */
-    permissions: McpAppPermission[];
-    onPermissions: (granted: McpAppPermission[]) => void;
-    /** The conversation keeps this app in picture-in-picture (`ConversationViewState.mcpAppPip`). */
-    isPip: boolean;
-    /** With the card's turn to keep this app in picture-in-picture; null to give it back to its card. */
-    onPip: (turnKey: string | null) => void;
-    /** The lower corner the frame sits in while in picture-in-picture. */
-    pipSide: "end" | "start";
-    onMovePip: () => void;
+    /** A live card's call gave no result: the card goes, and the plain tool row stays. */
+    onCancel?: (reason: McpAppCancelReason) => void;
+    /** What the person set up for this card in its conversation (`ConversationViewState.mcpApps`). */
+    view: McpAppView;
   }
 
-  let { snapshot, call, savedCall, api, request, title, onSend, onClose, initialHeight = 320, onHeight, modelContext, onModelContext, permissions, onPermissions, isPip, onPip, pipSide, onMovePip }: Props = $props();
+  let { snapshot, call, savedCall, api, request, title, onSend, onCancel, view }: Props = $props();
 
   const settings = getSettingsContext();
   const srcdoc = $derived(mcpAppDocument(snapshot.html, snapshot.csp));
-  const allow = $derived(mcpAppAllowAttribute(permissions));
-  const requestedPermissions = $derived(mcpAppPermissionRequest(snapshot.permissions, mcpAppSupportedPermissions()).filter((permission) => !permissions.includes(permission)));
+  const allow = $derived(mcpAppAllowAttribute(view.permissions));
+  const requestedPermissions = $derived(mcpAppPermissionRequest(snapshot.permissions, mcpAppSupportedPermissions()).filter((permission) => !view.permissions.includes(permission)));
   let isContextOpen = $state(false);
   let frame = $state<HTMLIFrameElement | null>(null);
   let appDialog = $state<HTMLDialogElement | null>(null);
   let confirmDialog = $state<HTMLDialogElement | null>(null);
   let cancelButton = $state<HTMLButtonElement | null>(null);
   let isFullscreen = $state(false);
-  const displayMode: McpAppDisplayMode = $derived(isFullscreen ? "fullscreen" : isPip ? "pip" : "inline");
+  const displayMode: McpAppDisplayMode = $derived(isFullscreen ? "fullscreen" : view.isPip ? "pip" : "inline");
   // Measured on the conversation; zero outside one, where nothing can float.
   let conversationWidth = $state(0);
   const fitsPip = $derived(conversationWidth >= MCP_APP_PIP_MIN_CONVERSATION_WIDTH);
@@ -70,7 +58,7 @@
   const offersPip = $derived(mcpAppOffersDisplayMode("pip", availableModes, declaredModes));
   const offersFullscreen = $derived(mcpAppOffersDisplayMode("fullscreen", availableModes, declaredModes));
   let failed = $state(false);
-  let height = $state(untrack(() => initialHeight));
+  let height = $state(untrack(() => view.height ?? 320));
   let confirmation = $state<{ title: string; detail: string; format: McpAppConfirmFormat; resolve: (allowed: boolean) => void } | null>(null);
   let host = $state.raw<McpAppHost | null>(null);
 
@@ -106,8 +94,8 @@
     if (next === "pip" && !turnKey) return displayMode;
     const wasFullscreen = isFullscreen;
     isFullscreen = next === "fullscreen";
-    if (turnKey) onPip(turnKey);
-    else if (isPip) onPip(null);
+    if (turnKey) view.showPip(turnKey);
+    else view.returnPip();
     if (wasFullscreen !== isFullscreen) {
       dialog.close();
       if (isFullscreen) dialog.showModal();
@@ -129,9 +117,21 @@
     appDialog?.scrollIntoView({ block: "nearest" });
   }
 
+  /**
+   * Closed by the person, the card keeps a line to show the app again, and
+   * the app's context goes back: the agent never acts on an app the person
+   * no longer sees. Closed by a cancel, the card goes.
+   */
   function close(cancelled?: McpAppCancelReason) {
-    if (isPip) onPip(null);
-    onClose(cancelled);
+    view.returnPip();
+    if (cancelled) onCancel?.(cancelled);
+    else {
+      view.close();
+      if (view.modelContext !== undefined) {
+        view.setModelContext("");
+        void api.mcpAppUpdateModelContext({ ...request, text: "" }).catch(() => {});
+      }
+    }
     requestInputFocus();
   }
 
@@ -139,7 +139,7 @@
   async function grantPermissions() {
     const requested = requestedPermissions;
     const prompt = mcpAppPermissionPrompt(title, requested);
-    if (await confirm(prompt.title, prompt.detail, "text")) onPermissions([...permissions, ...requested]);
+    if (await confirm(prompt.title, prompt.detail, "text")) view.grant(requested);
     requestInputFocus();
   }
 
@@ -150,7 +150,7 @@
       snapshot,
       title,
       context: () => mcpAppContext(target, untrack(() => settings.isDark), untrack(() => displayMode), untrack(() => conversationWidth)),
-      permissions: () => untrack(() => permissions),
+      permissions: () => untrack(() => view.permissions),
       toolInfo: (name) => api.mcpAppToolInfo({ ...request, name }),
       callTool: (name, argumentsJson, approved) => api.mcpAppCallTool({ ...request, name, argumentsJson, approved }),
       readResource: (uri) => api.mcpAppReadResource({ ...request, uri }),
@@ -161,7 +161,7 @@
       },
       updateModelContext: async (text) => {
         await api.mcpAppUpdateModelContext({ ...request, text });
-        onModelContext(text);
+        view.setModelContext(text);
       },
       openLink: async (url) => {
         await localApi.openExternal(url);
@@ -170,7 +170,7 @@
       declaredDisplayModes: (modes) => (declaredModes = modes),
       resize: (next) => {
         height = next;
-        onHeight(next);
+        view.setHeight(next);
       },
       close,
     }, {
@@ -181,7 +181,7 @@
       displayMode: () => untrack(() => displayMode),
       onConversationWidth: (width) => {
         conversationWidth = width;
-        if (width < MCP_APP_PIP_MIN_CONVERSATION_WIDTH && untrack(() => isPip)) setMode("inline");
+        if (width < MCP_APP_PIP_MIN_CONVERSATION_WIDTH && untrack(() => view.isPip)) setMode("inline");
       },
     });
     host = connection.host;
@@ -222,8 +222,8 @@
   }}
   class={isFullscreen
     ? "fixed inset-0 m-0 flex h-full max-h-none w-full max-w-none flex-col border-0 bg-background p-4 text-foreground"
-    : isPip
-      ? `fixed top-auto bottom-[calc(var(--solus-composer-height,0px)+3rem)] z-[6] m-0 flex h-[18.25rem] w-96 max-w-none flex-col overflow-hidden rounded-2xl border-0 bg-(--solus-popover-bg) p-0 text-foreground shadow-(--solus-popover-shadow) supports-[anchor-name:--a]:bottom-[calc(anchor(--solus-conversation_bottom)+var(--solus-composer-height,0px)+3rem)] ${pipSide === "end"
+    : view.isPip
+      ? `fixed top-auto bottom-[calc(var(--solus-composer-height,0px)+3rem)] z-[6] m-0 flex h-[18.25rem] w-96 max-w-none flex-col overflow-hidden rounded-2xl border-0 bg-(--solus-popover-bg) p-0 text-foreground shadow-(--solus-popover-shadow) supports-[anchor-name:--a]:bottom-[calc(anchor(--solus-conversation_bottom)+var(--solus-composer-height,0px)+3rem)] ${view.pipSide === "end"
           ? "right-4 left-auto supports-[anchor-name:--a]:right-[calc(anchor(--solus-conversation_right)+1rem)]"
           : "right-auto left-4 supports-[anchor-name:--a]:left-[calc(anchor(--solus-conversation_left)+1rem)]"}`
       : snapshot.prefersBorder
@@ -233,7 +233,7 @@
 >
   {#if isFullscreen}
     <div class="flex min-h-11 items-center px-1 text-workspace-chrome font-medium">{title}</div>
-  {:else if isPip}
+  {:else if view.isPip}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="flex h-9 shrink-0 items-center gap-0.5 pr-1 pl-3 text-workspace-chrome font-medium"
@@ -244,7 +244,7 @@
       }}
     >
       <span class="min-w-0 flex-1 truncate">{title}</span>
-      <Button variant="ghost" size="icon-sm" aria-label={pipSide === "end" ? "Move to the left" : "Move to the right"} class="text-muted-foreground pointer-coarse:tap-area" onclick={() => { onMovePip(); requestInputFocus(); }}>
+      <Button variant="ghost" size="icon-sm" aria-label={view.pipSide === "end" ? "Move to the left" : "Move to the right"} class="text-muted-foreground pointer-coarse:tap-area" onclick={() => { view.movePip(); requestInputFocus(); }}>
         <ArrowLeftRight size={16} />
       </Button>
       <Button variant="ghost" size="icon-sm" aria-label="Return to card" class="text-muted-foreground pointer-coarse:tap-area" onclick={() => void returnToCard()}>
@@ -273,7 +273,7 @@
   <!-- The card's controls float over the app as one small toolbar: the
        popover surface with the menus' shadow, no outline, and the PiP
        header's ghost buttons. -->
-  <div class="absolute top-2 right-2 flex items-center gap-0.5 rounded-full bg-(--solus-popover-bg) p-0.5 shadow-(--solus-menu-shadow)" hidden={isPip}>
+  <div class="absolute top-2 right-2 flex items-center gap-0.5 rounded-full bg-(--solus-popover-bg) p-0.5 shadow-(--solus-menu-shadow)" hidden={view.isPip}>
     {#if offersPip && !isFullscreen}
       <Button variant="ghost" size="icon-sm" aria-label="Keep in view" class="rounded-full text-muted-foreground pointer-coarse:tap-area" onclick={() => choose("pip")}>
         <PictureInPicture2 size={16} />
@@ -296,7 +296,7 @@
   </div>
 </dialog>
 
-{#if isPip}
+{#if view.isPip}
   <!-- The card's place in the transcript while its frame floats over the conversation. -->
   <div class="my-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
     <PictureInPicture2 size={16} class="shrink-0" />
@@ -311,7 +311,7 @@
     <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={grantPermissions}>Review…</Button>
   </div>
 {/if}
-{#if modelContext}
+{#if view.modelContext}
   <div class="mb-2 text-workspace-chrome text-muted-foreground">
     <button
       type="button"
@@ -325,7 +325,7 @@
     </button>
     {#if isContextOpen}
       <p class="mb-2">The agent gets this with each new turn of this session.</p>
-      <pre class="m-0 max-h-60 overflow-auto rounded-[0.625rem] bg-(--solus-code-tint) p-3 font-mono text-transcript-meta whitespace-pre-wrap text-foreground">{modelContext}</pre>
+      <pre class="m-0 max-h-60 overflow-auto rounded-[0.625rem] bg-(--solus-code-tint) p-3 font-mono text-transcript-meta whitespace-pre-wrap text-foreground">{view.modelContext}</pre>
     {/if}
   </div>
 {/if}

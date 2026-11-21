@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { mcpAppLiveFor } from "@solus/client-core/mcp-app-live";
   import { mcpAppsFor, type McpAppRead } from "@solus/client-core/mcp-app-store";
   import type { McpAppReference } from "@solus/contracts/mcp-apps";
@@ -30,13 +31,14 @@
   const api = $derived(surface.apiForSession(sessionId));
   const store = $derived(mcpAppsFor(api));
   const request = $derived({ sessionId, activityId });
-  const viewState = $derived(conversationViewStates(workspace).forTab(tabId));
-  const isClosed = $derived(viewState.closedMcpApps.has(activityId) || (!!app.toolUseId && viewState.closedMcpApps.has(app.toolUseId)));
+  const mcpApps = $derived(conversationViewStates(workspace).forTab(tabId).mcpApps);
+  const view = $derived(mcpApps.view(activityId));
   let isNear = $state(false);
   let isHeldLive = $state(false);
   let value = $state<McpAppRead>({ phase: "idle" });
 
-  // The live card of this call takes the activity and keeps its frame.
+  // The live card of this call takes the activity and keeps its frame; with
+  // no live card, what the person set up for the call is this card's.
   $effect(() => {
     const live = mcpAppLiveFor(api);
     const toolUseId = app.toolUseId;
@@ -44,25 +46,15 @@
     const update = () => {
       isHeldLive = live.isHeld(sessionId, toolUseId);
       if (isHeldLive) live.handOver(sessionId, toolUseId, activityId);
+      else untrack(() => mcpApps.adopt(toolUseId, activityId));
     };
     update();
     return live.subscribe(update);
   });
 
-  function show() {
-    viewState.closedMcpApps.delete(activityId);
-    if (app.toolUseId) viewState.closedMcpApps.delete(app.toolUseId);
-  }
-
-  /** Closing an app takes back what it gave the agent, so the agent never acts on an app the person no longer sees. */
-  function close() {
-    viewState.closedMcpApps.add(activityId);
-    if (viewState.mcpAppContexts.delete(activityId)) void api.mcpAppUpdateModelContext({ ...request, text: "" }).catch(() => {});
-  }
-
   $effect(() => {
     // A closed app releases its body so the store can drop it.
-    if (isClosed || isHeldLive) {
+    if (view.isClosed || isHeldLive) {
       value = { phase: "idle" };
       return;
     }
@@ -80,10 +72,10 @@
 <div use:nearViewport={() => (isNear = true)}>
   {#if isHeldLive}
     <!-- The live card above shows this app. -->
-  {:else if isClosed}
+  {:else if view.isClosed}
     <div class="my-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
       <span class="min-w-0 flex-1 truncate">The {app.title} app was closed</span>
-      <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={show}>Show app</Button>
+      <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={() => view.show()}>Show app</Button>
     </div>
   {:else if value.phase === "ready"}
     <McpAppFrame
@@ -92,17 +84,7 @@
       {request}
       title={app.title}
       {onSend}
-      initialHeight={viewState.mcpAppHeights.get(activityId)}
-      onHeight={(height) => viewState.mcpAppHeights.set(activityId, height)}
-      onClose={close}
-      modelContext={viewState.mcpAppContexts.get(activityId)}
-      onModelContext={(text) => (text ? viewState.mcpAppContexts.set(activityId, text) : viewState.mcpAppContexts.delete(activityId))}
-      permissions={viewState.mcpAppPermissions.get(activityId) ?? []}
-      onPermissions={(granted) => viewState.mcpAppPermissions.set(activityId, granted)}
-      isPip={viewState.isMcpAppPip(activityId)}
-      onPip={(turnKey) => (turnKey ? viewState.showMcpAppPip(activityId, turnKey) : viewState.returnMcpAppPip(activityId))}
-      pipSide={viewState.mcpAppPipSide}
-      onMovePip={() => viewState.moveMcpAppPip()}
+      {view}
     />
   {:else if value.phase === "error"}
     <div class="my-2 flex min-h-28 flex-col items-center justify-center gap-2 text-workspace-chrome text-muted-foreground" role="alert">

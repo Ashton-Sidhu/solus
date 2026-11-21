@@ -60,7 +60,9 @@ test('one app floats over a conversation, and its turn stays mounted wherever th
   writeFileSync(geometry, transpiler.transformSync(readFileSync(new URL(region + 'lib/transcript-geometry.ts', root), 'utf8')))
   const virtualizer = svelteModule(region + 'lib/transcript-virtualizer.svelte.ts', 'virtualizer', [["'./transcript-geometry'", JSON.stringify(geometry)]])
   const disclosure = svelteModule(region + 'lib/transcript-disclosure.svelte.ts', 'disclosure')
+  const mcpAppViews = svelteModule(region + 'lib/mcp-app-views.svelte.ts', 'mcp-app-views')
   const viewState = svelteModule(region + 'lib/conversation-view-state.svelte.ts', 'view-state', [
+    ["'./mcp-app-views.svelte'", JSON.stringify(mcpAppViews)],
     ["'./transcript-disclosure.svelte'", JSON.stringify(disclosure)],
     ["'./transcript-virtualizer.svelte'", JSON.stringify(virtualizer)],
   ])
@@ -71,18 +73,36 @@ test('one app floats over a conversation, and its turn stays mounted wherever th
     const { ConversationViewState } = await import(${JSON.stringify(viewState)});
     const view = new ConversationViewState();
 
+    const apps = view.mcpApps;
+
     // WHY: one frame floats over one conversation. A second request puts the first back in its card.
-    view.showMcpAppPip('activity-a', 'turn-1');
-    view.showMcpAppPip('activity-b', 'turn-9');
-    assert.equal(view.isMcpAppPip('activity-a'), false);
-    assert.equal(view.isMcpAppPip('activity-b'), true);
+    apps.view('activity-a').showPip('turn-1');
+    apps.view('activity-b').showPip('turn-9');
+    assert.equal(apps.view('activity-a').isPip, false);
+    assert.equal(apps.view('activity-b').isPip, true);
     // A card that is not in picture-in-picture cannot take it from another.
-    view.returnMcpAppPip('activity-a');
-    assert.equal(view.isMcpAppPip('activity-b'), true);
-    // A live card that takes its saved app keeps its mode under the activity id.
-    view.showMcpAppPip('tool-use-1', 'turn-3');
-    view.renameMcpAppPip('tool-use-1', 'activity-c');
-    assert.equal(view.isMcpAppPip('activity-c'), true);
+    apps.view('activity-a').returnPip();
+    assert.equal(apps.view('activity-b').isPip, true);
+    // WHY: a live card that takes its saved app keeps everything the person set up under the activity id,
+    // where the saved card reads it: the mode, the height, the grants, the context, and a close.
+    const live = apps.view('tool-use-1');
+    live.showPip('turn-3');
+    live.setHeight(480);
+    live.grant(['camera']);
+    live.setModelContext('Map of Paris');
+    live.close();
+    apps.adopt('tool-use-1', 'activity-c');
+    const saved = apps.view('activity-c');
+    assert.equal(saved.isPip, true);
+    assert.equal(saved.height, 480);
+    assert.deepEqual(saved.permissions, ['camera']);
+    assert.equal(saved.modelContext, 'Map of Paris');
+    assert.equal(saved.isClosed, true);
+    assert.equal(live.isClosed, false);
+    assert.equal(live.height, undefined);
+    saved.show();
+    // The same view comes back for a key: a card reads it in its template.
+    assert.equal(apps.view('activity-c'), saved);
 
     // The virtualizer keeps the frame's turn mounted far from the reader, or the frame would go with the row.
     const keys = Array.from({ length: 2000 }, (_, index) => 'turn-' + index);
@@ -104,7 +124,7 @@ test('one app floats over a conversation, and its turn stays mounted wherever th
     read();
     assert.ok(view.virtualizer.range.start > 100, 'the reader is far from the turn: ' + JSON.stringify(view.virtualizer.range));
     assert.ok(view.virtualizer.pinnedKeys.includes('turn-3'));
-    view.returnMcpAppPip('activity-c');
+    saved.returnPip();
     read();
     assert.ok(!view.virtualizer.pinnedKeys.includes('turn-3'), 'a turn given back to its card is no longer kept');
     disconnect();
@@ -144,17 +164,27 @@ test('the frame changes mode in place, belongs to its conversation, and gives th
     let pip = $state(null);
     export function takenByAnotherApp() { pip = 'another-activity'; }
     export function pipKey() { return pip; }
+    const view = {
+      get isPip() { return pip === 'activity-1'; },
+      pipSide: 'end',
+      height: undefined,
+      modelContext: undefined,
+      permissions: [],
+      showPip: () => { pip = 'activity-1'; },
+      returnPip: () => { if (pip === 'activity-1') pip = null; },
+      movePip: () => {},
+      setHeight: () => {},
+      setModelContext: () => {},
+      grant: () => {},
+      close: () => {},
+    };
   </script>
   <div data-slot="conversation">
     <div data-transcript-turn-id="turn-7">
       <McpAppFrame
         snapshot={{ html: '<p>Map</p>', toolInputJson: '{}', toolResultJson: '{}', csp: {} }}
         api={{}} request={{ sessionId: 's', activityId: 'activity-1' }} title="Map"
-        onSend={() => true} onClose={() => {}} onHeight={() => {}} modelContext={undefined} onModelContext={() => {}}
-        permissions={[]} onPermissions={() => {}}
-        isPip={pip === 'activity-1'}
-        onPip={(turnKey) => (pip = turnKey ? 'activity-1' : null)}
-        pipSide="end" onMovePip={() => {}}
+        onSend={() => true} {view}
       />
     </div>
   </div>`, 'fixture')

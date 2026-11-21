@@ -32,18 +32,17 @@
   const workspace = getWorkspaceContext();
   const isVisible = conversationIsVisible();
   const api = $derived(surface.apiForSession(sessionId));
-  const viewState = $derived(conversationViewStates(workspace).forTab(tabId));
+  const mcpApps = $derived(conversationViewStates(workspace).forTab(tabId).mcpApps);
   // Decided once: a row that mounts after its call ended shows the saved card instead.
   const toolUseId = untrack(() => (message.toolStatus === "running" ? message.toolId : undefined));
   const call = $derived(mcpAppLiveCall({ input: message.toolInput, status: message.toolStatus }, workspace.sessionFor(tabId)?.status === "interrupted", isVisible()));
-  const isClosed = $derived(!!toolUseId && viewState.closedMcpApps.has(toolUseId));
   let liveDocument = $state.raw<McpAppLiveDocument | null>(null);
   let cancelled = $state<McpAppCancelReason | null>(null);
   let activityId = $state<string | null>(null);
   let saved = $state<McpAppRead>({ phase: "idle" });
   const request = $derived({ sessionId, activityId: activityId ?? "" });
-  /** The card's name in the view state: its call, until it takes its saved app. */
-  const appKey = $derived(activityId ?? toolUseId ?? "");
+  /** The card's view: by its call, until it takes its saved app. */
+  const view = $derived(mcpApps.view(activityId ?? toolUseId ?? ""));
 
   $effect(() => {
     if (!toolUseId) return;
@@ -61,12 +60,8 @@
     if (!toolUseId || !liveDocument || cancelled) return;
     return mcpAppLiveFor(api).hold(sessionId, toolUseId, (id) => {
       if (activityId) return;
+      mcpApps.adopt(toolUseId, id);
       activityId = id;
-      const height = viewState.mcpAppHeights.get(toolUseId);
-      if (height) viewState.mcpAppHeights.set(id, height);
-      const granted = viewState.mcpAppPermissions.get(toolUseId);
-      if (granted) viewState.mcpAppPermissions.set(id, granted);
-      viewState.renameMcpAppPip(toolUseId, id);
     });
   });
 
@@ -80,23 +75,13 @@
     void store.load(input);
     return unsubscribe;
   });
-
-  /** Closed by the person, the card keeps holding its call; closed by a cancel, the plain row is all that stays. */
-  function close(reason?: McpAppCancelReason) {
-    if (reason) {
-      cancelled = reason;
-      return;
-    }
-    if (toolUseId) viewState.closedMcpApps.add(toolUseId);
-    if (activityId && viewState.mcpAppContexts.delete(activityId)) void api.mcpAppUpdateModelContext({ sessionId, activityId, text: "" }).catch(() => {});
-  }
 </script>
 
 {#if toolUseId && liveDocument && !cancelled}
-  {#if isClosed}
+  {#if view.isClosed}
     <div class="my-2 flex min-h-11 items-center gap-2 text-workspace-chrome text-muted-foreground">
       <span class="min-w-0 flex-1 truncate">The {liveDocument.title} app was closed</span>
-      <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={() => viewState.closedMcpApps.delete(toolUseId)}>Show app</Button>
+      <Button variant="ghost" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" onclick={() => view.show()}>Show app</Button>
     </div>
   {:else}
     <McpAppFrame
@@ -107,24 +92,8 @@
       {request}
       title={liveDocument.title}
       {onSend}
-      initialHeight={viewState.mcpAppHeights.get(toolUseId)}
-      onHeight={(height) => viewState.mcpAppHeights.set(activityId ?? toolUseId, height)}
-      onClose={close}
-      modelContext={activityId ? viewState.mcpAppContexts.get(activityId) : undefined}
-      onModelContext={(text) => {
-        if (!activityId) return;
-        if (text) viewState.mcpAppContexts.set(activityId, text);
-        else viewState.mcpAppContexts.delete(activityId);
-      }}
-      permissions={viewState.mcpAppPermissions.get(toolUseId) ?? []}
-      onPermissions={(granted) => {
-        viewState.mcpAppPermissions.set(toolUseId, granted);
-        if (activityId) viewState.mcpAppPermissions.set(activityId, granted);
-      }}
-      isPip={viewState.isMcpAppPip(appKey)}
-      onPip={(turnKey) => (turnKey ? viewState.showMcpAppPip(appKey, turnKey) : viewState.returnMcpAppPip(appKey))}
-      pipSide={viewState.mcpAppPipSide}
-      onMovePip={() => viewState.moveMcpAppPip()}
+      onCancel={(reason) => (cancelled = reason)}
+      {view}
     />
   {/if}
 {/if}
