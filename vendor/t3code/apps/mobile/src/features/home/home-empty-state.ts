@@ -35,6 +35,14 @@ function deriveEmptyState(
     };
   }
 
+  if (catalogState.shellSnapshotError && !isWorkspaceCatalogPending(catalogState)) {
+    return {
+      title: resolve(msg("Couldn’t load threads")),
+      detail: catalogState.shellSnapshotError,
+      loading: false,
+    };
+  }
+
   if (!catalogState.hasConnections) {
     return {
       title: resolve(msg("No environments connected")),

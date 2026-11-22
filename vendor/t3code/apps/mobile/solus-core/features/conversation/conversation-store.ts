@@ -74,6 +74,7 @@ export class ConversationStore {
   readonly controller: ConversationController
   readonly order = new Listeners()
   readonly meta = new Listeners()
+  private readonly feedListeners = new Set<(ids: readonly string[]) => void>()
   private readonly itemListeners = new Map<string, Set<() => void>>()
   private readonly quoteListeners = new Set<(text: string) => void>()
   private readonly remarkListeners = new Set<(remarks: readonly string[]) => void>()
@@ -111,8 +112,8 @@ export class ConversationStore {
           this.order.notify()
         } else {
           for (const id of changes.items) {
-            if (this.itemListeners.has(id)) this.pendingItemIds.add(id)
             const item = this.item(id)
+            if (this.itemListeners.has(id) || (this.feedListeners.size && (item?.kind === 'assistant' || item?.kind === 'user' || item?.kind === 'tool'))) this.pendingItemIds.add(id)
             if (item?.kind !== 'tool' || !item.children) continue
             for (const childId of item.children.takeChanges().items) {
               const childKey = `${id}\0${childId}`
@@ -152,7 +153,14 @@ export class ConversationStore {
     this.cancelItemFrame()
     const ids = [...this.pendingItemIds]
     this.pendingItemIds.clear()
+    if (ids.length) for (const listener of this.feedListeners) listener(ids)
     for (const id of ids) for (const listener of Array.from(this.itemListeners.get(id) ?? [])) listener()
+  }
+
+  /** A timeline receives one batch per frame. Mounted cards still observe their own items. */
+  subscribeFeedItems(listener: (ids: readonly string[]) => void): () => void {
+    this.feedListeners.add(listener)
+    return () => { this.feedListeners.delete(listener) }
   }
 
   subscribeItem(id: string, listener: () => void): () => void {
@@ -258,6 +266,7 @@ export class ConversationStore {
     this.pendingItemIds.clear()
     this.controller.close()
     this.itemListeners.clear()
+    this.feedListeners.clear()
   }
 }
 

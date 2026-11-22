@@ -48,6 +48,8 @@ describe('mobile conversation render notifications', () => {
   test('a burst renders the latest text once per frame without rebuilding the list', async () => {
     const view = await openStore()
     try {
+      const feedBatches: string[][] = []
+      view.store.subscribeFeedItems((ids) => feedBatches.push([...ids]))
       let orderChanges = 0
       view.store.order.subscribe(() => { orderChanges++ })
       for (let index = 0; index < 100; index++) view.emitText(' more')
@@ -55,6 +57,7 @@ describe('mobile conversation render notifications', () => {
       expect(view.frames.size).toBe(1)
       const frame = [...view.frames.values()][0]!
       frame()
+      expect(feedBatches).toEqual([[view.rowId]])
       expect(view.notifications()).toBe(1)
       expect(view.store.item(view.rowId)).toMatchObject({ text: 'first' + ' more'.repeat(100) })
       expect(orderChanges).toBe(0)

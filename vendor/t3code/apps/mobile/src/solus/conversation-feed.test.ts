@@ -1,8 +1,20 @@
 import { RunId } from "@t3tools/contracts";
 import { deriveThreadFeedPresentation } from "../lib/threadActivity";
 import { expect, it, vi } from "vite-plus/test";
-import { TranscriptModel, type TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
-import { conversationFeed } from "./conversation-feed";
+import {
+  TranscriptModel,
+  type TranscriptItem,
+} from "@solus-mobile/features/conversation/lib/transcript-model";
+import { conversationFeed as createFeed } from "./conversation-feed";
+
+function conversationFeed(
+  store: Parameters<typeof createFeed>[0],
+  order: readonly string[],
+  id: string,
+  render: Parameters<typeof createFeed>[2],
+) {
+  return createFeed(store, id, render)(order);
+}
 
 it("keeps host cards in transcript order and collapses only older versions of the same work", () => {
   const items: TranscriptItem[] = [
@@ -34,7 +46,7 @@ it("keeps host cards in transcript order and collapses only older versions of th
   const byId = new Map(items.map((item) => [item.id, item]));
   const render = vi.fn(() => null);
   const feed = conversationFeed(
-    { item: (id) => byId.get(id), subscribeItem: () => () => {} },
+    { item: (id) => byId.get(id), subscribeFeedItems: () => () => {} },
     items.map((i) => i.id),
     "session",
     render,
@@ -64,28 +76,35 @@ it("keeps host cards in transcript order and collapses only older versions of th
 });
 it("updates streaming text without subscribing the entire feed to tool progress", () => {
   const item: TranscriptItem = { kind: "assistant", id: "a", text: "start" };
-  let text = "start";
-  const listeners = new Map<string, () => void>();
+  const items = new Map<string, TranscriptItem>([
+    ["a", item],
+    ["b", { ...item, id: "b" }],
+  ]);
+  const listeners = new Set<(keys: readonly string[]) => void>();
   const feed = conversationFeed(
     {
-      item: (id) =>
-        id === "a" ? { ...item, text } : { kind: "notice", id, text: "running", tone: "info" },
-      subscribeItem: (id, notify) => {
-        listeners.set(id, notify);
+      item: (id) => items.get(id),
+      subscribeFeedItems: (notify) => {
+        listeners.add(notify);
         return () => {
-          listeners.delete(id);
+          listeners.delete(notify);
         };
       },
     },
-    ["a", "n"],
+    ["a", "b"],
     "session",
     () => null,
   );
-  const off = feed.subscribe(() => {});
-  expect([...listeners.keys()]).toEqual(["a"]);
-  text = "finished";
-  listeners.get("a")?.();
+  const notify = vi.fn();
+  const initial = feed.get();
+  const off = feed.subscribe(notify);
+  expect(feed.get()).toBe(initial);
+  items.set("a", { ...item, text: "finished" });
+  items.set("b", { ...item, id: "b", text: "another reply" });
+  for (const listener of listeners) listener(["a", "b"]);
+  expect(notify).toHaveBeenCalledTimes(1);
   expect(feed.get()[0]).toMatchObject({ type: "message", message: { text: "finished" } });
+  expect(feed.get()[1]).toMatchObject({ type: "message", message: { text: "another reply" } });
   off();
   expect(listeners.size).toBe(0);
 });
@@ -122,7 +141,7 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
   ];
   const byId = new Map(items.map((item) => [item.id, item]));
   const feed = conversationFeed(
-    { item: (id) => byId.get(id), subscribeItem: () => () => {} },
+    { item: (id) => byId.get(id), subscribeFeedItems: () => () => {} },
     items.map((i) => i.id),
     "session",
     () => null,
@@ -164,7 +183,6 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
   }
 });
 
-
 it("keeps the arrival time of live messages across streaming updates and leaves unknown history times blank", () => {
   const time = vi.spyOn(Date, "now");
   try {
@@ -177,11 +195,39 @@ it("keeps the arrival time of live messages across streaming updates and leaves 
     time.mockReturnValue(start + 2000);
     model.apply({ type: "text_chunk", text: " second" });
     model.items.set("legacy", { kind: "assistant", id: "legacy", text: "older", timestamp: 0 });
-    model.items.set("saved", { kind: "assistant", id: "saved", text: "saved", timestamp: start - 60000 });
-    const feed = conversationFeed({ item: (key) => model.items.get(key), subscribeItem: () => () => {} },
-      [...model.order, "legacy", "saved"], "session", () => null);
+    model.items.set("saved", {
+      kind: "assistant",
+      id: "saved",
+      text: "saved",
+      timestamp: start - 60000,
+    });
+    const feed = conversationFeed(
+      { item: (key) => model.items.get(key), subscribeFeedItems: () => () => {} },
+      [...model.order, "legacy", "saved"],
+      "session",
+      () => null,
+    );
     expect(feed.get().map((row) => row.createdAt)).toEqual([
-      new Date(start).toISOString(), new Date(start + 1000).toISOString(), "", new Date(start - 60000).toISOString(),
+      new Date(start).toISOString(),
+      new Date(start + 1000).toISOString(),
+      "",
+      new Date(start - 60000).toISOString(),
     ]);
-  } finally { time.mockRestore(); }
+  } finally {
+    time.mockRestore();
+  }
+});
+
+it("reuses existing T3 entries when a new message arrives or an older page opens", () => {
+  const items = new Map<string, TranscriptItem>(
+    ["one", "two", "three"].map((id) => [id, { id, kind: "assistant", text: id }]),
+  );
+  const project = createFeed(
+    { item: (key) => items.get(key), subscribeFeedItems: () => () => {} },
+    "session",
+    () => null,
+  );
+  const initial = project(["two"]).get()[0];
+  expect(project(["two", "three"]).get()[0]).toBe(initial);
+  expect(project(["one", "two", "three"]).get()[1]).toBe(initial);
 });

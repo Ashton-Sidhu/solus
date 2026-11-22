@@ -1,3 +1,5 @@
+import { EMPTY_SESSION_VIEW } from "@solus/contracts/session-state";
+import { createSessionListProjection } from "./session-list";
 import { EnvironmentId } from "@t3tools/contracts";
 import {
   buildThreadListV2Items,
@@ -75,4 +77,22 @@ it("uses the host session state for T3 swipe actions and shelves, including afte
   expect(list({ ...view, snoozedUntil: 2000 }).snoozedCount).toBe(0);
   expect(list({ ...view, archivedAt: 2000 }).items).toHaveLength(0);
   expect(list(view).items).toHaveLength(1);
+});
+
+it("keeps T3's session rows across host notifications and updates just the row that settled", () => {
+  const project = createSessionListProjection();
+  const rows = [
+    { key: "one", hostId: "host", record: session },
+    { key: "two", hostId: "host", record: { ...session, sessionId: "two" } },
+  ];
+  const facts = { views: new Map(), states: new Map() };
+  const first = project(rows, facts);
+  expect(project(rows, facts)).toBe(first);
+  const next = project(rows, {
+    ...facts,
+    views: new Map([["two", { ...EMPTY_SESSION_VIEW, settledAt: 4000 }]]),
+  });
+  expect(next[0]).toBe(first[0]);
+  expect(next[1]).not.toBe(first[1]);
+  expect(next[1]?.settledOverride).toBe("settled");
 });

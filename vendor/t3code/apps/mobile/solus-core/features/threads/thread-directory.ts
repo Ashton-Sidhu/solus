@@ -241,6 +241,10 @@ export class ThreadDirectory {
         .map((record) => threads.find((thread) => thread.record === record)!)
       if (shared.length > 0) for (const listener of Array.from(this.shareListeners)) listener(shared)
     }
+    // The initial index sweep has no completion event. Its empty first page is provisional.
+    if (next.kind === 'loaded' && next.value.indexing && next.value.threads.length === 0) {
+      this.retries.set(hostId, setTimeout(() => void this.load(hostId), 3000))
+    }
     if (retryAfterMs !== null) this.retries.set(hostId, setTimeout(() => void this.load(hostId, attempt + 1), retryAfterMs))
   }
 

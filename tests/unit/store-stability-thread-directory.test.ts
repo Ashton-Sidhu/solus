@@ -30,6 +30,7 @@ function world(options: { managed?: boolean } = {}) {
   const connection = {
     state: { sessionGeneration: 0 },
     api: {
+      pinnedSessionsList: async () => [],
       // New objects on every read, as the host sends them.
       sessionRecordList: async (filter: SessionRecordListFilter) => ({ records: filter.scope === 'all' ? [] : structuredClone(answer.records), indexing: false }),
       listProjects: async () => {
@@ -183,6 +184,7 @@ test('native lists a healthy host while another host is still loading', async ()
   const connections = new Map(hosts.map((host) => [host.id, {
     state: { sessionGeneration: 0 },
     api: {
+      pinnedSessionsList: async () => [],
       sessionRecordList: async (filter: SessionRecordListFilter) => ({
         records: filter.scope === 'all' ? [] : [record(host.id, 1)], indexing: false,
       }),

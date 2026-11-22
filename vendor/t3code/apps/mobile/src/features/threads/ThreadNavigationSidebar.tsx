@@ -1,3 +1,4 @@
+import { isWorkspaceCatalogPending } from "../../state/workspaceModel";
 import { threadKey } from "@solus-mobile/features/threads/thread-directory";
 import { listActions } from "../../solus/list-actions";
 import { useSolusDirectory } from "../../solus/runtime";
@@ -579,19 +580,21 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             : "px-2 py-4 text-sm text-drawer-foreground-muted"
         }
       >
-        {catalogState.isLoadingConnections
+        {catalogState.isLoadingConnections || isWorkspaceCatalogPending(catalogState)
           ? gt("Loading threads…")
-          : showAddEnvironment
-            ? gt("No environments connected")
-            : props.searchQuery.trim().length > 0
-              ? threadSearch.isPending
-                ? gt("Searching thread messages…")
-                : threadSearch.failed
-                  ? gt("Couldn't search thread messages")
-                  : gt("No matching threads")
-              : selectedProjectScope !== null
-                ? gt("No threads in {project}", { project: selectedProjectScope.title })
-                : gt("No threads yet")}
+          : catalogState.shellSnapshotError
+            ? catalogState.shellSnapshotError
+            : showAddEnvironment
+              ? gt("No environments connected")
+              : props.searchQuery.trim().length > 0
+                ? threadSearch.isPending
+                  ? gt("Searching thread messages…")
+                  : threadSearch.failed
+                    ? gt("Couldn't search thread messages")
+                    : gt("No matching threads")
+                : selectedProjectScope !== null
+                  ? gt("No threads in {project}", { project: selectedProjectScope.title })
+                  : gt("No threads yet")}
       </Text>
       {showAddEnvironment ? (
         <View className={Platform.OS === "android" ? "self-center" : "px-2"}>

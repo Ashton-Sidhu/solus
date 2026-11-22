@@ -6,55 +6,47 @@ import type { ThreadFeedEntry } from "../lib/threadActivity";
 
 // The T3 list owns text messages. Rich cards subscribe to their own item on mount.
 export function conversationFeed(
-  store: Pick<ConversationStore, "item" | "subscribeItem">,
-  order: readonly string[],
+  store: Pick<ConversationStore, "item" | "subscribeFeedItems">,
   id: string,
   renderCard: (key: string, superseded: boolean, liveAppOnly?: boolean) => ReactNode,
 ) {
-  const rows = new Map<string, ThreadFeedEntry[]>();
-  const latest = new Map<string, string>();
-  const leadingTools = new Set<string>();
-  let hasPrompt = false;
-  for (const key of order) {
-    const item = store.item(key);
-    if (item?.kind === "user") hasPrompt = true;
-    if (!hasPrompt && item?.kind === "tool") leadingTools.add(key);
-    if (item?.kind === "artifact" && item.workId) latest.set(item.workId, key);
-  }
-  const update = (key: string) => {
-    const item = store.item(key);
-    if (!item) return;
+  type Item = NonNullable<ReturnType<ConversationStore["item"]>>;
+  const cache = new WeakMap<
+    Item,
+    { leadingRun: RunId | null; superseded: boolean; entries: ThreadFeedEntry[] }
+  >();
+  const project = (
+    key: string,
+    item: Item,
+    leadingRun: RunId | null,
+    superseded: boolean,
+  ): ThreadFeedEntry[] => {
     const timestamp = "timestamp" in item ? item.timestamp : undefined;
     const date = timestamp && timestamp > 0 ? new Date(timestamp) : null;
     const createdAt = date && Number.isFinite(date.getTime()) ? date.toISOString() : "";
-    const superseded = item.kind === "artifact" && !!item.workId && latest.get(item.workId) !== key;
     const card: ThreadFeedEntry = {
       type: "conversation-card",
       id: key,
       createdAt,
-      runId: leadingTools.has(key) ? RunId.make("leading-work:" + order[0]) : null,
+      runId: leadingRun,
       ...(item.kind === "tool" && { toolStatus: item.status }),
       render: () => renderCard(key, superseded),
     };
     if (item.kind !== "user" && item.kind !== "assistant") {
-      rows.set(
-        key,
-        item.kind === "tool" && mcpAppLiveToolName(item.toolName)
-          ? [
-              card,
-              {
-                type: "conversation-card",
-                id: key + ":app",
-                runId: null,
-                createdAt,
-                render: () => renderCard(key, false, true),
-              },
-            ]
-          : [card],
-      );
-      return;
+      return item.kind === "tool" && mcpAppLiveToolName(item.toolName)
+        ? [
+            card,
+            {
+              type: "conversation-card",
+              id: key + ":app",
+              runId: null,
+              createdAt,
+              render: () => renderCard(key, false, true),
+            },
+          ]
+        : [card];
     }
-    rows.set(key, [
+    return [
       {
         type: "message",
         id: key,
@@ -75,39 +67,64 @@ export function conversationFeed(
       ...(item.kind === "user" && (item.attachments.length || item.delivery === "failed")
         ? [{ ...card, id: key + ":attachments" }]
         : []),
-    ]);
+    ];
   };
-  order.forEach(update);
-  let snapshot = Array.from(rows.values()).flat();
-  return {
-    get: () => snapshot,
-    subscribe: (notify: () => void) => {
-      const refresh = () => {
-        snapshot = Array.from(rows.values()).flat();
-        notify();
-      };
-      const stops = order
-        .filter((key) => {
-          const kind = store.item(key)?.kind;
-          return kind === "user" || kind === "assistant" || kind === "tool";
-        })
-        .map((key) =>
-          store.subscribeItem(key, () => {
+  return (order: readonly string[]) => {
+    const observed = new Map<string, NonNullable<ReturnType<ConversationStore["item"]>>>();
+    const rows = new Map<string, ThreadFeedEntry[]>();
+    const latest = new Map<string, string>();
+    const leadingTools = new Set<string>();
+    let hasPrompt = false;
+    for (const key of order) {
+      const item = store.item(key);
+      if (item?.kind === "user") hasPrompt = true;
+      if (!hasPrompt && item?.kind === "tool") leadingTools.add(key);
+      if (item?.kind === "artifact" && item.workId) latest.set(item.workId, key);
+    }
+    const update = (key: string) => {
+      const item = store.item(key);
+      if (!item) return;
+      if (item.kind === "tool" || item.kind === "user" || item.kind === "assistant")
+        observed.set(key, item);
+      const superseded =
+        item.kind === "artifact" && !!item.workId && latest.get(item.workId) !== key;
+      const leadingRun = leadingTools.has(key) ? RunId.make("leading-work:" + order[0]) : null;
+      let held = cache.get(item);
+      if (!held || held.leadingRun !== leadingRun || held.superseded !== superseded) {
+        held = { leadingRun, superseded, entries: project(key, item, leadingRun, superseded) };
+        cache.set(item, held);
+      }
+      rows.set(key, held.entries);
+    };
+    order.forEach(update);
+    let snapshot = Array.from(rows.values()).flat();
+    return {
+      get: () => snapshot,
+      subscribe: (notify: () => void) => {
+        const refresh = (keys: Iterable<string>) => {
+          let changed = false;
+          for (const key of keys) {
+            const before = observed.get(key);
+            if (!before) continue;
             const item = store.item(key);
-            const row = rows.get(key)?.[0];
-            if (
-              item?.kind === "tool" &&
-              row?.type === "conversation-card" &&
-              row.toolStatus === item.status
-            )
-              return;
+            if (!item || item === before) continue;
+            if (item.kind === "tool" && before.kind === "tool" && item.status === before.status) {
+              observed.set(key, item);
+              continue;
+            }
             update(key);
-            refresh();
-          }),
-        );
-      order.forEach(update);
-      refresh();
-      return () => stops.forEach((stop) => stop());
-    },
+            changed = true;
+          }
+          if (changed) {
+            snapshot = Array.from(rows.values()).flat();
+            notify();
+          }
+        };
+        const stop = store.subscribeFeedItems(refresh);
+        // Reconcile a change between render and subscribe without publishing unchanged rows.
+        refresh(observed.keys());
+        return stop;
+      },
+    };
   };
 }

@@ -3,12 +3,10 @@ import { hostReadinessCopy } from "@solus/client-core/host-readiness";
 import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { SolusApp } from "@solus-mobile/app/solus-app";
 import { expoPlatform, watchAppLifecycle } from "@solus-mobile/platform/expo";
-import {
-  projectWorkspaceConnectionState,
-  type WorkspaceEnvironment,
-} from "../state/workspaceModel";
+import type { WorkspaceEnvironment } from "../state/workspaceModel";
+import { solusWorkspaceState } from "./workspace-state";
 import { solusListHosts } from "./list-hosts";
-import { toThreadShell } from "./session";
+import { createSessionListProjection } from "./session-list";
 import { NearbyDiscovery } from "./discovery";
 import { createConversationTransport } from "./transport";
 
@@ -64,7 +62,8 @@ export function startSolus() {
           generation = state.sessionGeneration;
           solus.threadList.follow(host.id);
           nearby.onHostReady();
-          refreshList();
+          clearTimeout(timer);
+          void solus.threads.load(host.id);
         }
       };
       const stops = [
@@ -110,6 +109,8 @@ export function startSolus() {
   };
 }
 
+const projectThreads = createSessionListProjection();
+
 function readDirectory() {
   const environments: WorkspaceEnvironment[] = solus.registry.hosts().map((host) => {
     const state = solus.connections.state(host.id);
@@ -129,18 +130,7 @@ function readDirectory() {
       connectionErrorTraceId: null,
     };
   });
-  const states = environments.map((env) => solus.threads.stateOf(env.environmentId));
-  const state = {
-    ...projectWorkspaceConnectionState({
-      isReady: loaded || !!loadError,
-      networkStatus: "unknown",
-      environments,
-    }),
-    hasLoadedShellSnapshot: states.some((s) => s.kind === "loaded"),
-    hasPendingShellSnapshot: states.some((s) => s.kind === "loading"),
-    hasSyncingConnectedEnvironment: false,
-    shellSnapshotError: loadError ?? states.find((s) => s.kind === "error")?.message ?? null,
-  };
+  const state = solusWorkspaceState(environments, solus.threads.stateOf, loaded || loadError !== null, loadError);
   const projects = solus.threads.projects().map(({ hostId, project }) => ({
     environmentId: EnvironmentId.make(hostId),
     id: ProjectId.make(project.path),
@@ -171,10 +161,7 @@ function readDirectory() {
     }
   }
   const facts = solus.threadList.facts();
-  const threads = solus.threads.threads().map(({ hostId, record, key }) =>
-    toThreadShell(hostId, record, undefined, facts.views.get(key) ?? record.view,
-      facts.states.get(key) ?? record.state, facts.pins?.get(key)?.pinnedAt),
-  );
+  const threads = projectThreads(solus.threads.threads(), facts);
   const hostsById = Object.fromEntries(environments.map((env) => [env.environmentId, env]));
   return { projects, threads, environments, hostsById, state, unread: facts.unread, listHosts: solusListHosts(environments) };
 }

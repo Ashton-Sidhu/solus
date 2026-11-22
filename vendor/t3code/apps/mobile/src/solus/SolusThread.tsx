@@ -38,6 +38,7 @@ import { conversationFeed } from "./conversation-feed";
 import { getComposerDraftSnapshot, setComposerDraftText } from "../state/use-composer-drafts";
 import { solus, useSolusDirectory } from "./runtime";
 import { toThreadShell } from "./session";
+import { waitingForSessionList } from "./workspace-state";
 import {
   submittedThreadParams,
   type NewTaskDraftRouteParams,
@@ -93,11 +94,16 @@ export function SolusThread({
   }, [draft, !!record, hostId, id, navigation]);
   if (draft && (!draft.environmentId || !draft.projectId))
     return <NewTaskRouteScreen route={{ params: undefined }} />;
-  if (!store || !hostId)
+  if (!store || !hostId) {
+    const host = hostId ? directory.hostsById[hostId] : undefined;
+    const opening = directory.state.isLoadingConnections ||
+      host?.connectionState === "connecting" || host?.connectionState === "reconnecting" ||
+      (host?.connectionState === "connected" && (!!(draft || record) ||
+        waitingForSessionList(solus.threads.stateOf(host.environmentId))));
     return (
       <View className="flex-1 justify-center items-center bg-screen">
         <AppText>
-          {directory.state.isLoadingConnections || directory.state.hasPendingShellSnapshot
+          {opening
             ? "Opening session…"
             : (directory.state.shellSnapshotError ?? "Session unavailable")}
         </AppText>
@@ -108,6 +114,7 @@ export function SolusThread({
         )}
       </View>
     );
+  }
   return (
     <AppProvider app={solus}>
       <SessionDetail key={id} store={store} hostId={hostId} id={id} />
@@ -117,15 +124,16 @@ export function SolusThread({
 
 function useFeed(store: ConversationStore, id: string) {
   const order = useSyncExternalStore(store.order.subscribe, store.orderSnapshot);
-  const reader = useMemo(() => {
-    return conversationFeed(store, order, id, (key, superseded, liveAppOnly) =>
+  const projectFeed = useMemo(() => {
+    return conversationFeed(store, id, (key, superseded, liveAppOnly) =>
       liveAppOnly ? (
         <ThreadMcpApp store={store} id={key} />
       ) : (
         <ConversationCard key={key} store={store} id={key} superseded={superseded} />
       ),
     );
-  }, [store, order, id]);
+  }, [store, id]);
+  const reader = useMemo(() => projectFeed(order), [projectFeed, order]);
   return useSyncExternalStore(reader.subscribe, reader.get);
 }
 
