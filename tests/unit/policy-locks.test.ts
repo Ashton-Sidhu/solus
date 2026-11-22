@@ -17,7 +17,7 @@ function source(kind: PolicySource['kind'], document: Omit<PolicyDocument, 'sche
 const globexPolicy = source('organization', {
   organization: { name: 'Globex' },
   sessions: {
-    settings: { leadModel: { provider: 'claude-code', model: 'model-x', reasoningEffort: undefined } },
+    settings: { workerModel: { provider: 'claude-code', model: 'model-x', reasoningEffort: undefined } },
     limits: { maxPermissionMode: 'accept-edits', providers: { allowed: ['claude-code'] }, models: { 'claude-code': ['model-x'] } },
   },
 }, GLOBEX)
@@ -105,7 +105,7 @@ describe('default mode of new work', () => {
 
 describe('managed setting notes', () => {
   test('each organization that locks a key gives one line; the control stays open', () => {
-    expect(managedSettingNote(new HostPolicies(set), organizations, 'leadModel')).toEqual({ lockedEverywhere: false, lines: ['Globex sessions use model-x (managed).'] })
+    expect(managedSettingNote(new HostPolicies(set), organizations, 'workerModel')).toEqual({ lockedEverywhere: false, lines: ['Globex sessions use model-x (managed).'] })
     expect(managedSettingNote(new HostPolicies(set), organizations, 'reviewModel')).toEqual({ lockedEverywhere: false, lines: [] })
   })
 

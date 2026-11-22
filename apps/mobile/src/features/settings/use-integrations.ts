@@ -508,6 +508,15 @@ export function useIntegrations(hostId: string) {
     applyToList((integrations) => upsertIntegration(integrations, updated))
   }
 
+  /** Turns every listed tool off, or all of them on (mcp-first-class.md §8.8). A tool the server adds later is on. */
+  const setAllTools = async (integration: Integration, isOn: boolean): Promise<void> => {
+    const listed = tools.get(integration.id)
+    const names = isOn ? [] : listed?.kind === 'loaded' ? listed.tools.map((tool) => tool.name) : []
+    if (!isOn && names.length === 0) throw new Error('Open the server to read its tools first.')
+    const updated = await change(`tools:${integration.id}`, (api) => api.integrationUpdate({ id: integration.id, disabledTools: names }))
+    applyToList((integrations) => upsertIntegration(integrations, updated))
+  }
+
   // A new object at each change: the rows read it as a new prop and render the new state.
   const processesView = useMemo(() => ({
     connected,
@@ -563,6 +572,7 @@ export function useIntegrations(hostId: string) {
     disconnect,
     setOAuthClient,
     setToolEnabled,
+    setAllTools,
     processes: processesView,
   }
 }

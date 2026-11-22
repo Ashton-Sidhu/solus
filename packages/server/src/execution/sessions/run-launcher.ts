@@ -19,8 +19,6 @@ import { portableSessionPathNote } from '../agents/runtime-instructions'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { SessionShelf } from '../../data/sessions/session-states'
 import { organizationOfSession, sessionIsOrganizationWork } from '../../data/sessions/session-records'
-import { isLeadSession, markSessionLead } from '../../data/sessions/lead-sessions'
-import { formatLeadContract } from '../../data/sessions/lead-contract'
 import { workspaceToolContext } from '../../data/workspace/tool-context'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
@@ -830,22 +828,6 @@ export class RunLauncher {
     } else {
       setForeignTaskSnapshot(sessionId, null)
     }
-    // A lead is fixed once it is one (docs/plans/lead-session.md). The first
-    // prompt of a new provider conversation marks a session the person chose
-    // as a lead; `become_lead` marks one in the middle of a turn. Every run of
-    // a lead carries the lead contract in its system prompt, after the task
-    // packet when there is one.
-    if (options.isLead && !dispatchAgentSessionId) {
-      await markSessionLead(sessionId, (await this.rt.turnOrganization(sessionId)) ?? undefined)
-    }
-    if (await isLeadSession(sessionId)) {
-      const preferences = effectiveInput.executionPreferences
-      const contract = formatLeadContract({
-        leadInstructions: preferences?.leadInstructions ?? DEFAULT_EXECUTION_PREFERENCES.leadInstructions,
-        workerModel: preferences?.workerModel ?? DEFAULT_EXECUTION_PREFERENCES.workerModel,
-      })
-      options.systemPrompt = [options.systemPrompt, contract].filter(Boolean).join('\n\n')
-    }
     // A turn that answers another session's message ends with what that session
     // needs to act on, since its last message is what comes back.
     if (request.exchangeIds?.length) {
@@ -958,6 +940,7 @@ export class RunLauncher {
         fastMode: effectiveInput.fastMode,
         systemPrompt,
         integrationInstructions,
+        delegationInstructions: effectiveInput.executionPreferences?.delegationInstructions,
         cliSkip,
         maxTurns: options.maxTurns,
         maxBudgetUsd: options.maxBudgetUsd,

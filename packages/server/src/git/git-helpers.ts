@@ -8,7 +8,7 @@ import { getEpisodeNumstats } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 import { isGitOperationInProgress } from './git-operation-state'
 import { z } from 'zod'
-import { PullRequestHead, USERLESS_SCP_REMOTE, parseRemoteUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
+import { PullRequestHead, USERLESS_SCP_REMOTE, isForkCheckoutRemotes, parseRemoteUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
 
 const gitCommandErrorSchema = z.object({
   message: z.string().optional(),
@@ -385,6 +385,11 @@ export function resolveRepositoryKey(cwd: string): Promise<string | null> {
   })()
   repositoryKeyCache.set(cwd, pending)
   return pending
+}
+
+/** Whether `cwd` is a fork's checkout (`isForkCheckoutRemotes`). */
+export async function isForkCheckout(cwd: string): Promise<boolean> {
+  return isForkCheckoutRemotes(await remoteUrlsOf(cwd))
 }
 
 async function remoteUrlsOf(cwd: string): Promise<Map<string, string>> {

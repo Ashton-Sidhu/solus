@@ -5,6 +5,8 @@ import {
   attachTo, getSessionController, getSessionOrchestration, listAgentTargets, outcomeNote, remoteAgentTargets, remoteTarget, sessionLink, waitedBlock,
   type SessionToolDeps, type SessionToolResult,
 } from './session-tools'
+import { sessionSettings } from '../../sessions/session-settings'
+import type { PersonalSettings } from '@solus/contracts/settings'
 import { childPermissionMode } from '../../sessions/child-permissions'
 import { resolveHomePath } from '../../../platform/paths'
 import { resolveRepoRoot } from '../../../git/git-helpers'
@@ -49,13 +51,13 @@ const sessionFields = {
     .string()
     .min(1)
     .optional()
-    .describe('Model id. Omit to inherit your model on the same provider, or use the selected provider’s default.'),
+    .describe('Model id. An unqualified child uses the configured default worker model if set. Otherwise, omit to inherit your model on the same provider, or use the selected provider’s default.'),
   reasoning_effort: z
     .enum(REASONING_VALUES)
     .optional()
     .describe("Reasoning effort. Defaults to the model's default level."),
   permission_mode: z.enum(PERMISSION_MODES).optional().describe('Inherit your permission mode, or request a narrower mode.'),
-  host: HOST_FIELD.describe('Host id or name from list_agent_targets. Omit for this host. On another host, cwd, provider, and model must exist there.'),
+  host: HOST_FIELD.describe('Host id or name from list_hosts. Omit for this host. On another host, cwd, provider, and model must exist there.'),
   cwd: z
     .string()
     .trim()
@@ -146,6 +148,7 @@ interface Caller {
   model: string | undefined
   reasoningEffort: ReasoningEffort | undefined
   permissionMode: PermissionMode | undefined
+  workerModel: PersonalSettings['workerModel']
 }
 
 async function callerOf(deps: SessionToolDeps): Promise<Caller> {
@@ -159,6 +162,7 @@ async function callerOf(deps: SessionToolDeps): Promise<Caller> {
     provider,
     model: runsOnProvider ? info?.model : undefined,
     reasoningEffort: runsOnProvider ? info?.reasoningEffort : undefined,
+    workerModel: sessionSettings(sessionId)?.preferences?.workerModel ?? null,
     permissionMode: sessionId ? controller?.permissionModeFor?.(sessionId) : undefined,
   }
 }
@@ -190,13 +194,14 @@ interface Place {
   target?: RemoteTarget
 }
 
-/** The runner a session asks for on its host. On the caller's provider it inherits the caller's model and effort. */
+/** Use explicit settings, the default worker model, or the caller's model on the same provider. */
 function runnerFor(session: SessionInput, caller: Caller, place: Place): Checked<Runner> {
-  const provider = session.agent_provider ?? caller.provider
-  const inheritsModel = !session.model_id && provider === caller.provider
+  const worker = !session.independent && !session.agent_provider && !session.model_id ? caller.workerModel : null
+  const provider = session.agent_provider ?? worker?.provider ?? caller.provider
+  const inheritsModel = !worker && !session.model_id && provider === caller.provider
   const runner = chooseRunner(place.targets, provider,
-    session.model_id ?? (inheritsModel ? caller.model : undefined),
-    session.reasoning_effort ?? (inheritsModel ? caller.reasoningEffort : undefined))
+    session.model_id ?? worker?.model ?? (inheritsModel ? caller.model : undefined),
+    session.reasoning_effort ?? worker?.reasoningEffort ?? (inheritsModel ? caller.reasoningEffort : undefined))
   return 'error' in runner && place.target ? { error: `${runner.error} (on ${place.target.host.label})` } : runner
 }
 

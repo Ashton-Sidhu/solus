@@ -15,7 +15,6 @@ import { Alert, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import { SymbolView } from "../../components/AppSymbol";
-import { LEAD_SYMBOL } from "../conversation/lib/lead-session";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
@@ -680,7 +679,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       <View className="flex-row items-start gap-2">
         <View className="h-6 justify-center">{favicon}</View>
         {props.unread ? <View accessibilityLabel="Unread session" className="mt-2 h-2 w-2 rounded-full bg-primary" /> : null}
-        {record.isLead ? <View className="pt-[3px]" accessibilityLabel="Meta mode session"><SymbolView name={LEAD_SYMBOL} size={13} tintColorClassName={selected ? selectedThreadRowColors.iconTintClassName : rowAppearance.mutedIconTintClassName} /></View> : null}
         <Text className={cn("flex-1 text-base font-t3-medium", selected ? selectedThreadRowColors.foregroundClassName : rowAppearance.foregroundClassName)} numberOfLines={2}>
           {title}
         </Text>

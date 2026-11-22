@@ -12,8 +12,7 @@ const EPIC_BODY_LIMIT = 2000
  *  and links come from read_task, once, into the transcript. A packet that
  *  changed on every status move or comment would re-send the whole cached
  *  prompt. The title is absent when the task cannot be read; the id still
- *  names it. It carries no lead contract: the lead contract is session-owned
- *  (data/sessions/lead-contract.ts) and does not come from a task. */
+ *  names it. */
 export function formatTaskContext(
   task: { id: string; title?: string },
   lifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate',

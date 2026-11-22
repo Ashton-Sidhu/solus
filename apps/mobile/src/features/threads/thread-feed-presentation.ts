@@ -70,7 +70,6 @@ export type ThreadFeedRow =
   | { readonly type: 'mcp-app'; readonly id: string; readonly itemId: string }
   /** The host handed the thread to another provider. */
   | { readonly type: 'handoff'; readonly id: string }
-  | { readonly type: 'lead-promotion'; readonly id: string }
   /** The composer picked another provider; the next prompt hands off (plans/021). */
   | { readonly type: 'handoff-pending'; readonly id: string }
   /** Linked artifacts below the turn reply. */
@@ -203,7 +202,7 @@ function appendTurnRows(
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'lead_promotion' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
+        .filter((entry) => entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   const groupIds = workGroupIds(turn.entries)
@@ -287,8 +286,6 @@ function appendTurnRows(
       rows.push({ type: 'setup', id: entry.id })
     } else if (entry.kind === 'mcp_app') {
       rows.push({ type: 'mcp-app', id: entry.id, itemId: entry.id })
-    } else if (entry.kind === 'lead_promotion') {
-      rows.push({ type: 'lead-promotion', id: entry.id })
     } else if (entry.kind === 'handoff') {
       rows.push({ type: 'handoff', id: entry.id })
     } else if (entry.kind === 'artifact') {

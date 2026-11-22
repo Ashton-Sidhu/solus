@@ -153,15 +153,12 @@
   </InputBar>
 </div>
 
-<!-- The same destination strip a pre-flight tab draws — project, where it
-     runs, branch — under the card, addressed by the draft's id, with the
-     Meta mode button at its end. -->
+<!-- The destination footer under the composer card. -->
 {#if !destinationFixed}
   <InputBarFooter
     {active}
     sourceId={draft.id}
     {paneId}
-    {isPrimary}
     {projectPickerAnchor}
     bind:projectPickerOpen
   />

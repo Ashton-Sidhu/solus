@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { followAccountTheme } from "./lib/account-theme.svelte";
   import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { onMount, untrack } from "svelte";
@@ -47,6 +48,7 @@
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
   import { cloudOnboardingStore } from "@solus/workspace-ui/components/onboarding/cloud-onboarding.store.svelte";
   import { skipsOnboarding } from "@solus/workspace-ui/components/onboarding/lib/skip-onboarding";
+  import { ACCOUNT_SHELL } from "@solus/contracts/account-web";
   import { webState } from "./lib/web-state.svelte";
   import {
     useKeybinding,
@@ -86,6 +88,7 @@
     keybindings,
   } = createAppCore(shell);
 
+  followAccountTheme(settings);
   const projectPicker = createProjectPicker(session);
 
   // A bare host has no commit identity; this client's Run on host has the
@@ -146,7 +149,8 @@
   // The web shell has an address bar, so the location is mirrored into it: the
   // destination, the companion strip, and the focused pane are in the URL, which is what makes
   // a workspace shareable and browser-back meaningful here.
-  session.router.bindAddressBar();
+  const isAccountOrigin = !!document.querySelector(`meta[name="${ACCOUNT_SHELL.marker}"]`);
+  session.router.bindAddressBar(isAccountOrigin);
   reconcileReloadLocation(session);
 
   // Persist open-tab snapshot to localStorage so it survives refresh and cold restarts.
@@ -366,8 +370,9 @@
   // "Get started" item reopens it at one stage. Elsewhere it is
   // this device's first run (docs/plans/cloud-onboarding.md §3.6).
   onMount(() => void cloudOnboardingStore.load());
+  const personalSettingsOpen = $derived(isAccountOrigin && (session.settingsTab === "appearance" || session.settingsTab === "agent-profile"));
   const showsOnboarding = $derived(
-    !skipOnboarding && (cloudOnboardingStore.isCloud ? cloudOnboardingStore.isOpen : !settings.onboardingCompleted),
+    !personalSettingsOpen && !skipOnboarding && (cloudOnboardingStore.isCloud ? cloudOnboardingStore.isOpen : !settings.onboardingCompleted),
   );
 
   const detectReconnect = createReconnectDetector(serversStore.readinessFor(serversStore.activeServerId).readiness);
@@ -695,7 +700,7 @@
 
 <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
-{#if !skipOnboarding && !webState.openedFromLink && cloudOnboardingStore.isAwaitingAccount}
+{#if !personalSettingsOpen && !skipOnboarding && !webState.openedFromLink && cloudOnboardingStore.isAwaitingAccount}
   <!-- At a cloud origin, until the account says whether onboarding is due: an
        opaque cover, not the workspace, so the draft composer never flashes
        before onboarding. Same composite as the onboarding surface. A share link

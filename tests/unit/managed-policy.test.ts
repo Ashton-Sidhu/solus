@@ -50,7 +50,7 @@ describe('the policy document', () => {
   })
 
   test('only settings the host enforces are manageable', () => {
-    expect(validatePolicyDocument(doc('A', { sessions: { settings: { leadInstructions: 'Be careful.' } } }), 'organization').ok).toBe(true)
+    expect(validatePolicyDocument(doc('A', { sessions: { settings: { delegationInstructions: 'Be careful.' } } }), 'organization').ok).toBe(true)
     expect(validatePolicyDocument({ schemaVersion: 1, organization: { name: 'A' }, sessions: { settings: { fontSize: 14 } } }, 'organization').ok).toBe(false)
   })
 

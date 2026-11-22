@@ -42,7 +42,7 @@ export interface ResolvedRule<Value> {
   source: PolicySource
 }
 
-/** A locked setting with the words that say who locks it: "Lead model is managed by Globex." */
+/** A locked setting with the words that say who locks it: "Default worker model is managed by Globex." */
 export interface SettingLock<Value> extends ResolvedRule<Value> {
   message: string
 }
@@ -169,7 +169,7 @@ export class WorkPolicy {
     return new WorkPolicy(organizationId, sources, null)
   }
 
-  /** A locked setting; its value can be `null` where the setting allows it (`leadModel: null` locks "the default"). */
+  /** A locked setting; its value can be `null` where the setting allows it (`workerModel: null` locks "the default"). */
   setting<K extends ManagedSessionSettingKey>(key: K): ResolvedRule<LockedSetting<K>> | null {
     for (const source of this.sources) {
       const value = source.document.sessions?.settings?.[key]

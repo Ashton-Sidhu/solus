@@ -22,15 +22,16 @@ const forwardSchema = z.object({
 const introductionSchema = z.object({
   url: z.string().min(1), introducedAt: z.number(), refreshedAt: z.number(), grantedDeviceId: z.string().min(1),
 })
+const pairingSchema = z.object({ url: z.string().min(1), pairedAt: z.number(), refreshedAt: z.number() })
 const recordSchema = z.object({
   listing: hostListingSchema,
-  forward: forwardSchema.optional(), introduction: introductionSchema.optional(),
+  forward: forwardSchema.optional(), introduction: introductionSchema.optional(), pairing: pairingSchema.optional(),
   forgotten: z.boolean().default(false),
 })
 export type HostRecord = z.infer<typeof recordSchema>
 export type HostForward = z.infer<typeof forwardSchema>
 export type HostIntroductionConnection = z.infer<typeof introductionSchema>
-const credentialsSchema = z.object({ forward: z.string().min(1).optional(), introduction: z.string().min(1).optional() })
+const credentialsSchema = z.object({ forward: z.string().min(1).optional(), introduction: z.string().min(1).optional(), pairing: z.string().min(1).optional() })
 type HostCredentials = z.infer<typeof credentialsSchema>
 const changedListeners = new Set<() => void>()
 export function onHostRecordsChanged(listener: () => void): () => void {
@@ -101,7 +102,7 @@ export function saveHostRecord(record: HostRecord): void {
 /** Only an explicit add may restore a forgotten record. Updating a channel cannot. */
 export function saveHostConnection(
   listing: HostListing,
-  connection: { kind: 'forward'; settings: HostForward; token: string } | { kind: 'introduction'; settings: HostIntroductionConnection; token: string },
+  connection: { kind: 'forward'; settings: HostForward; token: string } | { kind: 'introduction'; settings: HostIntroductionConnection; token: string } | { kind: 'pairing'; settings: z.infer<typeof pairingSchema>; token: string },
 ): void {
   const old = findHostRecord(listing.installationId)
   if (old?.forgotten && connection.kind === 'introduction') throw new Error(`${listing.label} was forgotten on this host.`)
@@ -110,16 +111,18 @@ export function saveHostConnection(
   credentials[connection.kind] = connection.token
   secretStore().saveJson(key, path, credentials)
   const record: HostRecord = old ?? { listing, forgotten: false }
+  const userLabel = old?.listing.hasUserLabel ? old.listing.label : null
   record.listing = { ...old?.listing, ...listing, id: old?.listing.id ?? listing.id,
     routes: mergeRoutes(old?.listing.routes ?? [], listing.routes, connection.kind === 'forward' ? 'ssh' : 'host', Date.now()) }
   if (!listing.os && old?.listing.os) record.listing.os = old.listing.os
-  if (old?.listing.hasUserLabel) {
-    record.listing.label = old.listing.label
+  if (userLabel !== null) {
+    record.listing.label = userLabel
     record.listing.hasUserLabel = true
   }
   record.forgotten = false
   if (connection.kind === 'forward') record.forward = connection.settings
-  else record.introduction = connection.settings
+  else if (connection.kind === 'introduction') record.introduction = connection.settings
+  else record.pairing = connection.settings
   saveHostRecord(record)
 }
 
@@ -129,6 +132,11 @@ export function removeHostConnection(installationId: string, kind: keyof HostCre
   if (!record) return
   delete record[kind]
   saveHostRecord(record)
+  clearHostCredential(installationId, kind)
+}
+
+/** Keep the known machine when its access expires, so a host listing can ask for a new pairing. */
+export function clearHostCredential(installationId: string, kind: keyof HostCredentials): void {
   const { key, path } = credentialLocation(installationId)
   const credentials = secretStore().loadJson(key, path, credentialsSchema) ?? {}
   delete credentials[kind]

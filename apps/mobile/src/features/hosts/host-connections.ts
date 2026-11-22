@@ -1,3 +1,4 @@
+import { HostPairingFollower } from '@solus/client-core/host-pairing-follower'
 import { forgetHostConnections, type HostConnectionOwner } from '@solus/client-core/forget-host'
 import type { HostSupervisor } from '@solus/client-core/host-supervisor'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
@@ -80,6 +81,7 @@ export class HostConnection {
   private readonly resetListeners = new Set<() => void>()
   private readonly acceptedListeners = new Set<() => void>()
   private readonly stopReset: () => void
+  pairings?: HostPairingFollower
 
   constructor(
     readonly hostId: string,
@@ -131,6 +133,7 @@ export class HostConnection {
     this.stopReset()
     this.resetListeners.clear()
     this.acceptedListeners.clear()
+    this.pairings?.dispose()
     this.link.destroy()
   }
 }
@@ -203,6 +206,7 @@ export class HostConnections {
         if (outcome.kind === 'accepted') {
           connection.notifyAccepted()
           this.introducer.run()
+          connection.pairings?.refresh()
         }
         this.changes.notify()
       },
@@ -211,6 +215,15 @@ export class HostConnections {
     })
     const created = new HostConnection(host.id, link, transport)
     connection = created
+    created.pairings = new HostPairingFollower({
+      api: created.api, events: created.events, hosts: this.deps.registry.hosts,
+      save: async (host) => {
+        const url = host.routes[0]?.url
+        if (!url) return
+        await this.deps.registry.savePaired({ id: host.installationId, label: host.label, hasUserLabel: host.hasUserLabel, os: host.os, identityKey: host.identityKey, url }, host.sessionToken)
+      },
+      forget: (hostId) => this.deps.registry.forget(hostId), deviceLabel: 'Solus mobile',
+    })
     // Whether the host is still setting this person up is in its server info (docs/plans/member-isolation.md §8.1).
     created.facts.subscribe((key) => {
       if (key === 'serverInfo') this.changes.notify()
@@ -420,7 +433,10 @@ export class HostConnections {
   }
 
   wake(signal: WakeSignal): void {
-    for (const connection of this.connections.values()) connection.link.wake(signal)
+    for (const connection of this.connections.values()) {
+      connection.link.wake(signal)
+      if (connection.link.readiness === 'ready') void connection.pairings?.refresh()
+    }
   }
 
   dispose(hostId: string): void {

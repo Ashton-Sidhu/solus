@@ -1,30 +1,30 @@
 import type { AgentId, AgentMetadata, ReasoningEffort } from '@solus/contracts/types'
-import type { LeadModelSelection } from '@solus/contracts/settings'
+import type { WorkerModelSelection } from '@solus/contracts/settings'
 import { defaultReasoningFor, type PickerSelection } from '../../pickers/lib/picker-selection'
 
-function isLeadModelAgent(provider: AgentId): provider is LeadModelSelection['provider'] {
+function isWorkerModelAgent(provider: AgentId): provider is WorkerModelSelection['provider'] {
   return provider === 'claude-code' || provider === 'codex'
 }
 
-export function leadModelAgents(metadata: Record<string, AgentMetadata | null>): AgentMetadata[] {
-  return Object.values(metadata).filter((agent): agent is AgentMetadata => !!agent && isLeadModelAgent(agent.id))
+export function workerModelAgents(metadata: Record<string, AgentMetadata | null>): AgentMetadata[] {
+  return Object.values(metadata).filter((agent): agent is AgentMetadata => !!agent && isWorkerModelAgent(agent.id))
 }
 
 /** The selection to save for an agent, model and reasoning level, or null
  *  when there is no model or host config cannot store the agent. No level
  *  means the model's own default. */
-export function leadModelFor(
+export function workerModelFor(
   provider: AgentId,
   model: string | null,
   reasoningEffort: ReasoningEffort | null = defaultReasoningFor(provider, model),
-): LeadModelSelection | null {
-  if (!model || !isLeadModelAgent(provider)) return null
+): WorkerModelSelection | null {
+  if (!model || !isWorkerModelAgent(provider)) return null
   return { provider, model, reasoningEffort: reasoningEffort ?? undefined }
 }
 
 /** A saved selection as the chip edits it. One saved without a level shows
  *  the model's default level, which is what it runs at. */
-export function pickerFromLeadModel(selection: LeadModelSelection): PickerSelection {
+export function pickerFromWorkerModel(selection: WorkerModelSelection): PickerSelection {
   return {
     provider: selection.provider,
     modelId: selection.model,

@@ -84,7 +84,7 @@ function orchestrator() {
     stopSession: () => false, respondToPermission: () => false,
     pendingInputEvents: () => [], replaceQueuedPrompt: () => false,
     hasQueuedPrompt: () => false, cancelQueuedPrompt: () => false,
-    turnEnding: async () => ({}), taskIdFor: async () => undefined, isLead: async () => false,
+    turnEnding: async () => ({}), taskIdFor: async () => undefined,
     turnOrganization: async (sessionId) => sessionId === 'org-parent' ? 'org-a' : undefined,
     emit: (_id, event) => { updates.push(event) }, invalidatePlanCaches: () => {},
     recordActivity: async () => { throw new Error('No person acted in this test') },

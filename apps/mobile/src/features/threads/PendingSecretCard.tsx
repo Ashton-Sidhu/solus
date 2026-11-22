@@ -9,6 +9,8 @@ import {
   type SecretField,
 } from "@solus/contracts/secret-request";
 import { requestExpiryText } from "@solus/contracts/types";
+import { webLinkIcon } from "@solus/client-core/web-link-icon";
+import { Image } from "expo-image";
 import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 
@@ -86,30 +88,30 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
           const isRevealed = revealed[index];
           const isFile = prompt.delivery === "file";
           const link = secretRequestLink(prompt);
+          const linkIcon = link ? webLinkIcon(link.href) : null;
           return (
             <View key={index} className="gap-2">
               <View className="gap-0.5">
                 <Text className="font-t3-bold text-lg text-foreground">{prompt.name}</Text>
                 <Text selectable className="font-sans text-sm leading-5 text-foreground-secondary">{prompt.reason}</Text>
-              </View>
-              {link ? (
-                <View className="items-start gap-1">
+                {link ? (
                   <Pressable
                     accessibilityRole="link"
-                    accessibilityLabel={`Open ${link.host}`}
+                    accessibilityLabel={`Open ${link.href}`}
                     hitSlop={8}
                     onPress={() => void app.platform.openBrowser(link.href)}
-                    className="min-h-9 flex-row items-center gap-1.5 rounded-full border border-border px-3.5 active:opacity-70"
+                    className="mt-1 min-h-8 flex-row items-center gap-1.5 self-start active:opacity-60"
                   >
-                    <Text className="font-t3-bold text-xs text-foreground">{`Open ${link.host}`}</Text>
-                    <SymbolView name="arrow.up.right" size={11} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
+                    {linkIcon?.kind === "favicon" ? (
+                      <Image source={{ uri: linkIcon.url }} style={{ width: 16, height: 16, borderRadius: 3 }} contentFit="contain" />
+                    ) : (
+                      <SymbolView name="globe" size={16} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
+                    )}
+                    <Text numberOfLines={1} className="shrink font-t3-bold text-sm text-foreground underline">{link.host}</Text>
+                    <SymbolView name="arrow.up.right" size={14} tintColorClassName={"accent-icon-subtle"} type="monochrome" />
                   </Pressable>
-                  {/* A link found in the reason is already shown there. */}
-                  {link.isInReason ? null : (
-                    <Text selectable className="font-mono text-xs text-foreground-muted">{prompt.url}</Text>
-                  )}
-                </View>
-              ) : null}
+                ) : null}
+              </View>
               {!canRespond ? null : field.isDeclined ? (
                 <View className="flex-row items-center justify-between gap-2">
                   <Text className="flex-1 font-sans text-xs text-foreground-muted">

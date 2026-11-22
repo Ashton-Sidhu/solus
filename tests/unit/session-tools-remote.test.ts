@@ -51,6 +51,10 @@ const remoteHost = {
   call: (_what: string, request: () => Promise<unknown>) => request(),
 }
 const remoteHosts = {
+  summaries: async (request: unknown) => {
+    lookups.push(request)
+    return [{ id: 'host-b', installationId: 'install-b', name: 'Host B', source: 'account', status: 'online', routes: [{ kind: 'tunnel', url: 'https://b.example' }] }]
+  },
   list: async () => [{ hostId: 'host-b', label: 'Host B', routes: [{ kind: 'tunnel', url: 'https://b.example' }] }],
   find: async (request: unknown, ref: string) => {
     lookups.push(request)
@@ -169,14 +173,36 @@ describe('a session on another host', () => {
     }
   })
 
-  test('list_agent_targets shows what that host offers, and this host lists the other hosts', async () => {
+  test('list_agent_targets lists capabilities only, with list_hosts for machine discovery', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     const there = JSON.parse((await sessionTools.executeSessionTool('list_agent_targets', { host: 'Host B' }, { ctx })).text)
     expect(there).toMatchObject({ host: 'Host B', targets: [{ provider: 'codex', models: [{ id: 'model-on-b' }] }] })
     // The projects there are the only paths an agent here can know to pass as cwd.
     expect(there.projects).toEqual([{ name: 'solus', path: '/srv/b/solus' }])
     const here = JSON.parse((await sessionTools.executeSessionTool('list_agent_targets', {}, { ctx })).text)
-    expect(here.otherHosts).toEqual([{ id: 'host-b', name: 'Host B' }])
+    expect(here.targets).toHaveLength(1)
+    expect(here.otherHosts).toBeUndefined()
+    expect(here.hosts).toBeUndefined()
+    lookups.length = 0
+    const machines = JSON.parse((await sessionTools.executeSessionTool('list_hosts', {}, { ctx })).text)
+    expect(machines.hosts).toEqual([{ id: 'host-b', installationId: 'install-b', name: 'Host B', source: 'account', status: 'online', routes: [{ kind: 'tunnel', url: 'https://b.example' }] }])
+    expect(machines.targets).toBeUndefined()
+    expect(lookups).toEqual([OWNER_REACH])
+  })
+
+  test('list_hosts refuses a turn that has no host access, and returns an empty list when no hosts are configured', async () => {
+    turnReach = null
+    try {
+      const result = await sessionTools.executeSessionTool('list_hosts', {}, { ctx })
+      expect(result.ok).toBe(false)
+      expect(result.text).toContain('host access')
+    } finally { turnReach = OWNER_REACH }
+    sessionTools.setRemoteHosts(null)
+    try {
+      const result = await sessionTools.executeSessionTool('list_hosts', {}, { ctx })
+      expect(result.ok).toBe(true)
+      expect(JSON.parse(result.text)).toEqual({ hosts: [] })
+    } finally { sessionTools.setRemoteHosts(remoteHosts as never) }
   })
 
   test('send_session sends to the host the session runs on, with the files it attached', async () => {

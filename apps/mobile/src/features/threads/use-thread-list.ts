@@ -67,7 +67,6 @@ export function useThreadListRefresh(): void {
         connection.events.subscribe("session.statusChanged", reloadSoon),
         connection.events.subscribe("session.titleChanged", reloadSoon),
         // An agent can make its session a lead in the middle of a turn; the row then shows the mark.
-        connection.events.subscribe("session.becameLead", reloadSoon),
         // A share of a session lists it, or takes it out, for this person
         // (docs/plans/shared-with-you.md §4.4).
         connection.events.subscribe("share.changed", ({ resource }) => {

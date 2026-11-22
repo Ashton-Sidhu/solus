@@ -1132,7 +1132,6 @@ export class WorkspaceContext implements SurfaceContext {
       task: spec.task,
       boundWorkId: spec.boundWorkId,
       prReview: spec.prReview ?? null,
-      isLead: spec.isLead ?? false,
       // The draft's prompt becomes the session's, same object: what the composer
       // is about to clear is what the send just read.
       prompt: spec.prompt,

@@ -42,8 +42,6 @@ export interface ListedSession {
   branch: string | null
   /** The person the session belongs to (docs/plans/access-model.md §2.2). */
   ownerKey: string
-  /** Started in Meta mode: a lead (docs/plans/lead-session.md). */
-  isLead?: boolean
   /** The reader's role on the session; absent on a host that is theirs. */
   role?: ResourceRole
   /** What its first history page is read with, so a click can ask for the
@@ -326,7 +324,6 @@ export class SessionListStore {
       opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
       share: sessionShareOf(record),
     }
-    if (record.isLead) listed.isLead = true
     if (record.role) listed.role = record.role
     this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
     this.writeState(record.sessionId, record.state)
@@ -417,11 +414,6 @@ export class SessionListStore {
     events.subscribe('session.titleChanged', ({ sessionId, title }) => {
       const listed = this.listedBySession.get(sessionId)
       if (listed && listed.title !== title) this.listedBySession.set(sessionId, { ...listed, title })
-    })
-    // An agent can make its session a lead in the middle of a turn (docs/plans/lead-session.md).
-    events.subscribe('session.becameLead', ({ sessionId }) => {
-      const listed = this.listedBySession.get(sessionId)
-      if (listed && !listed.isLead) this.listedBySession.set(sessionId, { ...listed, isLead: true })
     })
     // A share gives or takes a place in the reader's list (docs/plans/shared-with-you.md §2).
     events.subscribe('share.changed', ({ resource }) => {

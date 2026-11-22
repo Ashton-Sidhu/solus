@@ -1,4 +1,4 @@
-import { LEAD_PROMOTION_LABEL, type Activity } from '@solus/contracts/activity'
+import { type Activity } from '@solus/contracts/activity'
 import { sameUser, type User, type UserId } from '@solus/contracts/user'
 import { z } from 'zod'
 import { labelChangeText } from '../../../lib/label-activity'
@@ -62,7 +62,6 @@ export function dividesThread(activity: Activity): boolean {
 /** The words before a divider's title (a session, a branch, a plan, an agent). */
 function dividerPredicate(activity: Activity): string | null {
   switch (activity.kind) {
-    case 'became_lead': return LEAD_PROMOTION_LABEL
     case 'forked': return activity.midRun ? 'forked mid-run from' : 'forked from'
     case 'moved_to_worktree': return 'continued in worktree'
     case 'agent_switched': return 'continued with'

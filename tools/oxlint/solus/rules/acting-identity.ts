@@ -34,6 +34,7 @@ const hostNameFiles = new Map([
   ['packages/server/src/execution/seats/acting-identity.ts', 'defines the host identity'],
   ['packages/server/src/cli-env.ts', 'defines the host environment'],
   ['packages/server/src/platform/file-manager.ts', 'opens a folder on the host’s own desktop, for a local owner only'],
+  ['packages/server/src/integrations/found/config-writes.ts', 'changes the MCP config files of the host’s OS user, which the found list reads, for a host administrator only'],
   ['packages/server/src/boot-core.ts', 'boot is the host’s own work'],
   ['packages/server/src/boot-server.ts', 'boot is the host’s own work'],
   ['packages/server/src/boot-solus-api.ts', 'boot is the host’s own work'],

@@ -82,17 +82,14 @@ describe('new-task prompt controls (T3 parity)', () => {
   // WHY: T3's draft shows only where the work runs above the composer: the
   // checkout or a new worktree, and its branch. Every other run option is in
   // the model picker, so the two places never offer the same choice twice.
-  test('above the composer: the workspace and its base branch; Plan and Meta mode are in the model picker', () => {
+  test('above the composer: the workspace and its base branch; Plan is in the model picker', () => {
     const draft = read('src/features/threads/NewTaskDraftScreen.tsx')
     expect(draft).toContain('<NewTaskWorkspaceControls')
     expect(draft).toContain('navigation.navigate("NewTaskBranch"')
     expect(draft).not.toContain('PlanModeToggle')
-    expect(draft).not.toContain('LeadToggle')
 
     const sheet = read('src/features/threads/ThreadSettingsSheet.tsx')
     expect(sheet).toContain('label="Permission mode"')
-    expect(sheet).toContain('label="Meta mode"')
-    expect(sheet).toContain('lead={meta.runOptions.canChooseStart ? meta.lead : null}')
     expect(read('src/navigation/RootNavigator.tsx')).toMatch(/name="NewTaskBranch"\s*component=\{NewTaskBranchPickerRouteScreen\}/)
   })
 })

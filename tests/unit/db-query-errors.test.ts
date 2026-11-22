@@ -34,7 +34,7 @@ afterAll(async () => {
 
 test('a failed write reports the driver reason, not the statement and its values', async () => {
   const write = database.getDatabase().run(sql`
-    UPDATE ${session} SET no_such_preference = ${'{"leadInstructions":"a private document"}'}
+    UPDATE ${session} SET no_such_preference = ${'{"delegationInstructions":"a private document"}'}
     WHERE session_id = ${'session-1'}
   `)
 

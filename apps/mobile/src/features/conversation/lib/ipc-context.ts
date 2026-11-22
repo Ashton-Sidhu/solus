@@ -25,8 +25,6 @@ export interface ConversationRun {
   title: string | null
   /** The organization this device works in; the host assigns an unassigned session to it once. */
   organizationId: string | null
-  /** The new session is a lead (`LeadSessionChoice`); only the prompt that starts it says so. */
-  lead?: boolean
   /** The new session starts in a new worktree from this branch; null works in the project folder. Only the prompt that starts it says so. */
   worktreeBaseBranch?: string | null
 }

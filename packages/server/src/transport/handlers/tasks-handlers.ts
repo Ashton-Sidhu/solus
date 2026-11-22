@@ -36,7 +36,7 @@ import { taskListChangesSince, taskListRevision } from '../../data/tasks/task-re
 import { searchTaskComments } from '../../data/tasks/comment-search'
 import { defaultTaskSourceOptionsDeps, taskSourceOptions } from '../../data/tasks/source-options'
 import { listProjects } from '../../project-config/projects-manifest'
-import { resolveRepositoryKey } from '../../git/git-helpers'
+import { isForkCheckout, resolveRepositoryKey } from '../../git/git-helpers'
 import { projectsVisibleTo } from './setup-handlers'
 import { loadMoreTaskSource, startTaskSourcePolling, tasksSources } from '../../data/tasks/task-sources'
 import type { TaskReader } from '../../data/tasks/task-store'
@@ -113,12 +113,15 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
   // The caller's own projects lead the GitHub choices: a member sees only theirs.
   server.register('tasksSourceOptions', (_args, ctx) => taskSourceOptions({
     ...defaultTaskSourceOptionsDeps,
-    projectRepositoryKeys: async () => {
+    projectRepositories: async () => {
       const recent = projectsVisibleTo(ctx.principal, await listProjects())
         .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))
         .slice(0, RECENT_PROJECTS_FOR_SOURCES)
-      const keys = await Promise.all(recent.map((project) => resolveRepositoryKey(project.path)))
-      return keys.filter((key): key is string => key !== null)
+      const read = await Promise.all(recent.map(async (project) => {
+        const repositoryKey = await resolveRepositoryKey(project.path)
+        return repositoryKey ? [{ repositoryKey, isFork: await isForkCheckout(project.path) }] : []
+      }))
+      return read.flat()
     },
   }))
   server.register('tasksReact', ([id, targetId, content, add]) => reactToTask(id, targetId, content, add))

@@ -1,0 +1,1 @@
+ALTER TABLE "session_records" DROP COLUMN "lead_started_at";

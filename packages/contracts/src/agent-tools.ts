@@ -80,8 +80,12 @@ export const SOLUS_TOOL_GROUPS = [
     'dry_run_webhook',
   ] },
   { id: 'connections', label: 'Connections', tools: [
+    'list_hosts',
+    'pair_host',
+    'remove_host',
     'connection_status',
     'connect_integration',
+    'add_mcp_server',
   ] },
   { id: 'insights', label: 'Insights', tools: [
     'query_insights',
@@ -127,7 +131,6 @@ export const SOLUS_TOOL_GROUPS = [
     'read_session',
     'read_session_exchange',
     'start_sessions',
-    'become_lead',
     'send_session',
     'stop_session',
     'organize_session',

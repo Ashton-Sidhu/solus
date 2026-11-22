@@ -66,7 +66,6 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     if (!isApiMode()) meta = { ...meta, head: storage?.head ?? null, syncedTurn: storage?.turnCount ?? 0, pushRefused: !!storage?.pushRefusedHead }
     if (!record) return meta
     const described: SessionMeta = { ...meta, organizationId: record.organizationId, publication: record.publication }
-    if (record.isLead) described.isLead = true
     return described
   }
   const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> =>

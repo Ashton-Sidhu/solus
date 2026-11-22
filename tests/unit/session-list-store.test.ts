@@ -86,21 +86,6 @@ test('a shared settle and a personal archive each move one session, and nothing 
   } finally { restore() }
 })
 
-test('a listed session shows the Meta mode mark when its agent makes it a lead, and nothing is read back', async () => {
-  // WHY: an agent makes its session a lead in the middle of a turn
-  // (docs/plans/lead-session.md). A row without the mark until the next
-  // reload would hide that the session now only coordinates.
-  const { store, fakes, restore } = fakeHomes({ host: [record('plain'), record('promoted')] })
-  try {
-    await store.load()
-    fakes.get('host')!.events.receive({ type: 'session.becameLead', payload: { sessionId: 'promoted' }, occurredAt: 1 })
-    const isLeadById = new Map(store.sessions.map((listed) => [listed.sessionId, listed.isLead ?? false]))
-    expect(isLeadById.get('promoted')).toBe(true)
-    expect(isLeadById.get('plain')).toBe(false)
-    expect(fakes.get('host')!.lists).toHaveLength(1)
-  } finally { restore() }
-})
-
 test('settle moves the session before its home answers, and a refusal puts it back', async () => {
   // WHY: the home may be an organization's Solus API a round trip away; the row
   // must not wait for it.

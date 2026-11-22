@@ -2,13 +2,14 @@ import { IntegrationPromptsStore, IntegrationResourceListsStore } from './host-p
 import { IntegrationsStore } from './integrations.store.svelte'
 import { McpTasksStore, ResourceWatchesStore } from './session-host-records.svelte'
 
-export { McpFound } from './mcp-found.svelte'
+export { McpFound, McpDiscovery, type FoundTest } from './mcp-found.svelte'
 export type { CloudSignInPort, ConnectionsStatus, IntegrationConnectFlow } from './integration-sign-ins.svelte'
 
 /**
  * The MCP state of this client on desktop and web (docs/plans/mcp-first-class.md):
- * one owner, with one sub-owner for each kind of record. `McpFound` is the
- * found servers of one MCP page, which lives as long as that page.
+ * one owner, with one sub-owner for each kind of record. `McpDiscovery` is
+ * the found servers of every host one MCP page shows, and `McpFound` those of
+ * one of them; both live as long as that page.
  *
  * Not in `contexts/index.ts`: the first screen does not import this module.
  * The app loads it after the first paint (`app-core.ts`), and the settings,

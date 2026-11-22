@@ -25,7 +25,7 @@ const acme = source('organization', 'acme', { organization: { name: 'Acme' }, se
 const globex = source('organization', 'globex', {
   organization: { name: 'Globex' },
   sessions: {
-    settings: { leadModel: opus },
+    settings: { workerModel: opus },
     limits: { maxPermissionMode: 'supervised', providers: { allowed: ['claude-code'] }, models: { 'claude-code': ['claude-opus-5-5'] } },
   },
 })
@@ -43,8 +43,8 @@ describe('client policy resolver', () => {
   test("work of one organization never sees another organization's rules", () => {
     const acmeWork = new HostPolicies(shared).forWork('acme')
     const globexWork = new HostPolicies(shared).forWork('globex')
-    expect(acmeWork.settingLock('leadModel', 'Lead model')).toBeNull()
-    expect(globexWork.settingLock('leadModel', 'Lead model')?.message).toBe('Lead model is managed by Globex.')
+    expect(acmeWork.settingLock('workerModel', 'Default worker model')).toBeNull()
+    expect(globexWork.settingLock('workerModel', 'Default worker model')?.message).toBe('Default worker model is managed by Globex.')
     expect(acmeWork.modeDenial('full-access')).toBeNull()
     expect(globexWork.modeDenial('auto')?.message).toBe('Globex limits sessions to Supervised.')
     expect(acmeWork.providerDenial('codex')).toBeNull()
@@ -91,12 +91,12 @@ describe('client policy resolver', () => {
 
   test('settings pages name each organization that locks a key, and MDM locks it for all work', () => {
     const organizations = [{ organizationId: 'acme', name: 'Acme' }, { organizationId: 'globex', name: 'Globex' }]
-    expect(managedSettingLines(new HostPolicies(shared), organizations, 'leadModel', (value) => (value ? 'Opus' : 'the default'))).toEqual({
+    expect(managedSettingLines(new HostPolicies(shared), organizations, 'workerModel', (value) => (value ? 'Opus' : 'the default'))).toEqual({
       lockedEverywhere: false,
       lines: ['Globex sessions use Opus (managed).'],
     })
-    const set: PolicySet = { ...shared, mdm: source('mdm', null, { organization: { name: 'IT' }, sessions: { settings: { leadModel: opus } } }) }
-    expect(managedSettingLines(new HostPolicies(set), organizations, 'leadModel', () => 'Opus').lockedEverywhere).toBe(true)
+    const set: PolicySet = { ...shared, mdm: source('mdm', null, { organization: { name: 'IT' }, sessions: { settings: { workerModel: opus } } }) }
+    expect(managedSettingLines(new HostPolicies(set), organizations, 'workerModel', () => 'Opus').lockedEverywhere).toBe(true)
   })
 
   test('updates and launch fields say who manages them', () => {

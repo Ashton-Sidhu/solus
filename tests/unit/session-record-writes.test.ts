@@ -52,7 +52,6 @@ test('a status change is one UPDATE that returns the record the listeners hear',
   expect(log.statements.map(({ text }) => text.split(' ')[0])).toEqual(['UPDATE'])
   expect(log.statements[0]!.text).toContain('RETURNING')
   expect(heard.map((record) => [record.sessionId, record.status, record.provider])).toEqual([['s1', 'running', 'codex']])
-  expect(heard[0]!.isLead).toBeUndefined()
 })
 
 test('a row admitted before its provider started takes the status and is not announced', async () => {

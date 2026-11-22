@@ -44,7 +44,18 @@ the source.
 
 ### Add a source
 
-Open the Tasks page. With no source, the page shows **Add a task source**.
+Open the Tasks page. With no source, the page offers the GitHub repositories
+of your recent projects on the task host, each with a check box. Select **Add
+N repositories** to add them in one step. They are ordinary sources: they sync,
+show on the row of sources, and you can remove them. Solus does not read a
+project's repository until you add it, because your sources are yours on every
+device and the project list belongs to one host. A project that is a checkout
+of a fork (its `upstream` and `origin` remotes name different repositories) is
+named by the original repository, whose issues are rarely yours, so it starts
+not selected and shows **Fork**. On mobile, the task sources screen shows the
+same list with a switch for each repository.
+
+The empty page also shows **Add a task source**.
 With sources, use **Add source** at the end of the row of sources, above the
 search field. You do not choose a project first. The control lists what your
 connections offer:

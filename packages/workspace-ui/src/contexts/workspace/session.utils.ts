@@ -53,7 +53,6 @@ const SOLUS_TOOL_LABELS = new Map([
   ['retry_app_run', 'Retry app run'],
   ['set_app_signal_action', 'Set app signal action'],
   ['start_sessions', 'Start sessions'],
-  ['become_lead', 'Start Meta mode'],
   ['send_session', 'Send to session'],
   ['codex_subagent', 'Codex subagent'],
 ])

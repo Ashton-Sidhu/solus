@@ -233,12 +233,12 @@ export class TasksPageView {
 
   clearFilters(): void {
     this.query = ''
-    this.involvement = 'all'
     this.clearMenuFilters()
   }
 
   /** Clears what the Filters badge counts. The search stays. */
   clearMenuFilters(): void {
+    this.involvement = 'all'
     this.runningOnly = false
     this.overdueOnly = false
     this.assignedOnly = false

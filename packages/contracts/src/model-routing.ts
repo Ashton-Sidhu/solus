@@ -52,19 +52,3 @@ export function routedModel(config: ModelRouting, category: RoutingCategory): { 
   }
   return null
 }
-
-/** The lead instructions a person starts with: start workers async and fresh,
- *  and route each by the categories Auto routes by, to the models in `config`.
- *  The lead chooses the category itself; no routing call runs. */
-export function defaultLeadInstructions(config: ModelRouting): string {
-  const routes = ROUTING_CATEGORIES.flatMap((category) => {
-    const route = routedModel(config, category)
-    return route ? [`- ${ROUTING_LABELS[category]} (${ROUTING_DESCRIPTIONS[category]}): agent_provider '${route.provider}', model_id '${route.model}'.`] : []
-  })
-  return [
-    'Always start workers async: wait_seconds=0, then end your turn. Do not wait inside the call.',
-    'For new work, start a new worker. Do not send it to an old worker; a long thread costs more and carries stale context. Use send_session only to answer or correct a worker on the same piece of work.',
-    'Choose each worker\'s agent and model by the main kind of work it does. Choose user interface when interface design or implementation is the main outcome. Use general use when no other kind fits.',
-    ...routes,
-  ].join('\n')
-}

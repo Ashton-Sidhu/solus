@@ -17,7 +17,6 @@ import { parseStoredStarter } from '@solus/contracts/session-starter'
 import { aclEntry } from '../../sharing/schema'
 import { deleteActivityFor } from '../activity/activity'
 import { personalResourceState } from '../personal-state/schema'
-import { forgetLeadSession } from './lead-sessions'
 import { resourceLinks } from '../links/schema'
 import { deleteEdgesOf } from '../links/resource-links'
 import { session } from './schema'
@@ -72,8 +71,6 @@ const recordRowSchema = z.object({
   delegation_created_at: z.number().nullable(),
   place: z.enum(['chat', 'project']).nullable().catch(null),
   started_by: z.string().nullable(),
-  /** 1 when the session was started in Coordinator mode (`lead_started_at` set). */
-  is_lead: z.coerce.number().optional(),
 })
 
 type RecordRow = z.infer<typeof recordRowSchema>
@@ -91,14 +88,11 @@ const RECORD_COLUMN_NAMES = [
   'cwd', 'slug', 'is_worktree', 'branch', 'project_root', 'delegation_message_id', 'delegation_depth', 'delegation_intent', 'delegation_created_at',
   'place', 'started_by',
 ]
-/** The lead mark (docs/plans/lead-session.md decision 4): every record read answers it, so the list can mark a Coordinator mode session. */
-const LEAD_COLUMN = '(session_records.lead_started_at IS NOT NULL) AS is_lead'
-const RECORD_COLUMNS = sql.raw([...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`), LEAD_COLUMN].join(', '))
+const RECORD_COLUMNS = sql.raw(RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`).join(', '))
 /** The record's columns, its shared state, and the reader's view, for a read
  *  that joins the reader's `personal_resource_state` row as `reader_view`. */
 const RECORD_WITH_STATE_COLUMNS = sql.raw([
   ...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`),
-  LEAD_COLUMN,
   'session_records.settled_at', 'session_records.settled_by',
   'reader_view.settled_at AS view_settled_at', 'reader_view.archived_at', 'reader_view.snoozed_until', 'reader_view.snooze_note',
 ].join(', '))
@@ -226,7 +220,6 @@ function recordFromRow(row: RecordRow): SessionRecord {
     place: row.place,
     startedBy: parseStoredStarter(row.started_by),
   }
-  if (row.is_lead === 1) record.isLead = true
   return record
 }
 
@@ -669,7 +662,6 @@ export function deleteSessionRecord(scope: RecordScope, sessionId: string): Prom
       return true
     })
     organizationBySession.delete(sessionId)
-    forgetLeadSession(sessionId)
     if (removed) {
       deleteHostRowsOfSession(sessionId)
       for (const listener of deletedListeners) listener(sessionId)

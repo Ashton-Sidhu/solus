@@ -5,13 +5,18 @@ import { delimiter, isAbsolute, join, resolve } from 'node:path'
 import type {
   ConfigFileKind,
   FoundFile,
+  FoundPlace,
   FoundServer,
   FoundServerList,
   FoundTransport,
   Integration,
   IntegrationFoundAddRequest,
   IntegrationFoundAddResult,
+  IntegrationFoundChangeRequest,
+  IntegrationFoundChangeResult,
   IntegrationFoundListRequest,
+  IntegrationFoundTestRequest,
+  IntegrationFoundTestResult,
   IntegrationLaunch,
 } from '@solus/contracts/integration-types'
 import { recordScopeOf, type Principal } from '../admission/principal'
@@ -25,6 +30,8 @@ import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from './command-admission'
 import type { IntegrationConnections } from './connections'
 import { codexServers } from './found/codex-servers'
 import { readConfigFile } from './found/config-file'
+import { ConfigWrites, canChange } from './found/config-writes'
+import { testFoundServer } from './found/found-test'
 import { NO_SECRETS, type ConfigEntry, type EntrySecrets } from './found/config-entry'
 import { jsonServers, parseJsonConfig, serverTableOf, type JsonConfig } from './found/json-servers'
 import { probeForWrite, type IntegrationWrites } from './integration-create'
@@ -53,6 +60,8 @@ export interface FoundServersDeps {
   codexLayers?: (cwd: string | null) => Promise<unknown[]>
   /** The MCP servers that run on this host's loopback (§9); absent where the host does not look for them. */
   local?: Pick<LocalMcpServers, 'runningNow'>
+  /** The writer of another tool's config file (§8.8). Tests give their own. */
+  configWrites?: ConfigWrites
   /** The home folder of the Solus server's OS user and its environment. Tests give their own. */
   home?: string
   env?: NodeJS.ProcessEnv
@@ -72,6 +81,12 @@ interface ConfigFileSpot {
 interface FileRead {
   entries: ConfigEntry[]
   files: FoundFile[]
+}
+
+/** The names Claude Code does not load in the caller's project, from `~/.claude.json` (§8.8). */
+interface ClaudeProjectLists {
+  disabledMcpServers: readonly string[]
+  disabledMcpjsonServers: readonly string[]
 }
 
 /** Entries of one address, merged: the same command in two files is one found server. */
@@ -134,8 +149,59 @@ export class FoundServers {
     const caller = new FoundServersCaller(this.deps.store, principal, ownerKey, request.projectPath)
     const [read, local] = await Promise.all([this.cachedRead(caller, request.refresh === true), this.deps.local?.runningNow()])
     const servers = this.foundServers(read.entries, caller).map(({ server }) => server)
-    if (!local) return { servers, files: read.files }
-    return { servers: withRunning(servers, local.servers, caller.integrations), files: read.files, portScan: local.portScan }
+    const mayChange = caller.isHostAdmin
+    if (!local) return { servers, files: read.files, mayChange }
+    return { servers: withRunning(servers, local.servers, caller.integrations), files: read.files, portScan: local.portScan, mayChange }
+  }
+
+  /**
+   * Starts a found server once and reads its tools (§8.8). The host reads the
+   * files again: the command that runs is the file's, never the client's copy,
+   * and another fingerprint runs nothing. A server on the loopback is reached
+   * at its address with no credential.
+   */
+  async test(principal: Principal, request: IntegrationFoundTestRequest): Promise<IntegrationFoundTestResult> {
+    const caller = new FoundServersCaller(this.deps.store, principal, null, request.projectPath)
+    const found = await this.freshEntry(caller, request)
+    if (found) {
+      const { server, merged } = found
+      if (server.state === 'unsupported' || !merged.transport) throw new Error(`${server.name} cannot be tested. ${foundUnsupportedText(server.unsupported ?? 'invalid')}`)
+      const tools = await testFoundServer(merged.transport, merged.secrets, server.projectOnly && caller.projectRoot ? caller.projectRoot : '~')
+      log.info('integration_found_tested', { tools: tools.length, files: server.foundIn.map((place) => place.kind === 'file' ? place.file : 'port') })
+      return { kind: 'tools', tools }
+    }
+    const running = (await this.deps.local?.runningNow())?.servers ?? []
+    const server = running.map((entry) => portServer(entry, caller.integrations)).find((candidate) => candidate.foundId === request.foundId)
+    if (!server || server.fingerprint !== request.fingerprint || server.transport?.kind !== 'http') return { kind: 'found-changed' }
+    return { kind: 'tools', tools: await testFoundServer(server.transport, NO_SECRETS, '~') }
+  }
+
+  /**
+   * Turns a found server off or on in one of its files, or deletes its entry
+   * there (§8.8). The host reads the files again and finds the entry the
+   * person saw; the client's path only names it. The writer is the tool's own
+   * where it has one (`found/config-writes.ts`).
+   */
+  async change(principal: Principal, request: IntegrationFoundChangeRequest): Promise<IntegrationFoundChangeResult> {
+    const caller = new FoundServersCaller(this.deps.store, principal, null, request.projectPath)
+    const found = await this.freshEntry(caller, request)
+    const target = request.place
+    const place = found?.server.foundIn.find((each): each is FoundPlace => each.kind === 'file' && each.file === target.file && each.path === target.path && each.name === target.name)
+    if (!place) return { kind: 'found-changed' }
+    const writes = this.deps.configWrites ?? new ConfigWrites()
+    await writes.apply(place, request.change, { projectRoot: caller.projectRoot, claudeJsonPath: this.userFiles()[0]!.path, home: this.home() })
+    // Every caller's answer can hold this entry.
+    this.cache.clear()
+    log.info('integration_found_changed', { file: place.file, scope: place.scope, change: request.change })
+    return { kind: 'saved' }
+  }
+
+  /** The found server the person saw, read from the files again; null when it is gone or its entry changed. */
+  private async freshEntry(caller: FoundServersCaller, request: { foundId: string; fingerprint: string }): Promise<{ server: FoundServer; merged: MergedEntry } | null> {
+    const read = await this.readFiles(caller)
+    this.cache.delete(caller.cacheKey)
+    const found = this.foundServers(read.entries, caller).find(({ server }) => server.foundId === request.foundId)
+    return found && found.server.fingerprint === request.fingerprint ? found : null
   }
 
   /**
@@ -255,7 +321,7 @@ export class FoundServers {
   private async readJsonFile(read: FileRead, spot: ConfigFileSpot, scope: 'user' | 'project'): Promise<void> {
     const config = await this.parsedFile(read, spot, scope)
     if (!config) return
-    const entries = jsonServers(serverTableOf(config, spot.file), { kind: 'file', file: spot.file, scope, path: this.displayPath(spot.path) })
+    const entries = jsonServers(serverTableOf(config, spot.file), { kind: 'file', file: spot.file, scope, path: this.displayPath(spot.path), filePath: spot.path })
     read.entries.push(...entries)
     read.files.push({ file: spot.file, scope, path: this.displayPath(spot.path), servers: entries.length })
   }
@@ -265,9 +331,11 @@ export class FoundServers {
     const config = await this.parsedFile(read, spot, 'user')
     if (!config) return
     const path = this.displayPath(spot.path)
-    const entries = jsonServers(config.mcpServers, { kind: 'file', file: 'claude-json', scope: 'user', path })
+    const entries = jsonServers(config.mcpServers, { kind: 'file', file: 'claude-json', scope: 'user', path, filePath: spot.path })
     const project = projectRoot ? config.projects?.[projectRoot] : undefined
-    if (project) entries.push(...jsonServers(project.mcpServers, { kind: 'file', file: 'claude-json', scope: 'project', path }))
+    if (project) entries.push(...jsonServers(project.mcpServers, { kind: 'file', file: 'claude-json', scope: 'project', path, filePath: spot.path }))
+    // Claude Code turns a server off for one project: its own entries by one list, the project's `.mcp.json` ones by another.
+    if (project) markTurnedOff(read.entries.concat(entries), { disabledMcpServers: project.disabledMcpServers ?? [], disabledMcpjsonServers: project.disabledMcpjsonServers ?? [] })
     read.entries.push(...entries)
     read.files.push({ file: 'claude-json', scope: 'user', path, servers: entries.length })
   }
@@ -331,7 +399,8 @@ export class FoundServers {
       foundId: hash(JSON.stringify([merged.key, projectOnly ? projectKey : null])),
       fingerprint: hash(JSON.stringify([merged.transport, projectOnly, merged.expands])),
       name: merged.first.place.name,
-      foundIn: merged.places,
+      // What the caller may change in each file: a host administrator only, as an add of a command (§8.8).
+      foundIn: merged.places.map((place) => caller.isHostAdmin ? { ...place, canTurnOff: canChange(place, 'turn-off', projectRoot), canDelete: canChange(place, 'delete', projectRoot) } : place),
       transport,
       state: 'new',
       projectOnly,
@@ -479,6 +548,14 @@ function mergeInto(existing: MergedEntry, entry: ConfigEntry): void {
 
 function addNew(names: string[], more: string[]): void {
   for (const name of more) if (!names.includes(name)) names.push(name)
+}
+
+/** Marks the entries Claude Code does not load in the caller's project (§8.8). */
+function markTurnedOff(entries: ConfigEntry[], lists: ClaudeProjectLists): void {
+  for (const { place } of entries) {
+    const list = place.file === 'claude-json' ? lists.disabledMcpServers : place.file === 'mcp-json' ? lists.disabledMcpjsonServers : null
+    if (list?.includes(place.name)) place.turnedOff = true
+  }
 }
 
 function hash(text: string): string {

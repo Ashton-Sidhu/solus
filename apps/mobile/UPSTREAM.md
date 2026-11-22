@@ -540,8 +540,7 @@ Solus keeps its default light/dark palette, fonts, stores, and commands.
   clears the project search bar, and centers its project/host hero. Its Files
   action is available on both native platforms.
 - New Task uses the same ThreadComposer as a saved session, as T3's draft does.
-  This removes its separate, always-expanded editor. Permission and Meta mode
-  remain above the composer. Draft changes still reach host balancing; send
+  This removes its separate, always-expanded editor. Permission mode is in the model picker. Draft changes still reach host balancing; send
   still preserves the session and replaces the draft flow with its conversation.
 - The compact row measures its always-visible model control before focus.
   Attaching the layout handler only after focus missed the unchanged native
@@ -924,7 +923,7 @@ The earlier worker reference was `3a51807da05203bc2dbfbc489f976e3ba0dc609a`;
 send, sticky dock, and feed inset behavior did not change between these commits.
 
 The new-task draft places Current checkout / New worktree and the worktree base
-branch above the prompt. Permission mode (including Plan) and Meta mode are in
+branch above the prompt. Permission mode (including Plan) is in
 the model picker with the other Solus run options. The default worktree base now
 comes from the current branch on the selected host, then the remote default or a
 recent local branch if the host cannot name the current branch. No fetch is needed.

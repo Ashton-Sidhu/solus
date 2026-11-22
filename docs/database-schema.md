@@ -42,7 +42,8 @@ records are read through `getDatabase()`, which points at Postgres.
 
 One `session_records` row holds everything that was `session_records`,
 `session_states`, `session_leads`, and `session_admissions`
-(plans/029-fresh-database-baseline.md §4.2). The table is not named `session`:
+(plans/029-fresh-database-baseline.md §4.2). The Meta mode migration removes
+`lead_started_at`. The table is not named `session`:
 Solus Cloud keeps Better Auth's account tables in the same Postgres schema, and
 Better Auth owns `session` (`data-model-baseline.test.ts` guards those names). The row is the session's birth: a
 turn's admission or a claim makes it with its owner (`created_by`, never

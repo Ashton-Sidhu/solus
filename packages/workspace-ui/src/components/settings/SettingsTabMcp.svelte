@@ -9,17 +9,23 @@
    * (docs/plans/mcp-first-class.md §7.7), as does the palette's "Add an MCP
    * server command". While the page is open it holds the host's running-servers
    * lease, so the host looks for MCP servers on its loopback and follows the
-   * loopback servers it has (§9.1); no page, no scan.
+   * loopback servers it has (§9.1); no page, no scan. On your hosts lists the
+   * servers found on this host and on each other host it reaches for the
+   * person, one group for each host as its answer arrives (§8.9); an add, a
+   * test, or a change goes to that host through this one.
    */
   import { onDestroy, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { Check, FileSearch, LayoutGrid, LoaderCircle, Plus, RefreshCw, Search, TriangleAlert, X } from "@lucide/svelte";
-  import { CATALOG_CATEGORIES, type CatalogCategoryId, type CatalogEntry, type FoundServer, type Integration } from "@solus/contracts/integration-types";
-  import { NO_FOUND_SERVERS_TEXT, configFileLabel, foundSectionText, portScanUnavailableText } from "@solus/contracts/integrations/found-server-labels";
+  import { CATALOG_CATEGORIES, type CatalogCategoryId, type CatalogEntry, type FoundPlace, type FoundServer, type Integration } from "@solus/contracts/integration-types";
+  import type { McpFound } from "../../contexts/mcp";
+  import { FOUND_FOOTER_TEXT } from "@solus/contracts/integrations/found-server-labels";
   import { hostPathBaseName } from "@solus/contracts/host-path";
   import { projectScopeOf } from "@solus/contracts/types";
   import { isChat } from "@solus/contracts/chat";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getSettingsContext, getWorkspaceContext, hosts } from "../../contexts";
+  import { serverConnections } from "@solus/client-core/server-connections";
+  import { canOpenInConfiguredEditor, openInConfiguredEditor } from "../../lib/openExternalEditor";
   import { runningServers } from "../../contexts/running-servers/running-servers.store.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -28,9 +34,9 @@
   import McpConnectDialog from "./McpConnectDialog.svelte";
   import McpServerIcon from "./McpServerIcon.svelte";
   import McpServerRow from "./McpServerRow.svelte";
-  import McpFoundRow from "./McpFoundRow.svelte";
+  import McpFoundHostSection from "./McpFoundHostSection.svelte";
   import McpFoundDialog from "./McpFoundDialog.svelte";
-  import { McpFound, mcpStore } from "../../contexts/mcp";
+  import { McpDiscovery, mcpStore } from "../../contexts/mcp";
   import { mcpPageRequest } from "./lib/mcp-page-request.svelte";
   import { McpCatalog } from "./lib/mcp-catalog.svelte";
   import type { ConnectRequest } from "./lib/mcp-connect.svelte";
@@ -39,7 +45,11 @@
   import { toasts } from "../../lib/toasts";
   import solusIcon from "../../../../../resources/icon.iconset/icon_32x32@2x.png";
 
-  interface Props { serverId: string; hostLabel: string; searchQuery?: string }
+  interface Props {
+    serverId: string;
+    hostLabel: string;
+    searchQuery?: string;
+  }
   let { serverId, hostLabel, searchQuery = "" }: Props = $props();
 
   /** What the page lists: everything, the installed servers alone, the servers in the host's config files, or one catalog category. */
@@ -52,9 +62,8 @@
   let connectRequest = $state<ConnectRequest | null>(null);
   let rootEl = $state<HTMLDivElement | null>(null);
   let searchEl = $state<HTMLInputElement | null>(null);
-  /** The found servers, read when the person first opens their view. */
-  let found = $state<McpFound | null>(null);
-  let reviewing = $state<FoundServer | null>(null);
+  /** The found server in the add dialog, with the list of the host it is on. */
+  let reviewing = $state<{ server: FoundServer; group: McpFound } | null>(null);
   let addError = $state("");
   const workspace = getWorkspaceContext();
   /** The project of the open session, when it is on this host: its files are read too (§8.1). */
@@ -62,6 +71,14 @@
   // A chat has no project (docs/plans/projectless-chat.md): only the host's own files are read then.
   const projectPath = $derived(sessionScope && !isChat(sessionScope) ? sessionScope : null);
   const projectName = $derived(projectPath ? hostPathBaseName(projectPath) || projectPath : null);
+  // Read once for the page's project when it opens; Refresh reads the files again.
+  const discovery = untrack(() => new McpDiscovery(serverId, projectPath));
+  /** The servers in this host's config files: its group in On your hosts, and the file actions of an installed row. */
+  const found = discovery.self;
+  const settings = getSettingsContext();
+  /** A host administrator tests a found server and changes its files (mcp-first-class.md §8.8). */
+  const mayChangeFiles = $derived(hosts.get(serverId)?.me.may("host.admin") ?? false);
+  const canOpenFiles = $derived(canOpenInConfiguredEditor(serverId, settings.defaultEditor));
 
   const hostState = $derived(mcpStore.integrations.states.get(serverId));
   const hostServers = $derived(runningServers.forHost(serverId));
@@ -96,22 +113,18 @@
   // Reading the list holds the lease while the page is open. A changed list can start or stop an MCP server on the loopback: the found view reads again.
   $effect(() => {
     void hostServers.servers;
-    untrack(() => { if (found && !found.loading) void found.load(); });
+    untrack(() => { if (!found.loading) void discovery.discover(); });
   });
-  // The command palette asks for the found servers ("Find MCP servers on this host").
+  // The command palette asks for the found servers ("Find MCP servers on your hosts").
   $effect(() => {
     if (mcpPageRequest.view !== "found") return;
     untrack(() => { mcpPageRequest.view = null; showView("found"); });
   });
-  onDestroy(() => { catalog.dispose(); found?.dispose(); });
+  onDestroy(() => { catalog.dispose(); discovery.dispose(); });
 
   function showView(next: McpView) {
     view = next;
-    if (next === "found") {
-      // Read once for the page's project; Refresh reads the files again.
-      found ??= new McpFound(serverId, projectPath);
-      return;
-    }
+    if (next === "found") return;
     if (next !== "installed") catalog.setCategory(next === "all" ? null : next);
   }
 
@@ -120,14 +133,19 @@
   }
 
   async function confirmFound(useFileValues: boolean) {
-    if (!found || !reviewing) return;
-    const server = reviewing;
+    if (!reviewing) return;
+    const { server, group } = reviewing;
     addError = "";
-    const result = await found.add(server, useFileValues);
+    const result = await group.add(server, useFileValues);
     if (result.kind === "failed") { addError = result.message; return; }
     reviewing = null;
     if (result.kind === "found-changed") {
       toasts.error(`${server.name} changed in its file. Read it again before you add it.`);
+      return;
+    }
+    if (group.hostId) {
+      // Added on another host: its own MCP page holds its Installed list, and the values form of a command.
+      toasts.success(result.needsValues ? `${server.name} added on ${group.host.label}. Enter its values on that host's MCP page to start it.` : `${server.name} added on ${group.host.label}`);
       return;
     }
     if (result.needsValues) {
@@ -140,6 +158,16 @@
       return;
     }
     toasts.success(server.transport?.kind === "stdio" ? `${server.name} added. Start it from Installed.` : `${server.name} added`);
+  }
+
+  /** Opens a config file in the configured editor, on the host or over SSH; its content never comes to this client (§8.8). */
+  function openConfigFile(place: FoundPlace) {
+    const api = serverConnections.apiFor(serverId);
+    const folder = place.filePath.slice(0, -hostPathBaseName(place.filePath).length - 1) || place.filePath;
+    const opened = openInConfiguredEditor(workspace.ctxForEnvironment(folder, null), {
+      api, serverId, filePaths: [place.filePath], cwd: folder, editorId: settings.defaultEditor, fallbackTerminalId: settings.fallbackTerminal,
+    });
+    if (!opened) toasts.error(`${place.path} could not be opened here.`);
   }
 
   async function foundDialogClosed() {
@@ -302,46 +330,33 @@
         onToggle={() => toggle(integration.id)}
         onRemoved={() => removed(integration)}
         onConnect={() => { connectRequest = { name: integration.name, url: integration.url, integrationId: integration.id }; }}
+        found={mayChangeFiles ? found.forIntegration(integration.id) : null}
+        {canOpenFiles}
+        isChangingFile={!!found.changing}
+        onOpenFile={openConfigFile}
+        onFileChange={(server, place, change) => found.change(server, place, change)}
       />
     {/each}
   </SettingsSection>
 {/snippet}
 
 {#snippet foundSection()}
-  <SettingsSection {...settingsDefinitions["mcp.section-found"]} description={foundSectionText(hostLabel, projectName)}>
-    {#snippet action()}
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !found || found.loading || found.refreshing} onclick={() => found?.load(true)}>
-        <RefreshCw size={14} class={found?.refreshing ? "animate-spin motion-reduce:animate-none" : ""} />Refresh
+  <!-- One group for each host, filled as its answer arrives: this host first, then each host it reaches for the person. -->
+  <section class="flex flex-col gap-6" aria-labelledby="mcp-found-label">
+    <div class="flex min-h-7 items-center justify-between gap-4">
+      <h2 id="mcp-found-label" class="truncate text-chrome-dense font-medium text-foreground">On your hosts</h2>
+      <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" disabled={isOffline || discovery.refreshing}
+        onclick={() => discovery.discover(true)} aria-label="Read the config files on every host again" title="Read the config files on every host again">
+        <RefreshCw size={14} class={discovery.refreshing ? "animate-spin motion-reduce:animate-none" : ""} />
       </Button>
-    {/snippet}
-    {#if !found || found.loading}
-      <ul class="px-4" aria-busy="true" aria-label="Found servers">{@render placeholderRows(3)}</ul>
-    {:else if found.isUnsupported}
-      <p class="p-6 text-center text-workspace-chrome text-muted-foreground">{hostLabel} is older than this view. Update Solus on it to find its MCP servers.</p>
-    {:else if found.error}
-      <div class="flex flex-wrap items-center justify-between gap-3 p-4">
-        <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{found.error}</p>
-        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => found?.load(true)}>Retry</Button>
-      </div>
-    {:else}
-      {#if found.servers.length === 0}
-        <p class="p-6 text-center text-workspace-chrome text-muted-foreground">{NO_FOUND_SERVERS_TEXT}</p>
-      {/if}
-      {#each found.servers as server (server.foundId)}
-        <McpFoundRow {server} {projectName} {hostLabel} {isOffline} isAdding={found.adding === server.foundId} onReview={(next) => { addError = ""; reviewing = next; }} />
-      {/each}
-      {#if found.portScan?.state === "unavailable"}
-        <p class="flex items-start gap-2 px-4 py-3 text-chrome-dense text-(--solus-text-secondary)">
-          <TriangleAlert size={14} class="mt-0.5 shrink-0" aria-hidden="true" />{portScanUnavailableText(found.portScan.reason)}
-        </p>
-      {/if}
-      {#each found.problems as file (file.path)}
-        <p class="flex items-start gap-2 px-4 py-3 text-chrome-dense text-(--solus-text-secondary)">
-          <TriangleAlert size={14} class="mt-0.5 shrink-0" aria-hidden="true" />{configFileLabel(file.file)} ({file.path}) was not read. {file.problem}
-        </p>
-      {/each}
-    {/if}
-  </SettingsSection>
+    </div>
+    {#each discovery.hosts as group (group.hostId ?? "")}
+      <McpFoundHostSection found={group} hostLabel={group.hostId ? group.host.label : hostLabel} {isOffline} isRefreshing={discovery.refreshing}
+        canOpenFiles={!group.hostId && canOpenFiles}
+        onReview={(next) => { addError = ""; reviewing = { server: next, group }; }} onOpen={openConfigFile} />
+    {/each}
+    <p class="text-chrome-dense text-muted-foreground">{FOUND_FOOTER_TEXT}</p>
+  </section>
 {/snippet}
 
 {#snippet catalogSection()}
@@ -426,7 +441,7 @@
     <nav class="flex flex-wrap gap-1.5 @min-[44rem]/mcp:hidden" aria-label="MCP views">
       {@render viewButton("all", "All", "chip")}
       {@render viewButton("installed", "Installed", "chip")}
-      {@render viewButton("found", "Found on this host", "chip")}
+      {@render viewButton("found", "On your hosts", "chip")}
       {#each CATALOG_CATEGORIES as category (category.id)}
         {@render viewButton(category.id, category.label, "chip")}
       {/each}
@@ -436,7 +451,7 @@
       <nav class="hidden flex-col gap-0.5 self-start @min-[44rem]/mcp:sticky @min-[44rem]/mcp:top-16 @min-[44rem]/mcp:flex" aria-label="MCP views">
         {@render viewButton("all", "All", "rail")}
         {@render viewButton("installed", "Installed", "rail")}
-        {@render viewButton("found", "Found on this host", "rail")}
+        {@render viewButton("found", "On your hosts", "rail")}
         <p class="mt-5 mb-1.5 px-2.5 text-chrome-dense text-muted-foreground">Categories</p>
         {#each CATALOG_CATEGORIES as category (category.id)}
           {@render viewButton(category.id, category.label, "rail")}
@@ -475,10 +490,14 @@
   </div>
 {/if}
 
-{#if reviewing && found}
-  {#key reviewing.foundId}
-    <McpFoundDialog server={reviewing} current={installed.find((integration) => integration.id === reviewing?.integrationId) ?? null} {projectName} {hostLabel}
-      isAdding={found.adding === reviewing.foundId} error={addError} onConfirm={confirmFound} onClose={foundDialogClosed} />
+{#if reviewing}
+  {@const review = reviewing}
+  {#key review.server.foundId}
+    <!-- Another host's integrations are not on this client: a changed row there shows the file's entry only. -->
+    <McpFoundDialog server={review.server}
+      current={review.group.hostId ? null : installed.find((integration) => integration.id === review.server.integrationId) ?? null}
+      projectName={review.group.hostId ? null : projectName} hostLabel={review.group.hostId ? review.group.host.label : hostLabel}
+      isAdding={review.group.adding === review.server.foundId} error={addError} onConfirm={confirmFound} onClose={foundDialogClosed} />
   {/key}
 {/if}
 

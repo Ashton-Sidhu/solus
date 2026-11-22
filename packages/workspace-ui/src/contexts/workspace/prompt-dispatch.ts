@@ -12,7 +12,6 @@ import { toasts } from '../../lib/toasts'
 import { ownedTaskId } from './session-draft.svelte'
 import { nextMsgId } from './session.utils'
 import { uuid } from '@solus/contracts/uuid'
-import { isChat } from '@solus/contracts/chat'
 import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@solus/contracts/types'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { track } from '../../lib/analytics'
@@ -161,7 +160,7 @@ export class PromptDispatch {
     requestConversationScrollToBottom(tabId)
   }
 
-  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; goalObjective?: string; isLead?: boolean }): void {
+  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; goalObjective?: string }): void {
     // While another host runs a turn of this session, the prompt goes there (plan §4 decision 5).
     this.workspace.runHosts.followRunningHost(tabId)
     const api = this.workspace.apiFor(tabId)
@@ -590,9 +589,6 @@ export class PromptDispatch {
 
     const promptTaskId = ownedTaskId(this.workspace.tasksStore, session)
     const goalObjective = isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined
-    // A lead is chosen before the first message and fixed from then on. A
-    // chat offers no Meta mode, so a choice made before a move to one drops.
-    const isLead = isFirstMessage && session.isLead && !isChat(checkoutPlace(session.run).path) ? true : undefined
     const send = () => {
       const fullPrompt = this.workspace.promptComposer.compose(prompt, sent, session)
       const runServerId = serverConnections.resolveId(runHost(session.run))
@@ -616,7 +612,6 @@ export class PromptDispatch {
         imageAttachmentRefs: imagePayload.refs,
         taskId: promptTaskId,
         goalObjective,
-        isLead,
       })
     }
     const before = this.heldSends.get(session.id)

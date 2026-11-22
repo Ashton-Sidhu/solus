@@ -15,10 +15,6 @@ const log = createLogger('orchestration', 'parent-delivery.ts')
  * so a parent never acts on something that is already over. Delivery to one
  * parent is serialized, so a merge never races the prompt it merges into.
  *
- * A lead is not woken for each report. Its reports are held until its last
- * open message settles, and then reach it as one prompt
- * (docs/session-orchestration.md, "The lead session").
- *
  * This class owns delivery retries while the host runs. A submission that
  * fails on a known transient error is tried again after a growing delay, a
  * bounded number of times. After the last try the report stays pending in the
@@ -65,8 +61,6 @@ export interface DeliveryEntry {
   /** Names a notice so it can be withdrawn while it still waits. Reports have none. */
   noticeKey?: string
   continuationExchangeIds?: string[]
-  /** Wait without waking the parent, until a later delivery or `release`. */
-  hold?: boolean
 }
 
 interface Outbox {
@@ -78,8 +72,6 @@ interface Outbox {
 export class ParentDelivery {
   /** Parent session → the prompt waiting in its queue. */
   private readonly outboxes = new Map<string, Outbox>()
-  /** Parent session → reports held until the parent is woken. */
-  private readonly held = new Map<string, DeliveryEntry[]>()
   private readonly chains = new Map<string, Promise<void>>()
 
   constructor(
@@ -93,42 +85,16 @@ export class ParentDelivery {
     this.outboxes.set(parentSessionId, { queueId, entries })
   }
 
-  /** Puts an item in front of the parent. `entry` may still be resolving its
-   *  facts, and resolves to null when the parent is not to hear it; items
-   *  reach the parent in the order they were delivered. */
-  deliver(parentSessionId: string, entry: DeliveryEntry | null | Promise<DeliveryEntry | null>): void {
+  /** Items can resolve their facts asynchronously. Delivery preserves their order. */
+  deliver(parentSessionId: string, entry: DeliveryEntry | Promise<DeliveryEntry>): void {
     this.serialize(parentSessionId, async () => {
-      const resolved = await entry
-      if (!resolved) return
-      if (resolved.hold) {
-        this.held.set(parentSessionId, [...this.held.get(parentSessionId) ?? [], resolved])
-        log.info('session_report_held', { parentSessionId, exchangeId: resolved.exchangeId })
-        return
-      }
-      await this.putOrRetry(parentSessionId, [...this.takeHeld(parentSessionId), resolved], 0)
-    })
-  }
-
-  /** Wakes the parent with the reports held for it, if any. */
-  release(parentSessionId: string): void {
-    this.serialize(parentSessionId, async () => {
-      const entries = this.takeHeld(parentSessionId)
-      if (entries.length) await this.putOrRetry(parentSessionId, entries, 0)
+      await this.putOrRetry(parentSessionId, [await entry], 0)
     })
   }
 
   /** Runs `then` after every item already given for the parent has reached it. */
   afterDelivered(parentSessionId: string, then: () => void): void {
     this.serialize(parentSessionId, async () => then())
-  }
-
-  /** Forgets the reports held for a parent that stopped waiting. */
-  dropHeld(parentSessionId: string): void {
-    this.serialize(parentSessionId, async () => {
-      const dropped = this.takeHeld(parentSessionId)
-      this.recordDelivery(reportIds(dropped), 'disposed')
-      if (dropped.length) log.info('session_reports_dropped', { parentSessionId, items: dropped.length })
-    })
   }
 
   /** Takes a notice back out of the parent's waiting prompt. A notice the parent
@@ -149,7 +115,7 @@ export class ParentDelivery {
 
   /** Reports that wait in the parent's queue, by the exchange they settle. */
   waitingReports(parentSessionId: string): Array<{ exchangeId: string; targetSessionId: string }> {
-    const entries = [...this.held.get(parentSessionId) ?? [], ...this.waitingOutbox(parentSessionId)?.entries ?? []]
+    const entries = this.waitingOutbox(parentSessionId)?.entries ?? []
     return entries.filter((entry) => entry.item.type === 'report').map(({ exchangeId, targetSessionId }) => ({ exchangeId, targetSessionId }))
   }
 
@@ -190,12 +156,6 @@ export class ParentDelivery {
     } else {
       this.outboxes.delete(parentSessionId)
     }
-  }
-
-  private takeHeld(parentSessionId: string): DeliveryEntry[] {
-    const entries = this.held.get(parentSessionId) ?? []
-    this.held.delete(parentSessionId)
-    return entries
   }
 
   /** The parent's queued prompt, while it still waits to run. */

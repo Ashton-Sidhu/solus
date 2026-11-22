@@ -58,7 +58,7 @@ or disconnecting a client leaves remote work running and does not invoke recover
   options, the plan's title and id, the tool's name, or the reset time. If the
   request is answered, or the limit ends, before the parent reads the notice, it
   is taken back out of the parent's queue.
-- **A report when the child's turn ends.** Its first line is metadata (message,
+- **A report as soon as the child's turn ends.** Its first line is metadata (message,
   session, task, provider, requested model, executed model, status, duration).
   The executed model is the model the provider reported running for the root
   agent: Claude's main-thread assistant messages (a sub-agent's are skipped, and
@@ -66,7 +66,7 @@ or disconnecting a client leaves remote work running and does not invoke recover
   `model/rerouted`. When it differs from the requested model, the next line is
   `Requested model X; the provider reported running Y.` Then the outputs, one
   line each, and the child's last message.
-- Everything that waits for a busy parent reaches it as one prompt. Nothing is
+- Reports and notices that arrive while the parent is busy merge into its queued prompt. An idle parent can act on a report while other children still work. Nothing is
   lost while the parent itself is rate limited.
 - **One report per turn.** When one turn of the child answers several
   messages from the same parent (a steer joined the turn), the parent gets one
@@ -94,8 +94,7 @@ the same exchange during startup. Startup failures settle that exchange and
 reach the parent through the normal report path. A wait budget includes startup
 and does not cancel the child when it expires.
 
-The result starts a follow-up turn or
-waits in the caller's existing queue. A bounded wait returns a report once; a
+Each result starts a follow-up turn or waits in the caller's existing queue. A bounded wait returns a report once; a
 wait timeout leaves the work and async reporting active.
 
 Each request has its own exchange ID. When A asks B for work and B asks C to
@@ -129,7 +128,7 @@ available for provider-specific features such as context inheritance. Use
 brief, choose its checkout before starting it, and inspect its result before
 reporting completion. Each session in the call has its own provider, model,
 host, workspace, permission mode, and reports. Critical guidance is loaded with `start_sessions`;
-workers also get these completion rules in their system instruction.
+children also get these completion rules in their system instructions.
 
 Both providers receive shared orchestration guidance when session tools are
 available. Claude receives it in its system prompt append. Codex receives it
@@ -144,34 +143,20 @@ tools and keeps `alwaysLoad` tools available immediately. Tool loading does not 
 both providers use the same host exchanges, notices, and reports. Native
 subagents use their provider's own result delivery.
 
-## The lead session
+## Delegation in any session
 
-A **lead** is a parent that coordinates workers and keeps its own thread small.
-A lead does not come from a task. A session becomes one in two ways: its agent
-calls `become_lead` when the work divides into independent parts, or the person
-chooses it in the composer before the first message
-(`docs/plans/lead-session.md`). The parts below apply to every lead.
+The agent decides whether to delegate for each request. Independent parts can
+run in parallel when each child has its own brief and a clear result to
+deliver. Use separate worktrees when child edits can conflict. A parent can
+start follow-up work as soon as it has the reports it needs. It reviews all
+required results before it reports completion.
 
-The **lead contract** (`formatLeadContract` in
-`data/sessions/lead-contract.ts`) says: coordinate, do not implement beyond
-very small edits, start workers with the full brief and `report` on, with
-`task='none'` unless the lead is linked to a task, answer from reports and
-`read_session` rather than by reading transcripts or source, keep replies
-short, and write durable summaries into a work or the linked task. The user's
-lead settings in Settings → General follow it.
+In Settings → Sessions → Delegation, you can set a default worker model and
+add instructions for delegation. The model applies only to child sessions
+that specify neither a provider nor a model. The instructions go to Claude
+and Codex runs that have `start_sessions`.
 
-A lead is woken as rarely as possible, because each wake reads its whole thread
-again. Its reports are held until the last message it waits on settles, and
-then reach it as one prompt, so it tells the user once that the work is done.
-Notices never reach a lead's model: the person answers on the card, and a rate
-limit resumes on its own. Stopping the lead drops the reports held for it. The
-orchestrator asks `isLead` (an argument of `orchestrateSessions`, false for
-every session by default) which sessions get this rule. It asks when each
-report arrives, so a session that became a lead in the middle of a turn gets
-the rule for the workers it starts after that.
-
-A lead is a parent in the orchestration layer's sense. A parent is not always
-a lead: any session that starts another is its parent.
+## Stopping child work
 
 When the user stops a parent, Solus also stops each session the parent started
 that still does work for it: a message from the parent to that child is still
@@ -184,7 +169,7 @@ for the user or another session. A host stop (an accepted plan) and an agent's
 
 | Tool | Does |
 | --- | --- |
-| `start_sessions` | Starts 1 to 10 durable sessions at once, on either provider. Each entry in `sessions` has its own settings: `prompt`, and optional `title`, `independent`, `agent_provider`, `model_id`, `reasoning_effort`, `permission_mode`, `host`, `cwd`, `isolation`, `worktree_base_branch`, `report`, and attachments. So one call can start a Codex implementer in its own worktree and a Claude reviewer in plan mode. Only two fields belong to the call: `wait_seconds` (up to 600, for all sessions at once) and `request_id`. Every entry is checked before any session starts, so one bad entry starts none. By default each session is a child: reports default on, the parent waits for reported child work, and Stop reaches its active children. With `independent: true`, a session is an independent conversation: reports default off, and it does not hold its caller open or belong to the caller's stop tree. A started session joins no task; a session that works on a task links it with `link` and `kind: 'task'`. `isolation` selects a shared checkout or a new worktree for each session. Models inherit on the same provider; another provider uses its default model. Permission mode can be inherited or narrowed. |
+| `start_sessions` | Starts 1 to 10 durable sessions at once, on either provider. Each entry in `sessions` has its own settings: `prompt`, and optional `title`, `independent`, `agent_provider`, `model_id`, `reasoning_effort`, `permission_mode`, `host`, `cwd`, `isolation`, `worktree_base_branch`, `report`, and attachments. So one call can start a Codex implementer in its own worktree and a Claude reviewer in plan mode. Only two fields belong to the call: `wait_seconds` (up to 600, for all sessions at once) and `request_id`. Every entry is checked before any session starts, so one bad entry starts none. By default each session is a child: reports default on, the parent waits for reported child work, and Stop reaches its active children. With `independent: true`, a session is an independent conversation: reports default off, and it does not hold its caller open or belong to the caller's stop tree. A started session joins no task; a session that works on a task links it with `link` and `kind: 'task'`. `isolation` selects a shared checkout or a new worktree for each session. The default worker model applies to a child with neither a provider nor a model. Otherwise, models inherit on the same provider, and another provider uses its default model. Permission mode can be inherited or narrowed. |
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on each `start_sessions` entry) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |

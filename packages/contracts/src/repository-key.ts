@@ -94,6 +94,18 @@ export function primaryRemoteUrl(remotes: ReadonlyMap<string, string>): string |
   return first ? remotes.get(first) ?? null : null
 }
 
+/** Whether the remotes are a fork's checkout: `upstream` and `origin` name
+ *  different repositories. The project is then named by `upstream`, the
+ *  original repository (`primaryRemoteUrl`), not by the person's own fork. */
+export function isForkCheckoutRemotes(remotes: ReadonlyMap<string, string>): boolean {
+  const upstream = remotes.get('upstream')
+  const origin = remotes.get('origin')
+  if (!upstream || !origin) return false
+  const upstreamKey = repositoryKeyFromRemoteUrl(upstream)
+  const originKey = repositoryKeyFromRemoteUrl(origin)
+  return upstreamKey !== null && originKey !== null && upstreamKey !== originKey
+}
+
 /** The URL of every remote in `git config --get-regexp '^remote\..*\.url$'`
  *  output, one `remote.<name>.url <url>` per line. A remote name may hold dots.
  *  Push URLs are `pushurl` entries and do not match. */

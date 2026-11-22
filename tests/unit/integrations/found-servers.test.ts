@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from '../helpers/bun-sqlite'
@@ -20,6 +20,7 @@ const { recordScopeOf } = await import('@solus/server/admission/principal')
 const { resolveProjectKey } = await import('@solus/server/project-config/project-config')
 const { closeDb } = await import('@solus/server/db')
 const { cliSkipLog } = await import('@solus/server/integrations/cli-skips')
+const { ConfigWrites } = await import('@solus/server/integrations/found/config-writes')
 
 /**
  * Found servers (docs/plans/mcp-first-class.md §8): the host reads the config
@@ -74,8 +75,9 @@ function write(path: string, value: unknown): void {
   writeFileSync(path, typeof value === 'string' ? value : JSON.stringify(value))
 }
 
-function found() {
+function found(configWrites?: InstanceType<typeof ConfigWrites>) {
   return new FoundServers({
+    configWrites,
     store,
     writes: new IntegrationWrites({
       store,
@@ -318,5 +320,89 @@ describe('adding (§8.3, §8.4)', () => {
     expect(cliSkipLog.for(repo.id, OWNER)).toEqual([])
     expect(cliSkipLog.for(user.id, OWNER)).toEqual([])
     expect(profileSaves).toEqual(['user'])
+  })
+})
+
+describe('the lifecycle of a found server in its file (§8.8)', () => {
+  const FAKE_STDIO = join(import.meta.dir, '..', '..', 'fixtures', 'fake-stdio-mcp-server.mjs')
+  const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8'))
+
+  test('Claude Code\'s list for the project marks a server it does not load, and an administrator may change it', async () => {
+    // WHY: Claude Code turns a server off for one project. The row must say so, or "loads it" is a lie.
+    write(join(home, '.claude.json'), { mcpServers: { paper: { command: NODE, args: ['paper.js'] } }, projects: { [project]: { disabledMcpServers: ['paper'] } } })
+    const [server] = (await found().list(ADMIN, OWNER, { projectPath: project })).servers
+    expect(server!.foundIn[0]).toMatchObject({ file: 'claude-json', turnedOff: true, canTurnOff: true, canDelete: true, filePath: join(home, '.claude.json') })
+  })
+
+  test('a member may change nothing: the file is the host user\'s', async () => {
+    write(join(project, '.mcp.json'), { mcpServers: { repo: { type: 'http', url: 'https://repo.example/mcp' } } })
+    const [server] = (await found().list(MEMBER, 'member-1', { projectPath: project })).servers
+    expect(server!.foundIn[0]).not.toHaveProperty('canDelete')
+    expect(server!.foundIn[0]).not.toHaveProperty('canTurnOff')
+  })
+
+  test('turning a Claude Code server off writes the project\'s list, and on takes it out again', async () => {
+    const claudeJson = join(home, '.claude.json')
+    write(claudeJson, { numStartups: 7, mcpServers: { paper: { command: NODE, args: ['paper.js'] } } })
+    const owner = found()
+    const [server] = (await owner.list(ADMIN, OWNER, { projectPath: project })).servers
+    const place = { file: 'claude-json' as const, path: '~/.claude.json', name: 'paper' }
+    expect(await owner.change(ADMIN, { foundId: server!.foundId, fingerprint: server!.fingerprint, projectPath: project, place, change: 'turn-off' })).toEqual({ kind: 'saved' })
+    // The rest of Claude Code's file stays as it was.
+    expect(readJson(claudeJson)).toMatchObject({ numStartups: 7, projects: { [project]: { disabledMcpServers: ['paper'] } } })
+    await owner.change(ADMIN, { foundId: server!.foundId, fingerprint: server!.fingerprint, projectPath: project, place, change: 'turn-on' })
+    expect(readJson(claudeJson).projects[project]).toEqual({})
+  })
+
+  test('a delete from Cursor\'s file takes out that entry only', async () => {
+    const cursor = join(home, '.cursor', 'mcp.json')
+    write(cursor, { mcpServers: { gone: { url: 'https://gone.example/mcp' }, kept: { url: 'https://kept.example/mcp' } } })
+    const owner = found()
+    const server = byName((await owner.list(ADMIN, OWNER, {})).servers, 'gone')
+    await owner.change(ADMIN, { foundId: server.foundId, fingerprint: server.fingerprint, place: { file: 'cursor', path: '~/.cursor/mcp.json', name: 'gone' }, change: 'delete' })
+    expect(readJson(cursor)).toEqual({ mcpServers: { kept: { url: 'https://kept.example/mcp' } } })
+  })
+
+  test('Claude Code and Codex delete through their own CLIs, and Codex turns a server off through its app-server', async () => {
+    // WHY: both tools rewrite their own files; Solus writing beside them would lose a change.
+    write(join(home, '.claude.json'), { mcpServers: { paper: { command: NODE, args: ['paper.js'] } } })
+    const codexFile = join(home, '.codex', 'config.toml')
+    codexLayers = [{ name: { type: 'user', file: codexFile, profile: null }, config: { mcp_servers: { repl: { command: NODE, args: ['repl.js'] } } }, disabledReason: null }]
+    const runs: Array<{ program: string; args: string[]; cwd: string }> = []
+    const codexWrites: Array<{ keyPath: string; value: boolean; filePath: string }> = []
+    const owner = found(new ConfigWrites({
+      run: async (program, args, cwd) => { runs.push({ program, args, cwd }) },
+      codexWrite: async (keyPath, value, filePath) => { codexWrites.push({ keyPath, value, filePath }) },
+    }))
+    const servers = (await owner.list(ADMIN, OWNER, { projectPath: project })).servers
+    const paper = byName(servers, 'paper')
+    const repl = byName(servers, 'repl')
+    await owner.change(ADMIN, { foundId: paper.foundId, fingerprint: paper.fingerprint, projectPath: project, place: { file: 'claude-json', path: '~/.claude.json', name: 'paper' }, change: 'delete' })
+    await owner.change(ADMIN, { foundId: repl.foundId, fingerprint: repl.fingerprint, projectPath: project, place: { file: 'codex-config', path: '~/.codex/config.toml', name: 'repl' }, change: 'delete' })
+    await owner.change(ADMIN, { foundId: repl.foundId, fingerprint: repl.fingerprint, projectPath: project, place: { file: 'codex-config', path: '~/.codex/config.toml', name: 'repl' }, change: 'turn-off' })
+    expect(runs).toEqual([
+      { program: 'claude', args: ['mcp', 'remove', 'paper', '--scope', 'user'], cwd: home },
+      { program: 'codex', args: ['mcp', 'remove', 'repl'], cwd: home },
+    ])
+    expect(codexWrites).toEqual([{ keyPath: 'mcp_servers.repl.enabled', value: false, filePath: codexFile }])
+  })
+
+  test('a change to an entry that changed after the person saw it touches nothing', async () => {
+    const cursor = join(home, '.cursor', 'mcp.json')
+    write(cursor, { mcpServers: { tool: { url: 'https://one.example/mcp' } } })
+    const owner = found()
+    const [server] = (await owner.list(ADMIN, OWNER, {})).servers
+    write(cursor, { mcpServers: { tool: { url: 'https://two.example/mcp' } } })
+    const result = await owner.change(ADMIN, { foundId: server!.foundId, fingerprint: server!.fingerprint, place: { file: 'cursor', path: '~/.cursor/mcp.json', name: 'tool' }, change: 'delete' })
+    expect(result).toEqual({ kind: 'found-changed' })
+    expect(readJson(cursor).mcpServers.tool.url).toBe('https://two.example/mcp')
+  })
+
+  test('a test starts the command of the file once and reads its tools', async () => {
+    write(join(home, '.cursor', 'mcp.json'), { mcpServers: { fake: { command: NODE, args: [FAKE_STDIO, '--tools', 'search,index'] } } })
+    const owner = found()
+    const [server] = (await owner.list(ADMIN, OWNER, {})).servers
+    const result = await owner.test(ADMIN, { foundId: server!.foundId, fingerprint: server!.fingerprint })
+    expect(result.kind === 'tools' && result.tools.map((tool) => tool.name)).toEqual(['search', 'index'])
   })
 })

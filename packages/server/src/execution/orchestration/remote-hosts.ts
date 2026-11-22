@@ -1,3 +1,4 @@
+import { dialHostSocket } from '@solus/client-core/host-socket'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { answersAsSavedHost } from '@solus/client-core/host-link'
@@ -8,6 +9,7 @@ import { routeNeedsProof } from '@solus/contracts/host-identity'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { DirectoryHost } from '@solus/contracts/uplink'
 import { createLogger } from '../../logger'
+import type { HostPairings } from '../../host/host-pairings'
 import type { IntroducedHosts } from './introduced-hosts'
 import type { ForwardedHosts } from '../../remote-machines/forwarded-hosts'
 
@@ -54,13 +56,24 @@ export interface HostTarget {
   routes: HostRoute[]
   /** The target's identity key: a credential goes on an `http:` route only after the target proves it. */
   identityKey?: string
-  source: 'account' | 'introduced' | 'forwarded'
+  source: 'account' | 'introduced' | 'forwarded' | 'paired'
   /** One connection per person and host: two people never share a socket to another host. */
   connectionKey: string
   /** The credential for one dial; null when none could be had. */
   credential(): Promise<string | null>
   /** A dial for an organization delegation: the organization its ticket names (ADR 0001 §6.4). */
   organizationId?: string
+}
+
+/** Machine discovery for agents; no provider catalog or credential leaves this interface. */
+export interface ListedRemoteHost {
+  id: string
+  installationId: string
+  name: string
+  source: HostTarget['source']
+  status: 'online' | 'unreachable' | 'auth-required' | 'not-ready'
+  managedState?: DirectoryHost['managedState']
+  routes: HostRoute[]
 }
 
 /** One target host, reached as a client reaches it. */
@@ -117,6 +130,7 @@ export class RemoteHosts {
     private readonly selfInstallationId: () => string | null = () => null,
     private readonly forwarded: ForwardedHostSource = { list: () => [], credential: () => null },
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly pairings: Pick<HostPairings, 'snapshot' | 'credential'> = { snapshot: () => ({ hosts: [], forgotten: [] }), credential: async () => null },
   ) {}
 
   /** One dial, on the route that answers first as the target. No route proved the target: no credential goes anywhere. */
@@ -148,9 +162,15 @@ export class RemoteHosts {
   }
 
   /** The hosts work can start on: the account's first, then each introduced host the account does not list. */
-  async list(request: ReachRequest): Promise<HostTarget[] | { error: string }> {
-    const account = await this.accountTargets(request.account)
+  async list(request: ReachRequest, includeUnroutable = false): Promise<HostTarget[] | { error: string }> {
+    const account = await this.accountTargets(request.account, includeUnroutable)
     const listed = new Set(account.map((host) => host.installationId))
+    const paired: HostTarget[] = request.isOwner ? this.pairings.snapshot().hosts.filter((host) => !listed.has(host.installationId)).map((host) => ({
+      hostId: host.installationId, installationId: host.installationId, label: host.label,
+      routes: host.routes, identityKey: host.identityKey, source: 'paired',
+      connectionKey: `paired:${host.installationId}`, credential: () => this.pairings.credential(host.installationId),
+    })) : []
+    for (const host of paired) listed.add(host.installationId)
     const introduced: HostTarget[] = request.isOwner
       ? this.introduced.list().hosts.filter((host) => !listed.has(host.installationId)).map((host) => ({
         hostId: host.installationId,
@@ -164,7 +184,7 @@ export class RemoteHosts {
       }))
       : []
     // A forward is the owner's: Solus with no account reaches nobody else's machine (D7).
-    const known = new Set([...account, ...introduced].map((host) => host.installationId))
+    const known = new Set([...account, ...paired, ...introduced].map((host) => host.installationId))
     const forwarded: HostTarget[] = request.isOwner
       ? this.forwarded.list().filter((host) => !known.has(host.installationId)).map((host) => ({
         hostId: host.installationId,
@@ -177,11 +197,38 @@ export class RemoteHosts {
         credential: async () => this.forwarded.credential(host.installationId),
       }))
       : []
-    const hosts = [...account, ...introduced, ...forwarded]
+    const hosts = [...account, ...paired, ...introduced, ...forwarded]
     return hosts.length > 0 ? hosts : { error: NO_REACH }
   }
 
-  private async accountTargets(actor: ReachActor | null): Promise<HostTarget[]> {
+  /** Like T3's environment links: probe the machines, without loading their model catalogs. */
+  async summaries(request: ReachRequest): Promise<ListedRemoteHost[]> {
+    const hosts = await this.list(request, true)
+    if ('error' in hosts) return []
+    return Promise.all(hosts.map(async (target): Promise<ListedRemoteHost> => ({
+      id: target.hostId, installationId: target.installationId, name: target.label,
+      source: target.source, routes: target.routes, managedState: target.managedState,
+      status: await withTimeout(this.probe(target), () => 'Host status check timed out.', 3_000).catch(() => 'unreachable' as const),
+    })))
+  }
+
+  private async probe(target: HostTarget): Promise<ListedRemoteHost['status']> {
+    if (target.managedState && target.managedState !== 'ready') return 'not-ready'
+    const routes = dialableRoutes(target.routes, '', this.selfInstallationId()).filter(safeHostDialRoute)
+    const route = await chooseRoute(routes, (url, signal) => this.answersAsTarget(target, url, signal))
+    if (!route) return 'unreachable'
+    const token = await target.credential()
+    if (!token) return 'auth-required'
+    const credential = target.source === 'account'
+      ? { kind: 'access-token' as const, token, organizationId: target.organizationId }
+      : { kind: 'session-token' as const, token }
+    const dialed = await dialHostSocket(route.url, { credential }, { timeoutMs: 3_000 })
+    if (!dialed.ok) return dialed.code === 'UNAUTHORIZED' ? 'auth-required' : 'unreachable'
+    dialed.socket.close()
+    return 'online'
+  }
+
+  private async accountTargets(actor: ReachActor | null, includeUnroutable: boolean): Promise<HostTarget[]> {
     const reach = actor ? this.accountReach(actor) : null
     if (!actor || !reach) return []
     const [directory, nearby] = await Promise.all([reach.hosts().catch(() => null), this.discoverNearby().catch(() => [])])
@@ -190,7 +237,7 @@ export class RemoteHosts {
       return []
     }
     const self = this.selfHostId()
-    const introduced = new Map(this.introduced.list().hosts.map((host) => [host.installationId, host.identityKey]))
+    const identities = new Map([...this.introduced.list().hosts, ...this.pairings.snapshot().hosts].map((host) => [host.installationId, host.identityKey]))
     const scopeKey = actor.scope === 'personal' ? 'personal' : actor.scope.organizationId
     const now = Date.now()
     return directory.flatMap((host): HostTarget[] => {
@@ -198,14 +245,14 @@ export class RemoteHosts {
       const discovered = found ? [routeForUrl(`http://${found.host}:${found.port}`, found.source === 'tailnet')] : []
       const learned = this.learned.get(host.installationId)
       const routes = routesForMachine(mergeRoutes(mergeRoutes(learned?.routes ?? [], host.routes, 'directory', now), discovered, 'discovery', now), host.kind)
-      if (host.hostId === self || routes.length === 0) return []
+      if (host.hostId === self || (!includeUnroutable && routes.length === 0)) return []
       const target: HostTarget = {
         hostId: host.hostId,
         installationId: host.installationId,
         label: host.label,
         managedState: host.managedState,
         routes,
-        identityKey: learned?.identityKey ?? introduced.get(host.installationId),
+        identityKey: learned?.identityKey ?? identities.get(host.installationId),
         source: 'account',
         connectionKey: `account:${actor.userId}:${scopeKey}:${host.hostId}`,
         credential: () => reach.accessToken(host.hostId),
@@ -218,7 +265,7 @@ export class RemoteHosts {
 
   /** Finds one host by id, installation id, or label; the label match ignores case. */
   async find(request: ReachRequest, ref: string): Promise<HostTarget | { error: string }> {
-    const hosts = await this.list(request)
+    const hosts = await this.list(request, true)
     if ('error' in hosts) return hosts
     const wanted = ref.trim().toLowerCase()
     const matches = hosts.filter((host) => [host.hostId, host.installationId, host.label.trim()].some((name) => name.toLowerCase() === wanted))
@@ -315,10 +362,10 @@ export class RemoteHosts {
   }
 }
 
-function withTimeout<T>(work: Promise<T>, message: () => string): Promise<T> {
+function withTimeout<T>(work: Promise<T>, message: () => string, timeoutMs = CALL_TIMEOUT_MS): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message())), CALL_TIMEOUT_MS)
+    timer = setTimeout(() => reject(new Error(message())), timeoutMs)
   })
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer))
 }

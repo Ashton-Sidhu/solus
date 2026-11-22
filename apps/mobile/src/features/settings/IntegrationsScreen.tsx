@@ -23,7 +23,9 @@ import { IntegrationOAuthClientPanel } from "./components/IntegrationOAuthClient
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { ListFilterMenu } from "../workspace/ListFilterMenu";
 import { ServerIcon } from "./components/ServerIcon";
-import { FoundServersSection } from "./components/FoundServersSection";
+import { FoundServersSection, fileActionIcon, runFileAction } from "./components/FoundServersSection";
+import { foundForIntegration, useFoundServers, type FoundServersModel } from "./use-found-servers";
+import { foundFileActions } from "@solus/contracts/integrations/found-server-labels";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -62,13 +64,17 @@ type CommandProcesses = IntegrationsModel["processes"];
  * action; opening it shows the sign-in, the OAuth client form, the tools, and
  * Rename, Remove, and Disconnect. Add command adds a command that the host
  * runs (docs/plans/mcp-first-class.md §7.7); its row shows the process state
- * and its actions, and Edit command. The same capability as Settings → MCP on
- * desktop and web.
+ * and its actions, and Edit command. Under Installed, the servers found on
+ * this host, then on each other host it reaches for the person, each as it
+ * arrives (§8.9); an add there goes to that host through this one. The same
+ * capability as Settings → MCP on desktop and web.
  */
 export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
   const { hostId } = route.params;
   const insets = useSafeAreaInsets();
   const integrations = useIntegrations(hostId);
+  // One load of every host's config files: each host gets a section, and an installed row takes its file actions from this host's (§8.8, §8.9).
+  const found = useFoundServers(hostId);
   const { list, connected, searchCatalog, clearCatalog, clearAdding, processes } = integrations;
   const [query, setQuery] = useState("");
   const app = useApp();
@@ -136,16 +142,31 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
               returnKeyType="search"
             />
             <CommandAddSection integrations={integrations} processes={processes} hostLabel={hostLabel} />
-            <InstalledSection integrations={integrations} processes={processes} installed={list.integrations} query={query} hostLabel={hostLabel} />
+            <InstalledSection integrations={integrations} processes={processes} installed={list.integrations} query={query} hostLabel={hostLabel} found={found.self} />
             {query.trim() ? null : (
-              <FoundServersSection
-                hostId={hostId}
-                hostLabel={hostLabel}
-                onNeedsValues={(integration) => {
-                  integrations.expand(integration.id);
-                  void integrations.flows.connect(integration);
-                }}
-              />
+              <>
+                {found.hosts.map((group, index) => {
+                  const groupLabel = group.host.hostId ? group.host.label : hostLabel;
+                  return (
+                    <FoundServersSection
+                      key={group.host.hostId ?? ""}
+                      found={group}
+                      title={`Found on ${groupLabel}`}
+                      hostLabel={groupLabel}
+                      showsRefresh={index === 0}
+                      onNeedsValues={(integration) => {
+                        // Another host's Installed list is on its own MCP screen, which holds the values form.
+                        if (group.host.hostId) {
+                          Alert.alert(`${integration.name} added on ${groupLabel}`, `Enter its values on the MCP screen of ${groupLabel} to start it.`);
+                          return;
+                        }
+                        integrations.expand(integration.id);
+                        void integrations.flows.connect(integration);
+                      }}
+                    />
+                  );
+                })}
+              </>
             )}
             {looksLikeUrl(query) ? (
               <CustomAddressSection integrations={integrations} installed={list.integrations} address={query.trim()} onAdd={add} />
@@ -198,7 +219,7 @@ function CommandAddSection(props: { readonly integrations: IntegrationsModel; re
   );
 }
 
-function InstalledSection(props: { readonly integrations: IntegrationsModel; readonly processes: CommandProcesses; readonly installed: readonly Integration[]; readonly query: string; readonly hostLabel: string }) {
+function InstalledSection(props: { readonly integrations: IntegrationsModel; readonly processes: CommandProcesses; readonly installed: readonly Integration[]; readonly query: string; readonly hostLabel: string; readonly found: FoundServersModel }) {
   const { integrations, installed } = props;
   const shown = filterInstalled(installed, looksLikeUrl(props.query) ? "" : props.query);
 
@@ -260,6 +281,7 @@ function InstalledSection(props: { readonly integrations: IntegrationsModel; rea
               integrations={integrations}
               processes={props.processes}
               hostLabel={props.hostLabel}
+              found={props.found}
               onRename={() => promptRename(integration)}
               onRemove={() => confirmRemove(integration)}
               onDisconnect={() => confirmDisconnect(integration)}
@@ -278,6 +300,7 @@ function InstalledRow(props: {
   readonly integrations: IntegrationsModel;
   readonly processes: CommandProcesses;
   readonly hostLabel: string;
+  readonly found: FoundServersModel;
   readonly onRename: () => void;
   readonly onRemove: () => void;
   readonly onDisconnect: () => void;
@@ -417,10 +440,54 @@ function InstalledRow(props: {
               onPress={props.onDisconnect}
             />
           ) : null}
+          <InstalledLifecycleRows integration={integration} integrations={integrations} found={props.found} editable={editable} />
           <SettingsActionRow icon="trash" label="Remove" tone="danger" loading={busy === `remove:${integration.id}`} disabled={!editable} onPress={props.onRemove} />
         </View>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * The lifecycle of an installed server beyond Rename and Remove
+ * (mcp-first-class.md §8.8), as on desktop and web: turn all its tools off or
+ * on in Solus, and delete the copy in another tool's config file it came from.
+ * Opening that file is desktop and web only: a phone has no editor for it.
+ */
+function InstalledLifecycleRows(props: { readonly integration: Integration; readonly integrations: IntegrationsModel; readonly found: FoundServersModel; readonly editable: boolean }) {
+  const { integration, integrations } = props;
+  const enabled = integrations.connected && props.editable;
+  const listed = integrations.tools.get(integration.id);
+  const names = listed?.kind === "loaded" ? listed.tools.map((tool) => tool.name) : [];
+  const isOff = names.length > 0 && names.every((name) => integration.disabledTools.includes(name));
+  const foundServer = foundForIntegration(props.found, integration.id);
+  const deletes = foundServer ? foundFileActions(foundServer).filter((action) => action.change === "delete") : [];
+  const setAll = (isOn: boolean) => {
+    integrations.setAllTools(integration, isOn).catch((cause: unknown) => Alert.alert("Not saved", errorMessage(cause)));
+  };
+  return (
+    <>
+      {names.length > 0 ? (
+        <SettingsActionRow
+          icon={isOff ? "play.fill" : "pause.fill"}
+          label={isOff ? "Turn on all tools" : "Turn off all tools"}
+          loading={integrations.busy === `tools:${integration.id}`}
+          disabled={!enabled}
+          onPress={() => setAll(isOff)}
+        />
+      ) : null}
+      {foundServer ? deletes.map((action) => (
+        <SettingsActionRow
+          key={action.place.path}
+          icon={fileActionIcon(action)}
+          label={action.label}
+          description={action.place.path}
+          tone="danger"
+          disabled={!props.found.connected || props.found.changing !== null}
+          onPress={() => runFileAction(props.found, foundServer, action, " It stays in Solus.")}
+        />
+      )) : null}
+    </>
   );
 }
 

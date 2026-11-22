@@ -11,10 +11,13 @@
     Activity as PulseIcon,
     CircleAlert as WarningCircleIcon,
     CircleDashed as CircleDashedIcon,
+    UserRound as UserRoundIcon,
   } from "@lucide/svelte";
   import { TASKS_AUTH_ERROR_PREFIX, type TaskCreateInput, type TaskMoveTarget } from "@solus/contracts/task-types";
   import type { Task } from "../../contexts/tasks/task.svelte";
   import TaskSourceAdd from "./sources/TaskSourceAdd.svelte";
+  import ProjectSourceOffer from "./sources/ProjectSourceOffer.svelte";
+  import { projectSourceOffers } from "./sources/lib/task-source-setup";
   import TaskSourceStrip from "./TaskSourceStrip.svelte";
   import TasksBulkBar from "./TasksBulkBar.svelte";
   import {
@@ -32,7 +35,8 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { TASK_SORT_OPTIONS, boardColumnIdOf, moveTargetFor } from "./lib/tasks-api";
+  import * as DropdownMenu from "../ui/dropdown-menu";
+  import { TASK_INVOLVEMENT_OPTIONS, TASK_SORT_OPTIONS, boardColumnIdOf, moveTargetFor } from "./lib/tasks-api";
   import { isOpenColumnFilter, nextTaskWake } from "./lib/tasks-list-view";
   import { TasksPageView } from "./tasks-page-view.svelte";
   import { tasksOfSources } from "./lib/tasks-page";
@@ -101,6 +105,12 @@
   // The person has sources, but no connected machine runs agents, so no
   // machine can read GitHub or Jira.
   const hasNoHost = $derived(!hasNoSource && taskSourcesStore.host === null);
+  // A person with no source is offered their projects' repositories in one
+  // step; reading the choices is what lists them.
+  const projectOffers = $derived(hasNoSource ? projectSourceOffers(taskSourcesStore.options, configured) : []);
+  $effect(() => {
+    if (hasNoSource) untrack(() => void taskSourcesStore.loadOptions());
+  });
 
   // A new task is created on the provider, in one of the person's sources.
   const canCreate = $derived(sources.length > 0);
@@ -580,7 +590,7 @@
     compactText
     placeholder={splitList ? "Search tasks…" : "Search tasks, labels, assignees…"}
     {filters}
-    activeCount={Number(!view.boardLayout && !isOpenColumnFilter(view.columns, view.columnIds))}
+    activeCount={Number(!view.boardLayout && !isOpenColumnFilter(view.columns, view.columnIds)) + Number(view.involvement !== "all")}
     onClearFilters={clearMenuFilters}
   >
     {#snippet filterContent()}
@@ -589,18 +599,17 @@
       {#if !view.boardLayout}
         <ListFilterGroup label={view.source ? "Column" : "Status"} icon={CircleDashedIcon} options={view.columnOptions} selected={view.columnIds} onChange={(next) => (view.selectedColumnIds = next)} multiple showAll emptyLabel="None" />
       {/if}
+      <ListFilterGroup label="Involvement" icon={UserRoundIcon} options={TASK_INVOLVEMENT_OPTIONS} selected={[view.involvement]} onChange={([next]) => (view.involvement = next)} />
+      {#if view.involvement === "mentioned"}
+        <p class="px-2 py-1 text-xs text-muted-foreground">Mentions search covers GitHub issues. Jira and Linear do not offer a reliable mention filter.</p>
+      {/if}
+      <DropdownMenu.Separator />
+      <TaskSavedViews filters={view.snapshot()} onApply={(filters) => view.apply(filters)} />
     {/snippet}
     {#snippet trailing()}
       {#each view.sources.filter((source) => source.nextCursor) as source (source.sourceKey)}
         <button type="button" class="rounded-md px-2 py-1 text-workspace-chrome text-muted-foreground hover:bg-muted pointer-coarse:min-h-12" disabled={loadingSource !== null} onclick={() => void loadMoreSource(source)}>{loadingSource === source.sourceKey ? 'Loading…' : `Load more · ${source.label}`}</button>
       {/each}
-      <label class="text-workspace-chrome text-muted-foreground">Involvement
-        <select name="task-involvement" class="rounded-md bg-transparent p-1" bind:value={view.involvement}>
-          <option value="all">Everyone</option><option value="authored">Authored by me</option><option value="assigned">Assigned to me</option><option value="mentioned">Mentioning me</option>
-        </select>
-        {#if view.involvement === 'mentioned'}<p class="text-sm text-muted-foreground">Mentions search covers GitHub issues. Jira and Linear do not offer a reliable mention filter.</p>{/if}
-      </label>
-      <TaskSavedViews filters={view.snapshot()} onApply={(filters) => view.apply(filters)} />
       {#if view.truncationNote}
         <!-- Why the list is short, said where the narrowing is done. -->
         <span
@@ -708,10 +717,20 @@
           <!-- GitHub, Jira and Linear own every task, so a person with no task
                source has no tasks. The empty state is the source setup. -->
           <PageEmpty icon={TaskIcon} title="No task source.">
-            Tasks come from GitHub, Jira and Linear. Add a repository, a
-            Project, a Jira board or a Linear team.
+            {#if projectOffers.length > 0}
+              Read issues from the repositories of your projects, or add a
+              Project, a Jira board or a Linear team.
+            {:else}
+              Tasks come from GitHub, Jira and Linear. Add a repository, a
+              Project, a Jira board or a Linear team.
+            {/if}
             {#snippet actions()}
-              <TaskSourceAdd look="invite" onChanged={() => void store.load()} />
+              <div class="flex w-full flex-col items-center gap-3">
+                {#if projectOffers.length > 0}
+                  <ProjectSourceOffer offers={projectOffers} onChanged={() => void store.load()} />
+                {/if}
+                <TaskSourceAdd look="invite" onChanged={() => void store.load()} />
+              </div>
             {/snippet}
           </PageEmpty>
         {:else if tasks.length === 0 && view.searched.length === 0}

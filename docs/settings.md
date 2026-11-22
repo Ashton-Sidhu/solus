@@ -1,5 +1,11 @@
 # Settings: ownership, sync, and organization settings
 
+On the account website, `/account/appearance` and `/account/agent-profile` open
+the workspace editors. Both use the signed-in account and work with no host.
+Settings → Account & sync → Connections opens `/connections` on that account's
+origin to manage agent logins, service integrations, and MCP credentials.
+Host settings still manage connections that belong to an individual machine.
+
 Plan: `plans/018-settings-sync-and-organization-policy.md`. Contract:
 `packages/contracts/src/settings.ts`.
 
@@ -185,7 +191,7 @@ administrators is [Managed policy](managed-policy.md).
   permission mode, providers, models, Insights, and webhooks, and the host keys of
   [Managed policy](managed-policy.md#host-keys-host). Comfort settings are not
   manageable.
-- Each lock names its source, for example "Lead model is managed by Globex." The host
+- Each lock names its source, for example "Default worker model is managed by Globex." The host
   refuses a change to a locked key with `SETTING_MANAGED`, and refuses a run above a
   limit with a message that names the source.
 - `syncAllInsights` is now `sessions.limits.insights.syncAll` in the organization

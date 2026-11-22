@@ -6,6 +6,7 @@ import { knownHostTarget, type SolusServerTarget } from '@solus/client-core/serv
 import { guestRouteUrl, loadGuestIdentity, newGuestId, resolveShareLink, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { isGuestLinkResource, parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { shareLinkOpening, type GuestOpening } from './lib/share-link-opening'
+import { accountSettingsDestination } from '@solus/contracts/account-web'
 import { addressedBootIntent, type BootIntent } from './lib/boot-intent'
 import { knownRunnerFor } from '@solus/client-core/session-runner'
 import { guestBoot, type GuestShare } from './lib/guest-boot.svelte'
@@ -15,7 +16,7 @@ import { getActiveServerId, setActiveServerId } from '@solus/client-core/known-h
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { hostListSourceFor } from '@solus/client-core/host-list-source'
 import { accountDocumentCall, webAccountDocumentSend, type AccountDocumentCall } from '@solus/client-core/account-documents'
-import { cloudAccount } from '@solus/client-core/cloud-account'
+import { cloudAccount, configureCloudAccount, webCloudAccount } from '@solus/client-core/cloud-account'
 import { appPairLink, pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
@@ -329,7 +330,11 @@ async function bootFromCatalog(intent?: BootIntent): Promise<void> {
   const firstId = catalog.find((serverId) => serverId === activeId) ?? servingHost?.id ?? catalog[0]
   const first = firstId ? serverConnections.ensure(firstId).target : null
   if (first) void connectToServer(first, intent)
-  else bootHostlessHome()
+  else if (webSession && intent?.hostlessPage) {
+    const [{ default: AccountSettings }] = await Promise.all([import('./routes/AccountSettings.svelte'), pageStyled])
+    removeBootSplash()
+    mount(AccountSettings, { target: root, props: { page: intent.hostlessPage } })
+  } else bootHostlessHome()
 }
 
 // ── Share links ───────────────────────────────────────────────────────────────
@@ -470,7 +475,15 @@ function linkShare(info: ConnectionsServerInfo, link: GuestLink): GuestShare | n
 async function startPage(): Promise<void> {
   // The first token request goes before any code loads: the servers token and every
   // host of the shell's directory, in one request (docs/plans/web-session-tokens.md).
+  const accountPage = accountSettingsDestination(location.pathname)
   webSession?.start(dialableHostIds())
+  if (accountPage && webSession && accountShell && !accountShell.directory?.hosts.length) {
+    configureCloudAccount(webCloudAccount(location.origin, webSession, fetch, accountShell.settingsJson), accountShell.account)
+    const [{ default: AccountSettings }] = await Promise.all([import('./routes/AccountSettings.svelte'), pageStyled])
+    removeBootSplash()
+    mount(AccountSettings, { target: root, props: { page: accountPage } })
+    return
+  }
   const bootPairToken = pairTokenFromLocation(location.href)
   if (bootPairToken) {
     offerAppOrPair(bootPairToken)

@@ -123,7 +123,7 @@ export function DisclosureRow(props: {
   );
 }
 
-/** An on-or-off option, as T3's SwitchRow: Codex fast mode, Meta mode. */
+/** An on-or-off option, as T3's SwitchRow: Codex fast mode. */
 export function SwitchRow(props: {
   readonly label: string;
   readonly description: string;

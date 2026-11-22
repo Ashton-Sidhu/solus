@@ -14,9 +14,11 @@ host token. The exchange and the reach rule are as below.
 ## 1. Rule
 
 An agent on host A may start a session on host B for person P when P can reach
-host B. Nobody pairs host A with host B.
+host B. Automatic introductions need no manual host pairing. The owner can also request
+an explicit pairing from chat or the CLI ([Pair hosts](../host-pairing.md)).
 
-P can reach host B in one of two ways:
+P can reach host B through account reach, an automatic introduction, or an
+explicit owner pairing as described in [Pair hosts](../host-pairing.md):
 
 1. **Account reach.** The account plane says that P reaches host B now: P owns
    it, or P is a member of an organization that host B is shared with or managed
@@ -24,7 +26,8 @@ P can reach host B in one of two ways:
    (`hostReach` in solus-cloud). The account plane checks this when it issues a
    host-reach token. The token lives eight hours, so a removal takes effect
    within eight hours.
-2. **Local reach.** No account is needed. P's own client holds an owner
+2. **Local reach.** No account is needed. An explicit owner pairing supplies
+   local reach directly. For automatic introductions, P's own client holds an owner
    pairing for both host A and host B. Only owner access counts. A member,
    guest, or share link never connects two hosts.
 
@@ -133,7 +136,8 @@ For one dial to host B, host A uses:
 
 1. **Account reach**, when host A holds a delegation for P and the account
    plane issues a token for host B.
-2. **Local reach**, when host A holds an introduced token for host B.
+2. **Explicit owner pairing**, when host A holds a pairing token for host B.
+3. **Local reach**, when host A holds an introduced token for host B.
 
 If neither applies, `start_sessions` fails with a message that names both ways
 in: link both hosts to your Solus account, or connect to both hosts from one

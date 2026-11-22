@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import { stripInjectedContext } from '@solus/server/execution/agents/utils'
 import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { formatTaskContext } from '@solus/server/data/tasks/task-context'
-import { formatLeadContract } from '@solus/server/data/sessions/lead-contract'
 
 const task = { id: '01KZ4TSYMQRX31D1DK5AAEW5TR', title: 'Task System Testing' }
 
@@ -109,70 +108,6 @@ describe('task lifecycle work contracts', () => {
     for (const policy of ['none', 'moderate', 'autonomous'] as const) {
       expect(formatTaskContext(task, policy)).not.toContain('link (kind=pr')
     }
-  })
-})
-
-describe('the lead contract', () => {
-  test('a task packet carries no lead contract', () => {
-    // WHY: a lead is a session-owned opt-in, not a role of a task. A session
-    // linked to a task works on it; it does not coordinate workers for it.
-    expect(formatTaskContext(task)).not.toContain('Lead contract:')
-  })
-
-  test('holds the coordination rules', () => {
-    // WHY: the lead coordinates workers and must keep its own thread small; a
-    // contract without these rules lets it implement the work itself and fill
-    // a long-lived context window.
-    const contract = formatLeadContract({ leadInstructions: '', workerModel: null })
-    expect(contract.split('\n')[0]).toBe('Lead contract:')
-    expect(contract).toContain('you do not implement beyond very small edits')
-    // WHY: one call starts every worker at once; separate calls can start them one after another.
-    expect(contract).toContain('Start all workers in one start_sessions call')
-    // WHY: a session becomes a lead when the work divides into independent
-    // parts, and a part can be read-only. Only a worker that changes files
-    // gets a worktree.
-    expect(contract).toContain('Give each worker that changes files its own worktree (isolation=worktree)')
-    expect(contract).not.toContain('one worktree each')
-    expect(contract).toContain('Keep this thread small')
-    // Reports reach the lead together, when its workers are done.
-    expect(contract).toContain('You are woken once, when every worker you wait on has finished')
-    expect(contract).toContain('Answer the user from reports and read_session.')
-  })
-
-  test('does not depend on a task', () => {
-    // WHY: a lead is a session the user opts in, not a role of a task. It must
-    // not be told to read task sessions or to file workers or summaries on a task.
-    const contract = formatLeadContract({ leadInstructions: '', workerModel: null })
-    expect(contract).not.toContain('task')
-  })
-
-  test("the user's lead settings follow the lead contract and do not replace it", () => {
-    // WHY: the lead settings let a user route workers and add rules to the
-    // lead. The built-in contract keeps the lead's thread small, so the user's
-    // text extends it rather than taking its place.
-    const lead = {
-      leadInstructions: 'Send frontend work to Claude Opus.',
-      workerModel: { provider: 'codex' as const, model: 'gpt-6', reasoningEffort: 'xhigh' as const },
-    }
-    const lines = formatLeadContract(lead).split('\n')
-    const workerDefault = lines.findIndex((line) => line.includes("agent_provider 'codex', model_id 'gpt-6' and reasoning_effort 'xhigh'"))
-    const instructions = lines.indexOf('Send frontend work to Claude Opus.')
-    expect(workerDefault).toBeGreaterThan(0)
-    expect(instructions).toBeGreaterThan(workerDefault)
-    expect(lines).toContain('- Keep this thread small: short reads, short replies. Say what happened, what was produced with its link, and what is open.')
-  })
-
-  test('a worker model saved without a reasoning level leaves the level to the model', () => {
-    // WHY: a selection saved before reasoning was configurable must still
-    // parse, and start_sessions then uses the model's default level.
-    const contract = formatLeadContract({ leadInstructions: '', workerModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: undefined } })
-    expect(contract).toContain("agent_provider 'codex', model_id 'gpt-6'.")
-    expect(contract).not.toContain('reasoning_effort')
-  })
-
-  test('empty lead settings add nothing to the contract', () => {
-    expect(formatLeadContract({ leadInstructions: '  ', workerModel: null }))
-      .toBe(formatLeadContract({ leadInstructions: '', workerModel: null }))
   })
 })
 

@@ -270,6 +270,18 @@ calls the tool with `custom: true`. The connect card then asks for the server's
 address. The agent can fill in the address if you gave it, but only you can add
 the server. After you add it, the same row goes on to the sign-in.
 
+When you tell an agent to install an MCP server, such as one from GitHub, the
+agent installs it for its own CLI (`claude mcp add` or `codex mcp add`) and
+then calls `add_mcp_server` with the server's name. Solus reads the server from
+that config file and adds it as your server, with the values the file holds. A
+command starts one time so that its tools are known. Claude and Codex both get
+its tools from the next turn, and each tool shows one time. No card asks you
+again, because you asked for the install. If the file does not give a value
+the server needs, or the server needs a sign-in, the connect card opens. An
+agent does not add a server that only a file in the repository holds, such as
+the project `.mcp.json`: you read its command and add it in **Found on this
+host**. Only a host administrator's turn can add a command.
+
 ## Set up with an agent
 
 Some servers need something from you before Solus can connect: an API key, an
@@ -440,12 +452,22 @@ Settings → MCP shows a command on desktop, web, and mobile.
   it, disconnect, and remove it. Add, Edit, and the starts are off, with
   "Only an administrator of this host can add or change a command."
 
-## Found on this host
+## On your hosts
 
-Settings → MCP has the view **Found on this host**, after Installed in the
-rail (`docs/plans/mcp-first-class.md` §8). On mobile it is the section under
-Installed. The command palette opens it with "Find MCP servers on this host".
-It lists the MCP servers in the config files of other tools on the host:
+Settings → MCP has the view **On your hosts**, after Installed in the rail
+(`docs/plans/mcp-first-class.md` §8). On mobile it is the sections under
+Installed. The command palette opens it with "Find MCP servers on your hosts".
+It lists the MCP servers in the config files of other tools that Solus does
+not have, in one group for each host: **Found on `<host>`**. The host of the
+page reads its own files and asks each other host that it reaches for you: the
+hosts linked to your Solus account, and for the owner the paired and
+introduced hosts. Each group shows as soon as its host answers, so a slow host
+holds back only its own group. Add, Test, and a change in a file go to the host
+of the group, through the host of the page. A server you add on another host
+is under Installed on that host's MCP page, which also has its values form.
+Opening a file works on the host of the page only. A host that did not answer
+says why in its group. A server you added
+is under Installed:
 
 | File | Read for |
 |---|---|
@@ -455,8 +477,9 @@ It lists the MCP servers in the config files of other tools on the host:
 | `~/.codex/config.toml` and the project's `.codex/config.toml`, through Codex (`config/read`) | the same; Codex leaves out a project it does not trust |
 
 On desktop and web, the project is the one of the open session when it is on
-that host; a chat has no project, so only the user files are read for it.
-Mobile reads the user files only.
+the page's host; a chat has no project, so only the user files are read for
+it. The other hosts read their user files only. Mobile reads the user files
+only.
 
 - **Nothing is added by itself.** A command in a cloned repository is code
   that would run on the host. **Add** shows the full command or URL. The host
@@ -482,6 +505,28 @@ Mobile reads the user files only.
   link out of its folder is listed with the reason, and the others still read.
 - The host keeps a list for 10 seconds. **Refresh** reads the files again.
 
+A host administrator has more actions in a row's menu (on mobile, tap the
+row):
+
+- **Test and show tools** starts the server one time, with the values its file
+  gives, lists its tools below the row, and stops it. Nothing is saved.
+- **Turn off in Codex** and **Turn on in Codex** write `enabled` in Codex's
+  config, through Codex itself. **Turn off in Claude Code** adds the server to
+  the project's list of servers Claude Code does not load (in
+  `~/.claude.json`); it needs an open project.
+- **Open** a config file opens it in your editor, on the host or over SSH. Its
+  content never comes to the client, because a config file can hold a secret.
+  A phone has no editor for a host file, so mobile does not have this action.
+- **Delete from Claude Code** and **Delete from Codex** run `claude mcp
+  remove` and `codex mcp remove`. A delete from Cursor, VS Code, or Claude
+  Desktop takes the entry out of that file and keeps every other key. Solus
+  asks first.
+
+An Installed row has **Turn off all tools** and **Turn on all tools**, and,
+for a server that came from another tool's file, the same **Open** and
+**Delete from** actions. A delete there removes only the tool's copy: the
+server stays in Solus.
+
 Each run that Solus starts leaves out the provider CLI's own copy of a server
 you added (see "A server that a CLI also has"). A server in the local scope of
 Claude Code (`projects["<path>"].mcpServers`, the default of `claude mcp add`)
@@ -490,7 +535,7 @@ setting source.
 
 ### MCP servers that run on the host
 
-Found on this host also lists MCP servers that run on the host's own loopback
+On your hosts also lists MCP servers that run on each host's own loopback
 (`docs/plans/mcp-first-class.md` §9). The host finds them through its list of
 running servers (`docs/running-servers.md`).
 

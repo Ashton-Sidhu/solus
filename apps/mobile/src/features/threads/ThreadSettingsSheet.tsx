@@ -77,7 +77,7 @@ const USES_MAIL_SEARCH_TOOLBAR = Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOO
 
 type ThreadSettingsSubmenuPage = { readonly kind: "reasoning" } | { readonly kind: "permission" };
 
-/** What one settings presentation edits: the applied model, its reasoning, the permission mode, and Meta mode. */
+/** What one settings presentation edits: the applied model, its reasoning, and the permission mode. */
 interface ThreadSettingsSessionProps {
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly selectedProvider: AgentId;
@@ -97,9 +97,6 @@ interface ThreadSettingsSessionProps {
   readonly onUpdateReasoningEffort: (effort: ReasoningEffort) => void;
   readonly onUpdateFastMode: (fastMode: boolean) => void;
   readonly onUpdatePermissionMode: (mode: PermissionMode) => void;
-  /** Meta mode of a session no prompt started; null where it cannot change. */
-  readonly lead: boolean | null;
-  readonly onUpdateLead: (lead: boolean) => void;
 }
 
 function stagedPickIsOffered(option: ModelOption, props: ThreadSettingsSessionProps): boolean {
@@ -118,8 +115,6 @@ type ThreadSettingsSessionValue = {
   readonly permissionChoices: ReadonlyArray<PermissionModeChoice>;
   readonly canChoosePermission: boolean;
   readonly onUpdatePermissionMode: (mode: PermissionMode) => void;
-  readonly lead: boolean | null;
-  readonly onUpdateLead: (lead: boolean) => void;
   /** The model the options rows describe: the staged pick, else the applied one. */
   readonly displayedProvider: AgentId;
   readonly displayedModel: string | null;
@@ -242,8 +237,6 @@ function ThreadSettingsSessionProvider(
       permissionChoices,
       canChoosePermission: canChoosePermissionMode(props.capabilities),
       onUpdatePermissionMode: props.onUpdatePermissionMode,
-      lead: props.lead,
-      onUpdateLead: props.onUpdateLead,
       displayedProvider,
       displayedModel,
       displayedEffort,
@@ -281,8 +274,6 @@ function ThreadSettingsSessionProvider(
       permissionChoices,
       props.autoNeedsKey,
       props.capabilities,
-      props.lead,
-      props.onUpdateLead,
       props.onUpdatePermissionMode,
       props.providerGroups,
       props.permissionMode,
@@ -431,7 +422,7 @@ function ThreadSettingsOptionsItem(props: {
         ) : null}
         <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
           <DisclosureRow
-            isLast={!offersFastMode && session.lead === null}
+            isLast={!offersFastMode}
             accessibilityHint={session.canChoosePermission ? undefined : "This agent runs without permission modes"}
             disabled={!session.canChoosePermission}
             label="Permission mode"
@@ -452,18 +443,6 @@ function ThreadSettingsOptionsItem(props: {
             }}
           />
         ) : null}
-        {session.lead === null ? null : (
-          <SwitchRow
-            label="Meta mode"
-            description="Plans the work and starts other sessions to do it. Fixed once the session starts."
-            accessibilityLabel="Meta mode: plan the work and start other sessions to do it"
-            value={session.lead}
-            onValueChange={(value) => {
-              void Haptics.selectionAsync();
-              session.onUpdateLead(value);
-            }}
-          />
-        )}
       </Animated.View>
       <Text className="px-5 pt-2 text-xs text-foreground-muted">
         Changes apply to the next message.
@@ -928,7 +907,6 @@ export function ThreadSettingsRouteScreen({ route, navigation }: ScreenProps<"Th
 
 function ThreadSettingsRouteContent(props: { readonly store: ConversationStore; readonly onClose: () => void }) {
   const { store } = props;
-  const app = useApp();
   const meta = useListened(store.meta, store.metaSnapshotOf);
   // The model list opened: ask the host for models released since its daily check.
   useEffect(() => {
@@ -974,8 +952,6 @@ function ThreadSettingsRouteContent(props: { readonly store: ConversationStore; 
       onUpdateReasoningEffort={(effort) => store.controller.updateRun({ reasoningEffort: effort })}
       onUpdateFastMode={(fastMode) => store.controller.updateRun({ fastMode })}
       onUpdatePermissionMode={(mode) => store.controller.updateRun({ permissionMode: mode })}
-      lead={meta.runOptions.canChooseStart ? meta.lead : null}
-      onUpdateLead={(lead) => store.controller.chooseLead(lead, app.personal.current().leadModel)}
     >
       <ThreadSettingsPickerNavigator onClose={props.onClose} />
     </ThreadSettingsSessionProvider>

@@ -11,7 +11,7 @@ the last prompt the person sent).
 Pinned rows come before active sessions in both views, with no header or
 collapse control. Each row has a pin control and pinned rows show a pin mark.
 In status view, drafts stay first. In project view, pinned rows come before the
-project folders. Meta mode uses the normal session sections.
+project folders.
 
 ## Vocabulary
 

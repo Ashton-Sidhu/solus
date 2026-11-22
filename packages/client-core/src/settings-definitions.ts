@@ -80,20 +80,16 @@ export const settingsDefinitions = {
     label: "Name sessions automatically",
     description: "Summarize the first prompt into a short session name.",
   },
-  "sessions.section-meta-mode": {
-    label: "Meta mode",
-  },
-  "sessions.lead-model": {
-    label: "Meta mode model",
-    description: "What a session in Meta mode starts on. Off uses the default for new sessions.",
+  "sessions.section-delegation": {
+    label: "Delegation",
   },
   "sessions.worker-model": {
     label: "Default worker model",
-    description: "What a Meta mode session starts its workers on when its instructions name none. Off lets it choose.",
+    description: "Used when a parent starts a child session without a provider or model.",
   },
-  "sessions.lead-instructions": {
-    label: "Meta mode instructions",
-    description: "Added after the built-in rules a Meta mode session follows.",
+  "sessions.delegation-instructions": {
+    label: "Delegation instructions",
+    description: "Extra guidance for agents when they delegate work.",
   },
   "sessions.rate-limit-behavior": {
     label: "Rate limit behavior",
@@ -492,7 +488,7 @@ export const settingsDefinitions = {
     label: "Connect by address",
   },
   "mcp.section-found": {
-    label: "Found on this host",
+    label: "On your hosts",
   },
   "host.section-retention": {
     label: "Retention",

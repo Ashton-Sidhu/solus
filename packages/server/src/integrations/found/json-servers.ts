@@ -39,8 +39,12 @@ type ServerTable = z.infer<typeof serverTableSchema>
 const jsonConfigSchema = z.object({
   mcpServers: serverTableSchema,
   servers: serverTableSchema,
-  // `~/.claude.json` keeps the servers of each project under the project's path.
-  projects: z.record(z.string(), z.object({ mcpServers: serverTableSchema }).catch({ mcpServers: undefined })).optional().catch(undefined),
+  // `~/.claude.json` keeps the servers of each project under the project's path, and the names Claude Code does not load there.
+  projects: z.record(z.string(), z.object({
+    mcpServers: serverTableSchema,
+    disabledMcpServers: z.array(z.string()).optional().catch(undefined),
+    disabledMcpjsonServers: z.array(z.string()).optional().catch(undefined),
+  }).catch({ mcpServers: undefined })).optional().catch(undefined),
 })
 export type JsonConfig = z.infer<typeof jsonConfigSchema>
 

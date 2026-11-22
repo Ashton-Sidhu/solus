@@ -5,7 +5,7 @@
  * that talk to a running server apply. The others install, start, and update a
  * standalone server, which has its own `solus`.
  */
-const DESKTOP_COMMANDS = new Set(['pair', 'connect', 'policy'])
+const DESKTOP_COMMANDS = new Set(['pair', 'connect', 'policy', 'host'])
 
 export function isDesktopCli(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.SOLUS_DESKTOP_CLI === '1'
@@ -19,6 +19,9 @@ export function desktopRefusal(command: string): string | null {
 
 export const DESKTOP_USAGE = `Usage (the solus command of the desktop app):
   solus pair
+  solus host pair <url> (--code CODE | --code-file PATH) [--label NAME]
+  solus host list [--json]
+  solus host remove <installation-id>
   solus connect [--code CODE] [--cloud-url URL] [--no-open]
   solus connect status [--json]
   solus connect remove ORGANIZATION_ID

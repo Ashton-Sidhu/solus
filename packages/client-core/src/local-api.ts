@@ -8,7 +8,14 @@ export const localApi: LocalApi = new Proxy(
     get(_target, property) {
       // SAFETY: Proxy reads originate from the LocalApi contract, so each property is a LocalApi key.
       const key = property as keyof LocalApi
-      return globalThis.window?.solus?.[key]
+      const clientWindow = globalThis.window as (Window & {
+        solus?: LocalApi
+        solusNative?: Pick<LocalApi, 'getPlatform'>
+      }) | undefined
+      // Desktop creates its first connection before it installs `window.solus`.
+      // The preload bridge already knows the client platform at that point.
+      if (key === 'getPlatform' && !clientWindow?.solus?.getPlatform) return clientWindow?.solusNative?.getPlatform
+      return clientWindow?.solus?.[key]
     },
   },
 )

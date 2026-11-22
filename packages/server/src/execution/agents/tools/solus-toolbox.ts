@@ -1,5 +1,5 @@
+import { pairHostAgentTool, removeHostAgentTool } from './host-pairing-tools'
 import { startSessionsAgentTool } from './start-sessions-tool'
-import { becomeLeadAgentTool } from './become-lead-tool'
 import { linkAgentTool, listLinksAgentTool, unlinkAgentTool } from './session-link-tools'
 import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
 import {
@@ -22,6 +22,7 @@ import {
 } from './automation-tools'
 import {
   listAgentTargetsAgentTool,
+  listHostsAgentTool,
   readSessionAgentTool,
   readSessionExchangeAgentTool,
   searchSessionsAgentTool,
@@ -43,6 +44,7 @@ import {
 } from './task-tools'
 import { publishWorkAgentTool, pullWorkUpstreamAgentTool } from './work-sync-tools'
 import { connectionStatusAgentTool } from '../../../connections/connection-tools'
+import { addMcpServerAgentTool } from '../../../integrations/add-mcp-server-tool'
 import { connectIntegrationAgentTool } from '../../../integrations/connect-integration-tool'
 import { queryInsightsAgentTool } from './insights-tools'
 import {
@@ -133,8 +135,12 @@ export const solusToolbox = {
     dryRun: dryRunWebhookAgentTool,
   },
   connections: {
+    listHosts: listHostsAgentTool,
+    pairHost: pairHostAgentTool,
+    removeHost: removeHostAgentTool,
     status: connectionStatusAgentTool,
     connectIntegration: connectIntegrationAgentTool,
+    addMcpServer: addMcpServerAgentTool,
   },
   insights: {
     query: queryInsightsAgentTool,
@@ -175,7 +181,6 @@ export const solusToolbox = {
     read: readSessionAgentTool,
     exchange: readSessionExchangeAgentTool,
     start: startSessionsAgentTool,
-    becomeLead: becomeLeadAgentTool,
     send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
     organize: organizeSessionAgentTool,

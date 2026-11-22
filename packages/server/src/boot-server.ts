@@ -1,3 +1,6 @@
+import { HostPairings } from './host/host-pairings'
+import { registerHostPairingHandlers } from './transport/handlers/host-pairing-handlers'
+import { setHostPairingTools } from './execution/agents/tools/host-pairing-tools'
 import { initRunningServers } from './host/running-servers/registry'
 import { registerRunningServerHandlers } from './transport/handlers/running-server-handlers'
 import { onHostRecordRemoved } from './host/host-list'
@@ -124,9 +127,11 @@ import { IntegrationApps } from './integrations/mcp-apps'
 import { ClaudeAppProcesses, useClaudeAppCapture } from './execution/agents/claude/claude-mcp-apps'
 import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
+import { installAddMcpServerTool } from './integrations/add-mcp-server-tool'
 import { installConnectIntegrationTool } from './integrations/connect-integration-tool'
 import { IntegrationWrites } from './integrations/integration-create'
 import { FoundServers } from './integrations/found-servers'
+import { ConfigWrites } from './integrations/found/config-writes'
 import { LocalMcpServers } from './integrations/local-servers'
 import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationGateway } from './integrations/gateway'
@@ -163,7 +168,6 @@ import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabaseForShutdown, getDatabase } from './db/database'
 import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, onSessionRecordDeleted, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
-import { isLeadSession, onSessionBecameLead } from './data/sessions/lead-sessions'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
 import { LOCAL_ORGANIZATION_ID } from './admission/principal'
@@ -259,7 +263,7 @@ import { SessionWake } from './execution/sessions/session-wake'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
 import { registerVaultHandlers } from './transport/handlers/vault-handlers'
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
-import { setConnectionConnectNeededListener } from './connections/connection-tools'
+import { reportIntegrationConnection, setConnectionConnectNeededListener } from './connections/connection-tools'
 import { setConfigToolHost } from './execution/agents/tools/config-tools'
 import { PersonalRequests } from './transport/events/agent-personal-requests'
 import { registerBrowserHandlers } from './transport/handlers/browser-handlers'
@@ -736,14 +740,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A task reads the pull requests of its sessions, so a session's change is
     // also a change of each task the session belongs to.
     onSessionStateChanged((sessionId, state) => events.broadcast('session.stateChanged', { sessionId, state })),
-    // A session can become a lead in the middle of a turn: its row shows the mark at once.
-    onSessionBecameLead(async (sessionId, source) => {
-      if (source === 'agent') {
-        const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor ?? HOST_ACTOR
-        await opts.sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'became_lead' }, undefined, { sessionId })
-      }
-      void events.broadcast('session.becameLead', { sessionId })
-    }),
     // A read boundary is the reader's own: only their connections hear it move.
     onSessionReadStateChanged((change) => {
       const recipients = personConnections.of(change.personKey, change.organizationId)
@@ -799,8 +795,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // Every exchange between sessions — agent tools, a person answering from a
   // card, delivery of results — goes through the one orchestrator.
-  // A lead's reports wait until its last open message settles (docs/plans/lead-session.md).
-  const orchestrator = orchestrateSessions(opts.sessionRuntime, isLeadSession)
+  const orchestrator = orchestrateSessions(opts.sessionRuntime)
   // Every turn and every new session, from a client or an agent, passes one admission
   // (`PromptDispatch.admitTurn`). The delegations join it once the link exists.
   const turnAdmission: TurnOrganizationDeps = {
@@ -1124,6 +1119,24 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     gateway: integrationGateway,
     factsChanged: (integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'facts' }) },
   })
+  const foundServers = new FoundServers({
+    store: integrations,
+    writes: integrationWrites,
+    connections: integrationConnections,
+    // Codex reads its own files, with its rule for a trusted project (mcp-first-class.md §8.1).
+    codexLayers: codexBackend ? async (cwd) => (await getCodexAppServerClient().request('config/read', { includeLayers: true, cwd })).layers ?? [] : undefined,
+    local: localMcpServers,
+    // Codex writes its own config (`config/value/write`), so Solus does not race it on its file (§8.8).
+    configWrites: new ConfigWrites({
+      codexWrite: codexBackend ? async (keyPath, value, filePath) => { await getCodexAppServerClient().request('config/value/write', { keyPath, value, mergeStrategy: 'replace', filePath }) } : undefined,
+    }),
+  })
+  // An agent gives a server it installed for its CLI to every agent, through the same add as Found (§8.7).
+  installAddMcpServerTool({
+    found: foundServers,
+    start: (integrationId, starter) => integrationGateway.startProcess(integrationId, starter),
+    askToConnect: (integration, sessionId) => reportIntegrationConnection(integration, sessionId, { added: true }),
+  })
   registerIntegrationHandlers(server, {
     store: integrations,
     catalog: integrationCatalog,
@@ -1136,14 +1149,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     getServerInfo: () => ({ host, port: actualPort }),
     profile: integrationProfile,
     writes: integrationWrites,
-    found: new FoundServers({
-      store: integrations,
-      writes: integrationWrites,
-      connections: integrationConnections,
-      // Codex reads its own files, with its rule for a trusted project (mcp-first-class.md §8.1).
-      codexLayers: codexBackend ? async (cwd) => (await getCodexAppServerClient().request('config/read', { includeLayers: true, cwd })).layers ?? [] : undefined,
-      local: localMcpServers,
-    }),
+    found: foundServers,
+    // The other hosts an MCP discovery asks for the caller (mcp-first-class.md §8.9). `remoteHosts`
+    // and `reachOf` are made further down, so they are read at the call.
+    remote: { hosts: { list: (reach) => remoteHosts.list(reach), find: (reach, ref) => remoteHosts.find(reach, ref), connect: (target) => remoteHosts.connect(target) }, reachOf: (principal) => reachOf(principal) },
+    hostLabel: hostDisplayName,
     local: localMcpServers,
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
@@ -1208,7 +1218,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const owner = delegations?.holders().find((holder) => holder.scope === 'personal')
     return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
   }
-  const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts)
+  // A caller's reach: the owner's own, a member's organization, and nothing for anyone else.
+  const reachOf = (principal: Principal): ReachRequest | null => principal.kind === 'org-member'
+    ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
+    : principal.kind === 'owner' ? ownerReach() : null
+  const hostPairings = new HostPairings(getInstallationId, hostDisplayName)
+  registerHostPairingHandlers(server, hostPairings)
+  setHostPairingTools(hostPairings)
+  const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings)
   domainEventUnsubscribes.push(onHostRecordRemoved(({ listing }) => remoteHosts.disconnect(listing.installationId)))
   setRemoteHosts(remoteHosts)
   setSessionController({
@@ -1441,9 +1458,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     fetchBundle: async (request) => {
       const { sessionId, sourceHostId, actor } = request
       const principal = actor.principal
-      const reach: ReachRequest = principal.kind === 'org-member'
-        ? { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
-        : principal.kind === 'owner' ? ownerReach() : { account: null, isOwner: false }
+      const reach: ReachRequest = reachOf(principal) ?? { account: null, isOwner: false }
       const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
       const account = insightsAccountOf(actor)
       const decision = sessionCloudSyncDecision(record?.organizationId ?? (principal.kind === 'org-member' ? principal.organizationId : 'local'), account?.id.kind === 'account' ? { accountId: account.id.accountId } : null)
@@ -2337,6 +2352,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
         await tailscaleServe.shutdown(actualPort).catch((error) => log.warn('tailscale_serve_shutdown_failed', { error: error instanceof Error ? error.message : String(error) }))
+        setHostPairingTools(null)
         remoteHosts.close()
         forwardedHosts.closeAll()
         introducedHosts.dispose()

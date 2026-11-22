@@ -21,7 +21,7 @@ import { z } from 'zod'
 import { taskSavedViewsSchema } from './task-views'
 import { DEFAULT_VOICE_DICTIONARY, voiceDictionarySchema } from './voice-dictionary'
 import type { SavedLens } from './review'
-import { DEFAULT_MODEL_ROUTING, defaultLeadInstructions, modelRoutingSchema } from './model-routing'
+import { DEFAULT_MODEL_ROUTING, modelRoutingSchema } from './model-routing'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   mergeNotificationPreferences,
@@ -145,14 +145,14 @@ const modelSelectionSchema = z.object({
   model: z.string().trim().min(1).max(MAX_MODEL_ID),
 }).strict()
 
-/** A lead or worker model, with the reasoning level it runs at; none runs at the model's default. */
-const leadModelSelectionSchema = z.object({
+/** A worker model, with the reasoning level it runs at; none runs at the model's default. */
+const workerModelSelectionSchema = z.object({
   provider: z.enum(['codex', 'claude-code']),
   model: z.string().trim().min(1).max(MAX_MODEL_ID),
   reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
 }).strict().transform((selection) => ({ provider: selection.provider, model: selection.model, reasoningEffort: selection.reasoningEffort }))
 
-export type LeadModelSelection = z.output<typeof leadModelSelectionSchema>
+export type WorkerModelSelection = z.output<typeof workerModelSelectionSchema>
 
 function fontPresetSchema(key: FontPreferenceKey) {
   return z.string().refine((value) => isFontPreset(key, value), { message: `${key} must be a bundled preset` })
@@ -227,16 +227,12 @@ export const PERSONAL_SETTING_SCHEMAS = {
     host: z.string().min(1).max(MAX_SIDEBAR_APP_REF),
     appId: z.string().min(1).max(MAX_SIDEBAR_APP_REF),
   }).strict()).max(MAX_SIDEBAR_APPS).describe('The apps pinned in the places column of the sidebar on desktop and web, below the Solus places, in order. host: the installation id of the host that runs the app.'),
-  /** The agent and model a lead starts on. Null means the default for new sessions. No session is a lead now (docs/plans/task-conversation.md). */
-  leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new lead session starts on. Null uses the default for new sessions.'),
   taskSources: z.array(taskSourceSchema).max(MAX_TASK_SOURCES).describe('Where the person reads tasks from: GitHub repositories, GitHub Projects, Jira projects, Jira boards and Linear teams. Tasks belong to no Solus project (docs/tasks.md).'),
   prSavedViews: prSavedViewsSchema.describe('Named personal PR filters, synced across clients.'),
   taskSavedViews: taskSavedViewsSchema.describe('Named personal task filters, synced across clients.'),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
-  /** Rules added after the built-in lead contract (docs/plans/task-conversation.md, Orchestrator). */
-  leadInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Rules from the person that are added after the built-in contract of a lead session.'),
-  /** The model a lead names for a worker when its instructions name none. Null leaves it to the lead. */
-  workerModel: leadModelSelectionSchema.nullable().describe('The agent and model that a lead session starts workers on when its instructions name none. Null lets the lead choose.'),
+  delegationInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Additional instructions for an agent when it delegates work.'),
+  workerModel: workerModelSelectionSchema.nullable().describe('The default provider, model, and reasoning for child sessions. Applies when the caller specifies neither a provider nor a model.'),
   textGenerationModel: modelSelectionSchema.describe('The model that writes session titles and worktree names, and commit and pull request text when sourceControlWriterModel is null.'),
   /** Null falls back to `textGenerationModel`. */
   sourceControlWriterModel: modelSelectionSchema.nullable().describe('The model that writes commit messages and pull request text. Null uses textGenerationModel.'),
@@ -329,12 +325,11 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   projectPanelHiddenItems: [],
   sidebarPlaces: { order: [], hidden: [] },
   sidebarApps: [],
-  leadModel: null,
   taskSources: [],
   taskSavedViews: [],
   prSavedViews: [],
   agentTaskLifecyclePolicy: 'moderate',
-  leadInstructions: defaultLeadInstructions(DEFAULT_MODEL_ROUTING),
+  delegationInstructions: '',
   workerModel: null,
   textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
   sourceControlWriterModel: null,
@@ -373,11 +368,10 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'autoRenameSessions',
   'extraInstructions',
   'modelInstructions',
-  'leadModel',
   'agentTaskLifecyclePolicy',
   // An agent on the host lists and creates tasks in the person's own sources.
   'taskSources',
-  'leadInstructions',
+  'delegationInstructions',
   'workerModel',
   'textGenerationModel',
   'sourceControlWriterModel',

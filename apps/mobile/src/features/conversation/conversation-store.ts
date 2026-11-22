@@ -46,8 +46,6 @@ export interface ConversationMeta {
   unsentText: string | null
   /** The picked provider differs from the thread's: the next prompt hands off (plans/021). */
   handoffPending: boolean
-  /** The new session is a lead (`ConversationRun.lead`). */
-  lead: boolean
   /** The host refused a prompt: another host continued the session (`SESSION_DIVERGED`). */
   isSessionDiverged: boolean
   /** The read of the session's copy from Solus Cloud (`ConversationController.readCloudHistory`). */
@@ -62,7 +60,7 @@ export interface ConversationMeta {
    *  session, and the permission modes the agent's host reports. */
   runOptions: {
     canRoute: boolean
-    /** Meta mode and a new worktree may still change (`ConversationController.canChooseStart`). */
+    /** A new worktree may still change (`ConversationController.canChooseStart`). */
     canChooseStart: boolean
     autoNeedsKey: boolean
     capabilities: AgentCapabilities
@@ -230,7 +228,6 @@ export class ConversationStore {
       uploading: this.controller.uploading,
       unsentText: this.controller.unsentText,
       handoffPending: isHandoffPending(this.controller.threadProvider, this.controller.run.provider),
-      lead: this.controller.run.lead === true,
       isSessionDiverged: this.controller.isSessionDiverged,
       cloudRead: this.controller.cloudRead,
       showsHostConversation: this.controller.showsHostConversation,

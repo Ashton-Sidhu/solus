@@ -311,7 +311,6 @@ export function applyRestoredSessionMeta(session: Session, meta: SessionMeta): v
   if (followsThread && meta.reasoningEffort) session.run.modelConfig.reasoningEffort = meta.reasoningEffort
   session.startedBy = meta.startedBy
   session.parentSessionId = parentSessionIdOf(meta)
-  if (meta.isLead) session.isLead = true
   if (meta.organizationId) session.organizationId = meta.organizationId
   session.currentTurnStartedAt = isSessionBusyStatus(session.status)
     ? meta.currentTurnStartedAt ?? session.currentTurnStartedAt

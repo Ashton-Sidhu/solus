@@ -469,7 +469,8 @@ export type IntegrationProcessStartRequest = z.infer<typeof integrationProcessSt
  * §8.1): a project `.mcp.json`, Claude Code's `~/.claude.json`, Codex
  * `config.toml`, Cursor's and VS Code's `mcp.json`, and Claude Desktop's config.
  */
-export type ConfigFileKind = 'mcp-json' | 'claude-json' | 'codex-config' | 'cursor' | 'vscode' | 'claude-desktop'
+export const CONFIG_FILE_KINDS = ['mcp-json', 'claude-json', 'codex-config', 'cursor', 'vscode', 'claude-desktop'] as const
+export type ConfigFileKind = (typeof CONFIG_FILE_KINDS)[number]
 
 /**
  * Where the host read a found server (§8.2): one entry of one config file.
@@ -482,8 +483,14 @@ export interface FoundPlace {
   scope: 'user' | 'project'
   path: string
   name: string
-  /** The file turns the server off (Codex `enabled = false`), so its tool does not load it. */
+  /** The file as the host reads it, for the host's editor (§8.8). Never its content: a config file can hold a secret. */
+  filePath: string
+  /** The file turns the server off (Codex `enabled = false`, or Claude Code's list for the project), so its tool does not load it. */
   turnedOff?: boolean
+  /** The caller may turn the server off or on in this file (§8.8): Codex, and Claude Code in a project. */
+  canTurnOff?: boolean
+  /** The caller may delete the entry from this file (§8.8). */
+  canDelete?: boolean
 }
 
 /** A found server's transport, as the host read it. Names only: no value of `env` or of a header leaves the host. */
@@ -540,6 +547,8 @@ export interface FoundFile {
 export interface FoundServerList {
   servers: FoundServer[]
   files: FoundFile[]
+  /** The caller is a host administrator: they may test a found server and change its files (§8.8). Absent from a host before §8.8. */
+  mayChange?: boolean
   portScan?: FoundPortScan
 }
 
@@ -551,6 +560,46 @@ export const integrationFoundListRequestSchema = z.object({
 export type IntegrationFoundListRequest = z.infer<typeof integrationFoundListRequestSchema>
 
 /**
+ * Discover the MCP servers in the config files of this host and of each other
+ * host it reaches for the caller (§8.9). `discoveryId` is the client's: each host's answer comes as one
+ * `integration.discovered` event with it, as soon as that host answers.
+ * `projectPath` is a path on this host, so only this host reads it.
+ */
+export const integrationDiscoverRequestSchema = z.object({
+  discoveryId: z.string().min(1).max(128),
+  projectPath: z.string().min(1).max(4096).optional(),
+  refresh: z.boolean().optional(),
+}).strict()
+export type IntegrationDiscoverRequest = z.infer<typeof integrationDiscoverRequestSchema>
+
+/** One host a discovery asks. `hostId` is null for the host that runs the discovery. */
+export interface DiscoveredHost {
+  hostId: string | null
+  label: string
+}
+
+/** The answer of `integrationDiscover`: every host the discovery asks, this host first. Their lists come as events. */
+export interface IntegrationDiscovery {
+  hosts: DiscoveredHost[]
+}
+
+/** What one host answered: its list, why it failed, or that it is older than found servers. */
+export type DiscoveredHostResult =
+  | { kind: 'loaded'; list: FoundServerList }
+  | { kind: 'failed'; message: string }
+  | { kind: 'unsupported' }
+
+/** One host's answer to one discovery (§8.9), sent to the client that asked only. It names the host, so it can come before the discovery's answer. */
+export interface IntegrationDiscoveredEvent {
+  discoveryId: string
+  host: DiscoveredHost
+  result: DiscoveredHostResult
+}
+
+/** A host of a discovery: the action goes there through this host. Absent: this host. */
+const foundHostIdSchema = z.string().min(1).max(200).optional()
+
+/**
  * Add a found server, or take the change of a `changed` one (§8.3). The host
  * reads the files again and refuses another fingerprint. `useFileValues`: copy
  * the values the file holds into the caller's connection, on the host.
@@ -558,6 +607,7 @@ export type IntegrationFoundListRequest = z.infer<typeof integrationFoundListReq
 export const integrationFoundAddRequestSchema = z.object({
   foundId: z.string().min(1).max(128),
   fingerprint: z.string().min(1).max(128),
+  hostId: foundHostIdSchema,
   projectPath: z.string().min(1).max(4096).optional(),
   useFileValues: z.boolean().optional(),
 }).strict()
@@ -572,6 +622,45 @@ export type IntegrationFoundAddResult =
    */
   | { kind: 'saved'; integration: Integration; needsValues?: boolean }
   | { kind: 'found-changed' }
+
+/** One entry of one file, as the list named it: the host finds it again and never uses the client's path. */
+const foundPlaceRefSchema = z.object({
+  file: z.enum(CONFIG_FILE_KINDS),
+  path: z.string().min(1).max(4096),
+  name: z.string().min(1).max(200),
+}).strict()
+export type FoundPlaceRef = z.infer<typeof foundPlaceRefSchema>
+
+/** Start a found server once, read its tools, and stop it (§8.8). Nothing is saved. */
+export const integrationFoundTestRequestSchema = z.object({
+  foundId: z.string().min(1).max(128),
+  fingerprint: z.string().min(1).max(128),
+  hostId: foundHostIdSchema,
+  projectPath: z.string().min(1).max(4096).optional(),
+}).strict()
+export type IntegrationFoundTestRequest = z.infer<typeof integrationFoundTestRequestSchema>
+
+export type IntegrationFoundTestResult =
+  | { kind: 'tools'; tools: IntegrationToolSummary[] }
+  | { kind: 'found-changed' }
+
+/**
+ * Change a found server in one of its files (§8.8): turn it off or on for the
+ * tool that keeps the file, or delete the entry. The host reads the files
+ * again and refuses another fingerprint.
+ */
+export const integrationFoundChangeRequestSchema = z.object({
+  foundId: z.string().min(1).max(128),
+  fingerprint: z.string().min(1).max(128),
+  hostId: foundHostIdSchema,
+  projectPath: z.string().min(1).max(4096).optional(),
+  place: foundPlaceRefSchema,
+  change: z.enum(['turn-off', 'turn-on', 'delete']),
+}).strict()
+export type IntegrationFoundChangeRequest = z.infer<typeof integrationFoundChangeRequestSchema>
+export type IntegrationFoundChange = IntegrationFoundChangeRequest['change']
+
+export type IntegrationFoundChangeResult = { kind: 'saved' } | { kind: 'found-changed' }
 
 /**
  * The catalog's categories as Solus shows them. The feed's own category names

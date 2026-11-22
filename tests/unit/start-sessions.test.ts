@@ -9,9 +9,8 @@ import type { AgentId, AgentTarget } from '@solus/contracts/types'
 import type { SpawnOrder } from '@solus/server/execution/orchestration/session-orders'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 
-// WHY: one start_sessions call is how a lead staffs a plan. The sessions must
-// start together, not one after another, and a bad entry must start none of
-// them: a lead that gets half its workers has to work out which half. Each
+// WHY: sessions in one call start together, and a bad entry must start none
+// of them so the caller can correct the request and retry the whole group. Each
 // child keeps the rules a single child had — the provider and model it may
 // run on, the permission ceiling, its task, its checkout — and a reload must
 // pair each card with its own brief. Each session has its own settings, so
@@ -25,6 +24,7 @@ mock.module('@solus/server/git/git-helpers', () => ({ ...gitHelpers, resolveRepo
 mock.module('@solus/server/git/worktree-manager', () => ({ ...worktrees, getHeadCommit: async () => 'a'.repeat(40) }))
 let tools: typeof import('@solus/server/execution/agents/tools/session-tools')
 let start: typeof import('@solus/server/execution/agents/tools/start-sessions-tool')['startSessionsAgentTool']
+const { recordSessionSettings, resetSessionSettingsForTests } = await import('@solus/server/execution/sessions/session-settings')
 let projection: typeof import('@solus/server/data/sessions/result-projection')
 let closeDb: () => void
 let directory: string
@@ -66,7 +66,7 @@ beforeAll(async () => {
     send: async () => ({ exchangeId: 'exchange-send', disposition: 'started' }), stop: () => true,
   })
 })
-beforeEach(() => { starts.length = 0; mostInFlight = 0 })
+beforeEach(() => { starts.length = 0; mostInFlight = 0; resetSessionSettingsForTests() })
 afterAll(() => { closeDb(); rmSync(directory, { recursive: true, force: true }); if (previous === undefined) delete process.env.SOLUS_DATA_DIR; else process.env.SOLUS_DATA_DIR = previous })
 
 /** The cards a reloading client rebuilds from this call: its row's projected results. */
@@ -127,6 +127,28 @@ for (const parent of ['claude-code', 'codex'] as const) {
     expect(starts[0]?.order).toMatchObject({ provider: parent, modelId: `${parent}-chosen`, reasoningEffort: 'high' })
   })
 }
+
+test('the default worker model applies only to children without an explicit provider or model', async () => {
+  recordSessionSettings('parent-codex', {
+    organizationId: 'local',
+    preferences: { workerModel: { provider: 'claude-code', model: 'claude-code-chosen', reasoningEffort: 'high' } },
+  })
+  const result = await start.execute({ sessions: [
+    { prompt: 'Review' },
+    { prompt: 'Explore', reasoning_effort: 'medium' },
+    { prompt: 'Use Codex', agent_provider: 'codex' },
+    { prompt: 'Use the requested model', model_id: 'codex-default' },
+    { prompt: 'Open a separate conversation', independent: true },
+  ] }, context('codex'))
+  expect(result.ok).toBe(true)
+  expect(starts.map(({ order }) => [order.provider, order.modelId, order.reasoningEffort])).toEqual([
+    ['claude-code', 'claude-code-chosen', 'high'],
+    ['claude-code', 'claude-code-chosen', 'medium'],
+    ['codex', 'codex-chosen', 'high'],
+    ['codex', 'codex-default', 'medium'],
+    ['codex', 'codex-chosen', 'high'],
+  ])
+})
 
 test('a child can narrow permission but cannot increase it', async () => {
   expect((await start.execute({ sessions: [{ prompt: 'Plan', permission_mode: 'plan' }] }, context('codex'))).ok).toBe(true)

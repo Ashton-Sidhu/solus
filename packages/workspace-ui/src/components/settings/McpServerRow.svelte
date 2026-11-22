@@ -10,12 +10,15 @@
    * person with `host.admin` edits or starts one; the row says why to others.
    * A server on the host's loopback says Not running when nothing listens on
    * its port (§9.3), in a neutral color, and lists its tools when it runs again.
+   * Its menu turns all its tools off or on, and, for a server that came from
+   * another tool's config file, opens that file or deletes the entry there
+   * (§8.8). A server with every tool off says Off.
    */
   import { ChevronRight, Ellipsis, LoaderCircle } from "@lucide/svelte";
   import type { Snippet } from "svelte";
-  import type { Integration } from "@solus/contracts/integration-types";
+  import type { FoundPlace, FoundServer, Integration, IntegrationFoundChange } from "@solus/contracts/integration-types";
   import { COMMAND_ADMIN_ONLY, commandLineText } from "@solus/contracts/integrations/command-server";
-  import { NOT_RUNNING_LABEL, notRunningText, projectOnlyLabel } from "@solus/contracts/integrations/found-server-labels";
+  import { NOT_RUNNING_LABEL, foundDeleteQuestion, notRunningText, projectOnlyLabel, type FoundFileAction } from "@solus/contracts/integrations/found-server-labels";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -23,6 +26,8 @@
   import IntegrationConnectForm from "./IntegrationConnectForm.svelte";
   import IntegrationExtraAccounts from "./IntegrationExtraAccounts.svelte";
   import McpServerIcon from "./McpServerIcon.svelte";
+  import McpConfirmPopover from "./McpConfirmPopover.svelte";
+  import McpFoundFileItems from "./McpFoundFileItems.svelte";
   import McpCliSkipNote from "./McpCliSkipNote.svelte";
   import McpToolSwitches from "./McpToolSwitches.svelte";
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
@@ -41,9 +46,19 @@
     onToggle: () => void;
     onRemoved: () => void;
     onConnect: () => void;
+    /** The entry of another tool's config file this server came from, when the host found one. */
+    found: FoundServer | null;
+    canOpenFiles: boolean;
+    isChangingFile: boolean;
+    onOpenFile: (place: FoundPlace) => void;
+    /** The error's words, or null when the file changed. */
+    onFileChange: (server: FoundServer, place: FoundPlace, change: IntegrationFoundChange) => Promise<string | null>;
   }
 
-  let { serverId, hostLabel, integration, isExpanded, onToggle, onRemoved, onConnect }: Props = $props();
+  let { serverId, hostLabel, integration, isExpanded, onToggle, onRemoved, onConnect, found, canOpenFiles, isChangingFile, onOpenFile, onFileChange }: Props = $props();
+  let fileDelete = $state<FoundFileAction | null>(null);
+  let isConfirmingFileDelete = $state(false);
+  let fileError = $state("");
 
   let isRenaming = $state(false);
   let renameDraft = $state("");
@@ -66,6 +81,9 @@
   const showConnect = $derived(status.canConnect && !isOpen && hostState?.connectionsStatus === "loaded");
   const offersOAuthClientSetup = $derived(integration.auth.kind === "oauth");
   const disabledTools = $derived(new Set(integration.disabledTools));
+  const toolList = $derived(hostState?.tools.get(integration.id));
+  /** Every tool is off, as far as the listed tools show: agents get nothing from it. */
+  const isOff = $derived(!!toolList?.length && toolList.every((tool) => disabledTools.has(tool.name)));
   const cliSkips = $derived(hostState?.facts.get(integration.id)?.cliSkips ?? []);
   const isNotRunning = $derived(!!hostState?.processes.isNotRunning(integration));
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
@@ -75,7 +93,9 @@
   const mayRunCommands = $derived(hosts.get(serverId)?.me.may("host.admin") ?? true);
   const processStatus = $derived(hostState?.processes.statusOf(integration, connection, mayRunCommands) ?? null);
   /** The row's short state: a command's process, or that a loopback server does not run, else the sign-in. */
-  const rowStatus = $derived(processStatus && (status.tone === "ready" || !status.canConnect)
+  const rowStatus = $derived(isOff
+    ? { text: "Off", isError: false }
+    : processStatus && (status.tone === "ready" || !status.canConnect)
     ? { text: processStatus.label, isError: processStatus.tone === "error" }
     : isNotRunning && (status.tone === "ready" || !status.canConnect)
       ? { text: NOT_RUNNING_LABEL, isError: false }
@@ -88,6 +108,32 @@
     if (isOn) next.delete(toolName);
     else next.add(toolName);
     void mcpStore.integrations.update(serverId, { id: integration.id, disabledTools: [...next] });
+  }
+
+  /** Turns every listed tool off, or all of them on. A tool the server adds later is on. */
+  async function setAllTools(isOn: boolean) {
+    if (!canEdit) return;
+    if (isOn) {
+      void mcpStore.integrations.update(serverId, { id: integration.id, disabledTools: [] });
+      return;
+    }
+    if (!hostState?.tools.has(integration.id)) await mcpStore.integrations.loadTools(serverId, integration.id);
+    const names = mcpStore.integrations.states.get(serverId)?.tools.get(integration.id)?.map((tool) => tool.name) ?? [];
+    if (names.length) void mcpStore.integrations.update(serverId, { id: integration.id, disabledTools: names });
+  }
+
+  /** A delete from another tool's file asks first, once the menu has closed. */
+  function startFileDelete(action: FoundFileAction) {
+    fileError = "";
+    fileDelete = action;
+    requestAnimationFrame(() => { isConfirmingFileDelete = true; });
+  }
+
+  async function confirmFileDelete() {
+    if (!found || !fileDelete) return;
+    const error = await onFileChange(found, fileDelete.place, "delete");
+    if (error) fileError = error;
+    else isConfirmingFileDelete = false;
   }
 
   // Tools load once the row is open and the host can list them; never for a server the person has not connected, or one that does not run.
@@ -253,10 +299,18 @@
           </Button>
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-40">
+      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[min(16rem,calc(100vw-2rem))]">
         <DropdownMenu.Item disabled={!canEdit} onSelect={startRename}>Rename</DropdownMenu.Item>
         {#if isCommand}
           <DropdownMenu.Item disabled={!canEdit || !mayRunCommands} onSelect={editCommand}>Edit command</DropdownMenu.Item>
+        {/if}
+        {#if toolsListable && !isNotRunning}
+          <DropdownMenu.Item disabled={!canEdit} onSelect={() => setAllTools(false)}>Turn off all tools</DropdownMenu.Item>
+          {#if disabledTools.size}<DropdownMenu.Item disabled={!canEdit} onSelect={() => setAllTools(true)}>Turn on all tools</DropdownMenu.Item>{/if}
+        {/if}
+        {#if found}
+          <McpFoundFileItems server={found} showTurnOff={false} {canOpenFiles} onOpen={onOpenFile} onAction={startFileDelete} />
+          <DropdownMenu.Separator />
         {/if}
         <DropdownMenu.Item variant="destructive" disabled={!canEdit} onSelect={startRemove}>Remove…</DropdownMenu.Item>
         {#if !canEdit}
@@ -283,6 +337,11 @@
         </div>
       </Popover.Content>
     </Popover.Root>
+    {#if found}
+      <McpConfirmPopover bind:open={isConfirmingFileDelete} anchor={menuTriggerEl} title="{fileDelete?.label ?? 'Delete'}?"
+        text={fileDelete ? `${foundDeleteQuestion(found.name, fileDelete.place)} It stays in Solus.` : ""} action="Delete" busyAction="Deleting…"
+        isBusy={isChangingFile} error={fileError} onConfirm={confirmFileDelete} />
+    {/if}
     <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" onclick={onToggle} aria-label="{isOpen ? 'Hide' : 'Show'} the details of {integration.name}" aria-expanded={isOpen}>
       <ChevronRight size={16} class="transition-transform motion-reduce:transition-none {isOpen ? 'rotate-90' : ''}" />
     </Button>
