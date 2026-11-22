@@ -25,6 +25,7 @@ import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
+import { recordPromptSender } from '../../data/activity/prompt-senders'
 import { ANSWERING_ANOTHER_SESSION } from '../orchestration/session-orchestrator'
 import type { AgentBackend, RunHandle } from '../agents/agent-backend'
 import { hasOpenBackgroundQuery } from './background-work'
@@ -114,12 +115,20 @@ export class RunLauncher {
     // receives stays small. Inline images are only what an older client sent.
     if (options.imageAttachmentRefs?.length) event.imageAttachmentRefs = options.imageAttachmentRefs
     if (options.imageAttachments?.length) event.imageAttachments = options.imageAttachments
-    if (options.via) {
-      event.via = options.via
-      event.automationId = options.automationId
-      event.automationName = options.automationName
-    }
+    if (options.via) event.via = options.via
+    if (options.sender) event.sender = options.sender
     return event
+  }
+
+  /** Keep who sent a prompt no person typed, so a history reload can say it too. */
+  private async recordSender(sessionId: string, options: PromptOptions): Promise<void> {
+    if (!options.sender) return
+    try {
+      await recordPromptSender(await this.rt.turnOrganization(sessionId) ?? LOCAL_ORGANIZATION_ID, sessionId, options.sender, options.displayPrompt ?? options.prompt)
+    } catch (error) {
+      // Live readers still get it on the event; only a reload would miss it.
+      log.warn('prompt_sender_append_failed', { sessionId, error: String(error) })
+    }
   }
 
   async steerActiveTurn(
@@ -162,6 +171,7 @@ export class RunLauncher {
     session.promptCount = (session.promptCount ?? 0) + 1
     session.lastActivityAt = Date.now()
     const userMessage = this.userMessageEvent(request.options, 'steer', request.actor)
+    void this.recordSender(session.sessionId, request.options)
     if (backend.isSessionRunning(agentSessionId)) {
       this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, await sessionIsOrganizationWork(request.sessionId), 'running')
     }
@@ -842,6 +852,7 @@ export class RunLauncher {
     this.rt.publish(sessionId, this.userMessageEvent(options, undefined, request.actor), {
       except: request.servedQueueId || options.clientPromptId ? undefined : sourceClientId,
     })
+    void this.recordSender(sessionId, options)
 
     let handle: RunHandle
     const activeRun: SessionRunRequest = { ...request, input: effectiveInput }

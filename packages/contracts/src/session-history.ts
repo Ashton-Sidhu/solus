@@ -1,4 +1,4 @@
-import type { AgentId, ContextCompaction, ExchangeProgress, PromptImageRef, QuestionAnswer, ToolResultAudio, ToolResultImage } from './types'
+import type { AgentId, ContextCompaction, ExchangeProgress, PromptImageRef, PromptSender, QuestionAnswer, ToolResultAudio, ToolResultImage } from './types'
 import type { SessionReport } from './session-exchange'
 import type { SecretOutcomeRecord } from './secret-request'
 import type { Activity } from './activity'
@@ -107,6 +107,8 @@ export interface SessionLoadMessage {
   imageAttachments?: Array<{ mimeType: string; dataUrl: string }>
   /** A user turn's images as files in the host asset store. */
   imageAttachmentRefs?: PromptImageRef[]
+  /** The agent or automation that sent a user turn, from the host's record. */
+  sender?: PromptSender
   /** Images a tool returned: on a `tool_result` row, or on a `tool` row that
    *  carries its own output (Codex). */
   toolImages?: ToolResultImage[]

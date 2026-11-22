@@ -10,6 +10,7 @@
   import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
   import MarkdownText from "./MarkdownText.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
+  import SenderPrompt from "./SenderPrompt.svelte";
   import TurnAuthorLabel from "../presence/TurnAuthorLabel.svelte";
   import MarkChip from "../browser/MarkChip.svelte";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
@@ -19,7 +20,6 @@
   import {
     Download as DownloadIcon,
     Image as ImageIcon,
-    Zap as LightningIcon,
   } from "@lucide/svelte";
   import { getSurfaceContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -79,12 +79,12 @@
   const text = $derived(content ?? message?.content ?? "");
   const reviewSegments = $derived(parseReviewCommentMessageSegments(text));
   const isPending = $derived(deliveryState !== 'sent');
-  // Sent by the host's own work, not a person: an automation's prompt. A
-  // background command's or a pull request watch's wake is a host notice row
-  // (`HostNoticeRow`), never a bubble.
-  const isHostSent = $derived(message?.via === "automation");
+  // Sent by another agent or an automation, not a person: it folds to one
+  // line. A background command's or a pull request watch's wake is a host
+  // notice row (`HostNoticeRow`), never a bubble.
+  const sender = $derived(message?.sender);
   const hasControls = $derived(isPending && (!!onEditSubmit || !!actions));
-  const canCollapse = $derived(!isPending && shouldCollapseUserMessage(text));
+  const canCollapse = $derived(!isPending && !sender && shouldCollapseUserMessage(text));
   // The wait is only worth stating on the bubble that actually served it.
   const waitedLabel = $derived(
     message?.queuedWaitMs
@@ -298,6 +298,26 @@
 
 </script>
 
+{#snippet prose()}
+  <div
+    class="prose prose-user {isPending ? 'queued-message-prose opacity-[0.6]' : ''} {canCollapse && !isExpanded ? 'user-message-collapsed' : ''}"
+    data-conversation-message-content
+    data-conversation-message-id={message?.id}
+  >
+    {#each reviewSegments as segment}
+      {#if segment.kind === "review-comment"}
+        <ReviewCommentCard comment={segment.comment} {tabId} />
+      {:else}
+        <SvelteMarkdown
+          source={segment.text}
+          renderers={markdownRenderers}
+          sanitizeUrl={markdownSanitizeUrl}
+        />
+      {/if}
+    {/each}
+  </div>
+{/snippet}
+
 {#snippet bubbleBody()}
   {#if sentMarks.length > 0}
     <!-- Above the prose with the other attachments, never inside it: the marks
@@ -447,8 +467,8 @@
 
   {#if text}
     <!-- Three shapes, no hue: a 2% fill means a person typed it, a hairline
-         card means an agent or automation sent it, and a fill plus an outline
-         means it exists but hasn't gone out yet. -->
+         card folded to one line means an agent or automation sent it, and a
+         fill plus an outline means it exists but hasn't gone out yet. -->
     <div class="flex w-full items-center justify-end gap-2">
       <!-- A held prompt is its own focusable region: its controls only paint on
            hover, so focus is what keeps them reachable from the keyboard. The
@@ -464,29 +484,19 @@
  ? actions ? 'min-w-[10rem]' : 'min-w-[8.5rem]'
  : 'min-w-0'} {layout.bubbleMeetsMedia ? 'rounded-tr-md' : ''} {isPending
  ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3'
- : isHostSent
- ? 'rounded-2xl bg-card px-3 pt-2.5 pb-2.5 shadow-[shadow:var(--solus-tx-hairline)]'
+ : sender
+ ? 'rounded-2xl bg-card shadow-[shadow:var(--solus-tx-hairline)]'
  : 'rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] px-3 pt-2.5 pb-2.5 dark:bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)]'}"
       >
-        {#if !isHostSent && !burst?.continuesBurst}
+        {#if sender && message}
+          <SenderPrompt {sender} messageId={message.id} {text} {tabId}>
+            {#snippet body()}{@render prose()}{/snippet}
+          </SenderPrompt>
+        {:else}
+        {#if !burst?.continuesBurst}
           <!-- Another person's prompt carries their name, held or sent; the
                reader's own do not. A burst names its author once. -->
           <TurnAuthorLabel author={author ?? message?.author} serverId={imageServerId} />
-        {/if}
-        {#if isHostSent}
-          <!-- Required origin label: the only thing separating an agent-sent
-               message from a person's is this line plus the missing fill. -->
-          <button
-            type="button"
-            title={message?.automationName
-              ? `Open automation: ${message.automationName}`
-              : "Open automation"}
-            onclick={() => session?.openAutomations(message?.automationId)}
-            class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase transition-colors duration-100 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) focus-visible:outline-none"
-          >
-            <LightningIcon size={9} fill="currentColor" />
-            <span>{message?.automationName || "Automation"}</span>
-          </button>
         {/if}
         {#if isEditing}
           <!-- Editing keeps the prompt's slot in the queue, so it stays inside
@@ -531,23 +541,7 @@
           </div>
         {:else}
           <div class="relative">
-            <div
-              class="prose prose-user {isPending ? 'queued-message-prose opacity-[0.6]' : ''} {canCollapse && !isExpanded ? 'user-message-collapsed' : ''}"
-              data-conversation-message-content
-              data-conversation-message-id={message?.id}
-            >
-              {#each reviewSegments as segment}
-                {#if segment.kind === "review-comment"}
-                  <ReviewCommentCard comment={segment.comment} {tabId} />
-                {:else}
-                  <SvelteMarkdown
-                    source={segment.text}
-                    renderers={markdownRenderers}
-                    sanitizeUrl={markdownSanitizeUrl}
-                  />
-                {/if}
-              {/each}
-            </div>
+            {@render prose()}
           </div>
           {#if canCollapse}
             <button
@@ -586,6 +580,7 @@
               </div>
             </div>
           </div>
+        {/if}
         {/if}
       </div>
     </div>

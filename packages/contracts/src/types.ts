@@ -1544,12 +1544,12 @@ export interface Message {
   workRefs?: WorkReference[]
   /** Session references attached via & autocomplete */
   sessionRefs?: SessionReference[]
-  /** Set on a user message that an automation injected into this
-   *  thread, so the bubble can render its origin badge. Live-only (not persisted
-   *  to the transcript), so it's lost on a history reload. */
+  /** How the host delivered a prompt no person typed. Live-only (not
+   *  persisted to the transcript), so it's lost on a history reload. */
   via?: PromptVia
-  automationId?: string
-  automationName?: string
+  /** Who sent a prompt that no person typed: another agent or an automation.
+   *  The host keeps it, so a history reload carries it too. */
+  sender?: PromptSender
   /** Correlates the committed transcript entry with its optimistic outbox row. */
   clientPromptId?: string
   /** Who wrote this prompt, as the host stamped it. Live-only, like `via`: a
@@ -2100,7 +2100,7 @@ export type NormalizedEvent =
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; author?: User }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; sender?: PromptSender; author?: User }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: User }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'session_queue'; held: boolean; entries: QueuedPromptSnapshot[] }
@@ -2157,6 +2157,13 @@ export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispat
  *  visible receipt is the structured Q&A row. */
 export type PromptVia = 'automation' | 'background-command' | 'session-report' | 'question-answer' | 'pull-request-watch' | 'mcp-task' | 'resource-watch'
 
+/** Who sent a prompt that no person typed into the session: another agent
+ *  session on this host, or an automation. Every client folds such a prompt to
+ *  one line, so a person's own prompts stay easy to find (docs/plans/prompt-sender.md).
+ *  The names are the ones the host knew when it sent; a client reads the
+ *  current name from its store. */
+export type PromptSender = Extract<Attribution, { kind: 'agent' | 'automation' }>
+
 export interface PromptDispatchResult {
   /** `duplicate`: this session already accepted the same `clientPromptId` —
    *  an outbox drain replayed a delivered send, and nothing ran twice. */
@@ -2209,12 +2216,12 @@ export interface PromptOptions {
   maxBudgetUsd?: number
   /** Path to SOLUS-scoped settings file with hook config (passed via --settings) */
   hookSettingsPath?: string
-  /** Marks the prompt as injected by an automation firing in-thread (badged on
-   *  the bubble) or as an agent conversation report (suppressed from rendering). */
+  /** Marks the prompt as injected by an automation firing in-thread or as an
+   *  agent conversation report (suppressed from rendering). */
   via?: PromptVia
-  /** Source automation id/name, present when `via === 'automation'`. */
-  automationId?: string
-  automationName?: string
+  /** The agent or automation that sent the prompt; the host stamps it on the
+   *  `user_message` and keeps it for the history. */
+  sender?: PromptSender
 }
 
 // ─── IPC Context ───

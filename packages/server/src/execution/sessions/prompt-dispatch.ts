@@ -11,7 +11,7 @@ import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus
 import { sessionSettings } from './session-settings'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { type CreateSessionOrder } from '../orchestration/session-orchestrator'
-import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionRunInput, SessionStarter, SessionStarterFromHost, ReasoningEffort } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptSender, PromptDispatchResult, SessionRunInput, SessionStarter, SessionStarterFromHost, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
 import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
 import { hostUserKey } from '../../host/host-user'
@@ -37,6 +37,8 @@ export interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'
   startedBy?: SessionStarterFromHost
   /** The organization the requester works in (`HeadlessSessionRequest.organizationId`); a child takes its parent's. */
   organizationId?: string
+  /** The agent session on this host whose prompt starts this one. */
+  sender?: PromptSender
 }
 
 /** A session a person starts (session-starter.md). A local prompt has no actor: it is the host's user. */
@@ -56,6 +58,7 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
     promptSource: 'agent',
     displayPrompt: request.prompt,
   }
+  if (request.sender) options.sender = request.sender
   if (request.imageAttachmentRefs?.length) options.imageAttachmentRefs = request.imageAttachmentRefs
   return options
 }
@@ -249,7 +252,7 @@ export class PromptDispatch {
     sessionId: string,
     prompt: string,
     delivery: PromptDelivery = 'queue',
-    origin?: Pick<PromptOptions, 'via' | 'imageAttachmentRefs' | 'clientPromptId'> & {
+    origin?: Pick<PromptOptions, 'via' | 'sender' | 'imageAttachmentRefs' | 'clientPromptId'> & {
       /** Replaces the session's stored run mode for this prompt and every later
        *  one. A peer that just planned is still in 'plan' mode: prompting it as
        *  is makes Claude plan again and makes Codex refuse to touch anything, so
@@ -409,7 +412,7 @@ export class PromptDispatch {
     organizationId: string
     /** The automation run or webhook delivery that starts it. */
     startedBy: Extract<SessionStarter, { kind: 'automation' | 'webhook' }>
-    /** The automation's name, for the badge on the first prompt. */
+    /** The automation's name, for the sender of the first prompt. */
     automationName?: string
     provider: AgentId
     modelId: string | null
@@ -465,7 +468,7 @@ export class PromptDispatch {
       ),
       // `promptSource: 'automation'` is the source of every unattended prompt: it waits out a rate limit and a pending update the same way.
       options: req.startedBy.kind === 'automation'
-        ? { prompt: req.prompt, promptSource: 'automation', displayPrompt: req.prompt, via: 'automation', automationId: req.startedBy.automationId, automationName: req.automationName }
+        ? { prompt: req.prompt, promptSource: 'automation', displayPrompt: req.prompt, via: 'automation', sender: { kind: 'automation', automationId: req.startedBy.automationId, name: req.automationName } }
         : { prompt: req.prompt, promptSource: 'automation', displayPrompt: req.prompt },
     })
     const cancel = () => lifecycle.cancel()

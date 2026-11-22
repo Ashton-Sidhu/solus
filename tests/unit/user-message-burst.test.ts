@@ -44,13 +44,15 @@ describe('user message bursts', () => {
     expect(result.every((burst) => !burst.groupedWithNext && !burst.continuesBurst)).toBe(true)
   })
 
-  test('another person, an automation, or a host notice never joins a burst', () => {
+  test('another person, another agent, an automation, or a host notice never joins a burst', () => {
     const others = bursts([msg({ role: 'user', author: person('ada') }), msg({ role: 'user', author: person('grace') })])
     expect(others[0]!.groupedWithNext).toBe(false)
     const same = bursts([msg({ role: 'user', author: person('ada') }), msg({ role: 'user', author: person('ada') })])
     expect(same[0]!.groupedWithNext).toBe(true)
-    const automation = bursts([msg({ role: 'user' }), msg({ role: 'user', via: 'automation' })])
+    const automation = bursts([msg({ role: 'user' }), msg({ role: 'user', via: 'automation', sender: { kind: 'automation', automationId: 'nightly' } })])
     expect(automation[0]!.groupedWithNext).toBe(false)
+    const agent = bursts([msg({ role: 'user' }), msg({ role: 'user', sender: { kind: 'agent', sessionId: 'lead' } })])
+    expect(agent[0]!.groupedWithNext).toBe(false)
     const notice = bursts([msg({ role: 'user' }), msg({ role: 'user', via: 'background-command' })])
     expect(notice[0]!.groupedWithNext).toBe(false)
   })

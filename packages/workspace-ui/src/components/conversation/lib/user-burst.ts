@@ -17,11 +17,11 @@ export interface UserBurst {
 
 export const NO_BURST: UserBurst = { groupedWithNext: false, continuesBurst: false }
 
-/** A message a person typed. An automation's prompt and a host notice are not. */
+/** A message a person typed. A prompt another agent or an automation sent, and a host notice, are not. */
 function personMessage(turn: Turn | undefined): Message | null {
   const lead = turn?.lead
   if (lead?.kind !== 'user') return null
-  if (lead.message.via === 'automation' || hostNoticeKind(lead.message)) return null
+  if (lead.message.sender || hostNoticeKind(lead.message)) return null
   return lead.message
 }
 

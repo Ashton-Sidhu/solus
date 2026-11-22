@@ -98,8 +98,8 @@ that have the value it asks for, so an old chat is not in a chat filter.
 | `startUnattendedSession` from a webhook | `execution/webhooks/webhook-runtime.ts` | `webhook` (add `webhookId`, `deliveryId`) |
 
 `startUnattendedSession` takes one `starter` field in place of its optional
-`automation` field. The `via: 'automation'` message mark stays for the bubble
-badge.
+`automation` field. The automation's prompt carries its sender, which a
+reload keeps (`prompt-sender.md`).
 
 ## 5. Contract and storage
 

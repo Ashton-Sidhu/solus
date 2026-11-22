@@ -50,6 +50,10 @@ export type ActivityKind =
   | { kind: 'queued_prompt_changed'; queueId: string; change: 'removed' | 'edited'; author?: User }
   /** No longer recorded; rows stored before still parse and are not drawn. */
   | { kind: 'seat_needed'; provider: AgentId }
+  /** An agent or an automation (`by`) sent a prompt into the session. Not
+   *  drawn: a history read folds `by` onto the user row whose text has this
+   *  hash, as its `sender` (docs/plans/prompt-sender.md). */
+  | { kind: 'prompt_sent'; promptHash: string }
   // any subject
   | { kind: 'renamed'; title: string }
   | { kind: 'shared'; with: 'organization' | 'user'; userId?: UserId }
@@ -102,6 +106,7 @@ export const activityKindSchema: z.ZodType<ActivityKind> = z.discriminatedUnion(
   z.object({ kind: z.literal('rate_limit_decided'), action: z.enum(['send_now', 'stop', 'wait']) }),
   z.object({ kind: z.literal('queued_prompt_changed'), queueId: z.string(), change: z.enum(['removed', 'edited']), author: userSchema.optional() }),
   z.object({ kind: z.literal('seat_needed'), provider: agentIdSchema }),
+  z.object({ kind: z.literal('prompt_sent'), promptHash: z.string() }),
   z.object({ kind: z.literal('renamed'), title: z.string() }),
   z.object({ kind: z.literal('shared'), with: z.enum(['organization', 'user']), userId: userIdSchema.optional() }),
   z.object({ kind: z.literal('mentioned'), userId: userIdSchema, threadId: z.string().optional() }),

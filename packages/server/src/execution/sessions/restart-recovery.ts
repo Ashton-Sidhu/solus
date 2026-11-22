@@ -35,7 +35,7 @@ export class RestartRecovery {
    *  `state`: 'running' when the provider already holds the prompt, as a steer does. */
   saveRestartRun(request: SessionRunRequest, isOrganizationWork: boolean, state: 'starting' | 'running' = 'starting'): void {
     if (!this.restartRuns || this.rt.isShuttingDown || !restartRecoveryEnabled() || isOrganizationWork
-      || request.delegation || request.options.automationId) return
+      || request.delegation || request.options.sender?.kind === 'automation') return
     const authority = restartAuthority(request.actor)
     if (request.input.agentSessionId && getIndexedSession(request.input.agentSessionId)?.delegation) return
     if (!authority) return

@@ -15,16 +15,21 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
     activeExchangeIdsFor: (sessionId) => sessionRuntime.activeExchangeIdsFor(sessionId),
     queuedExchanges: () => sessionRuntime.scheduler.queuedExchanges(),
     sessionMeta: (sessionId) => getIndexedSession(sessionId),
-    createSession: (order) => sessionRuntime.dispatch.createSession(order),
+    // The session that starts another is its first prompt's sender.
+    createSession: (order) => {
+      const senderSessionId = order.sourceSessionId ?? order.delegation?.parentSessionId
+      return sessionRuntime.dispatch.createSession(senderSessionId ? { ...order, sender: { kind: 'agent', ...senderAgent(senderSessionId) } } : order)
+    },
     // A prompt one agent sends acts for the person the sender works for; with no sender, the target's.
     promptSession: (sessionId, prompt, delivery, { senderSessionId, ...order }) => sessionRuntime.dispatch.promptSession(sessionId, prompt, delivery, {
       ...order,
       actor: senderSessionId ? sessionRuntime.actorOfSession(senderSessionId) : undefined,
+      sender: senderSessionId ? { kind: 'agent', ...senderAgent(senderSessionId) } : undefined,
     }),
     // An agent's stop acts for the person its sender works for, and names the
     // sender, so the stopped turn says an agent ended it. With no sender, the host's.
     stopSession: (id, senderSessionId) => senderSessionId
-      ? sessionRuntime.stopSession(id, sessionRuntime.actorOfSession(senderSessionId) ?? HOST_ACTOR, stoppingAgent(senderSessionId))
+      ? sessionRuntime.stopSession(id, sessionRuntime.actorOfSession(senderSessionId) ?? HOST_ACTOR, senderAgent(senderSessionId))
       : sessionRuntime.stopSession(id, HOST_ACTOR),
     respondToPermission: (askingSessionId, questionId, optionId, updatedPlan) => sessionRuntime.inputRequests.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, HOST_ACTOR),
     pendingInputEvents: (sessionId) => sessionRuntime.inputRequests.pendingInputEventsForSession(sessionId),
@@ -52,8 +57,8 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
   return orchestrator
 }
 
-/** The agent session that asked for a stop, named as it reads now. */
-function stoppingAgent(sessionId: string): AgentVia {
+/** The agent session that sends a prompt or asks for a stop, named as it reads now. */
+function senderAgent(sessionId: string): AgentVia {
   const meta = getIndexedSession(sessionId)
   const agent: AgentVia = { sessionId }
   if (meta?.provider) agent.provider = meta.provider

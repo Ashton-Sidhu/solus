@@ -920,11 +920,8 @@ export class SessionEventReducer {
         if (outbound?.planRefs?.length) message.planRefs = outbound.planRefs
         if (outbound?.workRefs?.length) message.workRefs = outbound.workRefs
         if (outbound?.sessionRefs?.length) message.sessionRefs = outbound.sessionRefs
-        if (event.via) {
-          message.via = event.via
-          message.automationId = event.automationId
-          message.automationName = event.automationName
-        }
+        if (event.via) message.via = event.via
+        if (event.sender) message.sender = event.sender
         // The host names the author; the bubble shows it when it is someone else.
         if (event.author) message.author = event.author
         session.messages.push(message)

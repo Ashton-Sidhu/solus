@@ -330,6 +330,7 @@ export function materializeSessionTranscript(
         msg.attachments = attached.attachments
       }
     }
+    if (m.role === 'user' && m.sender) msg.sender = m.sender
     if (m.role === 'user' && m.imageAttachmentRefs?.length) {
       msg.attachments = [...(msg.attachments ?? []), ...(imageRefAttachments(m.imageAttachmentRefs) ?? [])]
     }

@@ -5,6 +5,8 @@ import { createLogger } from '../../logger'
 import { isRawReviewSkill } from '../agents/review-command'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
+import { withPromptSenders } from '../../data/activity/prompt-senders'
+import { ANY_ORGANIZATION } from '../../admission/principal'
 import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionLineageResolution, SessionMeta, SessionDescription, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { startsHistoryTurn, type SessionHistoryPageRequest, type SessionSubagentRequest, type ProviderHistoryPage, type SessionLoadMessage, type SessionPreviewResult } from '@solus/contracts/session-history'
 import { type TurnSeat } from '../seats/seat-manager'
@@ -86,6 +88,8 @@ export class SessionHistory {
     )
     const starting = request.before ? null : this.startingPrompt(sessionId, page.messages)
     if (starting) page.messages.push(starting)
+    // The session's id, not a lineage member's, names its records.
+    await withPromptSenders(ANY_ORGANIZATION, lineage?.sessionId ?? sessionId, page.messages)
     return page
   }
 
@@ -157,6 +161,7 @@ export class SessionHistory {
     const lastPrompt = messages.findLast(startsHistoryTurn)
     if (lastPrompt?.content.trim() === text.trim()) return null
     const prompt: SessionLoadMessage = { role: 'user', content: text, timestamp: Date.now() }
+    if (run.options.sender) prompt.sender = run.options.sender
     if (run.options.imageAttachmentRefs?.length) prompt.imageAttachmentRefs = run.options.imageAttachmentRefs
     else if (run.options.imageAttachments?.length) prompt.imageAttachments = run.options.imageAttachments
     return prompt
@@ -168,7 +173,13 @@ export class SessionHistory {
     return backend.loadSessionPage(segment.sessionId!, segment.projectPath, turnLimit, before)
   }
 
+  /** A session's history, newest `limit` rows when given, with the senders the host recorded on its prompts. */
   async loadSession(agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
+    const messages = await this.loadProviderSession(agentId, sessionId, projectPath, limit)
+    return withPromptSenders(ANY_ORGANIZATION, resolveSessionLineageById(sessionId)?.sessionId ?? sessionId, messages)
+  }
+
+  private async loadProviderSession(agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
     let handoff = resolveSessionLineageById(sessionId)
     if (!handoff) return this.rt.handoffs.handoffCarry.merge(sessionId, await this.rt.backendFor(agentId).loadSession(sessionId, projectPath, limit))
 

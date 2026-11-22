@@ -183,7 +183,9 @@ export const LINEAGE_SWITCH_ID_PREFIX = 'handoff:'
  * same handoff (recorded at the lineage member's start), which names who
  * switched; the recorded one takes the models the lineage knows.
  */
-export function mergeSessionActivity(messages: WireSessionLoadMessage[], activity: Activity[]): WireSessionLoadMessage[] {
+export function mergeSessionActivity(messages: WireSessionLoadMessage[], allActivity: Activity[]): WireSessionLoadMessage[] {
+  // A prompt's sender rides on its user row (`withPromptSenders`), never on a row of its own.
+  const activity = allActivity.filter((entry) => entry.kind !== 'prompt_sent')
   if (!activity.length) return messages
   const recordedSwitches = new Map<string, Extract<Activity, { kind: 'agent_switched' }>>()
   for (const entry of activity) {
