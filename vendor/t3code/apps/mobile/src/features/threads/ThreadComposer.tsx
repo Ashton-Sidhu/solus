@@ -134,6 +134,7 @@ export const THREAD_COMPOSER_BOTTOM_GUTTER = COMPOSER_BOTTOM_GUTTER;
 const NO_MACHINES: ReadonlyArray<ComposerEnvironmentCandidate> = [];
 
 export interface ThreadComposerProps {
+  readonly modelDisplayName?: string | undefined;
   readonly isDraft?: boolean;
   readonly canOperateThread: boolean;
   readonly placeholder: string;
@@ -689,6 +690,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       <ComposerModelControl
         size={usesLargeControls ? "large" : "regular"}
         modelOption={currentModelOption}
+        modelDisplayName={props.modelDisplayName}
         selection={currentModelSelection}
         provider={selectedProviderStatus?.driver}
         reportedSelection={props.reportedModelSelection}

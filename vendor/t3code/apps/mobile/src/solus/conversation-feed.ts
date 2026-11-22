@@ -24,7 +24,9 @@ export function conversationFeed(
   const update = (key: string) => {
     const item = store.item(key);
     if (!item) return;
-    const createdAt = new Date(("timestamp" in item ? item.timestamp : null) ?? 0).toISOString();
+    const timestamp = "timestamp" in item ? item.timestamp : undefined;
+    const date = timestamp && timestamp > 0 ? new Date(timestamp) : null;
+    const createdAt = date && Number.isFinite(date.getTime()) ? date.toISOString() : "";
     const superseded = item.kind === "artifact" && !!item.workId && latest.get(item.workId) !== key;
     const card: ThreadFeedEntry = {
       type: "conversation-card",

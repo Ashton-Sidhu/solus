@@ -13,6 +13,7 @@ import {
   pickComposerFiles,
   pastedComposerImages,
 } from "@solus-mobile/features/threads/composer-attachment-pickers";
+import { modelLabel } from "@solus-mobile/features/conversation/lib/run-settings";
 import { RequestCards } from "./RequestCards";
 import {
   ConversationMedia,
@@ -232,6 +233,7 @@ function SessionDetail({
       <ScreenContent surface="canvas">
         <ThreadDetailScreen
           selectedThread={shell}
+          modelDisplayName={modelLabel(meta.run.provider, meta.run.model, meta.runOptions.agents?.find((agent) => agent.id === meta.run.provider))}
           environmentId={EnvironmentId.make(hostId)}
           projectWorkspaceRoot={controller.run.workingDirectory}
           threadCwd={controller.run.workingDirectory}

@@ -225,6 +225,7 @@ import type { OrchestrationV2ProviderSession } from "@t3tools/contracts";
 import { voiceInputBlocksSubmission } from "@t3tools/client-runtime/voice-input";
 
 export interface ThreadDetailScreenProps {
+  readonly modelDisplayName?: string | undefined;
   readonly header?: React.ReactNode;
   readonly composerCards?: React.ReactNode;
   readonly hostImageRenderer?: import("../../native/SelectableMarkdownText.types").MarkdownImageRenderer;
@@ -1921,6 +1922,7 @@ function ThreadDetailBody(
                   ) : (
                     <>
                       <ThreadComposer
+                        modelDisplayName={props.modelDisplayName}
                         isDraft={Boolean(props.draftMode)}
                         canOperateThread={props.canOperateThread}
                         reportedModelSelection={reportedModelSelection}

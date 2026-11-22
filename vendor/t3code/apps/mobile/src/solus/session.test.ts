@@ -1,3 +1,4 @@
+import { modelLabel } from "@solus-mobile/features/conversation/lib/run-settings";
 import { expect, it } from "vite-plus/test";
 import { toThreadShell, type SessionRow } from "./session";
 
@@ -27,4 +28,10 @@ it("keeps the host and worktree when opening a renamed session", () => {
     runtimeMode: "auto-accept-edits",
     modelSelection: { instanceId: "claudeAgent", model: "auto" },
   });
+});
+
+
+it("uses the host model label or the Solus catalog name for the composer", () => {
+  expect(modelLabel("claude-code", "claude-opus-5-5")).toBe("Opus 5.5");
+  expect(modelLabel("codex", "custom", { models: [{ id: "custom", label: "Team model" }] })).toBe("Team model");
 });

@@ -121,10 +121,10 @@ export function effortLabel(effort: ReasoningEffort): string {
   return REASONING_EFFORT_LABELS[effort]
 }
 
-export function modelLabel(provider: AgentId, modelId: string | null): string {
+export function modelLabel(provider: AgentId, modelId: string | null, agent?: Pick<AgentMetadata, 'models' | 'modelProfiles'>): string {
   if (!modelId) return 'Host default'
   if (modelId === AUTO_MODEL_ID) return 'Auto'
-  return MODEL_PROFILES[provider]?.[modelId]?.label ?? modelId
+  return agent?.models.find((model) => model.id === modelId)?.label || modelProfileForAgent(provider, modelId, agent)?.label || modelId
 }
 
 /**

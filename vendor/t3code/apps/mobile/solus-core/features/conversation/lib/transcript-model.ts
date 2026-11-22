@@ -950,6 +950,8 @@ export class TranscriptModel {
   }
 
   private append(item: TranscriptItem): void {
+    // Live messages arrive without a stored time. Keep their arrival time through later text updates.
+    if ((item.kind === 'user' || item.kind === 'assistant') && item.timestamp === undefined) item.timestamp = Date.now()
     this.items.set(item.id, item)
     this.order = [...this.order, item.id]
     this.orderChanged = true

@@ -1,7 +1,7 @@
 import { RunId } from "@t3tools/contracts";
 import { deriveThreadFeedPresentation } from "../lib/threadActivity";
 import { expect, it, vi } from "vite-plus/test";
-import type { TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
+import { TranscriptModel, type TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
 import { conversationFeed } from "./conversation-feed";
 
 it("keeps host cards in transcript order and collapses only older versions of the same work", () => {
@@ -162,4 +162,26 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
     expect(ids).not.toContain("read");
     expect(ids).toContain("app:app");
   }
+});
+
+
+it("keeps the arrival time of live messages across streaming updates and leaves unknown history times blank", () => {
+  const time = vi.spyOn(Date, "now");
+  try {
+    const start = Date.UTC(2026, 10, 20, 14);
+    time.mockReturnValue(start);
+    const model = new TranscriptModel("session");
+    model.addOptimisticUser("prompt", "hello");
+    time.mockReturnValue(start + 1000);
+    model.apply({ type: "text_chunk", text: "first" });
+    time.mockReturnValue(start + 2000);
+    model.apply({ type: "text_chunk", text: " second" });
+    model.items.set("legacy", { kind: "assistant", id: "legacy", text: "older", timestamp: 0 });
+    model.items.set("saved", { kind: "assistant", id: "saved", text: "saved", timestamp: start - 60000 });
+    const feed = conversationFeed({ item: (key) => model.items.get(key), subscribeItem: () => () => {} },
+      [...model.order, "legacy", "saved"], "session", () => null);
+    expect(feed.get().map((row) => row.createdAt)).toEqual([
+      new Date(start).toISOString(), new Date(start + 1000).toISOString(), "", new Date(start - 60000).toISOString(),
+    ]);
+  } finally { time.mockRestore(); }
 });

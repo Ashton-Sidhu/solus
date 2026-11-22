@@ -11,6 +11,7 @@ import { ComposerInlineControl } from "./ComposerToolbar";
 import { ProviderIcon, ProviderInstanceIcon, providerInstanceNameLabel } from "./ProviderIcon";
 
 export function ComposerModelControl(props: {
+  readonly modelDisplayName?: string | undefined;
   readonly modelOption: ModelOption | null;
   readonly selection: ModelSelection | null;
   readonly provider: ProviderDriverKind | undefined;
@@ -42,7 +43,7 @@ export function ComposerModelControl(props: {
       ).label
     : "";
   const badge = props.modelOption?.providerBadge;
-  const label = props.modelOption?.label ?? props.selection?.model ?? gt("Choose model");
+  const label = props.modelDisplayName ?? props.modelOption?.label ?? props.selection?.model ?? gt("Choose model");
   const providerNameLabel = badge
     ? providerInstanceNameLabel({
         provider: props.modelOption?.providerDriver,
@@ -51,7 +52,7 @@ export function ComposerModelControl(props: {
         showBadge: badge.showBadge,
       })
     : null;
-  const shortLabel = props.modelOption?.shortName ?? label;
+  const shortLabel = props.modelDisplayName ?? props.modelOption?.shortName ?? label;
   return (
     <ComposerInlineControl
       accessibilityLabel={[
