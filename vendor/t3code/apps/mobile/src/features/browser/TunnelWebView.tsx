@@ -1,15 +1,13 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { requireNativeModule, requireNativeView } from "expo";
-import { useRef, type Ref } from "react";
-import {
-  Platform,
-  StyleSheet,
-  View,
-  type NativeSyntheticEvent,
-  type ViewProps,
-} from "react-native";
-
-import { readPreviewTunnelUrl } from "../../state/previewTunnel";
+import type { BrowserNavigateOp } from "@solus/contracts/browser-types";
+import { useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { View, type ViewProps } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import { useListened } from "@solus-mobile/app/app-context";
+import { solus } from "../../solus/runtime";
+import { useAppForeground } from "../../lib/appState";
+import { PreviewStreamWebView } from "../../solus/browser/PreviewStreamWebView";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 
 export interface TunnelNavigation {
   readonly url: string;
@@ -31,32 +29,6 @@ export interface TunnelWebViewRef {
   readonly reload: () => Promise<void>;
 }
 
-const PreviewTunnel = requireNativeModule<{
-  resolveAccess(requestId: string, url: string | null): void;
-}>("T3PreviewTunnel");
-
-const NativeTunnelWebView = requireNativeView<
-  ViewProps & {
-    readonly ref?: Ref<TunnelWebViewRef>;
-    readonly environmentId: string;
-    readonly url: string;
-    readonly topInset?: number;
-    readonly onAccessRequest: (event: NativeSyntheticEvent<{ requestId: string }>) => void;
-    readonly onNavigationChange: (event: NativeSyntheticEvent<TunnelNavigation>) => void;
-    readonly onLoadError: (
-      event: NativeSyntheticEvent<{
-        code: number;
-        description: string;
-        url: string;
-        debug?: string;
-        cause?: string;
-      }>,
-    ) => void;
-    readonly onPageScroll: (event: NativeSyntheticEvent<{ y: number }>) => void;
-  }
->("T3PreviewTunnel");
-
-/** A native webview whose localhost is the environment's loopback, reached through its tunnel. */
 export function TunnelWebView({
   environmentId,
   url,
@@ -95,39 +67,95 @@ export function TunnelWebView({
   /** Reported every few dozen points the page scrolls; "up" also at the top. */
   readonly onScrollDirection?: (direction: "up" | "down") => void;
 }) {
-  const scrollY = useRef(0);
-  // Styling goes on a plain View: a native view from `requireNativeView` ignores className.
+  const [pageId, setPageId] = useState<string | null>(null);
+  const request = useRef<{ url: string; host: string; result: Promise<string> } | null>(null);
+  const [requestedUrl, setRequestedUrl] = useState(url);
+  const [attempt, setAttempt] = useState(0);
+  const { themeVariables } = useAppearancePreferences();
+  const focused = useIsFocused();
+  const foreground = useAppForeground();
+  const pages = useListened(solus.browser.changes, () => solus.browser.pagesOf(environmentId));
+  const page = pages.find((entry) => entry.browserPageId === pageId);
+  const failure = (cause: Error) =>
+    onLoadError({
+      url,
+      unsupported: false,
+      description: cause.message,
+      debug: cause.message,
+      cause: solus.connections.state(environmentId)?.readiness === "ready" ? "port" : "environment",
+    });
+  const reportError = useEffectEvent(failure);
+  useEffect(() => {
+    let active = true;
+    if (
+      !request.current ||
+      request.current.url !== requestedUrl ||
+      request.current.host !== environmentId
+    ) {
+      request.current = {
+        host: environmentId,
+        url: requestedUrl,
+        result: solus.browser.open(environmentId, requestedUrl),
+      };
+    }
+    request.current.result.then(
+      (id) => {
+        if (active) setPageId(id);
+      },
+      (cause: Error) => {
+        if (active) reportError(cause);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [environmentId, requestedUrl, attempt]);
+  const reportPage = useEffectEvent(() => {
+    if (!page) return;
+    onAccess?.(true);
+    onNavigationChange({
+      url: page.url,
+      title: page.title,
+      loading: page.loadState === "loading",
+      canGoBack: page.canGoBack,
+      canGoForward: page.canGoForward,
+    });
+    if (page.loadState === "failed")
+      failure(new Error(page.problem?.message ?? "Page failed to load."));
+  });
+  useEffect(() => {
+    reportPage();
+  }, [page]);
+  const navigate = async (op: BrowserNavigateOp) => {
+    if (!page) {
+      if (op.kind === "goto") setRequestedUrl(op.url);
+      request.current = null;
+      setAttempt((n) => n + 1);
+      return;
+    }
+    try {
+      await solus.browser.navigate(environmentId, page.browserPageId, op);
+    } catch (cause) {
+      failure(cause instanceof Error ? cause : new Error(String(cause)));
+    }
+  };
+  useImperativeHandle(ref, () => ({
+    loadUrl: (next) => navigate({ kind: "goto", url: next }),
+    goBack: () => navigate({ kind: "back" }),
+    goForward: () => navigate({ kind: "forward" }),
+    reload: () => navigate({ kind: "reload" }),
+  }));
   return (
-    <View {...props}>
-      <NativeTunnelWebView
-        style={StyleSheet.absoluteFill}
-        ref={ref}
-        environmentId={environmentId}
-        url={url}
-        {...(Platform.OS === "ios" ? { topInset: topInset ?? 0 } : {})}
-        onAccessRequest={({ nativeEvent }) => {
-          void readPreviewTunnelUrl(environmentId).then((tunnelUrl) => {
-            onAccess?.(tunnelUrl !== null);
-            PreviewTunnel.resolveAccess(nativeEvent.requestId, tunnelUrl);
-          });
-        }}
-        onNavigationChange={({ nativeEvent }) => onNavigationChange(nativeEvent)}
-        onPageScroll={({ nativeEvent }) => {
-          const down = nativeEvent.y > 0 && nativeEvent.y > scrollY.current;
-          scrollY.current = nativeEvent.y;
-          onScrollDirection?.(down ? "down" : "up");
-        }}
-        onLoadError={({ nativeEvent }) =>
-          onLoadError({
-            url: nativeEvent.url,
-            // The view reports a setup failure with no URL and code -1, before any page loads.
-            unsupported: nativeEvent.code === -1 && nativeEvent.url === "",
-            description: nativeEvent.description,
-            debug: nativeEvent.debug,
-            cause: TUNNEL_FAILURE_CAUSES.find((cause) => cause === nativeEvent.cause),
-          })
-        }
-      />
+    <View {...props} style={[props.style, { paddingTop: topInset }]}>
+      {page && focused && foreground ? (
+        <PreviewStreamWebView
+          hostId={environmentId}
+          page={page}
+          onScrollDirection={onScrollDirection}
+          interactive
+          background={themeVariables["--color-sheet-solid"]}
+        />
+      ) : null}
     </View>
   );
 }

@@ -147,11 +147,10 @@ import {
 } from "../../lib/layout";
 import { editPendingThreadMessage } from "../../state/edit-pending-thread-message";
 import { environmentCatalog } from "../../connection/catalog";
-import { deviceEnvironment } from "../../state/device";
-import { useEnvironmentQuery } from "../../state/query";
-import { threadDevicePreviews } from "../devices/threadDevicePreviews";
+import { solus } from "../../solus/runtime";
+import { useListened } from "@solus-mobile/app/app-context";
+import { threadDevicePreviews } from "../../solus/devices/threadDevicePreviews";
 import { ThreadBrowserFloat } from "../browser/ThreadBrowserFloat";
-import { useThreadServerBrowserTabs } from "../../state/preview";
 import type { QueuedThreadMessage } from "../../state/thread-outbox-model";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import {
@@ -440,10 +439,13 @@ function ThreadDetailBody(
   const openInspector = useOpenThreadInspector();
   const { session: voiceInputSession } = useGlobalVoiceInput();
   const reportedModelSelection = useThreadReportedModelSelection(props.selectedThreadDetailRef);
-  const deviceState = useEnvironmentQuery(
-    deviceEnvironment.state({ environmentId: props.environmentId, input: {} }),
-  );
-  const devicePreviews = threadDevicePreviews(deviceState.data, props.selectedThread.id);
+  const deviceState = useListened(solus.devices.changes, () => solus.devices.stateOf(props.environmentId));
+  const devicePreviews = threadDevicePreviews(deviceState, props.selectedThread.id);
+  useEffect(() => {
+    if (props.draftMode) return;
+    void solus.devices.load(props.environmentId);
+    void solus.browser.load(props.environmentId);
+  }, [props.environmentId, props.draftMode]);
   const openDevicePreview = () => {
     Keyboard.dismiss();
     if (
@@ -458,12 +460,7 @@ function ThreadDetailBody(
       threadId: props.selectedThread.id,
     });
   };
-  const browserTabs = useThreadServerBrowserTabs({
-    environmentId: props.environmentId,
-    threadId: props.selectedThread.id,
-    enabled:
-      !props.draftMode && props.serverConfig?.environment.capabilities.serverBrowser === true,
-  });
+  const browserTabs = useListened(solus.browser.changes, () => solus.browser.pagesOf(props.environmentId));
   const openBrowserPreview = (tabId?: string) => {
     Keyboard.dismiss();
     navigation.navigate("ThreadBrowserPreview", {
@@ -928,8 +925,7 @@ function ThreadDetailBody(
     showWorkingControl ||
     queuedCount > 0 ||
     agentsSegment !== null ||
-    devicePreviews.length > 0 ||
-    browserTabs.tabs.length > 0;
+    !props.draftMode;
   const selectedThreadFeed = props.selectedThreadFeed;
   // A palette message result opens the thread at that message: earlier
   // history loads until the message is in the feed, which then scrolls to it.
@@ -1611,8 +1607,7 @@ function ThreadDetailBody(
           key={selectedThreadKey}
           environmentId={props.environmentId}
           threadId={props.selectedThread.id}
-          tabs={browserTabs.tabs}
-          loaded={browserTabs.loaded}
+          tabs={browserTabs}
           top={navigationHeaderHeight + 8}
           onOpen={openBrowserPreview}
         />
@@ -1684,13 +1679,13 @@ function ThreadDetailBody(
                     }
                     lift={floatingControlLift}
                     devicePreview={
-                      devicePreviews.length > 0
+                      !props.draftMode
                         ? { count: devicePreviews.length, onPress: openDevicePreview }
                         : null
                     }
                     browserPreview={
-                      browserTabs.tabs.length > 0
-                        ? { count: browserTabs.tabs.length, onPress: () => openBrowserPreview() }
+                      !props.draftMode
+                        ? { count: browserTabs.length, onPress: () => openBrowserPreview() }
                         : null
                     }
                     showScrollToEnd={showScrollToEndButton}

@@ -1,16 +1,14 @@
 import { SheetCloseButton } from "../../components/ui/SheetHeader";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
-import {
-  deviceToolVersionLabels,
-  deviceToolUpdateOwnership,
-  deviceToolUpdatePolicy,
-} from "@t3tools/client-runtime/state/device";
+import { deviceToolVersionLabels } from "@t3tools/client-runtime/state/device";
+import { solus } from "../../solus/runtime";
+import { useListened } from "@solus-mobile/app/app-context";
+import { useDeviceControlRenewal } from "../../solus/devices/useDeviceControlRenewal";
 import { useIsFocused, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
-import { msg, T, useGT } from "gt-react-native";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { msg, useGT } from "gt-react-native";
+import { useEffect, useRef, useState } from "react";
 import * as Haptics from "expo-haptics";
 import { Accelerometer } from "expo-sensors";
 import { Pressable, View } from "react-native";
@@ -34,17 +32,12 @@ import { useAppForeground } from "../../lib/appState";
 import { useHardwareBack } from "../../lib/backHandler";
 import { deriveBottomControlInsets } from "../../lib/reserved-regions";
 import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
-import { uuidv4 } from "../../lib/uuid";
-import { deviceEnvironment, useDeviceHubAccess } from "../../state/device";
-import { useEnvironmentQuery } from "../../state/query";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
-import { DeviceStreamWebView, type DeviceStreamRef } from "./DeviceStreamWebView";
+import { DeviceStreamWebView, type DeviceStreamRef } from "../../solus/devices/DeviceStreamWebView";
 import {
   selectedThreadDevicePreview,
   threadDevicePreviews,
-  type ThreadDevicePreview,
-} from "./threadDevicePreviews";
+} from "../../solus/devices/threadDevicePreviews";
 import { createShakeDetector } from "./shakeDetector";
 
 const OVERLAY_ENTERING = FadeIn.duration(160).reduceMotion(ReduceMotion.System);
@@ -99,25 +92,40 @@ export function DevicePreviewScreen({
   const focused = useIsFocused();
   const foreground = useAppForeground();
   const [selectedKey, setSelectedKey] = useState<string | null>(initialDeviceKey ?? null);
-  const [inputConnected, setInputConnected] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const gt = useGT();
   const [streamAttempt, setStreamAttempt] = useState(0);
   const [shuttingDown, setShuttingDown] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const retryHost = useAtomCommand(deviceEnvironment.list);
-  const shutdown = useAtomCommand(deviceEnvironment.shutdown, { reportFailure: false });
   const streamRef = useRef<DeviceStreamRef>(null);
-  const state = useEnvironmentQuery(deviceEnvironment.state({ environmentId, input: {} }));
-  const previews = threadDevicePreviews(state.data, threadId);
-  const preview = selectedThreadDevicePreview(previews, selectedKey);
-  const onInputConnected = async (connected: boolean) => {
-    setInputConnected(connected);
-    if (!connected) setControlsVisible(true);
-  };
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- closes the focused route through the navigator once the thread has no device previews
+  const state = useListened(solus.devices.changes, () => solus.devices.stateOf(environmentId));
+  const error = useListened(solus.devices.changes, () => solus.devices.errorOf(environmentId));
+  const previews = threadDevicePreviews(state, threadId);
+  const preview = selectedThreadDevicePreview(previews, selectedKey ?? undefined);
+  const target = preview?.preview;
+  const held = useListened(
+    solus.devices.changes,
+    () => !!target && solus.devices.holdsControl(environmentId, target),
+  );
+  const inputConnected = streaming && held;
+  useDeviceControlRenewal(
+    environmentId,
+    threadId,
+    focused && foreground && held ? target : undefined,
+  );
   useEffect(() => {
-    if (focused && state.data !== null && previews.length === 0) onClose();
-  }, [focused, state.data, previews.length, onClose]);
+    void solus.devices.load(environmentId, true);
+  }, [environmentId]);
+  const takeControl = async () => {
+    if (!target) return false;
+    try {
+      await solus.devices.takeControl(environmentId, target, threadId);
+      return solus.devices.holdsControl(environmentId, target);
+    } catch (cause) {
+      Dialog.alert("Could not take control", String(cause));
+      return false;
+    }
+  };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to the Accelerometer while focused to toggle controls on a shake
   useEffect(() => {
     if (!focused || !foreground || embedded) return;
@@ -138,45 +146,40 @@ export function DevicePreviewScreen({
   const shutDownDevice = async () => {
     if (!preview || shuttingDown) return;
     setShuttingDown(true);
-    const result = await shutdown({
-      environmentId,
-      input: {
-        hostId: preview.session.hostId,
-        deviceId: preview.session.deviceId,
-        platform: preview.session.platform,
-      },
-    }).finally(() => setShuttingDown(false));
-    if (result._tag === "Failure") {
-      Dialog.alert(m(msg("Could not shut down device")), String(Cause.squash(result.cause)));
+    try {
+      await solus.devices.shutdown(environmentId, preview.preview);
+    } catch (cause) {
+      Dialog.alert(m(msg("Could not shut down device")), String(cause));
+    } finally {
+      setShuttingDown(false);
     }
   };
 
   const controls: AppBarMenuItem[] = [
-    ...(state.data?.hosts
-      .filter(
-        (host) =>
-          state.data?.supportsHostRetry && state.data.hostStatuses[host.id]?.status === "failed",
-      )
-      .map((host) => ({
-        id: `retry-${host.id}`,
-        title: gt("Retry {host}", { host: host.label }),
-        icon: "arrow.clockwise" as const,
-        onPress: () => {
-          void retryHost({ environmentId, input: { retryHostId: host.id } });
-        },
+    ...(state?.hostStatuses
+      .filter((entry) => entry.status === "failed")
+      .map((entry) => ({
+        id: "retry-" + entry.deviceHostId,
+        title: gt("Retry {host}", {
+          host:
+            state.hosts.find((host) => host.deviceHostId === entry.deviceHostId)?.label ??
+            entry.deviceHostId,
+        }),
+        icon: "arrow.clockwise",
+        onPress: () =>
+          void solus.devices
+            .retryHost(environmentId, entry.deviceHostId)
+            .catch((cause) => Dialog.alert("Devices", String(cause))),
       })) ?? []),
-    ...(state.data?.supportsToolInspection
-      ? [
-          {
-            id: "check-device-tools",
-            title: gt("Check device tool versions"),
-            icon: "arrow.clockwise" as const,
-            onPress: () => {
-              void retryHost({ environmentId, input: { inspectOnly: true } });
-            },
-          },
-        ]
-      : []),
+    {
+      id: "check-device-tools",
+      title: gt("Check device tool versions"),
+      icon: "arrow.clockwise",
+      onPress: () =>
+        void solus.devices
+          .change(environmentId, (api) => api.deviceToolInspect())
+          .catch((cause) => Dialog.alert("Device tools", String(cause))),
+    },
     {
       id: "device-tools",
       title: gt("Device tool versions"),
@@ -184,42 +187,86 @@ export function DevicePreviewScreen({
       onPress: () =>
         Dialog.alert(
           m(msg("Device tool versions")),
-          m(deviceToolUpdateOwnership) +
-            "\n\n" +
-            deviceToolUpdatePolicy(
-              state.data?.hosts.find((host) => host.id === preview?.session.hostId)?.tools,
-              m,
-            ) +
-            "\n\n" +
-            deviceToolVersionLabels(
-              state.data?.hosts.find((host) => host.id === preview?.session.hostId)?.tools,
-              m,
-            ).join("\n") +
-            "\n" +
-            (state.data?.hosts.find((host) => host.id === preview?.session.hostId)
-              ?.toolInspectionError ??
-              state.data?.hostStatuses[preview?.session.hostId ?? ""]?.detail ??
-              ""),
+          state?.hosts
+            .map((host) =>
+              [host.label, ...deviceToolVersionLabels(host.tools, m), host.toolInspectionError]
+                .filter(Boolean)
+                .join("\n"),
+            )
+            .join("\n\n") || "No hosts available.",
         ),
     },
+    ...(state?.devices ?? [])
+      .filter(
+        (device) =>
+          !previews.some(
+            (item) =>
+              item.preview.deviceId === device.deviceId &&
+              item.preview.deviceHostId === device.deviceHostId,
+          ),
+      )
+      .map((device) => ({
+        id: JSON.stringify([device.deviceHostId, device.deviceId]),
+        title: device.name,
+        subtitle: device.unavailableReason ?? device.version,
+        disabled: shuttingDown || !!device.unavailableReason,
+        onPress: async () => {
+          setShuttingDown(true);
+          try {
+            await solus.devices.open(environmentId, threadId, device);
+            setSelectedKey(JSON.stringify([device.deviceHostId, device.deviceId]));
+          } catch (cause) {
+            Dialog.alert("Could not open device", String(cause));
+          } finally {
+            setShuttingDown(false);
+          }
+        },
+      })),
+    {
+      id: "refresh",
+      title: gt("Refresh"),
+      onPress: () => void solus.devices.load(environmentId, true),
+    },
+    ...(target
+      ? [
+          {
+            id: "control",
+            title: held ? "Release control" : "Take control",
+            onPress: () =>
+              held
+                ? void solus.devices
+                    .release(environmentId, target)
+                    .catch((cause) => Dialog.alert("Devices", String(cause)))
+                : void takeControl(),
+          },
+          {
+            id: "close",
+            title: "Close preview",
+            onPress: () =>
+              void solus.devices
+                .close(environmentId, threadId, target)
+                .catch((cause) => Dialog.alert("Devices", String(cause))),
+          },
+        ]
+      : []),
     {
       id: "reload",
       title: gt("Reload stream"),
       icon: "arrow.clockwise" as const,
       disabled: !preview || shuttingDown,
       onPress: () => {
-        setInputConnected(false);
+        setStreaming(false);
         setStreamAttempt((attempt) => attempt + 1);
       },
     },
-    ...(preview?.session.platform === "android"
+    ...(preview?.preview.platform === "android"
       ? [
           {
             id: "back",
             title: gt("Back", { $context: "Android back button" }),
             icon: "arrow.left",
             disabled: !inputConnected,
-            onPress: () => streamRef.current?.back(),
+            onPress: () => streamRef.current?.press("back"),
           },
         ]
       : []),
@@ -228,16 +275,19 @@ export function DevicePreviewScreen({
       title: gt("App switcher"),
       icon: "square.on.square",
       disabled: !inputConnected,
-      onPress: () => streamRef.current?.appSwitcher(),
+      onPress: () =>
+        streamRef.current?.press(
+          preview?.preview.platform === "android" ? "recents" : "appSwitcher",
+        ),
     },
-    ...(preview?.session.platform === "ios"
+    ...(preview?.preview.platform === "ios"
       ? [
           {
             id: "rotate",
             title: gt("Rotate device"),
             icon: "arrow.clockwise" as const,
             disabled: !inputConnected,
-            onPress: () => streamRef.current?.rotate(),
+            onPress: () => streamRef.current?.press("rotate"),
           },
         ]
       : []),
@@ -245,11 +295,11 @@ export function DevicePreviewScreen({
       id: "shutdown",
       title: shuttingDown ? gt("Shutting down…") : gt("Shut down device"),
       icon: "power",
-      disabled: !preview || shuttingDown,
+      disabled: !held || shuttingDown,
       onPress: () => void shutDownDevice(),
     },
   ];
-  const pressHome = () => streamRef.current?.home();
+  const pressHome = () => streamRef.current?.press("home");
   const menuItems: AppBarMenuItem[] = [
     ...(previews.length > 1
       ? [
@@ -287,24 +337,42 @@ export function DevicePreviewScreen({
         </>
       ) : null}
       {preview && focused && foreground ? (
-        <OpenDevicePreview
+        <DeviceStreamWebView
           key={`${preview.key}:${streamAttempt}`}
-          environmentId={environmentId}
-          preview={preview}
-          streamRef={streamRef}
-          onInputConnected={onInputConnected}
+          hostId={environmentId}
+          target={preview.preview}
+          platform={preview.preview.platform}
+          kind={preview.kind}
+          enabled={held}
+          onTakeControl={takeControl}
+          ref={streamRef}
+          colors={{
+            background: themeVariables["--color-sheet-solid"],
+            muted: themeVariables["--color-foreground-muted"],
+          }}
+          onStreamingChange={setStreaming}
         />
       ) : (
         <View className="flex-1 items-center justify-center gap-4 px-6">
-          {state.error ? (
+          {error ? (
             <>
               <AppText selectable className="text-center text-sm text-foreground-muted">
-                {state.error}
+                {error}
               </AppText>
               <View className="items-center">
-                <Button label={gt("Retry")} tone="secondary" onPress={state.refresh} />
+                <Button
+                  label={gt("Retry")}
+                  tone="secondary"
+                  onPress={() => void solus.devices.load(environmentId, true)}
+                />
               </View>
             </>
+          ) : state ? (
+            <AppText>
+              {state.devices.length
+                ? "Select a device in Device options."
+                : "No devices found on this host."}
+            </AppText>
           ) : focused && foreground ? (
             <AppActivityIndicator color={themeVariables["--color-icon"]} />
           ) : null}
@@ -390,63 +458,5 @@ function DeviceOptionsMenu({ items }: { readonly items: ReadonlyArray<AppBarMenu
     >
       <ControlPill icon="ellipsis" accessibilityLabel={gt("Device options")} />
     </Menu>
-  );
-}
-
-function OpenDevicePreview({
-  environmentId,
-  preview,
-  streamRef,
-  onInputConnected,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly preview: ThreadDevicePreview;
-  readonly streamRef: RefObject<DeviceStreamRef | null>;
-  readonly onInputConnected: (connected: boolean) => Promise<void>;
-}) {
-  const { session } = preview;
-  const { themeVariables } = useAppearancePreferences();
-  const gt = useGT();
-  const [viewer] = useState(uuidv4);
-  const { access, error, refresh } = useDeviceHubAccess(environmentId, session.hostId, viewer);
-  const onUnauthorized = async () => refresh();
-  return access ? (
-    <DeviceStreamWebView
-      ref={streamRef}
-      access={access}
-      platform={session.platform}
-      deviceId={session.deviceId}
-      serveSimOnly={preview.serveSimOnly}
-      colors={{
-        background: themeVariables["--color-sheet-solid"],
-        foreground: themeVariables["--color-foreground"],
-        muted: themeVariables["--color-foreground-muted"],
-        buttonBackground: themeVariables["--color-secondary"],
-        buttonForeground: themeVariables["--color-secondary-foreground"],
-        buttonBorder: themeVariables["--color-secondary-border"],
-      }}
-      onUnauthorized={onUnauthorized}
-      onInputConnected={onInputConnected}
-    />
-  ) : (
-    <View className="flex-1 items-center justify-center gap-4 px-6">
-      {error ? (
-        <>
-          <AppText selectable className="text-center text-sm text-foreground-muted">
-            {error}
-          </AppText>
-          <View className="items-center">
-            <Button label={gt("Retry")} tone="secondary" onPress={refresh} />
-          </View>
-        </>
-      ) : (
-        <>
-          <AppActivityIndicator color={themeVariables["--color-icon"]} />
-          <AppText className="text-sm text-foreground-muted">
-            <T>Connecting to device...</T>
-          </AppText>
-        </>
-      )}
-    </View>
   );
 }

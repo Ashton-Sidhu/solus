@@ -42,6 +42,8 @@ Solus has three primary client surfaces:
 - **Web** — the standalone client in `apps/client/`, served by the headless Solus server and connected through WebSockets. It has one layout, the wide workspace layout, on every device. A phone browser gets the same layout.
 - **Mobile** — the native iOS and Android app in `apps/mobile/` (Expo and React Native), for controlling agent work remotely from a phone or tablet. It shares `@solus/contracts` and `@solus/client-core` with the other clients, but not the Svelte components.
 
+For mobile features, use the T3 Code frontend in `apps/mobile/`. Keep its screens and interactions and connect them to the Solus backend. Follow `apps/mobile/AGENTS.md` and `.agents/skills/solus-mobile/SKILL.md`.
+
 Phone UI belongs in `apps/mobile/` only. Do not add a phone layout, a phone shell, or a viewport-width switch between layouts to `apps/client/` or `packages/workspace-ui/`. Layout in those packages adapts to its container (`@container`) and to the pointer (`pointer-coarse:`), as the Product and UX rules say.
 
 Every user-interface change must be implemented and verified across mobile, desktop, and web. The clients may use surface-appropriate interaction and navigation patterns, but they must expose the same product capability and state. A platform-specific exception requires an explicit product decision; it must not happen merely because one client was easier to update. Native shell behavior may remain platform-specific, but durable domain behavior generally may not be.

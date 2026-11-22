@@ -1,3 +1,4 @@
+import { addressProblem, navigableAddress } from "@solus/client-core/browser-address"
 import type { BrowserFrameListener } from '@solus/client-core/browser-frame-subscriber'
 import {
   largestFrameCaps,
@@ -138,6 +139,17 @@ export class NativeBrowser {
   }
 
   private api(hostId: string) { return this.host(hostId).connection.api }
+
+  async open(hostId: string, address: string): Promise<string> {
+    const problem = addressProblem(address)
+    if (problem) throw new Error(problem)
+    const url = navigableAddress(address)
+    if (!/^https?:\/\//i.test(url)) throw new Error("Enter an HTTP or HTTPS address.")
+    const host = this.host(hostId)
+    const page = await host.connection.api.browserOpen({ target: { kind: 'url', url }, requestSurface: true })
+    if (this.hosts.get(hostId) === host) this.adopt(host, page)
+    return page.browserPageId
+  }
 
   navigate(hostId: string, browserPageId: string, op: BrowserNavigateOp): Promise<void> {
     return this.api(hostId).browserNavigate(browserPageId, op)

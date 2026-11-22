@@ -1,8 +1,10 @@
 import { useIsFocused } from "@react-navigation/native";
-import type { EnvironmentId, PreviewSessionSnapshot, ThreadId } from "@t3tools/contracts";
-import { previewPdfAssetUrl } from "@t3tools/shared/preview";
-import * as Option from "effect/Option";
-import { useGT, useMessages } from "gt-react-native";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { BrowserPage } from "@solus/contracts/browser-types";
+import { useListened } from "@solus-mobile/app/app-context";
+import { solus } from "../../solus/runtime";
+
+import { useGT } from "gt-react-native";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
@@ -10,9 +12,8 @@ import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { useAppForeground } from "../../lib/appState";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
-import { browserTabTitle } from "./browserTabs";
-import { PreviewStreamWebView } from "./PreviewStreamWebView";
-import { usePreparedConnection } from "../../state/session";
+import { browserPageTitle } from "../../solus/browser/browserPages";
+import { PreviewStreamWebView } from "../../solus/browser/PreviewStreamWebView";
 
 const PLAYER_LONG_SIDE = 184;
 const PLAYER_ENTERING = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
@@ -21,39 +22,22 @@ const PLAYER_EXITING = FadeOut.duration(120).reduceMotion(ReduceMotion.System);
 export function ThreadBrowserFloat(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  readonly tabs: ReadonlyArray<PreviewSessionSnapshot>;
-  readonly loaded: boolean;
+  readonly tabs: ReadonlyArray<BrowserPage>;
   readonly top: number;
   readonly onOpen: (tabId: string) => void;
 }) {
   const [tabId, setTabId] = useState<string | null>(null);
-  // The reveal requests already seen, so only a tab revealed after the first
-  // list pops the player.
-  const [seen, setSeen] = useState<{
-    readonly tabs: ReadonlyArray<PreviewSessionSnapshot>;
-    readonly reveals: ReadonlyMap<string, string | undefined>;
-  } | null>(null);
-  if (props.loaded && seen?.tabs !== props.tabs) {
-    setSeen({
-      tabs: props.tabs,
-      reveals: new Map(props.tabs.map((tab) => [tab.tabId, tab.revealRequest?.id])),
-    });
-    const previous = seen?.reveals;
-    const opened =
-      previous === undefined
-        ? undefined
-        : props.tabs.findLast(
-            (tab) =>
-              tab.reveal === true &&
-              (tab.revealRequest
-                ? previous.get(tab.tabId) !== tab.revealRequest.id
-                : !previous.has(tab.tabId)),
-          );
-    if (opened !== undefined) setTabId(opened.tabId);
+  const reveal = useListened(solus.browser.changes, () =>
+    solus.browser.revealOf(props.environmentId),
+  );
+  const [seen, setSeen] = useState(reveal);
+  if (seen !== reveal) {
+    setSeen(reveal);
+    if (reveal?.sessionId === props.threadId) setTabId(reveal.browserPageId);
   }
   const focused = useIsFocused();
   const foreground = useAppForeground();
-  const tab = props.tabs.find((entry) => entry.tabId === tabId) ?? null;
+  const tab = props.tabs.find((entry) => entry.browserPageId === tabId) ?? null;
   const onOpen = props.onOpen;
   const open = () => {
     if (tabId === null) return;
@@ -78,7 +62,7 @@ export function ThreadBrowserFloat(props: {
 function FloatingBrowserPlayer(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  readonly tab: PreviewSessionSnapshot;
+  readonly tab: BrowserPage;
   readonly live: boolean;
   readonly top: number;
   readonly onOpen: () => void;
@@ -86,9 +70,6 @@ function FloatingBrowserPlayer(props: {
 }) {
   const { themeVariables } = useAppearancePreferences();
   const gt = useGT();
-  const resolveMessage = useMessages();
-  const prepared = usePreparedConnection(props.environmentId);
-  const httpBaseUrl = Option.isSome(prepared) ? prepared.value.httpBaseUrl : null;
   const [viewport, setViewport] = useState<{ width: number; height: number } | null>(null);
   const aspect = Math.min(Math.max(viewport ? viewport.width / viewport.height : 16 / 10, 0.5), 2);
   const width = aspect >= 1 ? PLAYER_LONG_SIDE : Math.round(PLAYER_LONG_SIDE * aspect);
@@ -104,29 +85,23 @@ function FloatingBrowserPlayer(props: {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={gt("Open browser, {title}", {
-          title: browserTabTitle(props.tab, resolveMessage),
+          title: browserPageTitle(props.tab),
         })}
         accessibilityHint={gt("Opens the browser tab full screen")}
         onPress={props.onOpen}
         className="flex-1"
       >
         <View pointerEvents="none" className="flex-1">
-          <PreviewStreamWebView
-            environmentId={props.environmentId}
-            threadId={props.threadId}
-            tabId={props.tab.tabId}
-            pdfUri={
-              props.tab.navStatus._tag === "Success"
-                ? previewPdfAssetUrl(props.tab.navStatus.url, httpBaseUrl)
-                : null
-            }
-            interactive={false}
-            background={background}
-            compact
-            paused={!props.live}
-            onViewport={setViewport}
-            onGone={props.onClose}
-          />
+          {props.live && (
+            <PreviewStreamWebView
+              hostId={props.environmentId}
+              page={props.tab}
+              interactive={false}
+              background={background}
+              compact
+              onSize={setViewport}
+            />
+          )}
         </View>
       </Pressable>
       <Pressable

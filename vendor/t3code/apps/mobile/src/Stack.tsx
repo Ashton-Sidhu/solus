@@ -732,17 +732,17 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: modalRoute({ header: "glass", itemStyle: "editor", duoMinimize: "onScrollUp" }),
     }),
     ThreadDevicePreview: createNativeStackScreen({
-      screen: routeBody(DevicePreviewRouteScreen, Wip),
+      screen: DevicePreviewRouteScreen,
       linking: `${THREAD_LINKING_PREFIX}/devices`,
       options: immersiveRoute({ hideSystemBars: true }),
     }),
     ThreadBrowserPreview: createNativeStackScreen({
-      screen: routeBody(BrowserPreviewRouteScreen, Wip),
+      screen: BrowserPreviewRouteScreen,
       linking: `${THREAD_LINKING_PREFIX}/browser`,
       options: immersiveRoute({ fullWidth: true }),
     }),
     ThreadLocalPreview: createNativeStackScreen({
-      screen: routeBody(LocalPreviewRouteScreen, Wip),
+      screen: LocalPreviewRouteScreen,
       linking: "environments/:environmentId/local-preview",
       options: immersiveRoute({ fullWidth: true }),
     }),

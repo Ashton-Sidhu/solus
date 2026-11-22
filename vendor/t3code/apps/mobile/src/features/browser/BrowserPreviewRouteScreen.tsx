@@ -3,9 +3,11 @@ import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import * as Dialog from "../../components/ui/Dialog";
 import { useIsFocused, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { normalizePreviewUrl, previewPdfAssetUrl } from "@t3tools/shared/preview";
-import * as Option from "effect/Option";
-import { msg, useGT, useMessages } from "gt-react-native";
+import { normalizePreviewUrl } from "@t3tools/shared/preview";
+import { useListened } from "@solus-mobile/app/app-context";
+import { solus } from "../../solus/runtime";
+import { AppText } from "../../components/ui/AppText";
+import { msg, useGT } from "gt-react-native";
 import { useEffect, useRef, useState } from "react";
 import { Platform, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,17 +18,19 @@ import { useContentTopInset } from "../../components/ui/useBarInset";
 import { m } from "../../i18n/messages";
 import { useAppForeground } from "../../lib/appState";
 
-import { useThreadServerBrowserTabs } from "../../state/preview";
-import { usePreparedConnection } from "../../state/session";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { BrowserChrome } from "./BrowserBar";
 import { BrowserTabMenu } from "./BrowserTabMenu";
-import { browserTabTitle, browserTabUrl, latestBrowserTab } from "./browserTabs";
+import {
+  browserPageTitle,
+  browserPageUrl,
+  latestBrowserPage,
+} from "../../solus/browser/browserPages";
 import {
   PreviewStreamWebView,
   type PreviewPictureInPictureState,
   type PreviewStreamRef,
-} from "./PreviewStreamWebView";
+} from "../../solus/browser/PreviewStreamWebView";
 
 const NO_PICTURE_IN_PICTURE: PreviewPictureInPictureState = { supported: false, active: false };
 
@@ -83,30 +87,28 @@ function BrowserPreviewScreen({
   readonly onClose: () => void;
 }) {
   const gt = useGT();
-  const resolveMessage = useMessages();
   const { themeVariables } = useAppearancePreferences();
-  const prepared = usePreparedConnection(environmentId);
-  const httpBaseUrl = Option.isSome(prepared) ? prepared.value.httpBaseUrl : null;
   const focused = useIsFocused();
   const foreground = useAppForeground();
   const [selectedTabId, setSelectedTabId] = useState(initialTabId);
   const [pictureInPicture, setPictureInPicture] = useState(NO_PICTURE_IN_PICTURE);
   const [streaming, setStreaming] = useState(false);
-  const [canControl, setCanControl] = useState(false);
+  const [viewerSize, setViewerSize] = useState<{ width: number; height: number } | null>(null);
   const streamRef = useRef<PreviewStreamRef>(null);
-  const { tabs, loaded } = useThreadServerBrowserTabs({ environmentId, threadId, enabled: true });
-  const tab = tabs.find((entry) => entry.tabId === selectedTabId) ?? latestBrowserTab(tabs);
-  const pdfUri =
-    tab?.navStatus._tag === "Success" ? previewPdfAssetUrl(tab.navStatus.url, httpBaseUrl) : null;
-  const tabId = tab?.tabId ?? null;
+  const tabs = useListened(solus.browser.changes, () => solus.browser.pagesOf(environmentId));
+  const loaded = useListened(solus.browser.changes, () => solus.browser.loadedOf(environmentId));
+  const error = useListened(solus.browser.changes, () => solus.browser.errorOf(environmentId));
+  useEffect(() => {
+    void solus.browser.load(environmentId);
+  }, [environmentId]);
+  const tab =
+    tabs.find((entry) => entry.browserPageId === selectedTabId) ??
+    latestBrowserPage(tabs, threadId);
+  const tabId = tab?.browserPageId ?? null;
   if (tabId !== null && tabId !== selectedTabId) {
     setPictureInPicture(NO_PICTURE_IN_PICTURE);
     setSelectedTabId(tabId);
   }
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- closes the focused route through the navigator once the thread has no browser tabs left
-  useEffect(() => {
-    if (focused && loaded && tabs.length === 0) onClose();
-  }, [focused, loaded, tabs.length, onClose]);
   const onPictureInPicture = (state: PreviewPictureInPictureState, detail?: string) => {
     setPictureInPicture({ supported: state.supported, active: state.active });
     if (detail) Dialog.alert(m(msg("Picture in picture is unavailable")), detail);
@@ -117,13 +119,20 @@ function BrowserPreviewScreen({
   };
   const live = (focused && foreground) || pictureInPicture.active;
 
-  const ready = streaming && canControl;
-  const command: PreviewStreamRef["command"] = (input) => streamRef.current?.command(input);
+  const ready = streaming && !!tab && !tab.devToolsOpen && tab.hostKind !== "none";
+  const navigate = (op: import("@solus/contracts/browser-types").BrowserNavigateOp) => {
+    const work = tab
+      ? solus.browser.navigate(environmentId, tab.browserPageId, op)
+      : op.kind === "goto"
+        ? solus.browser.open(environmentId, op.url).then(selectTab)
+        : null;
+    void work?.catch((cause: Error) =>
+      Dialog.alert(m(msg("Could not open this address")), cause.message),
+    );
+  };
   const showPictureInPicture =
     // Android WebView cannot play video in picture in picture.
-    Platform.OS === "ios" &&
-    pictureInPicture.supported &&
-    (pictureInPicture.active || pdfUri === null);
+    Platform.OS === "ios" && pictureInPicture.supported;
 
   return (
     // The route spans the Duo's rail, so the screen insets its own sides.
@@ -132,15 +141,15 @@ function BrowserPreviewScreen({
       style={{ flex: 1, backgroundColor: themeVariables["--color-sheet-solid"] }}
     >
       <BrowserChrome
-        key={tab ? `address:${tab.tabId}` : "address"}
+        key={tab ? `address:${tab.browserPageId}` : "address"}
         scrollsUnderBar={false}
         bar={{
-          url: tab ? browserTabUrl(tab) : "",
-          editable: ready,
+          url: tab ? browserPageUrl(tab) : "",
+          editable: ready || !tab,
           canGoBack: ready && (tab?.canGoBack ?? false),
           onClose,
-          onBack: () => command({ type: "history", delta: -1 }),
-          onReload: () => command({ type: "reload" }),
+          onBack: () => navigate({ kind: "back" }),
+          onReload: () => navigate({ kind: "reload" }),
           onSubmit: (value) => {
             const url = normalizedOrNull(value);
             if (url === null)
@@ -148,7 +157,7 @@ function BrowserPreviewScreen({
                 m(msg("Could not open this address")),
                 m(msg("Enter an http or https URL.")),
               );
-            else command({ type: "navigate", url });
+            else navigate({ kind: "goto", url });
           },
           trailing: (
             <>
@@ -172,10 +181,10 @@ function BrowserPreviewScreen({
                   accessibilityLabel={gt("Tabs", { $context: "browser tabs menu" })}
                   accessibilityRole="button"
                   actions={tabs.map((entry) => ({
-                    id: entry.tabId,
-                    title: browserTabTitle(entry, resolveMessage),
-                    subtitle: browserTabUrl(entry),
-                    state: entry.tabId === tabId ? "on" : "off",
+                    id: entry.browserPageId,
+                    title: browserPageTitle(entry),
+                    subtitle: browserPageUrl(entry),
+                    state: entry.browserPageId === tabId ? "on" : "off",
                   }))}
                   onPressAction={({ nativeEvent }) => selectTab(nativeEvent.event)}
                 >
@@ -187,11 +196,11 @@ function BrowserPreviewScreen({
               ) : null}
               {tab ? (
                 <BrowserTabMenu
-                  environmentId={environmentId}
-                  tab={tab}
+                  hostId={environmentId}
+                  page={tab}
+                  viewerSize={viewerSize}
                   streaming={streaming}
                   onPaste={ready ? () => streamRef.current?.paste() : undefined}
-                  onReleaseControl={ready ? () => command({ type: "releaseControl" }) : undefined}
                 />
               ) : null}
             </>
@@ -202,25 +211,27 @@ function BrowserPreviewScreen({
           tab ? (
             live ? (
               <PreviewStreamWebView
-                key={`stream:${tab.tabId}`}
-                environmentId={environmentId}
-                threadId={threadId}
-                tabId={tab.tabId}
-                pdfUri={pdfUri}
+                key={`stream:${tab.browserPageId}`}
+                hostId={environmentId}
+                page={tab}
                 ref={streamRef}
                 interactive
                 background={themeVariables["--color-sheet-solid"]}
                 onPictureInPicture={onPictureInPicture}
                 onStreamingChange={setStreaming}
+                onSize={setViewerSize}
                 onScrollDirection={onScrollDirection}
-                onControl={(control) => setCanControl(control?.controller === "you")}
               />
             ) : (
               <View className="flex-1" />
             )
           ) : (
             <View className="flex-1 items-center justify-center">
-              {focused && foreground ? (
+              {error || loaded ? (
+                <AppText onPress={() => void solus.browser.load(environmentId)}>
+                  {error ?? "Enter a URL to open a page."}
+                </AppText>
+              ) : focused && foreground ? (
                 <AppActivityIndicator color={themeVariables["--color-icon"]} />
               ) : null}
             </View>

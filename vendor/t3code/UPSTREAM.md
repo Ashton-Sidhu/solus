@@ -4,4 +4,6 @@ This workspace contains the T3 mobile app, its workspace dependencies, native in
 
 `SOURCE_PATHS` lists the imported paths. `SOLUS_FORK_REVISION` records the local `solus-mobile` revision used for the import. Source files and both lockfiles are in this repository. A fresh checkout can build without the separate development fork.
 
+For mobile changes, use the T3 frontend and maintain its Solus backend adapters. See `apps/mobile/AGENTS.md` in this workspace.
+
 For an update, compare the recorded fork revision with the tested fork tip over the imported paths. Apply that delta to this workspace in an isolated Solus checkout. Keep the primary production identity, the local `solus-core` import, the LAN module, and these workspace instructions. Review changes to the native package manifest, native inputs, patches and workspace dependency graph before updating the path list. Install with the frozen lockfile, run the mobile checks and export both native bundles. Record the tested revision together with the update.
