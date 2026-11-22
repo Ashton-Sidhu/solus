@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { historyPageIsFull, historyPageMustCut, startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
-import { parseJsonlLine } from './claude-session-helpers'
+import { claudeHistoryRows } from './claude-session-helpers'
 
 const cursorSchema = z.object({
   offset: z.number().int().nonnegative(), inode: z.string(),
@@ -59,13 +59,15 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
         const head = block.subarray(index + 1, end)
         const line = fragments.length ? Buffer.concat([head, ...fragments.reverse()]) : head
         fragments = []
-        const message = parseJsonlLine(line.toString('utf8'))
+        const rows = claudeHistoryRows(line.toString('utf8'))
         end = index
         lineBytes += line.length
-        if (!message) continue
-        messages.push(message)
-        bytes += Buffer.byteLength(JSON.stringify(message))
-        const pageEnds = startsHistoryTurn(message) && (++turns >= turnLimit || historyPageIsFull(messages.length, bytes))
+        if (!rows.length) continue
+        for (const row of rows.reverse()) {
+          messages.push(row)
+          bytes += Buffer.byteLength(JSON.stringify(row))
+        }
+        const pageEnds = rows.some(startsHistoryTurn) && (++turns >= turnLimit || historyPageIsFull(messages.length, bytes))
         if (pageEnds || historyPageMustCut(messages.length, bytes) || lineBytes >= TURN_READ_BYTES) {
           return {
             messages: messages.reverse(),
@@ -79,8 +81,8 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
       if (end > 0) fragments.push(block.subarray(0, end))
       position = start
     }
-    const first = parseJsonlLine(Buffer.concat(fragments.reverse()).toString('utf8'))
-    if (first) messages.push(first)
+    const first = claudeHistoryRows(Buffer.concat(fragments.reverse()).toString('utf8'))
+    for (const row of first.reverse()) messages.push(row)
     return { messages: messages.reverse(), before: null }
   } finally {
     await file.close()
@@ -97,13 +99,12 @@ export async function loadClaudeFirstTurn(filePath: string): Promise<SessionLoad
   let turnStarted = false
   try {
     for await (const line of lines) {
-      const message = parseJsonlLine(line)
-      if (!message) continue
-      if (startsHistoryTurn(message)) {
+      const rows = claudeHistoryRows(line)
+      if (rows.some(startsHistoryTurn)) {
         if (turnStarted) break
         turnStarted = true
       }
-      messages.push(message)
+      for (const row of rows) messages.push(row)
     }
   } finally {
     lines.close()

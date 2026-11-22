@@ -155,6 +155,24 @@ describe('ClaudeTurnNormalizer', () => {
     })).toEqual([{ type: 'permission_mode_changed', permissionMode: 'supervised' }])
   })
 
+  test('a thought has one identity from its first words through the completed snapshot', () => {
+    const normalizer = new ClaudeTurnNormalizer()
+    normalizer.push({ type: 'stream_event', event: { type: 'message_start', message: { id: 'm' } } })
+    const start = normalizer.push({ type: 'stream_event', event: {
+      type: 'content_block_start', index: 2, content_block: { type: 'thinking', thinking: 'Reading' },
+    } })
+    expect(start.at(-1)).toMatchObject({ state: 'update', thoughtId: 'm:0', text: 'Reading' })
+    normalizer.push({ type: 'stream_event', parent_tool_use_id: 'child', event: { type: 'message_start', message: { id: 'child-message' } } })
+    normalizer.push({ type: 'stream_event', event: { type: 'content_block_delta', index: 2,
+      delta: { type: 'thinking_delta', thinking: ' files' } } })
+    expect(normalizer.push({ type: 'stream_event', event: { type: 'content_block_stop', index: 2 } })[0])
+      .toMatchObject({ state: 'stop', thoughtId: 'm:0', text: 'Reading files' })
+    const frame = { type: 'assistant', uuid: 'frame', message: { id: 'm', content: [{ type: 'thinking', thinking: 'Reading files and tests' }] } }
+    for (let repeat = 0; repeat < 2; repeat++) {
+      expect(normalizer.push(frame)[0]).toMatchObject({ thoughtId: 'm:0', text: 'Reading files and tests' })
+    }
+  })
+
   test('closes a thinking span with the thought its deltas carried', () => {
     // WHY: the activity row shows the first line of the thought beside its
     // label, and content_block_stop is the only place the whole thought is known.

@@ -14,6 +14,7 @@ import {
   integrationResourceListRequestSchema,
   integrationUpdateRequestSchema,
   type Integration,
+  type IntegrationUpdateRequest,
   type IntegrationAuth,
   integrationFoundAddRequestSchema,
   integrationFoundChangeRequestSchema,
@@ -22,7 +23,6 @@ import {
   integrationFoundTestRequestSchema,
   type IntegrationFacts,
   type IntegrationResourceLists,
-  type IntegrationOAuthClientInput,
 } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { integrationPromptGetRequestSchema, integrationPromptListRequestSchema } from '@solus/contracts/integrations/prompts'
@@ -31,12 +31,12 @@ import { roleOf } from '../../admission/access'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import { recordScopeOf, type Principal } from '../../admission/principal'
 import type { IntegrationCatalog } from '../../integrations/catalog'
-import type { IntegrationClients, IntegrationConnectionStore } from '../../integrations/connection-store'
+import type { IntegrationConnectionStore } from '../../integrations/connection-store'
 import type { IntegrationConnections } from '../../integrations/connections'
 import type { IntegrationGateway } from '../../integrations/gateway'
 import type { IntegrationStore } from '../../integrations/integration-store'
 import type { IntegrationOAuth } from '../../integrations/oauth'
-import { probeAddress, probeForWrite, type IntegrationWrites } from '../../integrations/integration-create'
+import { chosenAuth, probeAddress, probeForWrite, type IntegrationWrites, type IntegrationWritesDeps } from '../../integrations/integration-create'
 import { integrationPromptList, integrationPromptText } from '../../integrations/integration-prompts'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
 import type { FoundServers } from '../../integrations/found-servers'
@@ -57,17 +57,6 @@ import type { SolusServer } from '../server'
 const log = createLogger('integrations', 'integration-handlers.ts')
 
 /**
- * The auth after the owner's OAuth client change: `clientId` and
- * `hasClientSecret` set from the input, or cleared for `null`. The secret is
- * saved by the caller and never kept on the record.
- */
-function withOAuthClient(auth: IntegrationAuth, input: IntegrationOAuthClientInput | null): IntegrationAuth {
-  if (auth.kind !== 'oauth') throw new Error('This integration does not sign in with OAuth.')
-  const rest: IntegrationAuth = { kind: 'oauth', discover: auth.discover, registration: auth.registration }
-  return input ? { ...rest, clientId: input.clientId, hasClientSecret: Boolean(input.clientSecret) } : rest
-}
-
-/**
  * An integration as the actor reads it, with their role on it (docs/plans/access-model.md
  * §2.7). An integration is personal, so only its owner holds a role on it (§2.3, D3).
  */
@@ -83,6 +72,32 @@ function forReader(actor: Actor, integration: Integration): Integration {
  */
 function requireHostAdmin(principal: Principal): void {
   if (!mayRunCommands(principal)) throw new Error(COMMAND_CHANGE_REFUSAL)
+}
+
+/**
+ * A server's auth after a new address, scopes, or header names; undefined when
+ * none changes it. A new address is probed again. Headers are the person's
+ * choice, not the probe's, so a new address keeps them and only has to be
+ * reached; an `oauth` server keeps the scopes the person chose.
+ */
+async function serverAuthAfter(existing: Integration, request: Pick<IntegrationUpdateRequest, 'url' | 'scopes' | 'headerNames'>, oauth: IntegrationWritesDeps['oauth']): Promise<IntegrationAuth | undefined> {
+  const { url, scopes, headerNames } = request
+  let auth: IntegrationAuth | undefined
+  if (url !== undefined && url !== existing.url) {
+    auth = existing.auth.kind === 'headers' ? await chosenAuth(url, existing.auth, oauth) : (await probeForWrite(url)).auth
+    if (auth.kind === 'oauth' && existing.auth.kind === 'oauth' && existing.auth.scopes) auth.scopes = existing.auth.scopes
+  }
+  if (scopes !== undefined) {
+    const current = auth ?? existing.auth
+    if (current.kind !== 'oauth') throw new Error(`${existing.name} does not sign in with OAuth, so it takes no scopes.`)
+    const { scopes: _previous, ...rest } = current
+    auth = scopes ? { ...rest, scopes } : rest
+  }
+  if (headerNames !== undefined) {
+    if ((auth ?? existing.auth).kind !== 'headers') throw new Error(`${existing.name} does not take headers.`)
+    auth = { kind: 'headers', names: headerNames }
+  }
+  return auth
 }
 
 function requireStdio(integration: Integration): void {
@@ -103,16 +118,15 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   /** Per-person sign-in (§4). Every handler runs in the caller's acting scope, so `currentPersonKey()` is the caller. */
   connectionStore: IntegrationConnectionStore
   connections: IntegrationConnections
+  /** Per-person sign-in, and the owner's OAuth client with its secret. */
   oauth: IntegrationOAuth
-  /** Where the owner's OAuth client secret is kept; `oauth` reads it from the same store. */
-  clients: Pick<IntegrationClients, 'saveClient' | 'removeClient'>
   getServerInfo(): { host: string; port: number }
   /** The one writer of integration records; Found writes through the same one. */
   writes: IntegrationWrites
   /** The MCP servers in this host's config files (docs/plans/mcp-first-class.md §8). */
   found: FoundServers
   /** The other hosts this host reaches for a caller, for the found servers of each (§8.9). Absent: this host only. */
-  remote?: { hosts: Pick<RemoteHosts, 'list' | 'find' | 'connect'>; reachOf(principal: Principal): ReachRequest | null }
+  remote?: { hosts: Pick<RemoteHosts, 'list' | 'connect' | 'connectTo'>; reachOf(principal: Principal): ReachRequest | null }
   /** This host's name, for its group of discovered servers. */
   hostLabel?(): string
   /** Whether a server on this host's loopback runs (§9.3). Absent where the host does not follow its running servers. */
@@ -124,14 +138,12 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
    */
   profile?: { removing(principal: Principal, integration: Integration): Promise<void> }
 }): void {
-  const { store, catalog, gateway, events, connectionStore, connections, oauth, clients, writes } = deps
+  const { store, catalog, gateway, events, connectionStore, connections, oauth, writes } = deps
   /** The caller's connection to another of their hosts, reached as `start_sessions` reaches it. */
   const remoteHostFor = async (principal: Principal, hostId: string): Promise<RemoteHost> => {
     const reach = deps.remote?.reachOf(principal)
     if (!deps.remote || !reach) throw new Error('This host reaches no other host for you.')
-    const target = await deps.remote.hosts.find(reach, hostId)
-    if ('error' in target) throw new Error(target.error)
-    const remote = deps.remote.hosts.connect(target)
+    const remote = await deps.remote.hosts.connectTo(reach, hostId)
     if ('error' in remote) throw new Error(remote.error)
     return remote
   }
@@ -171,20 +183,11 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     const { id, name, url, oauthClient, disabledTools } = request
     const existing = requireIntegration(id, ctx.actor)
     const commandChanged = request.launch !== undefined || request.envNames !== undefined
-    if (existing.kind === 'stdio' ? url !== undefined || oauthClient !== undefined : commandChanged) throw new Error(`${existing.name} cannot take that change: a command has a launch and names, a server an address.`)
+    const serverChanged = url !== undefined || oauthClient !== undefined || request.scopes !== undefined || request.headerNames !== undefined
+    if (existing.kind === 'stdio' ? serverChanged : commandChanged) throw new Error(`${existing.name} cannot take that change: a command has a launch and names, a server an address.`)
     if (commandChanged) return forReader(ctx.actor, writes.changeCommand(existing, request, ctx.principal))
-    let auth: IntegrationAuth | undefined = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
-    if (oauthClient !== undefined) {
-      auth = withOAuthClient(auth ?? existing.auth, oauthClient)
-      if (oauthClient === null) clients.removeClient(id)
-      else {
-        const { clientId, clientSecret } = oauthClient
-        const issuer = await oauth.issuerOf({ ...existing, auth: auth ?? existing.auth, url: url ?? existing.url })
-        clients.saveClient(id, issuer, clientSecret
-          ? { clientId, clientSecret, tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] }
-          : { clientId, tokenEndpointAuthMethod: 'none', redirectUris: [] })
-      }
-    }
+    let auth = await serverAuthAfter(existing, request, oauth)
+    if (oauthClient !== undefined) auth = await oauth.withOwnerClient({ ...existing, auth: auth ?? existing.auth }, oauthClient)
     return forReader(ctx.actor, writes.changeServer(existing, { name, url, auth, disabledTools }, ctx.principal))
   })
 
@@ -398,7 +401,9 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
         return { kind: 'connected' as const, connection: connections.connectAnonymous(integration, user) }
       case 'bearer':
         return { kind: 'token' as const, integrationId: integration.id, accountId }
+      // A server's headers are given as a command's values are: the card asks for one value for each name.
       case 'env':
+      case 'headers':
         return { kind: 'env' as const, integrationId: integration.id, accountId, names: integration.auth.names }
       case 'oauth': {
         // The person's Solus GitHub connection is the credential: no sign-in here (§13.1).
@@ -425,7 +430,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
       await oauth.submitRedirect(request.flowId, request.value)
     } else if (request.id !== undefined) {
       const integration = requireIntegration(request.id, ctx.actor)
-      if (request.values !== undefined) connections.submitEnvironment(integration, requirePersonKey(), request.values, request.accountId)
+      if (request.values !== undefined && integration.auth.kind === 'headers') await connections.submitHeaders(integration, requirePersonKey(), request.values, request.accountId)
+      else if (request.values !== undefined) connections.submitEnvironment(integration, requirePersonKey(), request.values, request.accountId)
       else if (request.value !== undefined) await connections.submitKey(integration, requirePersonKey(), request.value, request.accountId)
     }
     return { submitted: true as const }

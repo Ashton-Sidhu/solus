@@ -3,13 +3,10 @@
     ArrowDown as ArrowDownIcon,
     ChartBar as ChartBarIcon,
     Files as FilesIcon,
-    RefreshCw as RefreshIcon,
     GitFork as GitForkIcon,
     GitBranchPlus as WorktreeIcon,
-    Square as SquareIcon,
     Star as StarIcon,
     SquareTerminal as TerminalIcon,
-    Binoculars as BinocularsIcon,
   } from "@lucide/svelte";
   import {
     getSettingsContext,
@@ -24,12 +21,7 @@
   import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import {
-    reviewGuideStore,
-    sessionGuideIdentity,
-  } from "../review/review-guide.store.svelte";
   import { Button } from "../ui/button";
   import * as Popover from "../ui/popover";
   import * as Tooltip from "../ui/tooltip";
@@ -72,19 +64,9 @@
   );
   const showNativeDesktopActions = $derived(shell.supportsNativeSettings);
   const hasSessionChanges = $derived(sessionChangedFiles.length > 0);
-  // This action reviews one agent session. Never fall back to the branch key:
-  // the environment panel owns branch reports, and those must not make this
-  // session's suggestion read as ready.
-  const sessionReviewIdentity = $derived(sessionGuideIdentity(sess));
-  // Read only: `trackSessionReviewGuides` probes the host once per session,
-  // so a row never issues a request of its own.
-  const sharedReviewStatus = $derived(
-    reviewGuideStore.statusFor(session.serverIdFor(tabId), sessionReviewIdentity),
-  );
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
-  const showReview = $derived(hasSessionChanges && !!sess?.agentSessionId);
   const isCreatingWorktree = $derived(session.ui.isContinuingInWorktree(tabId));
   // The repository can have unrelated uncommitted files. Do not mount an empty
   // session popover only because that broader repository count is non-zero.
@@ -113,37 +95,6 @@
   const isPinned = $derived(
     sidebarStore.isPinned(sess?.id, runHost(sess?.run)),
   );
-
-  // ── Review changes (background generation) ──
-  const reviewStatus = $derived<"idle" | "generating" | "done">(
-    sharedReviewStatus?.status === "ready"
-      ? "done"
-      : sharedReviewStatus?.status === "queued" ||
-          sharedReviewStatus?.status === "generating"
-        ? "generating"
-        : "idle",
-  );
-  const reviewLabel = $derived(
-    reviewStatus === "done"
-      ? "Open review"
-      : reviewStatus === "generating"
-        ? "Reviewing…"
-        : `Review ${sessionChangedFiles.length} file${sessionChangedFiles.length !== 1 ? "s" : ""}`,
-  );
-  let lastReviewFailureAt = 0;
-
-  $effect(() => {
-    const status = sharedReviewStatus;
-    if (!status) return;
-    if (status.status === "failed" && status.updatedAt !== lastReviewFailureAt) {
-      lastReviewFailureAt = status.updatedAt;
-      toasts.error(
-        status.error
-          ? `Review stopped: ${status.error}`
-          : "Review stopped before a guide was produced. Try again.",
-      );
-    }
-  });
 
   // ── Plan progress ──
   const progress = $derived(sess?.progress ?? null);
@@ -221,41 +172,6 @@
     requestInputFocus();
   }
 
-  async function handleReview(regenerate = false) {
-    // One click, always: open the review pane on its diff, and queue the
-    // generation behind it when there is nothing to read yet. Generation is
-    // durable, so the pane reports its progress rather than the click ending in
-    // a panel the reader still has to go and find.
-    if (!regenerate) {
-      session.enterReview("session", tabId);
-      if (reviewStatus === "done") return;
-    }
-    if (reviewStatus === "generating") return;
-    const identity = sessionReviewIdentity;
-    if (!identity) return;
-    try {
-      await reviewGuideStore.generate(
-        session.apiFor(tabId),
-        session.serverIdFor(tabId),
-        session.ctxFor(tabId),
-        identity,
-        { ...resolveReviewAgent(theme), scope: "session" },
-      );
-    } catch (error) {
-      toasts.error("Couldn't start review", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      requestInputFocus();
-    }
-  }
-
-  function handleCancelReview() {
-    if (reviewStatus !== "generating") return;
-    void reviewGuideStore.cancel(session.apiFor(tabId), session.ctxFor(tabId), "session");
-    requestInputFocus();
-  }
-
   // Only while the reader is scrolled up from the end. It leads the row, ahead
   // of the plan progress, so it is not among the row actions below.
   const jumpToEndAction = $derived<SessionAction | null>(
@@ -329,30 +245,10 @@
         run: openSessionInsights,
       });
     }
-    if (showReview) {
-      actions.push({
-        id: "review",
-        label: reviewLabel,
-        icon: BinocularsIcon,
-        shortcut: "",
-        run: () => void handleReview(),
-      });
-    }
     return actions;
   });
 
-  // The action list adds the review's own follow-ups to the row's actions.
-  const listActions = $derived.by((): SessionAction[] => {
-    const actions = jumpToEndAction ? [jumpToEndAction, ...rowActions] : rowActions;
-    if (!showReview) return actions;
-    if (reviewStatus === "done") {
-      return [...actions, { id: "review-regenerate", label: "Regenerate review", icon: RefreshIcon, shortcut: "", run: () => void handleReview(true) }];
-    }
-    if (reviewStatus === "generating") {
-      return [...actions, { id: "review-cancel", label: "Cancel review", icon: SquareIcon, shortcut: "", run: handleCancelReview }];
-    }
-    return actions;
-  });
+  const listActions = $derived(jumpToEndAction ? [jumpToEndAction, ...rowActions] : rowActions);
 
   function openActionList() {
     stepsOpen = false;
@@ -470,7 +366,7 @@
 
 {#snippet actionButton(action: SessionAction)}
   <!-- All icons are the same size, and a name opens in a tooltip, so no icon
-       moves. Review's colour shows that a review is running or ready. A disabled
+       moves. A disabled
        action stays focusable and hoverable, so the tooltip can say why. The
        invisible ::after box widens the hit area to 44px tall and across the gap
        to each neighbour, without changing how the button looks. -->
@@ -484,7 +380,6 @@
       aria-expanded={action.id === "files" ? reviewFilesOpen : undefined}
       aria-disabled={action.isDisabled}
       data-session-action={action.id}
-      data-review-status={action.id === "review" ? reviewStatus : undefined}
       data-jump-to-end={action.id === "end" ? "" : undefined}
       aria-label={action.label}
       aria-pressed={action.id === "pin" ? isPinned : undefined}
@@ -494,7 +389,7 @@
           {...props}
           variant="ghost"
           size="sm"
-          class="relative size-7 rounded-full px-0 after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-[review-status=done]:text-(--solus-accent) data-[review-status=generating]:text-(--solus-accent) data-jump-to-end:border-[color:var(--solus-container-border)] data-jump-to-end:bg-[color:var(--solus-popover-bg)] data-jump-to-end:text-[color:var(--solus-text-primary)] [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4!"
+          class="relative size-7 rounded-full px-0 after:absolute after:-inset-x-0.5 after:-inset-y-2 after:content-[''] font-normal text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) aria-pressed:text-(--solus-accent) data-jump-to-end:border-[color:var(--solus-container-border)] data-jump-to-end:bg-[color:var(--solus-popover-bg)] data-jump-to-end:text-[color:var(--solus-text-primary)] [&_svg]:fill-transparent aria-pressed:[&_svg]:fill-current aria-disabled:cursor-default aria-disabled:opacity-50 [&_svg]:size-4!"
         >
           <action.icon size={16} />
         </Button>

@@ -21,7 +21,7 @@ const hostWrites: Array<{ serverId: string; patch: unknown }> = []
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     ...singleHostServerConnections(),
-    connectedServerIds: () => [...hostConfigs.keys()],
+    serverIds: () => [...hostConfigs.keys()],
     onReadinessChange: () => () => {},
     apiFor: (serverId: string) => ({
       configGet: async () => hostConfigs.get(serverId),

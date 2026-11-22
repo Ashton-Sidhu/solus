@@ -1,6 +1,7 @@
 import type { RpcMethod } from '@solus/contracts/rpc'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { PlanPublishRequest } from '@solus/contracts/docs'
+import type { SolusApiRequest } from '@solus/contracts/solus-api/request'
 import { createLogger, isDebugEnabled } from '../logger'
 import { assertRpcAccess, type ResourceAccess } from '../admission/access-policy'
 import type { Principal } from '../admission/principal'
@@ -68,7 +69,12 @@ export class SolusServer {
     await assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
-      if (['vaultKeySave', 'typeSafeKeySet', 'atlassianConnectApiToken', 'hostsPair', 'hostsAddOverSsh', 'hostsUnlockForwarded', 'transcribeAudio', 'voiceStreamFeed', 'integrationUpdate', 'integrationConnectSubmit', 'mcpAppCallTool', 'appCall', 'appSecretSet', 'authRenew', 'accountPresent', 'solusApiRequest'].includes(method)) {
+      if (method === 'solusApiRequest') {
+        // The body may carry a work's content and the query a value from a link: only the route is logged.
+        // SAFETY: Runtime dispatch pairs this method with solusApiRequest's tuple; the handler validates it.
+        const request = args[0] as Partial<SolusApiRequest> | undefined
+        log.debug('rpc_method_invoked', { method, clientId: ctx.clientId, apiMethod: request?.method, apiRoute: request?.path?.split('?')[0] })
+      } else if (['vaultKeySave', 'typeSafeKeySet', 'atlassianConnectApiToken', 'hostsPair', 'hostsAddOverSsh', 'hostsUnlockForwarded', 'transcribeAudio', 'voiceStreamFeed', 'integrationUpdate', 'integrationConnectSubmit', 'mcpAppCallTool', 'appCall', 'appSecretSet', 'authRenew', 'accountPresent'].includes(method)) {
         // These carry a secret (an API key, an OAuth client secret, an access token, an SSH password) or a large payload, such as a work's content; only the call is logged.
         log.debug('rpc_method_invoked', { method, clientId: ctx.clientId })
       } else if (method === 'publishWork') {

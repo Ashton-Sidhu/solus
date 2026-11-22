@@ -55,19 +55,19 @@ export function webhookCommands(shell: { showSettings(tab: SettingsTab, via: Via
 }
 
 /**
- * Palette entries for MCP servers, shared by desktop and web: a command as an
- * MCP server (docs/plans/mcp-first-class.md §7.7) and the servers in the
- * config files of the host (§8.6).
+ * Palette entries for MCP servers, shared by desktop and web: a new server by
+ * its command (docs/plans/mcp-first-class.md §7.7) or its address, and the
+ * servers in the config files of the host (§8.6).
  */
 export function mcpCommands(shell: { showSettings(tab: SettingsTab, via: Via): void }): Command[] {
   return [{
     id: 'add-mcp-command',
-    label: 'Add an MCP server command',
+    label: 'Add an MCP server',
     group: 'General',
     icon: SquareTerminal,
-    keywords: ['mcp', 'stdio', 'command', 'server', 'npx', 'uvx', 'local', 'integration'],
+    keywords: ['mcp', 'stdio', 'command', 'server', 'npx', 'uvx', 'local', 'integration', 'url', 'remote', 'http', 'address'],
     run: () => {
-      mcpPageRequest.askAddCommand()
+      mcpPageRequest.askAddServer()
       shell.showSettings('mcp', 'palette')
     },
   }, {

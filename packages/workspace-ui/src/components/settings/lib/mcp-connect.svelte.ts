@@ -1,9 +1,10 @@
-import type { Integration } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationAuthChoice, IntegrationEnvValue } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { SetupHandoff, type IntegrationSetupNeed } from '@solus/contracts/integrations/setup-handoff'
 import { SvelteSet } from 'svelte/reactivity'
 import { mcpStore } from '../../../contexts/mcp'
 import { IntegrationLabels, type ConnectStep } from './integration-labels'
+import { McpAddressForm } from './mcp-address-form.svelte'
 import type { McpCatalog } from './mcp-catalog.svelte'
 import { envNamesOf, McpCommandForm } from './mcp-command.svelte'
 
@@ -16,11 +17,15 @@ export interface ConnectRequest {
   /** The vendor's setup page, from a Solus catalog entry (§13.5). */
   authHelp?: string
   /**
-   * Add a command (docs/plans/mcp-first-class.md §7.7): the first step is
-   * its form and Start and test, in place of the sign-in. `name` and `url` are empty.
+   * Add a server the person describes: a command (docs/plans/mcp-first-class.md
+   * §7.7) or an address. The first step is its form, in place of the sign-in.
+   * `name` and `url` are empty.
    */
-  isCommand?: boolean
+  addsServer?: boolean
 }
+
+/** What a new server is: a command the host starts, or an address it reaches. */
+export type AddKind = 'command' | 'url'
 
 /**
  * One run of the connect dialog (docs/integrations.md): add the server when it
@@ -36,8 +41,18 @@ export class McpConnect {
   isDone = $state(false)
   isSaving = $state(false)
   saveError = $state('')
-  /** The form of a command; null for a server at an address. */
+  /** The form of a command; null when the dialog opened for a server it knows. */
   readonly command: McpCommandForm | null
+  /** The form the person fills before the add: null once an address went on to its sign-in, and for a known server. */
+  addKind = $state<AddKind | null>(null)
+  /** The server at an address this run adds or connects: the request's, or the one the person typed. */
+  target = $state({ name: '', url: '' })
+  /** The URL form: the address, its name, and its Authentication. */
+  readonly addressForm = new McpAddressForm()
+  /** The Authentication the URL form chose, kept for Try again until the host has the record. */
+  private pendingAuth: IntegrationAuthChoice | undefined
+  /** The header values the URL form took, given to the host once the record exists. */
+  private pendingValues: IntegrationEnvValue[] = []
   /** The command started and listed its tools: the dialog goes on to them. */
   isCommandStarted = $state(false)
   private addedHere = false
@@ -49,7 +64,9 @@ export class McpConnect {
     mayRunCommands: () => boolean = () => true,
   ) {
     this.integrationId = request.integrationId ?? null
-    this.command = request.isCommand ? new McpCommandForm(serverId, mayRunCommands) : null
+    this.target = { name: request.name, url: request.url }
+    this.command = request.addsServer ? new McpCommandForm(serverId, mayRunCommands) : null
+    if (request.addsServer) this.addKind = 'command'
     if (this.integration) this.seedDraft(this.integration)
   }
 
@@ -59,14 +76,15 @@ export class McpConnect {
   }
 
   get step(): ConnectStep {
-    if (this.command && !this.isCommandStarted) return 'command'
+    if (this.addKind === 'command' && !this.isCommandStarted) return 'command'
+    if (this.addKind === 'url') return 'address'
     const integration = this.integration
     return integration ? new IntegrationLabels(integration).connectStep(mcpStore.integrations.connection(this.serverId, integration.id)) : 'adding'
   }
 
   /** The reason the last Add stopped, while no record exists. */
   get addError(): string {
-    const state = this.catalog.installs.get(this.request.url)
+    const state = this.catalog.installs.get(this.target.url)
     return !this.integrationId && state?.kind === 'failed' ? state.message : ''
   }
 
@@ -80,8 +98,8 @@ export class McpConnect {
     const need = this.setupNeed
     if (!need) return null
     return new SetupHandoff(need, {
-      name: this.integration?.name ?? this.request.name,
-      url: this.integration?.url ?? this.request.url,
+      name: this.integration?.name ?? this.target.name,
+      url: this.integration?.url ?? this.target.url,
       callbackUrl: need === 'oauth-client' ? mcpStore.integrations.oauthRedirectUrl(this.serverId) : undefined,
       guideUrl: this.request.authHelp,
     })
@@ -90,7 +108,7 @@ export class McpConnect {
   private get setupNeed(): IntegrationSetupNeed | null {
     const integration = this.integration
     if (!integration) {
-      const state = this.catalog.installs.get(this.request.url)
+      const state = this.catalog.installs.get(this.target.url)
       return state?.kind === 'failed' ? state.setupNeed ?? null : null
     }
     return new IntegrationSignIn(integration).setupNeedFor(mcpStore.integrations.connection(this.serverId, integration.id))
@@ -105,7 +123,7 @@ export class McpConnect {
   }
 
   get isAdding(): boolean {
-    const state = this.catalog.installs.get(this.request.url)
+    const state = this.catalog.installs.get(this.target.url)
     return !this.integrationId && !!state && state.kind !== 'failed'
   }
 
@@ -163,14 +181,61 @@ export class McpConnect {
     if (this.integrationId) await this.processes?.stop(this.integrationId)
   }
 
-  /** Adds the server when the dialog opened for a catalog entry. */
+  /** The person can change between a command and an address until the host has a record of either. */
+  get canChangeKind(): boolean {
+    return this.addKind !== null && !this.integrationId
+  }
+
+  chooseKind(kind: AddKind): void {
+    if (this.canChangeKind) this.addKind = kind
+  }
+
+  /**
+   * The address form's Continue: the dialog goes on as it does for a catalog
+   * entry, to the check, the sign-in, and the tools. An address the host has
+   * already goes to that server's sign-in, as the page's search does.
+   */
+  async continueWithAddress(): Promise<void> {
+    if (this.addKind !== 'url') return
+    const check = this.addressForm.check()
+    if (!check) return
+    const known = mcpStore.integrations.states.get(this.serverId)?.integrations?.find((integration) => integration.url === check.url) ?? null
+    this.target = { name: known?.name ?? check.name, url: check.url }
+    this.addKind = null
+    this.addressForm.takeSecrets()
+    if (known) {
+      this.integrationId = known.id
+      this.seedDraft(known)
+      return
+    }
+    this.pendingAuth = check.auth
+    this.pendingValues = check.values
+    await this.start()
+  }
+
+  /** Back to the address form after the host refused the address, to change it. */
+  editAddress(): void {
+    if (this.integrationId || !this.request.addsServer) return
+    this.catalog.dismiss(this.target.url)
+    this.target = { name: '', url: '' }
+    this.pendingAuth = undefined
+    this.pendingValues = []
+    this.addKind = 'url'
+  }
+
+  /** Adds the server when the dialog opened for a catalog entry, or the person gave its address. */
   async start(): Promise<void> {
-    if (this.integrationId || this.command) return
-    const integration = await this.catalog.install(this.request.name, this.request.url)
+    if (this.integrationId || this.addKind) return
+    const integration = await this.catalog.install(this.target.name, this.target.url, this.pendingAuth)
     if (!integration) return
     this.addedHere = true
     this.integrationId = integration.id
     this.seedDraft(integration)
+    this.pendingAuth = undefined
+    const values = this.pendingValues
+    this.pendingValues = []
+    // A failed save leaves the values flow open with the reason, in the sign-in step.
+    if (values.length > 0) await mcpStore.integrations.submitValues(this.serverId, integration.id, values)
   }
 
   setTool(toolName: string, isOn: boolean): void {
@@ -200,11 +265,11 @@ export class McpConnect {
     if (this.isDone) return
     const id = this.integrationId
     if (!id) {
-      if (!this.command) this.catalog.dismiss(this.request.url)
+      if (this.target.url) this.catalog.dismiss(this.target.url)
       return
     }
     // Remove stops the process too; a command kept stops only a start that runs.
-    if (this.command && !this.addedHere && this.processes?.isStarting(id)) await this.processes.stop(id)
+    if (this.addKind === 'command' && !this.addedHere && this.processes?.isStarting(id)) await this.processes.stop(id)
     const flow = mcpStore.integrations.connectFlow(this.serverId, id)
     if (flow && flow.kind !== 'failed') await mcpStore.integrations.cancel(this.serverId, id)
     if (this.addedHere) await mcpStore.integrations.remove(this.serverId, id)

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hostCatalog } from '@solus/client-core/host-catalog'
 import type { HostReadinessState } from '@solus/client-core/host-readiness'
 import { pairPageHosts } from './helpers/page-host-catalog'
 
@@ -66,7 +67,6 @@ afterAll(() => {
   }
 })
 
-type ReadinessListener = Parameters<typeof serverConnections.onReadinessChange>[0]
 
 function state(readiness: HostReadinessState['readiness'], refusedReason: HostReadinessState['refusedReason'] = null): HostReadinessState {
   return { readiness, away: readiness === 'unreachable' || readiness === 'refused' || readiness === 'gone', unreachableReason: readiness === 'unreachable' ? 'no-answer' : null, refusedReason, lastSeenAt: null }
@@ -119,33 +119,32 @@ describe('server readiness', () => {
     })
   })
 
-  test('the host a web client booted against wears its operating system', async () => {
-    // WHY: a web client's serving host is never saved, so it has no entry to
-    // carry the OS that /health reports. Without it the Run on chip shows the
-    // unknown-OS globe for a Mac.
-    const originalIds = serverConnections.connectedServerIds
+  test('a host the catalog no longer names is not listed, even while its socket is open', () => {
+    // WHY: the list reads the host store. An open socket to a forgotten host kept it in
+    // Run on, online, under the name the host reports.
+    const originalIds = serverConnections.serverIds
     const originalConnectionFor = serverConnections.connectionFor
-    const originalProbeHealth = serverConnections.probeHealth
-    const serving = {
+    const forgotten = {
       link: { readiness: 'ready', attempt: 0 },
-      target: { id: 'serving-host', label: 'Mac mini', url: 'https://mac-mini.example', local: false },
+      target: { id: 'forgotten-host', label: 'sidhu', url: 'http://10.10.1.10:3000', sessionToken: '', local: false },
     } as unknown as ReturnType<typeof serverConnections.connectionFor>
-    serverConnections.connectedServerIds = () => ['serving-host']
-    serverConnections.connectionFor = (serverId) => serverId === 'serving-host' ? serving : undefined
-    serverConnections.probeHealth = async () => ({ ok: true, installationId: 'serving-host', name: 'Mac mini', os: 'macos' })
-
+    serverConnections.serverIds = () => ['forgotten-host']
+    serverConnections.connectionFor = (serverId) => serverId === 'forgotten-host' ? forgotten : undefined
     try {
-      serversStore.trackConnections()
-      // SAFETY: the listener set is the one a host link reports into; calling it is a readiness change.
-      const listeners = (serverConnections as unknown as { readinessListeners: Set<ReadinessListener> }).readinessListeners
-      for (const listener of listeners) listener('serving-host', 'ready', 0)
-      await new Promise((resolve) => setTimeout(resolve, 0))
-
-      expect(serversStore.servers.find((server) => server.id === 'serving-host')?.os).toBe('macos')
+      expect(serversStore.servers.map((server) => server.id)).not.toContain('forgotten-host')
     } finally {
-      serverConnections.connectedServerIds = originalIds
+      serverConnections.serverIds = originalIds
       serverConnections.connectionFor = originalConnectionFor
-      serverConnections.probeHealth = originalProbeHealth
     }
+  })
+
+  test('the host a web client booted against wears its operating system', () => {
+    // WHY: a web client's serving host may be one this browser never saved. It is in
+    // the catalog for the page, so the OS its /health reports must reach its row;
+    // without it the Run on chip shows the unknown-OS globe for a Mac.
+    hostCatalog.addPageHost({ id: 'serving-host', label: 'Mac mini', sessionToken: '', installationId: 'serving-host', lastConnected: 0, routes: [{ kind: 'lan', url: 'https://mac-mini.example' }] })
+    hostCatalog.stampOperatingSystem('serving-host', 'macos')
+
+    expect(serversStore.servers.find((server) => server.id === 'serving-host')?.os).toBe('macos')
   })
 })

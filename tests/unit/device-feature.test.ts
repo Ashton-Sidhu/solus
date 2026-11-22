@@ -23,7 +23,7 @@ mock.module('@solus/client-core/host-events', () => ({
 }))
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
-    connectedServerIds: () => ['ready-host', 'dialing-host'],
+    serverIds: () => ['ready-host', 'dialing-host'],
     readinessFor: (serverId: string) => ({ readiness: serverId === 'ready-host' ? 'ready' : 'connecting' }),
     onReadinessChange: (listener: (serverId: string, status: string) => void) => {
       readinessListeners.push(listener)

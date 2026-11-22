@@ -336,7 +336,7 @@ describe('host socket transport', () => {
     let authFailures = 0
     const statuses: ConnectionStatus[] = []
     const client = createClient(harness.url, {
-      sessionToken: 'expired',
+      ...heldToken('expired').options,
       refreshToken: async () => {
         refreshes++
         return { result: 'refreshed', sessionToken: refreshedToken }
@@ -359,6 +359,63 @@ describe('host socket transport', () => {
     expect(authFailures).toBe(1)
   })
 
+  test('a token the owner saves after a refusal dials again on the same API, ahead of the account grant', async () => {
+    // WHY: a host listed before this device paired it is connected with no session token.
+    // The pairing saves one later; the live connection must use it without a reload.
+    const harness = await createHarness(true)
+    harness.server.register('connectionsGetServerInfo', async () => ({ paired: true }))
+    const held = heldToken('')
+    const client = createClient(harness.url, { ...held.options, grants: { acquire: async () => null, isSignedOut: () => true } })
+    const api = client.buildSolusApi()
+    client.start()
+    await waitForStatus(client, 'blocked')
+    expect(client.hasUntriedSessionToken()).toBe(false)
+    held.set(issueSessionToken('Paired after the listing arrived').token)
+    expect(client.hasUntriedSessionToken()).toBe(true)
+    client.start()
+    await expect(api.connectionsGetServerInfo()).resolves.toEqual({ paired: true })
+    expect(client.hasUntriedSessionToken()).toBe(false)
+  })
+
+  test('a token the host refused is not worth another dial', async () => {
+    // WHY: dialing again with the refused token could only be refused again.
+    const harness = await createHarness(true)
+    const client = createClient(harness.url, { ...heldToken('revoked').options, refreshToken: async () => ({ result: 'unauthorized' }) })
+    client.start()
+    await waitForStatus(client, 'blocked')
+    expect(client.hasUntriedSessionToken()).toBe(false)
+  })
+
+  test('a late token refresh cannot overwrite a new pairing', async () => {
+    const harness = await createHarness(true)
+    harness.server.register('connectionsGetServerInfo', async () => ({ paired: true }))
+    let started!: () => void
+    let release!: () => void
+    const refreshStarted = new Promise<void>((resolve) => { started = resolve })
+    const refreshGate = new Promise<void>((resolve) => { release = resolve })
+    const oldToken = issueSessionToken('Old refresh').token
+    const pairedToken = issueSessionToken('New pairing').token
+    const held = heldToken('expired')
+    let failures = 0
+    const client = createClient(harness.url, {
+      ...held.options,
+      refreshToken: async () => {
+        started()
+        await refreshGate
+        return { result: 'refreshed', sessionToken: oldToken }
+      },
+      onAuthFailed: () => { failures++ },
+    })
+    const api = client.buildSolusApi()
+    client.start()
+    await refreshStarted
+    held.set(pairedToken)
+    release()
+    await expect(api.connectionsGetServerInfo()).resolves.toEqual({ paired: true })
+    expect(held.current()).toBe(pairedToken)
+    expect(failures).toBe(0)
+  })
+
   test('a refresh the host does not answer retries instead of blocking the host', async () => {
     // WHY: a network error or 5xx during the refresh says nothing about the token. Before
     // T3 Code #16554's fix in Solus, one such blip blocked the host until the person retried.
@@ -368,7 +425,7 @@ describe('host socket transport', () => {
     let authFailures = 0
     const statuses: ConnectionStatus[] = []
     const client = createClient(harness.url, {
-      sessionToken: 'expired',
+      ...heldToken('expired').options,
       refreshToken: async () => {
         refreshes++
         return refreshes === 1 ? { result: 'unavailable' } : { result: 'refreshed', sessionToken: refreshedToken }
@@ -391,7 +448,6 @@ describe('host socket transport', () => {
     const minted: string[] = []
     let authFailures = 0
     const client = createClient(harness.url, {
-      sessionToken: '',
       acquire: async () => {
         const grant = `grant:${minted.length + 1}`
         minted.push(grant)
@@ -440,7 +496,7 @@ describe('host socket transport', () => {
     cleanups.push(() => { silent.close() })
     const address = silent.address()
     if (!address || typeof address === 'string') throw new Error('expected TCP address')
-    const client = createClient(`http://127.0.0.1:${address.port}`, { sessionToken: 'paired-token' })
+    const client = createClient(`http://127.0.0.1:${address.port}`, { sessionToken: () => 'paired-token' })
     const outcomes: string[] = []
     client.attachDialOutcomeReporter((outcome) => outcomes.push(outcome.kind))
 
@@ -803,9 +859,22 @@ class DataUrlFileReader {
   }
 }
 
+/** A session token's owner, as the host catalog is for a paired host: the transport reads it at each dial and renews it here. */
+function heldToken(initial: string) {
+  let token = initial
+  return {
+    current: () => token,
+    set: (next: string) => { token = next },
+    options: {
+      sessionToken: () => token,
+      onSessionTokenRefreshed: (next: string, previous: string) => { if (token === previous) token = next },
+    },
+  }
+}
+
 /** A client; `acquire` makes it a host reached with grants, from a signed-in account. */
 function createClient(url: string, { acquire, ...overrides }: Partial<ConstructorParameters<typeof WsTransport>[0]> & { acquire?: GrantSource['acquire'] } = {}): WsTransport {
-  const client = new WsTransport({ serverUrl: url, sessionToken: '', grants: acquire ? { acquire, isSignedOut: () => false } : undefined, ...overrides })
+  const client = new WsTransport({ serverUrl: url, grants: acquire ? { acquire, isSignedOut: () => false } : undefined, ...overrides })
   // The supervisor is the sole retry owner (dispatch-client step 3): the
   // harness attaches a fast-ladder one so a drop redials the SAME socket —
   // which is exactly what keeps connection-state recovery working.

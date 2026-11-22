@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test'
-import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
+import { describe, expect, jest, test } from 'bun:test'
+import { TEST_HANDLER_CTX, localOwnerCtx } from './helpers/handler-ctx'
 import type { AgentUsageLimits } from '@solus/contracts/types'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import type { HandlerCtx } from '@solus/server/transport/server'
@@ -46,6 +46,45 @@ describe('usage handlers', () => {
 
     expect(broadcasts).toHaveLength(1)
     expect(broadcasts[0]).toEqual([{ provider: 'claude-code', stale: false }])
+  })
+
+  test('a watch keeps the host reading with no client poll, until its client leaves', async () => {
+    // WHY: a meter asked every minute only to keep this poll awake, and the
+    // poll stopped 15 minutes after the last ask. A watch keeps it awake for
+    // as long as the client holds it, and a disconnect ends it.
+    jest.useFakeTimers()
+    try {
+      const server = new SolusServer()
+      let reads = 0
+      const watches = registerUsageHandlers(server, {
+        sessionRuntime: {
+          history: {
+            usageCapableAgents: () => ['claude-code'],
+            readUsageLimits: async () => { reads++; return { provider: 'claude-code', stale: false } },
+          },
+          usageLimits: new UsageLimitsStore(),
+        } as never,
+        events: { broadcast: () => 1 } as never,
+      })
+      const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve() }
+      await server.handle('usageWatch', [], localOwnerCtx('phone'))
+      await settle()
+      const afterWatch = reads
+      for (let step = 0; step < 6; step++) {
+        jest.advanceTimersByTime(5 * 60_000)
+        await settle()
+      }
+      // Thirty minutes with no ask: the watch alone kept every five-minute read.
+      expect(reads).toBe(afterWatch + 6)
+
+      watches.clientDisconnected('phone')
+      jest.advanceTimersByTime(5 * 60_000)
+      await settle()
+      const afterLeave = reads
+      jest.advanceTimersByTime(30 * 60_000)
+      await settle()
+      expect(reads).toBe(afterLeave)
+    } finally { jest.useRealTimers() }
   })
 
   test('a first read that fails still reports the provider, marked stale', async () => {

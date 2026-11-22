@@ -544,7 +544,7 @@
 				</p>
 				{@render kbTable([
 					['/review', 'Review the working tree — staged, unstaged, and untracked changes'],
-					['/review:session', "Review this session's changes"],
+					['/review-guide [focus]', "Show an inline guide to this session's changes"],
 					['/review:branch', 'Review the branch against its target branch'],
 					['/review:pr', "Review the current branch's pull request"],
 					['/review <PR URL>', 'Review the pull request at a GitHub URL — any PR you can access, not just ones in the open project'],

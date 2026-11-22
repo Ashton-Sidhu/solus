@@ -2,8 +2,8 @@
   import { ChevronLeft as PreviousIcon, ChevronRight as NextIcon, History as EarlierIcon, X as ClearIcon } from "@lucide/svelte";
   import { formatElapsed } from "@solus/client-core/elapsed-time";
   import {
-    barHeightShare,
     breakLabel,
+    stackedBarHeights,
     timelineBarText,
     timelineLabels,
     timelineLayout,
@@ -27,6 +27,8 @@
   interface Props {
     turns: readonly TimelineTurn[];
     toolCallTimes: readonly number[];
+    /** The tool calls of the sessions it started, stacked on its own bars. Empty draws its own alone. */
+    agentCallTimes?: readonly number[];
     /** The session still works: the line ends at "now". */
     live: boolean;
     /** The turn the surface is scoped to, by its prompt's id. Null is the whole session. */
@@ -36,7 +38,7 @@
     onLoadEarlier?: () => void;
     loadingEarlier?: boolean;
   }
-  let { turns, toolCallTimes, live, scopeTurnId, onScope, onLoadEarlier, loadingEarlier = false }: Props = $props();
+  let { turns, toolCallTimes, agentCallTimes = [], live, scopeTurnId, onScope, onLoadEarlier, loadingEarlier = false }: Props = $props();
 
   const PLOT_HEIGHT = 44;
   /** The room under the plot for the start times, which the dividers run down through. */
@@ -57,7 +59,8 @@
 
   const gutter = $derived(live ? NOW_GUTTER : 0);
   const roomWidth = $derived(Math.max(0, viewWidth - gutter));
-  const layout = $derived(timelineLayout(turns, toolCallTimes, Math.max(1, Math.floor(roomWidth / MIN_PITCH))));
+  const layout = $derived(timelineLayout(turns, toolCallTimes, Math.max(1, Math.floor(roomWidth / MIN_PITCH)), agentCallTimes));
+  const drawsAgents = $derived(layout.bars.some((bar) => bar.agentCalls > 0));
   // With more turns than the pane has room for, the plot keeps its bars readable and scrolls.
   const plotWidth = $derived(Math.max(roomWidth, layout.bars.length * MIN_PITCH));
   const pitch = $derived(layout.bars.length > 0 ? plotWidth / layout.bars.length : MIN_PITCH);
@@ -188,7 +191,10 @@
         {timelineBarText(pointed)}
       </span>
     {:else}
-      <span class="shrink-0 text-[11px] text-muted-foreground @max-[34rem]/pane:hidden">Tool calls per {layout.span.label}</span>
+      <span class="shrink-0 text-[11px] text-muted-foreground @max-[34rem]/pane:hidden">
+        Tool calls per {layout.span.label}{#if drawsAgents}<span class="opacity-60"> ·</span>
+          <span class="text-[color-mix(in_oklab,var(--solus-art-5)_78%,var(--foreground))]">agents on top</span>{/if}
+      </span>
     {/if}
     <span class="-mr-1.5 flex shrink-0 items-center">
       {#if onLoadEarlier}
@@ -287,17 +293,28 @@
             {/if}
           {/each}
           {#each layout.bars as bar, index (index)}
-            {@const height = bar.calls > 0 ? Math.max(4, barHeightShare(bar.calls, layout.fullHeightCalls) * PLOT_HEIGHT) : 2}
+            {@const heights = stackedBarHeights(bar, layout.fullHeightCalls, PLOT_HEIGHT)}
             <rect
               class="transition-[fill] duration-200 ease-(--ease-premium) motion-reduce:transition-none {BAR_TONE[
                 barTone(index, barTurns[index])
-              ]} {bar.calls > 0 ? '' : 'opacity-50'}"
+              ]} {bar.calls + bar.agentCalls > 0 ? '' : 'opacity-50'}"
               x={index * pitch + (pitch - barWidth) / 2}
-              y={PLOT_HEIGHT - height}
+              y={PLOT_HEIGHT - heights.own}
               width={barWidth}
-              {height}
+              height={heights.own}
               rx={barWidth / 2}
             />
+            {#if heights.agents > 0}
+              <!-- The agents' calls of the same span, on top: the blue of the Changes card's kinds. -->
+              <rect
+                class="fill-[color-mix(in_oklab,var(--solus-art-5)_62%,transparent)]"
+                x={index * pitch + (pitch - barWidth) / 2}
+                y={PLOT_HEIGHT - heights.own - heights.agents}
+                width={barWidth}
+                height={heights.agents}
+                rx={barWidth / 2}
+              />
+            {/if}
           {/each}
         </svg>
         {#each stretches as stretch, index (turns[index].id)}

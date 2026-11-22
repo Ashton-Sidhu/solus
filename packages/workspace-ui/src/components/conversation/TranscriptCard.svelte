@@ -299,7 +299,7 @@
   }
 
   .tx-card:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border-medium);
+    outline: 0.125rem solid var(--solus-tx-focus-ring);
     outline-offset: 0.125rem;
   }
 

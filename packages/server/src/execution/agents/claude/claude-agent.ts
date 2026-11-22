@@ -402,6 +402,8 @@ export class ClaudeAgent {
     if (!opts.disableReasoning) {
       claudeOptions.effort = opts.reasoningEffort ?? 'high'
       // Request readable summaries without changing the model's thinking budget.
+      claudeOptions.thinking = { type: 'adaptive', display: 'summarized' }
+      claudeOptions.extraArgs = { ...claudeOptions.extraArgs, 'thinking-display': 'summarized' }
       flagSettings = { showThinkingSummaries: true }
     }
 

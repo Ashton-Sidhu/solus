@@ -514,7 +514,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   }
 
   server.register('prListProjects', async (args, handlerCtx) => {
-    const [ctx, projectRoots, filter, after = []] = args
+    const [ctx, projectRoots, filter, cursorList] = args
+    const after = cursorList ?? []
     const cursors = new Map(after.map((entry) => [entry.projectRoot, entry]))
     // Filled by index, so the answer keeps the order the projects were named in.
     const listings: PrProjectListing[] = []

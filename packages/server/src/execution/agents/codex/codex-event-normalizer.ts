@@ -246,6 +246,7 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
 }
 
 export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; params: any }> {
+  private readonly reasoning = new Map<string, { summary: string[]; content: string[]; publishedAt: number }>()
   private interrupted = false
   private streamedPlanText = ''
   private completedPlan: { id: string; text: string } | null = null
@@ -281,6 +282,34 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
     if (this.interrupted) return []
     if (this.isDuplicateSubagentActivity(method, params)) return []
 
+    const stream = method === 'item/reasoning/summaryTextDelta' ? 'summary'
+      : method === 'item/reasoning/textDelta' ? 'content' : null
+    if (stream && typeof params?.itemId === 'string' && typeof params.delta === 'string') {
+      const index = stream === 'summary' ? params.summaryIndex : params.contentIndex
+      if (!Number.isSafeInteger(index) || index < 0) return []
+      const parts = this.reasoning.get(params.itemId) ?? { summary: [], content: [], publishedAt: 0 }
+      parts[stream][index] = (parts[stream][index] ?? '') + params.delta
+      this.reasoning.set(params.itemId, parts)
+      const now = Date.now()
+      if (now - parts.publishedAt < 100) return []
+      parts.publishedAt = now
+      return [{ type: 'thinking', state: 'update', thoughtId: params.itemId,
+        parentToolUseId: codexParentToolUseId(params), text: codexReasoningText({ type: 'reasoning', summary: parts.summary.filter(Boolean), content: parts.content.filter(Boolean) }) }]
+    }
+    if (method === 'item/completed' && params?.item?.type === 'reasoning' && params.item.id) {
+      const item = params.item
+      const parts = this.reasoning.get(item.id)
+      this.reasoning.delete(item.id)
+      if (parts) {
+        for (const stream of ['summary', 'content'] as const) {
+          for (const [index, text] of (item[stream] ?? []).entries()) {
+            if (text) parts[stream][index] = text
+          }
+        }
+      }
+      return [{ type: 'thinking', state: 'stop', thoughtId: item.id, parentToolUseId: codexParentToolUseId(params),
+        text: codexReasoningText(parts ? { type: 'reasoning', summary: parts.summary.filter(Boolean), content: parts.content.filter(Boolean) } : item) }]
+    }
     const events: NormalizedEvent[] = []
     if (this.planMode) {
       if (method === 'turn/plan/updated') {

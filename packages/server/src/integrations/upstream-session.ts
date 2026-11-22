@@ -76,7 +76,7 @@ export interface UpstreamSession extends UpstreamAddress {
   idleTimer: ReturnType<typeof setTimeout> | null
   /** Calls in flight, newest last: an elicitation goes to the newest one. */
   calls: ActiveCall[]
-  /** The session sends the person's `Authorization` header. */
+  /** The session sends the person's credential: an `Authorization` header, or a `headers` server's headers. */
   authorized: boolean
   openedAt: number
   /** Replaced by a newer session while calls were in flight: closed when the last one ends. */
@@ -117,16 +117,17 @@ export function sameUpstream(a: UpstreamAddress, b: UpstreamAddress): boolean {
 }
 
 /**
- * The session's transport. A remote server: streamable HTTP, with the header
- * going to the integration's URL only, so a redirect fails instead of carrying
- * it elsewhere (§4.1 rule 4). A Solus MCP server: an in-memory pair to its
- * server, built for this person, which reads their token on each request
- * (§13.6).
+ * The session's transport. A remote server: streamable HTTP, with the
+ * person's headers (`Authorization`, or a `headers` server's own) on every
+ * request and going to the integration's URL only, so a redirect fails
+ * instead of carrying them elsewhere (§4.1 rule 4). A Solus MCP server: an
+ * in-memory pair to its server, built for this person, which reads their
+ * token on each request (§13.6).
  */
 export function upstreamTransport(
   integration: Integration,
   personKey: string | null,
-  authorization: string | null,
+  credential: Record<string, string> | null,
   accountId: string,
   environment: IntegrationEnvValue[],
   credentials: IntegrationCredentials | null,
@@ -143,8 +144,8 @@ export function upstreamTransport(
     return clientEnd
   }
   if (integration.kind === 'solus') throw new Error(`This version of Solus does not have ${integration.name}. Update Solus on this host.`)
-  return authorization
-    ? new StreamableHTTPClientTransport(new URL(integration.url), { requestInit: { headers: { Authorization: authorization }, redirect: 'error' }, fetch: cancellableFetch() })
+  return credential
+    ? new StreamableHTTPClientTransport(new URL(integration.url), { requestInit: { headers: credential, redirect: 'error' }, fetch: cancellableFetch() })
     : new StreamableHTTPClientTransport(new URL(integration.url), { fetch: cancellableFetch() })
 }
 
@@ -171,7 +172,8 @@ export function isAuthFailure(cause: unknown): cause is SdkHttpError {
   return cause instanceof SdkHttpError && (cause.status === 401 || cause.status === 403)
 }
 
-export function refusedMessage(integration: Pick<Integration, 'name'>, error: SdkHttpError): string {
+export function refusedMessage(integration: Pick<Integration, 'name' | 'auth'>, error: SdkHttpError): string {
+  if (integration.auth.kind === 'headers') return `${integration.name} refused the saved headers (HTTP ${error.status}). Give their values again.`
   return `${integration.name} refused the saved sign-in (HTTP ${error.status}). Sign in again.`
 }
 

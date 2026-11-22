@@ -108,7 +108,33 @@ export const sessionRepositories = defineTable('session_repositories', {
   last_activity_at: bigint({ notNull: true, default: 0 }),
 }, { primaryKey: ['cloud_scope', 'session_id'], indexes: [{ name: 'session_repositories_owner', columns: ['owner_user_id', 'last_activity_at'], descending: ['last_activity_at'] }] })
 
+/**
+ * What one session did (docs/plans/session-digests.md): its turns, tool calls,
+ * change summary, and sub-agents, as one `SessionDigest`. Its own row, not a
+ * column of `session_records`, so a list of records does not carry it. Only the
+ * host that runs the session writes it; a session delete removes it.
+ */
+export const sessionDigests = defineTable('session_digests', {
+  session_id: text({ primaryKey: true }),
+  organization_id: text({ notNull: true, default: 'local' }),
+  digest: json({ notNull: true }),
+  updated_at: bigint({ notNull: true }),
+})
+
 // A session's pull requests, its file and automation links, and its watches
 // are edges of `resource_links` (data/links/schema.ts); a session delete
 // removes them explicitly (`deleteEdgesOf`), as no foreign key can.
-export const SESSION_TABLES = [session, sessionRepositories]
+/**
+ * What a session another host runs linked, as the parent's host last copied it
+ * from that host (docs/plans/session-digests.md decision 8): the list as JSON,
+ * not `resource_links` edges, so a copied pull request starts no PR sync here.
+ * A session delete removes it.
+ */
+export const sessionArtifactCopies = defineTable('session_artifact_copies', {
+  session_id: text({ primaryKey: true }),
+  organization_id: text({ notNull: true, default: 'local' }),
+  artifacts: json({ notNull: true }),
+  updated_at: bigint({ notNull: true }),
+})
+
+export const SESSION_TABLES = [session, sessionRepositories, sessionDigests, sessionArtifactCopies]

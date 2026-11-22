@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
+import type { HostListing } from '@solus/contracts/host-list'
 import type { IntroducedHost } from '@solus/contracts/host-api'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { dialableRoutes } from '@solus/contracts/host-routes'
@@ -171,6 +172,25 @@ describe('local reach: introduced hosts (§4)', () => {
 
   test('introduced hosts stay reachable when the account does not answer', async () => {
     expect(await hostsOf(null, { introduced: introductionsOf([studio]) }).list(OWNER)).toEqual([expect.objectContaining({ label: 'Studio Mini', source: 'introduced' })])
+  })
+
+  test('a host on the owner\'s list that this host cannot reach is listed with the reason, and work there is refused with the way in', async () => {
+    // WHY: agents and clients list the same hosts. A host a client paired but this host
+    // holds no credential for was missing from list_hosts, so an agent could not say why.
+    const windows: HostListing = { id: 'windows', installationId: 'windows', label: 'Windows', lastConnected: 1, routes: [{ kind: 'lan', url: 'http://10.10.1.10:3000' }] }
+    const self: HostListing = { id: 'this-host', installationId: 'this-host', label: 'This host', lastConnected: 1, routes: [] }
+    const introducedListing: HostListing = { id: 'install-h-mini', installationId: 'install-h-mini', label: 'Studio Mini', lastConnected: 1, routes: [] }
+    const hosts = new RemoteHosts(() => null, introductionsOf([studio]), () => null, async () => [], () => 'this-host', undefined, fetch, undefined, () => [windows, self, introducedListing])
+
+    const summaries = await hosts.summaries(NO_ACCOUNT)
+    expect(summaries.map((host) => [host.id, host.source])).toEqual([['install-h-mini', 'introduced'], ['windows', 'listed']])
+    expect(summaries.find((host) => host.id === 'windows')?.status).toBe('not-paired')
+
+    const found = await hosts.find(NO_ACCOUNT, 'Windows')
+    if ('error' in found) throw new Error(found.error)
+    expect(hosts.connect(found)).toEqual({ error: expect.stringContaining('Pair it here with pair_host') })
+    // The list is the owner's: a member's turn does not see it.
+    expect(await hosts.list(MEMBER)).toEqual({ error: expect.stringContaining('reaches no other host') })
   })
 
   test('with no reach at all, the error names both ways in', async () => {

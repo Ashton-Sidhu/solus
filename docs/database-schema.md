@@ -68,6 +68,16 @@ session (`runs`, `run_queue`, `run_exchanges`, `async_questions`,
 `transcript_mirror_rows`, `activity_mirror_rows`) are deleted by
 `deleteSessionRecord`, because a host table cannot reference a ported one.
 
+What a session did — its turns, tool calls, change summary, and sub-agents — is
+one `session_digests` row, keyed by `session_id`, with the digest as JSON
+(docs/plans/session-digests.md). It is not a column of `session_records`,
+because session lists read records in bulk and a digest can be large. Only the
+host that runs the session writes it, and `deleteSessionRecord` deletes it with
+the session. For a delegate that runs on another host, the parent's host keeps
+a copy: its record (a `session_records` row with `runner_host_id` set), its
+digest, and its artifacts as one `session_artifact_copies` row of JSON, not
+`resource_links` edges, so a copied pull request starts no PR sync there.
+
 ## Tasks
 
 GitHub and Jira own every task (docs/plans/provider-owned-tasks.md). The host

@@ -77,6 +77,8 @@ class WebhooksStore {
   private readonly rowReads = new Map<string, Promise<void>>()
   private watchCount = 0
   private stopWatching: (() => void) | null = null
+  /** Hosts whose webhook settings a view shows (`showSettings`). */
+  private readonly settingsShown = new Set<string>()
 
   /** Surfaces that show webhooks hold one shared watch over every host. */
   watch(): () => void {
@@ -101,7 +103,7 @@ class WebhooksStore {
   }
 
   private machineIds(): string[] {
-    return serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId))
+    return serverConnections.serverIds().filter((serverId) => !isSolusApiId(serverId))
   }
 
   /** The machines this client holds, with whether their rows are current. */
@@ -147,17 +149,33 @@ class WebhooksStore {
     return count
   }
 
-  /** Read one host's list and its settings, and replace its rows. */
+  /** A view shows the host's webhook settings: read them now, and with every load. */
+  showSettings(serverId: string): void {
+    if (this.settingsShown.has(serverId)) return
+    this.settingsShown.add(serverId)
+    if (!this.hostSettings.has(serverId) && serverConnections.readinessFor(serverId).readiness === 'ready') void this.load(serverId)
+  }
+
+  /**
+   * Read one host's list, and replace its rows. Its settings are read too
+   * when something shows them: a settings view, or a row's reachability text.
+   * A host with no webhooks and no settings view, the usual one at startup,
+   * costs one read.
+   */
   async load(serverId: string): Promise<void> {
     const startedRevision = this.revision
     if (!this.hostStatus.has(serverId)) this.hostStatus.set(serverId, 'loading')
     try {
       const api = serverConnections.apiFor(serverId)
-      const [list, settings] = await Promise.all([api.webhookList(), api.hostWebhookSettingsRead()])
+      const readsSettings = this.settingsShown.has(serverId) || this.hostSettings.has(serverId)
+      const [list, answeredSettings] = await Promise.all([api.webhookList(), readsSettings ? api.hostWebhookSettingsRead() : null])
+      const settings = answeredSettings ?? (list.length > 0 ? await api.hostWebhookSettingsRead() : null)
       if (serverConnections.readinessFor(serverId).readiness !== 'ready') return
-      this.hostSettings.set(serverId, settings)
-      // The reachability text names a personal computer: its category is in the host's standing.
-      if (settings.linked && !organizationsStore.statusFor(serverId)) void organizationsStore.refresh(serverId)
+      if (settings) {
+        this.hostSettings.set(serverId, settings)
+        // The reachability text names a personal computer: its category is in the host's standing.
+        if (settings.linked && !organizationsStore.statusFor(serverId)) void organizationsStore.refresh(serverId)
+      }
       const liveKeys = new Set<string>()
       for (const webhook of list) {
         const key = webhookKey(serverId, webhook.id)

@@ -41,7 +41,7 @@ class DiscoverStore {
     })
   }
 
-  /** Looks again everywhere. The network scan also runs on its own every 30 s while a window has focus. */
+  /** Looks again everywhere. The network scan also runs on its own every 30 s while Discover shows and the window has focus. */
   async scan(): Promise<void> {
     await Promise.all([serversStore.scanForServers(), this.readSshConfig()])
     this.lastScanAt = Date.now()
@@ -49,7 +49,7 @@ class DiscoverStore {
 
   /** Keeps the WSL and forward lists read while a surface shows Discover. The result stops it. */
   watch(): () => void {
-    const stops: Array<() => void> = []
+    const stops: Array<() => void> = [serversStore.showNearby()]
     const windowsHostId = addWslDistroStore.defaultWindowsHostId
     if (windowsHostId) stops.push(addWslDistroStore.watch(windowsHostId))
     const scanningServerId = this.scanningServerId

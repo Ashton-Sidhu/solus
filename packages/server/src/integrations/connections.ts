@@ -34,6 +34,12 @@ export interface IntegrationCredentials {
    * when they gave none.
    */
   environmentFor?(integrationId: string, personKey: string, accountId?: string): IntegrationEnvValue[] | null
+  /**
+   * The person's header values for one account of a `headers` server
+   * (docs/plans/mcp-add-server.md), sent on every request to it; null when they
+   * gave none, or the server refused them.
+   */
+  headersFor?(integrationId: string, personKey: string, accountId?: string): Record<string, string> | null
 }
 
 /** A credential a first-party connection supplies (§13.1): the token, and the account it belongs to. */
@@ -66,6 +72,22 @@ export interface ReconcileOutcome {
   kept: string[]
 }
 
+/** The kinds that send no `Authorization` header: a command's values go into its process (`environmentFor`), and a `headers` server sends its own (`headersFor`). */
+const WITHOUT_AUTHORIZATION = new Set<Integration['auth']['kind']>(['none', 'env', 'headers'])
+
+/** The values a person gave, as the headers of each request. */
+function headersOf(values: IntegrationEnvValue[]): Record<string, string> {
+  return Object.fromEntries(values.map(({ name, value }) => [name, value]))
+}
+
+/** One value for each name, and no other. Throws a plain message that names no value. */
+function checkValueNames(wanted: string[], values: IntegrationEnvValue[]): void {
+  const given = values.map((value) => value.name)
+  const missing = wanted.filter((name) => !given.includes(name))
+  if (missing.length) throw new Error(`Give a value for ${missing.join(', ')}.`)
+  if (new Set(given).size !== given.length || given.some((name) => !wanted.includes(name))) throw new Error(`Give one value for each of ${wanted.join(', ')}, and no other.`)
+}
+
 /** A pasted key as its header: the whole key after the scheme the probe saw. */
 function keyAuthorization(integration: Integration, key: string): string {
   return integration.auth.kind === 'bearer' && integration.auth.scheme === 'basic' ? `Basic ${key}` : `Bearer ${key}`
@@ -85,8 +107,7 @@ export class IntegrationConnections implements IntegrationCredentials {
 
   async authorizationFor(integrationId: string, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<string | null> {
     const integration = this.deps.integrations.get(integrationId, ANY_ORGANIZATION)
-    // A `stdio` integration sends no header: its values go into its process (`environmentFor`).
-    if (!integration || integration.auth.kind === 'none' || integration.auth.kind === 'env') return null
+    if (!integration || WITHOUT_AUTHORIZATION.has(integration.auth.kind)) return null
     const connection = this.deps.store.get(integrationId, personKey, accountId)
     if (new IntegrationSignIn(integration).usesSolusGithub) {
       // The token is the person's Solus GitHub connection, so the row alone says
@@ -201,7 +222,7 @@ export class IntegrationConnections implements IntegrationCredentials {
   /** A `bearer` integration's key, kept only after the server accepted it. Throws a plain message. */
   async submitKey(integration: Integration, personKey: string, key: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<IntegrationConnection> {
     if (integration.auth.kind !== 'bearer') throw new Error('This integration does not take an API key.')
-    const identity = await readServerIdentity(integration.url, keyAuthorization(integration, key), this.deps.fetch)
+    const identity = await readServerIdentity(integration.url, { authorization: keyAuthorization(integration, key) }, this.deps.fetch)
     this.deps.vault.save(personKey, mcpCredentialRef(integration, accountId), { accessToken: key, tokenType: 'api-key' })
     const connection = this.deps.store.upsert(integration.id, personKey, {
       status: 'connected',
@@ -221,6 +242,15 @@ export class IntegrationConnections implements IntegrationCredentials {
     return this.deps.vault.readEnvironment(personKey, mcpCredentialRef(integration, accountId))
   }
 
+  headersFor(integrationId: string, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Record<string, string> | null {
+    const integration = this.deps.integrations.get(integrationId, ANY_ORGANIZATION)
+    if (integration?.auth.kind !== 'headers') return null
+    // Refused values wait for the person to give new ones, as a refused key does.
+    if (this.deps.store.get(integrationId, personKey, accountId)?.status === 'needs-sign-in') return null
+    const values = this.deps.vault.readEnvironment(personKey, mcpCredentialRef(integration, accountId))
+    return values && headersOf(values)
+  }
+
   /**
    * The person's values for a `stdio` integration (§7.6): one for each of its
    * names, and no other. They are kept on this host and never read back; the
@@ -228,22 +258,42 @@ export class IntegrationConnections implements IntegrationCredentials {
    */
   submitEnvironment(integration: Integration, personKey: string, values: IntegrationEnvValue[], accountId: string = DEFAULT_INTEGRATION_ACCOUNT): IntegrationConnection {
     if (integration.auth.kind !== 'env') throw new Error('This integration does not take environment values.')
-    const wanted = integration.auth.names
-    const given = values.map((value) => value.name)
-    const missing = wanted.filter((name) => !given.includes(name))
-    if (missing.length) throw new Error(`Give a value for ${missing.join(', ')}.`)
-    if (new Set(given).size !== given.length || given.some((name) => !wanted.includes(name))) throw new Error(`Give one value for each of ${wanted.join(', ')}, and no other.`)
+    checkValueNames(integration.auth.names, values)
     this.deps.vault.saveEnvironment(personKey, mcpCredentialRef(integration, accountId), values)
     const connection = this.deps.store.upsert(integration.id, personKey, { status: 'connected', source: 'host', label: null, info: null, error: null }, accountId)
     this.deps.events.connectionChanged(personKey, { integrationId: integration.id, connection })
     // The names only: a value is never logged.
-    log.info('integration_environment_connected', { integrationId: integration.id, personKey, accountId, names: wanted.length })
+    log.info('integration_environment_connected', { integrationId: integration.id, personKey, accountId, names: values.length })
+    return connection
+  }
+
+  /**
+   * The person's header values for a `headers` server
+   * (docs/plans/mcp-add-server.md): one for each of its names, and no other,
+   * kept only after the server accepted them. They stay on this host, as a
+   * command's values do, and are never read back. Throws a plain message.
+   */
+  async submitHeaders(integration: Integration, personKey: string, values: IntegrationEnvValue[], accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<IntegrationConnection> {
+    if (integration.auth.kind !== 'headers') throw new Error('This integration does not take headers.')
+    checkValueNames(integration.auth.names, values)
+    const identity = await readServerIdentity(integration.url, headersOf(values), this.deps.fetch)
+    this.deps.vault.saveEnvironment(personKey, mcpCredentialRef(integration, accountId), values)
+    const connection = this.deps.store.upsert(integration.id, personKey, {
+      status: 'connected',
+      source: 'host',
+      label: identity.label,
+      info: identity.label ? { displayName: identity.label } : null,
+      error: null,
+    }, accountId)
+    this.deps.events.connectionChanged(personKey, { integrationId: integration.id, connection })
+    // The names only: a value is never logged.
+    log.info('integration_headers_connected', { integrationId: integration.id, personKey, accountId, names: values.length })
     return connection
   }
 
   /** Removes the person's token and row; revokes an OAuth token when the server names a revocation endpoint. */
   async disconnect(integration: Integration, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<boolean> {
-    if (integration.auth.kind === 'env') {
+    if (integration.auth.kind === 'env' || integration.auth.kind === 'headers') {
       const held = this.deps.vault.removeEnvironment(personKey, mcpCredentialRef(integration, accountId))
       const removed = this.deps.store.remove(integration.id, personKey, accountId)
       this.deps.events.connectionChanged(personKey, { integrationId: integration.id, accountId, connection: null })
@@ -292,8 +342,8 @@ export class IntegrationConnections implements IntegrationCredentials {
     const held = new Map(cloudConnections.flatMap((connection) => connection.ref.kind === 'mcp' ? [[connection.ref.serverUrl, connection] as const] : []))
     const user = owner.ownerKey
     for (const integration of this.deps.integrations.list(owner.organizationId, owner.ownerKey)) {
-      // A `stdio` integration's values stay on this host (mcp-first-class.md §7.8).
-      if (integration.auth.kind === 'none' || integration.kind === 'stdio') continue
+      // A `stdio` integration's values stay on this host (mcp-first-class.md §7.8), and so do a `headers` server's.
+      if (integration.auth.kind === 'none' || integration.kind === 'stdio' || integration.auth.kind === 'headers') continue
       const connection = this.deps.store.get(integration.id, user)
       const cloudHeld = held.get(integration.url)
       if (connection?.source === 'cloud') {

@@ -3,6 +3,7 @@ import { SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
 import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type SessionMeta, type Tab } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
+import type { HostApi } from '@solus/client-core/host-api'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { makePrompt } from './session.factories'
 import { existingTaskId } from './session-draft.svelte'
@@ -56,10 +57,6 @@ import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import { checksPresentation } from '../../components/prs/lib/checks'
 import type { Via } from '@solus/contracts/analytics-events'
 import { nextOpenSidebarTabAfterClose } from './session-sidebar-selection'
-import {
-  reviewGuideStore,
-  sessionGuideIdentity,
-} from '../../components/review/review-guide.store.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hostKey } from '@solus/client-core/host-key'
 import { readSessionMeta } from '@solus/client-core/session-meta'
@@ -138,11 +135,6 @@ export type SidebarSessionChild = {
   /** Newest known session activity. The task/session index supplies this for
    * closed sessions; mounted sessions use their live transcript. */
   lastActivityAt: number
-  /** Background walkthrough state for this exact agent session. */
-  reviewGuideStatus: 'generating' | 'ready' | null
-  /** Durable walkthrough state shown in the row tooltip after its notification
-   * mark has been acknowledged. */
-  reviewGuideTooltipStatus?: 'generating' | 'ready' | null
   /** The row is the cloud record of a session whose runner is not connected
    *  (docs/plans/cloud-service-model.md R8): it opens read-only. */
   runnerOffline?: boolean
@@ -202,6 +194,8 @@ export class SessionSidebarStore {
   /** Pinned sessions, most-recently-pinned first. Loaded on bootstrap, mutated by pin/unpin. */
   pinnedSessions = $state<PinnedSession[]>([])
   private readonly pinRequests = new Map<string, number>()
+  /** The host connections whose pins were read: boot and a new connection read each host once. */
+  private readonly pinsReadOn = new WeakSet<HostApi>()
   visibleTabIds: string[] = $derived.by(() => mountedSidebarTabIds(
     this.session.tabOrder,
     this.session.tabs,
@@ -243,6 +237,12 @@ export class SessionSidebarStore {
     return this.session.tasksStore.tasks.find((candidate) => candidate.id === taskId)
   }
 
+  automationName(automationId: string | undefined, serverId: string | null | undefined): string | undefined {
+    if (!automationId || !serverId) return
+    const store = this.session.automationsStore
+    if (store.hostFor(automationId) === serverConnections.resolveId(serverId)) return store.get(automationId)?.name
+  }
+
   /**
    * A session's own row: one mounted conversation. Its lifecycle is the
    * session's state on its host: settled, snoozed, or active
@@ -264,15 +264,21 @@ export class SessionSidebarStore {
     const state = sessionListStore.stateFor(session.id)
     const isSettled = !!state?.settledAt
     const lifecycle = sessionRowLifecycle(state, attention, this.lifecycleNow)
+    const serverId = runHost(session.run) ?? null
+    const automationId = session.startedBy?.kind === 'automation'
+      ? session.startedBy.automationId
+      : sessionListStore.listed(session.id)?.automationId
     const row: SidebarTask = {
       id: tabId,
       key: tabId,
       title: sessionTitle(session),
+      automationId,
+      automationName: this.automationName(automationId, serverId),
       projectKey,
       projectLabel: projectLabel(projectKey),
       groupKey: runGroupKey(session.run, projectKey),
       branchName: environment.branch,
-      serverId: runHost(session.run) ?? null,
+      serverId,
       status: taskStatusFor(attention, isSettled),
       attention,
       unread: tab.hasUnread && !isSettled,
@@ -309,6 +315,8 @@ export class SessionSidebarStore {
       key: rowId,
       sessionId: listed.sessionId,
       title: listed.title ?? 'Session',
+      automationId: listed.automationId,
+      automationName: this.automationName(listed.automationId, listed.serverId),
       projectKey,
       projectLabel: projectLabel(projectKey),
       groupKey: groupKeyFor(listed.serverId, projectKey),
@@ -1001,14 +1009,20 @@ export class SessionSidebarStore {
   /** Hydrate the pinned list by fanning out over every connected host: pins
    *  are host-authoritative (dispatch-client), so each host answers for its
    *  own sessions. Rows read naked get the answering host stamped; a host
-   *  that fails the read keeps the rows it answered with last time. */
-  async loadPinnedSessions(): Promise<void> {
-    const serverIds = serverConnections.connectedServerIds()
+   *  that fails the read keeps the rows it answered with last time.
+   *
+   *  `serverIds` names the hosts to read (every host by default);
+   *  `unreadOnly` skips a host whose current connection was read already. */
+  async loadPinnedSessions(scope: { serverIds?: readonly string[]; unreadOnly?: boolean } = {}): Promise<void> {
+    const serverIds = (scope.serverIds ?? serverConnections.serverIds())
+      .filter((serverId) => !scope.unreadOnly || !this.pinsReadOn.has(serverConnections.apiFor(serverId)))
     await Promise.all(serverIds.map(async (serverId) => {
       const request = (this.pinRequests.get(serverId) ?? 0) + 1
       this.pinRequests.set(serverId, request)
+      const api = serverConnections.apiFor(serverId)
+      this.pinsReadOn.add(api)
       try {
-        const rows = await serverConnections.apiFor(serverId).pinnedSessionsList()
+        const rows = await api.pinnedSessionsList()
         if (this.pinRequests.get(serverId) !== request) return
         const seen = new Set<string>()
         const pins = rows.filter((row) => {
@@ -1022,7 +1036,8 @@ export class SessionSidebarStore {
         }
         this.pinnedSessions.push(...pins)
       } catch {
-        // A failed host keeps its last rows; other hosts can still update.
+        // A failed host keeps its last rows, and is read again; other hosts can still update.
+        this.pinsReadOn.delete(api)
       }
     }))
   }
@@ -1081,10 +1096,6 @@ export class SessionSidebarStore {
     const tab = this.session.tabs[tabId]
     const sess = this.session.sessionFor(tabId)
     const attention = tab && sess ? getAttentionState(sess, tab, this.planStore.plans) : null
-    const serverId = this.session.serverIdFor(tabId)
-    const guideIdentity = sessionGuideIdentity(sess)
-    const guideStatus = reviewGuideStore.indicatorStatusFor(serverId, guideIdentity)?.status
-    const guideTooltipStatus = reviewGuideStore.statusFor(serverId, guideIdentity)?.status
     return {
       tabId,
       label: sess ? sessionTitle(sess) : tabId,
@@ -1098,18 +1109,6 @@ export class SessionSidebarStore {
       branchName: this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run).branch,
       runStartedAt: sess && attention === 'running' ? turnStartedAt(sess) : 0,
       limitResetsAt: (sess && sessionLimitResetsAt(sess)) ?? undefined,
-      reviewGuideStatus:
-        guideStatus === 'queued' || guideStatus === 'generating'
-          ? 'generating'
-          : guideStatus === 'ready'
-            ? 'ready'
-            : null,
-      reviewGuideTooltipStatus:
-        guideTooltipStatus === 'queued' || guideTooltipStatus === 'generating'
-          ? 'generating'
-          : guideTooltipStatus === 'ready'
-            ? 'ready'
-            : null,
     }
   }
 
@@ -1388,7 +1387,6 @@ export class SessionSidebarStore {
       modelId: link.model,
       runStartedAt: liveState?.attention === 'running' ? liveState.runStartedAt : 0,
       lastActivityAt: link.lastActivityAt ?? link.linkedAt,
-      reviewGuideStatus: null,
     }
   }
 

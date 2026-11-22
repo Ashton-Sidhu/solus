@@ -48,7 +48,9 @@ export async function attachResource(deps: {
     if (deps.sessionId) gateway.askToConnect(integration, deps.sessionId)
     throw new Error(integration.auth.kind === 'env'
       ? `CONNECTION_REQUIRED: Give the environment values of ${integration.name} in Settings → MCP.`
-      : `CONNECTION_REQUIRED: Sign in to ${integration.name} in Settings → MCP.`)
+      : integration.auth.kind === 'headers'
+        ? `CONNECTION_REQUIRED: Give the header values of ${integration.name} in Settings → MCP.`
+        : `CONNECTION_REQUIRED: Sign in to ${integration.name} in Settings → MCP.`)
   }
   if (!contents.length) throw new Error(`${integration.name} returned nothing for ${uri}.`)
   if (contents.length > MAX_ATTACHED_CONTENTS) throw new Error(`${integration.name} returned ${contents.length} parts for ${uri}; Solus attaches at most ${MAX_ATTACHED_CONTENTS}.`)

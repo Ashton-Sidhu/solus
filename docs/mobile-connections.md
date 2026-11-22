@@ -37,3 +37,9 @@ was too busy to answer.” When the load average is more than the CPU count,
 the notice says the computer was overloaded. Desktop and web show a toast
 one time for each stall. On iOS and Android, the host's row on the Hosts
 screen shows the same text while the connection that read it stays open.
+
+## Settings on a connected phone
+
+The filter at the top of Settings selects connected Solus hosts and their projects. Source control and issue tracker connections, maintenance, and scheduled tasks use that selection. The Worktrees page changes the person's branch naming defaults. The Projects page manages a selected checkout and shows name and default branch controls for a matching workspace project the person can edit.
+
+Scheduled tasks are Solus automations. The phone can create, edit, pause, resume, run, and delete them. Fixed-time schedules keep their time zone. Custom cron schedules and existing end dates survive edits on the phone. A new run can use the project folder or a new worktree.

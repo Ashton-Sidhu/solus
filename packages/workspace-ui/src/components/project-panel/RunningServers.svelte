@@ -7,7 +7,7 @@
   import { providerMark } from '../insights/lib/provider';
   import { sessionListStore } from '../../contexts/workspace/session-list.store.svelte';
   import { hostPathBaseName } from '@solus/contracts/host-path';
-  import { SERVER_LIST_PAGE_SIZE, type ServerEndpoint } from '@solus/contracts/running-servers';
+  import { SERVER_LIST_PAGE_SIZE, stopRefusalText, type ServerEndpoint } from '@solus/contracts/running-servers';
   import { runningServers } from '../../contexts/running-servers/running-servers.store.svelte';
   import type { RunningServers } from '@solus/client-core/running-servers';
   import { hosts, getWorkspaceContext } from '../../contexts';
@@ -91,7 +91,7 @@
     pendingAction = `stop:${endpoint.endpointId}`;
     try {
       const result = await server.stop();
-      if (result.status === 'refused') toasts.error('The server cannot be stopped', { description: result.reason === 'identity-changed' ? 'The process changed. Read the server list again.' : 'This process is not eligible to stop.' });
+      if (result.status === 'refused') toasts.error('The server cannot be stopped', { description: stopRefusalText(result.reason) });
     } catch (error) { toasts.error('Cannot stop server', { description: error instanceof Error ? error.message : String(error) }); }
     finally { busy = null; pendingAction = null; requestInputFocus(); }
   }

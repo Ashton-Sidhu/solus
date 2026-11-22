@@ -44,6 +44,11 @@ or a message, and do not call the scope a filter.
 
 ## Decisions
 
+> **2026-11-22:** decisions 10, 14, 15, and 16 are changed by
+> `docs/plans/session-digests.md` (decisions 10 to 12): the surface reads the
+> session tree, so it needs no open conversation; an agent filter scopes it;
+> each kind of link has its own card; and the Agents card shows no chips.
+
 1. **One read, four sources.** `readSessionArtifacts` in
    `packages/server/src/data/sessions/session-artifacts.ts` joins the session's
    pull requests (`session_pull_requests`), the works whose `sessionIds`

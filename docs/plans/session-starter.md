@@ -153,6 +153,11 @@ badge.
 
 ## 9. As built
 
+- Automation runs in the desktop, web, and mobile session sidebars show a gear
+  and the automation's current name. If the client cannot read the automation,
+  the gear appears with the session title. The gear identifies the source of
+  the run. Use the Automations screen to change the schedule.
+
 - `SessionPlace`, `SessionStarter`, and `SessionStarterFromHost` are in
   `packages/contracts/src/types.ts`; their Zod schemas, `hostStarterOf`, and
   `parseStoredStarter` are in `packages/contracts/src/session-starter.ts`.

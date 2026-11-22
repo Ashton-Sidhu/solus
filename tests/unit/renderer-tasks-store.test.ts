@@ -1283,6 +1283,35 @@ describe('session bindings', () => {
     expect(snapshots).toBe(1)
   })
 
+  test('session writes that ask for the binding together share one read and one follow-up', async () => {
+    // WHY: a session start, its branch, and its title each refresh the
+    // binding within a few milliseconds. Each one sent its own
+    // `tasksForSession`; one read in flight plus one queued read still shows
+    // every write made before the requests.
+    const world = await createTasksWorld()
+    let taskReads = 0
+    let release!: () => void
+    const gate = new Promise<void>((done) => { release = done })
+    world.connections.registerPrimary('local', {
+      tasksSidebarSnapshot: async () => snapshotOf([]),
+      tasksForSession: async () => {
+        taskReads++
+        if (taskReads === 1) await gate
+        return { task: issueRecord('github:I_owner'), attempts: [] }
+      },
+    })
+    const store = new world.TasksStore()
+    await store.ensureLoaded()
+    const first = store.refreshSessionBinding('started-session')
+    await Promise.resolve()
+    const later = [store.refreshSessionBinding('started-session'), store.refreshSessionBinding('started-session')]
+    release()
+    const bound = await Promise.all([first, ...later])
+
+    expect(taskReads).toBe(2)
+    expect(bound.map((task) => task?.id)).toEqual(['github:I_owner', 'github:I_owner', 'github:I_owner'])
+  })
+
   test('the focused session read binds every attempt of the task it names', async () => {
     // WHY: opening from the session picker must not stop at the selected
     // session. The task's other attempts must resolve to the task before any

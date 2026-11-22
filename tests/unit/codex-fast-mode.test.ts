@@ -63,13 +63,14 @@ describe('Codex backend configuration', () => {
       // the reasoning summary. A thread that is resumed or forked keeps the
       // config of the request that opened it, so each of them must send it.
       const backend = new CodexBackend()
-      type CapturedParams = { config?: { 'features.concurrent_reasoning_summaries'?: boolean } | null }
+      type CapturedParams = { summary?: string; config?: { 'features.concurrent_reasoning_summaries'?: boolean } | null }
       const requests: Array<{ method: string; params: CapturedParams }> = []
       const { promise: turnStarted, resolve: markTurnStarted } = Promise.withResolvers<void>()
       Reflect.set(backend, 'client', {
         request: async (requestMethod: string, params: CapturedParams) => {
           requests.push({ method: requestMethod, params })
           if (requestMethod === method) return { thread: { id: 'thread-1' }, model: 'gpt-5.6-sol' }
+          if (requestMethod === 'config/read') return { config: { model_reasoning_summary: 'detailed' } }
           if (requestMethod === 'turn/start') {
             markTurnStarted()
             return { turn: { id: 'turn-1' } }
@@ -86,6 +87,7 @@ describe('Codex backend configuration', () => {
         persistence: 'ephemeral', service: 'sessions', conversation,
       })
       await turnStarted
+      expect(requests.find(request => request.method === 'turn/start')?.params.summary).toBe('detailed')
       expect(requests.find((request) => request.method === method)?.params.config)
         .toMatchObject({ 'features.concurrent_reasoning_summaries': true })
     })

@@ -252,7 +252,9 @@ turn state predates this plan and is not yet tied to readiness.
 
 - `HostPresence`. It is the input for `gone`.
 - `HostFact` states.
-- `connectedServerIds()`. It lists the connections that exist. A caller that
+- `serverIds()` (was `connectedServerIds()`). It lists the hosts the catalog
+  names, not the connections that exist (2026-11-22): an open socket to a host the
+  catalog no longer names adds nothing, and that connection closes. A caller that
   used it to mean "ready" reads readiness.
 - Web `HostlessHome`. "No host chosen" is not a readiness.
 - The live-document status in `work/`. It is about document sync.

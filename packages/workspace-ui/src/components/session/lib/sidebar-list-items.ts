@@ -110,7 +110,7 @@ export function filterPinnedEntries(entries: readonly PinnedEntry[], query: stri
   const needle = query.trim().toLocaleLowerCase()
   if (!needle) return entries
   return entries.filter((entry) =>
-    (entry.row ? `${entry.row.title} ${entry.row.projectLabel}` : entry.pin.title).toLocaleLowerCase().includes(needle),
+    (entry.row ? `${entry.row.title} ${entry.row.automationName ?? ''} ${entry.row.projectLabel}` : entry.pin.title).toLocaleLowerCase().includes(needle),
   )
 }
 

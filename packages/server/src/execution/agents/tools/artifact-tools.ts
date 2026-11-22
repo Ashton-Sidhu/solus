@@ -60,7 +60,7 @@ export const ARTIFACT_TOOL_NAME = 'render_artifact'
 const artifactFields = {
   html: z.string().optional().describe('A finished, self-contained HTML document to render. Pass this or html_path.'),
   html_path: z.string().optional().describe(
-    'Path to an .html file on this host, such as the visual-artifacts bundle.html, relative to your working directory. Pass this or html.',
+    'Path to a self-contained .html file on this host, relative to your working directory. Pass this or html.',
   ),
   title: z.string().describe(
     'A short, human-readable title for the artifact, as it should read in the works gallery in the session.',
@@ -79,12 +79,12 @@ export const ARTIFACT_TOOL_DESC = [
   'Call this only when the render needs that durable identity: you will revise it by id, it belongs in the session, or the user asked to keep it.',
   'For a visual the user reads once, write a ```html fence in your reply instead: Solus renders it live in the same sandboxed frame, with no tool call. A fence with a <style>, a <script>, or a whole document renders; a bare fragment stays code. Write ```html render or ```html source when the content does not make it obvious. Give a fence an identity, ```html render artifact=revenue-chart (letters, digits, - and _, up to 80 characters): reuse it to revise that visual, use a new one for a separate visual, and emit one completed revision per identity in a reply.',
   'The reader sees the page as part of your reply: do not announce it, say where it is, or restate it.',
+  'Author one self-contained HTML page. Put CSS in an inline <style> and any JavaScript in an inline <script>. The page runs in a sandbox without access to the workspace or Solus APIs.',
   'Solus sets its theme as CSS variables on :root, following light and dark mode live. Style with them, never fixed colors: --background (the conversation background), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground, --accent-surface, --accent-surface-foreground, --brand, --brand-foreground (solid buttons in a mock-up of Solus itself), --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (chart series), --radius, --font-sans, --font-mono. The base stylesheet sets a 14px font, body margin 0, monospace code, and a hidden scrollbar.',
   `The frame is borderless, as wide as the reply column (${HTML_PREVIEW_DEFAULT_WIDTH}px by default, about 360px on a phone), and aligned with your text. Give html, body, and the outermost element no background color (this overrides a style preference for a page background), no horizontal padding, and no outer card, border, or banner title. A box with its own background gets at least 16px padding and var(--radius) corners. Give charts fixed pixel heights. Let content set the height: never 100vh or height:100% on html or body.`,
   'For a local image, write its absolute path in src or CSS url() and Solus writes the file into the page. Remote http(s) URLs, such as a CDN library, load as they are.',
   'Check a page first with preview: true. It renders the page in a headless browser with the Solus theme at the reply width and returns a screenshot you see, the page height, console output and errors, and missing local images. It saves and shows nothing. Fix what it shows, then write the fence or call again without preview.',
-  'For a file on disk, such as the visual-artifacts bundle.html, pass html_path instead of html, so the page does not pass through your output.',
-  'Do NOT hand-author the HTML: use the `visual-artifacts` skill. It owns the Solus design system and the sandbox rules, and calls this tool when a tool call is right.',
+  'For a file on disk, pass html_path. For HTML you want to pass directly, use html.',
 ].join('\n')
 
 interface ArtifactToolArgs {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { TurnSnapshot } from '@solus/contracts/git-types'
-import { turnSnapshotFor } from '@solus/workspace-ui/components/conversation/lib/turn-snapshot'
+import { turnSnapshotFor, turnWindow } from '@solus/workspace-ui/components/conversation/lib/turn-snapshot'
 import type { Turn } from '@solus/workspace-ui/components/conversation/lib/turns'
 
 function turn(startedAt: number, lead: 'user' | 'system' = 'user', live = false): Turn {
@@ -82,5 +82,16 @@ describe('turnSnapshotFor', () => {
 
     expect(turnSnapshotFor(turns, 0, snapshots, true)).toBeUndefined()
     expect(turnSnapshotFor(turns, 1, snapshots, true)).toBeUndefined()
+  })
+})
+
+describe('turnWindow', () => {
+  test("a turn holds the time until the next prompt, and the last one stays open", () => {
+    // WHY: a turn's changed-files card offers the sessions that worked in that
+    // turn; a divider between prompts does not end it.
+    const turns = [turn(100), turn(150, 'system'), turn(200)]
+    expect(turnWindow(turns, 0)).toEqual({ from: 100, until: 200 })
+    expect(turnWindow(turns, 2)).toEqual({ from: 200, until: null })
+    expect(turnWindow(turns, 5)).toBeNull()
   })
 })

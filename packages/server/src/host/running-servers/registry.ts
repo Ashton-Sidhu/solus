@@ -2,7 +2,6 @@ import type { RunningServer, StopRunningServerResult } from '@solus/contracts/ru
 import { ServerDiscovery } from './discovery'
 
 const REFRESH_MS = 3000
-const LEASE_MS = 20_000
 
 /** One finished scan, for a reader on the host that follows the registry's refresh (mcp-first-class.md §9). */
 export type RunningServerScan = { at: number; servers: RunningServer[]; listeningPorts: ReadonlySet<number> } | { at: number; error: string }
@@ -14,9 +13,9 @@ export interface RunningServerRegistryDeps {
   schedule: (tick: () => Promise<void>, delayMs: number) => () => void
 }
 
-/** One bounded scan for all clients. A disconnected client loses its lease. */
+/** One bounded scan for all clients. A watch lasts until its client unwatches or disconnects. */
 export class RunningServerRegistry {
-  private readonly subscribers = new Map<string, { at: number; paths: string[] }>()
+  private readonly subscribers = new Map<string, { paths: string[] }>()
   private servers: RunningServer[] = []
   private signature = ''
   private inFlight: Promise<RunningServer[]> | null = null
@@ -31,7 +30,7 @@ export class RunningServerRegistry {
     if (this.inFlight) return this.inFlight
     if (!force && this.deps.now() - this.scannedAt < REFRESH_MS) return this.servers
     const generation = this.generation
-    this.inFlight = this.deps.discovery.discover([...new Set([...this.subscribers.values()].flatMap((lease) => lease.paths))]).then((servers) => {
+    this.inFlight = this.deps.discovery.discover([...new Set([...this.subscribers.values()].flatMap((watch) => watch.paths))]).then((servers) => {
       if (generation !== this.generation) return servers
       this.scannedAt = this.deps.now()
       this.servers = servers
@@ -48,7 +47,7 @@ export class RunningServerRegistry {
 
   async watch(clientId: string, paths: string[] = []): Promise<RunningServer[]> {
     const changed = JSON.stringify(this.subscribers.get(clientId)?.paths ?? []) !== JSON.stringify(paths)
-    this.subscribers.set(clientId, { at: this.deps.now(), paths })
+    this.subscribers.set(clientId, { paths })
     if (changed && this.inFlight) await this.inFlight
     try { return await this.list(changed) } finally { this.schedule() }
   }
@@ -85,7 +84,7 @@ export class RunningServerRegistry {
     return result
   }
 
-  /** Each scan, and each failed scan, as it ends. It starts none: a reader follows the clients' leases. */
+  /** Each scan, and each failed scan, as it ends. It starts none: a reader follows the clients' watches. */
   observeScans(observer: (scan: RunningServerScan) => void): () => void {
     this.scanObservers.add(observer)
     return () => { this.scanObservers.delete(observer) }
@@ -108,7 +107,6 @@ export class RunningServerRegistry {
   }
 
   private async tick(): Promise<void> {
-    for (const [clientId, lease] of this.subscribers) if (this.deps.now() - lease.at >= LEASE_MS) this.subscribers.delete(clientId)
     if (!this.subscribers.size) return
     try { await this.list(true) } catch (error) {
       this.signature = ''

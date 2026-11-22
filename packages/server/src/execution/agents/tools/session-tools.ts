@@ -419,9 +419,7 @@ async function connectRemoteHost(ref: string, callerSessionId: string | undefine
   if (!remoteHosts) return { error: 'This host cannot reach other hosts.' }
   const request = callerSessionId ? reachRequestOf(callerSessionId) : null
   if (!request) return { error: 'Only a person with access to this host can reach their other hosts from it.' }
-  const found = await remoteHosts.find(request, ref)
-  if ('error' in found) return found
-  return remoteHosts.connect(found)
+  return remoteHosts.connectTo(request, ref)
 }
 
 /** What the turn may reach; with no controller (tests, a bare host), the owner's own reach. */
@@ -730,7 +728,7 @@ function sessionAgentTool(
 }
 
 export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsFields, false)
-export const listHostsAgentTool = sessionAgentTool('list_hosts', 'List the remote machines this session may reach, with ids, routes, and current connection status. Use an id or name as host in list_agent_targets for its providers and models, or start_sessions for work there. No credentials are returned.', {}, false)
+export const listHostsAgentTool = sessionAgentTool('list_hosts', 'List the remote machines on your host list and account, with ids, routes, and connection status (not-paired: use pair_host). Use an id or name as host in list_agent_targets for its providers and models, or start_sessions for work there. No credentials are returned.', {}, false)
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
 export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)

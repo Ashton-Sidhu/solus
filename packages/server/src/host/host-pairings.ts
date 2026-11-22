@@ -33,7 +33,7 @@ export class HostPairings {
   snapshot(): HostPairingsSnapshot {
     const records = readHostRecords()
     return {
-      hosts: records.filter((record) => !record.forgotten && record.pairing).map((record) => record.listing),
+      hosts: records.flatMap((record) => !record.forgotten && record.pairing ? [{ listing: record.listing, pairedAt: record.pairing.pairedAt }] : []),
       forgotten: records.filter((record) => record.forgotten).map((record) => record.listing.installationId),
     }
   }
@@ -49,7 +49,8 @@ export class HostPairings {
     const before = findHostRecord(installationId)
     // A bounded request, with no redirects: a pairing code must reach only the named address.
     const fetchPair: typeof fetch = (input, init) => this.fetchImpl(input, { ...init, redirect: 'error', signal: AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), ...(signal ? [signal] : [])]) })
-    const result = await pairServer({ url, pairToken: request.code, serverLabel: request.label, reportedName: health.name, deviceLabel: `${this.selfName()} (Solus host)`, fetchImpl: fetchPair })
+    const replaced = hostCredential(installationId, 'pairing') ?? undefined
+    const result = await pairServer({ url, pairToken: request.code, serverLabel: request.label, reportedName: health.name, deviceLabel: `${this.selfName()} (Solus host)`, replacesSessionToken: replaced, fetchImpl: fetchPair })
       .catch(() => { throw new Error('The host refused the pairing code or did not answer. Get a fresh code with solus pair and try again.') })
     if (result.installationId !== installationId) throw new Error('A different host answered the pairing request. Nothing was saved.')
     if (!result.server.identityKey && url.startsWith('http:')) throw new Error('This host is too old to prove its identity over HTTP. Update it or use HTTPS.')

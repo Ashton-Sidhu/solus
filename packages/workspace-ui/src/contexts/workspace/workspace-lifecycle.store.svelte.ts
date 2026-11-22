@@ -70,6 +70,8 @@ export interface WorkspaceLifecycleStoreDeps {
 export class WorkspaceLifecycleStore {
   pluginCommands = $state<Session['pluginCommands']>({ global: [], project: [] })
   turnSnapshots = $state<Record<string, TurnSnapshot[]>>({})
+  /** By session: the `listTurnSnapshots` read in flight, and the one read queued after it. */
+  private readonly turnSnapshotReads = new Map<string, { running: Promise<void>; queued: Promise<void> | null }>()
   /** True until materializeTabs has rebuilt the persisted tabs into memory; prevents
    *  the persist effect from clobbering the saved snapshot with empty initial state. */
   hydrating = $state(true)
@@ -84,6 +86,9 @@ export class WorkspaceLifecycleStore {
   /** The provider and directory a session's commands were last read for, so a
    *  tab switch back to it does not read the same list again. */
   private pluginCommandSources = new WeakMap<Session, string>()
+  /** The last commands read for each source (host, provider, directory): a
+   *  session opened on a source another session read takes them without a read. */
+  private readonly pluginCommandsBySource = new Map<string, Session['pluginCommands']>()
   private composerCommands: { source: string; commands: Session['pluginCommands'] } | null = null
   /** Reads still on the wire, by request key. Boot asks for the active tab's
    *  commands from three places within a frame; the later asks join the first.
@@ -265,6 +270,7 @@ export class WorkspaceLifecycleStore {
       }
       return
     }
+    if (this.takeKnownPluginCommands(targetTabId, targetSession, source, opts.onlyIfStale)) return
     if (opts.onlyIfStale === false) {
       if (targetSession) this.pluginCommandSources.delete(targetSession)
       else this.composerCommands = null
@@ -278,6 +284,18 @@ export class WorkspaceLifecycleStore {
       })
     this.pluginCommandInflight.set(requestKey, { source, promise })
     return promise
+  }
+
+  /** Give a session the commands another session read for the same source.
+   *  False when none were read, for a composer, or for a refresh that must read
+   *  (`onlyIfStale: false`, such as a skill edit). */
+  private takeKnownPluginCommands(targetTabId: string, targetSession: Session | undefined, source: string, onlyIfStale: boolean | undefined): boolean {
+    const known = onlyIfStale === false ? undefined : this.pluginCommandsBySource.get(source)
+    if (!known || !targetSession) return false
+    targetSession.pluginCommands = known
+    this.pluginCommandSources.set(targetSession, source)
+    if (this.deps.registry.activeTabId === targetTabId) this.pluginCommands = known
+    return true
   }
 
   private async readPluginCommands(
@@ -298,6 +316,7 @@ export class WorkspaceLifecycleStore {
     const result = await this.deps.apiFor(targetTabId)
       .getPluginCommands(directory, $state.snapshot(ctx))
     if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
+    this.pluginCommandsBySource.set(source, result)
     const currentProvider = this.deps.registry.sessionFor(targetTabId)?.run.provider ?? this.deps.settings.activeAgent
     if (`${this.deps.serverIdFor(targetTabId)}\0${currentProvider}\0${workingDirectory}` !== source) return
 
@@ -428,8 +447,19 @@ export class WorkspaceLifecycleStore {
 
   /** A session's checkpointed turns. Keyed by session, not by tab: two views of
    *  one conversation are looking at the same turns and must not fetch or cache
-   *  them twice. */
-  async refreshTurnSnapshots(sessionId: string): Promise<void> {
+   *  them twice. The views of a conversation mount together and ask at once:
+   *  one read runs per session, and a request during it reads once more after. */
+  refreshTurnSnapshots(sessionId: string): Promise<void> {
+    const held = this.turnSnapshotReads.get(sessionId)
+    if (held) return held.queued ??= held.running.then(() => this.refreshTurnSnapshots(sessionId))
+    const running = this.readTurnSnapshots(sessionId).finally(() => {
+      if (this.turnSnapshotReads.get(sessionId)?.running === running) this.turnSnapshotReads.delete(sessionId)
+    })
+    this.turnSnapshotReads.set(sessionId, { running, queued: null })
+    return running
+  }
+
+  private async readTurnSnapshots(sessionId: string): Promise<void> {
     const session = this.deps.sessions.byId[sessionId]
     if (!session?.agentSessionId) return
     const tabId = this.deps.registry.tabIdsBySession.get(sessionId)?.[0]

@@ -35,7 +35,7 @@ class HostSettingsStore {
     const stopStatus = serverConnections.onReadinessChange((serverId, status) => {
       if (status === 'ready') void this.load(serverId)
     })
-    for (const serverId of serverConnections.connectedServerIds()) void this.load(serverId)
+    for (const serverId of serverConnections.serverIds()) void this.load(serverId)
     this.stop = () => {
       stopEvents()
       stopStatus()

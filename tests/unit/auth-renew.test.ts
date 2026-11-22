@@ -111,7 +111,7 @@ describe('authRenew from the client transport', () => {
     // The first token ends just past the renewal lead, so the renewal is due at once.
     const tokens = [jwt({ exp: nowSeconds + GRANT_RENEWAL_LEAD_MS / 1000 + 1 }), jwt({ exp: nowSeconds + 600 })]
     let acquired = 0
-    const client = new WsTransport({ serverUrl: url, sessionToken: '', grants: { acquire: async () => tokens[Math.min(acquired++, 1)] ?? null, isSignedOut: () => false } })
+    const client = new WsTransport({ serverUrl: url, grants: { acquire: async () => tokens[Math.min(acquired++, 1)] ?? null, isSignedOut: () => false } })
     cleanups.push(() => client.destroy())
     client.start()
     const endOf = () => {

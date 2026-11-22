@@ -2024,10 +2024,9 @@ export type NormalizedEvent =
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_pending' }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string; streaming?: boolean }
-  /** Extended-thinking span boundaries. The transcript renders how long it took
-   *  and keeps `text` on the tool call or prose block that follows.
-   *  `text` is the span's reasoning, on `stop` only, when the provider sent any. */
-  | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string; text?: string }
+  /** Updates carry the readable text so far. A provider block keeps its thoughtId
+   * through completion. Claude's saved frame has a second identity for replay. */
+  | { type: 'thinking'; state: 'start' | 'update' | 'stop'; thoughtId?: string; savedThoughtId?: string; parentToolUseId?: string; text?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
   /** `inputPartial`: `toolInput` is the input so far of a call whose input still
    *  streams (a live app card's, docs/plans/mcp-first-class.md §14.1). The next

@@ -21,8 +21,7 @@
   const workspace = getWorkspaceContext();
   const sess = $derived(workspace.sessionFor(tabId));
   const hostLabel = $derived((sess && knownHostLabel(serverConnections.resolveId(runHost(sess.run)))) || "This machine");
-  // A read-only tab (a removed machine, an organization session away from its machine) has no Run on to pick.
-  const text = $derived(sessionCloudReadText(view, hostLabel, !sess?.readOnlyReason));
+  const text = $derived(sessionCloudReadText(view, hostLabel));
 
   function act(): void {
     if (text.action === "show-live") workspace.runHosts.showRunHostConversation(tabId);

@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { FileDiffMetadata } from "@pierre/diffs";
-  import type { ReviewContext, ReviewTarget } from "@solus/contracts/review";
+  import type { ReviewContext, ReviewGuideTarget, ReviewTarget } from "@solus/contracts/review";
   import type { DiffComment, DiffScope } from "@solus/contracts/types";
   import {
     getAgentContext,
@@ -28,7 +28,6 @@
     branchGuideIdentity,
     prGuideIdentity,
     reviewGuideStore,
-    sessionGuideIdentity,
     type ReviewGuideIdentity,
   } from "./review-guide.store.svelte";
   import { guideEmptyHint, saveGuideComment } from "./lib/review-comments";
@@ -84,7 +83,7 @@
     onSelectScope: (scope: DiffScope | undefined) => void;
     /** Portable guide target and its host-managed checkout, when the source
      * conversation belongs to another project. */
-    target?: ReviewTarget;
+    target?: ReviewGuideTarget;
     guideKeyOverride?: string;
     checkoutRepoRoot?: string;
     serverIdOverride?: string;
@@ -184,16 +183,11 @@
       ? { kind: "pr", baseSha: target.baseSha }
       : null,
   );
-  /** A session review, or one of its turns, reads the session's own guide;
-   *  every other scope — the branch, the working tree — reads the branch guide.
-   *  A turn is a slice of the session, and the scope picker steps between the
-   *  two without the guide changing under the reader. */
-  const guideScope = $derived<"branch" | "session">(
-    scope?.kind === "session" || scope?.kind === "turn" ? "session" : "branch",
-  );
+  const sessionScope = $derived(scope?.kind === "session" || scope?.kind === "turn");
 
   // ── The guide ─────────────────────────────────────────────────────────────
   const guideIdentity = $derived.by((): ReviewGuideIdentity | null => {
+    if (sessionScope) return null;
     if (target?.kind === "pr") {
       return prGuideIdentity(checkoutRepoRoot ?? environment.repoRoot ?? environment.cwd, target);
     }
@@ -204,9 +198,7 @@
         target,
       };
     }
-    return guideScope === "session"
-      ? sessionGuideIdentity(sourceSession)
-      : branchGuideIdentity(environment);
+    return branchGuideIdentity(environment);
   });
   const guideKey = $derived(guideIdentity?.key ?? "");
 
@@ -217,7 +209,6 @@
     getServerId,
     getCtx,
     getKey: () => guideKey,
-    getScope: () => guideScope,
     getTarget: () => target,
     getCurrentRevision: () => target?.kind === "pr"
       ? guideStatus?.baseSha && !generating && checkedRevision === currentRevision
@@ -256,7 +247,7 @@
     const api = getApi();
     const serverId = getServerId();
     const context = getCtx();
-    const request = target ?? guideScope;
+    const request = target ?? "branch";
     if (!identity) return;
     let current = true;
     void untrack(() => reviewGuideStore.load(api, serverId, context, identity, request))
@@ -297,7 +288,7 @@
     try {
       await reviewGuideStore.generate(getApi(), getServerId(), getCtx(), identity, {
         ...resolveReviewAgent(settings),
-        ...(target ? { target } : { scope: guideScope }),
+        ...(target ? { target } : { scope: "branch" }),
       });
     } catch (error) {
       toasts.error("Couldn't generate the review guide", {
@@ -310,7 +301,7 @@
 
   async function cancelGuide() {
     try {
-      await reviewGuideStore.cancel(getApi(), getCtx(), target ?? guideScope);
+      await reviewGuideStore.cancel(getApi(), getCtx(), target ?? "branch");
     } catch (error) {
       toasts.error("Couldn't cancel the review guide", { description: String(error) });
     } finally {
@@ -364,7 +355,7 @@
   // for the same change does not read the lens again.
   const lensTarget = $derived<ReviewTarget | null>(
     target ??
-      (guideScope === "session"
+      (sessionScope
         ? sourceSession?.agentSessionId
           ? { kind: "session", sessionId: sourceSession.id }
           : null
@@ -421,16 +412,16 @@
   useKeybinding("review-pane.next-view", () => cycleView(1));
   useKeybinding("review-pane.prev-view", () => cycleView(-1));
 
-  const VIEW_ORDER: ReviewView[] = ["map", "guide", "lens", "diff"];
+  const viewOrder = $derived<ReviewView[]>(sessionScope ? ["map", "lens", "diff"] : ["map", "guide", "lens", "diff"]);
   function cycleView(direction: 1 | -1) {
-    const index = VIEW_ORDER.indexOf(view);
-    const next = (index + direction + VIEW_ORDER.length) % VIEW_ORDER.length;
-    selectView(VIEW_ORDER[next]);
+    const index = viewOrder.indexOf(view);
+    const next = (index + direction + viewOrder.length) % viewOrder.length;
+    selectView(viewOrder[next]);
   }
 </script>
 
 {#snippet viewTabs()}
-  <ReviewViewTabs {view} {guideState} {lensState} onSelect={selectView} />
+  <ReviewViewTabs showGuide={!sessionScope} {view} {guideState} {lensState} onSelect={selectView} />
 {/snippet}
 
 {#snippet mapView(files: FileDiffMetadata[])}
@@ -503,12 +494,12 @@
     bind:view={() => view, selectView}
     {viewTabs}
     {mapView}
-    {guideView}
+    guideView={sessionScope ? undefined : guideView}
     {lensView}
     {bordered}
     {onToggleMaximize}
     {maximized}
-    guide={guideHeaderActions}
+    guide={sessionScope ? undefined : guideHeaderActions}
     feedbackToNewSession={target?.kind === "pr"}
     feedbackSessionTarget={targetPullRequest && checkoutRepoRoot
       ? {

@@ -58,12 +58,29 @@ export class FakeTransport implements HostTransport {
   private opened = false
   private report: ((outcome: DialOutcome) => void) | null = null
   private resetCallback: (() => void) | null = null
+  private readonly dialWaiters: Array<{ count: number; resolve(): void }> = []
+  /** The token held when the host blocked this transport, as `WsTransport` keeps it. */
+  private blockedSessionToken: string | null = null
 
   constructor(readonly options: WsTransportOptions, readonly api: FakeApi) {
     this.serverUrl = options.serverUrl
   }
 
-  start(): void { this.dials += 1 }
+  /** The session token the next dial presents, read from its owner as `WsTransport` reads it. */
+  get sessionToken(): string {
+    return this.options.sessionToken?.() ?? ''
+  }
+
+  start(): void {
+    this.blockedSessionToken = null
+    this.dials += 1
+    for (let index = this.dialWaiters.length - 1; index >= 0; index--) {
+      if (this.dialWaiters[index]!.count <= this.dials) this.dialWaiters.splice(index, 1)[0]!.resolve()
+    }
+  }
+  whenDialed(count: number): Promise<void> {
+    return this.dials >= count ? Promise.resolve() : new Promise((resolve) => this.dialWaiters.push({ count, resolve }))
+  }
   async probe(): Promise<void> {}
   buildSolusApi(): object { return this.api.surface() }
   onReset(callback: () => void): () => void {
@@ -72,6 +89,9 @@ export class FakeTransport implements HostTransport {
   }
   attachDialOutcomeReporter(report: (outcome: DialOutcome) => void): void { this.report = report }
   switchServerUrl(serverUrl: string): void { this.serverUrl = serverUrl }
+  hasUntriedSessionToken(): boolean {
+    return this.blockedSessionToken !== null && !!this.sessionToken && this.sessionToken !== this.blockedSessionToken
+  }
   setUnreachable(unreachable: boolean): void { this.unreachable = unreachable }
   destroy(): void { this.destroyed = true }
   /** The requests the host may send down this socket, by event name. */
@@ -99,6 +119,7 @@ export class FakeTransport implements HostTransport {
 
   fail(kind: 'dial-failed' | 'dropped' | 'auth-blocked', error?: DialError): void {
     if (error) this.lastDialError = error
+    if (kind === 'auth-blocked') this.blockedSessionToken = this.sessionToken
     this.report?.({ kind })
   }
 

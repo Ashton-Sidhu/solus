@@ -764,6 +764,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       if (handle.checkpoint) await beginTurnCheckpoint(handle.checkpoint)
 
+      const summary = await handle.client.request('config/read', { cwd: resolveHomePath(request.cwd) })
+        .then(response => response?.config?.model_reasoning_summary ?? 'auto' as const)
+        .catch(() => 'auto' as const)
+
       // Stop landed while the thread was starting: settle the run so its seat
       // app-server and the launcher's wait on runPromise are released.
       if (handle.abortController.signal.aborted) {
@@ -786,7 +790,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         sandboxPolicy: sandboxPolicyFor(request.permissionMode),
         model,
         serviceTier: request.fastMode ? 'fast' : null,
-        summary: 'auto',
+        summary,
         reasoning_effort: reasoningEffort,
         // Send the mode on every turn so a Default turn leaves an earlier Plan
         // turn. Without developer_instructions, Codex supplies its own bundled

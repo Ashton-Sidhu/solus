@@ -143,6 +143,32 @@ describe('AutomationsStore host federation', () => {
     expect(store.hasLoadedHost('host-b')).toBe(true)
   })
 
+  test('run graphs are read only once the page shows them', async () => {
+    // WHY: every list load, at startup and for each schedule card, read each
+    // host's run graphs beside its list. Only the Automations page draws them.
+    let graphReads = 0
+    const run = { id: 'r1', automationId: 'a', startedAt: '2026-08-09T00:00:00.000Z', finishedAt: null, status: 'running' as const }
+    connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => { graphReads++; return [run] },
+      automationList: async () => [automation('a', '/repo')],
+    })
+    connections.capabilitiesFor = async () => ({ automations: true }) as Awaited<ReturnType<typeof connections.capabilitiesFor>>
+    const store = new AutomationsStore()
+
+    await store.loadAll()
+    expect(graphReads).toBe(0)
+    expect(store.recentRuns.get('a')).toBeUndefined()
+
+    store.showRunGraphs()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(graphReads).toBe(1)
+    expect(store.recentRuns.get('a')).toEqual([run])
+
+    await store.loadAll()
+    expect(graphReads).toBe(2)
+  })
+
   test('unions connected hosts without evicting a host whose list failed', async () => {
     let hostBShouldFail = false
     connections.registerPrimary('host-a', {

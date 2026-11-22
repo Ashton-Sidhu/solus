@@ -861,6 +861,8 @@
     0 0.0625rem 0.1875rem rgba(60, 45, 30, 0.05),
     0 0.5rem 1.125rem -0.5rem rgba(60, 45, 30, 0.12);
   --solus-tx-divider: color-mix(in oklch, var(--foreground) 10%, transparent);
+  /* Focus on a card and its fields: a neutral edge, never the accent. */
+  --solus-tx-focus-ring: color-mix(in oklch, var(--foreground) 24%, transparent);
   --tx-card-radius: 0.75rem;
   --tx-card-head: 2.5rem;
   --tx-card-row: 2.125rem;

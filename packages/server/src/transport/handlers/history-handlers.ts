@@ -1,5 +1,7 @@
 import { z } from 'zod'
+import { resumeHistoryPage } from '../../data/sessions/history-blocks'
 import type { SessionRuntime } from '../../execution/session-runtime'
+import { readSessionTree } from '../../data/sessions/session-digests'
 import type { AgentId, ExchangeProgress, IpcContext, SessionMeta, SessionTitleChangedEvent } from '@solus/contracts/types'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
@@ -70,6 +72,13 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   }
   const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> =>
     withRecord(handlerCtx, sessionId, await sessionRuntime.history.getSessionInfo(sessionId))
+
+  // A session and the sessions below it (docs/plans/session-digests.md), read in
+  // the session's own organization, as its artifacts are.
+  server.register('sessionTree', async (args) => {
+    const [sessionId] = args
+    return readSessionTree(await organizationOfSession(sessionId), sessionId)
+  })
 
   // The collaboration plane's session records (docs/plans/cloud-service-model.md).
 
@@ -144,6 +153,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       turnLimit: z.number().int().min(1).max(100),
       before: z.string().max(16384).optional(),
       deferArtifactHtml: z.boolean().optional(),
+      knownHistoryBlocks: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(128).optional(),
     }).parse(input)
     const profileStartedAt = performance.now()
     const cursor = readActivityPageCursor(request.before)
@@ -160,10 +170,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       olderPage: !!request.before, hasMore: page.before !== null, durationMs: Date.now() - startedAt,
     })
     const current = withExchangeProgress(messages, exchangeProgress)
-    const result = {
+    const full = {
       messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(current) : current),
       before,
     }
+    const result = request.knownHistoryBlocks ? resumeHistoryPage(full, request.knownHistoryBlocks) : full
     const preparedAt = performance.now()
     const bytes = serializedBytes(result)
     log.info('session_history_response_profile', {
@@ -282,6 +293,13 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const trimmed = title?.trim()
     const customTitle = trimmed || null
     const previousTitle = getIndexedSession(sessionId)?.customTitle ?? null
+    // The same name again changes nothing: no write, no task refresh, and no
+    // broadcast that every client would answer with reads of its own. A
+    // generated name still carries its description to the clients.
+    if (customTitle === previousTitle && !generatedDescription) {
+      log.debug('session_rename_unchanged', { sessionId })
+      return
+    }
     await setSessionCustomTitle(sessionId, customTitle)
     let taskCatalogChanged = false
     try {

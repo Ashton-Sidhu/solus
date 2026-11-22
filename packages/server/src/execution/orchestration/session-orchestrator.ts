@@ -47,6 +47,9 @@ const IMPLEMENT_PREFIX = 'Implement this plan:\n\n'
 const REVISION_PREFIX = 'Please revise the plan with these comments:\n\n'
 export { CHILD_INTERRUPTED_BY_RESTART } from './exchange-reports'
 import { CHILD_INTERRUPTED_BY_RESTART } from './exchange-reports'
+import { copyRemoteSessionTree } from './remote-session-copies'
+import { getSessionRecord } from '../../data/sessions/session-records'
+import { ANY_ORGANIZATION } from '../../admission/principal'
 const NO_REPLY = '(no final assistant reply available)'
 
 import { MAX_WAIT_MS, type RunExchanges, type SettledRun, type SpawnOrder, type SendOrder, type PromptOrder, type OrchestratedRuntime, type OrchestratorDeps, type SpawnedSession, type RemoteTarget } from './session-orders'
@@ -187,7 +190,9 @@ export class SessionOrchestrator {
     const follow = exchange
       ? followRemoteRun(host, { runId: `remote:${exchangeId}`, sessionId: targetSessionId, exchangeIds: [exchangeId] }, order.provider, this)
       : null
-    if (follow) this.remoteFollows.set(exchangeId, { host, stop: follow.stop })
+    // A delegate is in its sender's tree, so this host keeps a copy of it.
+    const stopCopy = follow && senderSessionId && !order.independent ? copyRemoteSessionTree(host, targetSessionId, senderSessionId) : null
+    if (follow) this.remoteFollows.set(exchangeId, { host, stop: () => { follow.stop(); stopCopy?.() } })
     const request: HeadlessSessionRequest = {
       sessionId: targetSessionId,
       prompt: order.prompt,
@@ -328,7 +333,10 @@ export class SessionOrchestrator {
   private async promptThere(exchange: Exchange, message: SendOrder, host: RemoteHost): Promise<{ disposition: 'started' | 'steered' | 'queued' }> {
     const { exchangeId, targetSessionId } = exchange
     const follow = followRemoteRun(host, { runId: `remote:${exchangeId}`, sessionId: targetSessionId, exchangeIds: [exchangeId] }, exchange.provider, this, exchangeId)
-    this.remoteFollows.set(exchangeId, { host, stop: follow.stop })
+    // A delegate this host keeps a copy of stays current while the message runs.
+    const parentSessionId = (await getSessionRecord(ANY_ORGANIZATION, targetSessionId))?.parentSessionId
+    const stopCopy = parentSessionId ? copyRemoteSessionTree(host, targetSessionId, parentSessionId) : null
+    this.remoteFollows.set(exchangeId, { host, stop: () => { follow.stop(); stopCopy?.() } })
     await follow.watching
     const request: HeadlessPromptRequest = {
       sessionId: targetSessionId,

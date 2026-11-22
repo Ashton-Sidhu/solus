@@ -599,6 +599,22 @@ test('a server saved or removed in Settings → MCP writes through to the profil
   expect(cloud.writes).toHaveLength(writes)
 })
 
+test('a headers server is not a profile entry: a save writes nothing, and a profile server at its address leaves it as it is', async () => {
+  // WHY (docs/plans/mcp-add-server.md): its header values stay on the host it was added on, as a command's do; an older host could not read the kind either.
+  const cloud = cloudOf({})
+  const host = linked({ answer: cloud.answer, hostHas: [{ slug: 'keyed', url: PLANETSCALE_URL, ownerKey: HOST_USER }] })
+  const keyed = host.integrations.rows[0]!
+  keyed.auth = { kind: 'headers', names: ['X-Api-Key'] }
+  await host.profiles.integrationSaved(OWNER, keyed)
+  expect(cloud.writes).toEqual([])
+
+  cloud.entries()!['integration:planetscale'] = serverEntry('planetscale', PLANETSCALE_URL)
+  await cloud.answer(new Request('https://cloud.test/v1/agent-profile', { method: 'POST', body: JSON.stringify({ set: {}, reset: [] }) }))
+  await host.profiles.pull(OWNER)
+  expect(host.integrations.log).not.toContain('update:planetscale')
+  expect(host.integrations.rows.find((row) => row.id === keyed.id)?.auth).toEqual({ kind: 'headers', names: ['X-Api-Key'] })
+})
+
 test('a removal is refused while the cloud is unreachable, so the next pull cannot bring the server back; not signed in, it is the host\'s alone', async () => {
   const cloud = cloudOf({})
   const host = linked({ answer: cloud.answer })

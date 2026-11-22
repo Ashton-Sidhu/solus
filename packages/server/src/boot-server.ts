@@ -3,7 +3,7 @@ import { registerHostPairingHandlers } from './transport/handlers/host-pairing-h
 import { setHostPairingTools } from './execution/agents/tools/host-pairing-tools'
 import { initRunningServers } from './host/running-servers/registry'
 import { registerRunningServerHandlers } from './transport/handlers/running-server-handlers'
-import { onHostRecordRemoved } from './host/host-list'
+import { onHostRecordRemoved, readHostList } from './host/host-list'
 import type { VoiceTranscriptionOptions } from '@solus/contracts/voice-dictionary'
 import { configureOtel } from './otel'
 import { getHostConfig } from './host/settings'
@@ -316,6 +316,9 @@ import { activityFor } from './data/activity/activity'
 import { WorktreeMover } from './execution/sessions/worktree-move'
 import { markAwaitedTasks } from './execution/sessions/background-work'
 import { WorktreeOffers } from './execution/sessions/worktree-offers'
+import { SessionDigests } from './execution/sessions/session-digests'
+import { emitSessionDigestChanged, onSessionDigestChanged, readSessionDigests, writeSessionDigest } from './data/sessions/session-digests'
+import { onTurnCheckpointed } from './git/turn-checkpoints'
 import { setProjectToolHost } from './execution/agents/tools/project-tools'
 import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
 import { installToolAccess } from './admission/workspace-tool-authority'
@@ -768,6 +771,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       })
     }),
     onSessionArtifactsChanged((sessionId) => events.broadcast('session.artifactsChanged', { sessionId })),
+    onSessionDigestChanged((sessionId) => events.broadcast('session.digestChanged', { sessionId })),
     onWorkspaceProjectsChanged(() => events.broadcast('workspaceProjects.changed', {})),
     onProjectsChanged(() => events.broadcast('projects.changed', {})),
     onTurnRowWritten((change) => events.broadcast('metrics.turnsChanged', change)),
@@ -849,6 +853,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
     if (!to) worktreeOffers.observe(sessionId, event)
   })
+  // What each session did, kept up to date by the host that runs it (docs/plans/session-digests.md).
+  const sessionDigests = new SessionDigests({
+    load: async (sessionId) => (await readSessionDigests(ANY_ORGANIZATION, [sessionId])).get(sessionId) ?? null,
+    write: writeSessionDigest,
+    announce: (sessionId) => void emitSessionDigestChanged(sessionId),
+  })
+  opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+    if (!to) sessionDigests.observe(sessionId, event)
+  })
+  domainEventUnsubscribes.push(onTurnCheckpointed((checkpoint) => sessionDigests.checkpointed(checkpoint)))
   registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers, prSync })
   registerGitPublishHandlers(server)
   // Browsing a host's filesystem must work headless — that is the whole point
@@ -981,11 +995,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         return 'error' in hosts ? [] : hosts.map((target) => ({ id: target.hostId, label: target.label }))
       },
       connect: async (hostId) => {
-        const target = await remoteHosts.find(ownerReach(), hostId)
-        if ('error' in target) throw new Error(target.error)
-        const remote = remoteHosts.connect(target)
+        const remote = await remoteHosts.connectTo(ownerReach(), hostId)
         if ('error' in remote) throw new Error(remote.error)
-        return { id: target.hostId, label: remote.label, platform: new ConnectedHostPlatform(remote.label, remote.api) }
+        return { id: remote.hostId, label: remote.label, platform: new ConnectedHostPlatform(remote.label, remote.api) }
       },
     },
   })
@@ -1116,7 +1128,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     },
   }
   // Settings, the agent, and Found write integration records through one writer.
-  const integrationWrites = new IntegrationWrites({ store: integrations, events, profile: integrationProfile, gateway: integrationGateway, connections: integrationConnections })
+  const integrationWrites = new IntegrationWrites({ store: integrations, events, profile: integrationProfile, gateway: integrationGateway, connections: integrationConnections, oauth: integrationOAuth })
   // The agent adds and connects a service from the same catalog and create path as Settings (§13.2).
   installConnectIntegrationTool({
     catalog: integrationCatalog,
@@ -1145,25 +1157,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     found: foundServers,
     start: (integrationId, starter) => integrationGateway.startProcess(integrationId, starter),
     askToConnect: (integration, sessionId) => reportIntegrationConnection(integration, sessionId, { added: true }),
-  })
-  registerIntegrationHandlers(server, {
-    store: integrations,
-    catalog: integrationCatalog,
-    gateway: integrationGateway,
-    events,
-    connectionStore: integrationConnectionStore,
-    connections: integrationConnections,
-    oauth: integrationOAuth,
-    clients: hostIntegrationClients,
-    getServerInfo: () => ({ host, port: actualPort }),
-    profile: integrationProfile,
-    writes: integrationWrites,
-    found: foundServers,
-    // The other hosts an MCP discovery asks for the caller (mcp-first-class.md §8.9). `remoteHosts`
-    // and `reachOf` are made further down, so they are read at the call.
-    remote: { hosts: { list: (reach) => remoteHosts.list(reach), find: (reach, ref) => remoteHosts.find(reach, ref), connect: (target) => remoteHosts.connect(target) }, reachOf: (principal) => reachOf(principal) },
-    hostLabel: hostDisplayName,
-    local: localMcpServers,
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   const guides = new ReviewGuideJobs((event) => publishGuideStatus(events, event), { pr: prGuideSource, local: localGuideSource })
@@ -1234,9 +1227,26 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const hostPairings = new HostPairings(getInstallationId, hostDisplayName)
   registerHostPairingHandlers(server, hostPairings)
   setHostPairingTools(hostPairings)
-  const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings)
+  const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings, readHostList)
   domainEventUnsubscribes.push(onHostRecordRemoved(({ listing }) => remoteHosts.disconnect(listing.installationId)))
   setRemoteHosts(remoteHosts)
+  registerIntegrationHandlers(server, {
+    store: integrations,
+    catalog: integrationCatalog,
+    gateway: integrationGateway,
+    events,
+    connectionStore: integrationConnectionStore,
+    connections: integrationConnections,
+    oauth: integrationOAuth,
+    getServerInfo: () => ({ host, port: actualPort }),
+    profile: integrationProfile,
+    writes: integrationWrites,
+    found: foundServers,
+    // The other hosts an MCP discovery asks for the caller (mcp-first-class.md §8.9).
+    remote: { hosts: remoteHosts, reachOf },
+    hostLabel: hostDisplayName,
+    local: localMcpServers,
+  })
   setSessionController({
     permissionModeFor: (sessionId) => opts.sessionRuntime.activeSessions.get(sessionId)?.runInput?.permissionMode ?? opts.sessionRuntime.sessionPermissionModes.get(sessionId),
     // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through
@@ -1358,7 +1368,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The clients that run on one seat; a seat's facts go to them and nobody else.
   const clientsForSeat = (seat: Seat): string[] =>
     [...ws.sessions.values()].filter((session) => seatKey(seatFor(actorFor(session.principal))) === seatKey(seat)).map((session) => session.clientId)
-  registerUsageHandlers(server, {
+  const usageWatches = registerUsageHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
     events,
     seats,
@@ -2066,6 +2076,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       workLive.disconnected(clientId)
       resourceTelemetry.unsubscribe(clientId)
       serverRegistry.unwatch(clientId)
+      usageWatches.clientDisconnected(clientId)
       serverTunnels.disconnect(clientId)
     },
     onClientExpired: ({ clientId }) => {
@@ -2252,6 +2263,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         workLive.disconnected(clientId)
         resourceTelemetry.unsubscribe(clientId)
         serverRegistry.unwatch(clientId)
+        usageWatches.clientDisconnected(clientId)
         serverTunnels.disconnect(clientId)
       },
       onClientExpired: ({ clientId }) => {

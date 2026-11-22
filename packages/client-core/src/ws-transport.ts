@@ -38,17 +38,19 @@ export interface WsTransportOptions {
   serverUrl: string
   /** Client-side identity of the host this transport addresses. */
   serverId?: string
-  /** Session token returned from pairing or the desktop local bootstrap. Empty
-   *  when the credential is an access token or a share secret. */
-  sessionToken: string
+  /** This device's session token now, from pairing or the desktop local bootstrap: read
+   *  at each dial, so a token its owner saves later reaches this transport. Absent or
+   *  empty when the credential is an access token or a share secret. */
+  sessionToken?: () => string
   /** Where each dial's access token comes from, for a host reached with one instead of a session token. */
   grants?: GrantSource
   /** A guest of a share link (docs/plans/host-sharing.md §4.1): the secret, with the
    *  id and name the visitor states, is the dial's one credential. */
   guest?: GuestCredential
   onStatusChange?: (status: ConnectionStatus, attempt: number) => void
-  /** Called after /auth/refresh returns a fresh token. */
-  onSessionTokenRefreshed?: (sessionToken: string) => void
+  /** /auth/refresh renewed `previous` as `sessionToken`. The owner saves it unless a
+   *  new pairing replaced `previous` meanwhile; the next dial reads what it kept. */
+  onSessionTokenRefreshed?: (sessionToken: string, previous: string) => void | Promise<void>
   /** Called when the server rejects the stored token and refresh cannot recover. */
   onAuthFailed?: () => void
   /** Confirms that a newly opened socket is still the saved host it names. */
@@ -200,6 +202,8 @@ export class WsTransport {
   private authRefreshAttempted = false
   /** The access token the host last refused: the next dial asks the source for another. */
   private refusedGrant: string | null = null
+  /** The session token this transport held when the host blocked it (`hasUntriedSessionToken`). */
+  private blockedSessionToken: string | null = null
   private authRefreshResetTimer: ReturnType<typeof setTimeout> | null = null
   private wakeProbeInFlight = false
   /** When this socket last received anything: a packet or the host's heartbeat. */
@@ -223,6 +227,16 @@ export class WsTransport {
 
   get serverUrl(): string {
     return this.opts.serverUrl
+  }
+
+  private get sessionToken(): string {
+    return this.opts.sessionToken?.() ?? ''
+  }
+
+  /** Blocked on a refused credential, and the owner now holds a session token the host has not refused: worth a dial. */
+  hasUntriedSessionToken(): boolean {
+    const token = this.sessionToken
+    return this.blocked && !!token && token !== this.blockedSessionToken
   }
 
   /**
@@ -444,7 +458,9 @@ export class WsTransport {
    * handshake, which only a trusted requester or a host without auth admits.
    */
   private async dialCredential(): Promise<DialCredential> {
-    const { grants, guest, sessionToken } = this.opts
+    const { grants, guest } = this.opts
+    const sessionToken = this.sessionToken
+    if (sessionToken && !guest) return { kind: 'present', credential: { kind: 'session-token', token: sessionToken } }
     if (grants) {
       const refused = this.refusedGrant
       const token = await grants.acquire(refused ? { refused } : undefined).catch(() => null)
@@ -455,7 +471,7 @@ export class WsTransport {
       return { kind: 'present', credential: organizationId ? { kind: 'access-token', token, organizationId } : { kind: 'access-token', token } }
     }
     if (guest) return { kind: 'present', credential: { kind: 'share-secret', secret: guest.shareSecret, guestId: guest.guestId, displayName: guest.displayName } }
-    return { kind: 'present', credential: sessionToken ? { kind: 'session-token', token: sessionToken } : undefined }
+    return { kind: 'present', credential: undefined }
   }
 
   /**
@@ -469,7 +485,7 @@ export class WsTransport {
    * again as for any drop.
    */
   private async presentToken(generation: number, presented: string | null): Promise<void> {
-    const grants = this.opts.grants
+    const grants = this.sessionToken ? undefined : this.opts.grants
     const accountToken = this.opts.accountToken
     if (!grants && !accountToken) return
     let token = presented
@@ -548,7 +564,7 @@ export class WsTransport {
       if (!this.destroyed && !this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
       return
     }
-    if (this.opts.grants || this.opts.guest) {
+    if ((this.opts.grants && !this.sessionToken) || this.opts.guest) {
       // The host refused the token (it was linked again since, or the person lost
       // their reach) or the share secret (the link was turned off or regenerated).
       // A retry asks the account for another token.
@@ -678,7 +694,7 @@ export class WsTransport {
     const hasVocabulary = Boolean(options?.vocabulary.length)
     const body = options?.vocabulary.length ? encodeVoiceUpload(wav, options).buffer : wav
     const headers = { 'content-type': hasVocabulary ? VOICE_UPLOAD_CONTENT_TYPE : 'audio/wav' }
-    if (this.opts.sessionToken) Object.assign(headers, { authorization: `Bearer ${this.opts.sessionToken}` })
+    if (this.sessionToken) Object.assign(headers, { authorization: `Bearer ${this.sessionToken}` })
     return fetch(`${this.opts.serverUrl}/voice/transcribe`, {
       method: 'POST',
       headers,
@@ -763,18 +779,20 @@ export class WsTransport {
   }
 
   private async refreshToken(): Promise<RefreshResult> {
+    const previous = this.sessionToken
     const refreshed = this.opts.refreshToken
       ? await this.opts.refreshToken()
-      : await refreshHostSession(fetch, this.opts.serverUrl, this.opts.sessionToken, REFRESH_TIMEOUT_MS)
+      : await refreshHostSession(fetch, this.opts.serverUrl, previous, REFRESH_TIMEOUT_MS)
     if (refreshed.result !== 'refreshed' || !refreshed.sessionToken) return refreshed.result === 'refreshed' ? 'unavailable' : refreshed.result
-    this.opts.sessionToken = refreshed.sessionToken
-    this.opts.onSessionTokenRefreshed?.(refreshed.sessionToken)
+    // The owner keeps the renewed token before the next dial reads it.
+    await this.opts.onSessionTokenRefreshed?.(refreshed.sessionToken, previous)
     return 'refreshed'
   }
 
   private blockAuthFailure(): void {
     if (this.blocked) return
     this.blocked = true
+    this.blockedSessionToken = this.sessionToken
     this.hangUp('auth blocked')
     this.setStatus('blocked')
     this.rejectAllRequests()

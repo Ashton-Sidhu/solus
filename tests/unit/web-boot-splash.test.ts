@@ -172,7 +172,7 @@ describe('every web surface waits for the stylesheet and takes the place of the 
       toasts,
       isStaleBuildError: () => false,
       reportStaleBuild() {},
-      serverConnections: { presenceOf: () => 'present', registerTarget() {}, setPrimary: () => ({ api: {} }), resolveId: (id: string) => id, ensure() {}, startCatalogSupervisors() {} },
+      serverConnections: { presenceOf: () => 'present', setPrimary: () => ({ api: {} }), resolveId: (id: string) => id, ensure() {}, startCatalogSupervisors() {} },
       installWindowSolusApi() {},
       installServiceWorkerMessageBridge() {},
       prefetchStartupTranscript: async () => {},
@@ -206,7 +206,7 @@ describe('every web surface waits for the stylesheet and takes the place of the 
   const settle = async () => { for (let turn = 0; turn < 12; turn++) await Promise.resolve() }
 
   const surfaces = {
-    workspace: { start: "connectToServer({ id: 'saved-host' })", surface: 'App' },
+    workspace: { start: "connectToServer('saved-host')", surface: 'App' },
     'page with no host': { start: 'bootHostlessHome()', surface: 'HostlessHome' },
     'pairing on a phone': { start: "offerAppOrPair('pair-token')", surface: 'PairInApp' },
     'guest landing of a share link': { start: "bootGuest({}, { kind: 'failed', reason: 'gone' }, null)", surface: 'GuestLanding' },
@@ -228,7 +228,7 @@ describe('every web surface waits for the stylesheet and takes the place of the 
   }
 
   test('a workspace that fails to load removes the splash, so its toast shows', async () => {
-    const { styles, splash, mounts, toasts } = boot("connectToServer({ id: 'saved-host' })", {
+    const { styles, splash, mounts, toasts } = boot("connectToServer('saved-host')", {
       loadWorkspaceApp: async () => { throw new Error('The workspace did not load') },
     })
     styles.resolve()

@@ -2,6 +2,8 @@
 // Older task-backed sessions can also have a full task packet before that text.
 // Keep this pure helper in contracts so both session readers and clients can
 // present the user's prompt without exposing Solus's transport context.
+export const REVIEW_GUIDE_CONTEXT = '\n\n[Session review guide instructions]\n'
+
 const INJECTED_CONTEXT_REGEX = /\[Referenced Plan:|\[Referenced Work:|\[Referenced Host:|\[Working On /
 const PREPENDED_TASK_PACKET =
   /^\[Working On Task [\s\S]*?\nCall read_task with task_id "[^"]*" to refresh this packet[^\n]*\n+/
@@ -19,7 +21,9 @@ export function stripAttachedFileLines(text: string): string {
 }
 
 export function stripInjectedContext(text: string): string {
-  const typed = text.replace(PREPENDED_TASK_PACKET, '')
+  const withoutTask = text.replace(PREPENDED_TASK_PACKET, '')
+  const boundary = /^\s*\/review-guide(?:\s|$)/.test(withoutTask) ? withoutTask.lastIndexOf(REVIEW_GUIDE_CONTEXT) : -1
+  const typed = boundary < 0 ? withoutTask : withoutTask.slice(0, boundary)
   const injectedContextIndex = typed.search(INJECTED_CONTEXT_REGEX)
   return injectedContextIndex === -1
     ? typed

@@ -30,7 +30,7 @@
     onCommentDelete,
     onAsk,
   }: {
-    guide: ReviewGuide;
+    guide: Pick<ReviewGuide, "title" | "summary" | "sections" | "generatedAt">;
     patch: string;
     loadDiffFiles?: FileDiffContentsLoader;
     /** PR identity for the intro header's metadata line (`repo#number · base ←
@@ -68,7 +68,7 @@
   const railItems = $derived(mainSections.map((s) => ({ id: s.id, label: s.title })));
 </script>
 
-<div class="text-workspace-chrome relative min-h-0 flex-1">
+<div class="text-workspace-chrome @container relative min-h-0 flex-1">
   <GuideRail items={railItems} {scrollEl} />
 
   <div bind:this={scrollEl} class="h-full overflow-y-auto">

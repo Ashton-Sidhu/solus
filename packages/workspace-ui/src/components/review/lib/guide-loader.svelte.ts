@@ -1,6 +1,6 @@
 import type { FileDiffLoadedFiles, FileDiffMetadata } from "@pierre/diffs";
 import { reviewGuideTargetId } from "@solus/contracts/review";
-import type { ReviewContext, ReviewGuide, ReviewGuideRequestOptions, ReviewProgressStep, ReviewTarget } from "@solus/contracts/review";
+import type { ReviewContext, ReviewGuide, ReviewGuideRequestOptions, ReviewProgressStep, ReviewGuideTarget } from "@solus/contracts/review";
 import type { AgentId, DiffScope, IpcContext, ReasoningEffort } from "@solus/contracts/types";
 import { loadDiffFiles as loadScopedDiffFiles } from "../../../lib/diff-file-loader";
 import { requestInputFocus } from "../../../lib/inputFocus";
@@ -16,14 +16,9 @@ export interface GuideLoaderOptions {
   getServerId: () => string;
   /** The session IPC context to issue calls against. */
   getCtx: () => IpcContext;
-  /** Stable cached-guide key (sanitized branch name or `session-<id>`). */
   getKey: () => string;
-  /** `'session'` regenerates against the session base; `'branch'` (default) is
-   *  the full-branch walkthrough. The stable key identifies storage; scope tells
-   *  the producer which point-in-time diff base to record. */
-  getScope: () => "branch" | "session";
   /** Typed target for a checkout prepared outside the source project. */
-  getTarget?: () => ReviewTarget | undefined;
+  getTarget?: () => ReviewGuideTarget | undefined;
   /** Live provider revision; never infer PR freshness from an unrelated checkout. */
   getCurrentRevision?: () => { headSha?: string; baseSha?: string } | null;
   /** Effective agent/model/reasoning for a fresh generation. */
@@ -48,7 +43,7 @@ function guideRequestOptions(opts: GuideLoaderOptions): ReviewGuideRequestOption
   const target = opts.getTarget?.();
   return {
     ...opts.getAgent(),
-    ...(target ? { target } : { scope: opts.getScope() }),
+    ...(target ? { target } : { scope: "branch" }),
   };
 }
 
@@ -197,7 +192,7 @@ export class GuideLoader {
     api: HostApi,
     ctx: IpcContext,
     guide: ReviewGuide | null,
-    target: ReviewTarget | undefined,
+    target: ReviewGuideTarget | undefined,
     current: () => boolean,
   ): Promise<{
     revision: { headSha?: string; baseSha?: string } | null;
@@ -225,7 +220,7 @@ export class GuideLoader {
   async #loadPrPatch(
     api: HostApi,
     ctx: IpcContext,
-    target: Extract<ReviewTarget, { kind: "pr" }>,
+    target: Extract<ReviewGuideTarget, { kind: "pr" }>,
     guide: ReviewGuide,
     baseSha: string,
     current: () => boolean,

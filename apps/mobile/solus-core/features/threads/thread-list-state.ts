@@ -1,0 +1,368 @@
+import type { HostApi } from "@solus/client-core/host-api";
+import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
+import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
+import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from "@solus/contracts/session-state";
+import type { PinnedSession, SessionStatus } from "@solus/contracts/types";
+
+import { Listeners } from "../../lib/listeners";
+import type { KeyValueStore } from "../../platform/ports";
+import { threadKey, type SolusThreadShell } from "./thread-directory";
+import { resolveThreadListV2Status, type ThreadListV2Facts } from "./threadListV2";
+
+/**
+ * What T3 Code's thread list shows beyond a session's record, from each host:
+ * its live status, and what changed after the record was read. The record
+ * carries its shared state, this person's own view, and its pull requests
+ * (docs/plans/session-archive.md). A settle by a session's pull requests or
+ * task arrives with the new shared state, this person's settle, archive, or
+ * snooze with their new view, and both are written here
+ * with nothing read back. A pull request change is read again for that one
+ * session.
+ *
+ * A session's home keeps its state, view, and links. On mobile the home is
+ * the host connection the session came from: this app does not connect to an
+ * organization's Solus API.
+ */
+
+/** The part of a host connection this store uses. */
+export interface ThreadListConnection {
+  readonly api: Pick<
+    HostApi,
+    | "pinnedSessionsList"
+    | "togglePinnedSession"
+    | "sessionPullRequests"
+    | "sessionPullRequestDelete"
+    | "sessionPullRequestWatch"
+    | "sessionUpdate"
+    | "setSessionTitle"
+    | "setSessionReadState"
+  >;
+  readonly events: Pick<HostEventSubscriber, "subscribe">;
+  onReset(listener: () => void): () => void;
+}
+
+/** Whether the Snoozed and Settled shelves show their rows; kept on this device. */
+export interface ThreadListShelfExpansion {
+  readonly snoozed: boolean;
+  readonly settled: boolean;
+}
+
+const SHELF_EXPANSION_KEY = "solus.mobile.threadListShelves";
+
+function readShelfExpansion(raw: string | null): ThreadListShelfExpansion {
+  try {
+    const value: unknown = raw ? JSON.parse(raw) : null;
+    if (value && typeof value === "object" && "snoozed" in value && "settled" in value) {
+      return { snoozed: value.snoozed === true, settled: value.settled === true };
+    }
+  } catch {
+    // A damaged value falls back to the defaults below.
+  }
+  return { snoozed: false, settled: false };
+}
+
+const EMPTY_FACTS: ThreadListV2Facts = {
+  states: new Map(),
+  views: new Map(),
+  liveStatus: new Map(),
+  pullRequests: new Map(),
+};
+
+export class ThreadListState {
+  readonly changes = new Listeners();
+  private readonly pins = new Map<string, PinnedSession>();
+  private readonly pinRequests = new Map<string, number>();
+  private readonly states = new Map<string, SessionState>();
+  private readonly views = new Map<string, SessionView>();
+  private readonly liveStatus = new Map<string, SessionStatus>();
+  private readonly pendingQuestions = new Set<string>();
+  private readonly statusSince = new Map<string, number>();
+  private readonly unread = new Map<string, boolean>();
+  private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
+  private readonly watched = new WeakSet<ThreadListConnection>();
+  /** A stable snapshot, replaced only when something changes. */
+  private snapshot: ThreadListV2Facts = EMPTY_FACTS;
+  private expansion: ThreadListShelfExpansion;
+
+  constructor(
+    private readonly connectionFor: (hostId: string) => ThreadListConnection | null,
+    private readonly storage: KeyValueStore,
+  ) {
+    this.expansion = readShelfExpansion(storage.getItem(SHELF_EXPANSION_KEY));
+  }
+
+  facts = (): ThreadListV2Facts => this.snapshot;
+
+  shelfExpansion = (): ThreadListShelfExpansion => this.expansion;
+
+  toggleShelf(shelf: keyof ThreadListShelfExpansion): void {
+    this.expansion = { ...this.expansion, [shelf]: !this.expansion[shelf] };
+    this.storage.setItem(SHELF_EXPANSION_KEY, JSON.stringify(this.expansion));
+    this.changes.notify();
+  }
+
+  /** Follows one host's announcements: the records read before them stay
+   *  current. Its pins come with the thread directory's whole read of the
+   *  host, which reads them here (`loadPins`). */
+  follow(hostId: string): void {
+    const connection = this.connectionFor(hostId);
+    if (connection) this.watch(hostId, connection);
+  }
+
+  /** Read the host's pins after connect, refresh, or a toggle, and answer
+   *  them. A failed read keeps prior pins. */
+  async loadPins(hostId: string): Promise<readonly PinnedSession[]> {
+    const connection = this.requireConnection(hostId);
+    const request = (this.pinRequests.get(hostId) ?? 0) + 1;
+    this.pinRequests.set(hostId, request);
+    const pins = await connection.api.pinnedSessionsList();
+    if (this.connectionFor(hostId) !== connection || this.pinRequests.get(hostId) !== request) return pins;
+    this.dropHostEntries(this.pins, hostId);
+    for (const pin of pins) this.pins.set(threadKey(hostId, pin.sessionId), { ...pin, serverId: hostId });
+    this.publish();
+    return pins;
+  }
+
+  async togglePin(thread: SolusThreadShell): Promise<void> {
+    const connection = this.requireConnection(thread.hostId);
+    const existing = this.pins.get(thread.key);
+    const pin: PinnedSession = existing ?? {
+      sessionId: thread.record.sessionId,
+      serverId: thread.hostId,
+      provider: thread.record.provider,
+      title: thread.record.customTitle ?? thread.record.title ?? "Session",
+      cwd: thread.record.cwd ?? thread.record.projectPath,
+      pinnedAt: Date.now(),
+    };
+    await connection.api.togglePinnedSession(pin);
+    await this.loadPins(thread.hostId);
+  }
+
+  /** Settle a session in this person's list, or make a settled one active
+   *  again. The list changes at once; a refusal from the host puts the
+   *  previous state back. */
+  async setSettled(hostId: string, sessionId: string, settled: boolean): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
+    const key = threadKey(hostId, sessionId);
+    const previousState = this.states.get(key);
+    const previousView = this.views.get(key);
+    this.views.set(key, { ...(previousView ?? EMPTY_SESSION_VIEW), settledAt: settled ? Date.now() : null });
+    if (!settled) this.states.set(key, UNSETTLED_SESSION_STATE);
+    this.publish();
+    const restoreState = () => {
+      if (previousState) this.states.set(key, previousState);
+      else this.states.delete(key);
+    };
+    try {
+      const { state, view } = await connection.api.sessionUpdate(sessionId, { settled });
+      if (settled) this.removePin(hostId, sessionId);
+      // Only an editor's unsettle ends the shared settle; the answer says when it did.
+      if (state) this.write(this.states, hostId, connection, sessionId, state);
+      else if (!settled) restoreState();
+      if (view) this.write(this.views, hostId, connection, sessionId, view);
+      this.publish();
+    } catch (error) {
+      restoreState();
+      if (previousView) this.views.set(key, previousView);
+      else this.views.delete(key);
+      this.publish();
+      throw error;
+    }
+  }
+
+  /** Snooze a session in this person's list until a wake time; null wakes it now. */
+  async snooze(hostId: string, sessionId: string, until: number | null): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
+    this.write(this.views, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { snoozedUntil: until })).view ?? null);
+  }
+
+  /** Take a session out of this person's list, or return it. Archive keeps
+   *  the settle and the snooze, so it returns to the shelf it left. */
+  async setArchived(hostId: string, sessionId: string, archived: boolean): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
+    const key = threadKey(hostId, sessionId);
+    const previousView = this.views.get(key);
+    this.views.set(key, { ...(previousView ?? EMPTY_SESSION_VIEW), archivedAt: archived ? Date.now() : null });
+    this.publish();
+    try {
+      const { view } = await connection.api.sessionUpdate(sessionId, { archived });
+      if (archived) this.removePin(hostId, sessionId);
+      this.write(this.views, hostId, connection, sessionId, view ?? null);
+    } catch (error) {
+      if (previousView) this.views.set(key, previousView);
+      else this.views.delete(key);
+      this.publish();
+      throw error;
+    }
+  }
+
+  /** A read boundary belongs to one session on one host. Watch before writing
+   *  so changes from other clients update the same list. */
+  async markRead(hostId: string, sessionId: string, read: boolean): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
+    await connection.api.setSessionReadState(sessionId, read ? Date.now() : null);
+    if (this.connectionFor(hostId) !== connection) return;
+    this.unread.set(threadKey(hostId, sessionId), !read);
+    this.publish();
+  }
+
+  /** Watch a session's pull request, or stop: its agent wakes on news
+      (docs/plans/pr-watch.md). Answers what the host did. */
+  async setWatching(
+    hostId: string,
+    sessionId: string,
+    target: { readonly repository: string; readonly number: number },
+    watching: boolean,
+  ): Promise<SessionPullRequestWatchOutcome> {
+    const connection = this.requireConnection(hostId);
+    const outcome = await connection.api.sessionPullRequestWatch(sessionId, target.repository, target.number, watching);
+    await this.refreshPullRequests(hostId, sessionId);
+    return outcome;
+  }
+
+  /** Remove a pull request from a session. PR sync does not link it again
+      (docs/plans/session-pull-requests.md). */
+  async unlinkPullRequest(
+    hostId: string,
+    sessionId: string,
+    target: { readonly repository: string; readonly number: number },
+  ): Promise<void> {
+    await this.requireConnection(hostId).api.sessionPullRequestDelete(sessionId, {
+      repository: target.repository,
+      number: target.number,
+    });
+    await this.refreshPullRequests(hostId, sessionId);
+  }
+
+  /** Name a session; an empty name goes back to the derived title. */
+  async rename(hostId: string, sessionId: string, title: string | null): Promise<void> {
+    await this.requireConnection(hostId).api.setSessionTitle(sessionId, title, "manual");
+  }
+
+  forgetHost(hostId: string): void {
+    this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
+    this.dropHostEntries(this.pins, hostId);
+    this.dropHostEntries(this.states, hostId);
+    this.dropHostEntries(this.views, hostId);
+    this.dropHostEntries(this.pullRequests, hostId);
+    this.dropHostEntries(this.liveStatus, hostId);
+    this.dropHostEntries(this.pendingQuestions, hostId);
+    this.dropHostEntries(this.statusSince, hostId);
+    this.dropHostEntries(this.unread, hostId);
+    this.publish();
+  }
+
+  private removePin(hostId: string, sessionId: string): void {
+    // An older manifest read must not restore a pin removed by a later action.
+    this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
+    this.pins.delete(threadKey(hostId, sessionId));
+  }
+
+  private watch(hostId: string, connection: ThreadListConnection): void {
+    if (this.watched.has(connection)) return;
+    this.watched.add(connection);
+    connection.events.subscribe("session.readStateChanged", ({ sessionId, viewedAt }) => {
+      this.unread.set(threadKey(hostId, sessionId), viewedAt === null);
+      this.publish();
+    });
+    connection.events.subscribe("session.stateChanged", ({ sessionId, state }) => {
+      this.write(this.states, hostId, connection, sessionId, state);
+    });
+    // Only this person's connections hear their own view change.
+    connection.events.subscribe("session.viewChanged", ({ sessionId, view }) => {
+      if (view.settledAt !== null || view.archivedAt !== null) this.removePin(hostId, sessionId);
+      this.write(this.views, hostId, connection, sessionId, view);
+    });
+    connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
+      void this.refreshPullRequests(hostId, sessionId);
+    });
+    connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status, at, hasPendingQuestion }) => {
+      // A list may hold either id for the same session.
+      const pending = hasPendingQuestion === true;
+      this.setLiveStatus(threadKey(hostId, sessionId), status, pending, at);
+      if (agentSessionId) this.setLiveStatus(threadKey(hostId, agentSessionId), status, pending, at);
+      this.publish();
+    });
+    // A fresh server session forgets what was live, and a change may have
+    // been missed; the records read again answer it, and the directory's
+    // whole read of the new session reads the pins again.
+    connection.onReset(() => {
+      this.pinRequests.set(hostId, (this.pinRequests.get(hostId) ?? 0) + 1);
+      this.dropHostEntries(this.liveStatus, hostId);
+      this.dropHostEntries(this.pendingQuestions, hostId);
+      this.dropHostEntries(this.statusSince, hostId);
+      this.dropHostEntries(this.states, hostId);
+      this.dropHostEntries(this.views, hostId);
+      this.dropHostEntries(this.pullRequests, hostId);
+      this.publish();
+    });
+  }
+
+  /** A row's elapsed time counts from the change into what it shows: a
+   *  connecting session that starts running is still the same "Working". */
+  private setLiveStatus(key: string, status: SessionStatus, hasPendingQuestion: boolean, at: number): void {
+    const previous = this.liveStatus.get(key);
+    const shown = (value: SessionStatus, pending: boolean) => resolveThreadListV2Status({ status: "idle" }, value, pending);
+    if (previous === undefined || shown(previous, this.pendingQuestions.has(key)) !== shown(status, hasPendingQuestion)) {
+      this.statusSince.set(key, at);
+    }
+    this.liveStatus.set(key, status);
+    if (hasPendingQuestion) this.pendingQuestions.add(key);
+    else this.pendingQuestions.delete(key);
+  }
+
+  /** A state or view the host announced or answered overrides the record
+   *  read before it. An empty one is kept too, so it overrides a stale
+   *  record. A host that does not keep the session answers null. */
+  private write<Value>(
+    into: Map<string, Value>,
+    hostId: string,
+    connection: ThreadListConnection,
+    sessionId: string,
+    value: Value | null,
+  ): void {
+    if (!value || this.connectionFor(hostId) !== connection) return;
+    into.set(threadKey(hostId, sessionId), value);
+    this.publish();
+  }
+
+  /** One session's links changed: they are read again for that session. A
+   *  host that fails the read keeps the links shown. */
+  private async refreshPullRequests(hostId: string, sessionId: string): Promise<void> {
+    const connection = this.connectionFor(hostId);
+    if (!connection) return;
+    const links = await connection.api.sessionPullRequests(sessionId).catch(() => null);
+    if (!links || this.connectionFor(hostId) !== connection) return;
+    this.pullRequests.set(threadKey(hostId, sessionId), links);
+    this.publish();
+  }
+
+  private requireConnection(hostId: string): ThreadListConnection {
+    const connection = this.connectionFor(hostId);
+    if (!connection) throw new Error("This host cannot be reached now.");
+    return connection;
+  }
+
+  private dropHostEntries(map: Map<string, unknown> | Set<string>, hostId: string): void {
+    const prefix = threadKey(hostId, "");
+    for (const key of Array.from(map.keys())) if (key.startsWith(prefix)) map.delete(key);
+  }
+
+  private publish(): void {
+    this.snapshot = {
+      pins: new Map(this.pins),
+      states: new Map(this.states),
+      views: new Map(this.views),
+      liveStatus: new Map(this.liveStatus),
+      pendingQuestions: new Set(this.pendingQuestions),
+      statusSince: new Map(this.statusSince),
+      unread: new Map(this.unread),
+      pullRequests: new Map(this.pullRequests),
+    };
+    this.changes.notify();
+  }
+}

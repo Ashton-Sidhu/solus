@@ -55,7 +55,7 @@ describe('the live tail of a signal', () => {
   test('the host pushes each occurrence to the tail of its signal, and a paused tail holds them until it goes on', async () => {
     // WHY: the owner pauses to read a row; new rows must not move it. Nothing that came is lost.
     let push: ((event: AppSignalOccurredEvent) => void) | null = null
-    spyOn(serverConnections, 'connectedServerIds').mockImplementation(() => ['a'])
+    spyOn(serverConnections, 'serverIds').mockImplementation(() => ['a'])
     // SAFETY: the tail reads only `subscribe` of a host's events.
     spyOn(serverConnections, 'eventsFor').mockImplementation(() => ({
       subscribe: (_topic: string, handler: (event: AppSignalOccurredEvent) => void) => {

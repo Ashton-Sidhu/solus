@@ -1,6 +1,6 @@
 ---
 name: solus-review
-description: Author a Solus structured review guide for a resolved working-tree, session, branch, or pull-request change.
+description: Author a Solus structured review guide for a resolved working-tree, branch, or pull-request change.
 ---
 
 # Solus review

@@ -47,6 +47,28 @@ test('a reused group member prevents escalation', async () => {
   expect(signal).toHaveBeenCalledTimes(1)
 })
 
+// An agent starts a dev server in the background and its shell, the group leader, exits.
+const orphaned = () => new Map([processFact(123, { groupId: 100, parentPid: 1 }), processFact(124, { groupId: 100, parentPid: 123 })].map((fact) => [fact.pid, fact]))
+
+test('a server whose shell exited stops by signalling each verified member, never the leaderless group id', async () => {
+  let facts = orphaned()
+  const signal = mock(async (pid: number, kind: string) => { if (kind === 'SIGKILL') facts.delete(pid) })
+  expect(await stopJob(runningServer(), 'started-123', { processes: async () => facts, signal, beforeStop: () => {}, wait: async () => {} })).toEqual({ status: 'stopped' })
+  expect(signal.mock.calls).toEqual([[123, 'SIGTERM'], [124, 'SIGTERM'], [123, 'SIGKILL'], [124, 'SIGKILL']])
+})
+
+test('a leaderless group is refused unless every member carries the server tag', () => {
+  for (const fields of [{ sessionId: null }, { terminalId: 'terminal-1' }]) {
+    const facts = orphaned()
+    Object.assign(facts.get(124)!, fields)
+    expect(isolatedJob(facts, 123)).toBeNull()
+  }
+  const untagged = orphaned()
+  for (const fact of untagged.values()) fact.sessionId = null
+  expect(isolatedJob(untagged, 123)).toBeNull()
+  expect(isolatedJob(orphaned(), 123)?.map((fact) => fact.pid)).toEqual([123, 124])
+})
+
 test('failed signalling undoes the provider notice', async () => {
   const undo = mock(() => {})
   const signal = async () => { throw new Error('EPERM') }

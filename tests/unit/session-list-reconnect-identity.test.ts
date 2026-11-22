@@ -31,7 +31,7 @@ test('an equal list keeps every held entry, and a changed row gets its new value
   const events = new HostEventSubscriber()
   const apiFor = spyOn(serverConnections, 'apiFor').mockImplementation(() => api)
   const eventsFor = spyOn(serverConnections, 'eventsFor').mockImplementation(() => events)
-  const store = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] })
+  const store = new SessionListStore({ connectedRunnerFor: () => null, serverIds: () => ['host'] })
   try {
     await store.load()
     const listed = store.listed('same')

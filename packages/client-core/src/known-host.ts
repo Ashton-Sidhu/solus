@@ -10,6 +10,7 @@ import type { HostOperatingSystem } from '@solus/contracts/types'
 import { isSolusApiId, type HostCategory, type MachineKind, type ManagedHostLifecycle } from '@solus/contracts/uplink'
 import { mergeRoutes, routeForUrl, routesFrom, type HostRoute } from '@solus/contracts/host-routes'
 import type { SshAddResult } from '@solus/contracts/remote-machines'
+import type { GuestCredential } from './ws-transport'
 
 const ACTIVE_KEY = 'solus.activeServerId'
 
@@ -83,11 +84,20 @@ export interface KnownHost {
   routeOrder?: string[]
   /** `sessionToken` was paired over HTTPS, so it stays off routes that carry it in clear. */
   tokenPairedOverHttps?: boolean
+  /** The owner host's pairing `sessionToken` came from (`HostCredential.ownerPairedAt`). */
+  ownerPairedAt?: number
   /** The host's identity key (docs/plans/host-routes.md D3), from the pairing, the
    *  SSH connection that added it, or its first connection through the tunnel. An
    *  `http:` route is dialed only after the host proves this key. */
   identityKey?: string
   uplink?: KnownHostUplink
+  /** The desktop's own machine: known for this page only (`HostCatalog.addPageHost`). */
+  local?: boolean
+  /** A guest of a share link (docs/plans/multiplayer-sharing.md §4.2): the link's
+   *  secret is the one credential. Known for this page only; no account, no saved host. */
+  guest?: GuestCredential
+  /** Routes dialed only when no route in `routes` answers: a guest's read-only mirror of the resource. */
+  fallbackRoutes?: HostRoute[]
 }
 
 /**

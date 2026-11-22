@@ -421,16 +421,45 @@ user of the Solus server, with no sandbox. Thus:
 
 Settings → MCP shows a command on desktop, web, and mobile.
 
-- **Add command** (beside Installed; on mobile, the Command section) opens
-  the form: a name, the command line, the working directory, and the names
-  of the environment variables, with a field for each value. Under the line
-  the form shows the program and the arguments that the host will start, or
-  the reason it refuses the line. The form says where the command runs and
-  that it does not sync to other hosts. **Start and test** adds the record,
-  saves the values, starts the process, and lists the tools; while it runs,
-  **Cancel** stops the process. On desktop and web, a dialog that closes
-  before the end removes the command it added. The command palette has
-  "Add an MCP server command".
+- **Add server** (beside Installed; on mobile, the Add server section)
+  opens a form with a switch between **Command** and **URL**. The command
+  form has the command line first, then a name that the line suggests.
+  The working directory, the names of the environment variables, and a
+  field for each value are under **Folder and variables**, which opens by
+  itself when one of them is filled or refused. Under the line the form
+  shows the program and the arguments that the host will start, or the
+  reason it refuses the line. A note beside the button says where the
+  command runs and that it is not in your agent profile. **Start and test**
+  adds the record, saves the values, starts the process, and lists the
+  tools; while it runs, **Cancel** stops the process. On desktop and web, a
+  dialog that closes before the end removes the command it added, and the
+  switch goes away once the host has the record. The command palette has
+  "Add an MCP server".
+- The **URL** form takes the address of a remote server, an optional name
+  (the address's host when empty), and its **Authentication**
+  (docs/plans/mcp-add-server.md):
+  - **Automatic** keeps what the host's probe finds. Its folded OAuth
+    settings apply only when the server turns out to use OAuth.
+  - **OAuth** takes an optional client ID and secret, for a server that does
+    not register Solus by itself, and optional scopes, which the sign-in asks
+    for in place of the server's. The form shows the callback URL to register.
+  - **API key**: each person pastes a key, sent as a bearer token.
+  - **Headers**: header names such as `X-API-Key`, each with a value that is
+    the person's secret. The values stay on the host, so such a server is not
+    in the agent profile, as a command is not.
+  - **None**: no sign-in.
+
+  With Automatic the host refuses a server its probe cannot place. With the
+  other choices the host only has to reach the server. **Continue** (**Add**
+  on mobile) then goes on as a catalog entry does: the sign-in or the
+  values, then the tools. An address the host has already opens that
+  server. A person without `host.admin` can add a URL; only the command form
+  is refused to them. Pasting an `https://` address in the page's search
+  adds it with Automatic.
+- An OAuth server's row shows its **Scopes**, with Edit and "Use the
+  server's scopes". A `headers` server's row shows its **Headers**, with Edit
+  (new names remove every person's values for the old ones), and its
+  **Values** with Enter values, Change values, and Disconnect, as a command.
 - The row shows the command line in place of an address, and the state of
   your process: **Not started**, **Running**, **Stopped** (with the reason:
   after 10 minutes with no use, at Stop, to make room at the limit of 16, or
@@ -578,10 +607,10 @@ running servers (`docs/running-servers.md`).
   server runs again, the host drops its old tool list, and the next run lists
   its tools. Without a fresh list the row shows no state. A call to it while it
   is down says "`<name>` is not running on `<host>`. Start it, then try again."
-- **A server that an agent started.** When the host first finds an MCP server
-  whose process an agent started, it shows the custom server card in that
-  session, with the address filled in. The agent is also told that it can ask
-  for a server it started with `connect_integration`.
+- **A server that an agent started.** It shows here like any other found
+  server. The host does not ask for it in the conversation. The agent is told
+  that it can ask for a server it started with `connect_integration`; that
+  call shows the custom server card, with the address filled in.
 - If the host cannot list its listeners, the view says why, and the config
   files still list.
 

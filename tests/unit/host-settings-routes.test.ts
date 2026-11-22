@@ -23,7 +23,7 @@ const { hostRoutesStore } = await import('../../packages/workspace-ui/src/compon
 
 beforeEach(() => {
   servers.servers = []
-  servers.remotes = []
+  servers.knownHosts = []
   fact = { state: 'loading' }
 })
 
@@ -44,7 +44,7 @@ test('loading and a failed read do not claim that this computer has no routes', 
 })
 
 test('a remote host keeps its saved routes and its current route while metadata loads', () => {
-  servers.remotes = [{ id: 'studio', installationId: 'studio', label: 'Studio', lastConnected: 1, routes: [{ kind: 'lan', url: 'http://studio.local:3000', source: 'pairing' }] }]
+  servers.knownHosts = [{ id: 'studio', installationId: 'studio', label: 'Studio', lastConnected: 1, routes: [{ kind: 'lan', url: 'http://studio.local:3000', source: 'pairing' }] }]
   expect(hostRoutesStore.rowsFor('studio').map((row) => row.url)).toEqual(['http://studio.local:3000'])
   expect(hostRoutesStore.canChange('studio')).toBe(true)
   expect(hostRoutesStore.inUseFor('studio')).toBe('http://studio.local:3000')

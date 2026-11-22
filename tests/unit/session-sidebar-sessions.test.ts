@@ -178,7 +178,6 @@ describe('session sidebar session rows', () => {
       serverId: 'workshop',
       branchName: null,
       runStartedAt: 0,
-      reviewGuideStatus: null,
     })
     // The mounted transcript is still empty.
     store.tabActivityAt = () => 0

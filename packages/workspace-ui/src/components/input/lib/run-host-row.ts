@@ -21,17 +21,7 @@ export function offlineLastRunHost(input: {
 }
 
 /**
- * Whether a started session keeps its composer while its run host is away:
- * the person can type, and choose another host in Run on. Without another
- * host to choose, or while a turn holds the host, the host's state takes the
- * composer's place as before.
- */
-export function keepsComposerWhileAway(input: { hasStarted: boolean; isRunHostLocked: boolean; hasOtherHost: boolean }): boolean {
-  return input.hasStarted && !input.isRunHostLocked && input.hasOtherHost
-}
-
-/**
- * The one note beside Run on for a started session. A turn on another host
+ * The host status note for a started session. A turn on another host
  * comes first: it decides where the next prompt goes. Then the offline host
  * with the newest turn, then "Not synced yet". A refused push is a card in the
  * conversation, not a note here.

@@ -47,7 +47,7 @@ describe('native sent-prompt attachments', () => {
     const model = new TranscriptModel('s')
     model.apply({ type: 'user_message', text: 'look', imageAttachmentRefs: [{ mimeType: 'image/png', hostPath: '/h/up/shot.png', name: 'shot.png' }] })
     const [item] = [...model.items.values()]
-    expect(item?.kind === 'user' && item.attachments).toEqual([{ kind: 'host-image', key: 'ref:0:/h/up/shot.png', name: 'shot.png', hostPath: '/h/up/shot.png' }])
+    expect(item?.kind === 'user' && item.attachments).toEqual([{ kind: 'host-image', key: 'ref:0:/h/up/shot.png', name: 'shot.png', hostPath: '/h/up/shot.png', mimeType: 'image/png' }])
   })
 
   // A host stores history pictures as assets; a row a runner mirrored earlier

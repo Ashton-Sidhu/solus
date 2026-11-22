@@ -70,6 +70,8 @@ export class HostCatalog {
   private readonly learned = new Map<string, LearnedFacts>()
   /** The host that served this web page; null elsewhere (the desktop's own host is `LOCAL_SERVER_ID`). */
   private deviceHostId: string | null = null
+  /** Hosts known for this page only (`addPageHost`): never saved, never on a list. */
+  private readonly pageHosts = new Map<string, KnownHost>()
   private joined: KnownHost[] = []
   private byId = new Map<string, KnownHost>()
   private managedIds: ReadonlySet<string> = new Set()
@@ -105,6 +107,17 @@ export class HostCatalog {
     if (!credential?.token) return null
     const alone: CatalogAnswers = { listings: new Map(), listState: 'failed', directory: null, credentials: new Map([[id, credential]]), learned: this.learned }
     return this.find(id) ?? joinHosts(alone, (this.options.now ?? Date.now)(), this.options.clientOrigin?.() ?? globalThis.location?.origin ?? '')[0] ?? null
+  }
+
+  /**
+   * A host this client knows for this page only: the desktop's own machine, a page's
+   * serving host this browser does not keep, or a guest's shared resource. It joins
+   * `hosts()` like any other host but is never saved and never put on a list. A host
+   * the catalog already knows by this id keeps its own entry.
+   */
+  addPageHost(host: KnownHost): void {
+    this.pageHosts.set(host.id, host)
+    this.rejoin()
   }
 
   /**
@@ -324,11 +337,21 @@ export class HostCatalog {
     this.rejoin()
   }
 
-  /** The host's session token was refreshed. Only a host this device holds a credential for keeps it. */
-  async renewToken(id: string, token: string): Promise<void> {
+  /** This device's session token for the host; empty when it holds none. A transport reads it at each dial. */
+  sessionTokenOf(id: string): string {
+    return this.credentials.get(id)?.token || this.pageHosts.get(id)?.sessionToken || ''
+  }
+
+  /** The host renewed `previous` as `token`. A pairing that replaced `previous` meanwhile keeps its own token. */
+  async renewToken(id: string, previous: string, token: string): Promise<void> {
     await this.load()
+    const pageHost = this.pageHosts.get(id)
+    if (pageHost && !this.credentials.has(id)) {
+      if (pageHost.sessionToken === previous) this.addPageHost({ ...pageHost, sessionToken: token })
+      return
+    }
     const credential = this.credentials.get(id)
-    if (!credential || credential.token === token) return
+    if (!credential || credential.token !== previous || credential.token === token) return
     await this.writeCredential(id, { ...credential, token })
     this.rejoin()
   }
@@ -345,6 +368,11 @@ export class HostCatalog {
   stampOperatingSystem(id: string, os: HostOperatingSystem): void {
     const host = this.find(id)
     if (!host || host.os === os) return
+    const pageHost = this.pageHosts.get(id)
+    if (pageHost && !this.credentials.has(id)) {
+      this.addPageHost({ ...pageHost, os })
+      return
+    }
     this.learn(id, { os })
     this.rejoin()
     this.sendListingOf(id)
@@ -524,6 +552,11 @@ export class HostCatalog {
       learned: this.learned,
       deviceHostId: this.deviceHostId,
     }, (this.options.now ?? Date.now)(), this.options.clientOrigin?.() ?? globalThis.location?.origin ?? '')
+    // The desktop's own machine is one host: a listing of it from another device joins its page entry.
+    const localInstallationIds = new Set([...this.pageHosts.values()].filter((host) => host.local).map((host) => host.installationId))
+    const known = this.joined.filter((host) => !localInstallationIds.has(host.installationId))
+    const knownIds = new Set(known.map((host) => host.id))
+    this.joined = [...[...this.pageHosts.values()].filter((host) => !knownIds.has(host.id)), ...known]
     this.byId = new Map(this.joined.map((host) => [host.id, host]))
     this.managedIds = new Set(this.joined.filter((host) => host.uplink?.kind === 'managed').map((host) => host.id))
     for (const listener of this.listeners) listener()

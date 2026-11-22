@@ -16,7 +16,7 @@ export function startActivityLeaseHeartbeat(): void {
 
   const beat = () => {
     const foreground = !('document' in globalThis) || document.visibilityState === 'visible'
-    for (const serverId of serverConnections.connectedServerIds()) {
+    for (const serverId of serverConnections.serverIds()) {
       // Best effort: an older host does not know the method, and a host that
       // is reconnecting misses a beat. The next beat reports again.
       void serverConnections.apiFor(serverId).activityLease(foreground).catch(() => {})

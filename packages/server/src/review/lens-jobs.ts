@@ -1,5 +1,6 @@
 import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
-import { reviewedSessionId } from './review-target'
+import { getDiff, getSessionSnapshotRange } from '../git/session-snapshots'
+import { fingerprintReviewPatch, reviewedSessionId } from './review-target'
 import type {
   ReviewContext,
   ReviewLens,
@@ -53,7 +54,7 @@ interface LocatedLens {
 export interface ResolvedLensChange {
   workTree: string
   review: ReviewContext
-  change: GuideTarget
+  change: Pick<GuideTarget, 'base' | 'head' | 'patch' | 'changeFingerprint'> & { target: ReviewTarget }
   headSha: string
 }
 
@@ -75,6 +76,10 @@ async function locate(ctx: IpcContext, target: ReviewTarget): Promise<LocatedLen
   if (target.kind === 'pr') return { address: { repoRoot: prGuideRepository(target), key: prGuideKey(target) }, target }
   const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review) return null
+  if (target.kind === 'session') {
+    const sessionId = target.sessionId ?? reviewedSessionId(ctx)
+    return sessionId ? { address: { repoRoot: review.repoRoot, key: `session-${sessionId}` }, target } : null
+  }
   const base = await resolveTargetBase(ctx, review, { target })
   return { address: { repoRoot: review.repoRoot, key: base.guideKey }, target: base.target }
 }
@@ -92,6 +97,15 @@ async function resolveChange(ctx: IpcContext, requested: ReviewTarget): Promise<
   const review = await resolveReviewContext(reviewCheckout(runCtx), reviewedSessionId(runCtx))
   if (!review) throw new Error('This review has no git checkout.')
   const workTree = reviewCheckout(runCtx) ?? review.repoRoot
+  if (target.kind === 'session') {
+    const sessionId = target.sessionId ?? reviewedSessionId(runCtx)
+    const range = sessionId && getSessionSnapshotRange(review.repoRoot, sessionId)
+    if (!range) throw new Error('Session snapshot is unavailable.')
+    const diff = await getDiff(null, review.repoRoot, { kind: 'session' }, sessionId)
+    if (!diff) throw new Error('Session snapshot is unavailable.')
+    const change = { target, base: range.baseSha, head: range.headSha, patch: diff.patch, changeFingerprint: fingerprintReviewPatch(diff.patch) }
+    return { workTree, review, change, headSha: range.headSha }
+  }
   const change = await resolveTarget(runCtx, review, { target })
   return { workTree, review, change, headSha: await resolvedGuideHead(change, workTree, review) }
 }
@@ -101,9 +115,7 @@ async function isOutdated(ctx: IpcContext, target: ReviewTarget, lens: ReviewLen
     const current = await currentPrGuideTarget(target)
     return current.headSha !== lens.headSha || current.baseSha !== lens.baseSha
   }
-  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
-  if (!review) return false
-  const change = await resolveTarget(ctx, review, { target })
+  const { change } = await resolveChange(ctx, target)
   return change.changeFingerprint !== lens.changeFingerprint
 }
 

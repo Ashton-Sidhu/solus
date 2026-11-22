@@ -29,9 +29,14 @@ afterAll(() => {
 })
 
 describe('startup discovery scans', () => {
+  // WHY: a focused window scanned its network every 30 seconds whether or not
+  // anything showed the nearby hosts. Only a view that shows them needs a
+  // fresh list; otherwise a result stays good for five minutes.
   test('automatic scans reuse a recent result, while a user can request a fresh scan', async () => {
     let now = 100_000
     let calls = 0
+    // A hidden window starts no timer, so only the calls below scan.
+    Object.defineProperty(globalThis, 'document', { value: { hidden: true, hasFocus: () => false }, configurable: true })
     const clock = spyOn(Date, 'now').mockImplementation(() => now)
     const defaultHost = spyOn(serverConnections, 'defaultServerId').mockReturnValue('scan-host')
     const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
@@ -46,7 +51,14 @@ describe('startup discovery scans', () => {
       expect(calls).toBe(2)
       now += 30_001
       await serversStore.scanForServers({ onlyIfStale: true })
+      expect(calls).toBe(2)
+      const hideNearby = serversStore.showNearby()
+      await serversStore.scanForServers({ onlyIfStale: true })
       expect(calls).toBe(3)
+      hideNearby()
+      now += 5 * 60_000
+      await serversStore.scanForServers({ onlyIfStale: true })
+      expect(calls).toBe(4)
     } finally {
       api.mockRestore()
       defaultHost.mockRestore()

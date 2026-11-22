@@ -205,7 +205,7 @@ describe('accountPresent from the client transport', () => {
     // The first token ends just past the lead, so the next presentation is due at once.
     const tokens = [jwt({ exp: nowSeconds + GRANT_RENEWAL_LEAD_MS / 1000 + 1 }), jwt({ exp: nowSeconds + 600 })]
     let asked = 0
-    const client = new WsTransport({ serverUrl: url, sessionToken: '', accountToken: async () => tokens[Math.min(asked++, 1)]! })
+    const client = new WsTransport({ serverUrl: url, accountToken: async () => tokens[Math.min(asked++, 1)]! })
     cleanups.push(() => client.destroy())
     client.start()
     await waitFor(() => verified.length === 2)
@@ -217,7 +217,7 @@ describe('accountPresent from the client transport', () => {
     const plane = accountPlane()
     const { url, verified } = await host(plane, { requireAuth: false })
     let asked = 0
-    const client = new WsTransport({ serverUrl: url, sessionToken: '', accountToken: async () => { asked += 1; return null } })
+    const client = new WsTransport({ serverUrl: url, accountToken: async () => { asked += 1; return null } })
     cleanups.push(() => client.destroy())
     client.start()
     await waitFor(() => asked === 1)
@@ -249,7 +249,8 @@ describe('the real sequence: a phone keeps the account reads alive after the des
     const nowSeconds = Math.floor(Date.now() / 1000)
     const phoneTokens = [jwt({ exp: nowSeconds + GRANT_RENEWAL_LEAD_MS / 1000 + 2 }), jwt({ exp: nowSeconds + 600 })]
     let asked = 0
-    const phone = new WsTransport({ serverUrl: url, sessionToken: issueSessionToken('Phone').token, accountToken: async () => phoneTokens[Math.min(asked++, 1)]! })
+    const phoneToken = issueSessionToken('Phone').token
+    const phone = new WsTransport({ serverUrl: url, sessionToken: () => phoneToken, accountToken: async () => phoneTokens[Math.min(asked++, 1)]! })
     cleanups.push(() => phone.destroy())
     phone.start()
     await waitFor(() => verified.length === 1)

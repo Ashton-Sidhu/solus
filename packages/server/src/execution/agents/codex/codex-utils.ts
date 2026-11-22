@@ -525,10 +525,8 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
   }
 
   if (item.type === 'reasoning') {
-    // Reasoning/thinking span, carried for provider handoffs; display surfaces
-    // skip this role. Prefer the concise summary over the raw content.
     const content = codexReasoningText(item)
-    return content ? { role: 'reasoning', content, timestamp } : null
+    return content ? { messageId: item.id ? 'thought:' + item.id : undefined, role: 'reasoning', content, timestamp } : null
   }
 
   if (item.type === 'subAgentActivity') {
@@ -705,23 +703,20 @@ export function codexSpawnedThreadLinks<Item>(item: Item): Array<{ threadId: str
   return candidate.receiverThreadIds.map((threadId) => ({ threadId, toolId: candidate.id }))
 }
 
-function joinReasoningStrings<Value>(value: Value, separator: string): string {
+function reasoningParts<Value>(value: Value): string[] {
   const parsed = z.array(messageContentPartSchema).safeParse(value)
-  if (!parsed.success) return ''
-  return parsed.data
-    .map((part) => parsedString(part) ?? part.text ?? '')
-    .filter(Boolean)
-    .join(separator)
-    .trim()
+  if (!parsed.success) return []
+  return parsed.data.map(part => (typeof part === 'string' ? part : part.text ?? '').trim()).filter(Boolean)
 }
 
-/** A reasoning item's text, preferring the concise `summary` over raw `content`.
- *  Each summary part is its own markdown block — usually a `**title**` — so
- *  parts are joined as paragraphs; a single newline would run them together.
- *  Empty for non-reasoning items, so callers filter with a truthiness check. */
-export function codexReasoningText(item: CodexHistoryItem): string {
+/** Codex can return either field or both. Keep paragraph boundaries and omit
+ * content already represented in the summary. */
+export function codexReasoningText<Summary, Content>(item: { type?: string; summary?: Summary; content?: Content }): string {
   if (item.type !== 'reasoning') return ''
-  return joinReasoningStrings(item.summary, '\n\n') || joinReasoningStrings(item.content, '\n')
+  const summary = reasoningParts(item.summary)
+  const represented = new Set(summary)
+  const content = reasoningParts(item.content).filter(part => !represented.has(part))
+  return [...summary, ...content].join('\n\n')
 }
 
 export function codexToolResultText<Result>(result: Result): string {

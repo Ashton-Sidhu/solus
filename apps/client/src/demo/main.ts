@@ -35,6 +35,7 @@ import DemoCtaOverlay from './DemoCtaOverlay.svelte'
 import DemoHintsOverlay from './DemoHintsOverlay.svelte'
 import DemoWindowControls from './DemoWindowControls.svelte'
 import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
+import { routeForUrl } from '@solus/contracts/host-routes'
 
 // The demo is only reachable through the landing-page iframe. A direct visit
 // to /demo/ redirects home; append ?standalone to bypass (local dev/testing).
@@ -97,9 +98,10 @@ const demoTransport: DemoTransport = {
 serverConnections.registerPrimary(LOCAL_SERVER_ID, demoApi, demoTransport as WsTransport, {
   id: LOCAL_SERVER_ID,
   label: 'Solus Demo',
-  url: window.location.origin,
   sessionToken: '',
   installationId: DEMO_INSTALLATION_ID,
+  lastConnected: 0,
+  routes: [routeForUrl(window.location.origin)],
   local: true,
 })
 

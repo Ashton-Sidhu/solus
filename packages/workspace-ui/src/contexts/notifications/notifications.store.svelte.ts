@@ -132,7 +132,7 @@ class NotificationsStore {
       this.activity.dropHost(server.id)
       this.updateBadge(this.activity.sessionKeys)
     })
-    for (const serverId of serverConnections.connectedServerIds()) void this.seedHost(serverId, deps)
+    for (const serverId of serverConnections.serverIds()) void this.seedHost(serverId, deps)
 
     const stop = () => {
       this.generation += 1
@@ -161,7 +161,7 @@ class NotificationsStore {
     const revision = this.snapshotRevisions.get(serverId) ?? 0
     try {
       const entries = await serverConnections.apiFor(serverId).listAttention()
-      if (generation === this.generation && revision === (this.snapshotRevisions.get(serverId) ?? 0) && serverConnections.connectedServerIds().includes(serverId)) {
+      if (generation === this.generation && revision === (this.snapshotRevisions.get(serverId) ?? 0) && serverConnections.serverIds().includes(serverId)) {
         this.consumeSnapshot(serverId, entries, deps)
       }
     } catch {}

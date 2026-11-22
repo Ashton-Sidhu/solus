@@ -23,7 +23,6 @@
   import type { ProjectRef } from "../../contexts";
   import { worktreeBlockedReason } from "../servers/run-on";
   import { aimRunAtCheckout } from "./lib/project-selection";
-  import { hasSessionStarted } from "../../lib/sessionUtils";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { Button } from "../ui/button";
@@ -432,16 +431,17 @@
        hosts. -->
   {@render projectChip()}
 
-  <RunOnPicker
-    run={run ?? session.defaultRunConfig}
-    requesterId={source}
-    locked={hasSessionStarted(sess)}
-    onRun={applyRun}
-    onChooseFolder={chooseFolderOn}
-    onDismiss={() => requestInputFocus(focusTarget)}
-    variant="header"
-    {paneId}
-  />
+  {#if draft}
+    <RunOnPicker
+      run={run ?? session.defaultRunConfig}
+      requesterId={source}
+      onRun={applyRun}
+      onChooseFolder={chooseFolderOn}
+      onDismiss={() => requestInputFocus(focusTarget)}
+      variant="header"
+      {paneId}
+    />
+  {/if}
 
   {#if hasGitRepository}
     <TooltipUI.Root

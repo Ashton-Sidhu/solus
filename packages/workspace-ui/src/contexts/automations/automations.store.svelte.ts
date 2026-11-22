@@ -24,8 +24,12 @@ export class AutomationsStore {
   /** Run history per automation id, loaded lazily when a row is expanded. */
   runs = new SvelteMap<string, AutomationRun[]>()
   /** The newest runs of every automation, newest first, for the list's graphs.
-   *  Loaded with the list and kept current by run events. */
+   *  Loaded with the list once the page shows them (`showRunGraphs`), and
+   *  kept current by run events. */
   recentRuns = new SvelteMap<string, AutomationRunPoint[]>()
+  /** The Automations page asked for run graphs; a list load without it, such
+   *  as at startup or for a schedule card, does not read them. */
+  private showsRunGraphs = false
   loading = $state(false)
   loaded = $state(false)
   /** Which host stores, schedules, and runs each known automation. */
@@ -95,9 +99,19 @@ export class AutomationsStore {
     return serverIds.some((serverId) => !this.hasLoadedHost(serverId) && this.isLoadingHost(serverId))
   }
 
+  /** The Automations page shows each automation's run graph: read them for
+   *  the hosts already loaded, and with every later list load. */
+  showRunGraphs(): void {
+    if (this.showsRunGraphs) return
+    this.showsRunGraphs = true
+    for (const serverId of this.loadedServerIds) {
+      if (!isSolusApiId(serverId) && !this.hostLoads.has(serverId)) void this.readRecentRuns(serverId)
+    }
+  }
+
   /** Load one machine, or every connected host. */
   loadAll(serverId?: string): Promise<void> {
-    return this.loadHosts(serverId === undefined ? serverConnections.connectedServerIds() : [serverId])
+    return this.loadHosts(serverId === undefined ? serverConnections.serverIds() : [serverId])
   }
 
   /** Load the named machines. Each host is read once at a time, whoever asks:
@@ -130,13 +144,13 @@ export class AutomationsStore {
     if (isSolusApiId(serverId)) return
     const startedRevision = this.revision
     let list: Automation[]
-    let recentRuns: AutomationRunPoint[]
+    let recentRuns: AutomationRunPoint[] | null
     try {
       const api = serverConnections.apiFor(serverId)
       const read = Promise.all([
         api.automationList(),
         // A host older than this client has no run graphs; the list still loads.
-        api.automationRecentRuns(RUN_GRAPH_WINDOW).catch((): AutomationRunPoint[] => []),
+        this.showsRunGraphs ? api.automationRecentRuns(RUN_GRAPH_WINDOW).catch((): AutomationRunPoint[] => []) : null,
       ])
       // A host without the capability fails the list read; that answer is not an error.
       read.catch(() => {})
@@ -150,18 +164,13 @@ export class AutomationsStore {
     }
     this.loadErrors.delete(serverId)
     const pendingId = this.pendingDelete?.automation.id
-    const runsByAutomation = new Map<string, AutomationRunPoint[]>()
-    for (const run of recentRuns) {
-      const runs = runsByAutomation.get(run.automationId)
-      if (runs) runs.push(run)
-      else runsByAutomation.set(run.automationId, [run])
-    }
+    const runsByAutomation = recentRuns ? runsByAutomationOf(recentRuns) : null
     const liveIds = new Set<string>()
     for (const automation of list) {
       liveIds.add(automation.id)
       if ((this.revisions.get(automation.id) ?? 0) > startedRevision) continue
       this.hostByAutomationId.set(automation.id, serverId)
-      this.recentRuns.set(automation.id, runsByAutomation.get(automation.id) ?? [])
+      if (runsByAutomation) this.recentRuns.set(automation.id, runsByAutomation.get(automation.id) ?? [])
       if (automation.id !== pendingId) this.upsert(automation)
     }
     // Only a host that answered can confirm deletion of its own rows. A
@@ -175,6 +184,17 @@ export class AutomationsStore {
       this.runs.delete(automation.id)
       this.recentRuns.delete(automation.id)
       this.hostByAutomationId.delete(automation.id)
+    }
+  }
+
+  /** The run graphs of one host's automations, read apart from its list. */
+  private async readRecentRuns(serverId: string): Promise<void> {
+    const startedRevision = this.revision
+    const runs = await serverConnections.apiFor(serverId).automationRecentRuns(RUN_GRAPH_WINDOW).catch((): AutomationRunPoint[] => [])
+    const runsByAutomation = runsByAutomationOf(runs)
+    for (const [automationId, hostId] of this.hostByAutomationId) {
+      if (hostId !== serverId || (this.revisions.get(automationId) ?? 0) > startedRevision) continue
+      this.recentRuns.set(automationId, runsByAutomation.get(automationId) ?? [])
     }
   }
 
@@ -340,4 +360,14 @@ export class AutomationsStore {
   async loadRuns(id: string): Promise<void> {
     this.runs.set(id, await this.apiForAutomation(id).automationListRuns(id))
   }
+}
+
+function runsByAutomationOf(runs: readonly AutomationRunPoint[]): Map<string, AutomationRunPoint[]> {
+  const byAutomation = new Map<string, AutomationRunPoint[]>()
+  for (const run of runs) {
+    const held = byAutomation.get(run.automationId)
+    if (held) held.push(run)
+    else byAutomation.set(run.automationId, [run])
+  }
+  return byAutomation
 }

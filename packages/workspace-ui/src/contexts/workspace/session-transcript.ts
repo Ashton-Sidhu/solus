@@ -203,13 +203,8 @@ export function materializeSessionTranscript(
   const resultsByToolId = new Map(history.flatMap((message) =>
     message.role === 'tool_result' && message.toolResultForId ? [[message.toolResultForId, message] as const] : [],
   ))
-  // Thinking is never rendered as a turn — its duration and text are folded
-  // onto the tool call or prose block it preceded (mirrors the live reducer's
-  // thinkingSpans). Replay has no span boundaries, so the run of reasoning
-  // turns is bracketed by the first one's timestamp and the message that ends
-  // the run.
+  // History has no span boundaries. Keep the first timestamp for the next tool duration.
   let thinkingRunStartedAt: number | null = null
-  let thinkingRunThoughts: string[] = []
   const reader = ctx.presence?.currentUserId(serverId) ?? null
   for (const m of loadedHistory) {
     // Activity the host merged in by its time (plans/012 §5): a row of its own,
@@ -232,7 +227,7 @@ export function materializeSessionTranscript(
     if (m.role === 'reasoning') {
       if (thinkingRunStartedAt === null) thinkingRunStartedAt = m.timestamp ?? null
       const thought = m.content.trim()
-      if (!m.parentToolUseId && thought) thinkingRunThoughts.push(thought)
+      if (!m.parentToolUseId && thought) messages.push({ id: m.messageId ?? nextMsgId(), role: 'system', content: '', timestamp: m.timestamp ?? Date.now(), thoughts: [thought] })
       continue
     }
     if (m.role === 'tool_result') {
@@ -260,9 +255,7 @@ export function materializeSessionTranscript(
     // Whatever message follows the run of reasoning turns ends it, whether or not
     // it has anywhere to print the figure.
     const thinkingRunEndedAt = thinkingRunStartedAt
-    const thinkingRunEndedThoughts = thinkingRunThoughts
     thinkingRunStartedAt = null
-    thinkingRunThoughts = []
 
     // Sub-agent activity reconstructs into the spawning tool's nested transcript,
     // mirroring the live reducer — never the flat thread.
@@ -353,9 +346,6 @@ export function materializeSessionTranscript(
     if (thinkingRunEndedAt !== null && m.role === 'tool') {
       const ms = msgTimestamp - thinkingRunEndedAt
       if (ms > 0) msg.thinkingMs = ms
-    }
-    if (thinkingRunEndedThoughts.length > 0 && (m.role === 'tool' || m.role === 'assistant')) {
-      msg.thoughts = thinkingRunEndedThoughts
     }
     if (m.role === 'tool' && m.toolId) toolById.set(m.toolId, msg)
     if (m.role === 'tool' && m.report) msg.report = m.report

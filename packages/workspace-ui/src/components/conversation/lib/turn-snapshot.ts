@@ -24,17 +24,27 @@ export function turnSnapshotFor<Snapshot extends Pick<TurnSnapshot, 'timestamp'>
 ): Snapshot | undefined {
   const turn = turns[index]
   if (!turn || turn.live || turn.lead?.kind !== 'user') return undefined
-  let nextStart = Infinity
-  for (let i = index + 1; i < turns.length; i++) {
-    if (turns[i].lead?.kind === 'user') {
-      nextStart = turns[i].startedAt
-      break
-    }
-  }
+  const nextStart = nextPromptStart(turns, index)
   if (latestOnly && nextStart !== Infinity) return undefined
   for (let i = snapshots.length - 1; i >= 0; i--) {
     const snapshot = snapshots[i]
     if (snapshot.timestamp >= turn.startedAt && snapshot.timestamp < nextStart) return snapshot
   }
   return undefined
+}
+
+/** When the next prompt after a turn started; Infinity when none followed. */
+function nextPromptStart(turns: readonly Turn[], index: number): number {
+  for (let i = index + 1; i < turns.length; i++) {
+    if (turns[i].lead?.kind === 'user') return turns[i].startedAt
+  }
+  return Infinity
+}
+
+/** The time a turn holds: from its prompt until the next prompt, the last one open. The sessions it started worked in it. */
+export function turnWindow(turns: readonly Turn[], index: number): { from: number; until: number | null } | null {
+  const turn = turns[index]
+  if (!turn) return null
+  const until = nextPromptStart(turns, index)
+  return { from: turn.startedAt, until: until === Infinity ? null : until }
 }

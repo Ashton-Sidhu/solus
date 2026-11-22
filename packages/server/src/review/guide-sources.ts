@@ -59,14 +59,14 @@ function workTreeOf(ctx: Pick<IpcContext, 'session'>, review: ReviewContext): st
 }
 
 /**
- * Working-tree, branch, and session guides belong to the project's checkout.
+ * Working-tree and branch guides belong to the project's checkout.
  * Their revision is the exact patch, so an edit that does not move HEAD still
  * changes it. They run in parallel.
  */
 export const localGuideSource: GuideSource = {
   serial: false,
-  async identify(ctx, opts, { withRevision, checkouts }) {
-    const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx), checkouts)
+  async identify(ctx, opts, { withRevision }) {
+    const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
     if (!review) return null
     const base = await resolveTargetBase(ctx, review, opts)
     const identity: GuideIdentity = {

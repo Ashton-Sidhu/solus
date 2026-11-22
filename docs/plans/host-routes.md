@@ -183,7 +183,9 @@ The rule:
    `forwarded` route, the client verifies the proof with
    `verifyHostProof` (`contracts/src/host-identity.ts`). A `tunnel` route uses
    TLS to the Solus tunnel domain and needs no proof.
-5. Host-to-host dials (`remote-hosts.ts`) use the same check.
+5. Host-to-host dials (`remote-hosts.ts`) use the same check: each connection
+   to another host is a `HostLink`, the link a client holds, so the server has no
+   dial or route choice of its own (2026-11-21).
 
 Verification uses `@noble/curves`, because Hermes (React Native) has no
 WebCrypto Ed25519.

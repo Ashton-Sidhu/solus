@@ -92,7 +92,7 @@ describe('client core transport helpers', () => {
   })
 
   test('exposes host events separately from the RPC API', () => {
-    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000' })
     const received: unknown[] = []
     const unsubscribe = transport.events.subscribe('tasks.invalidated', (payload) => received.push(payload))
 
@@ -126,7 +126,7 @@ describe('client core transport helpers', () => {
 
     const transport = new WsTransport({
       serverUrl: 'http://localhost:3000',
-      sessionToken: 'voice-token',
+      sessionToken: () => 'voice-token',
     })
     try {
       const api = transport.buildSolusApi() as Record<string, (...args: unknown[]) => Promise<unknown>>
@@ -149,7 +149,7 @@ describe('client core transport helpers', () => {
   })
 
   test('rejects undeliverable requests with TransportDisconnectedError', async () => {
-    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000' })
     const api = transport.buildSolusApi() as Record<string, (...args: unknown[]) => Promise<unknown>>
     const request = api.connectionsGetServerInfo()
 
@@ -165,7 +165,7 @@ describe('client core transport helpers', () => {
   })
 
   test('keeps client window behavior out of the transport API', () => {
-    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000' })
     try {
       const api = transport.buildSolusApi()
       // A native client must not inherit DOM behavior: these come only from the browser layer.
@@ -181,7 +181,7 @@ describe('client core transport helpers', () => {
       configurable: true,
       value: { visibilityState: 'hidden' },
     })
-    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000' })
     try {
       const api = withBrowserCapabilities(transport.buildSolusApi(), transport) as Record<string, (...args: unknown[]) => Promise<unknown>>
       expect(await api.isVisible()).toBe(false)
@@ -196,7 +196,7 @@ describe('client core transport helpers', () => {
   test('an unreachable host fails queued and new calls at once, and queues again after', async () => {
     // WHY: a call to a host that is down must settle, or its loader shows a
     // skeleton for as long as the host is away (docs/plans/host-readiness.md).
-    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '', serverId: 'raiders' })
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', serverId: 'raiders' })
     try {
       const queued = transport.invoke('connectionsGetServerInfo', [])
       transport.setUnreachable(true)

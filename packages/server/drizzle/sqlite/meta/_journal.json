@@ -36,6 +36,13 @@
       "when": 1795319711069,
       "tag": "0004_session_turn_diffs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1795324922537,
+      "tag": "0005_session_digests",
+      "breakpoints": true
     }
   ]
 }

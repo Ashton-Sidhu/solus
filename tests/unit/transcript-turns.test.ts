@@ -293,3 +293,12 @@ describe('segment-local turns', () => {
     for (let i = 0; i < before.length; i++) expect(transcript.segments[i].artifacts).toBe(before[i])
   })
 })
+
+test('interleaved thoughts and commands share one row until the next reply', () => {
+  const steps = [tool('Bash'), msg({ role: 'system', thoughts: ['First'] }), msg({ role: 'system', thoughts: ['Second'] }), tool('Bash')]
+  const reply = msg({ role: 'assistant', content: 'Done' })
+  expect(groupMessages([...steps, reply])).toEqual([
+    { kind: 'tool-group', steps, messages: [steps[0], steps[3]] },
+    { kind: 'assistant', message: reply },
+  ])
+})

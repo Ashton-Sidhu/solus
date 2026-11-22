@@ -78,6 +78,19 @@ describe('the frame bridge', () => {
 })
 
 describe('the native browser store', () => {
+  test('shows an open page for the session that used or revealed it after agent use expires', async () => {
+    const a = page('a', { agentUse: { running: 1, verb: 'snapshot', sessionId: 'one', at: 1 } })
+    const { browser, transports } = await setup([a, page('b')])
+    const transport = transports[0]!
+    transport.emit('browser.pageChanged', { page: page('a') })
+    expect(browser.belongsToSession('inst-a', a, 'one')).toBe(true)
+    expect(browser.belongsToSession('inst-a', a, 'two')).toBe(false)
+    transport.emit('browser.surfaceRequested', { browserPageId: 'b', sessionId: 'two' })
+    expect(browser.belongsToSession('inst-a', page('b'), 'two')).toBe(true)
+    transport.emit('browser.pageClosed', { browserPageId: 'a' })
+    expect(browser.belongsToSession('inst-a', a, 'one')).toBe(false)
+  })
+
   test('opens the address on the selected host and shows its page before a broadcast', async () => {
     const { api, browser } = await setup([])
     api.on('browserOpen', () => page('new'))

@@ -387,7 +387,6 @@ describe('who may add a command (§7.2)', () => {
       connectionStore: {} as never,
       connections: {} as never,
       oauth: {} as never,
-      clients: memoryClients(),
       getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
       found: {} as never,
     })
@@ -440,7 +439,6 @@ describe('new environment names (§7.6)', () => {
       connectionStore: {} as never,
       connections,
       oauth: {} as never,
-      clients: memoryClients(),
       getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
       found: {} as never,
     })
@@ -490,7 +488,6 @@ describe('who may start a command (§7.2, §7.8)', () => {
       connectionStore: {} as never,
       connections: {} as never,
       oauth: {} as never,
-      clients: memoryClients(),
       getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
       found: {} as never,
     })

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { SvelteSet } from "svelte/reactivity";
   import { ChevronDown as CaretIcon } from "@lucide/svelte";
-  import type { SessionArtifact } from "@solus/contracts/session-artifacts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { getSessionSidebarStore, getWorkspaceContext } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
@@ -28,13 +27,9 @@
     rows: RailAgentRow[];
     /** The host of the session the surface shows: a started session with no host of its own runs there. */
     serverId: string;
-    /** What each row linked. Absent, the rows show no links. */
-    linksOf?: (row: RailAgentRow) => readonly SessionArtifact[];
     onOpen: (row: RailAgentRow, split: boolean) => void;
-    onOpenLink?: (row: RailAgentRow, artifact: SessionArtifact) => void;
-    onOpenAllLinks?: (row: RailAgentRow) => void;
   }
-  let { rows, serverId, linksOf, onOpen, onOpenLink, onOpenAllLinks }: Props = $props();
+  let { rows, serverId, onOpen }: Props = $props();
 
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
@@ -121,10 +116,7 @@
       {#each group.rows as row (row.key)}
         <AgentRow
           {row}
-          links={linksOf?.(row) ?? []}
           onOpen={(split) => onOpen(row, split)}
-          onOpenLink={(artifact) => onOpenLink?.(row, artifact)}
-          onOpenAllLinks={() => onOpenAllLinks?.(row)}
           onContextMenu={row.kind === "session" && !row.pending ? (event) => openMenu(event, row) : undefined}
           wakesAt={group.key === "snoozed" ? wakesAt(row) : null}
           onWake={() => wake(row, row.ref?.serverId ?? serverId)}

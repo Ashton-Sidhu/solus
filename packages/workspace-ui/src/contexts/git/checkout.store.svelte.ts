@@ -78,7 +78,7 @@ export class CheckoutStore {
       this.recoveries.delete(serverId)
       if (status === 'ready') recover(serverId)
     })
-    for (const serverId of serverConnections.connectedServerIds()) recover(serverId)
+    for (const serverId of serverConnections.serverIds()) recover(serverId)
     return () => { stopEvents(); stopConnections() }
   }
 

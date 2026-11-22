@@ -9,7 +9,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { closeDb, getDb } = await import('@solus/server/db')
 const { INTERNAL_HANDLER_CTX, SolusServer } = await import('@solus/server/transport/server')
 const { registerConnectionsHandlers } = await import('@solus/server/transport/handlers/connections-handlers')
-const { isDeviceRevoked, issueSessionToken, listPairedDevices, refreshSessionToken, resetAuthStateForTests, revokeDevice, SESSION_TOKEN_TTL_MS, verifySessionToken } = await import('@solus/server/admission/auth')
+const { isDeviceRevoked, issueSessionToken, listPairedDevices, refreshSessionToken, resetAuthStateForTests, revokeDevice, revokeSessionToken, SESSION_TOKEN_TTL_MS, verifySessionToken } = await import('@solus/server/admission/auth')
 
 // plans/033 §2 rule 4 and §4.4: a host records the devices it paired in its
 // database. A token is a random secret and the host keeps only its hash, so a
@@ -33,6 +33,16 @@ describe('a paired device', () => {
     rmSync(dataDir, { recursive: true, force: true })
     if (originalDataDir === undefined) delete process.env.SOLUS_DATA_DIR
     else process.env.SOLUS_DATA_DIR = originalDataDir
+  })
+
+  test('a device that pairs again revokes the token it replaces, so one device keeps one live row', () => {
+    const replaced = issueSessionToken('Phone')
+    const replacement = issueSessionToken('Phone')
+    expect(revokeSessionToken(replaced.token)).toBe(true)
+    expect(verifySessionToken(replaced.token)).toBeNull()
+    expect(isDeviceRevoked(replaced.deviceId)).toBe(true)
+    expect(verifySessionToken(replacement.token)?.deviceId).toBe(replacement.deviceId)
+    expect(revokeSessionToken('a token no device has')).toBe(false)
   })
 
   test('pairing records the device with the hash of its token, never the token', () => {

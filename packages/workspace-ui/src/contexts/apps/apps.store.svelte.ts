@@ -195,7 +195,7 @@ export class AppsStore {
   }
 
   private machineIds(): string[] {
-    return serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId))
+    return serverConnections.serverIds().filter((serverId) => !isSolusApiId(serverId))
   }
 
   // ─── Answers ───

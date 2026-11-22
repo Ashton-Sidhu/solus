@@ -49,7 +49,7 @@ async function until(check: () => boolean): Promise<void> {
 describe('the organization a dial names', () => {
   test('a paired connection presents its session token and names no organization', async () => {
     const server = await host()
-    const transport = new WsTransport({ serverUrl: server.url, sessionToken: 'paired-token', dialOrganizationId: () => 'org_acme' })
+    const transport = new WsTransport({ serverUrl: server.url, sessionToken: () => 'paired-token', dialOrganizationId: () => 'org_acme' })
     cleanups.push(() => transport.destroy())
     transport.start()
     await until(() => server.credentials.length > 0)

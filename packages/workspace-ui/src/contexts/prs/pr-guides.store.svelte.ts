@@ -140,7 +140,7 @@ export class PrGuidesStore {
 
   /** Bind before any PR list is opened, so tool-initiated work is retained. */
   subscribe(): () => void {
-    for (const serverId of serverConnections.connectedServerIds()) this.guides.bind(serverId)
+    for (const serverId of serverConnections.serverIds()) this.guides.bind(serverId)
     return serverConnections.onConnectionCreated((connection) => this.guides.bind(connection.serverId))
   }
 }

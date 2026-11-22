@@ -53,7 +53,7 @@ function dial(url: string, credential: { sessionToken?: string; grants?: GrantSo
   const statuses: string[] = []
   const transport = new WsTransport({
     serverUrl: url,
-    sessionToken: credential.sessionToken ?? '',
+    sessionToken: () => credential.sessionToken ?? '',
     grants: credential.grants,
     guest: credential.guest,
     dialOrganizationId: credential.grants ? () => 'org_acme' : undefined,

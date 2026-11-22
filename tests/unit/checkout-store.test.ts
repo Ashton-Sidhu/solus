@@ -46,7 +46,7 @@ describe('checkout identity projection', () => {
         calls.push(paths)
         return new Promise<CheckoutSnapshot>((resolve) => { finish = resolve })
       } })),
-      spyOn(serverConnections, 'connectedServerIds').mockReturnValue(['host-a']),
+      spyOn(serverConnections, 'serverIds').mockReturnValue(['host-a']),
       spyOn(serverConnections, 'eventsFor').mockReturnValue(events),
       spyOn(serverConnections, 'onConnectionCreated').mockReturnValue(() => {}),
       spyOn(serverConnections, 'onStatusChange').mockReturnValue(() => {}),

@@ -15,7 +15,7 @@ export function noticeUnopenableSession(serverId: string, sessionId: string): bo
   const facts = sessionListStore.shareFacts(sessionId)
   if (!facts) return false
   const { message, description } = unopenableSessionNotice({
-    isHostConnected: serverConnections.connectedServerIds().includes(serverId),
+    isHostConnected: serverConnections.serverIds().includes(serverId),
     ownerName: memberByKey(sharesStore.directory, facts.share.ownerKey)?.displayName ?? null,
     title: facts.title,
   })

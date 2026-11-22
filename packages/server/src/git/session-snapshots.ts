@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { lstat, readlink } from 'fs/promises'
 import { join, resolve } from 'path'
 import { createHash, randomUUID } from 'crypto'
@@ -34,6 +34,9 @@ interface Sidecar {
    *  shared checkout these are the session's own paths. Absent in a sidecar
    *  written before it existed; `turnPathsOf` derives it from the turn ranges. */
   turnPaths?: string[]
+  /** The checkout the session works in. Two sessions in one linked worktree
+   *  tell their paths apart by it (`pathsOfSessionsSharing`). */
+  workTree?: string
 }
 
 const snapshotQueueByRepo = new Map<string, Promise<void>>()
@@ -125,11 +128,11 @@ function writeSidecar(repoRoot: string, sessionId: string, data: Sidecar): void 
   writeFileSync(sidecarPath(repoRoot, sessionId), JSON.stringify(data))
 }
 
-export async function initSessionBase(repoRoot: string, sessionId: string, baseSha: string): Promise<void> {
-  return inSnapshotQueue(repoRoot, () => initSessionBaseQueued(repoRoot, sessionId, baseSha))
+export async function initSessionBase(repoRoot: string, sessionId: string, baseSha: string, workTree?: string): Promise<void> {
+  return inSnapshotQueue(repoRoot, () => initSessionBaseQueued(repoRoot, sessionId, baseSha, workTree))
 }
 
-async function initSessionBaseQueued(repoRoot: string, sessionId: string, baseSha: string): Promise<void> {
+async function initSessionBaseQueued(repoRoot: string, sessionId: string, baseSha: string, workTree: string | undefined): Promise<void> {
   if (!sessionId || !baseSha) return
   const ref = refForBase(sessionId)
   try {
@@ -142,12 +145,9 @@ async function initSessionBaseQueued(repoRoot: string, sessionId: string, baseSh
   ensureSolusDirs(repoRoot)
   if (!readSidecar(repoRoot, sessionId)) {
     const latestTreeSha = await runAsync('git', ['rev-parse', `${baseSha}^{tree}`], repoRoot)
-    writeSidecar(repoRoot, sessionId, {
-      baseSha,
-      turns: [],
-      latestTreeSha,
-      sessionChangedFiles: [],
-    })
+    const sidecar: Sidecar = { baseSha, turns: [], latestTreeSha, sessionChangedFiles: [] }
+    if (workTree) sidecar.workTree = resolve(workTree)
+    writeSidecar(repoRoot, sessionId, sidecar)
   }
 }
 
@@ -458,6 +458,10 @@ async function turnPathsOf(repoRoot: string, sidecar: Sidecar): Promise<string[]
 //   session's tool calls, and inside none of this session's, is the other
 //   session's (`pathsOfOtherSessions`, with times from `turn-activity.ts`).
 //
+// In a linked worktree that two sessions share (a child started in its
+// parent's worktree), each session leaves out the paths only the other's turns
+// changed (`pathsOfSessionsSharing`); a path both changed stays with both.
+//
 // Some limits remain. An edit by a person, or by a tool that writes after its
 // call ends (a background shell), has no tool call, so it stays in the turn.
 // When both sessions changed one file, the last write decides.
@@ -656,9 +660,36 @@ async function writeTreeForPaths(
 }
 
 /**
+ * The paths that another session working in the same linked worktree changed
+ * in its turns, and this session's turns did not. Read from the sidecars of the
+ * repository's sessions, which name their checkout.
+ */
+async function pathsOfSessionsSharing(workTree: string, repoRoot: string, sessionId: string): Promise<Set<string>> {
+  const checkout = resolve(workTree)
+  const others = new Set<string>()
+  let names: string[]
+  try {
+    names = readdirSync(join(solusDir(repoRoot), 'sessions'))
+  } catch {
+    return others
+  }
+  for (const name of names) {
+    if (!name.endsWith('.json') || name === `${sessionId}.json`) continue
+    const sidecar = readSidecar(repoRoot, name.slice(0, -'.json'.length))
+    if (sidecar?.workTree !== checkout) continue
+    for (const path of await turnPathsOf(repoRoot, sidecar)) others.add(path)
+  }
+  if (others.size === 0) return others
+  const own = readSidecar(repoRoot, sessionId)
+  if (own) for (const path of await turnPathsOf(repoRoot, own)) others.delete(path)
+  return others
+}
+
+/**
  * Run one `git diff <base>` against the live checkout for the session scope. In
- * the session's own worktree it reads the whole tree. In a shared checkout it
- * reads only the session's paths, so other sessions' work stays out.
+ * the session's own worktree it reads the whole tree, less what only another
+ * session in that worktree changed. In a shared checkout it reads only the
+ * session's paths, so other sessions' work stays out.
  */
 async function diffSessionCheckout(
   workTree: string,
@@ -673,8 +704,15 @@ async function diffSessionCheckout(
       workTree,
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
     )
-    if (ownsCheckout(workTree, repoRoot)) return run([])
-    const paths = await ownLivePaths(workTree, repoRoot, sessionId, env)
+    let paths: string[]
+    if (ownsCheckout(workTree, repoRoot)) {
+      const others = await pathsOfSessionsSharing(workTree, repoRoot, sessionId)
+      if (others.size === 0) return run([])
+      paths = (await runAsync('git', ['diff', '--name-only', '--no-renames', '-z', base], workTree, { env, raw: true }))
+        .split('\0').filter((path) => path && !others.has(path))
+    } else {
+      paths = await ownLivePaths(workTree, repoRoot, sessionId, env)
+    }
     let out = ''
     for (const chunk of chunkPathspecs(paths)) out += await run(chunk)
     return out

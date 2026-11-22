@@ -117,7 +117,9 @@ export function groupInto(grouping: Grouping, messages: Message[], start: number
   const result = grouping.items
   for (let i = start; i < end; i++) {
     const msg = messages[i]
-    if (msg.activity?.kind === 'mcp_app') {
+    if (msg.role === 'system' && msg.thoughts?.length) {
+      grouping.activity.push(msg)
+    } else if (msg.activity?.kind === 'mcp_app') {
       flushActivity(grouping)
       result.push({ kind: 'mcp-app', message: msg })
     } else if (msg.questionAnswer || (msg.role === 'tool' && isQuestionTool(msg.toolName) && msg.toolStatus !== 'running')) {

@@ -16,11 +16,11 @@ export interface CommandValuesText {
   hasValues: boolean
 }
 
-/** The person's environment values of a command, in words. A value is never read back: only whether some are saved. */
+/** The person's values of a command or a `headers` server, in words. A value is never read back: only whether some are saved. */
 export function commandValuesText(names: readonly string[], connection: Pick<IntegrationConnection, 'status'> | null | undefined): CommandValuesText {
   const hasValues = connection?.status === 'connected'
   const count = names.length === 1 ? '1 value' : `${names.length} values`
   return hasValues
     ? { text: `${count} saved on this host`, detail: null, action: 'Change values', hasValues }
-    : { text: 'No values yet', detail: `The command needs ${names.join(', ')}.`, action: 'Enter values', hasValues }
+    : { text: 'No values yet', detail: `Needs ${names.join(', ')}.`, action: 'Enter values', hasValues }
 }

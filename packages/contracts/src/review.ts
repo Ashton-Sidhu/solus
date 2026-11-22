@@ -31,10 +31,12 @@ export type ReviewTarget =
       headSha?: string
     }
 
+export type ReviewGuideTarget = Exclude<ReviewTarget, { kind: 'session' }>
+
 /** Durable identity carried by a conversation review card. Local checkout
  * paths stay on the host; clients receive only portable target identity. */
 export interface ReviewGuideReference {
-  target: ReviewTarget
+  target: ReviewGuideTarget
   key: string
   agent: AgentId
   model: string | null
@@ -50,9 +52,8 @@ export interface ReviewGuideRequestOptions {
   instructions?: string
   /** Report this background guide as the requesting session's active turn. */
   reportSessionLifecycle?: boolean
-  target?: ReviewTarget
-  /** Compatibility fields for callers that have not moved to `target` yet. */
-  scope?: 'branch' | 'session'
+  target?: ReviewGuideTarget
+  scope?: 'branch'
 }
 
 export type ReviewCommandMode = 'working-tree' | 'session' | 'branch' | 'pr'
@@ -73,46 +74,30 @@ export function parseReviewCommand(input: string): ReviewCommand | null {
   const lineBreak = trimmed.indexOf('\n')
   const commandLine = lineBreak === -1 ? trimmed : trimmed.slice(0, lineBreak)
   const context = lineBreak === -1 ? '' : trimmed.slice(lineBreak + 1).trim()
-  const match = commandLine.match(/^\/review(?::(working-tree|session|branch|pr))?(?:[ \t]+(.+))?$/)
+  const match = commandLine.match(/^\/(review-guide|review(?::(?:working-tree|branch|pr))?)(?:[ \t]+(.+))?$/)
   if (!match) return null
-  const mode: ReviewCommandMode = match[1] === 'session'
+  const mode: ReviewCommandMode = match[1] === 'review-guide'
     ? 'session'
-    : match[1] === 'branch'
+    : match[1] === 'review:branch'
       ? 'branch'
-      : match[1] === 'pr'
+      : match[1] === 'review:pr'
         ? 'pr'
         : 'working-tree'
   const argument = match[2]?.trim()
-  if (!match[1] && argument && !/^https?:\/\//i.test(argument)) return null
-  const command: ReviewCommand = { mode: argument && !match[1] ? 'pr' : mode }
+  if (match[1] === 'review' && argument && !/^https?:\/\//i.test(argument)) return null
+  const command: ReviewCommand = { mode: argument && match[1] === 'review' ? 'pr' : mode }
   if (argument) command.argument = argument
   if (context) command.context = context
   return command
 }
 
-/** Stable storage key for the latest guide for one review target. Branch
- * guides follow the checkout branch; session guides follow the provider
- * session regardless of branch. Shared so renderer cache lookups and the
- * producer cannot drift onto different files. */
-export function reviewGuideKeyFor(
-  branch: string,
-  scope: 'branch' | 'session' | undefined,
-  sessionId: string | null,
-): string {
-  if (scope === 'session' && sessionId) return `session-${sessionId}`
-  return branch.replace(/\//g, '__')
-}
-
 export function reviewGuideKeyForTarget(
-  target: ReviewTarget,
+  target: ReviewGuideTarget,
   branch: string,
-  sessionId: string | null,
 ): string {
   switch (target.kind) {
     case 'working-tree':
       return `working-tree-${branch.replace(/\//g, '__')}`
-    case 'session':
-      return `session-${target.sessionId ?? sessionId ?? 'current'}`
     case 'branch':
       return branch.replace(/\//g, '__')
     case 'pr':
@@ -156,7 +141,7 @@ function prIdentityPart(value: string): string {
 export interface ReviewGuide {
   version: 1
   key: string
-  target?: ReviewTarget
+  target?: ReviewGuideTarget
   headSha: string
   baseSha: string
   /** Hash of the exact patch reviewed. Older guides use `headSha` as their
@@ -234,8 +219,8 @@ export type ReviewGuideStatus = 'queued' | 'generating' | 'ready' | 'outdated' |
 export interface ReviewGuideStatusEvent {
   repoRoot: string
   key: string
-  scope: 'working-tree' | 'branch' | 'session' | 'pr'
-  target?: ReviewTarget
+  scope: ReviewGuideTarget['kind']
+  target?: ReviewGuideTarget
   status: ReviewGuideStatus
   headSha: string
   baseSha?: string

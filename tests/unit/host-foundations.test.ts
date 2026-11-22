@@ -60,15 +60,15 @@ describe('host event fan-out', () => {
     const received: string[] = []
     let connectionCreated: ((connection: { serverId: string }) => void) | null = null
     const connections = serverConnections as unknown as {
-      connectedServerIds: () => string[]
+      serverIds: () => string[]
       eventsFor: (serverId: string) => HostEventSubscriber
       onConnectionCreated: (listener: (connection: { serverId: string }) => void) => () => void
     }
-    const originalConnectedServerIds = connections.connectedServerIds
+    const originalConnectedServerIds = connections.serverIds
     const originalEventsFor = connections.eventsFor
     const originalOnConnectionCreated = connections.onConnectionCreated
 
-    connections.connectedServerIds = () => ['fan-out-existing']
+    connections.serverIds = () => ['fan-out-existing']
     connections.eventsFor = (serverId) => serverId === 'fan-out-existing' ? existingEvents : laterEvents
     connections.onConnectionCreated = (listener) => {
       connectionCreated = listener
@@ -93,7 +93,7 @@ describe('host event fan-out', () => {
       expect(received).toEqual(['fan-out-existing', 'fan-out-later'])
       expect(connectionCreated).toBeNull()
     } finally {
-      connections.connectedServerIds = originalConnectedServerIds
+      connections.serverIds = originalConnectedServerIds
       connections.eventsFor = originalEventsFor
       connections.onConnectionCreated = originalOnConnectionCreated
     }

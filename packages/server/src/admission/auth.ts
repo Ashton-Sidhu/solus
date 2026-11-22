@@ -212,6 +212,14 @@ export function verifySessionToken(token: string, now = Date.now()): PairedSessi
   return { deviceId: row.device_id, deviceLabel: row.label, lastSeenAt }
 }
 
+/** Revokes the paired device a session token names, whether or not the host still accepts it. False when no paired device has it. */
+export function revokeSessionToken(token: string): boolean {
+  const found = getDb().prepare(`SELECT device_id FROM host_device WHERE token_hash = ? AND kind = 'paired'`).get(hashSessionToken(token))
+  if (!found) return false
+  revokeDevice(z.object({ device_id: z.string() }).parse(found).device_id)
+  return true
+}
+
 /** Renews a session token: the same token, seen now. Null when the host does not accept it. */
 export function refreshSessionToken(token: string, now = Date.now()): string | null {
   const session = verifySessionToken(token, now)

@@ -59,9 +59,7 @@ export function readHostRecords(): HostRecord[] {
 }
 
 export function findHostRecord(id: string): HostRecord | undefined {
-  const db = getDb()
-  const row = db.prepare('SELECT listing FROM host_list WHERE id = ?').get(id)
-    ?? db.prepare("SELECT listing FROM host_list WHERE CASE WHEN json_valid(listing) THEN json_extract(listing, '$.listing.id') END = ? LIMIT 1").get(id)
+  const row = getDb().prepare('SELECT listing FROM host_list WHERE id = ?').get(id)
   if (!row) return undefined
   const { listing } = z.object({ listing: z.string() }).parse(row)
   try { return recordSchema.safeParse(JSON.parse(listing)).data } catch { return undefined }
@@ -92,7 +90,6 @@ export function saveHostRecord(record: HostRecord): void {
     const { count } = z.object({ count: z.number() }).parse(db.prepare("SELECT COUNT(*) AS count FROM host_list WHERE json_valid(listing) AND json_extract(listing, '$.forgotten') = 0").get())
     if (count >= HOST_LIST_MAX_ENTRIES) throw new HostListFullError()
   }
-  // Installation identity is the row key even when the account gives the listing another id.
   db.prepare(`INSERT INTO host_list (id, listing, last_connected) VALUES (?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET listing = excluded.listing, last_connected = excluded.last_connected`)
     .run(record.listing.installationId, JSON.stringify(record), record.listing.lastConnected)
@@ -112,7 +109,7 @@ export function saveHostConnection(
   secretStore().saveJson(key, path, credentials)
   const record: HostRecord = old ?? { listing, forgotten: false }
   const userLabel = old?.listing.hasUserLabel ? old.listing.label : null
-  record.listing = { ...old?.listing, ...listing, id: old?.listing.id ?? listing.id,
+  record.listing = { ...old?.listing, ...listing,
     routes: mergeRoutes(old?.listing.routes ?? [], listing.routes, connection.kind === 'forward' ? 'ssh' : 'host', Date.now()) }
   if (!listing.os && old?.listing.os) record.listing.os = old.listing.os
   if (userLabel !== null) {

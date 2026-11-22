@@ -81,7 +81,7 @@ type ServerInfo = NonNullable<FoundPortPlace['serverInfo']>
 export interface LocalMcpServersDeps {
   /** Every integration on this host, of every owner: a listener that comes back changes each one on its port. */
   integrations: () => Integration[]
-  gateway: Pick<IntegrationGateway, 'invalidate' | 'askForCustomServer'>
+  gateway: Pick<IntegrationGateway, 'invalidate'>
   /** Tells clients to read an integration's facts again (`integration.changed`, `change: 'facts'`). */
   factsChanged: (integrationId: string) => void
   probe?: LocalProbe
@@ -249,7 +249,6 @@ export class LocalMcpServers {
       if (this.verdicts.get(candidate.key) !== entry) return
       this.verdicts.set(candidate.key, verdict)
       log.info('integration_local_server_checked', { port: candidate.endpoint.port, isMcp: verdict.state === 'mcp', isTcp: candidate.isTcp })
-      if (verdict.state === 'mcp') this.offerToSession(candidate, verdict.url, verdict.serverInfo)
     })
   }
 
@@ -262,18 +261,6 @@ export class LocalMcpServers {
       if (answer.isMcp) return { state: 'mcp', ...at, url: target.href, serverInfo: answer.serverInfo }
     }
     return { state: 'not-mcp', ...at }
-  }
-
-  /**
-   * An MCP server that an agent started raises the custom server card in its
-   * session, once for the process and endpoint (§9.4). The person adds it; an
-   * agent never adds an address by itself.
-   */
-  private offerToSession(candidate: Candidate, url: string, serverInfo: FoundPortPlace['serverInfo']): void {
-    const startedBy = candidate.server.startedBy
-    if (startedBy.kind !== 'agent' || !startedBy.sessionId) return
-    if (this.deps.integrations().some((integration) => integration.kind === 'mcp' && sameLocalAddress(integration.url, url))) return
-    this.deps.gateway.askForCustomServer({ sessionId: startedBy.sessionId, name: serverInfo?.title ?? serverInfo?.name ?? candidate.server.process.name, url })
   }
 
   private async inSlot<T>(work: () => Promise<T>): Promise<T> {

@@ -14,7 +14,7 @@
    * another tool's config file, opens that file or deletes the entry there
    * (§8.8). A server with every tool off says Off.
    */
-  import { ChevronRight, Ellipsis, LoaderCircle } from "@lucide/svelte";
+  import { ChevronRight, Ellipsis, LoaderCircle, Pencil, SquareTerminal, ToggleLeft, ToggleRight, Trash2 } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import type { FoundPlace, FoundServer, Integration, IntegrationFoundChange } from "@solus/contracts/integration-types";
   import { COMMAND_ADMIN_ONLY, commandLineText } from "@solus/contracts/integrations/command-server";
@@ -33,6 +33,7 @@
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
   import McpCommandFields from "./McpCommandFields.svelte";
   import McpCommandProcess from "./McpCommandProcess.svelte";
+  import McpAuthWordsField from "./McpAuthWordsField.svelte";
   import { McpCommandForm } from "./lib/mcp-command.svelte";
   import { mcpStore } from "../../contexts/mcp";
   import { hosts } from "../../contexts";
@@ -89,6 +90,8 @@
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
   const canEdit = $derived(hosts.get(serverId)?.me.may("edit", { kind: "integration", id: integration.id, role: integration.role }) ?? true);
   const isCommand = $derived(integration.kind === "stdio");
+  /** A command or a `headers` server: the person's values stand in for a sign-in (docs/plans/mcp-add-server.md). */
+  const takesValues = $derived(labels.valueNames.length > 0);
   // A command runs as code on the host: only `host.admin` changes or starts it (§7.2).
   const mayRunCommands = $derived(hosts.get(serverId)?.me.may("host.admin") ?? true);
   const processStatus = $derived(hostState?.processes.statusOf(integration, connection, mayRunCommands) ?? null);
@@ -155,7 +158,7 @@
     if (await mcpStore.integrations.update(serverId, { id: integration.id, name })) isRenaming = false;
   }
 
-  /** A command without values asks for them in place: there is no sign-in page. */
+  /** A command or a `headers` server without values asks for them in place: there is no sign-in page. */
   function enterValues() {
     if (!isOpen) onToggle();
     void mcpStore.integrations.connect(serverId, integration.id);
@@ -195,6 +198,14 @@
 {#snippet account()}
   <IntegrationConnectForm {serverId} integrationId={integration.id} integrationName={integration.name} />
   <IntegrationExtraAccounts {serverId} {integration} />
+{/snippet}
+
+{#snippet scopes()}
+  <McpAuthWordsField {serverId} {integration} kind="scopes" {canEdit} />
+{/snippet}
+
+{#snippet headerNames()}
+  <McpAuthWordsField {serverId} {integration} kind="headers" {canEdit} />
 {/snippet}
 
 {#snippet oauthClient()}
@@ -240,7 +251,7 @@
   {@const list = hostState?.tools.get(integration.id)}
   {@const toolError = hostState?.toolErrors.get(integration.id)}
   {#if !toolsListable}
-    <p class="text-workspace-chrome text-muted-foreground">{integration.auth.kind === "env" ? "Enter the values to see its tools." : "Connect to see its tools."}</p>
+    <p class="text-workspace-chrome text-muted-foreground">{labels.valueNames.length > 0 ? "Enter the values to see its tools." : "Connect to see its tools."}</p>
   {:else if isNotRunning}
     <p class="text-workspace-chrome text-muted-foreground">{notRunningText(integration.name, hostLabel)}</p>
   {:else if toolError}
@@ -284,7 +295,7 @@
         <span class="max-w-[40%] shrink-0 truncate text-chrome-dense {rowStatus.isError ? 'text-(--solus-status-error)' : 'text-(--solus-text-secondary)'}">{rowStatus.text}</span>
       {/if}
     </button>
-    {#if showConnect && isCommand}
+    {#if showConnect && takesValues}
       <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline}
         onclick={enterValues} aria-label="Enter the values of {integration.name}">Enter values</Button>
     {:else if showConnect}
@@ -299,20 +310,20 @@
           </Button>
         {/snippet}
       </DropdownMenu.Trigger>
-      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[min(16rem,calc(100vw-2rem))]">
-        <DropdownMenu.Item disabled={!canEdit} onSelect={startRename}>Rename</DropdownMenu.Item>
+      <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[min(18rem,calc(100vw-2rem))]">
+        <DropdownMenu.Item disabled={!canEdit} onSelect={startRename}><Pencil size={14} />Rename</DropdownMenu.Item>
         {#if isCommand}
-          <DropdownMenu.Item disabled={!canEdit || !mayRunCommands} onSelect={editCommand}>Edit command</DropdownMenu.Item>
+          <DropdownMenu.Item disabled={!canEdit || !mayRunCommands} onSelect={editCommand}><SquareTerminal size={14} />Edit command</DropdownMenu.Item>
         {/if}
         {#if toolsListable && !isNotRunning}
-          <DropdownMenu.Item disabled={!canEdit} onSelect={() => setAllTools(false)}>Turn off all tools</DropdownMenu.Item>
-          {#if disabledTools.size}<DropdownMenu.Item disabled={!canEdit} onSelect={() => setAllTools(true)}>Turn on all tools</DropdownMenu.Item>{/if}
+          <DropdownMenu.Item disabled={!canEdit} onSelect={() => setAllTools(false)}><ToggleLeft size={14} />Turn off all tools</DropdownMenu.Item>
+          {#if disabledTools.size}<DropdownMenu.Item disabled={!canEdit} onSelect={() => setAllTools(true)}><ToggleRight size={14} />Turn on all tools</DropdownMenu.Item>{/if}
         {/if}
         {#if found}
           <McpFoundFileItems server={found} showTurnOff={false} {canOpenFiles} onOpen={onOpenFile} onAction={startFileDelete} />
           <DropdownMenu.Separator />
         {/if}
-        <DropdownMenu.Item variant="destructive" disabled={!canEdit} onSelect={startRemove}>Remove…</DropdownMenu.Item>
+        <DropdownMenu.Item variant="destructive" disabled={!canEdit} onSelect={startRemove}><Trash2 size={14} />Remove…</DropdownMenu.Item>
         {#if !canEdit}
           <p class="px-2 py-1.5 text-xs text-muted-foreground">Only its owner can change this server.</p>
         {/if}
@@ -326,7 +337,9 @@
           <p class="font-medium text-foreground">Remove {integration.name}?</p>
           <p class="text-pretty text-(--solus-text-secondary)">{isCommand
             ? `Agents on ${hostLabel} lose its tools. Its process stops, and your values for it are removed.`
-            : `Agents on ${hostLabel} lose its tools. You can add it again from the catalog.`}</p>
+            : takesValues
+              ? `Agents on ${hostLabel} lose its tools, and your values for it are removed.`
+              : `Agents on ${hostLabel} lose its tools. You can add it again from the catalog.`}</p>
         </div>
         {#if hostState?.writeError}
           <p role="alert" class="break-words text-(--solus-status-error)">{hostState.writeError}</p>
@@ -367,9 +380,13 @@
       {/if}
       {#if offersOAuthClientSetup}
         {@render field("OAuth client", oauthClient)}
+        {@render field("Scopes", scopes)}
+      {/if}
+      {#if integration.auth.kind === "headers"}
+        {@render field("Headers", headerNames)}
       {/if}
       {#if integration.auth.kind !== "none"}
-        {@render field(isCommand ? "Values" : "Account", account)}
+        {@render field(takesValues ? "Values" : "Account", account)}
       {/if}
       {@render field("Tools", tools)}
       {#if cliSkips.length}

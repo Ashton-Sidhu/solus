@@ -4,6 +4,9 @@ import type { HostApi } from '../host-api'
 import type { HostEventSubscriber } from '../host-event-subscriber'
 import { RunningServers, type RunningServersForwarding, type RunningServersRow, type RunningServersCommands } from './running-servers'
 
+/** A forward's tunnel ticket lasts two minutes on the host; the client renews it well before that. */
+const FORWARD_RENEWAL_MS = 60_000
+
 type ServerApi = Pick<HostApi, 'runningServersWatch' | 'runningServersUnwatch' | 'runningServersCheckoutRoots' | 'runningServerStop' | 'runningServerTunnel' | 'projectConfigLoad' | 'projectConfigSave'>
 interface StoreState {
   status: 'loading' | 'ready' | 'disconnected' | 'error'
@@ -27,7 +30,8 @@ export interface RunningServersBinding {
 }
 
 /** Shared by Svelte and React. Each host owns one instance, regardless of how
- *  many rows or panes read it. The server's lease is renewed while retained. */
+ *  many rows or panes read it. The host keeps the watch until this client
+ *  unwatches or disconnects, and pushes each change as an event. */
 export class RunningServersController {
   private static readonly empty: StoreState = { status: 'loading', servers: [], error: null }
   private view: StoreState = RunningServersController.empty
@@ -38,13 +42,14 @@ export class RunningServersController {
   private epoch = 0
   private eventVersion = 0
   private inFlight = false
-  private timer: ReturnType<typeof setInterval> | null = null
+  private forwardRenewalTimer: ReturnType<typeof setInterval> | null = null
   private stopConnection: (() => void) | null = null
   private stopEvents: (() => void) | null = null
   private source: RunningServersSource | null = null
   private readonly checkoutPaths = new Map<string, number>()
   private readonly checkoutRoots = new Map<string, string | null>()
   private refreshPending = false
+  private refreshQueued = false
   private readonly models = new Map<string, RunningServers>()
   private renewing = false
   private recoveredForwards = false
@@ -86,7 +91,7 @@ export class RunningServersController {
   retain(): () => void {
     if (this.holders++ === 0) {
       this.stopConnection = this.observeConnection(() => this.connect())
-      this.timer = setInterval(() => void this.refresh(), 8000)
+      if (this.forwarding) this.forwardRenewalTimer = setInterval(() => void this.renewForwards(), FORWARD_RENEWAL_MS)
       this.connect()
     }
     let released = false
@@ -95,8 +100,8 @@ export class RunningServersController {
       released = true
       if (--this.holders) return
       this.epoch++
-      if (this.timer) clearInterval(this.timer)
-      this.timer = null
+      if (this.forwardRenewalTimer) clearInterval(this.forwardRenewalTimer)
+      this.forwardRenewalTimer = null
       this.stopConnection?.()
       this.stopConnection = null
       this.stopEvents?.()
@@ -111,16 +116,19 @@ export class RunningServersController {
 
   retainCheckout(path: string | null): () => void {
     if (!path) return this.retain()
+    const isNewPath = !this.checkoutPaths.has(path)
+    const wasHeld = this.holders > 0
     this.checkoutPaths.set(path, (this.checkoutPaths.get(path) ?? 0) + 1)
     const release = this.retain()
-    void this.refresh()
+    // The first holder's connect already watches this path.
+    if (isNewPath && wasHeld) this.queueRefresh()
     return () => {
       const count = this.checkoutPaths.get(path) ?? 0
       if (count > 1) this.checkoutPaths.set(path, count - 1)
       else this.checkoutPaths.delete(path)
       if (count <= 1) this.checkoutRoots.delete(path)
       release()
-      void this.refresh()
+      if (count <= 1) this.queueRefresh()
     }
   }
 
@@ -159,6 +167,16 @@ export class RunningServersController {
       void this.renewForwards()
     })
     void this.refresh()
+  }
+
+  /** One watch for every path change in the same tick: rows mount and unmount together. */
+  private queueRefresh(): void {
+    if (this.refreshQueued) return
+    this.refreshQueued = true
+    queueMicrotask(() => {
+      this.refreshQueued = false
+      void this.refresh()
+    })
   }
 
   private async refresh(): Promise<void> {

@@ -1,15 +1,14 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
-import { reviewGuideKeyFor, reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewGuideStatusEvent, type ReviewTarget } from '@solus/contracts/review'
+import { reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewGuideStatusEvent, type ReviewGuideTarget } from '@solus/contracts/review'
 import type { PrReviewTarget } from '@solus/contracts/providers'
-import { worktreeProjectRoot, type AgentId, type IpcContext, type ReasoningEffort, type Session } from '@solus/contracts/types'
+import { worktreeProjectRoot, type AgentId, type IpcContext, type ReasoningEffort } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { LinkReadiness } from '@solus/client-core/host-readiness'
-import { checkoutGit } from '../../contexts/workspace/run-location'
 
 type SolusApi = HostApi
-type ReviewScope = 'branch' | 'session'
+type ReviewScope = 'branch'
 type ReadyListener = (serverId: string, event: ReviewGuideStatusEvent) => void
 type ConnectionListener = (serverId: string, readiness: LinkReadiness, attempt: number) => void
 
@@ -17,13 +16,13 @@ interface TrackedGuide {
   api: HostApi
   ctx: IpcContext
   identity: ReviewGuideIdentity
-  scope: ReviewScope | ReviewTarget
+  scope: ReviewScope | ReviewGuideTarget
   /** Set when a PR list last probed this guide, so a reconnect re-probes it
    * in that list's batch rather than one code-host check per row. */
   listed?: boolean
 }
 
-type PrTarget = Extract<ReviewTarget, { kind: 'pr' }>
+type PrTarget = Extract<ReviewGuideTarget, { kind: 'pr' }>
 
 export interface ListedPrGuide {
   repoRoot: string
@@ -35,7 +34,7 @@ export function prGuideTarget(pr: Pick<PrReviewTarget, 'host' | 'owner' | 'repo'
 }
 
 export function prGuideIdentity(repoRoot: string, target: PrTarget): ReviewGuideIdentity {
-  return { repoRoot, target, key: reviewGuideKeyForTarget(target, '', null), headSha: target.headSha }
+  return { repoRoot, target, key: reviewGuideKeyForTarget(target, ''), headSha: target.headSha }
 }
 
 export interface ReviewGuideIdentity {
@@ -44,7 +43,7 @@ export interface ReviewGuideIdentity {
   /** Set by surfaces that know the target they asked about. It, not `key`,
    * then identifies the entry — the key embeds the live branch, which the host
    * reads from the checkout and a client outside a worktree cannot. */
-  target?: ReviewTarget
+  target?: ReviewGuideTarget
   /** Present when the renderer already knows the checkout HEAD. */
   headSha?: string
 }
@@ -54,7 +53,7 @@ export interface ReviewGuideRequest {
   model?: string | null
   reasoningEffort?: ReasoningEffort | null
   scope?: ReviewScope
-  target?: ReviewTarget
+  target?: ReviewGuideTarget
   instructions?: string
   reportSessionLifecycle?: boolean
 }
@@ -62,26 +61,15 @@ export interface ReviewGuideRequest {
 export function branchGuideIdentity(environment: {
   repoRoot: string | null
   branch: string | null
-  status?: { headSha: string } | null
+  status?: { headSha: string | null } | null
 }): ReviewGuideIdentity | null {
   if (!environment.repoRoot || !environment.branch) return null
   const identity: ReviewGuideIdentity = {
     repoRoot: worktreeProjectRoot(environment.repoRoot),
-    key: reviewGuideKeyFor(environment.branch, 'branch', null),
+    key: reviewGuideKeyForTarget({ kind: 'branch' }, environment.branch),
   }
   if (environment.status?.headSha) identity.headSha = environment.status.headSha
   return identity
-}
-
-export function sessionGuideIdentity(
-  session: Session | undefined,
-): ReviewGuideIdentity | null {
-  const repoRoot = checkoutGit(session?.run)?.repoRoot
-  // A session's review is keyed by its session id, once it has run.
-  const sessionId = session?.agentSessionId ? session.id : null
-  return repoRoot && sessionId
-    ? { repoRoot: worktreeProjectRoot(repoRoot), key: reviewGuideKeyFor('', 'session', sessionId) }
-    : null
 }
 
 /**
@@ -89,15 +77,11 @@ export function sessionGuideIdentity(
  * the host's key embeds the live branch: a session outside a Solus worktree has
  * no `gitContext`, so that client can name the target but never the key.
  *
- * Scope-shaped callers (the Git section, a session walkthrough) pass no target
+ * Scope-shaped callers (the Git section) pass no target
  * and keep keying by the key they can compute. Both sides of a given entry
  * always agree, so there is no second index to drift.
  */
 function statusKey(identity: Pick<ReviewGuideIdentity, 'repoRoot' | 'key' | 'target'>): string {
-  // Session guide keys already include the provider session id. Keep scope
-  // requests from the action row and typed targets from /review:session on the
-  // same entry, even though only the tool event carries `target`.
-  if (identity.target?.kind === 'session') return `${identity.repoRoot}::${identity.key}`
   // A typed target is portable across projects. In particular, an arbitrary PR
   // URL resolves to a managed checkout whose repoRoot cannot match the session
   // that requested it. The host partition plus target identity is sufficient;
@@ -107,8 +91,8 @@ function statusKey(identity: Pick<ReviewGuideIdentity, 'repoRoot' | 'key' | 'tar
     : `${identity.repoRoot}::${identity.key}`
 }
 
-function targetOptions(scope: ReviewScope | ReviewTarget): { scope: ReviewScope } | { target: ReviewTarget } {
-  return scope === 'branch' || scope === 'session' ? { scope } : { target: scope }
+function targetOptions(scope: ReviewScope | ReviewGuideTarget): { scope: ReviewScope } | { target: ReviewGuideTarget } {
+  return scope === 'branch' ? { scope } : { target: scope }
 }
 
 /** What a probe asked about. Two probes with the same version share one
@@ -117,14 +101,14 @@ function loadVersion(identity: ReviewGuideIdentity): string {
   return `${identity.headSha ?? ''}::${identity.target?.kind === 'pr' ? identity.target.baseSha ?? '' : ''}`
 }
 
-function isReviewScope(scope: ReviewScope | ReviewTarget): scope is ReviewScope {
-  return scope === 'branch' || scope === 'session'
+function isReviewScope(scope: ReviewScope | ReviewGuideTarget): scope is ReviewScope {
+  return scope === 'branch'
 }
 
 function matchesGuideProbe(
   event: ReviewGuideStatusEvent | null,
   identity: ReviewGuideIdentity,
-  scope: ReviewScope | ReviewTarget,
+  scope: ReviewScope | ReviewGuideTarget,
 ): event is ReviewGuideStatusEvent {
   if (!event) return false
   const matchesRequest = isReviewScope(scope)
@@ -170,19 +154,14 @@ export class ReviewGuideStore {
         return
       }
       this.disconnectedServers.delete(host)
-      // Session guides and listed PR guides re-probe as batches: a reconnect
-      // with many restored tabs or listed rows must not repeat the boot fan-out.
-      const sessionProbes: { api: HostApi; ctx: IpcContext; identity: ReviewGuideIdentity }[] = []
       const listedProbes = new Map<IpcContext, { api: HostApi; guides: ListedPrGuide[] }>()
       for (const tracked of this.trackedGuides.get(host)?.values() ?? []) {
-        if (tracked.scope === 'session') sessionProbes.push(tracked)
-        else if (tracked.listed && tracked.identity.target?.kind === 'pr') {
+        if (tracked.listed && tracked.identity.target?.kind === 'pr') {
           const group = listedProbes.get(tracked.ctx) ?? { api: tracked.api, guides: [] }
           group.guides.push({ repoRoot: tracked.identity.repoRoot, target: tracked.identity.target })
           listedProbes.set(tracked.ctx, group)
         } else void this.load(tracked.api, host, tracked.ctx, tracked.identity, tracked.scope)
       }
-      if (sessionProbes.length) void this.loadSessions(sessionProbes[0].api, host, sessionProbes)
       for (const [ctx, { api, guides }] of listedProbes) void this.loadPrs(api, host, ctx, guides)
     })
     this.eventsFor(serverId).subscribe('review.guideStatusChanged', (event) => {
@@ -215,7 +194,7 @@ export class ReviewGuideStore {
     return identity ? this.loadErrors.get(`${serverId}::${statusKey(identity)}`) ?? null : null
   }
 
-  private track(api: HostApi, serverId: string, ctx: IpcContext, identity: ReviewGuideIdentity, scope: ReviewScope | ReviewTarget, listed?: boolean): void {
+  private track(api: HostApi, serverId: string, ctx: IpcContext, identity: ReviewGuideIdentity, scope: ReviewScope | ReviewGuideTarget, listed?: boolean): void {
     let tracked = this.trackedGuides.get(serverId)
     if (!tracked) {
       tracked = new Map()
@@ -229,25 +208,9 @@ export class ReviewGuideStore {
     serverId: string,
     ctx: IpcContext,
     identity: ReviewGuideIdentity,
-    scope: ReviewScope | ReviewTarget,
+    scope: ReviewScope | ReviewGuideTarget,
   ): Promise<void> {
     return this.settle(api, serverId, ctx, identity, scope, () => api.reviewGuideStatus(ctx, targetOptions(scope)))
-  }
-
-  /** Probe many session guides on one host with one request. Each guide keeps
-   * its own entry, so a later `load` or `acknowledgeSessionGuide` for the same
-   * identity joins the batch instead of asking again. */
-  loadSessions(
-    api: SolusApi,
-    serverId: string,
-    probes: { ctx: IpcContext; identity: ReviewGuideIdentity }[],
-  ): Promise<void> {
-    const fresh = probes.filter((probe) => !this.isPending(serverId, probe.identity))
-    if (!fresh.length) return Promise.resolve()
-    const batch = api.sessionGuideStatuses(fresh.map((probe) => probe.ctx.session))
-    return Promise.all(fresh.map((probe, index) =>
-      this.settle(api, serverId, probe.ctx, probe.identity, 'session', () => batch.then((events) => events[index] ?? null)),
-    )).then(() => undefined)
   }
 
   /** Probe the saved guides of many listed pull requests with one request.
@@ -278,7 +241,7 @@ export class ReviewGuideStore {
     serverId: string,
     ctx: IpcContext,
     identity: ReviewGuideIdentity,
-    scope: ReviewScope | ReviewTarget,
+    scope: ReviewScope | ReviewGuideTarget,
     fetch: () => Promise<ReviewGuideStatusEvent | null>,
     listed?: boolean,
   ): Promise<void> {
@@ -358,7 +321,7 @@ export class ReviewGuideStore {
   async cancel(
     api: SolusApi,
     ctx: IpcContext,
-    scope: ReviewScope | ReviewTarget,
+    scope: ReviewScope | ReviewGuideTarget,
   ): Promise<void> {
     await api.cancelGenerateGuide(ctx, targetOptions(scope))
   }
@@ -426,25 +389,7 @@ export class ReviewGuideStore {
     opened.add(`${statusKey(event)}::${event.updatedAt}`)
   }
 
-  /** Reopening a closed session is already an acknowledgement of the guide it
-   * produced. Clear an in-memory ready mark immediately, then probe the host so
-   * the same rule also covers a cached guide after an app restart. A guide that
-   * is still generating remains visible when it becomes ready later. */
-  async acknowledgeSessionGuide(
-    api: SolusApi,
-    serverId: string,
-    ctx: IpcContext,
-    identity: ReviewGuideIdentity,
-  ): Promise<void> {
-    this.markOpened(serverId, identity)
-    await this.load(api, serverId, ctx, identity, 'session')
-    this.markOpened(serverId, identity)
-  }
 
-  isRunningFor(serverId: string, session: Session | undefined): boolean {
-    const status = this.statusFor(serverId, sessionGuideIdentity(session))?.status
-    return status === 'queued' || status === 'generating'
-  }
 }
 
 export const reviewGuideStore = new ReviewGuideStore()

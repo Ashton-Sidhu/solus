@@ -41,7 +41,7 @@ export class IntegrationsStore extends IntegrationSignIns {
     this.onSignInExpired = onSignInExpired
     const releases = new Map<string, () => void>()
     const follow = (serverId: string) => { if (!releases.has(serverId)) releases.set(serverId, this.watch(serverId)) }
-    for (const serverId of serverConnections.connectedServerIds()) follow(serverId)
+    for (const serverId of serverConnections.serverIds()) follow(serverId)
     const stopCreated = serverConnections.onConnectionCreated((connection) => follow(connection.serverId))
     const stopRemoving = hostCatalog.onForgotten((server) => {
       releases.get(server.id)?.()

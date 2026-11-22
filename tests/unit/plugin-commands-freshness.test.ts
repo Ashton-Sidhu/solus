@@ -136,4 +136,38 @@ describe('plugin command freshness', () => {
     expect(reads).toHaveLength(8)
   })
 
+  test('a session opened on a source another session read takes its commands without a read', async () => {
+    // WHY: a reopened session is a new session object, and each one read the
+    // commands again although the host, the provider, and the folder are the same.
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const sessionFor = (path: string) => ({
+      run: { provider: 'claude-code', location: folderLocation({ serverId: 'host-a', path }) },
+      pluginCommands: { global: [], project: [] },
+    }) as unknown as Session
+    const sessions: Record<string, Session> = { first: sessionFor('/repo'), reopened: sessionFor('/repo') }
+    const loaded = { global: [{ name: 'review', description: 'Review', source: 'global' }], project: [] } as unknown as PluginCommandsResult
+    const reads: string[] = []
+    const { WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')
+    const { hosts } = await import('@solus/workspace-ui/contexts/hosts/hosts.svelte')
+    spyOn(hosts, 'hasExecution').mockReturnValue(true)
+    const store = new WorkspaceLifecycleStore({
+      registry: { activeTabId: 'first', sessionFor: (tabId: string) => sessions[tabId] } as never,
+      settings: { activeAgent: 'claude-code' } as never,
+      serverIdFor: () => 'host-a',
+      ctxFor: () => ({ session: { provider: 'claude-code' } }) as IpcContext,
+      apiFor: () => ({ getPluginCommands: async (directory: string) => { reads.push(directory); return loaded } }) as never,
+    } as never)
+
+    await store.refreshPluginCommands('/repo', 'first')
+    await store.refreshPluginCommands('/repo', 'reopened', { onlyIfStale: true })
+    expect(reads).toEqual(['/repo'])
+    expect(sessions.reopened.pluginCommands).toBe(loaded)
+    // A skill edit still reads again.
+    await store.refreshPluginCommands('/repo', 'reopened', { onlyIfStale: false })
+    expect(reads).toEqual(['/repo', '/repo'])
+  })
+
 })

@@ -1,3 +1,4 @@
+import { thoughtSummary } from '@solus/client-core/thought-summary'
 import { cutText } from '@solus/contracts/text-cut'
 import type { Message } from '@solus/contracts/types'
 
@@ -55,7 +56,7 @@ export function latestThoughtPreview(tools: Message[]): string {
   for (let i = tools.length - 1; i >= 0; i--) {
     const thoughts = tools[i].thoughts ?? []
     for (let j = thoughts.length - 1; j >= 0; j--) {
-      const preview = thoughtPreview(thoughts[j])
+      const preview = thoughtSummary(thoughts[j]!)
       if (preview) return preview
     }
   }

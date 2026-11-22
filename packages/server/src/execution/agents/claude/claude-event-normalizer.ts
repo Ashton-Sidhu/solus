@@ -124,7 +124,13 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // content_block_stop carries only an index, so remember which indexes opened as
   // thinking blocks to know whose span just closed, with the text their
   // thinking_delta events carried. Cleared alongside the inputs.
+  private thinkingMessageId: string | undefined
+  private readonly thoughtIds = new Map<number, string>()
+  private readonly snapshotOffsets = new Map<string, number>()
+  private readonly snapshotBases = new Map<string, number>()
+  private readonly lastThoughtUpdate = new Map<string, number>()
   private readonly thinkingBlocks = new Map<number, string>()
+  private readonly childThinkingBlocks = new Map<string, Map<number, string>>()
   // The input so far of a Solus integration tool, for its live app card.
   private readonly partialInputs: ClaudePartialToolInputs
   // The provider returns every tool result through the same shape. Remember
@@ -189,7 +195,53 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       }
     }
 
-    const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks, this.partialInputs)
+    let thinkingBlocks = this.thinkingBlocks
+    if (raw.type === 'stream_event') {
+      const parent = (raw as StreamEvent).parent_tool_use_id
+      if (parent) {
+        thinkingBlocks = this.childThinkingBlocks.get(parent) ?? new Map<number, string>()
+        this.childThinkingBlocks.set(parent, thinkingBlocks)
+      }
+    }
+    const normalized = normalize(raw, this.pendingToolInputs, thinkingBlocks, this.partialInputs)
+    if (raw.type === 'stream_event') {
+      const frame = raw as StreamEvent
+      const sub = frame.event
+      if (sub?.type === 'message_start' && !frame.parent_tool_use_id) {
+        this.thinkingMessageId = sub.message.id
+        this.thoughtIds.clear()
+      } else if (sub && 'index' in sub && this.thinkingMessageId && !frame.parent_tool_use_id) {
+        if (sub.type === 'content_block_start' && sub.content_block.type === 'thinking') {
+          this.thoughtIds.set(sub.index, this.thinkingMessageId + ':' + this.thoughtIds.size)
+        }
+        const id = this.thoughtIds.get(sub.index)
+        if (id) {
+          for (const event of normalized) if (event.type === 'thinking') event.thoughtId = id
+          const text = this.thinkingBlocks.get(sub.index)
+          if (text && Date.now() - (this.lastThoughtUpdate.get(id) ?? 0) >= 100) {
+            this.lastThoughtUpdate.set(id, Date.now())
+            normalized.push({ type: 'thinking', state: 'update', thoughtId: id, text })
+          }
+        }
+      }
+    } else if (raw.type === 'assistant') {
+      const frame = raw as AssistantEvent
+      if (frame.message?.id && !frame.parent_tool_use_id) {
+        const blocks = frame.message.content?.filter(block => block.type === 'thinking') ?? []
+        const base = this.snapshotBases.get(frame.uuid) ?? this.snapshotOffsets.get(frame.message.id) ?? 0
+        if (blocks.length) {
+          this.snapshotBases.set(frame.uuid, base)
+          this.snapshotOffsets.set(frame.message.id, Math.max(base + blocks.length, this.snapshotOffsets.get(frame.message.id) ?? 0))
+          for (let index = blocks.length - 1; index >= 0; index--) {
+            const block = blocks[index]!
+            if (block.thinking) normalized.unshift({
+              type: 'thinking', state: 'update', thoughtId: frame.message.id + ':' + (base + index),
+              savedThoughtId: frame.uuid + ':' + index, text: block.thinking,
+            })
+          }
+        }
+      }
+    }
     // SAFETY: ClaudeEvent.type is the provider discriminant for result events.
     const failedTurnUsage = raw.type === 'result' ? this.failedTurnUsage(raw as ResultEvent) : null
     if (failedTurnUsage) normalized.push(failedTurnUsage)
@@ -435,7 +487,7 @@ function normalizeStreamSub(
   switch (sub.type) {
     case 'content_block_start': {
       if (sub.content_block.type === 'thinking') {
-        thinkingBlocks.set(sub.index, '')
+        thinkingBlocks.set(sub.index, sub.content_block.thinking ?? '')
         return [{ type: 'thinking', state: 'start' }]
       }
       if (sub.content_block.type === 'tool_use') {

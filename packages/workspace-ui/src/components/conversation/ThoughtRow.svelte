@@ -3,20 +3,15 @@
   import type { Message } from "@solus/contracts/types";
   import ActivityRow from "./ActivityRow.svelte";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
-  import { firstThoughtPreview } from "../../lib/thought-preview";
+  import { thoughtSummary } from "@solus/client-core/thought-summary";
   import ThoughtText from "./ThoughtText.svelte";
 
-  /**
-   * What the agent thought before a prose block, on the same row every
-   * activity takes. Collapsed to its first line — reasoning is context for the
-   * answer, not the answer.
-   */
-  let { message, skipMotion = false }: { message: Message; skipMotion?: boolean } = $props();
+  let { message, skipMotion = false, live = false }: { message: Message; skipMotion?: boolean; live?: boolean } = $props();
 
   const disclosure = getTranscriptDisclosure();
   const view = $derived(disclosure.forKey(`thought:${message.id}`));
   const thoughts = $derived(message.thoughts ?? []);
-  const preview = $derived(firstThoughtPreview(thoughts));
+  const preview = $derived(thoughtSummary(thoughts.find((text) => text.trim()) ?? ""));
 
   // No refocus: opening a thought means the user wants to read it.
   function toggle(): void {
@@ -34,6 +29,8 @@
     nested
     onToggle={toggle}
     target={preview && !view.expanded ? previewText : undefined}
+    multilineTarget={live}
+    stacked={live}
     proseTarget
     testid="thought-row"
   >

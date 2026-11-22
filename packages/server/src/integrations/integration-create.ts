@@ -1,6 +1,7 @@
-import { integrationSlug, solusServerIdOf, type Integration, type IntegrationAuth, type IntegrationCommandCreateRequest, type IntegrationLaunch, type IntegrationProbeResult, type IntegrationProbeUndeterminedReason, type IntegrationUpdateRequest, type IntegrationUrlCreateRequest } from '@solus/contracts/integration-types'
+import { integrationSlug, solusServerIdOf, type Integration, type IntegrationAuth, type IntegrationAuthChoice, type IntegrationCommandCreateRequest, type IntegrationOAuthClientInput, type IntegrationLaunch, type IntegrationProbeResult, type IntegrationProbeUndeterminedReason, type IntegrationUpdateRequest, type IntegrationUrlCreateRequest } from '@solus/contracts/integration-types'
 import { basename } from 'node:path'
 import { splitCommandLine } from '@solus/contracts/integrations/command-line'
+import { OAuthSignInError } from '@solus/contracts/integrations/oauth-protocol'
 import { organizationForNew, recordScopeOf, type Principal } from '../admission/principal'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
@@ -11,6 +12,7 @@ import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from './command-admission'
 import type { IntegrationConnections } from './connections'
 import type { IntegrationGateway } from './gateway'
 import type { IntegrationCreateInput, IntegrationPatch, IntegrationStore } from './integration-store'
+import type { IntegrationOAuth } from './oauth'
 import { probeMcpServer } from './probe'
 import { probeSolusServer } from './solus-servers'
 import { stdioServerAddress } from './stdio-process'
@@ -54,6 +56,60 @@ export async function probeForWrite(url: string) {
   return probe
 }
 
+/** The undetermined answers that say the server was not reached: they refuse an add even when the person chose the authentication. */
+const NOT_REACHED = new Set<IntegrationProbeUndeterminedReason>(['unreachable', 'timeout', 'redirected', 'unavailable'])
+
+const NO_OAUTH_MESSAGE = 'The server does not offer an OAuth sign-in. Choose another authentication.'
+
+/**
+ * Probe an address, then give its auth from the person's choice and the probe
+ * (docs/plans/mcp-add-server.md): for a new server, or a new address of a
+ * server whose headers the person chose. `automatic` keeps what the probe found.
+ * `oauth` needs OAuth the probe found, on a refusal or offered by a server
+ * that also works without it. `bearer`, `none`, and `headers` need only a
+ * server the probe reached.
+ */
+export async function chosenAuth(url: string, choice: IntegrationAuthChoice, oauth: IntegrationWritesDeps['oauth']): Promise<IntegrationAuth> {
+  // A Solus MCP server's code decides its sign-in (§13.6): no choice replaces it.
+  if (solusServerIdOf(url) && choice.kind !== 'automatic' && choice.kind !== 'oauth') throw new Error('A Solus MCP server signs in as Solus sets it up. Choose Automatic.')
+  const found = foundAuth(choice, await probeAddress(url))
+  switch (choice.kind) {
+    case 'automatic':
+      return found ?? { kind: 'none' }
+    case 'oauth':
+      return oauthOf(url, found, oauth)
+    case 'bearer':
+      return { kind: 'bearer', scheme: found?.kind === 'bearer' && found.scheme !== 'unspecified' ? found.scheme : 'bearer' }
+    case 'none':
+      return { kind: 'none' }
+    case 'headers':
+      return { kind: 'headers', names: choice.names }
+  }
+}
+
+/**
+ * The auth the probe found, or null when it decided nothing but reached the
+ * server and the person chose an authentication that does not need its answer.
+ * An address that is not public sends no request, so it stays refused.
+ */
+function foundAuth(choice: IntegrationAuthChoice, probe: IntegrationProbeResult): IntegrationAuth | null {
+  if (probe.outcome !== 'undetermined') return probe.auth
+  const reached = !NOT_REACHED.has(probe.reason) && probe.signals.some((signal) => signal.kind === 'request')
+  if (choice.kind === 'automatic' || choice.kind === 'oauth' || !reached) throw new IntegrationProbeRefusedError(probe.reason)
+  return null
+}
+
+/** The OAuth the probe found: on a refusal, or offered by a server that also works without it, read from the address it names. */
+async function oauthOf(url: string, found: IntegrationAuth | null, oauth: IntegrationWritesDeps['oauth']): Promise<IntegrationAuth> {
+  if (found?.kind === 'oauth') return found
+  if (found?.kind !== 'none' || !found.oauth) throw new Error(NO_OAUTH_MESSAGE)
+  try {
+    return await oauth.oauthAuthAt(url, found.oauth.discover)
+  } catch (error) {
+    throw new Error(error instanceof OAuthSignInError ? error.message : NO_OAUTH_MESSAGE, { cause: error })
+  }
+}
+
 export interface IntegrationWritesDeps {
   store: IntegrationStore
   events: HostEventPublisher
@@ -61,6 +117,8 @@ export interface IntegrationWritesDeps {
   profile?: { saved(principal: Principal, integration: Integration): Promise<void> }
   gateway: Pick<IntegrationGateway, 'forget' | 'invalidate'>
   connections: Pick<IntegrationConnections, 'removeAllFor'>
+  /** The OAuth of a server the person chose OAuth for, and the owner's client they gave with it. */
+  oauth: Pick<IntegrationOAuth, 'oauthAuthAt' | 'withOwnerClient'>
 }
 
 /**
@@ -74,15 +132,42 @@ export interface IntegrationWritesDeps {
 export class IntegrationWrites {
   constructor(private readonly deps: IntegrationWritesDeps) {}
 
-  /** Probe, then write a new server at a URL owned by `owner`. With `projectRoot` it joins only that project's runs (§8.4). */
+  /**
+   * Probe, then write a new server at a URL owned by `owner`, with the
+   * authentication the person chose (`automatic` when left out). With OAuth,
+   * the chosen scopes go on the record and the owner's client is saved. With
+   * `projectRoot` it joins only that project's runs (§8.4).
+   */
   async addServer(principal: Principal, owner: string, request: IntegrationUrlCreateRequest, projectRoot?: string): Promise<Integration> {
-    const probe = await probeForWrite(request.url)
-    const input: IntegrationCreateInput = { name: request.name, url: request.url, slug: integrationSlug(request.slug ?? request.name), auth: probe.auth }
+    const choice = request.auth ?? { kind: 'automatic' }
+    const auth = await chosenAuth(request.url, choice, this.deps.oauth)
+    const oauthChoice = choice.kind === 'automatic' || choice.kind === 'oauth' ? choice : null
+    if (auth.kind === 'oauth' && oauthChoice?.scopes) auth.scopes = oauthChoice.scopes
+    const input: IntegrationCreateInput = { name: request.name, url: request.url, slug: integrationSlug(request.slug ?? request.name), auth }
     if (projectRoot) Object.assign(input, projectOf(projectRoot))
-    const integration = this.deps.store.create(input, organizationForNew(principal), owner)
+    let integration = this.deps.store.create(input, organizationForNew(principal), owner)
+    const client = auth.kind === 'oauth' ? oauthChoice?.client : undefined
+    if (client) integration = await this.withClient(integration, client)
+    // The kind only: a header name or a scope is the person's setup, not a fact to log.
+    log.info('integration_server_added', { integrationId: integration.id, choice: choice.kind, auth: auth.kind, client: client !== undefined })
     void this.deps.events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
     this.toProfile(principal, integration)
     return integration
+  }
+
+  /**
+   * The owner's client given with the add. A client the host cannot save (the
+   * issuer did not answer, or no safe store) takes the new record back, so the
+   * person adds the server again rather than find a record without their client.
+   */
+  private async withClient(integration: Integration, client: IntegrationOAuthClientInput): Promise<Integration> {
+    try {
+      const auth = await this.deps.oauth.withOwnerClient(integration, client)
+      return this.deps.store.update(integration.id, { auth }, integration.organizationId) ?? integration
+    } catch (error) {
+      this.deps.store.remove(integration.id, integration.organizationId)
+      throw error
+    }
   }
 
   /**
@@ -127,11 +212,16 @@ export class IntegrationWrites {
     return integration
   }
 
-  /** A server's new name, address, auth, or tool filter. The caller probed a new address. */
+  /**
+   * A server's new name, address, auth, or tool filter. The caller probed a new
+   * address. New header names drop every person's values, as new names of a
+   * command do: each person gives values for the new names again.
+   */
   changeServer(existing: Integration, patch: Pick<IntegrationPatch, 'name' | 'url' | 'auth' | 'disabledTools'>, principal: Principal): Integration {
     const integration = this.updated(existing, patch, principal)
     // Turning tools on or off keeps the upstream session: the filter is on the record.
     if (patch.name !== undefined || patch.url !== undefined || patch.auth !== undefined) this.deps.gateway.invalidate(existing.id)
+    if (headerNamesOf(existing) !== headerNamesOf(integration)) this.deps.connections.removeAllFor(existing)
     this.changed(existing)
     this.toProfile(principal, integration)
     return integration
@@ -153,6 +243,11 @@ export class IntegrationWrites {
   private toProfile(principal: Principal, integration: Integration): void {
     if (integration.projectKey === undefined) void this.deps.profile?.saved(principal, integration)
   }
+}
+
+/** A `headers` server's header names as one comparable value; null for any other auth. */
+function headerNamesOf(integration: Integration): string | null {
+  return integration.auth.kind === 'headers' ? integration.auth.names.join('\u0000') : null
 }
 
 /** The project an integration from a project's file joins (§8.4): its key, and its folder name for the row. */

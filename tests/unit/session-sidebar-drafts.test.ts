@@ -21,7 +21,6 @@ mock.module('@solus/workspace-ui/contexts/projects/projects.store.svelte', () =>
   CHATS_GROUP_KEY: 'solus:chats',
   groupKeyFor: (_serverId: string, projectKey: string) => projectKey,
 }))
-mock.module('@solus/workspace-ui/components/review/review-guide.store.svelte', () => ({ reviewGuideStore: {}, sessionGuideIdentity: () => null }))
 mock.module('@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte', () => ({ sessionPullRequestsStore: {}, sessionPrLink: () => null }))
 const sessionListStore = {
   onRecordsRead: () => () => {},
@@ -137,6 +136,7 @@ test('pins from a healthy host appear while another host is still loading', asyn
   connections.registerHost('slow', { pinnedSessionsList: () => slow.promise })
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
   Object.defineProperty(store, 'pinRequests', { value: new Map<string, number>() })
+  Object.defineProperty(store, 'pinsReadOn', { value: new WeakSet() })
   store.pinnedSessions = [{ ...pin, sessionId: 'old', serverId: 'slow' }]
   const load = store.loadPinnedSessions()
   await Promise.resolve()
@@ -153,6 +153,7 @@ test('completion and archive announcements remove host-scoped pins and invalidat
   connections.registerHost('other', { pinnedSessionsList: async () => [{ ...pin, serverId: 'other' }] })
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
   Object.defineProperty(store, 'pinRequests', { value: new Map<string, number>() })
+  Object.defineProperty(store, 'pinsReadOn', { value: new WeakSet() })
   store.pinnedSessions = [pin, { ...pin, serverId: 'other' }]
   const stop = store.subscribeSessionStatuses()
   try {
@@ -186,6 +187,7 @@ test('archiving a pinned session ends its pin, on its own host when the Solus AP
   connections.registerPrimary('local', { togglePinnedSession: async (session: PinnedSession) => { toggled.push(session); return [] } })
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
   Object.defineProperty(store, 'pinRequests', { value: new Map<string, number>() })
+  Object.defineProperty(store, 'pinsReadOn', { value: new WeakSet() })
   store.pinnedSessions = [pin, localPin]
   const homeFor = sessionListStore.homeFor
   sessionListStore.homeFor = (target) => target.sessionId === 'org-session' ? 'solus-api:org' : target.serverId

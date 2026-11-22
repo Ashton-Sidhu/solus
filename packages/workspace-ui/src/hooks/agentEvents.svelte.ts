@@ -76,7 +76,7 @@ export function setupAgentEvents(session: WorkspaceContext): void {
     resetUnsubscribes.set(connection.serverId, unsubReset)
   }
 
-  for (const serverId of serverConnections.connectedServerIds()) {
+  for (const serverId of serverConnections.serverIds()) {
     const connection = serverConnections.connectionFor(serverId)
     if (connection) bindReset(connection)
   }

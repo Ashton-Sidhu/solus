@@ -191,6 +191,15 @@ export const directoryResponseSchema = z.object({
 
 ### 5.1 The registry
 
+The host catalog is the one answer to which hosts a client knows (2026-11-22). It
+holds every host: the person's list, the directory, this device's credentials, and
+the hosts known for one page only (`addPageHost`): the desktop's own machine, a web
+page's serving host the browser does not keep, and a guest's shared resource. Nothing
+else is a list of hosts. A connection reads its host's facts and token from the
+catalog when it needs them (`catalogHostTarget`), `serverIds()` lists the catalog's
+hosts, not the open sockets, and once the list and the directory are both read, a
+connection whose host the catalog no longer names closes, even while a tab holds it.
+
 `ServerConnections` (`packages/client-core/src/server-connections.ts`) keeps one
 socket per endpoint, as today, and exposes the two concepts separately:
 

@@ -130,7 +130,7 @@ export const APP_NOTICE_ROWS: NotificationSettingRow<AppNoticeEvent>[] = [
   {
     id: 'review_guide_ready',
     label: 'Review guide ready',
-    description: 'A review guide finishes for a pull request or a session.',
+    description: 'A review guide finishes for a pull request.',
     keywords: ['review', 'guide', 'pull request', 'pr', 'companion'],
   },
   {

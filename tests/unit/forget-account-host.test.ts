@@ -84,7 +84,7 @@ async function listHost(removeHost: (hostId: string) => Promise<boolean>): Promi
   serversStore.activeServerId = 'local'
 }
 
-const knownIds = () => serversStore.remotes.map((server) => server.id)
+const knownIds = () => serversStore.knownHosts.map((server) => server.id)
 
 describe('forgetting a host the account lists', () => {
   test('the host leaves the account before this device forgets it', async () => {
@@ -133,7 +133,7 @@ describe('adding a host', () => {
     await serversStore.savePairedServer({ id: 'omarchy', label: 'omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'pairing', seenAt: 3 }], sessionToken: 'token', installationId: 'omarchy', lastConnected: 3 })
 
     expect(knownIds()).toEqual(['omarchy'])
-    expect(serversStore.remotes[0]?.sessionToken).toBe('token')
+    expect(serversStore.knownHosts[0]?.sessionToken).toBe('token')
   })
 })
 

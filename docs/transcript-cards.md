@@ -72,7 +72,7 @@ rejoins. The decision card disappears only after the host confirms a queued retr
 | Resting | quiet |
 | Hover (clickable) | `--solus-tx-quiet-shadow-hover`, no translate |
 | Pressed | `scale(0.996)` |
-| Focus-visible | 2px `--solus-accent-border-medium`, offset 2px |
+| Focus-visible | 2px `--solus-tx-focus-ring` (neutral, never the accent), offset 2px |
 | Open in the pane | `open`: the composer's focus ring (1px accent at 34%, 4px halo at 9%); a grouped row takes the 1px ring inset |
 | Running | spinner; type word becomes a participle |
 | Streaming | same height as the landed card, skeleton bars and a word count |
@@ -163,7 +163,8 @@ clock at its right. The body's lead line is the question, or what the agent want
 to do with a chip naming the worktree. No text on the card is bold. Options are
 soft rows with a hairline between them, inset to the text column as in Settings; the selected row takes the accent tint, an inset
 ring, and a check. The own-words field is a bar at full size (14px text, a 28px
-Send or Next action inside it, 36px on touch), and "Let Claude decide" is a text link under it. A permission ends in
+Send or Next action inside it, 36px on touch), and "Let Claude decide" is a text link under it.
+A secret request uses the same bar for its field, with Show and Save securely inside it; Decline is a text link under it. A focused bar darkens its hairline to `--solus-tx-focus-ring`; no field on a card takes the accent ring. A permission ends in
 one row: Deny as text, broader grants as quiet pills, the narrowest grant as the
 filled pill, and the scope of the pill under the pointer or focus written at the
 left of the row (`permissionScope`). The command is the only boxed thing, a
@@ -252,30 +253,17 @@ hover or focus, and always on touch. Cmd-click opens the session beside this
 conversation. When the other agent waits on a person here (a request or a
 plan decision), the decision shows under the row, indented to the title.
 
-A finished tool-group row that says "Thought for …" also shows the first line
-of the latest thought, as plain text in the foreground colour, and truncates it
-to one line. Claude sends the text of its thinking blocks; Codex sends its
-reasoning summary, or the raw reasoning when there is no summary. When the
-provider sends no readable text (redacted, omitted, or encrypted reasoning), the
-row shows only the label. A live "Thinking" row does not show a thought, because
-the text arrives only when the thought ends.
-
-The full text of each thought is kept, and the user can read it. The thought
-is kept on the message that comes after it:
-
-- **Before a tool call.** An open tool group shows a "Thought" step above that
-  tool's step. The step shows the first line. A click opens the full thought as
-  markdown.
-- **Before prose.** The thought goes into the tool group above the prose, as a
-  "Thought" step after the last tool call. When no tool call comes between the
-  prose blocks, a collapsed "Thought" row shows above the prose, with the first
-  line as its target. When the turn ends, this row folds behind the turn row
-  with the tool calls, and the answer stays on screen.
-
-Everything between two prose blocks is one activity row: the tool calls and
-the thoughts around them. An empty assistant message does not close the row.
-Only prose, a card (a question, a sub-agent, an agent conversation, a document,
-and the other result cards), browser snapshots, or a notice closes it.
+Consecutive thoughts and commands share an activity group. While work runs,
+the collapsed group previews the latest thought above its status. It shows the
+opening bold heading or the first sentence, wrapped to at most four lines.
+Open the group to see the steps in order. A collapsed thought takes one line.
+Select it to read the full text.
+Codex streams summary and content parts. Solus uses the project's configured
+Codex reasoning summary, with an automatic summary as the default. Claude
+streams summarized thinking blocks. Later text updates the same row, even
+when a tool has already started. A block with no readable text adds no row.
+Older live events without a block ID can still attach a thought to the next
+tool call or reply.
 
 Agent reply images, generated images, and browser captures appear in a compact
 image gallery below the final reply. Raw tool-result images, including device
@@ -360,7 +348,9 @@ left edge of the row label, with no box around it. It shows, in this order:
   on all the images of that row; `+N` opens it at the first image it stands
   for. The fold does not change. Two calls that return the same picture show it
   once. A browser capture shows once, as its capture card: the scaled copy in
-  its result is not in the strip.
+  its result is not in the strip. The screenshot that `render_artifact` returns
+  for the agent's preview check is not in the strip: the artifact card shows
+  the page.
 - **Chips**, with a light fill and a full radius, the style of the chips that
   list what a turn linked: one for each audio clip, with the play glyph, the
   server name, and the format (`elevenlabs MP3`), and one for each call's
@@ -379,6 +369,7 @@ on a tool call's message must get a place there: the type check and
 | --- | --- | --- |
 | Images (`toolImages`): MCP image blocks, a `Read` of a picture, device screenshots, resource reads | Strip, as thumbnails | Rule 1 |
 | Browser capture (`browser_snapshot`) | Gallery, as its capture card | Rule 3 |
+| Artifact preview screenshot (`render_artifact`) | Neither | The agent's own check; the artifact card shows the page |
 | Audio (`toolAudio`) | Strip | Rule 1 |
 | "Left out" notes (`toolLeftOut`) | Strip | Rule 1 |
 | Progress (`toolProgress`) | Neither | The running row's label and bar show it, and a live turn does not fold |

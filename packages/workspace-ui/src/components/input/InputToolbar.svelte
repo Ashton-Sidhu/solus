@@ -88,16 +88,11 @@
   );
   const chatRun = $derived(chatSourceId ? (run ?? sess?.run ?? null) : null);
 
-  /** A host choice lands on the run as written; Send connects to that host. */
-  function applyChatRun(next: RunConfig) {
-    if (onRun) onRun(next);
-    else if (sess) sess.run = next;
-  }
-
   // A chat's Run on list opens from the + menu, when there is a host to choose.
   const chatHostId = $derived(chatRun ? runHost(chatRun) : null);
   const chatOffersHosts = $derived(
-    !!chatHostId &&
+    !tabId &&
+      !!chatHostId &&
       shouldShowRunOnPicker({
         connectedRemoteIds: serversStore.connectedRemotes.map((host) => host.id),
         localHostId: hosts.device?.id ?? null,
@@ -180,12 +175,12 @@
   />
   <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
   <SessionChip {tabId} {draftId} {isPrimary} {run} {onRun} allowPermissionMode bind:selection returnFocusOnClose class="border-0" />
-  {#if chatSourceId && chatRun}
+  {#if chatSourceId && chatRun && chatOffersHosts && onRun}
     <!-- No button of its own: the chat's + menu opens this list above itself. -->
     <RunOnPicker
       run={chatRun}
       requesterId={chatSourceId}
-      onRun={applyChatRun}
+      {onRun}
       variant="menu"
       anchor={runOnAnchor}
       bind:open={runOnOpen}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Settings as AutomationIcon } from "@lucide/svelte";
   import SessionPinButton from "./SessionPinButton.svelte";
   import type { PinnedSession } from "@solus/contracts/types";
   import { groupKeyFor } from "../../contexts";
@@ -10,13 +11,15 @@
    *  shelved row: the project mark, the title, and Unpin on hover. */
   interface Props {
     pin: PinnedSession;
+    isAutomation: boolean;
+    automationName?: string;
     /** Its conversation is the one on screen. */
     isCurrentSession: boolean;
     onOpen: () => void;
     onUnpin: () => void;
     onMore: (event: MouseEvent) => void;
   }
-  let { pin, isCurrentSession, onOpen, onUnpin, onMore }: Props = $props();
+  let { pin, isAutomation, automationName, isCurrentSession, onOpen, onUnpin, onMore }: Props = $props();
 
   const groupKey = $derived(groupKeyFor(pin.serverId ?? "", pin.cwd));
 </script>
@@ -32,7 +35,7 @@
         role="treeitem"
         tabindex="0"
         aria-selected={isCurrentSession}
-        aria-label={pin.title}
+        aria-label={isAutomation ? `${automationName ?? pin.title}, automation` : pin.title}
         onclick={onOpen}
         oncontextmenu={onMore}
         onkeydown={(event) => {
@@ -47,9 +50,12 @@
         <span class="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
           <ProjectFavicon projectKey={groupKey} class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]" />
         </span>
+        {#if isAutomation}
+          <AutomationIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        {/if}
         <span
           class="min-w-0 flex-1 truncate text-workspace-chrome {isCurrentSession ? 'font-medium' : ''}"
-          >{pin.title}</span
+          >{automationName ?? pin.title}</span
         >
       </div>
     {/snippet}

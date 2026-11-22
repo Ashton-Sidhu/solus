@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostApi } from '@solus/client-core/host-api'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { IntegrationDiscoveredEvent, FoundServerList, IntegrationFoundListRequest } from '@solus/contracts/integration-types'
-import { discoverMcpServers, onDiscoveredHost, remoteDiscoveryReach, type DiscoveryTarget, type DiscoveryReach } from '@solus/server/integrations/discovery'
+import { discoverMcpServers } from '@solus/server/integrations/discovery'
+import type { HostTarget, ReachRequest, RemoteHost } from '@solus/server/execution/orchestration/remote-hosts'
 
 // docs/plans/mcp-first-class.md §8.9: the page's host asks every host it
 // reaches for the person, and each host's list goes to the client as soon as
@@ -17,31 +19,40 @@ function gate<T>() {
   return { promise, open }
 }
 
-/** A host that answers `integrationFoundList` with `answer`, and records each request. */
-function target(hostId: string, answer: () => Promise<FoundServerList>, requests: IntegrationFoundListRequest[] = []): DiscoveryTarget {
+/** Another host as `RemoteHosts` lists it and connects to it: it answers `integrationFoundList` with `answer` and records each request. */
+interface FakeHost { target: HostTarget; remote: RemoteHost }
+function host(hostId: string, answer: () => Promise<FoundServerList>, requests: IntegrationFoundListRequest[] = []): FakeHost {
   const api = {
     integrationFoundList: (request: IntegrationFoundListRequest) => {
       requests.push(request)
       return answer()
     },
   } as Pick<HostApi, 'integrationFoundList'> as HostApi
-  return { hostId, label: `${hostId} label`, call: (_what, request) => request(api) }
+  const label = `${hostId} label`
+  return {
+    target: { hostId, installationId: hostId, label, routes: [], source: 'paired', connectionKey: `paired:${hostId}`, credential: async () => null },
+    remote: { hostId, installationId: hostId, label, api, events: new HostEventSubscriber(), onReconnected: () => () => {}, call: (_what, request) => request() },
+  }
 }
 
-const reachOf = (targets: DiscoveryTarget[]): DiscoveryReach => ({
-  targets: async () => targets,
-  target: async (hostId) => targets.find((candidate) => candidate.hostId === hostId) ?? null,
-})
+const OWNER: ReachRequest = { account: null, isOwner: true }
+/** `RemoteHosts` with these hosts: the list as `list` answers it, and each connection. */
+function hostsOf(hosts: FakeHost[], list: () => Promise<HostTarget[]> = async () => hosts.map((known) => known.target)) {
+  return {
+    list,
+    connect: (target: HostTarget) => hosts.find((known) => known.target.hostId === target.hostId)!.remote,
+  }
+}
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('one discovery of the MCP servers of every host', () => {
   test("this host's list goes out before the list of hosts is known", async () => {
     const events: IntegrationDiscoveredEvent[] = []
-    const hostList = gate<DiscoveryTarget[]>()
+    const hostList = gate<HostTarget[]>()
     const discovery = discoverMcpServers({
       discoveryId: 'discovery-1', selfLabel: 'Laptop', refresh: false,
       local: async () => EMPTY,
-      reach: { targets: () => hostList.promise, target: async () => null },
+      hosts: hostsOf([], () => hostList.promise), reach: OWNER,
       publish: (event) => events.push(event),
     })
     await flush()
@@ -58,7 +69,7 @@ describe('one discovery of the MCP servers of every host', () => {
     const answer = await discoverMcpServers({
       discoveryId: 'discovery-2', selfLabel: 'Laptop', refresh: true,
       local: async () => EMPTY,
-      reach: reachOf([target('slow-box', () => slow.promise), target('fast-box', async () => EMPTY, fastRequests)]),
+      hosts: hostsOf([host('slow-box', () => slow.promise), host('fast-box', async () => EMPTY, fastRequests)]), reach: OWNER,
       publish: (event) => events.push(event),
     })
     expect(answer.hosts.map((host) => host.hostId)).toEqual([null, 'slow-box', 'fast-box'])
@@ -78,10 +89,11 @@ describe('one discovery of the MCP servers of every host', () => {
     await discoverMcpServers({
       discoveryId: 'discovery-3', selfLabel: 'Laptop', refresh: false,
       local: async () => EMPTY,
-      reach: reachOf([
-        target('old-box', async () => { throw new Error('SolusServer: no handler for "integrationFoundList"') }),
-        target('away-box', async () => { throw new Error('away-box did not answer its MCP config files within 30 s.') }),
+      hosts: hostsOf([
+        host('old-box', async () => { throw new Error('SolusServer: no handler for "integrationFoundList"') }),
+        host('away-box', async () => { throw new Error('away-box did not answer its MCP config files within 30 s.') }),
       ]),
+      reach: OWNER,
       publish: (event) => events.push(event),
     })
     await flush()
@@ -92,9 +104,28 @@ describe('one discovery of the MCP servers of every host', () => {
   })
 
   test('a caller this host reaches no other host for gets this host only', async () => {
-    const remoteHosts = { list: async () => { throw new Error('must not list') }, find: async () => { throw new Error('must not find') }, connect: () => { throw new Error('must not dial') } }
-    const reach = remoteDiscoveryReach(remoteHosts, null)
-    expect(await reach.targets()).toEqual([])
-    await expect(onDiscoveredHost(reach, 'build-box', 'the add', async () => 'done')).rejects.toThrow('You do not reach that host from here any more')
+    const events: IntegrationDiscoveredEvent[] = []
+    const answer = await discoverMcpServers({
+      discoveryId: 'discovery-4', selfLabel: 'Laptop', refresh: false,
+      local: async () => EMPTY,
+      hosts: { list: async () => { throw new Error('must not list') }, connect: () => { throw new Error('must not dial') } },
+      reach: null,
+      publish: (event) => events.push(event),
+    })
+    expect(answer.hosts).toEqual([{ hostId: null, label: 'Laptop' }])
+  })
+
+  test('a host that cannot be dialed says why in its own list', async () => {
+    const events: IntegrationDiscoveredEvent[] = []
+    const stopped = host('stopped-box', async () => EMPTY)
+    await discoverMcpServers({
+      discoveryId: 'discovery-5', selfLabel: 'Laptop', refresh: false,
+      local: async () => EMPTY,
+      hosts: { list: async () => [stopped.target], connect: () => ({ error: 'stopped-box is stopped. Start it first, then try again.' }) },
+      reach: OWNER,
+      publish: (event) => events.push(event),
+    })
+    await flush()
+    expect(events.find((event) => event.host.hostId === 'stopped-box')?.result).toEqual({ kind: 'failed', message: 'stopped-box is stopped. Start it first, then try again.' })
   })
 })

@@ -90,7 +90,7 @@ const updateWorkFields = {
   work_id: z.string().describe('The id of the work to update (from find_works).'),
   content: z.string().optional().describe('The full new content. Replaces the existing content.'),
   markdown_path: markdownPathField,
-  html_path: z.string().optional().describe('Artifacts only: path to an .html file on this host, such as the visual-artifacts bundle.html, relative to your working directory.'),
+  html_path: z.string().optional().describe('Artifacts only: path to a self-contained .html file on this host, relative to your working directory.'),
   title: z.string().optional().describe('Optional new title for the work.'),
   expected_content_version: z.number().int().min(0).describe('The content_version read_work returned.'),
 }

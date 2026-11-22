@@ -18,7 +18,7 @@ export function subscribeAllHosts<K extends HostEventName>(
     )
   }
 
-  for (const serverId of serverConnections.connectedServerIds()) subscribe(serverId)
+  for (const serverId of serverConnections.serverIds()) subscribe(serverId)
   const stopWatchingConnections = serverConnections.onConnectionCreated((connection) => {
     subscribe(connection.serverId)
   })

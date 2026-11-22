@@ -10,15 +10,12 @@
   import { isChat } from "@solus/contracts/chat";
   import { worktreeDisplayName } from "../../lib/git-context";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import type { RunConfig, WorktreeEntry } from "@solus/contracts/types";
+  import type { WorktreeEntry } from "@solus/contracts/types";
   import GitDropdown from "../GitDropdown.svelte";
-  import RunOnPicker from "../servers/RunOnPicker.svelte";
-  import { isRunOnHostLocked } from "../servers/run-on";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { MiddleTruncate } from "@solus/workspace-ui/components/ui/middle-truncate";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { checkoutGit, checkoutPlace, cloneBaseBranch, pendingClone, runHost, startsWorktree, workingPlace, worktreeBaseBranch } from "../../contexts/workspace/run-location";
-  import { hasSessionStarted } from "../../lib/sessionUtils";
+  import { checkoutGit, checkoutPlace, cloneBaseBranch, pendingClone, startsWorktree, workingPlace, worktreeBaseBranch } from "../../contexts/workspace/run-location";
 
   interface Props {
     active: boolean;
@@ -45,7 +42,6 @@
   // the defaults, never the conversation a draft happens to cover.
   const source = $derived(sourceId ?? "");
   const sess = $derived(session.sessionFor(source));
-  const draft = $derived(session.drafts.sessionDrafts.get(source));
   const run = $derived(session.runFor(source));
   const ctx = $derived(statusBar.ctxForRun(run));
   // Focus routes to a tab by id; a draft's composer claims bare focus as the
@@ -180,15 +176,6 @@
     requestInputFocus(focusTarget);
   }
 
-  /** Every destination choice this row offers lands on whichever the source is:
-   *  a started session's run, or the draft's, where nothing starts until Send. */
-  function applyRun(next: RunConfig) {
-    // A started session changes its run host between turns, with a sync there.
-    if (sess && hasSessionStarted(sess) && runHost(next) !== runHost(sess.run)) session.runHosts.change(source, next.location);
-    else if (sess) sess.run = next;
-    else draft?.applyRun(next);
-  }
-
   function settleOnDestination() {
     const place = workingPlace(session.runFor(source) ?? session.defaultRunConfig);
     if (place.path) void environmentStore.refresh(place.serverId, place.path, { force: true });
@@ -220,14 +207,6 @@
     {@render projectInfo()}
   {/if}
 
-  {#if showDestination && !isPinned}
-    <RunOnPicker
-      run={run ?? session.defaultRunConfig}
-      requesterId={source}
-      locked={draft ? false : isRunOnHostLocked(sess)}
-      onRun={applyRun}
-    />
-  {/if}
   </div>
   {@render trailingActions?.()}
 </div>

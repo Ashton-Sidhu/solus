@@ -178,7 +178,7 @@ export class ProjectsStore {
       if (!isExecutionHost(serverId)) return
       void this.loadProjectsFor(serverId, serverConnections.apiFor(serverId), { force: true })
     }
-    for (const serverId of serverConnections.connectedServerIds()) load(serverId)
+    for (const serverId of serverConnections.serverIds()) load(serverId)
     const unsubStatus = serverConnections.onReadinessChange((serverId, status) => {
       if (status === 'ready') load(serverConnections.resolveId(serverId))
     })

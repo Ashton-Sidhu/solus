@@ -1,3 +1,4 @@
+import { inlineSessionGuidePrompt } from '../../review/inline-session-guide'
 import { enforce, hostPolicies } from '../../host/policy/host-policy-store'
 import { providerAvailableForProject } from '../seats/provider-availability'
 import { captureServerEvent } from '../../analytics'
@@ -131,7 +132,7 @@ export class RunLauncher {
     const activeMode = session.runInput?.permissionMode
     if (activeMode) enforce(hostPolicies().forWork(await organizationOfSession(session.sessionId)).runDenial({ mode: activeMode, provider: session.backendId }))
     const handle = await backend.steerSession(agentSessionId, {
-      prompt: request.options.prompt,
+      prompt: await inlineSessionGuidePrompt(request.options.prompt, request.sessionId, session.runInput?.workingDirectory),
       imageAttachments: await resolvePromptImages(request.options),
     })
     if (!handle) return null
@@ -883,6 +884,7 @@ export class RunLauncher {
       const organizationId = await organizationOfSession(sessionId)
       // A member's transcripts written from here on are shared with the server when the turn ends.
       const turnStartedAt = Date.now()
+      const providerPrompt = await inlineSessionGuidePrompt(options.prompt, sessionId, effectiveCwd)
       // The MCP servers' tools are listed here, for the run's person, so every run —
       // typed, queued, restored, or started by an agent — gets that person's own.
       const { tools: integrationTools, instructions: integrationInstructions, cliSkip } = await integrationToolbox(request.actor ?? HOST_ACTOR, effectiveCwd)
@@ -920,7 +922,7 @@ export class RunLauncher {
       }, () => this.rt.runAgent({
         organizationId,
         provider,
-        prompt: options.prompt,
+        prompt: providerPrompt,
         cwd: effectiveCwd,
         projectRoot: resolvedProjectPath,
         tools: credentialScopedAgentTools([

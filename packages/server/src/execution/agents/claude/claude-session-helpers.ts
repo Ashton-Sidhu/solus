@@ -218,140 +218,162 @@ export async function readSessionHeadMeta(filePath: string): Promise<ReturnType<
 
 
 export function parseJsonlLine(line: string): SessionLoadMessage | null {
+  return claudeHistoryRows(line)[0] ?? null
+}
+
+export function claudeHistoryRows(line: string): SessionLoadMessage[] {
   try {
     const parsed = claudeTranscriptLineSchema.safeParse(JSON.parse(line))
-    if (!parsed.success) return null
+    if (!parsed.success) return []
     const obj = parsed.data
-    // Sub-agent (Agent/Task) activity is recorded with the spawning tool's id, so
-    // history replay can divert it into that tool's nested transcript.
-    const parentToolUseId: string | undefined = obj.parent_tool_use_id || undefined
-    if (obj.type === 'system' && obj.subtype === 'compact_boundary') {
-      // The live `context_compaction` stop draws the same divider.
-      const compaction: ContextCompaction = {}
-      const metadata = obj.compactMetadata
-      if (metadata?.trigger) compaction.trigger = metadata.trigger
-      if (metadata?.preTokens !== undefined) compaction.preTokens = metadata.preTokens
-      if (metadata?.postTokens !== undefined) compaction.postTokens = metadata.postTokens
-      return { messageId: obj.uuid, role: 'system', content: '', compaction, timestamp: new Date(obj.timestamp ?? 0).getTime() }
+    if (obj.type === 'assistant' && Array.isArray(obj.message?.content)) {
+      const rows: SessionLoadMessage[] = []
+      let thoughtIndex = 0
+      for (const block of obj.message.content) {
+        const row = claudeHistoryRow({ ...obj, message: { ...obj.message, content: [block] } })
+        if (block.type === 'thinking') {
+          if (row && obj.uuid) row.messageId = 'thought:' + obj.uuid + ':' + thoughtIndex
+          thoughtIndex++
+        }
+        if (row) rows.push(row)
+      }
+      return rows
     }
-    if (obj.type === 'user') {
-      if (obj.isMeta) return null
-      const content = obj.message?.content
-      if (Array.isArray(content) && content.every((block) => block.type === 'tool_result')) {
-        const result = content.find((block) => block.type === 'tool_result' && block.tool_use_id)
-        if (!result) return null
-        // A backgrounded sub-agent answers its tool call at *launch* with metadata
-        // the SDK forbids surfacing ("Async agent launched successfully…"); its real
-        // output arrives later as the <task-notification> below. Drop the ack here
-        // exactly as the live reducer does, so reload doesn't rebuild the card with
-        // launch metadata standing in for the agent's report.
-        if (obj.toolUseResult?.isAsync === true || obj.toolUseResult?.status === 'async_launched') return null
-        const text = claudeToolResultText(result.content)
+    const row = claudeHistoryRow(obj)
+    return row ? [row] : []
+  } catch {
+    return []
+  }
+}
+
+function claudeHistoryRow(obj: z.infer<typeof claudeTranscriptLineSchema>): SessionLoadMessage | null {
+  // Sub-agent (Agent/Task) activity is recorded with the spawning tool's id, so
+  // history replay can divert it into that tool's nested transcript.
+  const parentToolUseId: string | undefined = obj.parent_tool_use_id || undefined
+  if (obj.type === 'system' && obj.subtype === 'compact_boundary') {
+    // The live `context_compaction` stop draws the same divider.
+    const compaction: ContextCompaction = {}
+    const metadata = obj.compactMetadata
+    if (metadata?.trigger) compaction.trigger = metadata.trigger
+    if (metadata?.preTokens !== undefined) compaction.preTokens = metadata.preTokens
+    if (metadata?.postTokens !== undefined) compaction.postTokens = metadata.postTokens
+    return { messageId: obj.uuid, role: 'system', content: '', compaction, timestamp: new Date(obj.timestamp ?? 0).getTime() }
+  }
+  if (obj.type === 'user') {
+    if (obj.isMeta) return null
+    const content = obj.message?.content
+    if (Array.isArray(content) && content.every((block) => block.type === 'tool_result')) {
+      const result = content.find((block) => block.type === 'tool_result' && block.tool_use_id)
+      if (!result) return null
+      // A backgrounded sub-agent answers its tool call at *launch* with metadata
+      // the SDK forbids surfacing ("Async agent launched successfully…"); its real
+      // output arrives later as the <task-notification> below. Drop the ack here
+      // exactly as the live reducer does, so reload doesn't rebuild the card with
+      // launch metadata standing in for the agent's report.
+      if (obj.toolUseResult?.isAsync === true || obj.toolUseResult?.status === 'async_launched') return null
+      const text = claudeToolResultText(result.content)
+      return {
+        role: 'tool_result',
+        content: text,
+        toolResultForId: result.tool_use_id,
+        toolResultIsError: result.is_error,
+        toolImages: storeToolResultImages(result.content),
+        ...toolResultMedia(text),
+        parentToolUseId,
+        timestamp: new Date(obj.timestamp ?? 0).getTime(),
+      }
+    }
+    // A completed background sub-agent's result is delivered as a
+    // <task-notification> user message carrying the spawning tool's id and the
+    // agent's final output. Route it into that tool's nested transcript so reload
+    // rebuilds the sub-agent card instead of leaking the result as a user bubble.
+    const stringContent = z.string().safeParse(content)
+    if (stringContent.success && stringContent.data.includes('<task-notification>')) {
+      const notification = parseClaudeTaskNotification(stringContent.data)
+      if (notification) {
         return {
-          role: 'tool_result',
-          content: text,
-          toolResultForId: result.tool_use_id,
-          toolResultIsError: result.is_error,
-          toolImages: storeToolResultImages(result.content),
-          ...toolResultMedia(text),
-          parentToolUseId,
-          timestamp: new Date(obj.timestamp).getTime(),
+          role: 'assistant',
+          content: notification.result,
+          parentToolUseId: notification.toolUseId,
+          timestamp: new Date(obj.timestamp ?? 0).getTime(),
         }
       }
-      // A completed background sub-agent's result is delivered as a
-      // <task-notification> user message carrying the spawning tool's id and the
-      // agent's final output. Route it into that tool's nested transcript so reload
-      // rebuilds the sub-agent card instead of leaking the result as a user bubble.
-      const stringContent = z.string().safeParse(content)
-      if (stringContent.success && stringContent.data.includes('<task-notification>')) {
-        const notification = parseClaudeTaskNotification(stringContent.data)
-        if (notification) {
+      // Status-only notifications carry no result — plumbing, not user input.
+      return null
+    }
+
+    let text = ''
+    if (stringContent.success) {
+      // Claude Code injects context continuation summaries as plain-string user messages
+      // when the context window fills up. These are not real user input — skip them.
+      if (stringContent.data.includes('This session is being continued from a previous conversation')) return null
+      // Skill commands are stored as XML. Prefer user args, then fall back to the command.
+      text = extractPromptText(stringContent.data)
+    } else if (Array.isArray(content)) {
+      text = content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.type === 'text' ? block.text : '')
+        .join('\n')
+    }
+    text = stripInjectedContext(text)
+    const imageAttachments = Array.isArray(content)
+      ? content.flatMap((block) => block.type === 'image'
+        ? [{
+            mimeType: block.source.media_type,
+            dataUrl: `data:${block.source.media_type};base64,${block.source.data}`,
+          }]
+        : [])
+      : undefined
+    if (text || imageAttachments?.length) {
+      return {
+        role: 'user',
+        content: text,
+        imageAttachments: imageAttachments?.length ? imageAttachments : undefined,
+        parentToolUseId,
+        timestamp: new Date(obj.timestamp ?? 0).getTime(),
+      }
+    }
+  } else if (obj.type === 'assistant') {
+    const content = obj.message?.content
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === 'text' && block.text) {
           return {
             role: 'assistant',
-            content: notification.result,
-            parentToolUseId: notification.toolUseId,
-            timestamp: new Date(obj.timestamp).getTime(),
+            content: block.text,
+            parentToolUseId,
+            timestamp: new Date(obj.timestamp ?? 0).getTime(),
+            ...(obj.error === 'authentication_failed' && { loginRefused: true as const }),
           }
-        }
-        // Status-only notifications carry no result — plumbing, not user input.
-        return null
-      }
-
-      let text = ''
-      if (stringContent.success) {
-        // Claude Code injects context continuation summaries as plain-string user messages
-        // when the context window fills up. These are not real user input — skip them.
-        if (stringContent.data.includes('This session is being continued from a previous conversation')) return null
-        // Skill commands are stored as XML. Prefer user args, then fall back to the command.
-        text = extractPromptText(stringContent.data)
-      } else if (Array.isArray(content)) {
-        text = content
-          .filter((block) => block.type === 'text')
-          .map((block) => block.type === 'text' ? block.text : '')
-          .join('\n')
-      }
-      text = stripInjectedContext(text)
-      const imageAttachments = Array.isArray(content)
-        ? content.flatMap((block) => block.type === 'image'
-          ? [{
-              mimeType: block.source.media_type,
-              dataUrl: `data:${block.source.media_type};base64,${block.source.data}`,
-            }]
-          : [])
-        : undefined
-      if (text || imageAttachments?.length) {
-        return {
-          role: 'user',
-          content: text,
-          imageAttachments: imageAttachments?.length ? imageAttachments : undefined,
-          parentToolUseId,
-          timestamp: new Date(obj.timestamp).getTime(),
-        }
-      }
-    } else if (obj.type === 'assistant') {
-      const content = obj.message?.content
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text' && block.text) {
+        } else if (block.type === 'tool_use' && block.name === 'ExitPlanMode') {
+          const planContent: string = block.input?.plan || ''
+          if (planContent) {
             return {
-              role: 'assistant',
-              content: block.text,
-              parentToolUseId,
-              timestamp: new Date(obj.timestamp).getTime(),
-              ...(obj.error === 'authentication_failed' && { loginRefused: true as const }),
-            }
-          } else if (block.type === 'tool_use' && block.name === 'ExitPlanMode') {
-            const planContent: string = block.input?.plan || ''
-            if (planContent) {
-              return {
-                role: 'plan',
-                content: '',
-                planContent,
-                planFilePath: block.input?.planFilePath || '',
-                planToolUseId: block.id || '',
-                parentToolUseId,
-                timestamp: new Date(obj.timestamp).getTime(),
-              }
-            }
-          } else if (block.type === 'tool_use' && block.name) {
-            return {
-              role: 'tool',
+              role: 'plan',
               content: '',
-              toolName: block.name,
-              toolId: block.id,
-              toolInput: JSON.stringify(block.input ?? {}),
+              planContent,
+              planFilePath: block.input?.planFilePath || '',
+              planToolUseId: block.id || '',
               parentToolUseId,
-              timestamp: new Date(obj.timestamp).getTime(),
+              timestamp: new Date(obj.timestamp ?? 0).getTime(),
             }
-          } else if (block.type === 'thinking' && block.thinking.trim()) {
-            // Extended-thinking spans (Claude writes them on their own assistant
-            // line). Carried for provider handoffs; display surfaces skip this role.
-            return { role: 'reasoning', content: block.thinking, parentToolUseId, timestamp: new Date(obj.timestamp).getTime() }
           }
+        } else if (block.type === 'tool_use' && block.name) {
+          return {
+            role: 'tool',
+            content: '',
+            toolName: block.name,
+            toolId: block.id,
+            toolInput: JSON.stringify(block.input ?? {}),
+            parentToolUseId,
+            timestamp: new Date(obj.timestamp ?? 0).getTime(),
+          }
+        } else if (block.type === 'thinking' && block.thinking.trim()) {
+          return { role: 'reasoning', content: block.thinking, parentToolUseId, timestamp: new Date(obj.timestamp ?? 0).getTime() }
         }
       }
     }
-  } catch {}
+  }
   return null
 }
 

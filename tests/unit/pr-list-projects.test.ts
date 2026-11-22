@@ -140,6 +140,12 @@ async function withBatching<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe('listing every project on one host', () => {
+  test('a first page from a JSON client can send a null optional cursor list', async () => {
+    const wireArgs = JSON.parse(JSON.stringify([ctx, ['/repos/a'], { state: 'open' }, undefined]))
+    const listings = await server().handle('prListProjects', wireArgs, TEST_HANDLER_CTX)
+    expect(listings[0]).toMatchObject({ projectRoot: '/repos/a', page: { page: 1 } })
+  })
+
   test('answers for each named project in one reply, in the order asked', async () => {
     listed.length = 0
     const roots = ['/repos/a', '/repos/b', '/repos/c']

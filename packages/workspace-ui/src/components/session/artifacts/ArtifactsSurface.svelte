@@ -1,20 +1,26 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import {
+    AppWindow as AppsIcon,
     Bot as AgentsIcon,
     Boxes as ArtifactsIcon,
     FileDiff as ChangesIcon,
+    FileText as FilesIcon,
     GitBranch as BranchIcon,
     GitPullRequest as PullRequestsIcon,
-    Layers as ItemsIcon,
+    Image as ImagesIcon,
+    Layers as WorksIcon,
+    Repeat as AutomationsIcon,
     Search as SearchIcon,
   } from "@lucide/svelte";
+  import type { SessionArtifactKind } from "@solus/contracts/session-artifacts";
   import { formatElapsed } from "@solus/client-core/elapsed-time";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { ChangeKind } from "@solus/client-core/change-breakdown";
   import { changeTotals, type OwnedArtifact } from "@solus/client-core/session-overview";
   import { getSessionEnvironmentStore, getWorkspaceContext } from "../../../contexts";
   import { sessionArtifactsStore } from "../../../contexts/sessions/session-artifacts.store.svelte";
+  import { sessionTreeStore } from "../../../contexts/sessions/session-tree.store.svelte";
   import { artifactKey } from "../../../contexts/sessions/session-artifacts";
   import { PAGE_SECONDARY_BTN } from "../../../lib/page-chrome";
   import { getStatusLabel, sessionTitle } from "../../../lib/sessionUtils";
@@ -30,6 +36,8 @@
   import PaneChrome from "../../ui/PaneChrome.svelte";
   import PageEmpty from "../../ui/PageEmpty.svelte";
   import TurnTimeline from "./TurnTimeline.svelte";
+  import AgentFilter from "./AgentFilter.svelte";
+  import { agentFilterOptions } from "./lib/agent-filter";
   import AgentGroups from "./AgentGroups.svelte";
   import ArtifactCard from "./ArtifactCard.svelte";
   import ArtifactRow from "./ArtifactRow.svelte";
@@ -70,6 +78,8 @@
   $effect(() => {
     sessionArtifactsStore.ensure(serverId, params.sessionId);
   });
+  // The session and the sessions it started: what each did and linked (docs/plans/session-digests.md).
+  $effect(() => sessionTreeStore.retain(serverId, params.sessionId));
 
   // A running turn and a running agent count up; nothing ticks when the session is at rest.
   const ticks = $derived(overview.live || overview.hasLiveAgent);
@@ -145,13 +155,26 @@
 
   const showsChanges = $derived(overview.changes.length > 0);
   const showsAgents = $derived(overview.agents.length > 0);
-  const showsPullRequests = $derived(overview.linked.pullRequests.length > 0);
-  const showsItems = $derived(overview.linked.items.length > 0);
-  const cardCount = $derived([showsChanges, showsAgents, showsPullRequests, showsItems].filter(Boolean).length);
+  const cardCount = $derived([showsChanges, showsAgents].filter(Boolean).length + overview.linkCards.length);
+  const filterOptions = $derived(agentFilterOptions(params.sessionId, overview.agentChoices));
+  const LINK_ICONS = {
+    "pull-request": PullRequestsIcon,
+    work: WorksIcon,
+    app: AppsIcon,
+    automation: AutomationsIcon,
+    file: FilesIcon,
+    image: ImagesIcon,
+  } satisfies { [Kind in SessionArtifactKind]: typeof PullRequestsIcon };
 
   const highlightKey = $derived(highlightedArtifactKey(sessionArtifactsStore.lastChangeFor(params.sessionId), Date.now()));
 
+  /** This session's file opens its diff; a file a started session changed opens that session's Threads surface, where its own diff is. */
   function openChange(path: string) {
+    const owner = overview.changeOwners.get(path) ?? params.sessionId;
+    if (owner !== params.sessionId) {
+      session.router.navigate({ name: "artifacts", params: { sessionId: owner, serverId } });
+      return;
+    }
     if (tabId) session.showDiff(tabId, overview.changeScope ?? { kind: "session" }, path);
   }
 
@@ -171,11 +194,6 @@
       },
       { split },
     );
-  }
-
-  /** A started session's own Artifacts surface, where every item it linked is listed. */
-  function openAgentArtifacts(row: RailAgentRow) {
-    session.router.navigate({ name: "artifacts", params: { sessionId: row.id, serverId: row.ref?.serverId ?? serverId } });
   }
 
   function openLinked(entry: OwnedArtifact) {
@@ -251,7 +269,7 @@
       {/if}
     </header>
 
-    {#if !overview.artifacts && !sess}
+    {#if !overview.artifacts && !overview.tree && !sess}
       {#if sessionArtifactsStore.hasFailed(params.sessionId)}
         <PageEmpty tone="muted" compact title="Couldn't load artifacts.">
           {#snippet actions()}
@@ -278,14 +296,21 @@
           <RecentArtifactsRow items={overview.recent} {serverId} onOpen={(item) => openLinked(item.owned)} />
         </div>
       {/if}
+      <!-- The agent filter: the whole tree, this session, or one session it started. It narrows the timeline and every card. -->
+      {#if filterOptions.length > 0}
+        <div class="px-3.5 {overview.recent.length > 0 ? 'pt-2.5' : 'pt-4'}">
+          <AgentFilter options={filterOptions} selected={overview.agentScope} onSelect={(scope) => overview.selectAgent(scope)} />
+        </div>
+      {/if}
       <!-- The scope: the timeline, whose turn narrows every card under it. -->
-      <div class="px-3.5 {overview.recent.length > 0 ? 'pt-2.5' : 'pt-4'}">
+      <div class="px-3.5 {overview.recent.length > 0 || filterOptions.length > 0 ? 'pt-2.5' : 'pt-4'}">
         {#if overview.turns.length > 0}
           <div class="rounded-2xl bg-(--solus-tx-card-bg) shadow-[shadow:var(--solus-tx-card-shadow)]">
             <TurnTimeline
               turns={overview.turns}
               toolCallTimes={overview.toolCallTimes}
-              live={overview.live}
+              agentCallTimes={overview.agentCallTimes}
+              live={overview.timelineLive}
               scopeTurnId={overview.scopeTurnId}
               onScope={(turnId) => (overview.scopeTurnId = turnId)}
               onLoadEarlier={sess?.historyTruncated && tabId ? () => void session.lifecycle.expandHistory(tabId, { full: true }) : undefined}
@@ -293,18 +318,18 @@
             />
           </div>
         {/if}
-        {#if !sess}
+        {#if overview.focusCopiedAt !== null}
           <p class="m-0 px-1.5 pt-2 text-xs text-muted-foreground">
-            Open the conversation to see its timeline, its agents, and its changed files.
+            Another host runs this session. This is the copy from {formatElapsed(overview.now - overview.focusCopiedAt)} ago.
           </p>
         {/if}
       </div>
 
       {#if cardCount === 0}
         <PageEmpty compact title="Nothing in this view.">
-          This turn or search has no matches.
+          This agent, turn, or search has no matches.
           {#snippet actions()}
-            <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => overview.clear()}>Show the whole session</button>
+            <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => overview.clear()}>Show everything</button>
           {/snippet}
         </PageEmpty>
       {:else}
@@ -318,7 +343,7 @@
               {#if changeKinds.length > 1}
                 <ChangeKinds kinds={changeKinds} selected={changeKind} onSelect={(kind) => (pickedChangeKind = kind)} />
               {/if}
-              <ChangeTree tree={changesTree} counted={changesCounted} startsOpen={changeTreesOpen} onOpen={tabId ? openChange : undefined} />
+              <ChangeTree tree={changesTree} counted={changesCounted} startsOpen={changeTreesOpen} onOpen={tabId || overview.agentChoices.length > 0 ? openChange : undefined} />
             </ArtifactCard>
           {/if}
           {#if showsAgents}
@@ -328,26 +353,15 @@
                   <span class="shrink-0 text-xs tabular-nums text-(--solus-status-running)">{runningAgents} running</span>
                 {/if}
               {/snippet}
-              <AgentGroups
-                rows={overview.agents}
-                {serverId}
-                linksOf={(row) => overview.linksOf(row)}
-                onOpen={openAgent}
-                onOpenLink={(row, artifact) => openArtifact(session, artifact, row.id, row.ref?.serverId ?? serverId)}
-                onOpenAllLinks={openAgentArtifacts}
-              />
+              <AgentGroups rows={overview.agents} {serverId} onOpen={openAgent} />
             </ArtifactCard>
           {/if}
-          {#if showsPullRequests}
-            <ArtifactCard icon={PullRequestsIcon} title="Pull requests" count={overview.linked.pullRequests.length}>
-              {@render linkedRows(overview.linked.pullRequests)}
+          <!-- One card for each kind of link the scope holds. -->
+          {#each overview.linkCards as section (section.kind)}
+            <ArtifactCard icon={LINK_ICONS[section.kind]} title={section.title} count={section.items.length}>
+              {@render linkedRows(section.items)}
             </ArtifactCard>
-          {/if}
-          {#if showsItems}
-            <ArtifactCard icon={ItemsIcon} title="Works and files" count={overview.linked.items.length}>
-              {@render linkedRows(overview.linked.items)}
-            </ArtifactCard>
-          {/if}
+          {/each}
         </div>
       {/if}
     {/if}

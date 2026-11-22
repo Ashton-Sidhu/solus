@@ -78,7 +78,6 @@ async function makeLoader(
     getServerId: () => 'host-a',
     getCtx: () => ({ session: {} }) as never,
     getKey: () => 'feat__reviews',
-    getScope: () => 'branch',
     getAgent: () => ({ agent: 'claude', model: null, reasoningEffort: null }),
     ...extra,
   })
@@ -179,7 +178,6 @@ describe('PR guide snapshots', () => {
       getCtx: () => ({ session: { workingDirectory: '/unrelated' } }) as never,
       getKey: () => 'pr-guide',
       getTarget: () => target,
-      getScope: () => 'branch',
       getAgent: () => ({ agent: 'claude', model: null, reasoningEffort: null }),
       ...extra,
     })

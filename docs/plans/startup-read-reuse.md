@@ -43,9 +43,13 @@ loads at connection time: grouping by a primary remote and cloning from `origin`
 are different operations, particularly for forks.
 
 Automatic discovery keeps one timer while the window is active. Focus, visibility,
-and connection events do not restart that timer. After a successful scan, automatic
-requests reuse its result for 30 seconds. A user scan and a scan after forgetting a
-host bypass that age check. A failed scan remains retryable.
+and connection events do not restart that timer. While a view shows the nearby
+hosts (Connections, the Connect host page, or Discover), the timer runs every 30
+seconds and automatic requests reuse a result for 30 seconds. Otherwise both are
+five minutes: often enough to find a saved host's direct route, rarely enough to
+cost nothing. Opening such a view scans at once when the last result is older
+than 30 seconds. A user scan and a scan after forgetting a host bypass that age
+check. A failed scan remains retryable.
 
 ## Git reads
 
@@ -134,7 +138,7 @@ The remaining host facts have these owners:
 | `hostUpdateStatus` | Update notices, Settings badge, and active installation progress | Read on connection and follow host events. Deferring this would hide an available update or an active installation. |
 | `modelProfilesStatus` | Model picker, model names, and reasoning options | Read on connection and follow model-profile events. The bundled list can be older than the host's list. |
 | `voiceModelStatus` | Visible microphone readiness and download progress | Read from the transcription host. Voice settings reuse the same host fact. |
-| `usageLimits` | Visible Environment quota meters | Read while the section is active. Hidden sections release their clock subscription. |
+| `usageWatch` | Visible Environment quota meters | One watch per host while a meter is active. The host reads the quota while a watch holds and pushes `usage.limitsChanged`; the client sends no poll. A hidden section releases the watch, and a disconnect ends it. A host without `usageWatch` is asked with `usageLimits` each minute. |
 | `deviceProjectDetect`, `deviceState` | Environment's Devices row and build count | Project detection runs for an active section. Device state loads when this is a mobile app or a session already has a preview. |
 
 Capabilities, configuration, connection roles, session history, queue, focus,

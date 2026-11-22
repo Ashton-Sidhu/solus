@@ -8,7 +8,6 @@ import {
   completedTasksWithinRetention,
 } from '@solus/workspace-ui/lib/completed-task-retention'
 import {
-  aggregateReviewGuideStatus,
   buildProjectSummaries,
   formatCompletedAge,
   formatWakeIn,
@@ -235,6 +234,15 @@ function pr(overrides: Partial<PullRequest> = {}): PullRequest {
 }
 
 describe('reconcileSidebarTasks', () => {
+  it('updates the sidebar when an automation is renamed and finds it by its new name', () => {
+    const before = task('first', 'idle', { automationId: 'nightly', automationName: 'Nightly sync' })
+    const [after] = reconcileSidebarTasks(new Map([[before.id, before]]), [
+      { ...before, automationName: 'Daily sync' },
+    ])
+    expect(filterSidebarTasks([after], 'Daily sync')).toEqual([after])
+    expect(filterSidebarTasks([after], 'Nightly sync')).toEqual([])
+  })
+
   it('keeps unrelated row models stable when one task clears its unread state', () => {
     const first = task('first', 'idle', { unread: true })
     const second = task('second', 'running')
@@ -777,22 +785,6 @@ describe('done rows', () => {
   })
 })
 
-describe('review guide status', () => {
-  it('summarizes child guide work on the task and clears when every mark is read', () => {
-    expect(aggregateReviewGuideStatus([
-      { reviewGuideStatus: 'ready' },
-      { reviewGuideStatus: 'generating' },
-    ])).toBe('generating')
-    expect(aggregateReviewGuideStatus([
-      { reviewGuideStatus: null },
-      { reviewGuideStatus: 'ready' },
-    ])).toBe('ready')
-    expect(aggregateReviewGuideStatus([
-      { reviewGuideStatus: null },
-      { reviewGuideStatus: null },
-    ])).toBeNull()
-  })
-})
 
 describe('formatElapsed', () => {
   it('spends seconds only while they are the whole answer', () => {
@@ -861,7 +853,6 @@ describe('resolveSidebarRowMark', () => {
     status: 'idle' as const,
     unread: false,
     woke: false,
-    reviewGuide: null,
     lifecycle: 'active' as const,
     runStartedAt: 0,
     manyRunning: false,
@@ -879,7 +870,6 @@ describe('resolveSidebarRowMark', () => {
       status: 'question',
       unread: true,
       woke: true,
-      reviewGuide: 'ready',
       runStartedAt: base.now - 5_000,
     })
     expect(mark).toEqual({ kind: 'glyph', status: 'question' })
@@ -888,7 +878,7 @@ describe('resolveSidebarRowMark', () => {
   it('ranks a request for a person above every report of progress', () => {
     expect(resolveSidebarRowMark({ ...base, status: 'error', unread: true }))
       .toEqual({ kind: 'glyph', status: 'error' })
-    expect(resolveSidebarRowMark({ ...base, status: 'plan', reviewGuide: 'ready' }))
+    expect(resolveSidebarRowMark({ ...base, status: 'plan', runStartedAt: base.now - 1000 }))
       .toEqual({ kind: 'glyph', status: 'plan' })
   })
 
@@ -931,18 +921,6 @@ describe('resolveSidebarRowMark', () => {
       .toEqual({ kind: 'spinner' })
   })
 
-  it('lets a live turn outrank a guide still being written', () => {
-    expect(
-      resolveSidebarRowMark({
-        ...base,
-        status: 'running',
-        runStartedAt: base.now - 5_000,
-        reviewGuide: 'generating',
-      }),
-    ).toEqual({ kind: 'elapsed', label: '5s' })
-    expect(resolveSidebarRowMark({ ...base, reviewGuide: 'generating' }))
-      .toEqual({ kind: 'guide', state: 'generating' })
-  })
 
   it('gives each shelf its own clock, and only when the row is on it', () => {
     expect(

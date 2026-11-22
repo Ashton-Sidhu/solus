@@ -38,7 +38,7 @@ export function answerAgentPersonalOnEveryHost(settings: SettingsContext, profil
     stops.get(serverId)?.()
     stops.set(serverId, answerAgentPersonalRequests(connection.transport, target))
   }
-  for (const serverId of serverConnections.connectedServerIds()) answer(serverId)
+  for (const serverId of serverConnections.serverIds()) answer(serverId)
   const stopCreated = serverConnections.onConnectionCreated((connection) => answer(connection.serverId))
   return () => {
     stopCreated()

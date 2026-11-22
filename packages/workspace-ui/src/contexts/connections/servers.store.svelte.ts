@@ -32,7 +32,7 @@ import {
 } from '@solus/client-core/known-host'
 import type { HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
 import { isSolusApiId, solusApiId, type HostRules } from '@solus/contracts/uplink'
-import { routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
+import type { HostRoute } from '@solus/contracts/host-routes'
 import { untrack } from 'svelte'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
@@ -51,7 +51,10 @@ import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-ref
 import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 import { prDeviceCache } from '../prs/pr-device-cache'
 
-const DISCOVERY_INTERVAL_MS = 30_000
+/** How often a focused window scans its network while a view shows the nearby hosts. */
+const NEARBY_SHOWN_DISCOVERY_MS = 30_000
+/** How often it scans otherwise: often enough to find a saved host's direct route, rarely enough to cost nothing. */
+const BACKGROUND_DISCOVERY_MS = 5 * 60_000
 
 /** What the add-host dialog shows: a pairing link, an address and code, SSH, or the add of a WSL distro chosen in the nearby list. */
 export type AddHostMode = 'link' | 'manual' | 'ssh' | 'wsl'
@@ -108,7 +111,8 @@ class ServersStore {
    *  at, and the local row keeps the plain device glyph everywhere. */
   private localIdentity = $state<{ name: string; os?: HostOperatingSystem } | null>(null)
   /** The hosts this client knows, as the host catalog joins them (plans/033 §4.2). */
-  remotes = $state<KnownHost[]>([...hostCatalog.hosts()])
+  /** Every host the catalog names, as reactive state: the one list the rows and pickers read. */
+  knownHosts = $state<KnownHost[]>([...hostCatalog.hosts()])
   /** The organizations' workspace services, as the account directory last listed them. */
   workspaces = $state<KnownWorkspace[]>([...hostCatalog.workspaces()])
   /** Whether the person's host list answered: until it does, the list shows a loading or failed state (§3 Q2). */
@@ -130,7 +134,6 @@ class ServersStore {
   /** What the account's host directory last said about being signed in: null until asked. */
   directorySignedIn = $state<boolean | null>(hostCatalog.directorySignedIn())
   /** The ids the catalog named when both its answers last settled: a host that leaves them is released. */
-  private settledIds = new Set<string>()
   /** Whether the person was signed in when the host list source was last chosen; null before. */
   private listSignedIn: boolean | null = null
   private directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -138,23 +141,26 @@ class ServersStore {
   /** Bumps on every readiness change: `readinessFor` reads the connections through it. */
   private readinessVersion = $state(0)
   /** What `/health` reported, for a host with no saved entry to carry it. */
-  private osByServer = $state<Record<string, HostOperatingSystem>>({})
   projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
   readonly nearby = new SvelteMap<string, NearbyHost>()
 
   private initialized = false
   private connectionsTracked = false
   private discoveryTimer: ReturnType<typeof setInterval> | null = null
+  /** The interval `discoveryTimer` runs at. */
+  private discoveryTimerMs = 0
+  /** Views that show the nearby hosts (`showNearby`). */
+  private nearbyViews = 0
   private scanInFlight = false
-  private lastDiscoveryScanAt = 0
+  private lastDiscoveryScanAt = -Infinity
 
   constructor() {
     hostCatalog.onChange(() => this.followCatalog())
   }
 
-  /** The hosts provisioned for an organization; follows `remotes`. */
+  /** The hosts provisioned for an organization; follows `knownHosts`. */
   get managedHostIds(): ReadonlySet<string> {
-    void this.remotes
+    void this.knownHosts
     return hostCatalog.managedHostIds()
   }
 
@@ -200,55 +206,36 @@ class ServersStore {
    * through `cloudConnections` and never listed beside a machine.
    */
   get servers(): ServerItem[] {
-    // Hosts are symmetric rows (dispatch-client step 5): the desktop's own
-    // machine is the one genuinely local row; a web client has no machine of
-    // its own, so every host — including the one it booted against — appears
-    // under its real id. Platform-managed entries (the serving origin) join
-    // from the live connection registry, since they are never persisted.
+    // Every row is a host the catalog names (dispatch-client step 5): the desktop's
+    // own machine is the one local row; a web client has no machine of its own, so
+    // every host, including the one it booted against, appears under its real id.
+    // An open socket adds no row: a forgotten host leaves with its catalog entry.
     const rows: ServerItem[] = []
-    if (this.local) {
-      const url = `http://127.0.0.1:${this.local.port}`
-      rows.push({
-        id: LOCAL_SERVER_ID,
-        label: this.localIdentity?.name ?? 'This computer',
-        url,
-        installationId: this.local.installationId,
-        os: this.localIdentity?.os,
-        local: true,
-        readiness: this.readinessFor(LOCAL_SERVER_ID).readiness,
-        routes: [{ kind: 'lan', url }],
-      })
-    }
-    for (const server of this.remotes) {
-      if (server.installationId === this.local?.installationId) continue
-      const row: ServerItem = {
-        id: server.id,
-        label: hostRowLabel(server, hosts.get(server.id)?.capabilityRecord?.name),
-        // A directory host saves no address of its own; its row shows the route it is dialed on.
-        url: preferredRouteUrl(server),
-        installationId: server.installationId,
-        os: server.os,
-        local: false,
-        readiness: this.readinessFor(server.id).readiness,
-        routes: server.routes,
-      }
+    for (const server of this.knownHosts) {
+      const row: ServerItem = server.local
+        ? {
+            id: server.id,
+            label: this.localIdentity?.name ?? server.label,
+            url: server.routes[0]?.url ?? '',
+            installationId: server.installationId,
+            os: this.localIdentity?.os,
+            local: true,
+            readiness: this.readinessFor(server.id).readiness,
+            routes: server.routes,
+          }
+        : {
+            id: server.id,
+            label: hostRowLabel(server, hosts.get(server.id)?.capabilityRecord?.name),
+            // A directory host saves no address of its own; its row shows the route it is dialed on.
+            url: preferredRouteUrl(server),
+            installationId: server.installationId,
+            os: server.os,
+            local: false,
+            readiness: this.readinessFor(server.id).readiness,
+            routes: server.routes,
+          }
       if (server.uplink) row.uplink = server.uplink
       rows.push(row)
-    }
-    for (const serverId of serverConnections.connectedServerIds()) {
-      if (serverId === LOCAL_SERVER_ID || isSolusApiId(serverId) || rows.some((row) => row.id === serverId)) continue
-      const target = serverConnections.connectionFor(serverId)?.target
-      if (!target || target.local) continue
-      rows.push({
-        id: serverId,
-        label: hostRowLabel(target, hosts.get(serverId)?.capabilityRecord?.name),
-        url: target.url,
-        installationId: target.installationId,
-        os: this.osByServer[serverId],
-        local: false,
-        readiness: this.readinessFor(serverId).readiness,
-        routes: target.routes ?? [routeForUrl(target.url)],
-      })
     }
     return rows.filter((server) => !this.pendingRemovals.has(server.id))
   }
@@ -380,9 +367,8 @@ class ServersStore {
     serverConnections.onPrimaryChange(followPrimary)
     followPrimary()
 
-    serverConnections.onReadinessChange((serverId, readiness) => {
+    serverConnections.onReadinessChange((serverId) => {
       this.readinessVersion += 1
-      if (readiness === 'ready') void this.readOperatingSystem(serverId)
       if (serverId === this.activeServerId) onActiveChange?.()
     })
     serverConnections.onConnectionCreated(() => { this.readinessVersion += 1 })
@@ -390,12 +376,6 @@ class ServersStore {
     serverConnections.onDialOutcome(() => { this.readinessVersion += 1 })
   }
 
-  /** A host this client has no saved entry for learns its OS from `/health` once it is ready. */
-  private async readOperatingSystem(serverId: string): Promise<void> {
-    if (serverId === LOCAL_SERVER_ID || this.osByServer[serverId] || this.remotes.some((server) => server.id === serverId)) return
-    const health = await serverConnections.probeHealth(serverId).catch(() => null)
-    if (health?.os) this.osByServer[serverId] = health.os
-  }
 
   init(): void {
     if (this.initialized) return
@@ -493,28 +473,15 @@ class ServersStore {
   }
 
   /**
-   * Copies the catalog's answers into reactive state. A host or workspace that
-   * left them is released only if nothing is talking to it: a read must never cut
-   * a working session. Ids are compared only while both answers are settled, so a
-   * list that is read again from a new source does not drop every host meanwhile.
+   * Copies the catalog's answers into reactive state. The connections follow the
+   * catalog themselves (`ServerConnections`): a host that left it closes there.
    */
   private followCatalog(): void {
-    this.remotes = [...hostCatalog.hosts()]
+    this.knownHosts = [...hostCatalog.hosts()]
     this.workspaces = [...hostCatalog.workspaces()]
     this.listState = hostCatalog.listState()
     this.directoryState = hostCatalog.directoryState()
     this.directorySignedIn = hostCatalog.directorySignedIn()
-    if (this.listState !== 'loading' && this.directoryState !== 'loading') {
-      const kept = new Set([
-        ...this.remotes.map((server) => server.id),
-        ...this.workspaces.map((workspace) => solusApiId(workspace.organizationId)),
-      ])
-      const connected = new Set(serverConnections.connectedServerIds())
-      for (const serverId of this.settledIds) {
-        if (!kept.has(serverId) && !connected.has(serverId)) serverConnections.release(serverId)
-      }
-      this.settledIds = kept
-    }
     // The window's choice stands while the directory still lists it; a
     // dropped organization falls back to the account's active one.
     if (organizationSelection.reconcile(this.workspaces)) {
@@ -531,7 +498,7 @@ class ServersStore {
       this.directoryRefreshTimer = null
       if (!document.hidden && document.hasFocus()) void this.refreshDirectory()
       else this.scheduleDirectoryRefresh()
-    }, directoryRefreshDelayMs(this.remotes))
+    }, directoryRefreshDelayMs(this.knownHosts))
   }
 
   /**
@@ -556,11 +523,11 @@ class ServersStore {
    */
   async startManagedHost(serverId: string, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
     if (this.readinessFor(serverId).readiness === 'ready') return true
-    const hostId = this.remotes.find((server) => server.id === serverId)?.uplink?.hostId
+    const hostId = this.knownHosts.find((server) => server.id === serverId)?.uplink?.hostId
     const source = uplinkAccountSource()
     if (!hostId || !source) return false
     await this.refreshDirectory()
-    if (managedHostNeedsStart(this.remotes.find((server) => server.id === serverId)?.uplink?.managedState)) {
+    if (managedHostNeedsStart(this.knownHosts.find((server) => server.id === serverId)?.uplink?.managedState)) {
       const lifecycle = await source.startManagedHost(hostId)
       if (!lifecycle || lifecycle === 'failed' || lifecycle === 'deleting') return false
     }
@@ -569,7 +536,7 @@ class ServersStore {
     while (Date.now() < deadline) {
       await this.refreshDirectory()
       if (this.readinessFor(serverId).readiness === 'ready') return true
-      const state = this.remotes.find((server) => server.id === serverId)?.uplink?.managedState
+      const state = this.knownHosts.find((server) => server.id === serverId)?.uplink?.managedState
       if (state === 'failed' || state === 'deleting') return false
       // Dials made while the host was still starting left the ladder backed off for
       // up to 30s; the moment it is ready, dial it anew.
@@ -598,6 +565,17 @@ class ServersStore {
     return false
   }
 
+  /**
+   * Pair again for a host that refuses this device. A host this client owns that
+   * paired it gives this device a new token, and the host is dialed with it.
+   * Otherwise the pairing dialog opens at `prefillUrl` for a code.
+   */
+  async pairAgain(serverId: string, prefillUrl: string): Promise<boolean> {
+    if (await serverConnections.pairAgain(serverId)) return this.connectNow(serverId)
+    this.openAddServer(prefillUrl)
+    return false
+  }
+
   /** The per-host version-skew notice, or null when versions match, the host
    *  has no session record yet, or this exact pairing was dismissed. */
   versionSkewNoticeFor(serverId: string): VersionSkewNotice | null {
@@ -621,8 +599,8 @@ class ServersStore {
    */
   async savePairedServer(server: KnownHost): Promise<void> {
     if (server.installationId) this.nearby.delete(server.installationId)
-    this.justPairedServerId = server.id
     const { host, listError } = await hostCatalog.pair(server)
+    this.justPairedServerId = host.id
     if (listError) toasts.error(`${host.label} is paired here but not yet on your host list`)
   }
 
@@ -652,8 +630,26 @@ class ServersStore {
     requestInputFocus()
   }
 
+  /** A view shows the nearby hosts: scan now if the last scan is old, and
+   *  every 30 seconds while the window has focus. Answers the release. */
+  showNearby(): () => void {
+    this.nearbyViews++
+    this.updateAutoDiscovery()
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.nearbyViews--
+      this.updateAutoDiscovery()
+    }
+  }
+
+  private get discoveryIntervalMs(): number {
+    return this.nearbyViews > 0 ? NEARBY_SHOWN_DISCOVERY_MS : BACKGROUND_DISCOVERY_MS
+  }
+
   async scanForServers(opts: { onlyIfStale?: boolean } = {}): Promise<{ newServers: number } | { error: string } | null> {
-    if (this.scanInFlight || (opts.onlyIfStale && Date.now() - this.lastDiscoveryScanAt < DISCOVERY_INTERVAL_MS)) return null
+    if (this.scanInFlight || (opts.onlyIfStale && Date.now() - this.lastDiscoveryScanAt < this.discoveryIntervalMs)) return null
     this.scanInFlight = true
     this.discoveryBusy = true
     try {
@@ -667,7 +663,7 @@ class ServersStore {
       // Web also asks every other connected host for the tailnet hosts it sees
       // (docs/plans/tailscale-support.md D4); desktop's local host reads this
       // machine's tailnet itself. A managed host advertises no tailnet routes.
-      const otherHostIds = this.local ? [] : serverConnections.connectedServerIds()
+      const otherHostIds = this.local ? [] : serverConnections.serverIds()
         .filter((serverId) => serverId !== discoveryServerId && !this.managedHostIds.has(serverId))
       const [own, fromHosts] = await Promise.all([
         serverConnections.apiFor(discoveryServerId).discoverServers(),
@@ -678,7 +674,7 @@ class ServersStore {
       hostCatalog.applyDiscovered(discovered)
       const filtered = filterUnsavedDiscoveredServers({
         discovered,
-        knownHosts: this.remotes,
+        knownHosts: this.knownHosts,
         selfInstallationId: this.local?.installationId
           ?? this.activeServer?.installationId,
       })
@@ -715,7 +711,7 @@ class ServersStore {
   }
 
   private async forgetHostConnections(serverId: string): Promise<boolean> {
-    const server = this.remotes.find((candidate) => candidate.id === serverId)
+    const server = this.knownHosts.find((candidate) => candidate.id === serverId)
     try {
       await serverConnections.forgetHost(server?.installationId ?? serverId, server?.routes ?? [])
       return true
@@ -750,13 +746,13 @@ class ServersStore {
     if (serverId === LOCAL_SERVER_ID) return
     // Edits to live works that only this device holds are not deleted without asking.
     if (!options.discardUnsent && askBeforeDiscardingUnsent(serverId, () => void this.remove(serverId, { discardUnsent: true }))) return
-    const server = this.remotes.find((candidate) => candidate.id === serverId)
+    const server = this.knownHosts.find((candidate) => candidate.id === serverId)
     // The active host is only the new-work default now: step aside to another
     // catalog host in place, then forget as usual. Only the last host has
     // nowhere to step to.
     const fallbackId = serverId !== this.activeServerId
       ? null
-      : this.local ? LOCAL_SERVER_ID : this.remotes.find((candidate) => candidate.id !== serverId)?.id
+      : this.local ? LOCAL_SERVER_ID : this.knownHosts.find((candidate) => candidate.id !== serverId)?.id
     if (serverId === this.activeServerId && !fallbackId) {
       toasts.error(`Pair another host before forgetting ${server?.label ?? 'this host'}`)
       requestInputFocus()
@@ -855,14 +851,14 @@ class ServersStore {
   readinessFor(serverId: string): HostReadinessState {
     // Presence follows the saved lists; the rest follows the connections.
     void this.readinessVersion
-    void this.remotes
+    void this.knownHosts
     void this.workspaces
     return serverConnections.readinessFor(serverId)
   }
   /** What a person needs to see why a host is not ready, or to send to support. */
   diagnosticsFor(serverId: string): HostDiagnostics {
     void this.readinessVersion
-    void this.remotes
+    void this.knownHosts
     return serverConnections.diagnosticsFor(serverId)
   }
 
@@ -884,16 +880,20 @@ class ServersStore {
       return
     }
     // Focus, visibility, and connection events can name the same active window.
-    // They must not restart its timer or repeat a recent successful scan.
-    if (this.discoveryTimer) return
+    // They must not restart its timer or repeat a recent successful scan; a
+    // nearby view opening or closing changes how often it scans.
+    const intervalMs = this.discoveryIntervalMs
+    if (this.discoveryTimer && this.discoveryTimerMs === intervalMs) return
+    if (this.discoveryTimer) clearInterval(this.discoveryTimer)
     void this.scanForServers({ onlyIfStale: true })
+    this.discoveryTimerMs = intervalMs
     this.discoveryTimer = setInterval(() => {
       if (!this.shouldAutoDiscover()) {
         this.updateAutoDiscovery()
         return
       }
       void this.scanForServers({ onlyIfStale: true })
-    }, DISCOVERY_INTERVAL_MS)
+    }, intervalMs)
   }
 
   private shouldAutoDiscover(): boolean {

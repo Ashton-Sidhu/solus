@@ -28,15 +28,25 @@ export interface FakeServers {
   modernToolChanged(): void
   modernTtlMs: number
   resourceMetadataUrl: string
+  /** An MCP server that takes an `X-Api-Key` header and names no sign-in: a `headers` server (docs/plans/mcp-add-server.md). */
+  keyedMcpUrl: string
   /** Authorization header values the MCP server accepts. */
   accepted: Set<string>
+  /** `X-Api-Key` values the keyed MCP server accepts. */
+  acceptedKeys: Set<string>
+  /** Every `X-Api-Key` header the keyed MCP endpoint saw. */
+  keyedHeaders: Array<string | undefined>
   registrations: Array<{ redirect_uris: string[]; token_endpoint_auth_method?: string }>
   tokenRequests: URLSearchParams[]
   revoked: string[]
   /** Every Authorization header the MCP endpoint saw. */
   mcpAuthorizations: Array<string | undefined>
-  /** Whether the authorization server offers dynamic registration, and whether it reads Client ID Metadata Documents. */
-  options: { registration: boolean; metadataDocument: boolean; refuseRefresh: boolean; expiresIn: number }
+  /**
+   * Whether the authorization server offers dynamic registration, and whether
+   * it reads Client ID Metadata Documents. `anonymous`: the MCP server takes
+   * calls without a header, and still advertises its OAuth.
+   */
+  options: { registration: boolean; metadataDocument: boolean; refuseRefresh: boolean; expiresIn: number; anonymous: boolean }
   issueCode(challenge: string, resource: string | null, redirectUri: string | null): string
   close(): Promise<void>
 }
@@ -59,8 +69,10 @@ export async function startFakeServers(): Promise<FakeServers> {
   const codes = new Map<string, IssuedCode>()
   const refreshTokens = new Set<string>()
   let counter = 0
-  const fake: Omit<FakeServers, 'base' | 'mcpUrl' | 'resourceMetadataUrl' | 'close'> = {
+  const fake: Omit<FakeServers, 'base' | 'mcpUrl' | 'resourceMetadataUrl' | 'keyedMcpUrl' | 'close'> = {
     accepted: new Set(),
+    acceptedKeys: new Set(),
+    keyedHeaders: [],
     registrations: [],
     tokenRequests: [],
     revoked: [],
@@ -71,7 +83,7 @@ export async function startFakeServers(): Promise<FakeServers> {
       for (const listener of modernListeners) listener.write(`data: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/tools/list_changed', params: {} })}\n\n`)
     },
     modernTtlMs: 60_000,
-    options: { registration: true, metadataDocument: false, refuseRefresh: false, expiresIn: 3600 },
+    options: { registration: true, metadataDocument: false, refuseRefresh: false, expiresIn: 3600, anonymous: false },
     issueCode(challenge, resource, redirectUri) {
       const code = `code-${++counter}`
       codes.set(code, { challenge, resource, redirectUri })
@@ -107,11 +119,27 @@ export async function startFakeServers(): Promise<FakeServers> {
   const mcp = async (req: IncomingMessage, res: ServerResponse) => {
     const authorization = req.headers.authorization
     fake.mcpAuthorizations.push(authorization)
-    if (!authorization || !fake.accepted.has(authorization)) {
+    if (!fake.options.anonymous && (!authorization || !fake.accepted.has(authorization))) {
       res.writeHead(401, { 'www-authenticate': `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"` })
       res.end()
       return
     }
+    return serveMcp(req, res)
+  }
+
+  /** A key in a header of its own, with a plain 401 that names no sign-in. */
+  const keyedMcp = async (req: IncomingMessage, res: ServerResponse) => {
+    const key = typeof req.headers['x-api-key'] === 'string' ? req.headers['x-api-key'] : undefined
+    fake.keyedHeaders.push(key)
+    if (!key || !fake.acceptedKeys.has(key)) {
+      res.writeHead(401)
+      res.end()
+      return
+    }
+    return serveMcp(req, res)
+  }
+
+  const serveMcp = async (req: IncomingMessage, res: ServerResponse) => {
     const text = req.method === 'POST' ? await readBody(req) : ''
     const server = new McpServer({ name: 'fake-mcp', title: 'Fake MCP', version: '1.0.0' })
     server.registerTool('echo', { description: 'Echo.', inputSchema: { text: z.string() } }, async ({ text: value }) => ({ content: [{ type: 'text', text: value }] }))
@@ -146,6 +174,7 @@ export async function startFakeServers(): Promise<FakeServers> {
       return json(res, 200, { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } })
     }
     if (path === '/mcp') return mcp(req, res)
+    if (path === '/keyed/mcp') return keyedMcp(req, res)
     if (path === '/.well-known/oauth-protected-resource') {
       return json(res, 200, { resource: `${base}/mcp`, authorization_servers: [`${base}/as`], scopes_supported: ['read', 'write'] })
     }
@@ -192,6 +221,7 @@ export async function startFakeServers(): Promise<FakeServers> {
     base,
     mcpUrl: `${base}/mcp`,
     modernMcpUrl: `${base}/modern/mcp`,
+    keyedMcpUrl: `${base}/keyed/mcp`,
     resourceMetadataUrl: `${base}/.well-known/oauth-protected-resource`,
     async close() {
       http.closeAllConnections()

@@ -51,6 +51,30 @@ function accountList(listings: HostListing[] = []) {
 const theirs: HostListing = { id: 'theirs', label: 'Theirs', installationId: 'theirs', lastConnected: 1, routes: [{ url: 'http://theirs:1', kind: 'lan', source: 'pairing', seenAt: 1 }] }
 
 describe('native host registry', () => {
+  test('a refused host listed before client pairing dials with the paired token on its live connection, without a restart', async () => {
+    const { registry, connections, transports, secrets } = createHostWorld()
+    await registry.load()
+    const live = { ...theirs, routes: [{ kind: 'lan' as const, url: 'https://theirs.test' }] }
+    const list = accountList([live])
+    await registry.useListSource(list.source)
+    const connection = connections.connection(theirs.id)!
+    const api = connection.api
+    expect(transports[0]!.sessionToken).toBe('')
+    // The host refused this phone before it paired: no token to present yet.
+    transports[0]!.fail('auth-blocked')
+    expect(transports[0]!.hasUntriedSessionToken()).toBe(false)
+    try {
+      await registry.savePaired({ id: theirs.id, label: theirs.label, url: live.routes[0]!.url }, 'paired-live-token')
+      expect(connections.connection(theirs.id)).toBe(connection)
+      expect(connection.api).toBe(api)
+      expect(transports).toHaveLength(1)
+      expect(transports[0]!.sessionToken).toBe('paired-live-token')
+      expect(transports[0]!.dials).toBe(2)
+      expect(secrets.values.get(`solus.mobile.hostToken.${theirs.id}`)).toBe('paired-live-token')
+      expect(list.held.get(theirs.id)?.installationId).toBe(theirs.id)
+    } finally { connections.dispose(theirs.id) }
+  })
+
   test('a paired host and its credential survive an app restart, kept apart', async () => {
     const { storage, secrets, registry } = createHostWorld()
     await registry.load()
@@ -346,9 +370,9 @@ describe('native host connections', () => {
     expect(first).toBe(second)
     expect(transports).toHaveLength(1)
     // The dial goes out once the host has proved itself on its http route.
-    await flushPromises()
+    await transports[0]!.whenDialed(1)
     expect(transports[0]?.dials).toBe(1)
-    expect(transports[0]?.options.sessionToken).toBe('ta')
+    expect(transports[0]?.sessionToken).toBe('ta')
   })
 
   test('a host that answers with another installation id is blocked, not used', async () => {
@@ -444,7 +468,7 @@ describe('native host connections', () => {
     })])
     connections.connection('inst-cloud')
     const transport = transports[0]
-    expect(transport?.options.sessionToken).toBe('')
+    expect(transport?.sessionToken).toBe('')
     expect(await transport?.options.grants?.acquire()).toBe('grant-for-inst-cloud')
     expect(await transport?.options.grants?.acquire({ refused: 'grant-old' })).toBe('grant-for-inst-cloud')
     expect(grantOptions).toEqual([undefined, { refused: 'grant-old' }])
@@ -498,8 +522,9 @@ describe('native host connections', () => {
     const [cloud, paired] = transports
     // An access token lists every organization that reaches the host; the dial picks one (ADR 0001 §6.4).
     expect(cloud?.options.dialOrganizationId?.()).toBe('org-1')
-    expect(paired?.options.grants).toBeUndefined()
-    expect(paired?.options.dialOrganizationId).toBeUndefined()
+    // A paired host's dial presents the phone's session token ahead of any grant, so it names no organization (ws-dial-organization.test.ts).
+    expect(paired?.sessionToken).toBe('token-a')
+    expect(cloud?.sessionToken).toBe('')
   })
 
   test('a managed host whose compute is not ready is not dialed', async () => {
@@ -560,14 +585,14 @@ describe('native host connections', () => {
     await registry.load()
     await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1', identityKey: identityKeyFor('inst-a') }, 'ta')
     connections.connection('inst-a')
-    await flushPromises()
+    await transports[0]!.whenDialed(1)
     transports[0]?.fail('dial-failed')
     // The grace and the next dial.
     expect(timers.pending.size).toBe(2)
     connections.suspend(0)
     connections.resume(60_000)
     // The host proves itself on its http route again before the dial goes out.
-    await flushPromises()
+    await transports[0]!.whenDialed(2)
     expect(transports[0]?.dials).toBe(2)
     // The due dial ran now; only the grace, started again, waits.
     expect(timers.pending.size).toBe(1)

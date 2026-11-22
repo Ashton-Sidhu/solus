@@ -65,7 +65,7 @@ export class WorkspaceProjectsStore {
   /** Load each workspace service's list as it connects, and reload it when
    *  another client changes it. Returns the unsubscribe. */
   listen(isSolusApi: (serverId: string) => boolean): () => void {
-    for (const serverId of serverConnections.connectedServerIds()) {
+    for (const serverId of serverConnections.serverIds()) {
       if (isSolusApi(serverId)) void this.load(serverId)
     }
     const unsubStatus = serverConnections.onReadinessChange((serverId, status) => {

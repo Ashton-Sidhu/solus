@@ -234,6 +234,15 @@ describe('SessionEventReducer card stream boundaries', () => {
     expect(session.currentActivity).toBe('Thinking...')
   })
 
+  test('a late final thought updates its original row before the tool', async () => {
+    const { reducer, session } = await createReducer([])
+    reducer.apply('session-1', { type: 'thinking', state: 'update', thoughtId: 'one', text: 'Reading' })
+    expect(session.messages[0]?.thoughts).toEqual(['Reading'])
+    reducer.apply('session-1', { type: 'tool_call', toolName: 'Read', toolId: 'read', index: 0 })
+    reducer.apply('session-1', { type: 'thinking', state: 'stop', thoughtId: 'one', text: 'Reading the config' })
+    expect(session.messages.map(row => row.thoughts?.[0] ?? row.toolName)).toEqual(['Reading the config', 'Read'])
+  })
+
   test('hands the thoughts to the next tool call, once', async () => {
     // WHY: the tool group opens the thoughts that led to the call. A thought
     // with no readable text adds nothing, and thoughts must not leak onto a

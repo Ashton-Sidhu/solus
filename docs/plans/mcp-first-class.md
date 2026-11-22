@@ -1295,20 +1295,20 @@ never from an old list.
 
 ### 9.4 A server that an agent started
 
-The registry knows the session that started a process (`startedBy`). When
-`LocalMcpServers` first sees an MCP endpoint whose running server an agent
-started, it calls `gateway.askForCustomServer({ sessionId, name, url })`,
-once for that process and endpoint. That is the card that
-`connect_integration({ custom: true })` raises today
-(`integration.customServerNeeded`): the address is filled in, and the person
-adds the server. An agent cannot add an address by itself. The card says the
-tools join the next message. After the add, focus returns to the input bar.
+Only the agent asks for the card. `runtime-instructions.ts` gains one
+sentence in the block that goes with `connect_integration`: "To test an MCP
+server that you started on this host, call connect_integration with custom:
+true and its localhost URL. The user adds it, and its tools join your next
+turn." That call raises the card (`integration.customServerNeeded`): the
+address is filled in, and the person adds the server. An agent cannot add an
+address by itself. The card says the tools join the next message. After the
+add, focus returns to the input bar. Both providers get the sentence and the
+card.
 
-`runtime-instructions.ts` gains one sentence in the block that goes with
-`connect_integration`: "To test an MCP server that you started on this host,
-call connect_integration with custom: true and its localhost URL. The user
-adds it, and its tools join your next turn." Thus the offer also works when
-no client holds a lease. Both providers get the sentence and the card.
+`LocalMcpServers` does not raise the card when it finds an MCP endpoint of an
+agent's process. It did at first, and the card came for the short-lived
+fixture servers of an agent's `bun test` run, which had stopped before the
+person saw the card. The server shows in **Found on this host** only.
 
 Reverse action: **Remove** on the installed row. The card can be dismissed;
 the found server stays in Settings.
@@ -1324,8 +1324,7 @@ One POST for one process. A person adds; nothing is added automatically.
 registry): a JSON-RPC error counts as MCP; an HTML page gets no POST to `/`;
 a verdict is not asked twice for one `serverId`; a new `serverId` is checked
 again; `reachable` is `unknown` without a fresh list; a refused call gives
-the "not running" text; a listener that comes back drops the facts; an
-endpoint of an agent's process raises one card in that session.
+the "not running" text; a listener that comes back drops the facts.
 
 ### 9.5 As built (D)
 

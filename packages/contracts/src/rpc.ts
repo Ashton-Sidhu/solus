@@ -216,6 +216,7 @@ export const RPC_INVOKE_METHODS = [
   'setSessionBranch',
   'sessionPullRequestWatch',
   'sessionArtifactsList',
+  'sessionTree',
   'listRecentProjects',
   'trackRecentProject',
   'listPlans',
@@ -575,7 +576,6 @@ export const RPC_INVOKE_METHODS = [
   'generateGuide',
   'requestReviewGuide',
   'reviewGuideStatus',
-  'sessionGuideStatuses',
   'prGuideStatuses',
   'cancelGenerateGuide',
   'readGuide',
@@ -733,6 +733,8 @@ export const RPC_INVOKE_METHODS = [
 
   // Subscription quota per agent provider
   'usageLimits',
+  'usageWatch',
+  'usageUnwatch',
   'hostResources',
   'runningServersList',
   'runningServersWatch',

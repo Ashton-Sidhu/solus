@@ -12,7 +12,7 @@ mock.module('@solus/client-core/server-connections', () => ({
     defaultServerId: () => 'host-a',
     // The works store reads host roles from the hosts registry, which listens for connections.
     resolveId: (serverId: string) => serverId,
-    connectedServerIds: () => [],
+    serverIds: () => [],
     onConnectionCreated: () => () => {},
     onStatusChange: () => () => {},
     apiFor: (serverId: string) => ({

@@ -33,11 +33,6 @@
   function connectSeat() {
     if (seatProvider) seatsStore.noteRefusal(runHost(sess.run), sess.id, seatProvider);
   }
-
-  /** A sync that failed on this host opens the Run on list of the composer. */
-  function chooseHost() {
-    window.dispatchEvent(new CustomEvent("solus:toggle-run-picker", { detail: {} }));
-  }
 </script>
 
 <!-- A finished setup card belongs to the turn its send started, so the last
@@ -59,6 +54,5 @@
     {onCancel}
     onConnectSeat={connectSeat}
     connectSeatLabel={seatProvider === "codex" ? "Connect Codex" : "Connect Claude"}
-    onChooseHost={chooseHost}
   />
 {/if}

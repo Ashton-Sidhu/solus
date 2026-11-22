@@ -23,7 +23,7 @@ import type {
 } from '@solus/contracts/types'
 import type { DraftReview, PrConversationItem, ReviewComment, ReviewThread } from '@solus/contracts/providers'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
-import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '@solus/contracts/review'
+import { reviewGuideKeyForTarget, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '@solus/contracts/review'
 import type {
   Task,
   TaskComment,
@@ -547,15 +547,15 @@ export class DemoStore {
    *  and a visitor who clicks "Review changes" has no way to wait for one — so
    *  the report is reported ready and the button reads "View report" from the
    *  first frame. */
-  reviewGuideStatus(ctx: Pick<IpcContext, 'session'>, scope: 'branch' | 'session'): ReviewGuideStatusEvent {
+  reviewGuideStatus(): ReviewGuideStatusEvent {
     // The key must be the one the renderer derives, and the renderer derives it
     // from the checkout `gitRefreshState` reports — one state for the whole demo
     // project, whatever branch an individual tab remembers starting on.
     const branch = this.fixtures.gitStatus.branch ?? 'main'
     return {
       repoRoot: this.fixtures.gitStatus.repoRoot,
-      key: reviewGuideKeyFor(branch, scope, ctx.session.agentSessionId),
-      scope,
+      key: reviewGuideKeyForTarget({ kind: 'branch' }, branch),
+      scope: 'branch',
       status: 'ready',
       headSha: this.fixtures.gitStatus.headSha,
       updatedAt: FIXTURE_EPOCH,

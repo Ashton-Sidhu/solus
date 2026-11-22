@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { describe, expect, mock, spyOn, test } from 'bun:test'
 import { RunningServersController, type RunningServersSource } from '@solus/client-core/running-servers'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { RunningServer } from '@solus/contracts/running-servers'
@@ -7,7 +7,7 @@ import { runningServer } from './running-server-fixtures'
 function setup() {
   const events = new HostEventSubscriber()
   let resolve: (servers: RunningServer[]) => void = () => {}
-  const watch = mock(() => new Promise<RunningServer[]>((answer) => { resolve = answer }))
+  const watch = mock((_paths: string[]) => new Promise<RunningServer[]>((answer) => { resolve = answer }))
   const unwatch = mock(async () => {})
   const source: RunningServersSource = { api: { runningServersWatch: watch, runningServersUnwatch: unwatch, runningServerStop: async () => ({ status: 'stopped' }), runningServerTunnel: async () => ({ relativeUrl: '/tunnel', expiresAt: 1 }), runningServersCheckoutRoots: async (paths) => paths.map((path) => ({ path, root: path })), projectConfigLoad: async () => null, projectConfigSave: async (_path, config) => config }, events, ready: true }
   let connectionChanged = () => {}
@@ -32,6 +32,33 @@ describe('shared running server state', () => {
     expect(s.unwatch).toHaveBeenCalledTimes(1)
     second()
     expect(s.unwatch).toHaveBeenCalledTimes(1)
+  })
+
+  // The host keeps a watch until the client leaves and pushes changes, so a
+  // held watch costs no traffic; only a port forward's ticket needs renewal.
+  test('a held watch without forwards schedules no renewal', async () => {
+    const interval = spyOn(globalThis, 'setInterval')
+    const s = setup()
+    const release = s.store.retain()
+    await s.answer()
+    expect(interval).not.toHaveBeenCalled()
+    expect(s.watch).toHaveBeenCalledTimes(1)
+    release()
+    interval.mockRestore()
+  })
+
+  test('checkout rows that mount and unmount together send one watch each way', async () => {
+    const s = setup()
+    const release = s.store.retain()
+    await s.answer()
+    const releases = ['/a', '/b', '/b'].map((path) => s.store.retainCheckout(path))
+    await Promise.resolve()
+    expect(s.watch.mock.calls.map(([paths]) => paths)).toEqual([[], ['/a', '/b']])
+    await s.answer()
+    for (const releaseCheckout of releases) releaseCheckout()
+    await Promise.resolve()
+    expect(s.watch.mock.calls.map(([paths]) => paths)).toEqual([[], ['/a', '/b'], []])
+    release()
   })
 
   test('a changed event cannot be overwritten by an older initial RPC', async () => {
@@ -135,7 +162,8 @@ test('forwarding keeps discovery retained and Stop forwarding closes its last le
   await server.stopForward('forward')
   expect(server.forwards).toEqual([])
   expect(stop).toHaveBeenCalledWith('forward')
-  expect(s.unwatch).toHaveBeenCalledTimes(1)
+  // A watch still in flight when the last holder leaves is closed again when it answers.
+  expect(s.unwatch).toHaveBeenCalled()
 })
 
 test('a refresh updates the same RunningServers object, and a removed identity cannot be stopped', async () => {

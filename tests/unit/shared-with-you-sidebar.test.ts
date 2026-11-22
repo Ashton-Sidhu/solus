@@ -151,7 +151,7 @@ describe('a new share tells the reader once', () => {
       },
     }))
     const subscribe = spyOn(serverConnections, 'eventsFor').mockReturnValue(events)
-    const store = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] })
+    const store = new SessionListStore({ connectedRunnerFor: () => null, serverIds: () => ['host'] })
     try {
       await store.load()
       // The owner's completion must not clear the reader's list.
@@ -197,7 +197,7 @@ describe('a new share tells the reader once', () => {
       sessionUpdate: async () => ({ view: { archivedAt: 1, snoozedUntil: null, snoozeNote: null } }),
     }))
     const subscribe = spyOn(serverConnections, 'eventsFor').mockReturnValue(new HostEventSubscriber())
-    const store = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] }, 100)
+    const store = new SessionListStore({ connectedRunnerFor: () => null, serverIds: () => ['host'] }, 100)
     try {
       await store.load()
       await store.setArchived({ serverId: 'host', sessionId: 'closed-here' }, true)
@@ -226,7 +226,7 @@ describe('a new share tells the reader once', () => {
       sessionRecordGet: async (sessionId) => { gets.push(sessionId); return records.find((listed) => listed.sessionId === sessionId) ?? null },
     }))
     const subscribe = spyOn(serverConnections, 'eventsFor').mockReturnValue(events)
-    const store = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] }, 100)
+    const store = new SessionListStore({ connectedRunnerFor: () => null, serverIds: () => ['host'] }, 100)
     const toasted: string[] = []
     store.onNewShares((granted) => toasted.push(...granted.map((listed) => listed.sessionId)))
     const shareChanged = async (sessionId: string) => {
@@ -287,7 +287,7 @@ test('a completed or archived pin moves with the optimistic list state and retur
   const pending = Promise.withResolvers<{ view: typeof EMPTY_SESSION_VIEW }>()
   const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({ sessionUpdate: () => pending.promise }))
   const events = spyOn(serverConnections, 'eventsFor').mockReturnValue(new HostEventSubscriber())
-  const list = new SessionListStore({ connectedRunnerFor: () => null, connectedServerIds: () => ['host'] })
+  const list = new SessionListStore({ connectedRunnerFor: () => null, serverIds: () => ['host'] })
   const state = spyOn(sessionListStore, 'stateFor').mockImplementation((sessionId) => list.stateFor(sessionId))
   // SAFETY: isPinned reads only pinnedSessions and the list's state.
   const sidebar = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore

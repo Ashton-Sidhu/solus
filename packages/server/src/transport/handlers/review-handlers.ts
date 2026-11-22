@@ -34,7 +34,7 @@ export function registerReviewHandlers(
   const guideTitle = (target: Extract<ReviewTarget, { kind: 'pr' }>) => `Guide for ${target.owner}/${target.repo}#${target.number}`
   const prTargetFor = (ctx: IpcContext, opts?: ReviewGuideRequestOptions): Extract<ReviewTarget, { kind: 'pr' }> | null => {
     if (opts?.target?.kind === 'pr') return opts.target
-    if (opts?.scope === 'session' || opts?.target) return null
+    if (opts?.target) return null
     const pr = ctx.session.prReview
     return pr ? { kind: 'pr', host: pr.host, owner: pr.owner, repo: pr.repo, number: pr.number } : null
   }
@@ -45,6 +45,8 @@ export function registerReviewHandlers(
 
   /** A PR review session asks about its own pull request when it names no target. */
   const withPrTarget = (ctx: IpcContext, opts: ReviewGuideRequestOptions = {}): ReviewGuideRequestOptions => {
+    if (opts.scope !== undefined && opts.scope !== 'branch') throw new Error('Invalid review guide scope.')
+    if (opts.target && !['working-tree', 'branch', 'pr'].includes(opts.target.kind)) throw new Error('Invalid review guide target.')
     const target = prTargetFor(ctx, opts)
     return target ? { ...opts, target } : opts
   }
@@ -88,7 +90,6 @@ export function registerReviewHandlers(
     return guides.status(ctx, withPrTarget(ctx, opts))
   })
 
-  server.register('sessionGuideStatuses', async ([sessions]) => guides.sessionStatuses(sessions))
 
   server.register('prGuideStatuses', async ([ctx, requests]) =>
     Promise.all(requests.map(({ target }) => guides.savedStatus(ctx, { target }))))

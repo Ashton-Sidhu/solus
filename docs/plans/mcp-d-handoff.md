@@ -63,11 +63,9 @@ mobile, Linux, Windows.
 - A refused call to a loopback integration answers "`<name>` is not running on
   `<host display name>`. Start it, then try again." (`callFailureText` in
   `gateway.ts`; the session-open error now keeps its `cause`).
-- §9.4: an MCP endpoint whose process an agent started (`startedBy.kind:
-  'agent'` with a session) raises `gateway.askForCustomServer` once for that
-  process and endpoint, unless an integration already has that local address.
-  `runtime-instructions.ts` gives a run that has `connect_integration` the
-  sentence of §9.4.
+- §9.4: `runtime-instructions.ts` gives a run that has `connect_integration`
+  the sentence of §9.4. (An MCP endpoint of an agent's process raised the card
+  by itself at first; that was removed, see §9.4.)
 - `IntegrationStore.listAnyOwner(scope)`: every record, whoever owns it, so a
   listener that comes back changes each integration on its port.
 
@@ -245,8 +243,7 @@ Each was looked at. Mobile was not captured: it needs a native build.
   and another answer or an ended process adds nothing; an unavailable scan;
   Not running is derived and never written; a server that starts again is
   listed again by the real gateway (`modernToolLists` 1 → 2); another process
-  on the port drops the list; a refused call gives the text; one card for an
-  agent's server and none otherwise; the runtime sentence.
+  on the port drops the list; a refused call gives the text; the runtime sentence.
 - `bun test tests/unit/integrations/`: 386 pass, 0 fail.
   `runtime-instructions` 24/0, `running-servers-*` 38/0,
   `integrations-store` 24/0, `integrations-store-commands` 9/0,

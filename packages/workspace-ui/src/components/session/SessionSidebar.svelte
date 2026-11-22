@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
-  import { onMount, tick, untrack } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
@@ -98,6 +98,29 @@
   const isGuest = $derived(hosts.runOn?.me.isGuest ?? false);
   const theme = getSettingsContext();
   const sidebarStore = getSessionSidebarStore();
+  const automationWatches = new Map<string, () => void>();
+  $effect(() => {
+    const hostIds = new Set<string>();
+    if (open && !isGuest) {
+      for (const row of sidebarStore.catalogTasks) {
+        if (row.automationId && row.serverId) hostIds.add(row.serverId);
+      }
+      for (const pin of sidebarStore.pinnedSessions) {
+        if (pin.serverId && sessionListStore.listed(pin.sessionId)?.automationId) hostIds.add(pin.serverId);
+      }
+    }
+    untrack(() => {
+      for (const [hostId, stop] of automationWatches) {
+        if (hostIds.has(hostId)) continue;
+        stop();
+        automationWatches.delete(hostId);
+      }
+      for (const hostId of hostIds) {
+        if (!automationWatches.has(hostId)) automationWatches.set(hostId, session.automationsStore.watchHost(hostId));
+      }
+    });
+  });
+  onDestroy(() => automationWatches.forEach((stop) => stop()));
   // The title bar's sky shows the scene the person chose, or the clock's.
   // Dusk and night are dark in both themes. With the sky off the title bar is
   // plain and the content keeps no room for it.
@@ -829,8 +852,11 @@
 
 {#snippet pinnedRow(pin: PinnedSession)}
   {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
+  {@const automationId = openTabId ? sidebarStore.taskForTab(openTabId)?.automationId : sessionListStore.listed(pin.sessionId)?.automationId}
   <PinnedSessionRow
     {pin}
+    isAutomation={!!automationId}
+    automationName={sidebarStore.automationName(automationId, pin.serverId)}
     isCurrentSession={!!openTabId && openTabId === session.onScreenTabId}
     onOpen={() => {
       void sidebarStore.openPinnedSession(pin);

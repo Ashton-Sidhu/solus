@@ -25,6 +25,24 @@ export class IntegrationSignIn {
     return this.integration.auth.kind !== 'none'
   }
 
+  /** The names a person gives a value for: a command's variables, or a server's headers. Empty for the other kinds. */
+  get valueNames(): readonly string[] {
+    const { auth } = this.integration
+    return auth.kind === 'env' || auth.kind === 'headers' ? auth.names : []
+  }
+
+  /**
+   * True when the person's sign-in must run on the host, never through their
+   * Solus account: a command's or a `headers` server's values stay on the host
+   * (mcp-first-class.md §7.8, mcp-add-server.md), only the host holds an
+   * owner's OAuth client, and only the host's sign-in sends the record's scopes.
+   */
+  get signsInOnHost(): boolean {
+    const { auth } = this.integration
+    if (auth.kind === 'env' || auth.kind === 'headers') return true
+    return auth.kind === 'oauth' && (auth.registration === 'client-required' || !!auth.clientId || !!auth.scopes)
+  }
+
   /** Every OAuth server can take a client the person enters. */
   get takesOAuthClient(): boolean {
     return this.integration.auth.kind === 'oauth'

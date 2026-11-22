@@ -24,6 +24,8 @@ export interface HostCredential {
   routes: HostRoute[]
   /** Route URLs in the order the person chose on this device. Absent is the default order. */
   routeOrder?: string[]
+  /** The owner host's pairing (`HostPairing.pairedAt`) this token came from; absent for a token this device paired itself. */
+  ownerPairedAt?: number
 }
 
 /**
@@ -60,6 +62,7 @@ const credentialSchema = z.object({
   tokenPairedOverHttps: z.boolean().optional().catch(undefined),
   routes: forwardCompatibleArray(hostRouteSchema).catch([]),
   routeOrder: z.array(z.string()).optional().catch(undefined),
+  ownerPairedAt: z.number().optional().catch(undefined),
 })
 const credentialsSchema = forwardCompatibleArray(credentialSchema)
 
@@ -84,6 +87,7 @@ export function decodeCredentials(raw: string): Map<string, HostCredential> | nu
     if (entry.identityKey) credential.identityKey = entry.identityKey
     if (entry.tokenPairedOverHttps) credential.tokenPairedOverHttps = true
     if (entry.routeOrder) credential.routeOrder = entry.routeOrder
+    if (entry.ownerPairedAt !== undefined) credential.ownerPairedAt = entry.ownerPairedAt
     credentials.set(hostId, credential)
   }
   return credentials

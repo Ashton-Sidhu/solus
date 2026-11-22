@@ -74,7 +74,6 @@ export function singleHostServerConnections() {
 
   return {
     serverInfoFor: (serverId: string) => api(serverId).connectionsGetServerInfo(),
-    registerTarget: () => {},
     registerPrimary: (serverId: string, nextApi: object) => {
       primaryServerId = serverId
       apis.set(serverId, asHostApi(nextApi))
@@ -112,7 +111,7 @@ export function singleHostServerConnections() {
     serverIdForApi: (targetApi: HostApi) =>
       [...apis].find(([, candidate]) => candidate === targetApi)?.[0] ?? primaryServerId,
     withTemporaryConnection: async <T>(_serverId: string, operation: (value: HostApi) => Promise<T>) => operation(api()),
-    connectedServerIds: () => apis.size > 0 ? [...apis.keys()] : [primaryServerId],
+    serverIds: () => apis.size > 0 ? [...apis.keys()] : [primaryServerId],
     connectionFor: (serverId?: string) => connection(serverId),
     httpOriginFor: (serverId: string) => new URL(connection(serverId).target.url).origin,
     onConnectionCreated: () => () => {},

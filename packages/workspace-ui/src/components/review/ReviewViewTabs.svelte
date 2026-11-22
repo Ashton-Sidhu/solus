@@ -20,10 +20,12 @@
   let {
     view,
     guideState,
+    showGuide = true,
     lensState = "absent",
     onSelect,
   }: {
     view: ReviewView;
+    showGuide?: boolean;
     /** `absent` offers generation, `generating` reports it, `unread` marks a
      *  guide that became ready on another tab, `ready` is the quiet state. */
     guideState: "absent" | "generating" | "unread" | "ready";
@@ -38,6 +40,8 @@
     { id: "lens", label: "Lens" },
     { id: "diff", label: "Diff" },
   ];
+
+  const tabs = $derived(showGuide ? TABS : TABS.filter((tab) => tab.id !== "guide"));
 
   const guideHint = $derived(
     guideState === "absent"
@@ -68,7 +72,7 @@
   role="tablist"
   aria-label="Review views"
 >
-  {#each TABS as tab (tab.id)}
+  {#each tabs as tab (tab.id)}
     {@const isActive = view === tab.id}
     {@const isUnread =
       (tab.id === "guide" && guideState === "unread") || (tab.id === "lens" && lensState === "unread")}

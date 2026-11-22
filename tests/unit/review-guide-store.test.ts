@@ -120,33 +120,6 @@ describe('ReviewGuideStore', () => {
     expect(store.statusFor(HOST, identity)?.status).toBe('ready')
   })
 
-  test('shows manual session review progress in the action row identity', async () => {
-    // WHY: /review:session names a typed target, while the session action row
-    // names the same guide by its stable session key. Both surfaces must read
-    // one lifecycle entry or the button stays idle during manual generation.
-    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { ReviewGuideStore } = await import(
-      '@solus/workspace-ui/components/review/review-guide.store.svelte'
-    )
-    const events = new HostEventSubscriber()
-    const store = new ReviewGuideStore(() => events)
-    const actionRowIdentity = { repoRoot: '/repo', key: 'session-provider-1' }
-
-    store.bind(HOST)
-    events.receive({
-      type: 'review.guideStatusChanged',
-      payload: status({
-        key: 'session-provider-1',
-        scope: 'session',
-        target: { kind: 'session' },
-        status: 'generating',
-      }),
-      occurredAt: 2,
-    })
-
-    expect(store.statusFor(HOST, actionRowIdentity)?.status).toBe('generating')
-  })
-
   test('notifies once when a live generation becomes ready, but not for cached guides', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(
@@ -198,112 +171,6 @@ describe('ReviewGuideStore', () => {
     store.set(HOST, status({ status: 'generating', updatedAt: 3 }))
     expect(store.indicatorStatusFor(HOST, identity)?.status).toBe('generating')
     store.set(HOST, status({ updatedAt: 4 }))
-    expect(store.indicatorStatusFor(HOST, identity)?.status).toBe('ready')
-  })
-
-  test('treats a cached session guide as read when its closed session reopens', async () => {
-    // WHY: reopening the conversation is already an acknowledgement of its
-    // completed work. Restoring a cached guide must not add a fresh sidebar
-    // notification for work that finished before the session was reopened.
-    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { ReviewGuideStore } = await import(
-      '@solus/workspace-ui/components/review/review-guide.store.svelte'
-    )
-    const cached = status({
-      key: 'session-provider-1',
-      scope: 'session',
-      target: { kind: 'session' },
-    })
-    const api = { reviewGuideStatus: async () => cached } as unknown as typeof window.solus
-    const store = new ReviewGuideStore(() => new HostEventSubscriber())
-    const identity = { repoRoot: '/repo', key: cached.key }
-
-    await store.acknowledgeSessionGuide(api, HOST, {} as never, identity)
-
-    expect(store.statusFor(HOST, identity)?.status).toBe('ready')
-    expect(store.indicatorStatusFor(HOST, identity)).toBeNull()
-  })
-
-  test('a reopened session is acknowledged and tracked from one host request', async () => {
-    // WHY: the restore path acknowledges the guide and the session tracker
-    // probes it in the same tick. Both name the same guide, so the second
-    // asker joins the first request instead of costing another RPC per open.
-    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { ReviewGuideStore } = await import(
-      '@solus/workspace-ui/components/review/review-guide.store.svelte'
-    )
-    const cached = status({ key: 'session-provider-1', scope: 'session', target: { kind: 'session' } })
-    let requests = 0
-    const api = { reviewGuideStatus: async () => { requests++; return cached } } as unknown as typeof window.solus
-    const store = new ReviewGuideStore(() => new HostEventSubscriber())
-    const identity = { repoRoot: '/repo', key: cached.key }
-
-    const acknowledged = store.acknowledgeSessionGuide(api, HOST, {} as never, identity)
-    const tracked = store.load(api, HOST, {} as never, { ...identity }, 'session')
-    await Promise.all([acknowledged, tracked])
-
-    expect(requests).toBe(1)
-    expect(store.statusFor(HOST, identity)?.status).toBe('ready')
-    expect(store.indicatorStatusFor(HOST, identity)).toBeNull()
-  })
-
-  test('a restored workspace probes every session guide with one host request', async () => {
-    // WHY: one round trip per restored tab is what stalled the first
-    // transcript on cold boot. The batch answers each tab's entry, and a
-    // reopen acknowledgement for one of them joins the batch instead of
-    // asking again.
-    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { ReviewGuideStore } = await import(
-      '@solus/workspace-ui/components/review/review-guide.store.svelte'
-    )
-    const guides = [1, 2, 3].map((index) => status({
-      key: `session-provider-${index}`, scope: 'session', target: { kind: 'session' },
-    }))
-    let batchRequests = 0
-    let singleRequests = 0
-    const api = {
-      sessionGuideStatuses: async (sessions: { agentSessionId: string }[]) => {
-        batchRequests++
-        return sessions.map((session) => guides.find((guide) => guide.key === `session-${session.agentSessionId}`) ?? null)
-      },
-      reviewGuideStatus: async () => { singleRequests++; return null },
-    } as unknown as typeof window.solus
-    const store = new ReviewGuideStore(() => new HostEventSubscriber())
-    const probes = guides.map((guide, index) => ({
-      ctx: { session: { agentSessionId: `provider-${index + 1}` } } as never,
-      identity: { repoRoot: '/repo', key: guide.key },
-    }))
-
-    const batched = store.loadSessions(api, HOST, probes)
-    const acknowledged = store.acknowledgeSessionGuide(api, HOST, probes[1].ctx, probes[1].identity)
-    await Promise.all([batched, acknowledged])
-
-    expect(batchRequests).toBe(1)
-    expect(singleRequests).toBe(0)
-    for (const probe of probes) expect(store.statusFor(HOST, probe.identity)?.status).toBe('ready')
-    expect(store.indicatorStatusFor(HOST, probes[1].identity)).toBeNull()
-  })
-
-  test('does not acknowledge a session guide that finishes after the session reopens', async () => {
-    // WHY: reopening while generation is in flight must not consume the future
-    // completion notification. Only the guide that already existed is read.
-    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { ReviewGuideStore } = await import(
-      '@solus/workspace-ui/components/review/review-guide.store.svelte'
-    )
-    const generating = status({
-      key: 'session-provider-1',
-      scope: 'session',
-      target: { kind: 'session' },
-      status: 'generating',
-    })
-    const api = { reviewGuideStatus: async () => generating } as unknown as typeof window.solus
-    const store = new ReviewGuideStore(() => new HostEventSubscriber())
-    const identity = { repoRoot: '/repo', key: generating.key }
-
-    await store.acknowledgeSessionGuide(api, HOST, {} as never, identity)
-    store.set(HOST, { ...generating, status: 'ready', updatedAt: 2 })
-
     expect(store.indicatorStatusFor(HOST, identity)?.status).toBe('ready')
   })
 
@@ -380,7 +247,6 @@ describe('ReviewGuideStore', () => {
 
   test.each([
     [{ kind: 'working-tree' }, 'working-tree-main', 'working-tree'],
-    [{ kind: 'session' }, 'session-provider-1', 'session'],
     [{ kind: 'branch', targetBranch: 'main' }, 'main', 'branch'],
     [{ kind: 'pr', host: 'github.com', owner: 'acme', repo: 'app', number: 42 }, 'pr-github.com-acme-app-42', 'pr'],
   ] as Array<[ReviewTarget, string, ReviewGuideStatusEvent['scope']]>)('settles a completed %s request as outdated when its reviewed change moved', async (target, key, scope) => {

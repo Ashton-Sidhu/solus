@@ -48,9 +48,9 @@ async function listedFor(gateway: IntegrationGateway, integration: Integration, 
   }
 }
 
-/** What a missing connection asks for: a command's values, or a sign-in. */
+/** What a missing connection asks for: values (a command's variables, or a server's headers), or a sign-in. */
 function needsOf(integration: Integration): IntegrationPromptSignIn['needs'] {
-  return integration.auth.kind === 'env' ? 'environment' : 'sign-in'
+  return integration.auth.kind === 'env' || integration.auth.kind === 'headers' ? 'environment' : 'sign-in'
 }
 
 /**

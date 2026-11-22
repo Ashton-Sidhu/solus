@@ -5,7 +5,7 @@ import { hostCatalog } from '@solus/client-core/host-catalog'
 import { replaceModelProfiles, type ModelProfilesStatus } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 
-type ModelProfilesConnections = Pick<typeof serverConnections, 'readinessFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onReadinessChange'> & {
+type ModelProfilesConnections = Pick<typeof serverConnections, 'readinessFor' | 'capabilitiesFor' | 'serverIds' | 'onConnectionCreated' | 'onReadinessChange'> & {
   apiFor(serverId: string): Pick<SolusAPI, 'modelProfilesStatus' | 'modelProfilesRefresh' | 'modelProfilesCheck'>
 }
 
@@ -40,7 +40,7 @@ export class ModelProfilesStore {
       this.statuses.delete(server.id)
       this.errors.delete(server.id)
     })
-    for (const serverId of this.connections.connectedServerIds()) void this.load(serverId)
+    for (const serverId of this.connections.serverIds()) void this.load(serverId)
   }
 
   async load(serverId: string): Promise<void> {

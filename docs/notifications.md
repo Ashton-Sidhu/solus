@@ -61,7 +61,7 @@ check for a finished turn. System alerts keep the platform's own icon.
 
 | Event | Sources |
 |---|---|
-| Review guide ready | `reviewGuideStore.onReady` in `app-core.ts` (PR and session guides); the PR row in the project panel when the guide finishes after the row is gone |
+| Review guide ready | `reviewGuideStore.onReady` in `app-core.ts` (PR guides); the PR row in the project panel when the guide finishes after the row is gone |
 | Review lens ready | `reviewLensStore.onReady` in `app-core.ts`, for a lens run this client saw start or run. A PR lens toast has **Open lens** |
 | Software updates | Desktop: the download and restart prompts for the app itself (`desktop-updates.svelte.ts`). Any client: one notice for every Solus release on every connected host, with **Update all** (`host-update-notices.svelte.ts`). Claude Code and Codex releases are not announced; Settings, the header update button, and the palette offer them. See "Host updates" below |
 | Teammates | "X joined" and "X left" in `presence.store` |

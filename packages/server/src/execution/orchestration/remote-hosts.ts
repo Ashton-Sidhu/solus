@@ -1,13 +1,13 @@
 import { dialHostSocket } from '@solus/client-core/host-socket'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
-import { answersAsSavedHost } from '@solus/client-core/host-link'
-import { HostSupervisor, type DialOutcome } from '@solus/client-core/host-supervisor'
+import { answersAsSavedHost, HostLink, type AdvertisedHost } from '@solus/client-core/host-link'
 import { WsTransport } from '@solus/client-core/ws-transport'
 import { carriesTokenInClear, chooseRoute, dialableRoutes, mergeRoutes, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
 import { routeNeedsProof } from '@solus/contracts/host-identity'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { DirectoryHost } from '@solus/contracts/uplink'
+import type { HostListing } from '@solus/contracts/host-list'
 import { createLogger } from '../../logger'
 import type { HostPairings } from '../../host/host-pairings'
 import type { IntroducedHosts } from './introduced-hosts'
@@ -56,7 +56,8 @@ export interface HostTarget {
   routes: HostRoute[]
   /** The target's identity key: a credential goes on an `http:` route only after the target proves it. */
   identityKey?: string
-  source: 'account' | 'introduced' | 'forwarded' | 'paired'
+  /** `listed`: on the person's host list, but this host holds no credential for it. */
+  source: 'account' | 'introduced' | 'forwarded' | 'paired' | 'listed'
   /** One connection per person and host: two people never share a socket to another host. */
   connectionKey: string
   /** The credential for one dial; null when none could be had. */
@@ -71,7 +72,8 @@ export interface ListedRemoteHost {
   installationId: string
   name: string
   source: HostTarget['source']
-  status: 'online' | 'unreachable' | 'auth-required' | 'not-ready'
+  /** `not-paired`: this host holds no credential for it; `pair_host` here gives it one. */
+  status: 'online' | 'unreachable' | 'auth-required' | 'not-ready' | 'not-paired'
   managedState?: DirectoryHost['managedState']
   routes: HostRoute[]
 }
@@ -104,14 +106,17 @@ interface Connection {
   /** The target as last listed; its routes can change while the connection lives. */
   routing: { target: HostTarget }
   host: RemoteHost
-  transport: WsTransport
-  supervisor: HostSupervisor
+  /** The same link a client holds to a host: its dials, route choice, retries, and facts. */
+  link: HostLink
 }
 
 /**
  * The connections this host keeps to a person's other hosts: one per person and
- * host, opened on first use. A host is one the account plane says the person
- * reaches, or, for the owner, one this host was introduced to; any other is refused.
+ * host, opened on first use. The hosts are the same ones a client of this host
+ * lists (the account directory and the person's host list), each with how this host
+ * reaches it: through the account, or, for the owner, a pairing, an introduction, or
+ * a forward. A host on the list that this host holds no credential for is listed as
+ * `listed`, so an agent sees it and why it cannot start work there.
  */
 export class RemoteHosts {
   private readonly connections = new Map<string, Connection>()
@@ -131,19 +136,9 @@ export class RemoteHosts {
     private readonly forwarded: ForwardedHostSource = { list: () => [], credential: () => null },
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly pairings: Pick<HostPairings, 'snapshot' | 'credential'> = { snapshot: () => ({ hosts: [], forgotten: [] }), credential: async () => null },
+    /** The person's host list as this host keeps it (`host_list`), the list its clients read while signed out. */
+    private readonly hostList: () => HostListing[] = () => [],
   ) {}
-
-  /** One dial, on the route that answers first as the target. No route proved the target: no credential goes anywhere. */
-  private async dial(target: HostTarget, transport: WsTransport, report: (outcome: DialOutcome) => void): Promise<void> {
-    const routes = dialableRoutes(target.routes, '', this.selfInstallationId()).filter(safeHostDialRoute)
-    const route = await chooseRoute(routes, (url, signal) => this.answersAsTarget(target, url, signal))
-    if (!route) {
-      report({ kind: 'dial-failed' })
-      return
-    }
-    if (transport.serverUrl !== route.url) transport.switchServerUrl(route.url)
-    transport.start({ hostConfirmed: true })
-  }
 
   private answersAsTarget(target: HostTarget, url: string, signal: AbortSignal): Promise<boolean> {
     const route = target.routes.find((candidate) => candidate.url === url) ?? { url }
@@ -151,13 +146,11 @@ export class RemoteHosts {
   }
 
   /** Keeps what a connected target says about itself, for the next list of targets. */
-  private async learn(target: HostTarget, api: HostApi): Promise<void> {
-    const info = await api.connectionsGetServerInfo().catch(() => null)
-    if (!info) return
+  private learn(target: HostTarget, advertised: AdvertisedHost): void {
     const known = this.learned.get(target.installationId)
     this.learned.set(target.installationId, {
-      routes: mergeRoutes(known?.routes ?? [], info.routes, 'host', Date.now()),
-      identityKey: known?.identityKey ?? target.identityKey ?? info.identityKey,
+      routes: mergeRoutes(known?.routes ?? [], advertised.routes, 'host', Date.now()),
+      identityKey: known?.identityKey ?? target.identityKey ?? advertised.identityKey,
     })
   }
 
@@ -165,7 +158,7 @@ export class RemoteHosts {
   async list(request: ReachRequest, includeUnroutable = false): Promise<HostTarget[] | { error: string }> {
     const account = await this.accountTargets(request.account, includeUnroutable)
     const listed = new Set(account.map((host) => host.installationId))
-    const paired: HostTarget[] = request.isOwner ? this.pairings.snapshot().hosts.filter((host) => !listed.has(host.installationId)).map((host) => ({
+    const paired: HostTarget[] = request.isOwner ? this.pairings.snapshot().hosts.map(({ listing }) => listing).filter((host) => !listed.has(host.installationId)).map((host) => ({
       hostId: host.installationId, installationId: host.installationId, label: host.label,
       routes: host.routes, identityKey: host.identityKey, source: 'paired',
       connectionKey: `paired:${host.installationId}`, credential: () => this.pairings.credential(host.installationId),
@@ -197,7 +190,22 @@ export class RemoteHosts {
         credential: async () => this.forwarded.credential(host.installationId),
       }))
       : []
-    const hosts = [...account, ...paired, ...introduced, ...forwarded]
+    // Every other host on the owner's list, with no way for this host to reach it.
+    for (const host of forwarded) known.add(host.installationId)
+    const self = this.selfInstallationId()
+    const listedOnly: HostTarget[] = request.isOwner
+      ? this.hostList().filter((host) => !known.has(host.installationId) && host.installationId !== self).map((host) => ({
+        hostId: host.installationId,
+        installationId: host.installationId,
+        label: host.label,
+        routes: host.routes,
+        identityKey: host.identityKey,
+        source: 'listed',
+        connectionKey: `listed:${host.installationId}`,
+        credential: async () => null,
+      }))
+      : []
+    const hosts = [...account, ...paired, ...introduced, ...forwarded, ...listedOnly]
     return hosts.length > 0 ? hosts : { error: NO_REACH }
   }
 
@@ -213,6 +221,7 @@ export class RemoteHosts {
   }
 
   private async probe(target: HostTarget): Promise<ListedRemoteHost['status']> {
+    if (target.source === 'listed') return 'not-paired'
     if (target.managedState && target.managedState !== 'ready') return 'not-ready'
     const routes = dialableRoutes(target.routes, '', this.selfInstallationId()).filter(safeHostDialRoute)
     const route = await chooseRoute(routes, (url, signal) => this.answersAsTarget(target, url, signal))
@@ -237,7 +246,7 @@ export class RemoteHosts {
       return []
     }
     const self = this.selfHostId()
-    const identities = new Map([...this.introduced.list().hosts, ...this.pairings.snapshot().hosts].map((host) => [host.installationId, host.identityKey]))
+    const identities = new Map([...this.introduced.list().hosts, ...this.pairings.snapshot().hosts.map(({ listing }) => listing)].map((host) => [host.installationId, host.identityKey]))
     const scopeKey = actor.scope === 'personal' ? 'personal' : actor.scope.organizationId
     const now = Date.now()
     return directory.flatMap((host): HostTarget[] => {
@@ -275,71 +284,87 @@ export class RemoteHosts {
     return { error: `You do not reach a host "${ref}" from here. Hosts you can start work on: ${names}.` }
   }
 
+  /** The connection to the host `ref` names for this person: `find`, then `connect`. */
+  async connectTo(request: ReachRequest, ref: string): Promise<RemoteHost | { error: string }> {
+    const target = await this.find(request, ref)
+    return 'error' in target ? target : this.connect(target)
+  }
+
   /** The connection to `host`, opened on first use. */
   connect(host: HostTarget): RemoteHost | { error: string } {
+    if (host.source === 'listed') {
+      return { error: `${host.label} is on your host list, but this host holds no credential for it. Pair it here with pair_host, then try again.` }
+    }
     if (host.managedState && host.managedState !== 'ready') {
       return { error: `${host.label} is ${host.managedState}. Start it first, then try again.` }
     }
     const open = this.connections.get(host.connectionKey)
     if (open) {
       open.routing.target = host
+      open.link.followRoutes()
       return open.host
     }
     const reconnected = new Set<() => void>()
     let hasConnected = false
-    const [first] = dialableRoutes(host.routes, '', this.selfInstallationId()).filter(safeHostDialRoute)
-    if (!first) return { error: `${host.label} has no secure route from this host. Use its Tailscale address or its HTTPS address.` }
     const routing = { target: host }
-    const transport = new WsTransport({
+    // Only a route that does not carry the credential in clear; the link applies the rest of the dial rules.
+    const routes = () => routing.target.routes.filter(safeHostDialRoute)
+    const [first] = dialableRoutes(routes(), '', this.selfInstallationId())
+    if (!first) return { error: `${host.label} has no secure route from this host. Use its Tailscale address or its HTTPS address.` }
+    const answersAsTarget = (url: string, signal: AbortSignal) => this.answersAsTarget(routing.target, url, signal)
+    const transport: WsTransport = new WsTransport({
       serverUrl: first.url,
       serverId: host.hostId,
       // Every dial presents the credential again: the person's host-reach token, or
       // the introduced token after the introduced host proves its identity.
-      sessionToken: '',
       // A host has no sign-in of its own to end: a dial with no credential is retried.
       // An introduced or forwarded host issued its own session token; the account's is an access token.
       grants: { acquire: () => host.credential(), isSignedOut: () => false, tokenKind: host.source === 'account' ? 'access-token' : 'session-token' },
       // Defense in depth: a dial on an `http:` route waits for the target's proof before its credential goes.
       proveRoute: (url) => {
         const route = routing.target.routes.find((candidate) => candidate.url === url) ?? { url }
-        return routeNeedsProof(route) ? this.answersAsTarget(routing.target, url, AbortSignal.timeout(ROUTE_CHECK_TIMEOUT_MS)) : null
+        return routeNeedsProof(route) ? answersAsTarget(url, AbortSignal.timeout(ROUTE_CHECK_TIMEOUT_MS)) : null
       },
+      // A dial the link did not check first: the socket is dropped unless it answers as the target.
+      verifyConnectedHost: () => answersAsTarget(transport.serverUrl, AbortSignal.timeout(ROUTE_CHECK_TIMEOUT_MS)),
       dialOrganizationId: () => host.organizationId ?? null,
     })
-    const supervisor = new HostSupervisor({
-      // Each dial goes to the route that answers first as the target (docs/plans/host-routes.md D1).
-      transport: {
-        start: () => void this.dial(routing.target, transport, (outcome) => supervisor.report(outcome)),
-        probe: () => transport.probe(),
-        setUnreachable: (unreachable) => transport.setUnreachable(unreachable),
-      },
+    const link: HostLink = new HostLink({
+      hostId: host.hostId,
+      transport,
+      api: asHostApi(transport.buildSolusApi()),
+      routes,
+      answersAsHost: answersAsTarget,
+      fetchImpl: this.fetchImpl,
+      localHostId: this.selfInstallationId(),
       onReadinessChange: (readiness) => {
         log.info('remote_host_phase', { hostId: host.hostId, readiness })
         if (readiness !== 'ready') return
         if (hasConnected) for (const listener of reconnected) listener()
         hasConnected = true
-        void this.learn(routing.target, remote.api)
+        // Its server info says where it is reached and how it proves itself.
+        void link.facts.refresh('serverInfo')
       },
+      onAdvertised: (advertised) => this.learn(routing.target, advertised),
     })
-    transport.attachDialOutcomeReporter((outcome) => supervisor.report(outcome))
-    supervisor.start()
+    link.start()
     const remote: RemoteHost = {
       hostId: host.hostId,
       installationId: host.installationId,
       label: host.label,
-      api: asHostApi(transport.buildSolusApi()),
-      events: transport.events,
+      api: link.api,
+      events: link.events,
       onReconnected: (listener) => {
         reconnected.add(listener)
         return () => { reconnected.delete(listener) }
       },
       call: (what, request) => withTimeout(request(), () => {
         const refused = host.source === 'introduced' ? ' It refused this host\'s introduction. Connect to both hosts from one of your devices again.' : ' It refused the token from your Solus account.'
-        const blocked = supervisor.refusedReason === 'auth' ? refused : ''
+        const blocked = link.refusedReason === 'auth' ? refused : ''
         return `${host.label} did not answer ${what} within ${CALL_TIMEOUT_MS / 1000} s.${blocked}`
       }),
     }
-    this.connections.set(host.connectionKey, { routing, host: remote, transport, supervisor })
+    this.connections.set(host.connectionKey, { routing, host: remote, link })
     return remote
   }
 
@@ -347,17 +372,13 @@ export class RemoteHosts {
   disconnect(installationId: string): void {
     for (const [key, open] of this.connections) {
       if (open.host.installationId !== installationId) continue
-      open.supervisor.destroy()
-      open.transport.destroy()
+      open.link.destroy()
       this.connections.delete(key)
     }
   }
 
   close(): void {
-    for (const { transport, supervisor } of this.connections.values()) {
-      supervisor.destroy()
-      transport.destroy()
-    }
+    for (const { link } of this.connections.values()) link.destroy()
     this.connections.clear()
   }
 }

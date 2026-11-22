@@ -35,7 +35,7 @@ mock.module('@solus/client-core/server-connections', () => ({
     }),
     onStatusChange: () => () => {},
     // The store follows hosts once it loads; this test connects none.
-    connectedServerIds: () => [],
+    serverIds: () => [],
     onConnectionCreated: () => () => {},
     onReadinessChange: () => () => {},
   },

@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 import { routesForMachine, type HostRoute } from '@solus/contracts/host-routes'
-import { knownHostTarget, preferredRouteUrl } from '@solus/client-core/server-connection'
+import { catalogHostTarget, preferredRouteUrl } from '@solus/client-core/server-connection'
 import type { KnownHost } from '@solus/client-core/known-host'
 import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
 import { DatabaseSync } from './helpers/bun-sqlite'
@@ -34,6 +34,8 @@ test('desktop and web restore a managed host on its tunnel despite a known inter
     uplink: { hostId: 'test', directoryUrl: 'https://account.example.test', kind: 'managed' },
   }
   expect(preferredRouteUrl(saved, 'http://localhost:3001')).toBe(tunnel.url)
-  expect(knownHostTarget(saved)).toMatchObject({ url: tunnel.url, routes: [tunnel] })
+  const target = catalogHostTarget({ find: () => saved }, saved)
+  expect(target.url).toBe(tunnel.url)
+  expect(target.routes).toEqual([tunnel])
   expect(preferredRouteUrl({ ...saved, routes: [internal] }, 'http://localhost:3001')).toBe('')
 })

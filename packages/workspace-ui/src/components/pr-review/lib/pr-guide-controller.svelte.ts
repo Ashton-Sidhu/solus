@@ -31,7 +31,6 @@ export class PrGuideController {
       getCtx: options.getCtx,
       getKey: () => this.identity?.key ?? '',
       getTarget: () => this.target ?? undefined,
-      getScope: () => 'branch',
       getAgent: options.getAgent,
       getCurrentRevision: () => {
         const event = this.event

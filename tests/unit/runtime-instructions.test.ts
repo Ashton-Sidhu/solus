@@ -234,9 +234,10 @@ describe('runtime instructions', () => {
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain('## Showing visuals')
       expect(prompt).toContain('Show trends, comparisons, and flows as a chart or diagram, even unasked')
-      // A preview shows nothing. An agent that stopped after it pasted the
-      // screenshot, and the user got no live page.
-      expect(prompt).toContain('then write it in a ```html fence')
+      expect(prompt).toContain('write a self-contained HTML page with inline CSS')
+      expect(prompt).toContain('render_artifact with preview: true')
+      // The preview is private. The user must get the live page after the check.
+      expect(prompt).toContain('To show the live page, write it in a ```html fence')
     }
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Showing visuals')
   })

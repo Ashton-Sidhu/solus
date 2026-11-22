@@ -106,6 +106,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'session.titleChanged':
     case 'session.pullRequestsChanged':
     case 'session.artifactsChanged':
+    case 'session.digestChanged':
     case 'session.stateChanged':
     case 'session.viewChanged':
     case 'session.readStateChanged':

@@ -173,6 +173,19 @@ describe('a working directory that is gone', () => {
   })
 })
 
+for (const provider of ['claude-code', 'codex'] as const) {
+  test(`${provider} receives the inline review instructions through normal prompt dispatch`, async () => {
+    const backend = holdingBackend(provider)
+    const runtime = new sessionRuntimeModule.SessionRuntime(new Map([[provider, backend.value]]))
+    runtime.on('error', () => {})
+    cleanups.push(() => { runtime.shutdown(); backend.releaseAll() })
+    const context = ctx('inline-review')
+    context.session.provider = provider
+    await runtime.dispatch.submitPrompt(context, { prompt: '/review-guide focus on tests' }, { actor: HOST_ACTOR })
+    expect(backend.requests[0]?.prompt).toContain('no captured turn snapshots')
+  })
+}
+
 describe('durable queue controls', () => {
   test('a prompt refused before delivery can retry with the same client receipt', async () => {
     const backend = holdingBackend('claude-code', 'retry-thread')

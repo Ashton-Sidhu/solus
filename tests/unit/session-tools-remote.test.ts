@@ -61,6 +61,10 @@ const remoteHosts = {
     return ref === 'Host B' ? { hostId: 'host-b', label: 'Host B' } : { error: `No host "${ref}".` }
   },
   connect: () => remoteHost,
+  async connectTo(request: unknown, ref: string) {
+    const target = await this.find(request, ref)
+    return 'error' in target ? target : this.connect()
+  },
 }
 
 const ctx = { agentProvider: 'codex' as const, cwd: '/repo/on/a', sessionId: 'solus-parent' }

@@ -665,7 +665,7 @@
 
   function openReviewView(view: "map" | "diff") {
     closeRowMenu();
-    session.enterReview("branch", sourceId, view);
+    session.enterReview(sourceId, view);
   }
 
   async function resolveWithAgent() {

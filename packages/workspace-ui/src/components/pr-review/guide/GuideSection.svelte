@@ -121,10 +121,10 @@
 
 <section
   data-guide-section-id={section.id}
-  class="text-workspace-chrome grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 lg:grid-cols-[24rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]"
+  class="text-workspace-chrome grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 @5xl:grid-cols-[24rem_minmax(0,1fr)] @7xl:grid-cols-[28rem_minmax(0,1fr)]"
 >
   <!-- Left: the "why", pinned while the diffs scroll past. -->
-  <div class="guide-why flex flex-col gap-5 lg:sticky lg:top-12 lg:self-start">
+  <div class="guide-why flex flex-col gap-5 @5xl:sticky @5xl:top-12 @5xl:self-start">
     {#if (index && total) || onAsk}
       <div class="flex min-h-8 items-center justify-between gap-3">
         {#if index && total}

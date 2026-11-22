@@ -9,8 +9,15 @@ export const hostPairRequestSchema = z.object({
 }).strict()
 export type HostPairRequest = z.infer<typeof hostPairRequestSchema>
 
+/** A host this host paired. `pairedAt` changes only when the owner pairs it again:
+ * a client whose own token the host refuses pairs again once for each new value. */
+export interface HostPairing {
+  listing: HostListing
+  pairedAt: number
+}
+
 export interface HostPairingsSnapshot {
-  hosts: HostListing[]
+  hosts: HostPairing[]
   forgotten: string[]
 }
 

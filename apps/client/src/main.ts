@@ -2,7 +2,6 @@ import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspac
 import { mount, unmount } from 'svelte'
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
-import { knownHostTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, newGuestId, resolveShareLink, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { isGuestLinkResource, parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { shareLinkOpening, type GuestOpening } from './lib/share-link-opening'
@@ -166,25 +165,23 @@ function installServiceWorkerMessageBridge(): void {
  * default, and every other catalog host is held beside it. A host that refuses this
  * browser shows as a blocked row in the app, never as a boot failure.
  */
-async function connectToServer(target: SolusServerTarget, intent?: BootIntent): Promise<void> {
+async function connectToServer(serverId: string, intent?: BootIntent): Promise<void> {
   const generation = ++connectionGeneration
   toasts.dismiss()
-  // A host this browser does not keep (the one serving this page with no auth) is known for this page only.
-  if (serverConnections.presenceOf(target.id) === 'gone') serverConnections.registerTarget(target)
-  const primary = serverConnections.setPrimary(target.id)
+  const primary = serverConnections.setPrimary(serverId)
   installWindowSolusApi(primary.api)
   installServiceWorkerMessageBridge()
   // The server the page opens at is dialed before the rest of the catalog.
   const firstServerId = intent?.firstServerId
     ? serverConnections.resolveId(intent.firstServerId)
     : intent?.runnerHostId ? knownRunnerFor(intent.runnerHostId) : null
-  if (firstServerId && firstServerId !== target.id) serverConnections.ensure(firstServerId)
+  if (firstServerId && firstServerId !== serverId) serverConnections.ensure(firstServerId)
   if (!intent?.opensResource) void prefetchStartupTranscript()
   // Every known host is eagerly desired, not only the one this boot chose.
   serverConnections.startCatalogSupervisors()
-  hostCatalog.touchLastConnected(target.id)
+  hostCatalog.touchLastConnected(serverId)
   // Remember the choice so a refresh and the servers directory both resume here.
-  setActiveServerId(target.id)
+  setActiveServerId(serverId)
 
   if (pendingNotificationRoute) {
     history.replaceState(null, '', pendingNotificationRoute.replace(/^#/, ''))
@@ -265,7 +262,7 @@ async function pairFromLocation(pairToken: string, hostUrl: string | null): Prom
     const { listError } = await hostCatalog.pair(server)
     if (listError) toasts.error(`${server.label} is paired here but not yet on your host list`)
     setActiveServerId(server.id)
-    await connectToServer(knownHostTarget(server))
+    await connectToServer(server.id)
   } catch (err) {
     bootHostlessHome()
     toasts.error(err instanceof Error ? err.message : String(err))
@@ -304,8 +301,9 @@ async function bootFromCatalog(intent?: BootIntent): Promise<void> {
   const servingHost = serving?.known ?? serving?.entry
   if (servingHost) {
     // The host that served the page is the one it runs beside (plans/031 D7): it is
-    // dialed first, and signed out the person's list is read there.
-    serverConnections.registerTarget(knownHostTarget(servingHost))
+    // dialed first, and signed out the person's list is read there. A serving host this
+    // browser does not keep is in the catalog for this page only.
+    hostCatalog.addPageHost(servingHost)
     // The catalog's device host: never put on its own list, and kept out of §3 Q1 (plans/033).
     serverConnections.setServingHostId(servingHost.id)
   }
@@ -328,8 +326,7 @@ async function bootFromCatalog(intent?: BootIntent): Promise<void> {
   } catch {}
   const catalog = serverConnections.catalogServerIds()
   const firstId = catalog.find((serverId) => serverId === activeId) ?? servingHost?.id ?? catalog[0]
-  const first = firstId ? serverConnections.ensure(firstId).target : null
-  if (first) void connectToServer(first, intent)
+  if (firstId) void connectToServer(firstId, intent)
   else if (webSession && intent?.hostlessPage) {
     const [{ default: AccountSettings }] = await Promise.all([import('./routes/AccountSettings.svelte'), pageStyled])
     removeBootSplash()
@@ -421,17 +418,16 @@ async function connectGuest(link: GuestLink, opening: GuestOpening, displayName:
   saveGuestIdentity(identity)
   const generation = ++connectionGeneration
   toasts.dismiss()
-  const target: SolusServerTarget = {
+  hostCatalog.addPageHost({
     id: GUEST_SERVER_ID,
     label: 'Shared resource',
-    url,
     sessionToken: '',
-    local: false,
+    installationId: GUEST_SERVER_ID,
+    lastConnected: 0,
     routes: opening.host,
     fallbackRoutes: mirror,
     guest: { shareSecret: link.secret, guestId: identity.guestId, displayName: identity.displayName },
-  }
-  serverConnections.registerTarget(target)
+  })
   const connection = serverConnections.setPrimary(GUEST_SERVER_ID)
   installWindowSolusApi(connection.api)
   serverConnections.onReadinessChange((serverId, readiness) => {

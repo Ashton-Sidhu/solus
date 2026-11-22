@@ -41,7 +41,6 @@ function child(sessionId: string, label: string): SidebarSessionChild {
     serverId: 'local',
     runStartedAt: 0,
     lastActivityAt: 0,
-    reviewGuideStatus: null,
   }
 }
 

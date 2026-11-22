@@ -10,7 +10,7 @@ export { parseReviewCommand } from "@solus/contracts/review";
 export const REVIEW_SLASH_COMMANDS = [
   "/review",
   "/review:working-tree",
-  "/review:session",
+  "/review-guide",
   "/review:branch",
   "/review:pr",
 ] as const;

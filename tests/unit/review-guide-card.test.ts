@@ -10,8 +10,8 @@ function status(
 ): ReviewGuideStatusEvent {
   return {
     repoRoot: '/repo',
-    key: 'session-provider-session',
-    scope: 'session',
+    key: 'feature',
+    scope: 'branch',
     status: 'queued',
     headSha: 'head-a',
     updatedAt: 1,
@@ -21,8 +21,8 @@ function status(
 
 describe('review guide card presentation', () => {
   test('shows the model and reasoning used for generation', () => {
-    expect(reviewGuideCardSubtitle('Analyzing session changes', 'GPT 5.6 Sol', 'medium'))
-      .toBe('Analyzing session changes · GPT 5.6 Sol · Medium')
+    expect(reviewGuideCardSubtitle('Analyzing changes', 'GPT 5.6 Sol', 'medium'))
+      .toBe('Analyzing changes · GPT 5.6 Sol · Medium')
   })
 
   test('reports live authoring as progress, not failure', () => {
@@ -31,7 +31,7 @@ describe('review guide card presentation', () => {
       step: 'analyzing',
     }))).toEqual({
       statusLabel: 'Analyzing',
-      subtitle: 'Analyzing session changes',
+      subtitle: 'Analyzing changes',
       canRetry: false,
     })
   })

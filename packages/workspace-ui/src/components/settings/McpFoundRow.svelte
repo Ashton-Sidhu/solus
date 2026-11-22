@@ -9,7 +9,7 @@
    * in place of its command. The add dialog shows the full command, the files,
    * and every warning before anything runs.
    */
-  import { Ellipsis, LoaderCircle, X } from "@lucide/svelte";
+  import { Ellipsis, FlaskConical, LoaderCircle, X } from "@lucide/svelte";
   import type { FoundPlace, FoundServer, IntegrationFoundChange } from "@solus/contracts/integration-types";
   import { FoundServerLabels, foundDeleteQuestion, type FoundFileAction } from "@solus/contracts/integrations/found-server-labels";
   import type { FoundTest } from "../../contexts/mcp";
@@ -19,6 +19,7 @@
   import McpFoundFileItems from "./McpFoundFileItems.svelte";
   import McpFoundSourceLogo from "./McpFoundSourceLogo.svelte";
   import McpServerIcon from "./McpServerIcon.svelte";
+  import { MiddleTruncate } from "../ui/middle-truncate";
 
   interface Props {
     server: FoundServer;
@@ -78,35 +79,43 @@
           <span class="truncate" title={server.name}>{server.name}</span>
           {#each labels.sources as source (source.label)}<McpFoundSourceLogo {source} />{/each}
         </p>
-        <p class="truncate text-chrome-dense leading-5 text-muted-foreground {labels.unsupported ? '' : 'font-mono'}" title={detail}>{detail}</p>
+        {#if labels.unsupported}
+          <p class="truncate text-chrome-dense leading-5 text-muted-foreground" title={detail}>{detail}</p>
+        {:else}
+          <!-- A command keeps its end in view: the program and its arguments say more than the folders before them. -->
+          <MiddleTruncate value={detail} class="flex text-chrome-dense leading-5 font-mono text-muted-foreground" />
+        {/if}
       </div>
     </div>
-    {#if server.state === "new" || server.state === "changed"}
-      <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || isAdding}
-        onclick={() => onReview(server)} aria-label={server.state === "new" ? `Add ${server.name}` : `Review the change of ${server.name}`}>
-        {server.state === "new" ? "Add" : "Review change"}
-      </Button>
-    {:else}
-      <span class="shrink-0 text-chrome-dense text-muted-foreground">{labels.state}</span>
-    {/if}
-    {#if mayChange}
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props })}
-            <Button {...props} bind:ref={menuTriggerEl} variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" disabled={isOffline || isChanging} aria-label="More actions for {server.name}">
-              {#if isChanging}<LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />{:else}<Ellipsis size={16} />{/if}
-            </Button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[min(16rem,calc(100vw-2rem))]">
-          <DropdownMenu.Item disabled={!canTest || test?.kind === "running"} onSelect={() => onTest(server)}>Test and show tools</DropdownMenu.Item>
-          <McpFoundFileItems {server} showTurnOff {canOpenFiles} {onOpen} onAction={act} />
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
-      <McpConfirmPopover bind:open={isConfirming} anchor={menuTriggerEl} title="{deleting?.label ?? 'Delete'}?"
-        text={deleting ? foundDeleteQuestion(server.name, deleting.place) : ""} action="Delete" busyAction="Deleting…"
-        isBusy={isChanging} error={changeError} onConfirm={confirmDelete} />
-    {/if}
+    <!-- The row's actions sit together, apart from its text. -->
+    <div class="flex shrink-0 items-center gap-1">
+      {#if server.state === "new" || server.state === "changed"}
+        <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || isAdding}
+          onclick={() => onReview(server)} aria-label={server.state === "new" ? `Add ${server.name}` : `Review the change of ${server.name}`}>
+          {server.state === "new" ? "Add" : "Review change"}
+        </Button>
+      {:else}
+        <span class="shrink-0 text-chrome-dense text-muted-foreground">{labels.state}</span>
+      {/if}
+      {#if mayChange}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Button {...props} bind:ref={menuTriggerEl} variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" disabled={isOffline || isChanging} aria-label="More actions for {server.name}">
+                {#if isChanging}<LoaderCircle size={16} class="animate-spin motion-reduce:animate-none" />{:else}<Ellipsis size={16} />{/if}
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[min(18rem,calc(100vw-2rem))]">
+            <DropdownMenu.Item disabled={!canTest || test?.kind === "running"} onSelect={() => onTest(server)}><FlaskConical size={14} />Test and show tools</DropdownMenu.Item>
+            <McpFoundFileItems {server} showTurnOff {canOpenFiles} {onOpen} onAction={act} />
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+        <McpConfirmPopover bind:open={isConfirming} anchor={menuTriggerEl} title="{deleting?.label ?? 'Delete'}?"
+          text={deleting ? foundDeleteQuestion(server.name, deleting.place) : ""} action="Delete" busyAction="Deleting…"
+          isBusy={isChanging} error={changeError} onConfirm={confirmDelete} />
+      {/if}
+    </div>
   </div>
   {#if changeError && !isConfirming}
     <p role="alert" class="pt-2 pl-[46px] text-chrome-dense text-(--solus-status-error)">{changeError}</p>

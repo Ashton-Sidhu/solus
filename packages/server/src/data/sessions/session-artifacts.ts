@@ -2,14 +2,14 @@ import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { artifactLinkedAt, isImagePath, type SessionArtifact, type SessionArtifacts } from '@solus/contracts/session-artifacts'
 import { getDatabase } from '../../db/database'
-import { ANY_ORGANIZATION, type RecordScope } from '../../admission/principal'
+import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { apps } from '../apps/schema'
 import { resourceLinks } from '../links/schema'
 import { works } from '../works/schema'
 import { workTypeSchema } from '../works/work-rows'
 import { readSessionPullRequests } from './session-pull-requests'
-import { getSessionRecord, readSessionMetadataPage } from './session-records'
+import { ancestorsOf, readSessionMetadataPage } from './session-records'
 import type { SessionRecord } from '@solus/contracts/types'
 
 /**
@@ -34,14 +34,9 @@ export function onSessionArtifactsChanged(listener: ChangeListener): () => void 
 
 /** Announce a change to a session's artifacts, and to each ancestor's list, which groups them. */
 export async function emitSessionArtifactsChanged(sessionId: string): Promise<void> {
-  const announced = new Set<string>()
-  let next: string | null | undefined = sessionId
-  // A cycle in the records ends the walk.
-  while (next && !announced.has(next)) {
-    const current: string = next
-    announced.add(current)
-    for (const listener of listeners) listener(current)
-    next = (await getSessionRecord(ANY_ORGANIZATION, current).catch(() => null))?.parentSessionId
+  // An event reaches only the readers of the session it names, so each ancestor gets its own.
+  for (const announced of await ancestorsOf(sessionId)) {
+    for (const listener of listeners) listener(announced)
   }
 }
 
@@ -116,7 +111,7 @@ async function readLinkArtifacts(scope: RecordScope, sessionIds: readonly string
 }
 
 /** Each session's artifacts, newest link first. */
-async function readArtifactsBySession(scope: RecordScope, sessionIds: readonly string[]): Promise<Map<string, SessionArtifact[]>> {
+export async function readArtifactsBySession(scope: RecordScope, sessionIds: readonly string[]): Promise<Map<string, SessionArtifact[]>> {
   const bySession = new Map<string, SessionArtifact[]>(sessionIds.map((id) => [id, []]))
   const pullRequests = await readSessionPullRequests(scope, sessionIds)
   for (const [sessionId, links] of Object.entries(pullRequests)) {

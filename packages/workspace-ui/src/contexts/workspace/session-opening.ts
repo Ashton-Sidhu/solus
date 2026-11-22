@@ -24,7 +24,6 @@ import { requestInputFocus } from '../../lib/inputFocus'
 import { guessTaskProject } from '../../lib/task-project'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { readSessionMeta } from '@solus/client-core/session-meta'
-import { reviewGuideStore, sessionGuideIdentity } from '../../components/review/review-guide.store.svelte'
 import { ownedTaskId } from './session-draft.svelte'
 import { type GitRefreshResult } from '../git/session-environment.store.svelte'
 import { findLastUserIndex, parentSessionIdOf } from './session.utils'
@@ -636,21 +635,10 @@ export class SessionOpening {
           const identity = await identityPending
           const restoredSession = currentResumeTarget()
           if (!restoredSession) return
-          // Changed files before the checkout: the session guide is probed from
-          // both, and settling the file set first means the probe fires once
-          // with the right revision instead of once empty and once again.
           this.workspace.lifecycle.recomputeChangedFiles(tabId)
           const gitContext = gitCheckoutFromState(identity, worktreePath)
           restoredSession.run.location = adoptGit(restoredSession.run.location, workingPlace(restoredSession.run), gitContext)
           if (gitContext) restoredSession.readOnlyReason = null
-          const guideIdentity = sessionGuideIdentity(restoredSession)
-          if (guideIdentity && (!background || !!intoTabId)) {
-            // Same identity as `trackSessionReviewGuides`, so the store answers
-            // both from one request.
-            void reviewGuideStore.acknowledgeSessionGuide(
-              api, this.workspace.serverIdFor(tabId), this.workspace.ctxFor(tabId), guideIdentity,
-            )
-          }
           await this.workspace.environment.registerEnvironment(this.workspace, tabId, worktreePath ?? workingDirectory, gitContext)
           if (!currentResumeTarget()) return
           let environmentRefresh: Promise<GitRefreshResult> | null = null

@@ -56,6 +56,7 @@ import type { ClaudeRunResult } from './claude-agent'
 import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import {
   parseJsonlLine,
+  claudeHistoryRows,
   findClaudeForkResumeId,
   resolveClaudeSessionFilePath,
   claudeThreadFiles,
@@ -497,8 +498,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     await new Promise<void>((resolve) => {
       const rl = createInterface({ input: createReadStream(filePath) })
       rl.on('line', (line: string) => {
-        const msg = parseJsonlLine(line)
-        if (msg) messages.push(msg)
+        for (const row of claudeHistoryRows(line)) messages.push(row)
       })
       rl.on('close', () => resolve())
       // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
@@ -536,8 +536,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         const messages: SessionLoadMessage[] = []
         for (const line of text.split('\n')) {
           if (!line) continue
-          const msg = parseJsonlLine(line)
-          if (msg) messages.push(msg)
+          for (const row of claudeHistoryRows(line)) messages.push(row)
         }
         // Enough to fill the window, or we've already read the whole file.
         if (messages.length > limit || from <= 0) {

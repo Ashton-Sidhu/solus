@@ -89,7 +89,9 @@ Refusals: `host_not_reachable`, `host_outside_organization`,
   (`reachRequestFor`): the owner, through the owner's personal delegation and
   the introduced hosts; an organization member, only through that
   organization's delegation; anyone else, nothing. Each person has their own
-  connection to a host.
+  connection to a host. A connection is the `HostLink` a client holds to a host
+  (`client-core/host-link.ts`); `connectTo(reach, ref)` finds the host and opens
+  it, for `start_sessions`, app deployments, and MCP discovery alike.
 - **Removed:** `LocalClient.lendHostAccess` and `HostAccess`. A host no longer
   needs a signed-in desktop app in the same process. A standalone server
   linked to the account works the same way.

@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    ClipboardCheck as ClipboardCheckIcon,
     LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
@@ -88,7 +87,6 @@
       status,
       unread: session.unread,
       woke: false,
-      reviewGuide: session.reviewGuideStatus,
       lifecycle: "active",
       runStartedAt: session.runStartedAt,
       manyRunning: false,
@@ -147,32 +145,6 @@
         />
       {:else if mark?.kind === "unread"}
         <UnreadDot size={12} />
-      {:else if mark?.kind === "guide"}
-        <!-- Generating and ready are one object at two stages, so the mark
-             keeps its silhouette and only gains ink: an outline guide that
-             breathes while it is written, filled once it can be read.
-             Writing one is work in flight, so it takes the cool tone the
-             pane already spends on that. -->
-        <span
-          class="flex shrink-0 items-center {mark.state === 'ready'
-            ? 'text-(--solus-status-complete)'
-            : 'text-chart-5'}"
-          role="img"
-          onanimationstart={alignStatusAnimationPhase}
-          aria-label={mark.state === "ready"
-            ? "Review guide ready"
-            : "Generating review guide"}
-          title={mark.state === "ready"
-            ? "Review guide ready"
-            : "Generating review guide"}
-        >
-          <ClipboardCheckIcon
-            size={14}
-            class={mark.state === "ready"
-              ? ""
-              : "animate-pulse [animation-duration:1.4s] motion-reduce:animate-none"}
-          />
-        </span>
       {:else if mark?.kind === "elapsed"}
         <!-- The clock states its time in full ink, not hue. Terracotta
              stays on the elbow, so the clock never competes with the green
@@ -299,6 +271,5 @@
     modelId={session.modelId}
     attention={session.attention}
     limitResetsAt={session.limitResetsAt}
-    reviewGuideStatus={session.reviewGuideTooltipStatus}
   />
 </TooltipUI.Root>

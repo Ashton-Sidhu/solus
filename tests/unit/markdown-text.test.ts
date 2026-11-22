@@ -11,9 +11,9 @@ describe("user message inline tokens", () => {
   test("keeps a colon-qualified slash command in one chip", () => {
     // WHY: the sent message must preserve the same single action chip that the
     // user saw in the composer before sending it.
-    expect(tokenizeMarkdownText("Run /review:session now")).toEqual([
+    expect(tokenizeMarkdownText("Run /review-guide now")).toEqual([
       { type: "text", value: "Run " },
-      { type: "slash", command: "/review:session" },
+      { type: "slash", command: "/review-guide" },
       { type: "text", value: " now" },
     ]);
   });

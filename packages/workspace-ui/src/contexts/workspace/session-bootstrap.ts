@@ -388,6 +388,8 @@ function _materializeTabs(
       // because that is the record it was written from.
       session.title = snapTab.title || 'New Tab'
       session.titleCustom = snapTab.titleCustom ?? false
+      // A name typed before the host knew the session is saved on its first init.
+      if (session.titleCustom && (!snapTab.agentSessionId || snapTab.pendingFork)) ctx.metadata.unsavedTitleSessionIds.add(session.id)
       tab = makeTab(session.id, { id: snapTab.tabId })
       // The unsent prompt is the session's, so a restored draft lands there —
       // the persisted map is still keyed by tab because that is the id the

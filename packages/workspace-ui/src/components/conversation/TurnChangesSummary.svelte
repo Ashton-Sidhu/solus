@@ -3,7 +3,7 @@
   import { getSettingsContext, getWorkspaceContext } from "../../contexts";
   import DiffSummaryCard from "./DiffSummaryCard.svelte";
   import CloudTurnDiff from "./CloudTurnDiff.svelte";
-  import { turnSnapshotFor } from "./lib/turn-snapshot";
+  import { turnSnapshotFor, turnWindow } from "./lib/turn-snapshot";
   import type { Turn } from "./lib/turns";
 
   /**
@@ -34,6 +34,7 @@
     <DiffSummaryCard
       {tabId}
       {scope}
+      agentWindow={turnWindow(turns, turnIdx)}
       onOpenDiff={(filePath) => session.showDiff(tabId, scope, filePath)}
       onOpenFile={(filePath) =>
         session.openFileInFiles({ path: filePath }, tabId)}

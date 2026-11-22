@@ -66,6 +66,9 @@ const SESSION_FACTS: readonly HostFactKey[] = ['capabilities', 'serverInfo']
 
 type AnyFact = HostFact<HostFactValues[HostFactKey]>
 
+/** How often a held usage watch reads the quota from a host that has no `usageWatch`. */
+const USAGE_FALLBACK_REFRESH_MS = 60_000
+
 /**
  * Everything the client knows about one host, loaded once and shared by every
  * reader. Plain TypeScript so desktop, web, and mobile build it from their own
@@ -82,6 +85,10 @@ export class HostFacts {
   /** Bumps on every session change; a load from an older session never writes. */
   private generation = 0
   private disposed = false
+  /** Readers that hold the usage watch (`watchUsage`). */
+  private usageWatchers = 0
+  /** Polls a host older than `usageWatch` while the watch is held; null otherwise. */
+  private usageFallbackTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(
     readonly serverId: string,
@@ -167,6 +174,8 @@ export class HostFacts {
   sessionChanged(change: HostSessionChange): void {
     if (this.disposed) return
     if (change === 'recovered') {
+      // The host ended the watch when the last socket closed: watch again.
+      if (this.usageWatchers > 0 && !this.inFlight.has('usage')) void this.load('usage')
       for (const key of this.requested) {
         if (this.get(key).state !== 'ready' && !this.inFlight.has(key)) void this.load(key)
       }
@@ -191,9 +200,54 @@ export class HostFacts {
     return () => { this.listeners.delete(listener) }
   }
 
+  /**
+   * A reader shows this host's quota. The host keeps reading it while one
+   * watch holds, and pushes each change as `usage.limitsChanged`; the client
+   * sends no poll. Answers the release.
+   */
+  watchUsage(): () => void {
+    if (this.disposed) return () => {}
+    if (this.usageWatchers++ === 0) {
+      // A plain read in flight registers no watch: this read does.
+      this.requested.add('usage')
+      void this.load('usage')
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (--this.usageWatchers > 0 || this.disposed) return
+      this.stopUsageFallback()
+      void this.source.api.usageUnwatch().catch(() => {})
+    }
+  }
+
+  private stopUsageFallback(): void {
+    if (this.usageFallbackTimer) clearInterval(this.usageFallbackTimer)
+    this.usageFallbackTimer = null
+  }
+
+  /** The quota, under a watch while a reader holds one. A host older than
+   *  `usageWatch` is asked again each minute, as the meter asked before. */
+  private async readUsage(api: HostApi): Promise<AgentUsageLimits[]> {
+    if (this.usageWatchers === 0) return api.usageLimits()
+    try {
+      const snapshots = await api.usageWatch()
+      this.stopUsageFallback()
+      return snapshots
+    } catch {
+      this.usageFallbackTimer ??= setInterval(() => {
+        if (this.usageWatchers > 0) void this.refresh('usage')
+        else this.stopUsageFallback()
+      }, USAGE_FALLBACK_REFRESH_MS)
+      return api.usageLimits()
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.stopUsageFallback()
     for (const stop of this.stopEvents) stop()
     this.listeners.clear()
     this.inFlight.clear()
@@ -228,7 +282,7 @@ export class HostFacts {
         case 'machine':
           return { state: 'ready', value: await api.start() }
         case 'usage':
-          return { state: 'ready', value: await api.usageLimits() }
+          return { state: 'ready', value: await this.readUsage(api) }
         case 'policy':
           return { state: 'ready', value: new HostPolicies(await api.hostPolicy()) }
         case 'voiceModel': {

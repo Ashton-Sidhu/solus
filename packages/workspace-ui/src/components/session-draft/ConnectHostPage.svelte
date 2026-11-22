@@ -67,6 +67,8 @@
   onMount(() => {
     // Opening the page is a refresh point, as opening Connections is.
     void serversStore.refreshDirectory();
+    // The nearby list is on screen: discovery scans often while it shows.
+    return serversStore.showNearby();
   });
 
   // The first card takes focus so Enter runs it. Re-run when the list returns
@@ -92,7 +94,8 @@
     if (row.action === "retry") void connect(row.hostId, () => serversStore.connectNow(row.hostId));
     else if (row.action === "start") void connect(row.hostId, () => serversStore.startManagedHost(row.hostId));
     else if (row.action === "pair-again") {
-      serversStore.openAddServer(hosts.find((host) => host.id === row.hostId)?.url ?? "");
+      const url = hosts.find((host) => host.id === row.hostId)?.url ?? "";
+      void connect(row.hostId, () => serversStore.pairAgain(row.hostId, url));
     }
   }
 

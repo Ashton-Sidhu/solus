@@ -80,7 +80,7 @@ export class DevicesStore {
       if (status !== 'ready') return
       void this.load(serverId)
     })
-    for (const serverId of serverConnections.connectedServerIds()) {
+    for (const serverId of serverConnections.serverIds()) {
       if (serverConnections.readinessFor(serverId).readiness === 'ready') void this.load(serverId)
     }
   }

@@ -48,7 +48,7 @@
   const runnerHostId = $derived(record?.runnerHostId ?? null);
   // A runner that answered but could not open the session leaves the record read only, not "Connecting".
   let revealFailed = $state(false);
-  const knownRunnerId = $derived(runnerHostId ? knownRunnerFor(runnerHostId, serversStore.remotes) : null);
+  const knownRunnerId = $derived(runnerHostId ? knownRunnerFor(runnerHostId, serversStore.knownHosts) : null);
   const savedRunnerState = $derived(knownRunnerId ? serversStore.readinessFor(knownRunnerId) : null);
   const runnerServerId = $derived(savedRunnerState?.readiness === "ready" ? knownRunnerId : null);
   const runner = $derived(

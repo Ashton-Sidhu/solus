@@ -1,5 +1,5 @@
 import type { Message, ToolResultAudio, ToolResultImage } from '@solus/contracts/types'
-import { solusAgentToolName } from '@solus/contracts/agent-tools'
+import { isArtifactRenderTool, solusAgentToolName } from '@solus/contracts/agent-tools'
 import { toolResultImages, type ReplyImage } from './reply-images'
 import { toolServerName } from './mcp-tool-label'
 
@@ -62,9 +62,10 @@ type FieldsIn<Place extends ToolOutputPlace> = {
 /** One item maker for each strip field: a field moved to the strip does not type check without one. */
 const STRIP_ITEMS: { readonly [Field in FieldsIn<'strip'>]: (tool: ToolCallOutputs) => ToolStripItem[] } = {
   // A browser capture shows outside the folds as its capture card, so the
-  // scaled copy in its result is not added again.
+  // scaled copy in its result is not added again. A render_artifact image is
+  // the agent's preview check: the artifact card shows the page itself.
   toolImages: (tool) =>
-    solusAgentToolName(tool.toolName ?? '') === 'browser_snapshot'
+    solusAgentToolName(tool.toolName ?? '') === 'browser_snapshot' || isArtifactRenderTool(tool.toolName)
       ? []
       : toolResultImages(tool.toolImages).map((image) => ({ kind: 'image', key: `image:${image.href}`, toolId: tool.id, image })),
   toolAudio: (tool) =>

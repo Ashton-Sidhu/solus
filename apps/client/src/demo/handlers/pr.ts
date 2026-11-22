@@ -2,7 +2,7 @@ import { arg, optionalArg } from './args'
 import type { DraftReview, PrSyncChange, PullRequest } from '@solus/contracts/providers'
 import type { PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
 import type { PrInterdiffResult } from '@solus/contracts/git-types'
-import type { IpcContext, PrReviewContext, SessionCtx } from '@solus/contracts/types'
+import type { IpcContext, PrReviewContext } from '@solus/contracts/types'
 import type { ReviewState } from '@solus/contracts/review'
 import { DEMO_VIEWER, type DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
@@ -173,21 +173,15 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   // The report is written already, so every entry point reports it ready and
   // both request paths just hand the same one back rather than queueing an
   // agent the visitor cannot wait for.
-  const guideStatus = (args: unknown[]) =>
-    store.reviewGuideStatus(
-      arg<IpcContext>(args, 0),
-      optionalArg<{ scope?: 'branch' | 'session' }>(args, 1)?.scope ?? 'branch',
-    )
+  const guideStatus = () => store.reviewGuideStatus()
   backend.register('reviewGuideStatus', guideStatus)
-  backend.register('sessionGuideStatuses', (args) =>
-    arg<SessionCtx[]>(args, 0).map((session) => store.reviewGuideStatus({ session }, 'session')))
   backend.register('prGuideStatuses', (args) =>
-    arg<unknown[]>(args, 1).map(() => store.reviewGuideStatus(arg<IpcContext>(args, 0), 'branch')))
+    arg<unknown[]>(args, 1).map(() => store.reviewGuideStatus()))
   // The demo has no lenses; a filled array keeps the lens filter honest.
   backend.register('prLensRevisions', (args) => arg<unknown[]>(args, 1).map(() => 0))
   backend.register('requestReviewGuide', guideStatus)
-  backend.register('generateGuide', (args) => ({
-    key: guideStatus(args).key,
+  backend.register('generateGuide', () => ({
+    key: guideStatus().key,
     guide: store.prGuide(),
     persisted: true,
   }))

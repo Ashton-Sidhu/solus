@@ -6,9 +6,7 @@
     CircleX as FailedIcon,
     LoaderCircle as WorkingIcon,
   } from "@lucide/svelte";
-  import type { SessionArtifact } from "@solus/contracts/session-artifacts";
   import ProviderMark from "../../ui/ProviderMark.svelte";
-  import ArtifactChipRow from "../../conversation/agent-conversation/ArtifactChipRow.svelte";
   import { formatCompactElapsed, type RailAgentRow } from "../../project-panel/lib/rail-agents";
   import { wakeTimeLabel } from "./lib/overview-view";
 
@@ -16,24 +14,19 @@
    * One agent the session dispatched: a sub-agent, or a session it started.
    * The glyph says how it stands; the title line ends with its provider and how
    * long it ran (counting while it runs); the line under it says what it is on
-   * or came back with. What a started session linked hangs under it as chips.
-   * A snoozed session shows when it wakes; the pill wakes it now.
+   * or came back with. What it linked is in the surface's link cards, not on
+   * the row. A snoozed session shows when it wakes; the pill wakes it now.
    */
   interface Props {
     row: RailAgentRow;
-    /** What a started session linked, newest first. Empty for a sub-agent. */
-    links: readonly SessionArtifact[];
     onOpen: (split: boolean) => void;
-    onOpenLink: (artifact: SessionArtifact) => void;
-    /** Opens the started session's own Artifacts surface, where every link is listed. */
-    onOpenAllLinks: () => void;
     /** The session's menu. Absent for a sub-agent, which is no session of its own. */
     onContextMenu?: (event: MouseEvent) => void;
     /** When the snoozed session wakes, in epoch ms. Null while it is not snoozed. */
     wakesAt?: number | null;
     onWake?: () => void;
   }
-  let { row, links, onOpen, onOpenLink, onOpenAllLinks, onContextMenu, wakesAt = null, onWake }: Props = $props();
+  let { row, onOpen, onContextMenu, wakesAt = null, onWake }: Props = $props();
 
   const mark = $derived(row.provider === "codex" ? "codex" : row.provider === "claude-code" ? "claude" : null);
   const elapsed = $derived(formatCompactElapsed(row.elapsedMs));
@@ -92,14 +85,4 @@
     <!-- The sidebar's clock: ink, not hue, so it never competes with the glyph or a chip's colour. -->
     <span class="shrink-0 text-sidebar-time tabular-nums text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]">{elapsed}</span>
   </span>
-  {#if links.length > 0}
-    <!-- The line from the glyph down to the chips: they are what this agent left. -->
-    <span
-      class="pointer-events-none absolute top-8 bottom-[18px] left-[15.5px] w-3.5 rounded-bl-md border-b border-l border-[var(--hairline-strong)] pointer-coarse:bottom-[22px]"
-      aria-hidden="true"
-    ></span>
-    <div class="relative col-span-2 col-start-2 mt-1.5">
-      <ArtifactChipRow items={links} onOpen={onOpenLink} onOpenAll={onOpenAllLinks} />
-    </div>
-  {/if}
 </div>

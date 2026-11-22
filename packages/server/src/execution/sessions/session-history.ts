@@ -344,7 +344,7 @@ export class SessionHistory {
     const aliases = [
       { name: 'review', description: 'Review working-tree changes', kind: 'skill' as const },
       { name: 'review:working-tree', description: 'Review staged, unstaged, and untracked changes', kind: 'skill' as const },
-      { name: 'review:session', description: 'Review this session\'s changes', kind: 'skill' as const },
+      { name: 'review-guide', description: 'Show a guide to this session’s changes in the conversation', argumentHint: '[focus]', kind: 'skill' as const },
       { name: 'review:branch', description: 'Review the current branch', kind: 'skill' as const },
       { name: 'review:pr', description: 'Review a pull request', argumentHint: 'PR URL', kind: 'skill' as const },
     ]

@@ -87,7 +87,7 @@ export class PromptDispatch {
     const reviewAgent = resolveReviewAgent(this.workspace.settings)
     const reviewGuideRef = {
       target: request.target,
-      key: reviewGuideKeyForTarget(request.target, branch, session.agentSessionId ? session.id : null),
+      key: reviewGuideKeyForTarget(request.target, branch),
       ...reviewAgent,
     }
     session.messages.push({
@@ -480,7 +480,7 @@ export class PromptDispatch {
       this.startDirectReview(targetTabId, prompt, directReview, resolvedPath)
       return true
     }
-    if (parseReviewCommand(prompt)) {
+    if (parseReviewCommand(prompt)?.mode === 'pr') {
       toasts.error('A pull request URL is required', {
         description: 'Use /review:pr followed by a GitHub pull request URL.',
       })

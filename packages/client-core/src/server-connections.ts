@@ -4,8 +4,8 @@ import { defaultDeviceLabel } from './device-label'
 import { forgetHostConnections, type HostConnectionOwner } from './forget-host'
 import type { ConnectionsServerInfo, NativeSolusAPI, SolusAPI } from '@solus/contracts/host-api'
 import { mergeNativeOnlySolusApi } from './native-api-overlay'
-import { createSolusConnection, knownHostTarget, type SolusServerTarget } from './server-connection'
-import { awaitsManagedCompute, chooseRunOnHost, getActiveServerId, LOCAL_SERVER_ID, managedHostNeedsStart } from './known-host'
+import { catalogHostTarget, createSolusConnection, type SolusServerTarget } from './server-connection'
+import { awaitsManagedCompute, chooseRunOnHost, getActiveServerId, LOCAL_SERVER_ID, managedHostNeedsStart, type KnownHost } from './known-host'
 import { hostCatalog, type HostCatalog } from './host-catalog'
 import { activeWorkspace, ambiguousOrganizationIds, workspaceTarget } from './workspace-registry'
 import { solusApiId } from '@solus/contracts/uplink'
@@ -59,7 +59,6 @@ interface CacheEntry<T> {
 
 export class ServerConnections {
   private readonly connections = new Map<string, ManagedConnection>()
-  private readonly targets = new Map<string, SolusServerTarget>()
   private readonly localBridges = new Map<string, { refreshSessionToken: () => Promise<string>; nativeApi: NativeSolusAPI }>()
   private readonly connectionListeners = new Set<ConnectionListener>()
   private readonly readinessListeners = new Set<ReadinessListener>()
@@ -85,12 +84,17 @@ export class ServerConnections {
   /** Boot asked for the catalog's hosts: each change of the catalog dials the hosts it adds. */
   private followsCatalog = false
 
-  /** `catalog` is the one owner of the hosts this client knows (plans/033); the page's own unless a test gives one. */
+  /**
+   * `catalog` is the one owner of the hosts this client knows (plans/033), and the
+   * only answer to which hosts exist; the page's own unless a test gives one. The
+   * connections follow it: one for each host it names, closed when it stops naming one.
+   */
   constructor(private readonly catalog: HostCatalog = hostCatalog) {
     // Boot dials the device host, then the list is read, then the listed hosts are
     // dialed: the catalog shows no listed host before its read answers.
     catalog.onChange(() => {
       if (this.followsCatalog) this.startCatalogSupervisors()
+      this.closeUnknownHosts()
     })
     // One classified wake stream fans out to every supervisor: N hosts must
     // not mean N window listeners each re-deciding what a wake meant.
@@ -103,21 +107,21 @@ export class ServerConnections {
     })
   }
 
-  /** A host this client knows besides the catalog's: the desktop's own machine, a guest's shared resource. The desktop gives its native bridge, whose native-only methods join the host's API. */
-  registerTarget(target: SolusServerTarget, local?: { refreshSessionToken: () => Promise<string>; nativeApi: NativeSolusAPI }): void {
-    this.targets.set(target.id, target)
-    if (local) this.localBridges.set(target.id, local)
+  /** The desktop's own machine gives its native bridge: its native-only methods join the host's API, and its token renews over IPC. */
+  attachNativeBridge(serverId: string, bridge: { refreshSessionToken: () => Promise<string>; nativeApi: NativeSolusAPI }): void {
+    this.localBridges.set(serverId, bridge)
   }
 
   /**
    * Installs a connection whose transport the caller made: the in-page demo, whose
-   * backend answers every dial at once. Every app dials through `setPrimary`.
+   * backend answers every dial at once. Its host joins the catalog for this page.
+   * Every app dials through `setPrimary`.
    */
-  registerPrimary(serverId: string, api: SolusAPI, transport: WsTransport, target: SolusServerTarget): ManagedConnection {
-    this.targets.set(serverId, target)
+  registerPrimary(serverId: string, api: SolusAPI, transport: WsTransport, host: KnownHost): ManagedConnection {
+    this.catalog.addPageHost(host)
     const existing = this.connections.get(serverId)
     if (existing && existing.transport !== transport) this.destroyConnection(existing)
-    const connection = this.managedConnection(serverId, target, transport, api, 'present')
+    const connection = this.managedConnection(serverId, catalogHostTarget(this.catalog, host), transport, api, 'present')
     this.connections.set(serverId, connection)
     this.primaryServerId = serverId
     this.emitPrimaryChange()
@@ -210,6 +214,26 @@ export class ServerConnections {
     this.connections.get(resolved)?.link.dialNow()
   }
 
+  /**
+   * The person chose Pair again for a host that refuses this device. A host this
+   * client is connected to as its owner, and that paired it, gives this device a
+   * new token without a code. False when none can: the caller asks for a code.
+   */
+  async pairAgain(serverId: string): Promise<boolean> {
+    const installationId = this.catalog.find(this.resolveId(serverId))?.installationId ?? serverId
+    for (const connection of this.connections.values()) {
+      if (connection.link.readiness !== 'ready' || !connection.pairings) continue
+      if (await connection.pairings.pairAgain(installationId)) return true
+    }
+    return false
+  }
+
+  private refreshPairings(): void {
+    for (const connection of this.connections.values()) {
+      if (connection.link.readiness === 'ready') void connection.pairings?.refresh()
+    }
+  }
+
   /** The account holds a sign-in again: every host blocked on sign-in dials now. */
   dialHostsBlockedOnSignIn(): void {
     for (const connection of this.connections.values()) {
@@ -255,19 +279,11 @@ export class ServerConnections {
     if (firstId) this.setPrimary(firstId)
   }
 
-  /** The hosts this client holds: the registered local target, the primary, every known host, and the active organization's Solus API. */
+  /** The hosts this client holds: the primary, every host the catalog names, and the active organization's Solus API. */
   catalogServerIds(): string[] {
     const ids = new Set<string>()
-    let localInstallationId: string | undefined
-    for (const [id, target] of this.targets) {
-      if (!target.local) continue
-      ids.add(id)
-      localInstallationId = target.installationId
-    }
     if (this.primaryServerId) ids.add(this.primaryServerId)
-    for (const host of this.catalog.hosts()) {
-      if (host.installationId !== localInstallationId) ids.add(host.id)
-    }
+    for (const host of this.catalog.hosts()) ids.add(host.id)
     // The window's organization's workspace service is held too: it is where
     // that organization's records live, though it is not a host. Another
     // organization's service is dialed only when the window selects it (§7).
@@ -293,20 +309,15 @@ export class ServerConnections {
   }
 
   /**
-   * A connection copies its host's routes when it is made; the directory can change
-   * them later (a managed host is reached at its machine's name once it links). Take
-   * the catalog's routes again, and re-aim a socket whose route is no longer listed.
+   * The catalog changed this host: the directory may list new routes (a managed host
+   * is reached at its machine's name once it links), or this device may hold a new
+   * token. A socket whose route is no longer listed is re-aimed, and a host that
+   * refused this device dials again once the device holds a token it has not refused.
    */
   private followKnownRoutes(connection: ManagedConnection): void {
-    const { target } = connection
-    if (target.local) return
-    const known = this.catalog.find(connection.serverId)
-    if (!known) return
-    target.routes = known.routes
-    target.routeOrder = known.routeOrder
-    target.tokenPairedOverHttps = known.tokenPairedOverHttps
-    if (known.uplink) target.uplink = known.uplink
-    connection.link.followRoutes()
+    if (connection.target.local || !this.catalog.find(connection.serverId)) return
+    if (connection.transport.hasUntriedSessionToken()) connection.link.dialNow()
+    else connection.link.followRoutes()
   }
 
   /** A person changed this host's routes: the live link follows the catalog's now. */
@@ -328,10 +339,7 @@ export class ServerConnections {
    *  that machine knows it, so it resolves to this client's id for it. An id
    *  this client has no host for comes back unchanged. */
   resolveId(serverId: string): string {
-    if (this.targets.has(serverId) || this.connections.has(serverId)) return serverId
-    for (const target of this.targets.values()) {
-      if (target.installationId === serverId) return target.id
-    }
+    if (this.catalog.find(serverId) || this.connections.has(serverId)) return serverId
     return this.catalog.hosts().find((host) => host.installationId === serverId)?.id ?? serverId
   }
 
@@ -359,12 +367,13 @@ export class ServerConnections {
     const { api, transport } = createSolusConnection(target, {
       verifyConnectedHost: () => this.verifyKnownHostIdentity(target),
       refreshLocalSessionToken: bridge?.refreshSessionToken,
+      catalog: this.catalog,
     })
     return this.managedConnection(serverId, target, transport, bridge ? mergeNativeOnlySolusApi(api, bridge.nativeApi) : api, 'present')
   }
 
   private goneConnection(serverId: string): ManagedConnection {
-    const target: SolusServerTarget = { id: serverId, label: serverId, url: '', sessionToken: '', local: false }
+    const target: SolusServerTarget = { id: serverId, label: serverId, url: '', local: false }
     const { api, transport } = createSolusConnection(target)
     transport.destroy('disconnected', new HostGoneError(serverId))
     return this.managedConnection(serverId, target, transport, api, 'gone')
@@ -382,7 +391,7 @@ export class ServerConnections {
       fallbackRoutes: () => target.fallbackRoutes ?? [],
       dialChoices: () => dialChoicesOf(target),
       clientOrigin: globalThis.location?.origin ?? '',
-      localHostId: this.targets.get(LOCAL_SERVER_ID)?.installationId ?? null,
+      localHostId: this.catalog.find(LOCAL_SERVER_ID)?.installationId ?? null,
       answersAsHost: (url, signal) => this.answersAsHost(target, url, signal),
       cloudUrl: () => target.uplink?.directoryUrl ?? null,
       onConnectionCheck: () => {
@@ -393,14 +402,12 @@ export class ServerConnections {
         this.healthCache.delete(serverId)
       },
       onAdvertised: (advertised) => {
-        if (target.local) return
-        const known = this.catalog.applyAdvertised(serverId, advertised)
-        if (!known) return
-        target.routes = known.routes
-        target.identityKey = known.identityKey
+        if (!target.local) this.catalog.applyAdvertised(serverId, advertised)
       },
       onOutcome: () => {
         for (const listener of this.dialListeners) listener(serverId)
+        // A refused host may have a newer owner pairing to follow; the follower pairs at most once for each.
+        if (link.refusedReason === 'auth') this.refreshPairings()
       },
       onReadinessChange: (readiness, attempt) => {
         if (wasReady && readiness !== 'ready') this.clearConnectionReads(serverId)
@@ -417,9 +424,10 @@ export class ServerConnections {
       if (version) this.lastHostVersions.set(serverId, version)
     })
     pairings = new HostPairingFollower({
-      api, events: link.events, hosts: () => this.catalog.hosts(),
-      save: async (host) => { await this.catalog.pair(host) },
-      forget: (hostId) => this.catalog.forget(hostId), deviceLabel: defaultDeviceLabel(),
+      api, serverInfo: () => link.facts.when('serverInfo'), events: link.events, hosts: () => this.catalog.hosts(),
+      save: (host) => this.catalog.pair(host),
+      forget: (hostId) => this.catalog.forget(hostId), deviceLabel: defaultDeviceLabel,
+      isRefused: (hostId) => this.readinessFor(hostId).refusedReason === 'auth',
     })
     return { serverId, presence, target, link, transport, api, events: link.events, supervisor: link.supervisor, facts: link.facts, pairings }
   }
@@ -472,13 +480,10 @@ export class ServerConnections {
     })
   }
 
-  /** The client machine's own registered host: the desktop's local target.
+  /** The client machine's own host: the desktop's own machine in the catalog.
    *  Null on web — a browser is not a machine that can host. */
   localServerId(): string | null {
-    for (const [id, target] of this.targets) {
-      if (target.local) return id
-    }
-    return null
+    return this.catalog.hosts().find((host) => host.local)?.id ?? null
   }
 
   /** A web page served by a host names it here: it is the host the page runs beside, and the catalog's device host. */
@@ -567,20 +572,14 @@ export class ServerConnections {
   }
 
   /**
-   * Every host there is a live connection to, primary first.
-   *
-   * "Connected" here means a connection object exists — not that its socket is
-   * up. A caller that fans a read out across hosts wants the same set the app is
-   * already talking to, and must not conjure sockets to known-but-unused hosts.
-   * A gone host is not one: its connection has no socket.
+   * The hosts work can go to, primary first: every host the catalog names, the
+   * active organization's Solus API, and a service a tab holds. The catalog is the one
+   * answer; an open socket adds nothing, and a gone host is not one. Whether a host
+   * answers now is its readiness (`readinessFor`), not membership here.
    */
-  connectedServerIds(): string[] {
-    const ids = [...this.connections.values()].filter((connection) => connection.presence === 'present').map((connection) => connection.serverId)
-    if (!this.primaryServerId) return ids
-    return [
-      this.primaryServerId,
-      ...ids.filter((id) => id !== this.primaryServerId),
-    ].filter((id) => this.connections.get(id)?.presence === 'present')
+  serverIds(): string[] {
+    const ids = new Set([...this.catalogServerIds(), ...this.retainedServerIds])
+    return [...ids].filter((id) => this.presenceOf(id) === 'present')
   }
 
   connectionFor(serverId: string): ManagedConnection | undefined {
@@ -630,12 +629,29 @@ export class ServerConnections {
     const connection = this.connections.get(serverId)
     // A gone connection holds no socket; it stays so its readers keep one answer.
     if (!connection || connection.presence === 'gone') return
+    this.close(serverId, connection)
+  }
+
+  private close(serverId: string, connection: ManagedConnection): void {
     this.connections.delete(serverId)
     this.clearConnectionReads(serverId)
     this.undialedServerIds.delete(serverId)
     this.destroyConnection(connection)
     // A host released because it is gone: its readers rebind to a gone connection.
     if (!this.resolveTarget(serverId)) this.addConnection(this.goneConnection(serverId))
+  }
+
+  /**
+   * Once the list and the directory are both read, a connection whose host the
+   * catalog no longer names closes, even while a tab holds it: its readers rebind
+   * to a gone connection. While a read is in progress (a sign-in moving the list to
+   * another source), nothing closes.
+   */
+  private closeUnknownHosts(): void {
+    if (this.catalog.listState() === 'loading' || this.catalog.directoryState() === 'loading') return
+    const unknown = [...this.connections].filter(([serverId, connection]) =>
+      connection.presence === 'present' && serverId !== this.primaryServerId && !this.resolveTarget(serverId))
+    for (const [serverId, connection] of unknown) this.close(serverId, connection)
   }
 
   private destroyConnection(connection: ManagedConnection): void {
@@ -690,11 +706,10 @@ export class ServerConnections {
   async verifyKnownHostIdentity(target: SolusServerTarget): Promise<boolean> {
     if (target.local || target.id === LOCAL_SERVER_ID) return true
     const known = this.catalog.find(target.id)
-    // The primary web bootstrap is not necessarily a known host. There is no
-    // durable identity to compare until the user pairs it. A workspace service
-    // is never a known host: its identity is the grant, which the service
-    // only admits when it was minted for its audience.
-    if (!known) return true
+    // A workspace service is never a known host: its identity is the grant, which
+    // the service only admits when it was minted for its audience. A guest's host
+    // has no saved identity: the link's secret opens one resource.
+    if (!known || known.guest) return true
 
     const health = await this.probeHealth(target.id, true)
     // Only a successful health response can establish or reject identity. A
@@ -707,8 +722,8 @@ export class ServerConnections {
   private async answersAsHost(target: SolusServerTarget, url: string, signal: AbortSignal): Promise<boolean> {
     const route = target.routes?.find((candidate) => candidate.url === url) ?? { url }
     const known = this.catalog.find(target.id)
-    // A guest has no known host: its link's secret opens one resource, and the page names the host.
-    if (!known) return !!(await readHostHealth(fetch, url, signal))
+    // A guest's host has no saved identity: its link's secret opens one resource, and the page names the host.
+    if (!known || known.guest) return !!(await readHostHealth(fetch, url, signal))
     return answersAsSavedHost(fetch, route, known, signal)
   }
 
@@ -732,26 +747,21 @@ export class ServerConnections {
 
   /**
    * Whether this client knows the host an id names
-   * (docs/plans/workspace-and-machines.md §6): a registered target, a known host
-   * or workspace service, or a live connection. A host the directory dropped stays
-   * present while its connection lives. Anything else is `gone`.
+   * (docs/plans/workspace-and-machines.md §6): a host or workspace service the
+   * catalog names. Anything else is `gone`, whether or not a socket is still open.
    */
   presenceOf(serverId: string): HostPresence {
-    const resolvedId = this.resolveId(serverId)
-    if (this.connections.get(resolvedId)?.presence === 'present') return 'present'
-    return this.resolveTarget(resolvedId) ? 'present' : 'gone'
+    return this.resolveTarget(this.resolveId(serverId)) ? 'present' : 'gone'
   }
 
   private resolveTarget(serverId: string): SolusServerTarget | null {
-    const registered = this.targets.get(serverId)
-    if (registered) return registered
     const known = this.catalog.find(serverId)
-    if (known) return knownHostTarget(known)
+    if (known) return catalogHostTarget(this.catalog, known)
     const workspace = this.catalog.workspaceFor(serverId)
     if (workspace) return workspaceTarget(workspace)
-    // On web the primary target answers for the local id (see `ensure`).
-    if (serverId === LOCAL_SERVER_ID && this.primaryServerId) return this.targets.get(this.primaryServerId) ?? null
-    return null
+    // On web the primary host answers for the local id (see `ensure`).
+    const primary = serverId === LOCAL_SERVER_ID && this.primaryServerId ? this.catalog.find(this.primaryServerId) : undefined
+    return primary ? catalogHostTarget(this.catalog, primary) : null
   }
 
   /**

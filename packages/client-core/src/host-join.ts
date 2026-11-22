@@ -97,12 +97,13 @@ function joinedRoutes({ base, listed, credential, learned }: HostAnswers, now: n
 }
 
 /** What this device's credential gives a host. */
-function credentialFacts(credential: HostCredential | undefined): Pick<KnownHost, 'sessionToken' | 'routeOrder' | 'tokenPairedOverHttps' | 'identityKey'> {
+function credentialFacts(credential: HostCredential | undefined): Pick<KnownHost, 'sessionToken' | 'routeOrder' | 'tokenPairedOverHttps' | 'identityKey' | 'ownerPairedAt'> {
   if (!credential) return { sessionToken: '' }
-  const facts: Pick<KnownHost, 'sessionToken' | 'routeOrder' | 'tokenPairedOverHttps' | 'identityKey'> = { sessionToken: credential.token }
+  const facts: Pick<KnownHost, 'sessionToken' | 'routeOrder' | 'tokenPairedOverHttps' | 'identityKey' | 'ownerPairedAt'> = { sessionToken: credential.token }
   if (credential.routeOrder) facts.routeOrder = credential.routeOrder
   if (credential.tokenPairedOverHttps) facts.tokenPairedOverHttps = true
   if (credential.identityKey) facts.identityKey = credential.identityKey
+  if (credential.ownerPairedAt !== undefined) facts.ownerPairedAt = credential.ownerPairedAt
   return facts
 }
 
@@ -196,5 +197,6 @@ export function credentialOf(host: KnownHost): HostCredential {
   if (host.identityKey) credential.identityKey = host.identityKey
   if (host.tokenPairedOverHttps) credential.tokenPairedOverHttps = true
   if (host.routeOrder) credential.routeOrder = host.routeOrder
+  if (host.ownerPairedAt !== undefined) credential.ownerPairedAt = host.ownerPairedAt
   return credential
 }

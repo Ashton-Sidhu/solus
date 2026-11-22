@@ -31,11 +31,9 @@
     onConnectSeat?: () => void;
     /** "Connect Claude" or "Connect Codex". */
     connectSeatLabel?: string;
-    /** A session sync failed on this host: open the Run on list. */
-    onChooseHost?: () => void;
   }
 
-  let { card, skipMotion = false, keepsStepsOpen = false, onRetry, onWorkLocally, onCancel, onConnectSeat, connectSeatLabel = "Connect", onChooseHost }: Props = $props();
+  let { card, skipMotion = false, keepsStepsOpen = false, onRetry, onWorkLocally, onCancel, onConnectSeat, connectSeatLabel = "Connect" }: Props = $props();
   const syncAction = $derived(card.status === "error" && card.syncFailureReason ? sessionSyncFailureAction(card.syncFailureReason) : null);
 
   // A card the client makes has no host times: its step times are what this
@@ -89,9 +87,6 @@
       {/if}
       {#if syncAction === "connect-seat" && onConnectSeat}
         <TranscriptCardAction kind="filled" onclick={onConnectSeat}>{connectSeatLabel}</TranscriptCardAction>
-      {/if}
-      {#if syncAction === "choose-host" && onChooseHost}
-        <TranscriptCardAction kind="primary" onclick={onChooseHost}>Choose a host</TranscriptCardAction>
       {/if}
       {#if isError && card.recovery === "worktree"}
         {#if onWorkLocally}<TranscriptCardAction kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>{/if}

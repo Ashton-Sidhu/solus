@@ -191,6 +191,8 @@ export class TasksStore {
    *  restore the stale "Linked to…" label while the next invalidation catches up. */
   private linkedTargetGenerations = new Map<string, number>()
   private loadPromise: Promise<void> | null = null
+  /** `serverId|sessionId` → the `tasksForSession` read in flight, and the one read queued after it. */
+  private readonly sessionTaskReads = new Map<string, { running: Promise<Task | null | undefined>; queued: Promise<Task | null | undefined> | null }>()
   private assigneeCandidateLoads = new Map<string, Promise<TaskAssigneeCandidate[]>>()
   private invalidationTimer: ReturnType<typeof setTimeout> | null = null
   /** The tasks each host named since the debounce began; null when a host
@@ -209,7 +211,7 @@ export class TasksStore {
   constructor() {
     taskSnoozesStore.start()
     taskSourcesStore.start()
-    for (const serverId of serverConnections.connectedServerIds()) {
+    for (const serverId of serverConnections.serverIds()) {
       this.watchHost(serverId)
     }
     // A host connected later — dispatching to it, or opening a project on it —
@@ -412,20 +414,20 @@ export class TasksStore {
 
   /** A host's place in the catalog. A host this client does not know is last. */
   private hostRank(serverId: string): number {
-    const index = serverConnections.connectedServerIds().indexOf(serverId)
+    const index = serverConnections.serverIds().indexOf(serverId)
     return index === -1 ? Number.MAX_SAFE_INTEGER : index
   }
 
   /** The first host in catalog order whose snapshot lists a task. */
   private hostListing(taskId: string): string | undefined {
-    return serverConnections.connectedServerIds()
+    return serverConnections.serverIds()
       .find((serverId) => this.listedTaskIdsByHost.get(serverId)?.has(taskId))
   }
 
   /** The connected hosts that can read a task from its provider: only a host
    *  that runs projects has task sources and a provider connection. */
   taskReadHosts(): string[] {
-    return serverConnections.connectedServerIds().filter(
+    return serverConnections.serverIds().filter(
       (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready' && hosts.hasExecution(serverId),
     )
   }
@@ -665,7 +667,7 @@ export class TasksStore {
           // lost my tasks" for every other machine.
           // A host must serve the collaboration plane to hold tasks at all
           // (docs/plans/cloud-service-model.md).
-          const serverIds = serverConnections.connectedServerIds().filter(
+          const serverIds = serverConnections.serverIds().filter(
             (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready' && hosts.hasCollaboration(serverId),
           )
           const snapshots = await Promise.all(
@@ -764,10 +766,26 @@ export class TasksStore {
    * a loose row beside the task it belongs to.
    *
    * `null` is the host's answer that the session has no task; `undefined`
-   * means no host could answer. */
-  private async hydrateSessionTask(sessionId: string, serverId?: string): Promise<Task | null | undefined> {
+   * means no host could answer.
+   *
+   * Session start, branch, and title writes each ask for this read, often in
+   * the same few milliseconds. One read runs per session; every request made
+   * while it runs shares one read queued after it, which still sees the
+   * writes made before those requests. */
+  private hydrateSessionTask(sessionId: string, serverId?: string): Promise<Task | null | undefined> {
     const ownerServerId = serverId ?? serverConnections.defaultServerId()
-    if (!ownerServerId) return undefined
+    if (!ownerServerId) return Promise.resolve(undefined)
+    const key = `${ownerServerId}|${sessionId}`
+    const held = this.sessionTaskReads.get(key)
+    if (held) return held.queued ??= held.running.then(() => this.hydrateSessionTask(sessionId, ownerServerId))
+    const running = this.readSessionTask(sessionId, ownerServerId).finally(() => {
+      if (this.sessionTaskReads.get(key)?.running === running) this.sessionTaskReads.delete(key)
+    })
+    this.sessionTaskReads.set(key, { running, queued: null })
+    return running
+  }
+
+  private async readSessionTask(sessionId: string, ownerServerId: string): Promise<Task | null | undefined> {
     const api = serverConnections.apiFor(ownerServerId)
     const found = await api.tasksForSession(sessionId).catch(() => undefined)
     if (found === undefined) return undefined

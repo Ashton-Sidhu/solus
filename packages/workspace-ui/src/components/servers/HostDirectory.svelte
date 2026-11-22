@@ -34,6 +34,8 @@
     // Opening Connections is one of the directory's refresh points (C1).
     void serversStore.refreshDirectory();
     void hostSetupStore.probeUnprobedOnline(serversStore.executionServers);
+    // The nearby list is on screen: discovery scans often while it shows.
+    return serversStore.showNearby();
   });
 
   // A WSL distro of this client's Windows host is nearby too: that host can add it.

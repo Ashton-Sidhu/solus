@@ -12,6 +12,10 @@
   let { serverId, visible = true }: { serverId: string; visible?: boolean } = $props();
 
   $effect(() => untrack(() => webhooksStore.watch()));
+  $effect(() => {
+    const hostId = serverId;
+    untrack(() => webhooksStore.showSettings(hostId));
+  });
 
   const settings = $derived(webhooksStore.hostSettings.get(serverId));
   let isSaving = $state(false);

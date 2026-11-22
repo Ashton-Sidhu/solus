@@ -115,7 +115,7 @@ class PresenceStore {
         if (focus && focus.kind !== 'none') void this.send(serverId, focus)
       })
     })
-    for (const serverId of serverConnections.connectedServerIds()) void this.ensure(serverId)
+    for (const serverId of serverConnections.serverIds()) void this.ensure(serverId)
     this.stopListening = () => {
       unsubscribeHost()
       unsubscribeSession()
@@ -185,7 +185,7 @@ class PresenceStore {
 
   /** Everyone else across the hosts this client is on, one face per person however many hosts they are on. */
   roster(): RosterPerson[] {
-    const rows = hostPeopleAcrossHosts(serverConnections.connectedServerIds(), (serverId) => this.hostPeople(serverId))
+    const rows = hostPeopleAcrossHosts(serverConnections.serverIds(), (serverId) => this.hostPeople(serverId))
     return rosterPeople(rows)
   }
 

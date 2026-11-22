@@ -50,12 +50,15 @@ describe('one running server registry per host', () => {
     s.registry.stop()
   })
 
-  test('expired leases stop scanning without a client close message', async () => {
+  // A client watches once; the disconnect hook ends the watch, so the client sends no renewal.
+  test('a watch keeps scanning without renewal until its client leaves', async () => {
     const s = setup()
-    await s.registry.watch('closed-window')
-    s.advance(20_000)
+    await s.registry.watch('desktop')
+    s.advance(60_000)
     await s.ticks.shift()!()
-    expect(s.scan).toHaveBeenCalledTimes(1)
+    expect(s.scan).toHaveBeenCalledTimes(2)
+    expect(s.ticks).toHaveLength(1)
+    s.registry.unwatch('desktop')
     expect(s.ticks).toHaveLength(0)
   })
 

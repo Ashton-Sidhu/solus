@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test'
+import { MobileSessionCache } from '../../apps/mobile/solus-core/features/threads/session-cache'
+import { PullRequestCache, memoryPullRequestCacheDatabase } from '@solus/client-core/pull-request-cache'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { HostRpcError, TransportDisconnectedError } from '@solus/client-core/rpc-error'
 import { REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import type { IpcContext, PromptOptions, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contracts/session-history'
-import { ConversationController, type ConversationTarget } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
-import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
-import { createHostWorld, FakeApi, flushPromises, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
+import { ConversationController, type ConversationDeps, type ConversationTarget } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
+import { SolusApp } from '../../apps/mobile/solus-core/app/solus-app'
+import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/solus-core/platform/ports'
+import { createHostWorld, FakeApi, flushPromises, healthFetch, FakeTransport } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 
 const page = (messages: SessionHistoryPage['messages'], before: string | null = null): SessionHistoryPage => ({ messages, before })
@@ -19,6 +22,8 @@ function record(provider: 'claude-code' | 'codex' = 'claude-code'): NonNullable<
 
 interface Setup {
   api: FakeApi
+  runSettings?: ConversationDeps['runSettings']
+  sessionCache?: ReturnType<MobileSessionCache['forHost']>
   target?: ConversationTarget
 }
 
@@ -36,8 +41,9 @@ async function open(setup: Setup) {
   const controller = new ConversationController(setup.target ?? { hostId: 'inst-a', record: record() }, {
     executionPreferences: () => ({ extraInstructions: 'Be brief.' }),
     connection,
+    sessionCache: setup.sessionCache,
     outbox,
-    runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} }),
+    runSettings: setup.runSettings ?? (async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} })),
     organizationId: () => null,
     uuid: () => `client-${++nextId}`,
     onChange: (change) => changes.push(change),
@@ -68,6 +74,38 @@ const texts = (controller: ConversationController) => controller.model.order.map
 })
 
 describe('native conversation: history and live events', () => {
+  test('opens the cached page before the host replies and removes it when the host denies access', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    await cache.saveHistory('thread-1', page([userRow('cached', 'm0')], 'older'))
+    const pending = Promise.withResolvers<SessionHistoryPage>()
+    const api = baseApi().on('loadSessionPage', () => pending.promise)
+    const { controller } = await open({ api, sessionCache: cache })
+    const loading = controller.load()
+    await flushPromises()
+    expect(texts(controller)).toEqual(['user:cached'])
+    pending.resolve(page([userRow('fresh', 'm1')]))
+    await loading
+    expect(texts(controller)).toEqual(['user:fresh'])
+    expect((await cache.history('thread-1'))?.before).toBeNull()
+    api.on('loadSessionPage', () => { throw new HostRpcError('Access denied', 'FORBIDDEN') })
+    await controller.load()
+    expect(controller.phase).toMatchObject({ kind: 'error', noAccess: true })
+    expect(texts(controller)).toEqual([])
+    expect(await cache.history('thread-1')).toBeNull()
+    controller.close()
+  })
+
+  test('shows the saved conversation before the host answers model settings', async () => {
+    const gate = Promise.withResolvers<Awaited<ReturnType<ConversationDeps['runSettings']>>>()
+    const { controller } = await open({ api: baseApi(), runSettings: () => gate.promise })
+    const loading = controller.load()
+    await flushPromises()
+    expect(texts(controller)).toContain('user:hello')
+    gate.resolve({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} })
+    await loading
+    controller.close()
+  })
+
   test('publishes history while the live watch is still pending', async () => {
     let finishWatch!: (value: { runtime: null }) => void
     const api = baseApi().on('watchSession', () => new Promise<{ runtime: null }>((resolve) => { finishWatch = resolve }))
@@ -280,6 +318,20 @@ describe('native conversation: sending', () => {
     // The host's echo confirms the optimistic row; it does not add another.
     expect(texts(controller)).toEqual(['user:build it'])
     expect(controller.model.items.get('client-1')).toMatchObject({ delivery: 'sent' })
+  })
+
+  test('the first prompt carries the provider and model selected on the draft', async () => {
+    const api = baseApi().on('prompt', () => ({ disposition: 'started' }))
+    const { controller } = await open({ api, target: { hostId: 'inst-a', newSession: {
+      sessionId: 'draft', provider: 'codex', workingDirectory: '/work/app',
+    } } })
+    await controller.load()
+    controller.pickProvider('claude-code')
+    expect(controller.updateRun({ model: 'claude-sonnet-5-5' })).toBe(true)
+    await controller.send('build it')
+    const [ctx] = api.callsOf('prompt')[0] as [IpcContext]
+    expect(ctx.session).toMatchObject({ provider: 'claude-code', preferredModel: 'claude-sonnet-5-5' })
+    controller.close()
   })
 
   test('a new session that a prompt started reloads its history after a reconnect that lost the server session', async () => {
@@ -616,4 +668,43 @@ test('a refused task preparation keeps the native prompt for retry and never sta
   await controller.send('Fix this issue')
   expect(api.callsOf('prompt')).toHaveLength(0)
   expect(outbox.entriesFor('inst-a/new-task-session')[0]?.lastError).toBe('Task access ended')
+})
+
+
+test('a recent conversation keeps its live watch through replay and is evicted on a reset', async () => {
+  const api = baseApi().on('configGet', () => ({}))
+  let transport!: FakeTransport
+  const app = new SolusApp({
+    storage: memoryKeyValueStore(), secrets: memorySecretStore(),
+    fetch: healthFetch({ 'http://a:1': 'inst-a' }), uuid: () => crypto.randomUUID(),
+    createTransport: options => (transport = new FakeTransport(options, api)),
+    openBrowser: async () => {}, deviceLabel: 'Test phone',
+  })
+  try {
+    await app.load()
+    await app.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
+    app.connections.connection('inst-a')
+    await transport.accept()
+    const store = app.conversation('inst-a', { record: record() })!
+    const release = app.observeConversation(store)
+    await flushPromises()
+    expect(store.controller.phase.kind).toBe('ready')
+    release()
+    await transport.accept(true)
+    transport.emitSession('thread-1', { type: 'text_chunk', text: 'while away' })
+    const opened = app.conversation('inst-a', { record: record() })!
+    const releaseAgain = app.observeConversation(opened)
+    expect(opened).toBe(store)
+    expect(texts(store.controller)).toContain('assistant:while away')
+    expect(api.callsOf('loadSessionPage')).toHaveLength(1)
+    expect(api.callsOf('watchSession')).toHaveLength(1)
+    expect(api.callsOf('unwatchSession')).toHaveLength(0)
+    releaseAgain()
+    await transport.accept(false)
+    expect(app.openConversation('inst-a', 'thread-1')).toBeNull()
+    expect(api.callsOf('loadSessionPage')).toHaveLength(1)
+    app.conversation('inst-a', { record: record() })
+    await flushPromises()
+    expect(api.callsOf('loadSessionPage')).toHaveLength(2)
+  } finally { app.dispose() }
 })

@@ -40,7 +40,7 @@ describe('native attachments', () => {
     }
     const uploaded = await uploadAttachment(photo, { api, ctx: {} as IpcContext, serverUrl: 'http://h:1', io, uuid: () => 'a1' })
     expect(calls).toEqual([{ name: 'photo.jpg', mime: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,QUJDREVG' }])
-    expect(uploaded).toEqual({ id: 'a1', kind: 'image', name: 'photo.jpg', hostPath: '/data/attachments/s/1-photo.jpg', mimeType: 'image/jpeg', size: 1000, dataUrl: 'data:image/jpeg;base64,QUJDREVG' })
+    expect(uploaded).toEqual({ id: 'a1', kind: 'image', localUri: photo.uri, name: 'photo.jpg', hostPath: '/data/attachments/s/1-photo.jpg', mimeType: 'image/jpeg', size: 1000, dataUrl: 'data:image/jpeg;base64,QUJDREVG' })
   })
 
   test('a DNG goes up as a file with the DNG type, even when the picker calls it a JPEG', async () => {
@@ -198,6 +198,33 @@ describe('native send while an attachment uploads', () => {
     const [, options] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
     expect(options.prompt).toBe('[Attached file: /h/spec.pdf]\n\nWhat is wrong here?')
     // The landed file went with the message; it does not stay for the next one.
+    expect(controller.attachments).toEqual([])
+  })
+
+  test('a photo stays visible when sent during upload and the host receives its stored reference', async () => {
+    const { api, controller, uploads } = await uploadingConversation()
+    const attaching = controller.attach([photo])
+    expect(controller.pendingImages[0]?.previewUri).toBe(photo.uri)
+    await settle()
+    const sending = controller.send('')
+    await settle()
+    const user = [...controller.model.items.values()].find(item => item.kind === 'user')
+    expect(user?.attachments[0]).toMatchObject({ kind: 'local-image', uri: photo.uri })
+    expect(controller.pendingImages).toEqual([])
+    uploads[0]!.resolve('/h/photo.jpg')
+    await Promise.all([attaching, sending])
+    const [, options] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
+    expect(options.imageAttachmentRefs?.[0]?.hostPath).toBe('/h/photo.jpg')
+  })
+
+  test('a removed thumbnail stays removed when the host finishes its upload', async () => {
+    const { controller, uploads } = await uploadingConversation()
+    const attaching = controller.attach([photo])
+    await settle()
+    controller.removeAttachment(controller.pendingImages[0]!.id)
+    expect(controller.pendingImages).toEqual([])
+    uploads[0]!.resolve('/h/photo.jpg')
+    await attaching
     expect(controller.attachments).toEqual([])
   })
 

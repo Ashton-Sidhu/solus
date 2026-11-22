@@ -1,7 +1,12 @@
-import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
-import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
-import { codexItemToMessage, codexTurnToMessages, codexTurnsToMessages } from '@solus/server/execution/agents/codex/codex-utils'
+import { afterEach, describe, expect, mock, setSystemTime, test } from 'bun:test'
 import type { NormalizedEvent } from '@solus/contracts/types'
+
+import { DatabaseSync } from './helpers/bun-sqlite'
+mock.module('node:sqlite', () => ({ DatabaseSync }))
+
+const { CodexTurnNormalizer } = await import('@solus/server/execution/agents/codex/codex-event-normalizer')
+
+const { codexItemToMessage, codexTurnToMessages, codexTurnsToMessages } = await import('@solus/server/execution/agents/codex/codex-utils')
 
 type RawCodexEvent = { method: string; params: any }
 
@@ -17,7 +22,7 @@ async function readCodexFixture(name: string): Promise<RawCodexEvent[]> {
 async function normalizeCodexFixture(
   name: string,
   opts: { planMode: boolean },
-): Promise<{ events: NormalizedEvent[]; normalizer: CodexTurnNormalizer }> {
+): Promise<{ events: NormalizedEvent[]; normalizer: InstanceType<typeof CodexTurnNormalizer> }> {
   const normalizer = new CodexTurnNormalizer(opts)
   const events: NormalizedEvent[] = []
   for (const raw of await readCodexFixture(name)) {
@@ -76,10 +81,22 @@ describe('normalizeCodexNotification', () => {
     // it only on the completed item; encrypted reasoning has no readable text.
     expect(normalizeCodexNotification('item/completed', {
       item: { id: 'rs-1', type: 'reasoning', summary: ['**Checking the tests**'], content: ['raw chain'] },
-    })).toEqual([{ type: 'thinking', state: 'stop', parentToolUseId: undefined, text: '**Checking the tests**' }])
+    })).toEqual([{ type: 'thinking', state: 'stop', parentToolUseId: undefined, thoughtId: 'rs-1', text: '**Checking the tests**\n\nraw chain' }])
     expect(normalizeCodexNotification('item/completed', {
       item: { id: 'rs-2', type: 'reasoning', summary: [], content: [] },
-    })).toEqual([{ type: 'thinking', state: 'stop', parentToolUseId: undefined }])
+    })).toEqual([{ type: 'thinking', state: 'stop', parentToolUseId: undefined, thoughtId: 'rs-2', text: '' }])
+  })
+
+  test('the completed item keeps streamed parts the final frame omits', () => {
+    const normalizer = new CodexTurnNormalizer({ planMode: false })
+    const first = normalizer.push({ method: 'item/reasoning/summaryTextDelta',
+      params: { itemId: 'reason', summaryIndex: 0, delta: 'Checking' } })
+    expect(first[0]).toMatchObject({ state: 'update', thoughtId: 'reason', text: 'Checking' })
+    normalizer.push({ method: 'item/reasoning/summaryTextDelta',
+      params: { itemId: 'reason', summaryIndex: 1, delta: 'Found it' } })
+    const final = normalizer.push({ method: 'item/completed',
+      params: { item: { type: 'reasoning', id: 'reason', summary: ['Checking files'], content: ['Checking files'] } } })
+    expect(final[0]).toMatchObject({ state: 'stop', thoughtId: 'reason', text: 'Checking files\n\nFound it' })
   })
 
   test('keeps each summary part its own paragraph', () => {
@@ -88,7 +105,7 @@ describe('normalizeCodexNotification', () => {
     expect(normalizeCodexNotification('item/completed', {
       item: { id: 'rs-3', type: 'reasoning', summary: ['**Evaluating storage**', '**Inspecting identity**'] },
     })).toEqual([{
-      type: 'thinking', state: 'stop', parentToolUseId: undefined, text: '**Evaluating storage**\n\n**Inspecting identity**',
+      type: 'thinking', state: 'stop', parentToolUseId: undefined, thoughtId: 'rs-3', text: '**Evaluating storage**\n\n**Inspecting identity**',
     }])
   })
 

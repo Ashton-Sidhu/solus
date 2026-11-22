@@ -11,17 +11,17 @@ describe('agent event host routing', () => {
     const remoteEvents = new HostEventSubscriber()
     const normalizedEvents: Array<{ sessionId: string; event: WireNormalizedEvent }> = []
     const connections = serverConnections as unknown as {
-      connectedServerIds: () => string[]
+      serverIds: () => string[]
       eventsFor: (serverId: string) => HostEventSubscriber
       onConnectionCreated: (listener: (connection: { serverId: string }) => void) => () => void
       resolveId: (serverId: string) => string
     }
-    const originalConnectedServerIds = connections.connectedServerIds
+    const originalConnectedServerIds = connections.serverIds
     const originalEventsFor = connections.eventsFor
     const originalOnConnectionCreated = connections.onConnectionCreated
     const originalResolveId = connections.resolveId
 
-    connections.connectedServerIds = () => ['local', 'remote']
+    connections.serverIds = () => ['local', 'remote']
     connections.eventsFor = (serverId) => serverId === 'remote' ? remoteEvents : localEvents
     connections.onConnectionCreated = () => () => {}
     connections.resolveId = (serverId) => serverId
@@ -50,7 +50,7 @@ describe('agent event host routing', () => {
       expect(normalizedEvents).toEqual([{ sessionId: 'remote-session', event }])
       unsubscribe()
     } finally {
-      connections.connectedServerIds = originalConnectedServerIds
+      connections.serverIds = originalConnectedServerIds
       connections.eventsFor = originalEventsFor
       connections.onConnectionCreated = originalOnConnectionCreated
       connections.resolveId = originalResolveId

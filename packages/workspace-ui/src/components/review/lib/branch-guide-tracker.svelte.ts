@@ -21,9 +21,11 @@ export function showBranchReviewGuide(sourceId: string): () => void {
 }
 
 /**
- * One probe per shown branch guide, owned here rather than by each mounted Git
- * section. A guide is probed once, when its source first shows a branch; the
- * answer renders from the store from then on. Whether that guide is still
+ * One probe per branch guide, owned here rather than by each mounted Git
+ * section. A guide is probed once per host, repository, and branch, when a
+ * source first shows it; the answer renders from the store from then on, and
+ * the store reads its tracked guides again after a reconnect. A section that
+ * mounts again, or another tab on the same branch, sends no probe. Whether that guide is still
  * current is checked only when it is opened (the review surface asks on
  * mount), never on every working-tree move. Host bindings and the checkout
  * HEAD are read untracked, so nothing else re-probes.
@@ -32,15 +34,14 @@ export function trackBranchReviewGuides(
   workspace: Pick<WorkspaceContext, 'runFor' | 'apiFor' | 'serverIdFor' | 'ctxForEnvironment'>,
   environmentStore: Pick<SessionEnvironmentStore, 'environmentFor'>,
 ): void {
-  const probedGuides = new Map<string, string>()
+  const probedGuides = new Set<string>()
   $effect(() => {
     for (const sourceId of shownSources.keys()) {
       const environment = environmentStore.environmentFor(workspace.runFor(sourceId))
-      const probeKey = environment.repoRoot && environment.branch
-        ? `${environment.repoRoot}::${environment.branch}`
-        : null
-      if (!probeKey || probedGuides.get(sourceId) === probeKey) continue
-      probedGuides.set(sourceId, probeKey)
+      if (!environment.repoRoot || !environment.branch) continue
+      const probeKey = `${untrack(() => workspace.serverIdFor(sourceId))}::${environment.repoRoot}::${environment.branch}`
+      if (probedGuides.has(probeKey)) continue
+      probedGuides.add(probeKey)
       untrack(() => {
         const identity = branchGuideIdentity(environment)
         if (!identity) return
@@ -52,9 +53,6 @@ export function trackBranchReviewGuides(
           'branch',
         )
       })
-    }
-    for (const sourceId of probedGuides.keys()) {
-      if (!shownSources.has(sourceId)) probedGuides.delete(sourceId)
     }
   })
 }

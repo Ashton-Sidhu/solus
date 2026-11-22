@@ -103,7 +103,7 @@ const options = { allowLoopback: true }
 describe('MCP probe', () => {
   test('the modern server identity comes from discover', async () => {
     const fake = await startFakeServers()
-    try { expect(await readServerIdentity(fake.modernMcpUrl, 'Bearer test')).toEqual({ label: 'modern-fake' }) }
+    try { expect(await readServerIdentity(fake.modernMcpUrl, { authorization: 'Bearer test' })).toEqual({ label: 'modern-fake' }) }
     finally { await fake.close() }
   })
 

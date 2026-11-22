@@ -117,6 +117,8 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     error: null,
   }))
   backend.register('usageLimits', () => [])
+  backend.register('usageWatch', () => [])
+  backend.register('usageUnwatch', () => {})
   // Webhooks (docs/plans/webhooks.md): the demo host has none and no URL.
   backend.register('webhookList', (): Webhook[] => [])
   backend.register('hostWebhookSettingsRead', (): HostWebhookSettings => ({ publicUrl: null, holdWhileOffline: null, linked: false }))

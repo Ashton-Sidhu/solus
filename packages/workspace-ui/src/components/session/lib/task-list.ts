@@ -104,17 +104,6 @@ export function taskRowBranchName(
   return sessions.length === 1 ? (sessions[0].branchName ?? taskBranchName) : taskBranchName
 }
 
-export type ReviewGuideIndicatorStatus = 'generating' | 'ready' | null
-
-/** A task summarizes every session below it. Work in flight wins over ready so
- * the parent never looks settled while one of its guides is still being made. */
-export function aggregateReviewGuideStatus(
-  sessions: readonly { reviewGuideStatus: ReviewGuideIndicatorStatus }[],
-): ReviewGuideIndicatorStatus {
-  if (sessions.some((session) => session.reviewGuideStatus === 'generating')) return 'generating'
-  return sessions.some((session) => session.reviewGuideStatus === 'ready') ? 'ready' : null
-}
-
 /**
  * `markedDone` is the user's own verdict and only survives while the task is at
  * rest — the moment it wants something or starts working again, the agent's
@@ -172,7 +161,6 @@ export type SidebarRowMark =
   | { kind: 'glyph'; status: TaskStatus }
   | { kind: 'woke' }
   | { kind: 'unread' }
-  | { kind: 'guide'; state: 'ready' | 'generating' }
   | { kind: 'elapsed'; label: string }
   | { kind: 'spinner' }
   | { kind: 'wake'; label: string }
@@ -183,7 +171,6 @@ export interface SidebarRowMarkInput {
   unread: boolean
   /** The last snooze expired after this row was last visited. */
   woke: boolean
-  reviewGuide: ReviewGuideIndicatorStatus
   lifecycle: SidebarTask['lifecycle']
   /** Start of the turn in flight. 0 unless running. */
   runStartedAt: number
@@ -215,7 +202,6 @@ export function resolveSidebarRowMark(input: SidebarRowMarkInput): SidebarRowMar
   // unread output the user has never been told to expect.
   if (input.woke) return { kind: 'woke' }
   if (showsUnreadIndicator(input.status, input.unread)) return { kind: 'unread' }
-  if (input.reviewGuide === 'ready') return { kind: 'guide', state: 'ready' }
   if (input.status === 'running') {
     // A number can only date one turn. Once several sessions run at once there
     // is no single clock to report, so the row says *that* work is in flight
@@ -226,9 +212,6 @@ export function resolveSidebarRowMark(input: SidebarRowMarkInput): SidebarRowMar
       ? { kind: 'elapsed', label: formatElapsed(input.now - input.runStartedAt) }
       : { kind: 'spinner' }
   }
-  // Writing a guide is work in flight too, but it is quieter than a live turn
-  // and never competes with one.
-  if (input.reviewGuide === 'generating') return { kind: 'guide', state: 'generating' }
   if (input.lifecycle === 'snoozed') {
     return { kind: 'wake', label: formatWakeIn(input.snoozedUntil, input.now) }
   }
@@ -272,6 +255,8 @@ export interface SidebarTask {
   /** Navigation key. */
   key: string
   title: string
+  automationId?: string
+  automationName?: string
   projectKey: string
   projectLabel: string
   /** The project the row groups and filters under (docs/plans/project-model.md):
@@ -330,7 +315,7 @@ export function filterSidebarTasks(
   const needle = query.trim().toLocaleLowerCase()
   if (!needle) return tasks
   return tasks.filter((task) =>
-    `${task.title} ${task.projectLabel}`.toLocaleLowerCase().includes(needle),
+    `${task.title} ${task.automationName ?? ''} ${task.projectLabel}`.toLocaleLowerCase().includes(needle),
   )
 }
 
@@ -433,6 +418,8 @@ export function reconcileSidebarTasks(
       previous &&
       previous.key === next.key &&
       previous.title === next.title &&
+      previous.automationId === next.automationId &&
+      previous.automationName === next.automationName &&
       previous.projectKey === next.projectKey &&
       previous.projectLabel === next.projectLabel &&
       previous.branchName === next.branchName &&

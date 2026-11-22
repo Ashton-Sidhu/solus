@@ -24,6 +24,7 @@
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import TurnArtifacts from "./TurnArtifacts.svelte";
   import TurnImageGallery from "./TurnImageGallery.svelte";
+  import ThoughtRow from "./ThoughtRow.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
   import ToolOutputStrip from "./ToolOutputStrip.svelte";
   import { EMPTY_TOOL_STRIP, hasToolStrip, toolStrip } from "@solus/client-core/tool-outputs";
@@ -192,6 +193,8 @@
                 {/if}
               {/each}
             {/if}
+          {:else if item.kind === "thought"}
+            <ThoughtRow message={item.message} {skipMotion} live={working && itemIdx === body.length - 1} />
           {:else}
             {@render transcriptItem(
               item,

@@ -149,7 +149,7 @@ function artifactProjection(toolName: string | undefined, content: string, faile
   return result
 }
 
-function isSubagentTool(message: Pick<SessionLoadMessage, 'isSubagent' | 'toolName'>): boolean {
+export function isSubagentTool(message: Pick<SessionLoadMessage, 'isSubagent' | 'toolName'>): boolean {
   if (message.isSubagent) return true
   const name = message.toolName?.slice(message.toolName.lastIndexOf('.') + 1)
   return name === 'Task' || name === 'Agent' || name === 'spawnAgent'

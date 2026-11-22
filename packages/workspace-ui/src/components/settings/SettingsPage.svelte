@@ -352,7 +352,7 @@
   const settingsHosts = $derived.by(() => {
     void serversStore.servers;
     const leadHostId = hosts.device?.id;
-    const serverIds = serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId));
+    const serverIds = serverConnections.serverIds().filter((serverId) => !isSolusApiId(serverId));
     return [
       ...serverIds.filter((serverId) => serverId === leadHostId),
       ...serverIds.filter((serverId) => serverId !== leadHostId),

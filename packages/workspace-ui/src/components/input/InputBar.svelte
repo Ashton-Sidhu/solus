@@ -604,7 +604,7 @@
         }),
       );
     },
-    { enabled: () => ownsComposerShortcuts },
+    { enabled: () => ownsComposerShortcuts && !!draftId },
   );
   // ─── Reference composer wiring ───
 

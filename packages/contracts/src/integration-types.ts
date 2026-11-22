@@ -16,10 +16,18 @@ const noAuthSchema = z.object({
   oauth: z.object({ discover: z.string().min(1) }).optional(),
 })
 
+/** One OAuth scope (RFC 6749 §3.3): printable ASCII with no space, quote, or backslash. */
+export const oauthScopeSchema = z.string().min(1).max(256).regex(/^[\x21\x23-\x5B\x5D-\x7E]+$/, 'A scope has no spaces, quotes, or backslashes')
+
+/** The scopes a person asks for at sign-in, in place of the ones the server's metadata names. */
+export const oauthScopesSchema = z.array(oauthScopeSchema).min(1).max(64)
+
 const oauthAuthSchema = z.object({
   kind: z.literal('oauth'),
   /** The metadata address the server's challenge names. */
   discover: z.string().min(1),
+  /** The scopes the person chose when they added the server; absent, the sign-in asks for the ones the server names. */
+  scopes: oauthScopesSchema.optional(),
   registration: z.enum(['dynamic', 'metadata-document', 'client-required']),
   /** A saved public client ID for a `client-required` server. The secret stays on the host. */
   clientId: z.string().min(1).optional(),
@@ -52,6 +60,26 @@ export const integrationEnvNameSchema = z.string().max(128).regex(/^[A-Za-z_][A-
 export const integrationEnvNamesSchema = z.array(integrationEnvNameSchema).max(64)
   .refine((names) => new Set(names).size === names.length, 'Give each environment variable name once')
 
+/** Headers the MCP transport or HTTP itself sets: a person's header may not replace one. */
+const RESERVED_HEADER_NAMES = new Set(['host', 'content-length', 'content-type', 'accept', 'connection', 'transfer-encoding', 'te', 'upgrade', 'keep-alive', 'proxy-authorization', 'cookie', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id'])
+
+/** The name of one header of a `headers` integration: an HTTP token (RFC 9110 §5.6.2) that is not reserved. */
+export const integrationHeaderNameSchema = z.string().min(1).max(128)
+  .regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/, 'Use letters, digits, and hyphens in a header name')
+  .refine((name) => !RESERVED_HEADER_NAMES.has(name.toLowerCase()), 'Solus sets this header itself')
+
+/** The header names of a `headers` integration: no name twice, in any case. */
+export const integrationHeaderNamesSchema = z.array(integrationHeaderNameSchema).min(1).max(32)
+  .refine((names) => new Set(names.map((name) => name.toLowerCase())).size === names.length, 'Give each header name once')
+
+/**
+ * A server at a URL that takes headers from each person (docs/plans/mcp-add-server.md):
+ * the names only. The values are each person's, saved on the host as a
+ * command's environment values are, so the record stays on the host it was
+ * added on and is not an agent profile entry.
+ */
+const headersAuthSchema = z.object({ kind: z.literal('headers'), names: integrationHeaderNamesSchema }).strict()
+
 /**
  * How a server at a URL authenticates (§3.2). `none`: tools work for everyone;
  * `oauth` is kept when the server also advertises it. `oauth`: each person signs
@@ -62,14 +90,16 @@ export const remoteIntegrationAuthSchema = z.discriminatedUnion('kind', [noAuthS
 export type RemoteIntegrationAuth = z.infer<typeof remoteIntegrationAuthSchema>
 
 /**
- * How an integration authenticates: a remote kind, or `env` for a `stdio`
- * integration (mcp-first-class.md §7.1). `env` holds the names of environment
- * variables only. The values are each person's connection, in the vault.
+ * How an integration authenticates: a remote kind, `headers` for a server at a
+ * URL that takes the person's headers, or `env` for a `stdio` integration
+ * (mcp-first-class.md §7.1). `headers` and `env` hold names only. The values
+ * are each person's connection, in the vault on the host.
  */
 export const integrationAuthSchema = z.discriminatedUnion('kind', [
   noAuthSchema,
   oauthAuthSchema,
   bearerAuthSchema,
+  headersAuthSchema,
   z.object({ kind: z.literal('env'), names: integrationEnvNamesSchema.refine((names) => names.length > 0, 'Name at least one environment variable') }),
 ])
 export type IntegrationAuth = z.infer<typeof integrationAuthSchema>
@@ -392,11 +422,44 @@ export type IntegrationProbeRequest = z.infer<typeof integrationProbeRequestSche
 
 const integrationSlugInputSchema = z.string().trim().min(1).max(40)
 
-/** A server at an address. The server derives `slug` from `name` when it is absent. */
+/**
+ * The owner's OAuth client for a server with no dynamic registration
+ * (§4.3). The host stores the secret; the client sends it once and never reads it back.
+ */
+export const integrationOAuthClientInputSchema = z.object({
+  clientId: z.string().trim().min(1).max(512),
+  clientSecret: z.string().max(4096).optional(),
+}).strict()
+export type IntegrationOAuthClientInput = z.infer<typeof integrationOAuthClientInputSchema>
+
+/** What OAuth a person sets up when they add a server: the scopes to ask for, and their own client. */
+const oauthChoiceFields = {
+  scopes: oauthScopesSchema.optional(),
+  client: integrationOAuthClientInputSchema.optional(),
+}
+
+/**
+ * How the person says a new server at a URL authenticates
+ * (docs/plans/mcp-add-server.md). `automatic` keeps what the probe finds; its
+ * OAuth fields apply only when the probe finds OAuth. `oauth` is refused when
+ * the server offers no OAuth. `bearer`, `none`, and `headers` override the
+ * probe, which then only needs to reach the server.
+ */
+export const integrationAuthChoiceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('automatic'), ...oauthChoiceFields }).strict(),
+  z.object({ kind: z.literal('oauth'), ...oauthChoiceFields }).strict(),
+  z.object({ kind: z.literal('bearer') }).strict(),
+  z.object({ kind: z.literal('none') }).strict(),
+  z.object({ kind: z.literal('headers'), names: integrationHeaderNamesSchema }).strict(),
+])
+export type IntegrationAuthChoice = z.infer<typeof integrationAuthChoiceSchema>
+
+/** A server at an address. The server derives `slug` from `name` when it is absent; `auth` left out is `automatic`. */
 export const integrationUrlCreateRequestSchema = z.object({
   name: integrationNameSchema,
   url: integrationAddressSchema,
   slug: integrationSlugInputSchema.optional(),
+  auth: integrationAuthChoiceSchema.optional(),
 }).strict()
 export type IntegrationUrlCreateRequest = z.infer<typeof integrationUrlCreateRequestSchema>
 
@@ -424,22 +487,16 @@ export type IntegrationCommandCreateRequest = z.infer<typeof integrationCommandC
 export const integrationCreateRequestSchema = z.union([integrationUrlCreateRequestSchema, integrationCommandCreateRequestSchema])
 export type IntegrationCreateRequest = z.infer<typeof integrationCreateRequestSchema>
 
-/**
- * The owner's OAuth client for a server with no dynamic registration
- * (§4.3). The host stores the secret; the client sends it once and never reads it back.
- */
-export const integrationOAuthClientInputSchema = z.object({
-  clientId: z.string().trim().min(1).max(512),
-  clientSecret: z.string().max(4096).optional(),
-}).strict()
-export type IntegrationOAuthClientInput = z.infer<typeof integrationOAuthClientInputSchema>
-
 /** `oauthClient`: an object saves the owner's client; `null` removes it. */
 export const integrationUpdateRequestSchema = z.object({
   id: z.string().min(1),
   name: integrationNameSchema.optional(),
   url: integrationUrlSchema.optional(),
   oauthClient: z.union([integrationOAuthClientInputSchema, z.null()]).optional(),
+  /** An `oauth` server's scopes; `null` goes back to the ones the server names. The next sign-in asks for them. */
+  scopes: z.union([oauthScopesSchema, z.null()]).optional(),
+  /** A `headers` server's new header names. Every person gives values for new names again. */
+  headerNames: integrationHeaderNamesSchema.optional(),
   /** Replaces the whole list of tools turned off. */
   disabledTools: z.array(z.string().min(1).max(200)).max(1000).optional(),
   /** A `stdio` integration's new command (§7.6). Needs `host.admin`; it drops the saved facts and stops the process. */
@@ -827,9 +884,9 @@ export const integrationConnectStartRequestSchema = z.object({
 }).strict()
 export type IntegrationConnectStartRequest = z.infer<typeof integrationConnectStartRequestSchema>
 
-/** One environment value of a `stdio` integration. Every value is a secret (§7.1). */
+/** One value of a `stdio` integration's variable or a `headers` integration's header. Every value is a secret (§7.1). */
 export const integrationEnvValueSchema = z.object({
-  name: integrationEnvNameSchema,
+  name: z.union([integrationEnvNameSchema, integrationHeaderNameSchema]),
   value: z.string().max(32_768),
 }).strict()
 export type IntegrationEnvValue = z.infer<typeof integrationEnvValueSchema>
@@ -837,7 +894,7 @@ export type IntegrationEnvValue = z.infer<typeof integrationEnvValueSchema>
 /**
  * Exactly one target: `flowId` with the address an OAuth flow's browser ended on
  * (`value`), or `id` with an API key for a `bearer` integration (`value`), or
- * `id` with the environment values of a `stdio` integration (`values`, one for
+ * `id` with the values of a `stdio` or `headers` integration (`values`, one for
  * each of its names, mcp-first-class.md §7.6).
  */
 export const integrationConnectSubmitRequestSchema = z.object({

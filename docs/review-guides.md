@@ -1,12 +1,14 @@
 # Review guides
 
 A review guide is a walkthrough of a change that an agent writes for the
-person who decides if the change should land. It works on a working tree, a
-session, a branch, and a pull request, with Claude and Codex. It shows on
-desktop and web. Mobile also shows guides for pull requests.
+person who decides if the change should land. To review this session, send `/review-guide` in the conversation.
+Add a focus if needed, for example `/review-guide focus on the migration tests`.
+Claude or Codex reads the before and after Git trees for this session’s completed turns.
+The guide appears inside the reply on desktop, web, and mobile. Each file reference names a captured turn. The client reads that turn’s Git patch from the session host when it opens the guide. You can ask
+follow-up questions or run the command again with a different focus.
 
-The guide explains the change. It does not look for bugs. Review agents and
-human reviewers do that.
+Working-tree, branch, and pull request guides use the structured sections below.
+Desktop and web show all three. Mobile also shows the pull request guide.
 
 ## Sections
 
@@ -20,7 +22,7 @@ the left. Hover over it or focus it with the keyboard to see the section
 titles. Select a title to jump to that section. A darker marker shows your
 current section.
 
-Every changed file is in the guide. If the agent leaves a file out, Solus adds
+Working-tree, branch, and pull request guides include every changed file. If the agent leaves a file out, Solus adds
 it to a **Remaining changes** section.
 
 ## Attention
@@ -55,7 +57,7 @@ does not start a second one. A request for a newer revision stops the old run
 and starts again.
 
 One job manager on the host (`ReviewGuideJobs` in
-`packages/server/src/review/guide-jobs.ts`) owns every running guide, for pull
+`packages/server/src/review/guide-jobs.ts`) owns each structured guide job, for pull
 requests and for local changes. Pull request guides run one at a time; local
 guides run in parallel.
 
@@ -66,7 +68,7 @@ a pull-request-aware session beside the review, with a draft that names the
 section, its decision, and its files. You write the question and send it. The
 guide stays open at the same place.
 
-Guides for a working tree, a session, or a branch do not have this action yet.
+Guides for a working tree or a branch do not have this action yet.
 
 ## In the mobile app
 

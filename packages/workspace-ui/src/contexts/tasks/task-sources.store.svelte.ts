@@ -30,7 +30,7 @@ export interface TaskSourceSettings {
  */
 export function taskHostId(): string | null {
   const isReady = (serverId: string) =>
-    serverConnections.connectedServerIds().includes(serverId)
+    serverConnections.serverIds().includes(serverId)
     && serverConnections.readinessFor(serverId).readiness === 'ready'
     && hosts.hasExecution(serverId)
   const device = serverConnections.localServerId()

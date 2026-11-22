@@ -5,6 +5,7 @@ import { HostCatalog } from '@solus/client-core/host-catalog'
 import type { KnownHost } from '@solus/client-core/known-host'
 import type { AccountDocumentCall } from '@solus/client-core/account-documents'
 import { DEFAULT_HOST_RULES } from '@solus/contracts/uplink'
+import { hostListingSchema } from '@solus/contracts/host-list'
 import { catalogOf, credentialFor, directoryHostFor, fakeDirectory, fakeList, listingFor, memoryCredentials, type Journal } from './helpers/host-catalog-world'
 
 // plans/033: a client keeps only its credentials. The hosts it shows are joined
@@ -306,6 +307,26 @@ describe('pair and forget', () => {
     await catalog.pair(pairedHost('old', { routes: [{ kind: 'lan', url: 'http://studio.lan:3000', source: 'pairing', seenAt: 1 }] }))
     await catalog.pair(pairedHost('new', { routes: [{ kind: 'lan', url: 'http://studio.lan:3000', source: 'pairing', seenAt: 2 }] }))
     expect(ids(catalog)).toEqual(['new'])
+  })
+
+  test('a listing is named by its installation id and no other', () => {
+    // WHY: one host with two ids showed as two rows, and a pairing reached only one of them.
+    expect(hostListingSchema.safeParse(listingFor('a')).success).toBe(true)
+    expect(hostListingSchema.safeParse(listingFor('directory-a', { installationId: 'a' })).success).toBe(false)
+  })
+
+  test('a token refresh that ends after a new pairing keeps the new pairing', async () => {
+    // WHY: the transport reads the token here at each dial; an old renewal must not replace the pairing that came after it.
+    const catalog = catalogOf({ credentials: memoryCredentials([]), directory: null })
+    await catalog.useListSource(fakeList([], 'host:local').source)
+    await catalog.pair(pairedHost('a'))
+    await catalog.pair(pairedHost('a', { sessionToken: 'token-new' }))
+
+    await catalog.renewToken('a', 'token-a', 'token-a-renewed')
+    expect(catalog.sessionTokenOf('a')).toBe('token-new')
+
+    await catalog.renewToken('a', 'token-new', 'token-new-renewed')
+    expect(catalog.sessionTokenOf('a')).toBe('token-new-renewed')
   })
 
   test('forget removes the listing, then deletes the credential; a list that does not answer deletes nothing', async () => {

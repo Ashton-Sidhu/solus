@@ -65,3 +65,10 @@ describe('firstThoughtPreview', () => {
     expect(firstThoughtPreview([])).toBe('')
   })
 })
+
+test('a live group shows one heading or sentence, leaving the explanation for expansion', () => {
+  const preview = (text: string) => latestThoughtPreview([{ id: 'r', role: 'system', timestamp: 1, content: '', thoughts: [text] }])
+  expect(preview('**Checking mobile roots**\n\n**Comparing layouts**')).toBe('Checking mobile roots')
+  expect(preview('Checking the `mobile` folder. Then checking the fork.')).toBe('Checking the mobile folder.')
+  expect(preview('检查文件。下一步。')).toBe('检查文件。')
+})

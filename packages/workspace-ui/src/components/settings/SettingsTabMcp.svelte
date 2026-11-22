@@ -5,9 +5,9 @@
    * the integrations.sh catalog to connect more from, filtered by a rail of
    * categories (a row of chips in a narrow page). Connect opens one dialog that
    * adds the server, signs the person in, and asks which tools agents may use.
-   * Add command opens the same dialog on a command's form
-   * (docs/plans/mcp-first-class.md §7.7), as does the palette's "Add an MCP
-   * server command". While the page is open it holds the host's running-servers
+   * Add server opens the same dialog on a form for a command
+   * (docs/plans/mcp-first-class.md §7.7) or an address, as does the palette's
+   * "Add an MCP server". While the page is open it holds the host's running-servers
    * lease, so the host looks for MCP servers on its loopback and follows the
    * loopback servers it has (§9.1); no page, no scan. On your hosts lists the
    * servers found on this host and on each other host it reaches for the
@@ -99,7 +99,7 @@
   });
   // The palette asked for the command form: it opens once the page shows.
   $effect(() => {
-    if (mcpPageRequest.isAddCommandAsked && hostState?.integrations) untrack(() => { if (mcpPageRequest.takeAddCommand()) addCommand(); });
+    if (mcpPageRequest.isAddServerAsked && hostState?.integrations) untrack(() => { if (mcpPageRequest.takeAddServer()) addServer(); });
   });
   // The settings search follows into the page's own search.
   $effect(() => {
@@ -128,8 +128,8 @@
     if (next !== "installed") catalog.setCategory(next === "all" ? null : next);
   }
 
-  function addCommand() {
-    connectRequest = { name: "", url: "", isCommand: true };
+  function addServer() {
+    connectRequest = { name: "", url: "", addsServer: true };
   }
 
   async function confirmFound(useFileValues: boolean) {
@@ -309,7 +309,7 @@
 {#snippet installedSection()}
   <SettingsSection {...settingsDefinitions["mcp.section-installed"]} description="Their tools reach every agent on {hostLabel}. Servers with sign-in use your own account.">
     {#snippet action()}
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline} onclick={addCommand}><Plus size={14} />Add command</Button>
+      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline} onclick={addServer}><Plus size={14} />Add server</Button>
     {/snippet}
     {#if hostState?.error}
       <div class="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -318,7 +318,7 @@
       </div>
     {:else if visibleInstalled.length === 0}
       <p class="p-6 text-center text-workspace-chrome text-muted-foreground">
-        {installed.length === 0 ? "No MCP servers yet. Connect one from the catalog, or add a command that runs on this host." : `No installed server matches “${catalog.query.trim()}”.`}
+        {installed.length === 0 ? "No MCP servers yet. Connect one from the catalog, or add a server by its command or URL." : `No installed server matches “${catalog.query.trim()}”.`}
       </p>
     {/if}
     {#each visibleInstalled as integration (integration.id)}
@@ -341,22 +341,22 @@
 {/snippet}
 
 {#snippet foundSection()}
-  <!-- One group for each host, filled as its answer arrives: this host first, then each host it reaches for the person. -->
-  <section class="flex flex-col gap-6" aria-labelledby="mcp-found-label">
-    <div class="flex min-h-7 items-center justify-between gap-4">
-      <h2 id="mcp-found-label" class="truncate text-chrome-dense font-medium text-foreground">On your hosts</h2>
+  <!-- One card for each host, filled as its answer arrives: this host first, then each host it reaches for the person. -->
+  <SettingsSection label="On your hosts" description={FOUND_FOOTER_TEXT} plain>
+    {#snippet action()}
       <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground pointer-coarse:tap-area" disabled={isOffline || discovery.refreshing}
         onclick={() => discovery.discover(true)} aria-label="Read the config files on every host again" title="Read the config files on every host again">
         <RefreshCw size={14} class={discovery.refreshing ? "animate-spin motion-reduce:animate-none" : ""} />
       </Button>
+    {/snippet}
+    <div class="flex flex-col gap-4">
+      {#each discovery.hosts as group (group.hostId ?? "")}
+        <McpFoundHostSection found={group} hostLabel={group.hostId ? group.host.label : hostLabel} {isOffline} isRefreshing={discovery.refreshing}
+          canOpenFiles={!group.hostId && canOpenFiles}
+          onReview={(next) => { addError = ""; reviewing = { server: next, group }; }} onOpen={openConfigFile} />
+      {/each}
     </div>
-    {#each discovery.hosts as group (group.hostId ?? "")}
-      <McpFoundHostSection found={group} hostLabel={group.hostId ? group.host.label : hostLabel} {isOffline} isRefreshing={discovery.refreshing}
-        canOpenFiles={!group.hostId && canOpenFiles}
-        onReview={(next) => { addError = ""; reviewing = { server: next, group }; }} onOpen={openConfigFile} />
-    {/each}
-    <p class="text-chrome-dense text-muted-foreground">{FOUND_FOOTER_TEXT}</p>
-  </section>
+  </SettingsSection>
 {/snippet}
 
 {#snippet catalogSection()}

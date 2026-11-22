@@ -16,8 +16,7 @@ export interface ContentBlock {
   id?: string
   name?: string
   input?: ClaudeToolInput
-  /** Extended-thinking span. Only the block's start/stop boundary and the
-   *  streamed thinking_delta text are consumed; this assembled copy is not. */
+  /** Readable text on the opening block or assembled assistant message. */
   thinking?: string
 }
 

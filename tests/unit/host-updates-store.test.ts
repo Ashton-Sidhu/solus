@@ -24,7 +24,7 @@ async function fixture(hostKind: 'personal' | 'managed' = 'personal') {
     resolveId: (id) => id, readinessFor: () => ({ readiness: connected, away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }), capabilitiesFor: async () => ({ hostUpdates: supports }),
     apiFor: () => ({ hostUpdateStatus: () => read(), hostCheckForUpdates: () => read(), hostInstallUpdate: () => read(), hostCancelUpdate: () => read() }),
     connectionFor: () => ({ target: { uplink: hostKind === 'managed' ? { kind: 'managed' } : undefined } }),
-    connectedServerIds: () => ['host'], onConnectionCreated: () => () => {},
+    serverIds: () => ['host'], onConnectionCreated: () => () => {},
     onReadinessChange: (callback) => { listener = callback; return () => {} },
   })
   return { store, set: (next: HostUpdateStatus) => { current = next }, read: (next: typeof read) => { read = next },

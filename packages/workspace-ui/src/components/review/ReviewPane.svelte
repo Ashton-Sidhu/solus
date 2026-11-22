@@ -31,6 +31,7 @@
   function selectScope(next: DiffScope | undefined) {
     const { filePath: _filePath, scope: _scope, ...rest } = params;
     const nextParams: RouteParams["review"] = next ? { ...rest, scope: next } : rest;
+    if (nextParams.view === "guide" && (next?.kind === "session" || next?.kind === "turn")) nextParams.view = "diff";
     session.router.navigate(
       { name: "review", params: nextParams },
       { replace: true },

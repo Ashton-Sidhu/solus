@@ -21,6 +21,8 @@ export interface SessionHistoryPageRequest {
   /** The client reads a saved `render_artifact` HTML from its work when the
    *  frame mounts, so the page leaves it out and names its `toolInputKey`.
    *  A compiled render is 100–300 KB, and a page carries every revision. */
+  /** Hashes of groups of rows held by this reader. Only these clients receive a historyBlocks manifest. */
+  knownHistoryBlocks?: string[]
   deferArtifactHtml?: boolean
 }
 
@@ -68,7 +70,16 @@ export interface SessionTurnDiffRef {
   endedAt: number
 }
 
+/** Each hash covers the complete wire representation of its rows. Blocks marked
+ * reused are omitted from the wire messages and restored before projection. */
+export interface HistoryBlock {
+  hash: string
+  count: number
+  reused?: true
+}
+
 export interface SessionHistoryPage {
+  historyBlocks?: HistoryBlock[]
   messages: WireSessionLoadMessage[]
   before: string | null
   /** The turn diffs of the turns on this page. Only a page that the Solus API reads from the mirror has them. */

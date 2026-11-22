@@ -536,7 +536,7 @@ export class PlanStore {
   }> {
     // Plans live in provider transcripts on a machine. An organization's Solus
     // API is connected too, but it is not a machine and has no plans to list.
-    const catalogServerIds = serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId))
+    const catalogServerIds = serverConnections.serverIds().filter((serverId) => !isSolusApiId(serverId))
     const serverIds = catalogServerIds.filter(
       (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready',
     )

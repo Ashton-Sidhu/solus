@@ -160,11 +160,12 @@ interface IntegrationApplyOutcome {
 
 /**
  * A host record as the profile names it: the record, never its connection.
- * Null for a `stdio` integration: it belongs to the host it was added on, so a
- * read, a push, and an adoption leave it out (docs/plans/mcp-first-class.md §7.8).
+ * Null for a `stdio` integration and a `headers` server: each belongs to the
+ * host it was added on, with the values saved there, so a read, a push, and an
+ * adoption leave it out (docs/plans/mcp-first-class.md §7.8, mcp-add-server.md).
  */
 function integrationEntryOf(integration: Integration): AgentProfileIntegrationEntry | null {
-  if (integration.kind === 'stdio' || integration.auth.kind === 'env') return null
+  if (integration.kind === 'stdio' || integration.auth.kind === 'env' || integration.auth.kind === 'headers') return null
   return { kind: 'integration', slug: integration.slug, name: integration.name, url: integration.url, auth: integration.auth, disabledTools: integration.disabledTools }
 }
 
@@ -513,8 +514,9 @@ export class AgentProfileManager {
         continue
       }
       // A record this copy made is its own to update. A member's own record made
-      // another way is adopted. Anything else the host already had stays as it is.
-      if (owned.has(found.id) || target.kind === 'member' || origin.kind === 'account') {
+      // another way is adopted. Anything else the host already had stays as it is,
+      // and so does a record that is no profile entry (a `headers` server at the same address).
+      if (integrationEntryOf(found) !== null && (owned.has(found.id) || target.kind === 'member' || origin.kind === 'account')) {
         this.deps.integrations.update(found.id, entry)
         ids.push(found.id)
       } else skipped.push({ path: entry.slug, reason: 'kept-on-host' })

@@ -149,7 +149,9 @@ export class SessionEnvironmentStore {
   private dispatchBranchesByTarget = new SvelteMap<string, string[]>()
   private dispatchBranchesLoading = new SvelteSet<string>()
   private dispatchRefsInflight = new Map<string, Promise<boolean>>()
-  private registrations = new WeakMap<Session, RegisteredGitEnvironment>()
+  /** By session id: the host holds a session's registration however many
+   *  times a tab opens it, so a reopened session does not register again. */
+  private readonly registrations = new Map<string, RegisteredGitEnvironment>()
   /** A registration still on the wire. Boot runs several refreshes for one
    *  session at once; the later ones join this rather than asking again. */
   private registrationsInflight = new WeakMap<Session, { fingerprint: string; promise: Promise<string | undefined> }>()
@@ -393,7 +395,7 @@ export class SessionEnvironmentStore {
   ): Promise<string | undefined> {
     const effectiveCwd = gitContext?.worktreePath ?? cwd
     const generation = this.registrationGenerationByServerId.get(serverId) ?? 0
-    const previous = this.registrations.get(session)
+    const previous = this.registrations.get(session.id)
     const unchanged = previous?.serverId === serverId
       && previous.generation === generation
       && previous.cwd === effectiveCwd
@@ -406,7 +408,7 @@ export class SessionEnvironmentStore {
       .then((): undefined => {
         // A copy: the same object becomes the run's reactive checkout, and a
         // later in-place branch update must not rewrite this record.
-        this.registrations.set(session, {
+        this.registrations.set(session.id, {
           serverId,
           generation,
           cwd: effectiveCwd,
@@ -461,7 +463,7 @@ export class SessionEnvironmentStore {
     const generation = this.registrationGenerationByServerId.get(serverId) ?? 0
     return workspace.tabOrder.some((tabId) => {
       const session = workspace.sessionFor(tabId)
-      const registered = session ? this.registrations.get(session) : undefined
+      const registered = session ? this.registrations.get(session.id) : undefined
       return registered?.serverId === serverId
         && registered.generation === generation
         && registered.cwd === cwd

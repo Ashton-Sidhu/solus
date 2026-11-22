@@ -136,6 +136,8 @@ export const RPC_PLANES = {
   sessionPullRequestWatch: 'execution',
   // The links join the host's own session, work, and pull request tables.
   sessionArtifactsList: 'execution',
+  // A digest is projected from the transcript and checkout of the host that runs the session.
+  sessionTree: 'execution',
   listRecentProjects: 'execution',
   trackRecentProject: 'execution',
   listPlans: 'collaboration',
@@ -495,7 +497,6 @@ export const RPC_PLANES = {
   generateGuide: 'execution',
   requestReviewGuide: 'execution',
   reviewGuideStatus: 'execution',
-  sessionGuideStatuses: 'execution',
   prGuideStatuses: 'execution',
   cancelGenerateGuide: 'execution',
   readGuide: 'execution',
@@ -645,6 +646,8 @@ export const RPC_PLANES = {
 
   // Subscription quota per agent provider
   usageLimits: 'execution',
+  usageWatch: 'execution',
+  usageUnwatch: 'execution',
 
   // Machine load and process telemetry
   hostResources: 'execution',

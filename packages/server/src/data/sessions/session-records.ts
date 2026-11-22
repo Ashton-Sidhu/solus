@@ -19,7 +19,7 @@ import { deleteActivityFor } from '../activity/activity'
 import { personalResourceState } from '../personal-state/schema'
 import { resourceLinks } from '../links/schema'
 import { deleteEdgesOf } from '../links/resource-links'
-import { session } from './schema'
+import { session, sessionArtifactCopies, sessionDigests } from './schema'
 import { machineSessionHome, sessionIdentityOf, type SessionHome } from './session-identity'
 import { stateFromColumns, viewFromColumns } from './session-state-columns'
 import { sessionTranscripts, sessionTurnDiffs } from './transcript-schema'
@@ -659,6 +659,8 @@ export function deleteSessionRecord(scope: RecordScope, sessionId: string): Prom
       await db.run(sql`DELETE FROM ${personalResourceState} WHERE resource_kind = 'session' AND resource_id = ${sessionId}`)
       await db.run(sql`DELETE FROM ${sessionTranscripts} WHERE session_id = ${sessionId}`)
       await db.run(sql`DELETE FROM ${sessionTurnDiffs} WHERE session_id = ${sessionId}`)
+      await db.run(sql`DELETE FROM ${sessionDigests} WHERE session_id = ${sessionId}`)
+      await db.run(sql`DELETE FROM ${sessionArtifactCopies} WHERE session_id = ${sessionId}`)
       await deleteActivityFor({ kind: 'session', id: sessionId }, db)
       return true
     })
@@ -775,6 +777,33 @@ export async function organizationOfSession(sessionId: string): Promise<string> 
   if (!row) return machineSessionHome().organizationId
   organizationBySession.set(sessionId, row.organization_id)
   return row.organization_id
+}
+
+/** A delegation tree is never this deep; the bound ends a cycle the rows could hold. */
+const MAX_ANCESTORS = 200
+
+/**
+ * The session, then the session that started it, and so on to the root, in one
+ * read over `parent_session_id`, in every organization. A session with no row
+ * is still its own first entry. A cycle in the rows ends the list.
+ */
+export async function ancestorsOf(sessionId: string): Promise<string[]> {
+  const rows = z.array(z.object({ session_id: z.string() })).parse(await getDatabase().all(sql`
+    WITH RECURSIVE chain(session_id, parent_session_id, depth) AS (
+      SELECT session_id, parent_session_id, 0 FROM ${session} WHERE session_id = ${sessionId}
+      UNION ALL
+      SELECT parent.session_id, parent.parent_session_id, chain.depth + 1
+      FROM ${session} parent JOIN chain ON parent.session_id = chain.parent_session_id
+      WHERE chain.depth < ${MAX_ANCESTORS}
+    )
+    SELECT session_id FROM chain ORDER BY depth
+  `))
+  const chain = [sessionId]
+  for (const { session_id } of rows.slice(1)) {
+    if (chain.includes(session_id)) break
+    chain.push(session_id)
+  }
+  return chain
 }
 
 /**

@@ -129,11 +129,11 @@ describe("reference token markdown", () => {
   test("decorates the full colon-qualified slash command", () => {
     // WHY: qualified review commands are one action. Leaving the suffix as
     // plain text makes the composer show one command as two unrelated parts.
-    const source = "/review:session";
+    const source = "/review:branch";
 
     expect(
       parseReferenceTokens(source, {
-        slashCommands: ["/review", "/review:session"],
+        slashCommands: ["/review", "/review:branch"],
       }),
     ).toEqual([
       {

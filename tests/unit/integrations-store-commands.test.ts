@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
-import type { Integration, IntegrationConnection, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationFacts } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationAuthChoice, IntegrationConnection, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationFacts } from '@solus/contracts/integration-types'
 import { COMMAND_ADMIN_ONLY } from '@solus/contracts/integrations/command-server'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
@@ -23,10 +23,16 @@ const shared = {
 }
 // Both compile before the first import: Bun reads the folder once.
 const commandModule = runes.source('mcp-command', 'packages/workspace-ui/src/components/settings/lib/mcp-command.svelte.ts', shared)
+const addressModule = runes.source('mcp-address-form', 'packages/workspace-ui/src/components/settings/lib/mcp-address-form.svelte.ts', {
+  ...shared,
+  '@solus/contracts/integrations/auth-choice': file('packages/contracts/src/integrations/auth-choice.ts'),
+  './integration-labels': file('packages/workspace-ui/src/components/settings/lib/integration-labels.ts'),
+})
 const connectModule = runes.source('mcp-connect', 'packages/workspace-ui/src/components/settings/lib/mcp-connect.svelte.ts', {
   ...shared,
   './integration-labels': file('packages/workspace-ui/src/components/settings/lib/integration-labels.ts'),
   './mcp-command.svelte': commandModule,
+  './mcp-address-form.svelte': addressModule,
 })
 const { McpCommandForm } = await import(commandModule) as typeof import('@solus/workspace-ui/components/settings/lib/mcp-command.svelte')
 const { McpConnect } = await import(connectModule) as typeof import('@solus/workspace-ui/components/settings/lib/mcp-connect.svelte')
@@ -172,7 +178,7 @@ describe('who may add or change a command', () => {
       integrationProcessStart: async () => { calls.push('start'); return facts({ state: 'running' }) },
     })
     await store.load('admin-dialog')
-    const run = new McpConnect('admin-dialog', { name: '', url: '', isCommand: true }, noCatalog, () => false)
+    const run = new McpConnect('admin-dialog', { name: '', url: '', addsServer: true }, noCatalog, () => false)
     run.command!.line = 'npx -y files-mcp'
     await run.startCommand()
     expect(calls).toEqual([])
@@ -196,7 +202,7 @@ describe('the process of a command', () => {
       integrationRemove: async () => { calls.push('remove'); return { removed: true } },
     })
     await store.load('dialog')
-    const run = new McpConnect('dialog', { name: '', url: '', isCommand: true }, noCatalog, () => true)
+    const run = new McpConnect('dialog', { name: '', url: '', addsServer: true }, noCatalog, () => true)
     const form = run.command!
     form.line = 'npx -y files-mcp'
     form.envNames = 'TOKEN'
@@ -262,5 +268,135 @@ describe('the process of a command', () => {
     } finally {
       stop()
     }
+  })
+})
+
+// Add server takes a remote server too: its address goes on as a catalog entry does.
+describe('a server added by its address', () => {
+  const remote = (id: string, url: string): Integration => ({
+    id, organizationId: 'local', ownerKey: 'local:test', kind: 'mcp', slug: id, name: id, url,
+    auth: { kind: 'none' }, disabledTools: [], createdAt: '2026-11-20T00:00:00Z', updatedAt: '2026-11-20T00:00:00Z',
+  })
+  function recordingCatalog(installed: Integration | null) {
+    const installs: { name: string; url: string; auth?: IntegrationAuthChoice }[] = []
+    const catalog = { installs: new Map(), dismiss: () => {}, install: async (name: string, url: string, auth?: IntegrationAuthChoice) => { installs.push(auth ? { name, url, auth } : { name, url }); return installed } } as Catalog
+    return { catalog, installs }
+  }
+
+  test('the chosen authentication goes to the host with the add, and header values follow once the record exists', async () => {
+    const submitted: IntegrationConnectSubmitRequest[] = []
+    connections.registerHost('headers', {
+      integrationList: async () => [],
+      integrationConnectionList: async () => [],
+      integrationConnectSubmit: async (request: IntegrationConnectSubmitRequest) => { submitted.push(request); return { connected: true } },
+    })
+    await store.load('headers')
+    const { catalog, installs } = recordingCatalog({ ...remote('acme', 'https://mcp.acme.dev/mcp'), auth: { kind: 'headers', names: ['X-API-Key', 'X-Tenant'] } })
+    const run = new McpConnect('headers', { name: '', url: '', addsServer: true }, catalog)
+    run.chooseKind('url')
+    const form = run.addressForm
+    form.address = 'https://mcp.acme.dev/mcp'
+    form.authKind = 'headers'
+    form.headers[0] = { name: 'X-API-Key', value: SECRET }
+    form.addHeader()
+    form.headers[1] = { name: 'X-Tenant', value: '' }
+    await run.continueWithAddress()
+    expect(installs).toEqual([{ name: 'mcp.acme.dev', url: 'https://mcp.acme.dev/mcp', auth: { kind: 'headers', names: ['X-API-Key', 'X-Tenant'] } }])
+    // Only the value typed goes; the empty one is given later. The form keeps no value.
+    expect(submitted).toEqual([{ id: 'acme', values: [{ name: 'X-API-Key', value: SECRET }] }])
+    expect(form.headers.every((header) => header.value === '')).toBe(true)
+  })
+
+  test('OAuth settings go with the add; a secret without a client ID or a bad scope is refused before anything is sent', async () => {
+    connections.registerHost('oauth-choice', { integrationList: async () => [], integrationConnectionList: async () => [] })
+    await store.load('oauth-choice')
+    const { catalog, installs } = recordingCatalog(remote('docs', 'https://mcp.example.com/mcp'))
+    const run = new McpConnect('oauth-choice', { name: '', url: '', addsServer: true }, catalog)
+    run.chooseKind('url')
+    const form = run.addressForm
+    form.address = 'https://mcp.example.com/mcp'
+    form.authKind = 'oauth'
+    form.clientSecret = SECRET
+    await run.continueWithAddress()
+    expect(form.problemOf('clientId')).not.toBeNull()
+    form.clientId = 'client-1'
+    form.scopes = 'read "write"'
+    await run.continueWithAddress()
+    expect(form.problemOf('scopes')).not.toBeNull()
+    expect(installs).toEqual([])
+    form.scopes = 'read, write read'
+    await run.continueWithAddress()
+    expect(installs).toEqual([{ name: 'mcp.example.com', url: 'https://mcp.example.com/mcp', auth: { kind: 'oauth', scopes: ['read', 'write'], client: { clientId: 'client-1', clientSecret: SECRET } } }])
+    expect(form.clientSecret).toBe('')
+  })
+
+  test('a refused address adds nothing and says why; a good one is checked under the typed name and goes on to the sign-in', async () => {
+    connections.registerHost('address', { integrationList: async () => [], integrationConnectionList: async () => [] })
+    await store.load('address')
+    const { catalog, installs } = recordingCatalog(remote('docs', 'https://mcp.example.com/mcp'))
+    const run = new McpConnect('address', { name: '', url: '', addsServer: true }, catalog, () => false)
+    // A person who may not run commands can still add a remote server.
+    run.chooseKind('url')
+    expect(run.step).toBe('address')
+
+    run.addressForm.address = 'ftp://mcp.example.com'
+    await run.continueWithAddress()
+    expect(run.addressForm.problemOf('address')).not.toBeNull()
+    expect(installs).toEqual([])
+    expect(run.step).toBe('address')
+
+    run.addressForm.address = ' https://mcp.example.com/mcp '
+    run.addressForm.name = 'Docs'
+    await run.continueWithAddress()
+    expect(installs).toEqual([{ name: 'Docs', url: 'https://mcp.example.com/mcp', auth: { kind: 'automatic' } }])
+    expect(run.integrationId).toBe('docs')
+    expect(run.addKind).toBeNull()
+    expect(run.canChangeKind).toBe(false)
+  })
+
+  test('an address the host refuses can be changed: the dialog goes back to the address form and checks the new one', async () => {
+    connections.registerHost('refused', { integrationList: async () => [], integrationConnectionList: async () => [] })
+    await store.load('refused')
+    const { catalog, installs } = recordingCatalog(null)
+    const run = new McpConnect('refused', { name: '', url: '', addsServer: true }, catalog)
+    run.chooseKind('url')
+    run.addressForm.address = 'https://wrong.example.com/mcp'
+    await run.continueWithAddress()
+    expect(run.step).toBe('adding')
+    run.editAddress()
+    expect(run.step).toBe('address')
+    run.addressForm.address = 'https://right.example.com/mcp'
+    await run.continueWithAddress()
+    expect(installs.map((install) => install.url)).toEqual(['https://wrong.example.com/mcp', 'https://right.example.com/mcp'])
+  })
+
+  test('an address the host has already opens that server and adds no second one', async () => {
+    connections.registerHost('known', { integrationList: async () => [remote('docs', 'https://mcp.example.com/mcp')], integrationConnectionList: async () => [] })
+    await store.load('known')
+    const { catalog, installs } = recordingCatalog(null)
+    const run = new McpConnect('known', { name: '', url: '', addsServer: true }, catalog)
+    run.chooseKind('url')
+    run.addressForm.address = 'https://mcp.example.com/mcp'
+    await run.continueWithAddress()
+    expect(installs).toEqual([])
+    expect(run.integrationId).toBe('docs')
+  })
+
+  test('once the host has a command record, the dialog stays on the command, so Cancel removes the record it added', async () => {
+    connections.registerHost('locked', {
+      integrationList: async () => [],
+      integrationConnectionList: async () => [],
+      integrationCreate: async () => command('files'),
+      integrationProcessStart: async () => { throw new Error('`npx` is not installed on this host.') },
+      integrationFacts: async () => facts({ state: 'failed', message: '`npx` is not installed on this host.' }),
+    })
+    await store.load('locked')
+    const run = new McpConnect('locked', { name: '', url: '', addsServer: true }, noCatalog, () => true)
+    run.command!.line = 'npx -y files-mcp'
+    await run.startCommand()
+    expect(run.integrationId).toBe('files')
+    run.chooseKind('url')
+    expect(run.addKind).toBe('command')
+    expect(run.step).toBe('command')
   })
 })

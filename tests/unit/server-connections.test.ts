@@ -1,9 +1,10 @@
 import { describe, expect, mock, test } from 'bun:test'
 import type { SolusServerTarget } from '@solus/client-core/server-connection'
-import { installationIdDecision } from '@solus/client-core/known-host'
+import { installationIdDecision, type KnownHost } from '@solus/client-core/known-host'
 import type { HostCredential } from '@solus/client-core/host-credentials'
+import type { HostCatalog } from '@solus/client-core/host-catalog'
 import type { HostListing } from '@solus/contracts/host-list'
-import type { DirectoryHost } from '@solus/contracts/uplink'
+import { DEFAULT_HOST_RULES, solusApiId, type DirectoryHost } from '@solus/contracts/uplink'
 import { catalogOf, fakeDirectory, fakeList, memoryCredentials } from './helpers/host-catalog-world'
 import type { WsTransport } from '@solus/client-core/ws-transport'
 import type { SolusAPI } from '../../src/preload'
@@ -18,24 +19,34 @@ function preferredRouteUrl(server: { routes: HostRoute[] }, clientOrigin: string
 const startedTransports: string[] = []
 const destroyedTransports: string[] = []
 const switchedUrls: string[] = []
+/** Makes a connection's transport blocked on a refused credential, as a host that refused it does. */
+const blockTransports = new Map<string, () => void>()
 const capabilityLoaders = new Map<string, () => Promise<unknown>>()
 const infoLoaders = new Map<string, () => Promise<ConnectionsServerInfo>>()
 const identityLoaders = new Map<string, SolusAPI['listProjectIdentities']>()
+mock.module('@solus/client-core/device-label', () => ({ defaultDeviceLabel: () => 'Test desktop' }))
 
 // A real transport opens a socket and reads browser lifecycle globals; the
 // behavior under test is only when a connection's side effects run.
 mock.module('@solus/client-core/server-connection', () => ({
-  createSolusConnection: (target: SolusServerTarget) => {
+  createSolusConnection: (target: SolusServerTarget, options?: { catalog?: HostCatalog }) => {
+    const heldToken = () => options?.catalog?.sessionTokenOf(target.id) ?? ''
+    let blockedToken: string | null = null
+    blockTransports.set(target.id, () => { blockedToken = heldToken() })
     const transport = {
       events: { subscribe: () => () => {} },
       serverUrl: target.url,
-      start: () => { startedTransports.push(target.id) },
+      start: () => {
+        blockedToken = null
+        startedTransports.push(target.id)
+      },
       probe: async () => {},
       attachDialOutcomeReporter: () => {},
       switchServerUrl: (url: string) => {
         transport.serverUrl = url
         switchedUrls.push(`${target.id}:${url}`)
       },
+      hasUntriedSessionToken: () => blockedToken !== null && !!heldToken() && heldToken() !== blockedToken,
       destroy: () => destroyedTransports.push(target.id),
     }
     const api = {
@@ -45,7 +56,20 @@ mock.module('@solus/client-core/server-connection', () => ({
     }
     return { transport: transport as unknown as WsTransport, api: api as unknown as SolusAPI, events: transport.events }
   },
-  knownHostTarget: (server: { id: string; routes: HostRoute[] }) => ({ ...server, url: preferredRouteUrl(server, ''), local: false }) as SolusServerTarget,
+  // As the real one: every fact is read from the catalog when asked; only `url` is the connection's own.
+  catalogHostTarget: (catalog: HostCatalog, server: KnownHost): SolusServerTarget => {
+    const current = () => catalog.find(server.id) ?? server
+    return {
+      id: server.id,
+      url: server.local ? server.routes[0]?.url ?? '' : preferredRouteUrl(server, ''),
+      get label() { return current().label },
+      get installationId() { return current().installationId },
+      get local() { return !!current().local },
+      get routes() { return current().local ? [] : current().routes },
+      get uplink() { return current().uplink },
+      get identityKey() { return current().identityKey },
+    }
+  },
   preferredRouteUrl,
 }))
 
@@ -66,12 +90,14 @@ const managedRow = (managedState: DirectoryHost['managedState'], url = 'https://
   managedState, routes: [{ kind: 'tunnel', url }],
 })
 
-const remoteTarget: SolusServerTarget = {
-  id: 'remote',
-  label: 'Remote',
-  url: 'https://remote.example',
-  sessionToken: 'token',
-  local: false,
+const remoteHost: KnownHost = { id: 'remote', label: 'Remote', installationId: 'remote', sessionToken: 'token', lastConnected: 1, routes: [{ kind: 'tunnel', url: 'https://remote.example' }] }
+const localMachine = (installationId: string): KnownHost => ({ id: 'local', label: 'This Mac', installationId, sessionToken: 'local-token', lastConnected: 0, routes: [{ kind: 'lan', url: 'http://127.0.0.1:3000' }], local: true })
+
+/** A registry over its own catalog that knows `hosts` for this page only. */
+function connectionsWith(...hosts: KnownHost[]) {
+  const catalog = catalogOf({ credentials: memoryCredentials([]), directory: null })
+  for (const host of hosts) catalog.addPageHost(host)
+  return new ServerConnections(catalog)
 }
 
 describe('saved server identity', () => {
@@ -88,13 +114,86 @@ describe('saved server identity', () => {
 })
 
 describe('lazily created connections', () => {
+  test('a forgotten host closes its live connection, even while a tab holds it', async () => {
+    // WHY: a socket that stayed open after its host was forgotten kept the host in
+    // the Run on picker, online, under the name it reports.
+    const credentials = memoryCredentials([])
+    const catalog = catalogOf({ credentials, directory: null })
+    await catalog.useListSource(fakeList([], 'host:local').source)
+    await catalog.refreshDirectory()
+    const connections = new ServerConnections(catalog)
+    connections.startCatalogSupervisors()
+    await catalog.pair({ id: 'windows', installationId: 'windows', label: 'Windows', routes: [{ kind: 'lan', url: 'https://windows.test' }], sessionToken: 'token', lastConnected: 1 })
+    connections.retain('windows')
+    expect(connections.serverIds()).toContain('windows')
+
+    await catalog.forget('windows')
+
+    expect(destroyedTransports).toContain('windows')
+    expect(connections.serverIds()).not.toContain('windows')
+    expect(connections.connectionFor('windows')?.presence).toBe('gone')
+    connections.unretain('windows')
+  })
+
+  test('a host a settled read no longer names closes; nothing closes while a read is in progress', async () => {
+    // WHY: the catalog is the one answer to which hosts exist. A host that left it must
+    // not live on through its socket, but a list moving to another source (a sign-in)
+    // names no host until it is read, and must not cut every working session.
+    const listing: HostListing = { id: 'studio', label: 'Studio', installationId: 'studio', lastConnected: 1, routes: [{ kind: 'tunnel', url: 'https://studio.test' }] }
+    const catalog = catalogOf({ credentials: memoryCredentials([]), directory: null })
+    const list = fakeList([], 'host:local', [listing])
+    await catalog.useListSource(list.source)
+    const connections = new ServerConnections(catalog)
+    connections.startCatalogSupervisors()
+    expect(connections.connectionFor('studio')?.presence).toBe('present')
+
+    // The directory has not answered yet: the read is not settled.
+    list.state.listings.delete('studio')
+    await catalog.refreshList()
+    expect(connections.connectionFor('studio')?.presence).toBe('present')
+
+    await catalog.refreshDirectory()
+    expect(connections.connectionFor('studio')?.presence).toBe('gone')
+    expect(connections.serverIds()).not.toContain('studio')
+  })
+
+  test('a refused host listed before client pairing dials with the token the pairing saves, on the same connection', async () => {
+    // WHY: the transport reads the catalog's token at each dial. A pairing that ends after
+    // the connection was made must reach it without a reload, and must not add a second row.
+    const row: HostListing = { id: 'windows-live', installationId: 'windows-live', label: 'Windows', routes: [{ kind: 'lan', url: 'https://windows.test' }], lastConnected: 1 }
+    const credentials = memoryCredentials([])
+    const catalog = catalogOf({ credentials })
+    const list = fakeList([], 'host:local')
+    await catalog.useListSource(list.source)
+    const connections = new ServerConnections(catalog)
+    const observedHosts: string[][] = []
+    catalog.onChange(() => observedHosts.push(catalog.hosts().map((host) => host.id)))
+    connections.startCatalogSupervisors()
+    try {
+      // The server saved the chat pairing and announced the listing before this device got its token.
+      list.state.listings.set(row.id, row)
+      list.state.onChange?.()
+      await catalog.refreshList()
+      await Promise.resolve()
+      const connection = connections.connectionFor(row.id)!
+      blockTransports.get(row.id)!()
+
+      await catalog.pair({ ...row, sessionToken: 'new-client-token', identityKey: identityKeyFor('windows-live') })
+
+      expect(connections.connectionFor(row.id)).toBe(connection)
+      expect(connection.target.identityKey).toBe(identityKeyFor('windows-live'))
+      expect(startedTransports.filter((id) => id === row.id)).toHaveLength(2)
+      expect(credentials.stored.get(row.id)?.token).toBe('new-client-token')
+      expect(list.state.listings.get(row.id)?.identityKey).toBe(identityKeyFor('windows-live'))
+      expect(observedHosts.at(-1)).toEqual([row.id])
+    } finally { connections.release(row.id) }
+  })
+
   test('a managed connection ignores internal routes even when its target contains them', async () => {
-    const connections = new ServerConnections()
     const serverId = 'managed-internal-route'
     const tunnelUrl = 'https://managed.solus.test'
-    connections.registerTarget({
-      id: serverId, label: 'Managed', local: false, sessionToken: '',
-      url: 'http://10.0.0.1:3000',
+    const connections = connectionsWith({
+      id: serverId, label: 'Managed', installationId: serverId, sessionToken: '', lastConnected: 0,
       routes: [{ kind: 'lan', url: 'http://10.0.0.1:3000', source: 'host' }, { kind: 'tunnel', url: tunnelUrl }],
       uplink: { hostId: 'managed', directoryUrl: 'https://app.solus.test', kind: 'managed', managedState: 'ready' },
     })
@@ -110,20 +209,13 @@ describe('lazily created connections', () => {
   test('does not connect to a known alias for the local installation', async () => {
     startedTransports.length = 0
     const { catalog } = await catalogWith({ directory: [{ hostId: 'h_local', installationId: 'local-installation', label: 'This Mac through Uplink', kind: 'personal', category: 'personal', organizationIds: [], routes: [{ kind: 'tunnel', url: 'https://local.example' }] }] })
+    catalog.addPageHost(localMachine('local-installation'))
     const connections = new ServerConnections(catalog)
-    connections.registerTarget({
-      id: 'local',
-      label: 'This Mac',
-      url: 'http://127.0.0.1:3000',
-      sessionToken: 'local-token',
-      installationId: 'local-installation',
-      local: true,
-    })
 
     try {
       connections.startCatalogSupervisors()
       await Promise.resolve()
-      expect(connections.connectedServerIds()).toEqual(['local'])
+      expect(connections.serverIds()).toEqual(['local'])
       expect(startedTransports).toEqual(['local'])
     } finally {
       connections.release('local')
@@ -216,8 +308,7 @@ describe('lazily created connections', () => {
     // `ensure()` is reached from derived renderer state, where writing Svelte
     // state throws. Nothing reactive may fire before the caller's frame ends.
     startedTransports.length = 0
-    const connections = new ServerConnections()
-    connections.registerTarget(remoteTarget)
+    const connections = connectionsWith(remoteHost)
     const statuses: string[] = []
     const created: string[] = []
     connections.onReadinessChange((serverId, readiness) => statuses.push(`${serverId}:${readiness}`))
@@ -235,17 +326,24 @@ describe('lazily created connections', () => {
   })
 
   test('never opens a socket for a connection released in that same frame', async () => {
+    // WHY: only a service outside the window's organization is borrowed; a borrower's
+    // release must not leave a socket nobody owns. Every catalog host stays held.
     startedTransports.length = 0
     destroyedTransports.length = 0
-    const connections = new ServerConnections()
-    connections.registerTarget(remoteTarget)
+    const directory = fakeDirectory('https://app.solus.test')
+    const workspace = (organizationId: string, isActive: boolean) => ({ organizationId, label: organizationId, routes: [{ kind: 'tunnel' as const, url: `https://${organizationId}.solus.test` }], isActive, hostRules: DEFAULT_HOST_RULES })
+    directory.answer([], [workspace('org-a', true), workspace('org-b', false)])
+    const catalog = catalogOf({ credentials: memoryCredentials([]), directory })
+    await catalog.refreshDirectory()
+    const connections = new ServerConnections(catalog)
+    const borrowed = solusApiId('org-b')
 
-    connections.ensure('remote')
-    connections.release('remote')
+    connections.ensure(borrowed)
+    connections.release(borrowed)
     await Promise.resolve()
 
     expect(startedTransports).toEqual([])
-    expect(destroyedTransports).toEqual(['remote'])
+    expect(destroyedTransports).toEqual([borrowed])
   })
 })
 
@@ -264,16 +362,10 @@ describe('primary server connection ownership', () => {
       attachDialOutcomeReporter: () => {},
     } as unknown as WsTransport
     const api = {} as SolusAPI
-    const target: SolusServerTarget = {
-      id: 'server',
-      label: 'Server',
-      url: 'https://server.example',
-      sessionToken: 'token',
-      local: false,
-    }
+    const host: KnownHost = { id: 'server', label: 'Server', installationId: 'server', sessionToken: 'token', lastConnected: 0, routes: [{ kind: 'tunnel', url: 'https://server.example' }] }
 
-    connections.registerPrimary('server', api, first, target)
-    connections.registerPrimary('server', api, second, target)
+    connections.registerPrimary('server', api, first, host)
+    connections.registerPrimary('server', api, second, host)
 
     expect(destroyed).toEqual(['first'])
     expect(connections.connectionFor('server')?.transport).toBe(second)
@@ -290,8 +382,7 @@ describe('session-scoped host capabilities', () => {
       calls++
       return { attachUpload: true, futureFlag: true }
     })
-    const connections = new ServerConnections()
-    connections.registerTarget({ ...remoteTarget, id: 'cap-session' })
+    const connections = connectionsWith({ ...remoteHost, id: 'cap-session', installationId: 'cap-session' })
 
     try {
       expect(await connections.capabilitiesFor('cap-session')).toEqual({ attachUpload: true })
@@ -311,8 +402,7 @@ describe('session-scoped host capabilities', () => {
       calls++
       throw new Error('Unknown method "serverGetCapabilities"')
     })
-    const connections = new ServerConnections()
-    connections.registerTarget({ ...remoteTarget, id: 'cap-old' })
+    const connections = connectionsWith({ ...remoteHost, id: 'cap-old', installationId: 'cap-old' })
 
     expect(await connections.capabilitiesFor('cap-old')).toEqual({})
     expect(connections.cachedCapabilitiesFor('cap-old')?.assetUrls === true).toBe(false)
@@ -330,8 +420,7 @@ describe('session-scoped host capabilities', () => {
     capabilityLoaders.set('cap-reconnect', async () => ({
       attachUpload: ++calls > 1,
     }))
-    const connections = new ServerConnections()
-    connections.registerTarget({ ...remoteTarget, id: 'cap-reconnect' })
+    const connections = connectionsWith({ ...remoteHost, id: 'cap-reconnect', installationId: 'cap-reconnect' })
 
     expect(connections.cachedCapabilitiesFor('cap-reconnect')).toBeUndefined()
     expect((await connections.capabilitiesFor('cap-reconnect')).attachUpload).toBe(false)
@@ -356,15 +445,8 @@ describe('an installation id names a host in every client of it', () => {
     // both must open the session. A teammate has no such host, so the id must stay
     // unresolved and the task page offers no Open.
     const { catalog } = await catalogWith({ listings: [{ id: 'studio', label: 'Studio', installationId: 'studio-installation', lastConnected: 1, routes: [{ kind: 'tunnel', url: 'https://studio.example' }] }] })
+    catalog.addPageHost(localMachine('mac-installation'))
     const connections = new ServerConnections(catalog)
-    connections.registerTarget({
-      id: 'local',
-      label: 'This Mac',
-      url: 'http://127.0.0.1:3000',
-      sessionToken: 'local-token',
-      installationId: 'mac-installation',
-      local: true,
-    })
     expect(connections.resolveId('mac-installation')).toBe('local')
     expect(connections.resolveId('studio-installation')).toBe('studio')
     expect(connections.resolveId('local')).toBe('local')
@@ -417,7 +499,7 @@ describe('a desktop window with its local host off', () => {
 
     expect(connections.openWithoutLocalHost().presence).toBe('gone')
     // Settings lists these as hosts: a window with none must list none.
-    expect(connections.connectedServerIds()).toEqual([])
+    expect(connections.serverIds()).toEqual([])
     connections.startCatalogSupervisors()
 
     // Pairing adds one host; the connections follow the catalog with no other call.

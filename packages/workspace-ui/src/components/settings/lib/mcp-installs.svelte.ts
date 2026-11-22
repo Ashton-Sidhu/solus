@@ -1,5 +1,6 @@
-import type { Integration } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationAuthChoice } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { requestAuthOf } from '@solus/contracts/integrations/auth-choice'
 import type { IntegrationSetupNeed } from '@solus/contracts/integrations/setup-handoff'
 import { SvelteMap } from 'svelte/reactivity'
 import { mcpStore } from '../../../contexts/mcp'
@@ -19,20 +20,25 @@ export class McpInstalls {
 
   constructor(protected readonly serverId: string) {}
 
-  /** Checks the server from the host and adds it. Null when it stopped; the reason is in `installs`. */
-  async install(name: string, url: string): Promise<Integration | null> {
+  /**
+   * Checks the server from the host and adds it. Null when it stopped; the
+   * reason is in `installs`. An Authentication the person chose
+   * (docs/plans/mcp-add-server.md) skips the check here: the host decides.
+   */
+  async install(name: string, url: string, auth?: IntegrationAuthChoice): Promise<Integration | null> {
     const running = this.installs.get(url)
     if (running && running.kind !== 'failed') return null
     this.installs.set(url, { kind: 'checking' })
-    const attempt = await mcpStore.integrations.probe(this.serverId, url)
-    const refusal = 'error' in attempt ? attempt.error : probeRefusal(attempt.result)
-    if (refusal) {
+    const attempt = !auth || auth.kind === 'automatic' ? await mcpStore.integrations.probe(this.serverId, url) : null
+    const refusal = !attempt ? null : 'error' in attempt ? attempt.error : probeRefusal(attempt.result)
+    if (attempt && refusal) {
       const setupNeed = 'result' in attempt ? IntegrationSignIn.setupNeedOfProbe(attempt.result, url) : null
       this.installs.set(url, setupNeed ? { kind: 'failed', message: refusal, setupNeed } : { kind: 'failed', message: refusal })
       return null
     }
     this.installs.set(url, { kind: 'adding' })
-    const integration = await mcpStore.integrations.create(this.serverId, { name: name.trim() || urlHost(url), url })
+    const requestAuth = auth && requestAuthOf(auth)
+    const integration = await mcpStore.integrations.create(this.serverId, requestAuth ? { name: name.trim() || urlHost(url), url, auth: requestAuth } : { name: name.trim() || urlHost(url), url })
     if (!integration) {
       const message = mcpStore.integrations.states.get(this.serverId)?.writeError || 'Another change is saving. Try again.'
       mcpStore.integrations.clearWriteError(this.serverId)

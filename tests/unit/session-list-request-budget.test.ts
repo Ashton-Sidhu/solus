@@ -66,6 +66,7 @@ describe('native directory: request budget', () => {
           return { records: filter.scope === 'all' ? [] : [record('a'), record('b')], indexing: false }
         },
         listProjects: async () => [],
+        pinnedSessionsList: async () => [],
       },
     }
     const registry = { host: () => ({ id: 'h', label: 'Mac' }), hosts: () => [{ id: 'h', label: 'Mac' }] }
@@ -94,6 +95,7 @@ describe('native directory: request budget', () => {
           return { records: filter.scope === 'all' ? [{ ...record('old', 1), listed: false }, { ...record('a', 2), listed: true }] : [record('a', 2)], indexing: false }
         },
         listProjects: async () => [],
+        pinnedSessionsList: async () => [],
       },
     }
     const registry = { host: () => ({ id: 'h', label: 'Mac' }), hosts: () => [{ id: 'h', label: 'Mac' }] }
@@ -111,6 +113,7 @@ describe('native directory: request budget', () => {
       api: {
         sessionRecordList: async () => { throw new WorkspaceRequestError(429, 'RATE_LIMITED', 'The request budget is exhausted. Try again shortly.', 0.01) },
         listProjects: async () => [],
+        pinnedSessionsList: async () => [],
       },
     }
     const registry = { host: () => ({ id: 'h', label: 'Mac' }), hosts: () => [{ id: 'h', label: 'Mac' }] }
@@ -118,5 +121,52 @@ describe('native directory: request budget', () => {
     await directory.load('h')
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect(directory.stateOf('h').kind).toBe('error')
+  })
+})
+
+describe('native directory: reads after a session event', () => {
+  test('a sessions read keeps the projects and pins of the last whole read', async () => {
+    // WHY: every status, title, and share event on a host read its whole
+    // list again: two record lists, the projects, and the pins. Those events
+    // change only session records, so a sessions read sends the two record
+    // lists alone, and still shows the pinned session out of recent history.
+    const record = (sessionId: string) => ({ sessionId, parentSessionId: null, lastActivityAt: 1, projectPath: '/p' }) as SessionRecord
+    const reads: string[] = []
+    const connection = {
+      state: { sessionGeneration: 0 },
+      api: {
+        sessionRecordList: async (filter: SessionRecordListFilter) => {
+          reads.push(filter.scope === 'all' ? 'unlisted' : 'list')
+          return { records: filter.scope === 'all' ? [] : [record('a')], indexing: false }
+        },
+        listProjects: async () => { reads.push('projects'); return [] },
+        sessionRecordGet: async (sessionId: string) => { reads.push('pinned record'); return record(sessionId) },
+      },
+    }
+    const registry = { host: () => ({ id: 'h', label: 'Mac' }), hosts: () => [{ id: 'h', label: 'Mac' }] }
+    const readPins = async () => { reads.push('pins'); return [{ sessionId: 'old', serverId: 'h', provider: 'codex' as const, title: 'Old', cwd: '/p', pinnedAt: 1 }] }
+    const directory = new ThreadDirectory(registry as never, () => connection as never, undefined, undefined, readPins)
+    await directory.load('h')
+    expect(reads.sort()).toEqual(['list', 'pinned record', 'pins', 'projects', 'unlisted'])
+
+    reads.length = 0
+    await directory.load('h', 0, 'sessions')
+    expect(reads.sort()).toEqual(['list', 'pinned record', 'unlisted'])
+    expect(directory.unlistedThreads().map((thread) => thread.record.sessionId)).toEqual(['old'])
+  })
+
+  test('a sessions read before any whole read reads everything', async () => {
+    const reads: string[] = []
+    const connection = {
+      state: { sessionGeneration: 0 },
+      api: {
+        sessionRecordList: async () => { reads.push('list'); return { records: [], indexing: false } },
+        listProjects: async () => { reads.push('projects'); return [] },
+      },
+    }
+    const registry = { host: () => ({ id: 'h', label: 'Mac' }), hosts: () => [{ id: 'h', label: 'Mac' }] }
+    const directory = new ThreadDirectory(registry as never, () => connection as never, undefined, undefined, async () => { reads.push('pins'); return [] })
+    await directory.load('h', 0, 'sessions')
+    expect(reads.sort()).toEqual(['list', 'list', 'pins', 'projects'])
   })
 })

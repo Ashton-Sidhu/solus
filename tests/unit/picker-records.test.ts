@@ -44,7 +44,7 @@ function task(id: string, title: string): Task {
 function child(sessionId: string, label: string, ageDays = 0): SidebarSessionChild {
   return {
     sessionId, label, branchName: null, attention: null, unread: false, serverId: 'local',
-    runStartedAt: 0, lastActivityAt: NOW - ageDays * DAY, reviewGuideStatus: null,
+    runStartedAt: 0, lastActivityAt: NOW - ageDays * DAY,
   }
 }
 

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProjectEntry, SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
+import { MobileSessionCache } from '../../apps/mobile/solus-core/features/threads/session-cache'
+import { PullRequestCache, memoryPullRequestCacheDatabase } from '@solus/client-core/pull-request-cache'
 import { ThreadDirectory } from '../../apps/mobile/solus-core/features/threads/thread-directory'
 
 // The native project filter, sidebar, and new-task picker read
@@ -19,9 +21,10 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function world(options: { managed?: boolean } = {}) {
+function world(options: { managed?: boolean; cache?: MobileSessionCache } = {}) {
   const host = options.managed ? { id: 'h', label: 'Mac', uplink: { hostId: 'h', directoryUrl: 'https://app', kind: 'managed' as const } } : { id: 'h', label: 'Mac' }
   const answer = {
+    reads: [] as string[],
     projects: [project('/w/app'), project('/w/site')],
     records: [record('a', 2)],
     /** When set, the next project read waits for it. */
@@ -31,6 +34,7 @@ function world(options: { managed?: boolean } = {}) {
     state: { sessionGeneration: 0 },
     api: {
       pinnedSessionsList: async () => [],
+      sessionRecordGet: async (id: string) => { answer.reads.push(id); return answer.records.find(record => record.sessionId === id) ?? null },
       // New objects on every read, as the host sends them.
       sessionRecordList: async (filter: SessionRecordListFilter) => ({ records: filter.scope === 'all' ? [] : structuredClone(answer.records), indexing: false }),
       listProjects: async () => {
@@ -41,7 +45,7 @@ function world(options: { managed?: boolean } = {}) {
     },
   }
   const registry = { host: () => host, hosts: () => [host] }
-  const directory = new ThreadDirectory(registry as never, () => connection as never)
+  const directory = new ThreadDirectory(registry as never, () => connection as never, undefined, undefined, undefined, options.cache)
   return { directory, host, answer }
 }
 
@@ -56,6 +60,46 @@ function watchProjects(directory: ThreadDirectory) {
 }
 
 describe('native thread directory keeps unchanged projects', () => {
+  test('shows the listed sessions while projects are pending and keeps equal rows after refresh', async () => {
+    const { directory, answer } = world()
+    const pending = deferred<ProjectEntry[]>()
+    answer.projectsGate = pending.promise
+    const visible = new Promise<void>((resolve) => {
+      const stop = directory.changes.subscribe(() => {
+        if (!directory.threads().length) return
+        stop()
+        resolve()
+      })
+    })
+    const finished = directory.load('h')
+    await visible
+    expect(directory.stateOf('h').kind).toBe('loading')
+    const rows = directory.threads()
+    pending.resolve(answer.projects)
+    await finished
+    await directory.load('h')
+    expect(directory.threads()).toBe(rows)
+  })
+
+  test('restores only the known host in the current account and replaces its cached rows with a confirmed empty list', async () => {
+    let scope = 'one'
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => scope)
+    const disk = cache.forHost('h')
+    await world({ cache }).directory.load('h')
+    const { directory, answer } = world({ cache })
+    await directory.restore('h')
+    expect(directory.threads().map(t => t.record.sessionId)).toEqual(['a'])
+    expect(directory.stateOf('h').kind).toBe('loading')
+    answer.records = []
+    await directory.load('h')
+    await directory.restore('h')
+    expect(directory.threads()).toEqual([])
+    expect(directory.stateOf('h').kind).toBe('loaded')
+    scope = 'two'
+    expect(await cache.forHost('h').directory()).toBeNull()
+    expect(await disk.directory()).toBeNull()
+  })
+
   test('an equal read keeps the project array and its objects through loading and loaded, while the state change is still heard', async () => {
     const { directory } = world()
     await directory.load('h')
@@ -180,15 +224,15 @@ test('a personal host\'s sessions show whole, whatever organization is selected,
 
 test('native lists a healthy host while another host is still loading', async () => {
   const hosts = [{ id: 'healthy', label: 'Mac' }, { id: 'slow', label: 'Remote' }]
-  const slow = Promise.withResolvers<ProjectEntry[]>()
+  const slow = Promise.withResolvers<SessionRecord[]>()
   const connections = new Map(hosts.map((host) => [host.id, {
     state: { sessionGeneration: 0 },
     api: {
       pinnedSessionsList: async () => [],
       sessionRecordList: async (filter: SessionRecordListFilter) => ({
-        records: filter.scope === 'all' ? [] : [record(host.id, 1)], indexing: false,
+        records: filter.scope === 'all' ? [] : host.id === 'slow' ? await slow.promise : [record(host.id, 1)], indexing: false,
       }),
-      listProjects: () => host.id === 'slow' ? slow.promise : Promise.resolve([]),
+      listProjects: async () => [],
     },
   }]))
   const registry = { hosts: () => hosts, host: (hostId: string) => hosts.find((host) => host.id === hostId) }
@@ -204,7 +248,31 @@ test('native lists a healthy host while another host is still loading', async ()
   await healthyLoaded
   expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['healthy'])
   expect(directory.stateOf('slow').kind).toBe('loading')
-  slow.resolve([])
+  slow.resolve([record('slow', 1)])
   await load
   expect(directory.threads().map((thread) => thread.record.sessionId).sort()).toEqual(['healthy', 'slow'])
+})
+
+
+test('session events preserve untouched rows and request only the missing records', async () => {
+  const { directory, answer } = world()
+  answer.records = [record('a', 2), record('b', 1)]
+  await directory.load('h')
+  const untouched = directory.thread('h', 'a')
+  const missing = directory.applyRowChanges('h', new Map([
+    ['b', { title: 'Renamed', status: { status: 'running', at: 5 } }],
+    ['c', { title: 'New' }],
+  ]))
+  expect(directory.threads()[0]?.record).toMatchObject({ sessionId: 'b', customTitle: 'Renamed', lastActivityAt: 5 })
+  expect(missing).toEqual(['c'])
+  expect(answer.reads).toEqual([])
+  answer.records.push(record('c', 6))
+  expect(await directory.refreshRecords('h', missing)).toBe(true)
+  expect(answer.reads).toEqual(['c'])
+  expect(directory.threads().map(row => row.record.sessionId)).toEqual(['c', 'b', 'a'])
+  expect(directory.thread('h', 'a')).toBe(untouched)
+  answer.records = []
+  await directory.refreshRecords('h', ['c'])
+  expect(directory.thread('h', 'c')).toBeNull()
+  expect(directory.thread('h', 'a')).toBe(untouched)
 })

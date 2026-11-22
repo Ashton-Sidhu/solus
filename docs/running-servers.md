@@ -117,15 +117,17 @@ and identity checks. Private operating-system adapters and stateless parsers sta
 separate implementation details. Records cross the typed RPC transport; client
 class instances and Svelte state do not cross that transport.
 
-`RunningServerRegistry` on the host owns scan sharing and connection leases. It
+`RunningServerRegistry` on the host owns scan sharing and client watches. It
 is a Node owner, separate from the reactive client registry. It does not depend on
 Svelte. Its discovery operations run in the host's acting scope, including tunnel
 upgrades that start outside an RPC.
 
-The host scans every three seconds while a client holds a lease. Clients renew
-every eight seconds. Readers and active forwards retain that lease. The last
-holder releases it, disconnection removes it, and an abandoned lease expires
-after 20 seconds. Changes go through `runningServers.changed`; equal lists do
+The host scans every three seconds while a client watches. A client sends one
+watch when its first reader starts and one more each time the set of watched
+checkouts changes; checkouts that change in the same tick share one call. It
+sends no renewal. Readers and active forwards retain the watch. The last holder
+releases it, and disconnection removes it. Active forwards renew their tunnel
+tickets every minute. Changes go through `runningServers.changed`; equal lists do
 not invalidate readers. Disconnect clears running claims. Reconnect reads again.
 Running state is not persisted.
 
@@ -138,8 +140,12 @@ Stop requires `host.admin` and an opaque server ID. The host refreshes ownership
 and verifies the process start identity. On POSIX, it refuses a group that holds
 a protected process or a different owner, signals the isolated job with SIGTERM,
 waits for its original members, and uses SIGKILL only if their identities still
-match. A reused PID or a new group member prevents escalation. Windows verifies
-the target tree before using `taskkill`. **Stopped means the verified members
+match. A reused PID or a new group member prevents escalation. A server that an
+agent starts in the background often outlives its shell, the group leader. Solus
+then stops it only when every member carries the server's own session or
+terminal tag, and it signals each verified member PID, never the group ID. Windows verifies
+the target tree before using `taskkill`. A refused Stop names its reason on
+every client (`stopRefusalText`). **Stopped means the verified members
 have exited**, not that a signal was sent. The registry refreshes the list before
 returning.
 

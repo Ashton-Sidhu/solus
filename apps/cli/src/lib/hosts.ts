@@ -7,7 +7,7 @@ import { requireRunningServerUrl, withLocalRpc } from './local-rpc'
 import { defaultDataDir, runtimePaths } from './runtime'
 
 function hostListText(snapshot: HostPairingsSnapshot): string {
-  return snapshot.hosts.map((host) => `${host.label} (${host.installationId})\n  ${host.routes.map((route) => route.url).join(', ')}`).join('\n') || 'No paired hosts.'
+  return snapshot.hosts.map(({ listing: host }) => `${host.label} (${host.installationId})\n  ${host.routes.map((route) => route.url).join(', ')}`).join('\n') || 'No paired hosts.'
 }
 
 /** Same host-owned pairing path as the chat tools. The CLI never opens the live database. */

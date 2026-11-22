@@ -34,7 +34,6 @@ async function refusedTransport(refusal: GrantRefusal | null, isSignedOut: () =>
   let authFailures = 0
   const transport = new WsTransport({
     serverUrl: target.url,
-    sessionToken: '',
     grants: { acquire: async () => null, refusal: () => refusal, isSignedOut },
     onDialOutcome: (outcome) => outcomes.push(outcome.kind),
     onAuthFailed: () => { authFailures += 1 },

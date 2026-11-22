@@ -1,6 +1,6 @@
 ---
 name: create-app
-description: Build, change, and repair an app that lives in Solus — a tool, a tracker, a browser for the user's data, or something that runs on a schedule or a webhook — with a backend on the host, its own SQLite data and files, a UI in its own window, and operations that agents can call. Starts from a checked starter app. Read before you create or change an app. For a chart or a visual in a reply or a saved work, use visual-artifacts.
+description: Build, change, and repair an app that lives in Solus — a tool, a tracker, a browser for the user's data, or something that runs on a schedule or a webhook — with a backend on the host, its own SQLite data and files, a UI in its own window, and operations that agents can call. Starts from a checked starter app. Read before you create or change an app.
 ---
 
 # Build an app

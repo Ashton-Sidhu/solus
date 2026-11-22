@@ -60,7 +60,6 @@ export function workspaceTarget(workspace: KnownWorkspace): SolusServerTarget {
     id,
     label: workspace.label,
     url: routes[0]?.url ?? '',
-    sessionToken: '',
     local: false,
     routes,
     uplink: { hostId: id, directoryUrl: workspace.directoryUrl, organizationIds: [workspace.organizationId] },

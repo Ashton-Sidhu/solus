@@ -1,15 +1,15 @@
 import { lockedReviewSettings } from './guide-warmer'
 import { LOCAL_ORGANIZATION_ID } from '../host/host-category'
 import type { IpcContext, AgentId } from '@solus/contracts/types'
-import { type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewProgressStep, type ReviewTarget } from '@solus/contracts/review'
-import { getDiff, getEpisodeDiff, getSessionSnapshotRange } from '../git/session-snapshots'
+import { reviewGuideKeyForTarget, type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewProgressStep, type ReviewGuideTarget } from '@solus/contracts/review'
+import { getEpisodeDiff } from '../git/session-snapshots'
 import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import { resolveReviewContext, reviewCheckout } from './review-context'
 import { runReviewAgent } from './review-agent'
 import { contextPreferences } from '../execution/agents/run-input'
 import { normalizeGuide } from './review-guide-tool'
-import { fingerprintReviewPatch, guideKeyForTarget, normalizedReviewTarget, reviewedSessionId } from './review-target'
+import { fingerprintReviewPatch, reviewedSessionId } from './review-target'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { SeatResolver } from '../execution/seats/seat-manager'
 import { runAsync } from '../git/exec'
@@ -41,42 +41,19 @@ export interface GeneratedGuide {
 
 export type GenerateGuideOptions = ReviewGuideRequestOptions
 
-/** Where a generation reads/writes and what it diffs. Session and stacked
- * walkthroughs suffix their stable key so distinct bases never coalesce.
- * Review lenses resolve the same way, so a lens and a guide for one target
- * always read the same change. */
+/** The exact change a structured guide describes. */
 export interface GuideTarget {
   guideKey: string
-  scope: 'working-tree' | 'branch' | 'session' | 'pr'
-  target: ReviewTarget
+  scope: ReviewGuideTarget['kind']
+  target: ReviewGuideTarget
   base: string
-  /** Exact captured head for a session target. Other scopes use the live tree. */
+  /** The pull request head. Local guides read the working tree. */
   head: string | null
-  /** Set only for a session walkthrough — the session whose snapshot is reviewed. */
-  sessionId: string | null
   patch: string | null
   changeFingerprint: string
 }
 
-function resolveSessionGuideTarget(
-  review: ReviewContext,
-  target: Extract<ReviewTarget, { kind: 'session' }>,
-  sessionId: string | null,
-): Omit<GuideTarget, 'patch' | 'changeFingerprint'> {
-  const targetSessionId = target.sessionId ?? sessionId
-  const sessionRange = targetSessionId ? getSessionSnapshotRange(review.repoRoot, targetSessionId) : null
-  const branchBase = review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
-  return {
-    guideKey: guideKeyForTarget(review, target, sessionId),
-    scope: 'session',
-    target,
-    base: sessionRange?.baseSha ?? branchBase,
-    head: sessionRange?.headSha ?? null,
-    sessionId: targetSessionId,
-  }
-}
-
-function branchGuideBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, target: ReviewTarget): string {
+function branchGuideBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, target: ReviewGuideTarget): string {
   // PR panes and the batch queue retain branch cache keys. Their prepared PR
   // base is authoritative; local main can be months behind the pull request.
   const prReview = ctx.session.prReview
@@ -88,12 +65,9 @@ function branchGuideBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext
 }
 
 /** Resolve the target before dedupe/progress so concurrent base variants key
- * apart instead of coalescing onto one run. Session fallback keeps its requested
- * key; stacked generation resolves the parent/child merge-base once, up front. */
+ * apart instead of coalescing onto one run. Stacked generation resolves the parent/child merge-base once, up front. */
 export async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<Omit<GuideTarget, 'patch' | 'changeFingerprint'>> {
-  const sessionId = reviewedSessionId(ctx)
-  const target = normalizedReviewTarget(opts, sessionId)
-  if (target.kind === 'session') return resolveSessionGuideTarget(review, target, sessionId)
+  const target = opts.target ?? { kind: 'branch' }
   let branchBase = target.kind === 'working-tree'
     ? 'HEAD'
     : target.kind === 'pr' && target.baseSha
@@ -111,27 +85,24 @@ export async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review
       log.warn('review_merge_base_failed', { targetBranch: target.targetBranch, error: String(error) })
     }
   }
-  const baseKey = guideKeyForTarget(review, target, sessionId ?? null)
-  if (target.kind === 'pr') return { guideKey: baseKey, scope: 'pr', target, base: branchBase, head: target.headSha ?? null, sessionId: null }
-  return { guideKey: baseKey, scope: target.kind, target, base: branchBase, head: null, sessionId: null }
+  const baseKey = reviewGuideKeyForTarget(target, review.branch)
+  if (target.kind === 'pr') return { guideKey: baseKey, scope: 'pr', target, base: branchBase, head: target.headSha ?? null }
+  return { guideKey: baseKey, scope: target.kind, target, base: branchBase, head: null }
 }
 
 /** The live content identity for one base. Split out because a status probe
  * needs exactly this and nothing else: re-resolving the whole target there
- * would redo the branch/session base lookup — including a second
+ * would redo the branch base lookup — including a second
  * `git merge-base` — to arrive at the base it was already handed. */
 export async function changeSnapshotFor(
   workTree: string,
   review: ReviewContext,
-  target: Pick<GuideTarget, 'base' | 'guideKey' | 'scope' | 'sessionId' | 'head'>,
+  target: Pick<GuideTarget, 'base' | 'guideKey' | 'scope' | 'head'>,
 ): Promise<{ patch: string | null; changeFingerprint: string }> {
   try {
     const diff = target.scope === 'pr' && target.head
       ? { patch: await runAsync('git', ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', target.base, target.head, '--'], workTree, { maxBuffer: 50 * 1024 * 1024, raw: true }) }
-      : target.scope === 'session' && target.sessionId
-      ? await getDiff(null, review.repoRoot, { kind: 'session' }, target.sessionId, [])
       : await getEpisodeDiff(workTree, review.repoRoot, target.base)
-    if (!diff) throw new Error('Session snapshot is unavailable.')
     // Kept raw: a blank last context line or trailing spaces are part of the change.
     const patch = diff.patch.trim() ? diff.patch : ''
     return { patch, changeFingerprint: fingerprintReviewPatch(patch) }
@@ -187,10 +158,6 @@ async function produceGuide(
   emit: EmitProgress,
 ): Promise<GeneratedGuide | null> {
   emit('preparing')
-  // Gate on whether the target has anything to review. Branch-like targets use
-  // their base versus the live tree. A session uses its captured base-to-head
-  // snapshot, so changes from another session in the shared tree cannot leak in.
-  // We also keep the patch for coverage validation and the small-diff prompt.
   const workTree = reviewCheckout(ctx) ?? review.repoRoot
   const base = target.base
   const headSha = await resolvedGuideHead(target, workTree, review)

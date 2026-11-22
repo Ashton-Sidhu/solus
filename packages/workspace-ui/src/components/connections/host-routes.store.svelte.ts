@@ -18,7 +18,7 @@ class HostRoutesStore {
   }
 
   private known(serverId: string): KnownHost | undefined {
-    return serversStore.remotes.find((server) => server.id === serverId)
+    return serversStore.knownHosts.find((server) => server.id === serverId)
   }
 
   isLocal(serverId: string): boolean {

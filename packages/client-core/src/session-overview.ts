@@ -72,6 +72,37 @@ export function scopedArtifacts(
     : { pullRequests: shown.slice(0, firstItem), items: shown.slice(firstItem) }
 }
 
+/** One card of linked artifacts: a kind, and its rows of the scope. */
+export interface LinkSection {
+  kind: SessionArtifactKind
+  title: string
+  items: OwnedArtifact[]
+}
+
+const SECTION_TITLES = {
+  'pull-request': 'Pull requests',
+  work: 'Works',
+  app: 'Apps',
+  automation: 'Automations',
+  file: 'Files',
+  image: 'Images',
+} satisfies { [Kind in SessionArtifactKind]: string }
+
+/**
+ * One card for each kind of link the scope holds, in the order of `KIND_ORDER`,
+ * each newest first: a kind with nothing in the scope has no card.
+ */
+export function linkSections(scoped: ScopedArtifacts): LinkSection[] {
+  const sections: LinkSection[] = []
+  for (const owned of [...scoped.pullRequests, ...scoped.items]) {
+    const kind = owned.artifact.kind
+    const last = sections.at(-1)
+    if (last?.kind === kind) last.items.push(owned)
+    else sections.push({ kind, title: SECTION_TITLES[kind], items: [owned] })
+  }
+  return sections
+}
+
 /**
  * The checkpoint a turn closed with. A snapshot is written when its turn ends:
  * after the turn's prompt and before the next one. When a turn ended more than

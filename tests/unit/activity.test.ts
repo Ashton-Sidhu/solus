@@ -112,16 +112,17 @@ async function historyHost(history: SessionLoadMessage[]) {
   runtime.on('error', () => {})
   cleanups.push(() => runtime.shutdown())
   const handlers = new Map<string, HistoryHandler>()
+  const broadcasts: string[] = []
   const { registerHistoryHandlers } = await import('@solus/server/transport/handlers/history-handlers')
   registerHistoryHandlers({ register: (method: string, handler: HistoryHandler) => { handlers.set(method, handler) } } as never, {
     sessionRuntime: runtime,
-    events: { broadcast: () => {} } as never,
+    events: { broadcast: (topic: string) => { broadcasts.push(topic) } } as never,
     agentIdFromContext: () => 'claude-code',
     exchangeProgress: () => undefined,
   })
   const { TEST_HANDLER_CTX } = await import('./helpers/handler-ctx')
   const call = <T>(method: string, args: unknown[], ctx: unknown = TEST_HANDLER_CTX) => handlers.get(method)!(args, ctx) as Promise<T>
-  return { runtime, call }
+  return { runtime, call, broadcasts }
 }
 
 describe('a session activity', () => {
@@ -189,6 +190,21 @@ describe('a session rename', () => {
     await new Promise((resolve) => setImmediate(resolve))
 
     expect((await renames()).map((entry) => entry.kind === 'renamed' && entry.title)).toEqual(['Spec', 'Plan'])
+  })
+
+  test('the same name again is no change: no broadcast for every client to answer', async () => {
+    // WHY: each reopened tab sent its stored name back, and each copy was
+    // broadcast as `session.titleChanged`, which every client answers with
+    // reads of its own.
+    const { call, broadcasts } = await historyHost([])
+    const { cacheIndexedSessions } = await import('@solus/server/db/session-indexer')
+    await cacheIndexedSessions([{ sessionId: 'thread-1', provider: 'claude-code', cwd: '/tmp/project', projectPath: '/tmp/project', firstMessage: 'go', lastTimestamp: 1, size: 1 } as never])
+
+    await call('setSessionTitle', ['thread-1', 'Spec', 'manual'])
+    await call('setSessionTitle', ['thread-1', ' Spec ', 'manual'])
+    await call('setSessionTitle', ['thread-1', 'Plan', 'manual'])
+
+    expect(broadcasts.filter((topic) => topic === 'session.titleChanged')).toHaveLength(2)
   })
 
   test('an agent naming the session is not activity, nor is a client re-sending that name', async () => {

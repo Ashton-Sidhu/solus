@@ -6,7 +6,7 @@
   import { messageTimestampClock } from "../../lib/shared-clock";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
-  import { providerUsage, USAGE_REFRESH_INTERVAL_MS, usageByProvider, signInCommand } from "./lib/usage-meters";
+  import { providerUsage, usageByProvider, signInCommand } from "./lib/usage-meters";
 
   interface Props {
     /** The host the tab runs on: quota belongs to that host's agent logins. */
@@ -27,11 +27,15 @@
   $effect(() => {
     if (!active) return;
     const watchedHost = host;
-    return untrack(() => messageTimestampClock.subscribe((value) => {
-      now = value;
-      // Also tells the host someone is watching: its poll suspends when nobody asks.
-      void watchedHost?.refresh("usage", { maxAgeMs: USAGE_REFRESH_INTERVAL_MS });
-    }));
+    return untrack(() => {
+      // The host reads the quota while the watch holds and pushes each change.
+      const releaseUsage = watchedHost?.watchUsage();
+      const stopClock = messageTimestampClock.subscribe((value) => { now = value; });
+      return () => {
+        stopClock();
+        releaseUsage?.();
+      };
+    });
   });
 
   const barTone = {

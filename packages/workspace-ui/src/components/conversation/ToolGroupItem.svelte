@@ -2,7 +2,7 @@
   import { cutText } from "@solus/contracts/text-cut";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import { openToolLines, toolGroupKey } from "./lib/open-tool-lines";
-  import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
+  import { Brain as BrainIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { toolRowsCopyText } from "./lib/tool-row-copy";
   import { toolProgressView } from "@solus/contracts/tool-progress";
   import { getMarkdownImageContext } from "./lib/markdown-image";
@@ -145,10 +145,9 @@
     if (!namedTool) return "";
     return toolActivityTarget(namedTool.toolName || "Tool", namedTool.toolInput);
   });
-  // A settled row that names no tool shows what the agent last thought
-  // beside its "Thought for" label. No readable thought keeps the plain label.
+  // Opening the group reveals each thought in order, so drop its live preview.
   const thought = $derived(
-    namedTarget || working || failedTool ? "" : latestThoughtPreview(rowSteps),
+    working && !view.expanded ? latestThoughtPreview(rowSteps) : "",
   );
   const doneCount = $derived(tools.filter((t) => t.toolStatus !== "running").length);
 
@@ -195,7 +194,6 @@
 </script>
 
 {#snippet targetText()}{namedTarget}{/snippet}
-{#snippet thoughtText()}{thought}{/snippet}
 {#snippet progressText()}{progress?.message}{/snippet}
 {#snippet outputStrip()}<ToolOutputStrip strip={outputs} onOpen={openToolOutput} />{/snippet}
 
@@ -210,6 +208,16 @@
 <!-- `activity-host` opts this row out of the transcript's paint containment,
      which would otherwise clip the row's rounded chassis flat. -->
 <div class="activity-host {skipMotion ? '' : 'animate-msg-in-side'}">
+  {#if thought}
+    <!-- The same glyph slot, gap, and type as the live row below it, so the
+         icon and the text start on the same edges. The slot is one line tall,
+         which centres the icon on the first line of a wrapped thought. -->
+    <button type="button" aria-expanded="false" onclick={toggleExpanded}
+      class="flex w-full items-start gap-2.5 rounded-sm border-0 bg-transparent p-0 pb-1 text-left text-activity-label text-muted-foreground cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)">
+      <span class="inline-flex h-lh min-w-5.5 shrink-0 items-center"><BrainIcon class="size-(--text-activity-label)" /></span>
+      <span class="line-clamp-4 min-w-0">{thought}</span>
+    </button>
+  {/if}
   <ActivityRow
     expanded={view.expanded}
     nested={!working && !runningTool}
@@ -219,11 +227,8 @@
       ? targetText
       : progress?.message
         ? progressText
-        : thought
-          ? thoughtText
-          : undefined}
+        : undefined}
     proseTarget={true}
-    foregroundTarget={!!thought}
     glyphClass={failedTool && !runningTool ? "is-destructive" : ""}
     testid={runningTool
       ? "activity-running"

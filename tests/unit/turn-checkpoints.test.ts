@@ -6,7 +6,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
-const { beginTurnCheckpoint, endTurnCheckpoint } = await import('@solus/server/git/turn-checkpoints')
+const { beginTurnCheckpoint, endTurnCheckpoint, onTurnCheckpointed } = await import('@solus/server/git/turn-checkpoints')
+type TurnCheckpointed = import('@solus/server/git/turn-checkpoints').TurnCheckpointed
 const { getDiffStats, listTurnSnapshots } = await import('@solus/server/git/session-snapshots')
 const { turnActivity } = await import('@solus/server/git/turn-activity')
 const { actAsHostForTests } = await import('@solus/server/execution/seats/acting-identity')
@@ -33,6 +34,13 @@ function createRepo() {
   git(cwd, ['add', '.'])
   git(cwd, ['commit', '-m', 'base'])
   return cwd
+}
+
+function addWorkTree(repoRoot: string) {
+  const workTree = join(mkdtempSync(join(tmpdir(), 'solus-turn-checkpoints-wt-')), 'checkout')
+  dirs.push(workTree)
+  git(repoRoot, ['worktree', 'add', '-b', 'feature', workTree])
+  return workTree
 }
 
 // The helpers under test start processes; with no caller, they act as the host (plans/019).
@@ -136,5 +144,54 @@ describe('turn checkpoints', () => {
     at(9_000)
     expect((await endTurnCheckpoint(db, { partial: false, userMessagePreview: 'search' }))?.sort())
       .toEqual(['by-hand.txt', 'migration.sql'])
+  })
+  // WHY: a child started with a shared checkout works in its parent's own
+  // linked worktree. Each session's diff read the whole tree there, so the
+  // parent showed the child's lines as its own, and the child the parent's.
+  test('two sessions in one linked worktree each keep only the paths their own turns changed', async () => {
+    const repoRoot = createRepo()
+    const workTree = addWorkTree(repoRoot)
+    const parent = { sessionId: 'parent-session', workTree }
+    const child = { sessionId: 'child-session', workTree }
+
+    await beginTurnCheckpoint(parent)
+    writeFileSync(join(workTree, 'parent.txt'), 'from the parent\n')
+    await endTurnCheckpoint(parent, { partial: false, userMessagePreview: 'plan' })
+    await beginTurnCheckpoint(child)
+    writeFileSync(join(workTree, 'child.txt'), 'from the child\n')
+    writeFileSync(join(workTree, 'tracked.txt'), 'first\nboth\n')
+    await endTurnCheckpoint(child, { partial: false, userMessagePreview: 'build' })
+    await beginTurnCheckpoint(parent)
+    writeFileSync(join(workTree, 'tracked.txt'), 'first\nboth\nparent too\n')
+    await endTurnCheckpoint(parent, { partial: false, userMessagePreview: 'review' })
+
+    const paths = async (sessionId: string) => (await getDiffStats(workTree, repoRoot, { kind: 'session' }, sessionId)).map((file) => file.path).sort()
+    // A file both changed stays with both.
+    expect(await paths('parent-session')).toEqual(['parent.txt', 'tracked.txt'])
+    expect(await paths('child-session')).toEqual(['child.txt', 'tracked.txt'])
+  })
+
+  // WHY: the session digest takes its change summary from the checkpoint, so a
+  // parent's Threads surface shows each child's changes with no git read.
+  test("a checkpoint hands its listener the session's change, largest file first, and the turn's totals", async () => {
+    const cwd = createRepo()
+    const target = { sessionId: 'summary-session', workTree: cwd }
+    const heard = new Promise<TurnCheckpointed>((resolve) => {
+      const stop = onTurnCheckpointed((checkpoint) => {
+        if (checkpoint.sessionId !== 'summary-session') return
+        stop()
+        resolve(checkpoint)
+      })
+    })
+
+    await beginTurnCheckpoint(target)
+    writeFileSync(join(cwd, 'small.txt'), 'one\n')
+    writeFileSync(join(cwd, 'large.txt'), 'one\ntwo\nthree\n')
+    await endTurnCheckpoint(target, { partial: false, userMessagePreview: 'write' })
+
+    const checkpoint = await heard
+    expect(checkpoint.changes.files.map((file) => [file.path, file.additions])).toEqual([['large.txt', 3], ['small.txt', 1]])
+    expect(checkpoint.changes).toMatchObject({ filesChanged: 2, additions: 4, deletions: 0 })
+    expect(checkpoint.turn).toMatchObject({ filesChanged: 2, additions: 4, deletions: 0 })
   })
 })

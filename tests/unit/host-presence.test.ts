@@ -28,10 +28,10 @@ async function listLaptop(isListed: boolean): Promise<void> {
 }
 
 describe('a host this client does not know', () => {
-  test('is gone, and a listed or registered host is present', async () => {
+  test('is gone, and a listed host or the desktop\'s own machine is present', async () => {
     await listLaptop(true)
+    catalog.addPageHost({ id: 'local', label: 'This computer', installationId: 'this-mac', sessionToken: '', lastConnected: 0, routes: [{ kind: 'lan', url: 'http://127.0.0.1:1' }], local: true })
     const connections = new ServerConnections(catalog)
-    connections.registerTarget({ id: 'local', label: 'This computer', url: 'http://127.0.0.1:1', sessionToken: '', local: true })
 
     expect(connections.presenceOf('laptop')).toBe('present')
     expect(connections.presenceOf('local')).toBe('present')
@@ -47,7 +47,7 @@ describe('a host this client does not know', () => {
     await expect(call).rejects.toBeInstanceOf(HostGoneError)
     expect(connections.connectionFor('managed:gone')?.presence).toBe('gone')
     // Reads that fan out across hosts never reach it.
-    expect(connections.connectedServerIds()).not.toContain('managed:gone')
+    expect(connections.serverIds()).not.toContain('managed:gone')
   })
 
   test('gets a real connection once it is listed, and a gone one again when it is removed', async () => {

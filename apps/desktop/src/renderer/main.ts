@@ -1,7 +1,8 @@
 import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspace/startup-transcript'
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
-import { localServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
+import { localHost } from '@solus/client-core/server-connection'
+import type { KnownHost } from '@solus/client-core/known-host'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hostCatalog } from '@solus/client-core/host-catalog'
 import { installWindowSolusApi, mergeNativeOnlySolusApi } from '@solus/client-core/native-api-overlay'
@@ -22,11 +23,11 @@ const root = document.getElementById('root')!
  * that is correct at every point in the sequence — not just after the target
  * has been read.
  */
-let bootTarget: SolusServerTarget | null = null
+let bootHost: KnownHost | null = null
 
 function renderBootError(err: Parameters<typeof String>[0]): void {
   renderFatal(root, {
-    hostLabel: bootTarget?.label ?? 'Solus',
+    hostLabel: bootHost?.label ?? 'Solus',
     error: err,
   })
   requestAnimationFrame(() => {
@@ -68,13 +69,14 @@ async function boot(): Promise<void> {
   if (local) {
     // The window boots on its own machine, and that machine is the default for
     // new work. Another host is chosen per run with the Run on picker.
-    const target = localServerTarget(local)
-    bootTarget = target
-    serverConnections.registerTarget(target, { refreshSessionToken: () => nativeApi.refreshLocalSessionToken(), nativeApi })
-    const primary = serverConnections.setPrimary(target.id)
+    const host = localHost(local)
+    bootHost = host
+    hostCatalog.addPageHost(host)
+    serverConnections.attachNativeBridge(host.id, { refreshSessionToken: () => nativeApi.refreshLocalSessionToken(), nativeApi })
+    const primary = serverConnections.setPrimary(host.id)
     installWindowSolusApi(primary.api)
     stopBootWatch = serverConnections.onReadinessChange((serverId, readiness) => {
-      if (serverId === target.id && readiness === 'refused' && !appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
+      if (serverId === host.id && readiness === 'refused' && !appMounted) renderBootError(new Error(`${host.label} rejected the saved session token`))
     })
   } else {
     bootWithoutLocalHost(nativeApi)

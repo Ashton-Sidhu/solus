@@ -44,7 +44,7 @@ describe('a failed sync', () => {
 
   test('a missing seat offers the connect flow, an offline source names it and offers Run on', () => {
     expect(sessionSyncFailureText('seat-required', names).action).toBe('connect-seat')
-    expect(sessionSyncFailureText('source-offline', names)).toEqual({ message: expect.stringContaining('Studio is offline'), action: 'choose-host' })
+    expect(sessionSyncFailureText('source-offline', names)).toEqual({ message: expect.stringContaining('Studio is offline'), action: null })
     expect(sessionSyncFailureText('no-project-checkout', names).message).toContain('Laptop has no copy of this project')
     expect(sessionSyncFailureText('not-signed-in', names).message).toContain('Sign in on Laptop')
     expect(sessionSyncFailureText('commit-failed', names).message).toContain('last turn on Studio was not saved')

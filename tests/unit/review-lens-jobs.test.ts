@@ -43,8 +43,8 @@ function fixture(overrides: Partial<ReviewLensJobDependencies> = {}) {
     headSha: 'head',
     review: { key: 'k', branch: 'b', targetBranch: 'main', baseSha: 'base', headSha: 'head', repoRoot: '/repo' },
     change: {
-      guideKey: 'pr-7', scope: 'pr', target: prTarget, base: 'base', head: 'head',
-      sessionId: null, patch: 'diff --git a/a.ts b/a.ts\n+x', changeFingerprint: 'fp-1',
+      target: prTarget, base: 'base', head: 'head',
+      patch: 'diff --git a/a.ts b/a.ts\n+x', changeFingerprint: 'fp-1',
     },
   } satisfies ResolvedLensChange
   const deps: Partial<ReviewLensJobDependencies> = {

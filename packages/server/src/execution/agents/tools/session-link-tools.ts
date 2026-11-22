@@ -8,70 +8,63 @@ import { linkSessionPullRequest, unlinkSessionPullRequest } from '../../../data/
 import { resolvePullRequestUrl } from '../../../providers/pull-request-url'
 import { realpath, stat } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
-import type { SessionLinkInput } from '@solus/contracts/session-links'
 import { roleAllows } from '@solus/contracts/permissions'
 import { authorize } from '../../../admission/access-policy'
-import { actorFor } from '../../../admission/actor'
-import { roleOf } from '../../../admission/access'
-import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
-import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL } from '../../../admission/principal'
+import { ANY_ORGANIZATION, type Principal } from '../../../admission/principal'
 import { assertPathInScope } from '../../../data/sessions/guest-path-scope'
 import { readStoredRegistration } from '../../../host/host-registration'
 import { resolveHomePath } from '../../../platform/paths'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
-import { automationHomeOf, loadAutomation } from '../../../data/automations/automations-store'
+import { loadAutomation } from '../../../data/automations/automations-store'
 import { linkSessionItem, unlinkSessionItem } from '../../../data/sessions/session-links'
 import { readOwnSessionArtifacts } from '../../../data/sessions/session-artifacts'
 import { linkedAppNamed } from './app-tools'
 import type { WorkspaceLinkTarget } from '@solus/contracts/solus-api'
 import { toolAgentAttribution } from './agent-attribution'
 
-/** Extend the existing link tool; an organization session's link is written on its Solus API. */
+type ToolHome = Awaited<ReturnType<typeof workspaceToolContext>>
+
+/**
+ * Link a work, file, or automation to the calling session through the home's
+ * link operation, which checks access and writes the edge, on this host or on
+ * an organization's Solus API. The tool only names the target as the agent
+ * sees it.
+ */
 export async function linkCallerItem(ctx: SessionLinkCtx, input: { kind: 'work' | 'automation' | 'file'; target_id?: string; path?: string; title?: string }): Promise<AgentToolResult> {
   const sessionId = ctx.sessionId
   if (!sessionId) return { ok: false, text: 'link needs a calling session id.' }
   const home = await workspaceToolContext(sessionId)
-  const session = await home.operations.getSession(home.context, sessionId)
-  if (!roleAllows(session.role, 'edit')) return { ok: false, text: 'This session cannot be edited.' }
-  let link: SessionLinkInput
+  let to: WorkspaceLinkTarget
+  let title = input.title
   if (input.kind === 'work') {
-    const work = await home.operations.getWork(home.context, input.target_id?.trim() ?? '')
-    if (!roleAllows(work.role, 'edit')) return { ok: false, text: 'This work cannot be linked.' }
-    if (work.organizationId !== session.organizationId) return { ok: false, text: 'The work and session must belong to the same organization.' }
-    link = { target: { kind: 'work', targetId: work.id }, title: input.title ?? work.title }
+    to = { kind: 'work', id: input.target_id?.trim() ?? '' }
+  } else if (input.kind === 'file') {
+    to = await fileTarget(ctx.cwd, input.path, await executionHostId(home, sessionId), home.context.principal)
+    title ??= basename(to.path)
   } else {
-    const hostId = home.context.home.kind === 'local' ? home.context.home.hostId : readStoredRegistration()?.hostId ?? session.runnerHostId
-    if (!hostId) return { ok: false, text: 'The execution host has no id yet.' }
-    link = input.kind === 'file'
-      ? await fileLink(ctx.cwd, input.path, hostId, home.context.principal)
-      : await automationLink(input.target_id, hostId, session.organizationId)
-    link.title = input.title ?? link.title
+    to = { kind: 'automation', id: input.target_id?.trim() ?? '', hostId: await executionHostId(home, sessionId) }
+    title ??= (await loadAutomation(to.id))?.name
   }
-  if (home.remote) {
-    await home.operations.putLink(home.context, { from: { kind: 'session', id: sessionId }, to: linkTarget(link.target), title: link.title })
-    return { ok: true, text: `Linked ${input.kind} to this session.` }
-  }
-  await linkSessionItem(sessionId, link, await toolAgentAttribution(ctx))
+  await home.operations.putLink(home.context, { from: { kind: 'session', id: sessionId }, to, title })
   return { ok: true, text: `Linked ${input.kind} to this session.` }
 }
 
-async function fileLink(cwd: string, named: string | undefined, hostId: string, principal: import('../../../admission/principal').Principal): Promise<SessionLinkInput> {
+/** The host that runs the session, and so holds its files, automations, and apps: this host. */
+async function executionHostId(home: ToolHome, sessionId: string): Promise<string> {
+  if (home.context.home.kind === 'local') return home.context.home.hostId
+  const hostId = readStoredRegistration()?.hostId ?? (await home.operations.getSession(home.context, sessionId)).runnerHostId
+  if (!hostId) throw new Error('The execution host has no id yet.')
+  return hostId
+}
+
+/** A file as the agent names it, relative to its working directory, and readable by the caller. */
+async function fileTarget(cwd: string, named: string | undefined, hostId: string, principal: Principal): Promise<Extract<WorkspaceLinkTarget, { kind: 'file' }>> {
   if (!named?.trim()) throw new Error('link with kind=file requires path.')
   if (await authorize(principal, 'host.files.read', null, { name: 'link' })) throw new Error('File access is not available.')
   const path = await realpath(resolve(resolveHomePath(cwd), resolveHomePath(named.trim())))
   assertPathInScope('readProjectFile', principal, path)
   if (!(await stat(path)).isFile()) throw new Error('The target must be a file.')
-  return { target: { kind: 'file', path, hostId }, title: basename(path) }
-}
-
-async function automationLink(named: string | undefined, hostId: string, organizationId: string | null): Promise<SessionLinkInput> {
-  const id = named?.trim()
-  const owner = id ? automationHomeOf(id) : null
-  const actor = actorFor(workspaceToolAuthority() ?? INTERNAL_PRINCIPAL)
-  if (!id || !owner || !roleAllows(roleOf(actor, { kind: 'automation', id, ...owner, acl: [] }), 'read')) throw new Error('Automation not found.')
-  const automation = await loadAutomation(id)
-  if (!automation || automation.organizationId !== (organizationId ?? 'local')) throw new Error('Automation not found in the session’s organization.')
-  return { target: { kind: 'automation', targetId: id, hostId }, title: automation.name }
+  return { kind: 'file', path, hostId }
 }
 
 /**
@@ -87,25 +80,14 @@ async function changeCallerAppLink(ctx: SessionLinkCtx, change: 'link' | 'unlink
   if (home.remote) return { ok: false, text: 'An app cannot be linked to an organization session yet.' }
   const session = await home.operations.getSession(home.context, sessionId)
   if (!roleAllows(session.role, 'edit')) return { ok: false, text: 'This session cannot be edited.' }
-  const hostId = home.context.home.kind === 'local' ? home.context.home.hostId : readStoredRegistration()?.hostId ?? session.runnerHostId
-  if (!hostId) return { ok: false, text: 'The execution host has no id yet.' }
   const app = await linkedAppNamed(input.target_id?.trim() ?? '')
-  const target = { kind: 'app' as const, targetId: app.id, hostId }
+  const target = { kind: 'app' as const, targetId: app.id, hostId: await executionHostId(home, sessionId) }
   if (change === 'unlink') {
     await unlinkSessionItem(sessionId, target)
     return { ok: true, text: 'Removed app link from this session.' }
   }
   await linkSessionItem(sessionId, { target, title: input.title ?? app.name }, await toolAgentAttribution(ctx))
   return { ok: true, text: 'Linked app to this session.' }
-}
-
-/** A session item link as the Solus API's link route names it. */
-function linkTarget(target: SessionLinkInput['target']): WorkspaceLinkTarget {
-  // An app link is written on its host (`changeCallerAppLink`), never through the Solus API.
-  if (target.kind === 'app') throw new Error('An app cannot be linked to an organization session yet.')
-  if (target.kind === 'work') return { kind: 'work', id: target.targetId }
-  if (target.kind === 'automation') return { kind: 'automation', id: target.targetId, hostId: target.hostId }
-  return target
 }
 
 /** The pull request an agent names by number or URL, or null when the
@@ -119,11 +101,17 @@ export async function namedPullRequest(projectKey: string, named: string): Promi
 }
 
 /**
- * Link a pull request to the calling session. The machine that runs the
- * session always holds the link, because its PR sync watches the pull request.
- * For an organization session on an attached machine the organization's Solus
- * API holds the session too, so the same link is written there, as the person.
+ * Link a pull request to the calling session through the home's link
+ * operation. The machine that runs the session always holds the link, because
+ * its PR sync watches the pull request: for an organization session, whose home
+ * is the organization's Solus API, this host writes its own row as well.
  */
+async function putSessionPullRequest(home: ToolHome, sessionId: string, url: string, title: string | undefined, ctx: SessionLinkCtx): Promise<void> {
+  if (home.remote) await linkSessionPullRequest(sessionId, { url, title, source: 'agent', by: await toolAgentAttribution(ctx) })
+  await home.operations.putLink(home.context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url }, title })
+}
+
+/** Link the pull request an agent names by number or URL. */
 export async function linkCallerPullRequest(
   ctx: SessionLinkCtx,
   toolContext: () => ReturnType<typeof workspaceToolContext>,
@@ -136,11 +124,7 @@ export async function linkCallerPullRequest(
   const named = input.target_id?.trim() ?? ''
   const identity = await namedPullRequest(projectKey, named)
   if (!identity) return { ok: false, text: `link could not find pull request "${named}". Pass its number or URL as target_id.` }
-  const sessionId = callerSessionId
-  const actor = await toolAgentAttribution(ctx)
-  await linkSessionPullRequest(sessionId, { url: identity.url, title: input.title, source: 'agent', by: actor })
-  const { operations, context, remote } = await toolContext()
-  if (remote) await operations.putLink(context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url }, title: input.title })
+  await putSessionPullRequest(await toolContext(), callerSessionId, identity.url, input.title, ctx)
   return { ok: true, text: `Linked pull request #${identity.number} (${identity.repository}) to this session.` }
 }
 
@@ -162,15 +146,13 @@ export async function linkCallerPullRequests(
   const linked: PullRequestIdentity[] = []
   const alreadyLinked: PullRequestIdentity[] = []
   const invalid: string[] = []
-  const actor = await toolAgentAttribution(ctx)
   for (const name of named) {
     const identity = await namedPullRequest(projectKey, name)
     if (!identity) { invalid.push(name.trim()); continue }
     const key = pullRequestKey(identity)
     if (shown.has(key)) { alreadyLinked.push(identity); continue }
     shown.add(key)
-    await linkSessionPullRequest(sessionId, { url: identity.url, source: 'agent', by: actor })
-    if (home.remote) await home.operations.putLink(home.context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url } })
+    await putSessionPullRequest(home, sessionId, identity.url, undefined, ctx)
     linked.push(identity)
   }
   const lines = [`Linked ${countOf(linked.length, 'pull request')} to this session.`]
@@ -382,7 +364,6 @@ export const unlinkAgentTool = sessionLinkTool('unlink', UNLINK_DESC, {
   if (input.kind === 'app') return changeCallerAppLink(ctx, 'unlink', input)
   if (input.kind === 'task') return changeCallerTaskLink(ctx, 'unlink', input.target_id!)
   const home = await workspaceToolContext(ctx.sessionId)
-  const session = await home.operations.getSession(home.context, ctx.sessionId)
   if (input.kind === 'pr') {
     return unlinkCallerPullRequest(ctx, async () => home, await resolveRepoRoot(ctx.cwd) ?? ctx.cwd, { target_id: input.target_id! })
   }
@@ -390,8 +371,7 @@ export const unlinkAgentTool = sessionLinkTool('unlink', UNLINK_DESC, {
   if (input.kind === 'work') {
     target = { kind: 'work', id: input.target_id!.trim() }
   } else {
-    const hostId = home.context.home.kind === 'local' ? home.context.home.hostId : readStoredRegistration()?.hostId ?? session.runnerHostId
-    if (!hostId) return { ok: false, text: 'The execution host has no id yet.' }
+    const hostId = await executionHostId(home, ctx.sessionId)
     if (input.kind === 'file') {
       if (!input.path?.trim()) return { ok: false, text: 'unlink with kind=file requires path.' }
       const resolved = resolve(resolveHomePath(ctx.cwd), resolveHomePath(input.path.trim()))

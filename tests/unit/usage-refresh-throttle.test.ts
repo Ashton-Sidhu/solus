@@ -3,7 +3,7 @@ import type { AgentUsageLimits } from '@solus/contracts/types'
 import { asHostApi } from '@solus/client-core/host-api'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { HostFacts } from '@solus/client-core/host-facts'
-import { USAGE_REFRESH_INTERVAL_MS, usageByProvider } from '@solus/workspace-ui/components/project-panel/lib/usage-meters'
+import { usageByProvider } from '@solus/workspace-ui/components/project-panel/lib/usage-meters'
 
 function limits(provider: string, usedPercent: number): AgentUsageLimits {
   return {
@@ -16,48 +16,52 @@ function limits(provider: string, usedPercent: number): AgentUsageLimits {
   }
 }
 
-test('project panels becoming active share one usage read per host per minute', async () => {
-  // WHY: every mounted project panel asks for usage when its tab becomes
-  // active, and the `usage.limitsChanged` topic already pushes changes. A tab
-  // switch must not cost a host round trip; the host only needs to hear from a
-  // client inside its 15-minute idle window. A failed read must not hold the
-  // next one back.
-  const reads: string[] = []
-  let failNext = false
-  let clock = 0
-  const hostFacts = (serverId: string) => new HostFacts(serverId, {
+test('meters hold one usage watch per host; the client sends no poll', async () => {
+  // WHY: each visible meter asked its host for usage every minute, only to
+  // keep the host's own poll awake, while `usage.limitsChanged` already
+  // pushed every change. One watch per host keeps the host reading until the
+  // last meter goes, and a reconnect that lost the watch asks for it again.
+  const calls: string[] = []
+  const facts = new HostFacts('host-a', {
     api: asHostApi({
-      usageLimits: async () => {
-        reads.push(serverId)
-        if (failNext) {
-          failNext = false
-          throw new Error('offline')
-        }
-        return []
-      },
+      usageWatch: async () => { calls.push('watch'); return [] },
+      usageUnwatch: async () => { calls.push('unwatch') },
+      usageLimits: async () => { calls.push('read'); return [] },
     }),
     events: new HostEventSubscriber(),
-  }, () => clock)
-  const hostA = hostFacts('host-a')
-  const hostB = hostFacts('host-b')
-  const read = (facts: HostFacts) => facts.refresh('usage', { maxAgeMs: USAGE_REFRESH_INTERVAL_MS })
+  })
+  const first = facts.watchUsage()
+  const second = facts.watchUsage()
+  await facts.when('usage')
+  expect(calls).toEqual(['watch'])
 
-  await read(hostA)
-  clock = 30_000
-  await read(hostA)
-  // Another host's panel is not held back by host-a's read.
-  await read(hostB)
-  clock = 60_000
-  await read(hostA)
-  expect(reads).toEqual(['host-a', 'host-b', 'host-a'])
+  facts.sessionChanged('recovered')
+  await facts.when('usage')
+  expect(calls).toEqual(['watch', 'watch'])
 
-  failNext = true
-  clock = 120_000
-  await read(hostA)
-  expect(hostA.get('usage').state).toBe('error')
-  clock = 120_001
-  await read(hostA)
-  expect(reads).toEqual(['host-a', 'host-b', 'host-a', 'host-a', 'host-a'])
+  first()
+  expect(calls).toEqual(['watch', 'watch'])
+  second()
+  second()
+  expect(calls).toEqual(['watch', 'watch', 'unwatch'])
+})
+
+test('a host without the usage watch is read as before', async () => {
+  const calls: string[] = []
+  const facts = new HostFacts('old-host', {
+    api: asHostApi({
+      usageWatch: async () => { throw new Error('SolusServer: no handler for "usageWatch"') },
+      usageUnwatch: async () => {},
+      usageLimits: async () => { calls.push('read'); return [] },
+    }),
+    events: new HostEventSubscriber(),
+  })
+  const release = facts.watchUsage()
+  await facts.when('usage')
+  expect(facts.get('usage').state).toBe('ready')
+  expect(calls).toEqual(['read'])
+  release()
+  facts.dispose()
 })
 
 test('a tab reads the quota of its own host, never another host\'s', () => {

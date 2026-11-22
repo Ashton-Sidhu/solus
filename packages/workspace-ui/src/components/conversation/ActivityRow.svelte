@@ -18,6 +18,7 @@
     target?: Snippet;
     /** The target is a sentence rather than a path or a command, so it takes the
      *  sans face the label uses instead of the mono one. */
+    multilineTarget?: boolean;
     proseTarget?: boolean;
     /** The target is the agent's own words — its latest thought — so it takes
      *  the foreground colour instead of the muted caption tone. */
@@ -50,6 +51,7 @@
     glyph,
     label,
     target,
+    multilineTarget = false,
     proseTarget = false,
     foregroundTarget = false,
     actions,
@@ -84,7 +86,7 @@
       <span class="activity-glyph {glyphClass}">{@render glyph()}</span>
       <span class="activity-label min-w-0">{@render label()}</span>
       {#if target}
-        <span class="activity-target truncate" class:is-prose={proseTarget} class:is-foreground={foregroundTarget} class:font-mono={!proseTarget}
+        <span class="activity-target {multilineTarget ? 'line-clamp-4 whitespace-normal' : 'truncate'}" class:is-prose={proseTarget} class:is-foreground={foregroundTarget} class:font-mono={!proseTarget}
           >{@render target()}</span
         >
       {:else}

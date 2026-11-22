@@ -55,10 +55,6 @@ interface CheckoutFacts {
   branchBase: string | null
 }
 
-/** Shared by the callers of one batch. Keyed by checkout path; holds the
- *  in-flight promise so concurrent probes of one checkout coalesce. */
-export type CheckoutFactsCache = Map<string, Promise<CheckoutFacts | null>>
-
 async function resolveCheckoutFacts(cwd: string): Promise<CheckoutFacts | null> {
   const checkoutRoot = await resolveRepoRoot(cwd)
   if (!checkoutRoot) return null
@@ -104,15 +100,9 @@ async function resolveBaseSha(checkout: string, facts: CheckoutFacts, sessionId:
 export async function resolveReviewContext(
   cwd: string | null | undefined,
   sessionId: string | null | undefined,
-  factsCache?: CheckoutFactsCache,
 ): Promise<ReviewContext | null> {
   if (!cwd || cwd === '~') return null
-  let pending = factsCache?.get(cwd)
-  if (!pending) {
-    pending = resolveCheckoutFacts(cwd)
-    factsCache?.set(cwd, pending)
-  }
-  const facts = await pending
+  const facts = await resolveCheckoutFacts(cwd)
   if (!facts) return null
   const { repoRoot, branch, targetBranch } = facts
   const baseSha = await resolveBaseSha(cwd, facts, sessionId ?? null)

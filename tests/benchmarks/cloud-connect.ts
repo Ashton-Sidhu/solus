@@ -121,7 +121,6 @@ function dial(routes: HostRoute[]): Dial {
   transport = new WsTransport({
     serverUrl: routes[0]!.url,
     serverId: INSTALLATION_ID,
-    sessionToken: '',
     grants: { acquire: accountGrants(), isSignedOut: () => false },
     verifyConnectedHost: () => answersAsHost(transport.serverUrl, AbortSignal.timeout(3_000)),
   })

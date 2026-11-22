@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Play as PlayIcon } from "@lucide/svelte";
+  import { INLINE_REVIEW_FENCE, parseInlineReviewGuide } from "@solus/contracts/inline-review-guide";
+  import { getTurnDiffReader } from "./lib/inline-review-context";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import HtmlBlock from "./HtmlBlock.svelte";
   import ConversationArtifact from "./ConversationArtifact.svelte";
@@ -32,6 +34,8 @@
 
   let { text, lang, raw }: Props = $props();
 
+  const read = getTurnDiffReader();
+  const guide = $derived(lang === INLINE_REVIEW_FENCE && fenceIsSettled(raw) ? parseInlineReviewGuide(text) : null);
   const language = $derived(fenceLanguage(lang));
   const artifactRevisions = getArtifactRevisions();
   const artifactMessage = getArtifactMessage();
@@ -54,7 +58,11 @@
   let rendered = $state(false);
 </script>
 
-{#if mode === "block"}
+{#if guide}
+  {#await import("./InlineReviewGuide.svelte") then module}
+    <module.default draft={guide} {read} />
+  {/await}
+{:else if mode === "block"}
   {#if revisions && revision}
     <ConversationArtifact {revisions} {revision} />
   {:else}

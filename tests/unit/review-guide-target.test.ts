@@ -1,38 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import type { ReviewContext } from '@solus/contracts/review'
-import { fingerprintReviewPatch, guideKeyForTarget } from '@solus/server/review/review-target'
-
-const review: ReviewContext = {
-  key: 'main-deadbeef',
-  branch: 'main',
-  targetBranch: 'main',
-  baseSha: 'deadbeef',
-  headSha: 'cafebabe',
-  repoRoot: '/repo',
-}
+import { reviewGuideKeyForTarget } from '@solus/contracts/review'
+import { fingerprintReviewPatch } from '@solus/server/review/review-target'
 
 describe('review guide stable targets', () => {
-  test('main guide identity does not include its point-in-time base SHA', () => {
-    expect(guideKeyForTarget(review, { kind: 'branch' }, 'session-a')).toBe('main')
-    expect(guideKeyForTarget({ ...review, key: 'main-newbase', baseSha: 'newbase' }, { kind: 'branch' }, 'session-b')).toBe('main')
-  })
-
-  test('feature branches use one slash-safe file per branch', () => {
-    expect(guideKeyForTarget({ ...review, branch: 'feature/reviews' }, { kind: 'branch' }, null)).toBe('feature__reviews')
-  })
-
-  test('session guides overwrite one file belonging only to that session', () => {
-    expect(guideKeyForTarget(review, { kind: 'session' }, 'session-a')).toBe('session-session-a')
-    expect(guideKeyForTarget({ ...review, branch: 'feature/reviews' }, { kind: 'session' }, 'session-a')).toBe('session-session-a')
-  })
-
-  test('all typed targets have stable portable keys', () => {
-    expect(guideKeyForTarget(review, { kind: 'working-tree' }, 'session-a')).toBe('working-tree-main')
-    expect(guideKeyForTarget(review, { kind: 'session' }, 'session-a')).toBe('session-session-a')
-    expect(guideKeyForTarget({ ...review, branch: 'feature/reviews' }, { kind: 'branch' }, null)).toBe('feature__reviews')
-    expect(guideKeyForTarget(review, {
+  test('branch, working tree, and pull request guides have distinct storage keys', () => {
+    expect(reviewGuideKeyForTarget({ kind: 'branch' }, 'main')).toBe('main')
+    expect(reviewGuideKeyForTarget({ kind: 'working-tree' }, 'main')).toBe('working-tree-main')
+    expect(reviewGuideKeyForTarget({ kind: 'branch' }, 'feature/reviews')).toBe('feature__reviews')
+    expect(reviewGuideKeyForTarget({
       kind: 'pr', host: 'github.com', owner: 'acme', repo: 'app', number: 42,
-    }, null)).toBe('pr-github.com-acme-app-42')
+    }, '')).toBe('pr-github.com-acme-app-42')
   })
 
   test('content fingerprints change without a HEAD change', () => {

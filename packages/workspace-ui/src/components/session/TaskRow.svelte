@@ -1,11 +1,11 @@
 <script lang="ts">
   import {
     Network as StartedSessionsIcon,
-    ClipboardCheck as ClipboardCheckIcon,
     Undo2 as ArrowUUpLeftIcon,
     AlarmClock as AlarmIcon,
     Check as CheckIcon,
     Laptop as LaptopIcon,
+    Settings as AutomationIcon,
     Moon as MoonIcon,
     Pin as PinIcon,
     Sun as SunIcon,
@@ -31,7 +31,6 @@
   import * as TooltipUI from "../ui/tooltip";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
-    aggregateReviewGuideStatus,
     resolveSidebarRowMark,
     taskRowBranchName,
     shouldEmphasizeTitle,
@@ -196,15 +195,6 @@
   const nestedToggleLabel = $derived(
     `${isNestedOpen ? "Hide" : "Show"} ${nestedSessions.length} ${nestedSessions.length === 1 ? "session" : "sessions"} it started`,
   );
-  const reviewGuideStatus = $derived(aggregateReviewGuideStatus(sessions));
-  const reviewGuideTooltipStatus = $derived(
-    aggregateReviewGuideStatus(
-      sessions.map((session) => ({
-        reviewGuideStatus: session.reviewGuideTooltipStatus ?? null,
-      })),
-    ),
-  );
-
   // Which branch or worktree the work sits on. The row itself stays as it is;
   // the tooltip is where the answer belongs.
   const branchName = $derived(taskRowBranchName(task.branchName, sessions));
@@ -264,7 +254,6 @@
       status: task.status,
       unread: task.unread,
       woke: task.woke,
-      reviewGuide: reviewGuideStatus,
       lifecycle: task.lifecycle,
       runStartedAt: task.runStartedAt,
       manyRunning: runningSessionCount > 1,
@@ -322,31 +311,6 @@
     </span>
   {:else if mark?.kind === "unread"}
     <UnreadDot />
-  {:else if mark?.kind === "guide"}
-    <!-- Generating and ready are one object at two stages, so the mark keeps
-         its silhouette and only gains ink: an outline guide that breathes while
-         it is written, filled once it can be read. Writing one is work in
-         flight, so it shares the pane's one cool tone with the run spinner. -->
-    <span
-      class="flex shrink-0 items-center {mark.state === 'ready'
-        ? 'text-(--solus-status-complete)'
-        : 'text-chart-5'}"
-      role="img"
-      onanimationstart={alignStatusAnimationPhase}
-      aria-label={mark.state === "ready"
-        ? "Review guide ready"
-        : "Generating review guide"}
-      title={mark.state === "ready"
-        ? "Review guide ready"
-        : "Generating review guide"}
-    >
-      <ClipboardCheckIcon
-        size={15}
-        class={mark.state === "ready"
-          ? ""
-          : "animate-pulse [animation-duration:1.4s] motion-reduce:animate-none"}
-      />
-    </span>
   {:else if mark?.kind === "spinner"}
     <!-- Work in flight and work finished are the same axis, so they share a
          colour: the pane's one cool tone, which terracotta is never spent on.
@@ -571,8 +535,8 @@
 {/snippet}
 
 <!-- The one thing the eye scans. The title truncates; nothing else does, and
-     nothing else shares its line except the PR token that navigates away from
-     it. Colour is inherited from the row, so a receding row's title recedes
+     the automation mark and PR token stay visible beside it.
+     Colour is inherited from the row, so a receding row's title recedes
      with it rather than being tuned against it. -->
 {#snippet rowTitle()}
   {#if renamingRow}
@@ -583,10 +547,13 @@
       onCancel={onRenameCancel}
     />
   {:else}
+    {#if task.automationId}
+      <AutomationIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    {/if}
     <span
       class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap transition-[font-weight] duration-150 {titleIsEmphasized
         ? 'font-medium'
-        : ''}">{task.title}</span
+        : ''}">{task.automationName ?? task.title}</span
     >
   {/if}
 {/snippet}
@@ -639,9 +606,7 @@
     data-task-key={task.key}
     aria-selected={isCurrentSession}
     aria-expanded={hasStartedSessions ? isNestedOpen : undefined}
-    aria-label={mark?.kind === "glyph"
-      ? `${task.title} — ${attentionLabel(task.attention, task.limitResetsAt)}`
-      : task.title}
+    aria-label={`${task.automationName ?? task.title}${task.automationId ? ", automation" : ""}${mark?.kind === "glyph" ? ` — ${attentionLabel(task.attention, task.limitResetsAt)}` : ""}`}
     title={task.snoozeNote && task.snoozedUntil > 0 && task.snoozedUntil <= Date.now()
       ? `Snooze reminder: ${task.snoozeNote}`
       : task.lifecycle === "snoozed" && task.snoozeNote
@@ -840,7 +805,6 @@
       modelId={tooltipSession?.modelId}
       attention={task.attention}
       limitResetsAt={task.limitResetsAt}
-      reviewGuideStatus={reviewGuideTooltipStatus}
     />
   </TooltipUI.Root>
 

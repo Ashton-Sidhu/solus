@@ -1,12 +1,12 @@
 import { LOCAL_SERVER_ID, type KnownHost, type KnownHostUplink } from './known-host'
-import { activeOrganizationId, hostCatalog } from './host-catalog'
+import { activeOrganizationId, hostCatalog, type HostCatalog } from './host-catalog'
 import { WsTransport, type GrantRefusal, type GrantSource, type GuestCredential } from './ws-transport'
 import { isLastingRefusal, type ResourceRefusal } from './oauth-session'
 import { withBrowserCapabilities } from './ws-browser-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
 import { organizationIdOfSolusApiId } from '@solus/contracts/uplink'
-import { dialableRoutes, dialChoicesOf, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, type HostRoute } from '@solus/contracts/host-routes'
+import { dialableRoutes, dialChoicesOf, routeForUrl, routesForMachine, ROUTE_CHECK_TIMEOUT_MS, type HostRoute } from '@solus/contracts/host-routes'
 import { routeNeedsProof } from '@solus/contracts/host-identity'
 import { answersAsSavedHost, type SavedHostIdentity } from './host-link'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
@@ -19,12 +19,16 @@ export interface LocalConnectionInfoLike {
   installationId: string
 }
 
+/**
+ * A host as its connection reads it. A catalog host's facts are read from the catalog
+ * when asked (`catalogHostTarget`); only `url`, the route the link dials now, is the
+ * connection's own. The session token is never here: each dial reads it from the catalog.
+ */
 export interface SolusServerTarget {
   id: string
   label: string
   /** The route currently dialed. */
   url: string
-  sessionToken: string
   installationId?: string
   local: boolean
   /** Every route known for the host; `url` is the one chosen from them. */
@@ -61,35 +65,48 @@ export interface InstalledSolusConnection {
 export interface CreateSolusConnectionOptions {
   verifyConnectedHost?: () => Promise<boolean>
   refreshLocalSessionToken?: () => Promise<string>
+  /** Where this device keeps its host credentials; the app's catalog when absent. */
+  catalog?: HostCatalog
 }
 
-export function localServerTarget(local: LocalConnectionInfoLike): SolusServerTarget {
+/** The desktop's own machine, as the catalog keeps it for this page (`HostCatalog.addPageHost`). */
+export function localHost(local: LocalConnectionInfoLike): KnownHost {
   return {
     id: LOCAL_SERVER_ID,
     label: 'This computer',
-    url: `http://127.0.0.1:${local.port}`,
     sessionToken: local.token,
     installationId: local.installationId,
+    lastConnected: 0,
+    routes: [routeForUrl(`http://127.0.0.1:${local.port}`)],
     local: true,
   }
 }
 
-export function knownHostTarget(server: KnownHost): SolusServerTarget {
-  const clientOrigin = globalThis.location?.origin ?? ''
-  const target: SolusServerTarget = {
-    id: server.id,
-    label: server.label,
-    url: preferredRouteUrl(server, clientOrigin),
-    sessionToken: server.sessionToken,
-    installationId: server.installationId,
-    local: false,
-    routes: routesForMachine(server.routes, server.uplink?.kind),
+/**
+ * A catalog host as its connection reads it: each fact is read from the catalog when
+ * asked, so a connection never keeps a copy that goes stale. A host the catalog no
+ * longer names answers with what it last was, until its connection closes. The
+ * desktop's own machine is dialed at its one loopback address, with no route choice.
+ */
+export function catalogHostTarget(catalog: Pick<HostCatalog, 'find'>, host: KnownHost): SolusServerTarget {
+  const current = () => catalog.find(host.id) ?? host
+  return {
+    id: host.id,
+    url: host.local ? host.routes[0]?.url ?? '' : preferredRouteUrl(host, globalThis.location?.origin ?? ''),
+    get label() { return current().label },
+    get installationId() { return current().installationId },
+    get local() { return !!current().local },
+    get routes() {
+      const known = current()
+      return known.local ? [] : routesForMachine(known.routes, known.uplink?.kind)
+    },
+    get routeOrder() { return current().routeOrder },
+    get tokenPairedOverHttps() { return current().tokenPairedOverHttps },
+    get fallbackRoutes() { return current().fallbackRoutes },
+    get uplink() { return current().uplink },
+    get identityKey() { return current().identityKey },
+    get guest() { return current().guest },
   }
-  if (server.uplink) target.uplink = server.uplink
-  if (server.identityKey) target.identityKey = server.identityKey
-  if (server.routeOrder) target.routeOrder = server.routeOrder
-  if (server.tokenPairedOverHttps) target.tokenPairedOverHttps = true
-  return target
 }
 
 /** What a directory id names: an organization's Solus API (`workspace:<organizationId>`), or a host. */
@@ -119,11 +136,12 @@ export function createSolusConnection(
   target: SolusServerTarget,
   options: CreateSolusConnectionOptions = {},
 ): InstalledSolusConnection {
-  // A host known through the directory and never paired has no long-lived
-  // credential: each dial presents an access token from the account's sign-in,
-  // which keeps it until a minute before its end (`OAuthSession`).
+  // A host known through the directory that this device has not paired has no
+  // long-lived credential: each dial presents an access token from the account's
+  // sign-in, which keeps it until a minute before its end (`OAuthSession`). Once
+  // the device pairs it, the dial presents the session token instead.
   const guest = target.guest
-  const uplinkHostId = !guest && !target.sessionToken && target.uplink ? target.uplink.hostId : null
+  const uplinkHostId = !guest && target.uplink ? target.uplink.hostId : null
   const account = uplinkHostId ? uplinkAccountSource() : null
   const resource = uplinkHostId ? connectionTokenResource(uplinkHostId) : null
   // An access token lists the organizations the person reaches this host through; a
@@ -132,12 +150,13 @@ export function createSolusConnection(
   const dialOrganizationId = () => organizationIdOfSolusApiId(target.id) ?? organizationIdFor(null, target.uplink, activeOrganizationId())
   // A registered host dialed without the account token (paired, or a trusted network)
   // is still shown the signed-in person's token, so it keeps their delegation (ADR 0001 §6 item 5).
-  const presentedHostId = !guest && !uplinkHostId && target.uplink && !organizationIdOfSolusApiId(target.uplink.hostId) ? target.uplink.hostId : null
+  const presentedHostId = !guest && target.uplink && !organizationIdOfSolusApiId(target.uplink.hostId) ? target.uplink.hostId : null
   const presentingAccount = presentedHostId ? uplinkAccountSource() : null
+  const catalog = options.catalog ?? hostCatalog
   const transport = new WsTransport({
     serverUrl: target.url,
     serverId: target.id,
-    sessionToken: target.sessionToken,
+    sessionToken: () => catalog.sessionTokenOf(target.id),
     grants: grantSource(account, resource),
     dialOrganizationId: account && resource ? dialOrganizationId : undefined,
     accountToken: presentingAccount && presentedHostId ? () => presentingAccount.accessToken({ kind: 'host', hostId: presentedHostId }) : undefined,
@@ -154,9 +173,7 @@ export function createSolusConnection(
           return sessionToken ? { result: 'refreshed', sessionToken } : { result: 'unavailable' }
         }
       : undefined,
-    onSessionTokenRefreshed: (sessionToken) => {
-      if (!target.local) void hostCatalog.renewToken(target.id, sessionToken)
-    },
+    onSessionTokenRefreshed: (sessionToken, previous) => catalog.renewToken(target.id, previous, sessionToken),
     organizationId: activeOrganizationId,
   })
   const api = asHostApi(withBrowserCapabilities(transport.buildSolusApi(), transport, {

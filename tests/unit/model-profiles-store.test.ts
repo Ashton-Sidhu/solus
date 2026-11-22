@@ -27,7 +27,7 @@ async function fixture(refresh: () => Promise<ModelProfilesStatus>) {
   return new ModelProfilesStore({
     readinessFor: () => ({ readiness: 'ready', away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }), capabilitiesFor: async () => ({ modelProfiles: true }),
     apiFor: () => ({ modelProfilesStatus: refresh, modelProfilesRefresh: refresh, modelProfilesCheck: refresh }),
-    connectedServerIds: () => [], onConnectionCreated: () => () => {}, onReadinessChange: () => () => {},
+    serverIds: () => [], onConnectionCreated: () => () => {}, onReadinessChange: () => () => {},
   })
 }
 

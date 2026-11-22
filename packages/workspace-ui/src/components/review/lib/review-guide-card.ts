@@ -35,7 +35,7 @@ export function reviewGuideCardPresentation(
         subtitle: status.step === 'writing'
           ? 'Writing the guided walkthrough'
           : status.step === 'analyzing'
-            ? 'Analyzing session changes'
+            ? 'Analyzing changes'
             : 'Preparing the review',
         canRetry: false,
       }

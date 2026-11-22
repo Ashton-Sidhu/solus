@@ -1,15 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { ReviewGuide, ReviewGuideRequestOptions, ReviewGuideStatus, ReviewGuideStatusEvent, ReviewProgressStep } from '@solus/contracts/review'
-import type { IpcContext, SessionCtx } from '@solus/contracts/types'
+import type { IpcContext } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { SeatResolver } from '../execution/seats/seat-manager'
-import { runBounded } from '../lib/concurrency'
-import { createLogger } from '../logger'
 import { requireActingScope, withActingScope } from '../vault/acting-scope'
 import type { GeneratedGuide } from './guide-producer'
-import type { CheckoutFactsCache } from './review-context'
 
-const log = createLogger('review', 'guide-jobs.ts')
 
 /** The facts that name one revision of a change: the exact patch, or the head and base. */
 export type GuideRevision = Pick<ReviewGuideStatusEvent, 'headSha' | 'baseSha' | 'changeFingerprint'>
@@ -44,11 +40,11 @@ export interface GuideSource {
   serial: boolean
   /** Names the guide a request is about; null when there is nothing to review.
    * `withRevision` also reads the revision a run would read now. A status probe
-   * skips that cost. `checkouts` lets a batch read one checkout once. */
+   * skips that cost. */
   identify(
     ctx: Pick<IpcContext, 'session'>,
     opts: ReviewGuideRequestOptions,
-    options: { withRevision: boolean; checkouts?: CheckoutFactsCache },
+    options: { withRevision: boolean },
   ): Promise<GuideSubject | null>
   read(identity: GuideIdentity): Promise<ReviewGuide | null>
   /** The live revision. A pull request asks its code host. */
@@ -114,11 +110,6 @@ function settledStatus(
 function errorMessage(error: Parameters<typeof String>[0]): string {
   return error instanceof Error ? error.message : String(error)
 }
-
-/** Each probe costs a few git spawns and a diff. A restored workspace sends
- * one probe per tab, so a batch is paced to leave the CPU to the transcript
- * that is loading at the same time. */
-const PROBE_CONCURRENCY = 4
 
 /**
  * The one owner of running review guides (docs/review-guides.md).
@@ -197,10 +188,9 @@ export class ReviewGuideJobs {
   async status(
     ctx: Pick<IpcContext, 'session'>,
     opts: ReviewGuideRequestOptions,
-    checkouts?: CheckoutFactsCache,
   ): Promise<ReviewGuideStatusEvent | null> {
     const source = this.sourceFor(opts)
-    const subject = await source.identify(ctx, opts, { withRevision: false, checkouts })
+    const subject = await source.identify(ctx, opts, { withRevision: false })
     if (!subject) return null
     const job = this.jobs.get(subject.jobKey)
     if (job && isActive(job)) return job.event
@@ -223,27 +213,6 @@ export class ReviewGuideJobs {
         error: `Could not check the current revision: ${errorMessage(error)}`,
       }
     }
-  }
-
-  /** Status for many guides, in request order. One failure answers null for
-   * that guide and does not fail the batch. */
-  statuses(requests: { ctx: Pick<IpcContext, 'session'>; opts: ReviewGuideRequestOptions }[]): Promise<(ReviewGuideStatusEvent | null)[]> {
-    // Restored tabs mostly share one checkout. Its branch, target, and head are
-    // read once for the batch instead of once per guide.
-    const checkouts: CheckoutFactsCache = new Map()
-    return runBounded(requests.map(({ ctx, opts }) => async () => {
-      try {
-        return await this.status(ctx, opts, checkouts)
-      } catch (error) {
-        log.warn('guide_status_failed', { sessionId: ctx.session.sessionId, error: errorMessage(error) })
-        return null
-      }
-    }), PROBE_CONCURRENCY)
-  }
-
-  /** Status of the saved guides of many sessions, as a restored workspace asks. */
-  sessionStatuses(sessions: SessionCtx[]): Promise<(ReviewGuideStatusEvent | null)[]> {
-    return this.statuses(sessions.map((session) => ({ ctx: { session }, opts: { scope: 'session' } })))
   }
 
   /**

@@ -44,7 +44,8 @@
   const flow = $derived(hostState?.connectFlows.get(integrationId) ?? null);
   const isOffline = $derived(!!hostState?.isDisconnected);
   const integration = $derived(hostState?.integrations?.find((item) => item.id === integrationId) ?? null);
-  const valuesText = $derived(integration?.auth.kind === "env" ? commandValuesText(integration.auth.names, connection) : null);
+  const valueNames = $derived(integration ? new IntegrationLabels(integration).valueNames : []);
+  const valuesText = $derived(valueNames.length > 0 ? commandValuesText(valueNames, connection) : null);
   const status = $derived(valuesText
     ? { text: valuesText.text, detail: valuesText.detail, action: valuesText.hasValues ? "Disconnect" as const : "Connect" as const }
     : connectionStatusText(connection));

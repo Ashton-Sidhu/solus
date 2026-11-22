@@ -102,6 +102,13 @@ describe('the rule for the visible outputs of a tool call', () => {
     expect(toolStrip([call('t2', { toolName: 'device_screenshot', toolImages: [image('a')] })]).thumbnails).toHaveLength(1)
   })
 
+  test('an artifact preview screenshot stays out of the strip', () => {
+    // WHY: render_artifact with preview returns a screenshot for the agent to check the page.
+    // The person sees the page in the artifact card, so the screenshot would show it twice.
+    expect(toolStrip([call('t1', { toolName: 'mcp__solus__render_artifact', toolImages: [image('a')] })]).thumbnails).toEqual([])
+    expect(toolStrip([call('t2', { toolName: 'render_artifact', toolImages: [image('b')] })]).thumbnails).toEqual([])
+  })
+
   test('many images: the strip shows the limit in call order, and the +N tile opens the rest', () => {
     const tools = [0, 1, 2].map((index) => call(`t${index}`, {
       toolImages: Array.from({ length: 4 }, (_, n) => image(String.fromCharCode(97 + index * 4 + n))),

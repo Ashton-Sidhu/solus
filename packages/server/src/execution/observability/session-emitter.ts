@@ -578,6 +578,7 @@ export class SessionEmitter {
         return
       }
       if (event.type === 'thinking') {
+        if (event.state === 'update') return
         if (!event.parentToolUseId && event.state === 'start') state.rootAttrs.hasThinking = true
         if (event.state === 'start') {
           this.startThinking(state, event.parentToolUseId, arrivedAt)

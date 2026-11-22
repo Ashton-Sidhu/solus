@@ -12,9 +12,9 @@ import { loopbackServerPort } from './local-servers'
 /** The refusal of the host (`command-admission.ts`), shown in place of a form a person without `host.admin` cannot use (§7.2). */
 export const COMMAND_ADMIN_ONLY = 'Only an administrator of this host can add or change a command.'
 
-/** Where the person adds a command: it runs on the host and stays there (§7.8). */
+/** Beside the add form's button: the command runs on the host and stays there (§7.8). */
 export function commandHostNote(hostName: string): string {
-  return `This command runs on ${hostName} as the user that runs Solus there. It can read and change files there. It stays on ${hostName}: it is not in your agent profile and does not sync to other hosts.`
+  return `Runs on ${hostName} as the user that runs Solus, and can change files there. It stays on ${hostName} and is not in your agent profile.`
 }
 
 /** A word `splitCommandLine` reads back as itself: bare when safe, else in single quotes. */

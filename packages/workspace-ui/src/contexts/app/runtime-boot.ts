@@ -42,7 +42,8 @@ export function refreshRuntime(
 
   void bootstrapRuntimeTabs(session)
     .then(() => {
-      void sidebarStore.loadPinnedSessions()
+      // A host whose connection came up during the restore read its pins already.
+      void sidebarStore.loadPinnedSessions({ unreadOnly: true })
       void sessionListStore.load()
     })
     .catch((error) => logConnectionReadError('session runtime initialization', error))
@@ -114,7 +115,7 @@ export function initializeRuntime(
       reconcileGoneMachines(session)
       return
     }
-    void sidebarStore.loadPinnedSessions()
+    void sidebarStore.loadPinnedSessions({ serverIds: [connection.serverId], unreadOnly: true })
     void sessionListStore.loadConnected(connection.serverId)
   })
 

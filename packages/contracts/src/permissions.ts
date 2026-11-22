@@ -195,6 +195,8 @@ const PERMISSION_OF_METHOD = {
   prApproveWorkflowRuns: 'host.git.write',
   openWorktreeTerminal: 'host.terminal',
   usageLimits: 'host.usage.read',
+  usageWatch: 'host.usage.read',
+  usageUnwatch: 'host.usage.read',
   hostResources: HOST_USE,
   runningServersList: HOST_USE,
   runningServersWatch: HOST_USE,
@@ -267,7 +269,7 @@ const PERMISSION_OF_METHOD = {
   prListLabelCandidates: HOST_USE, prFilterOptions: HOST_USE, prInterdiff: HOST_USE, prGenerateGuides: HOST_USE, prMediaUrl: HOST_USE,
   prPendingWorkflowRuns: HOST_USE, prViewedFiles: HOST_USE, prSetFilesViewed: HOST_USE,
   prPrepareConflictResolution: HOST_USE, prRefresh: HOST_USE, getReviewContext: HOST_USE, generateGuide: HOST_USE,
-  requestReviewGuide: HOST_USE, reviewGuideStatus: HOST_USE, sessionGuideStatuses: HOST_USE,
+  requestReviewGuide: HOST_USE, reviewGuideStatus: HOST_USE,
   prGuideStatuses: HOST_USE, cancelGenerateGuide: HOST_USE, readGuide: HOST_USE, readReviewState: HOST_USE,
   writeReviewState: HOST_USE, readReviewLens: HOST_USE, prLensRevisions: HOST_USE, requestReviewLens: HOST_USE,
   editReviewLens: HOST_USE, cancelReviewLens: HOST_USE, restoreReviewLens: HOST_USE,
@@ -437,6 +439,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   sessionPullRequestWatch: 'edit',
   // What a session produced is read with the session.
   sessionArtifactsList: 'read',
+  sessionTree: 'read',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
   pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
   // An app's linked session: the app is its host owner's, and the edge is the session's.

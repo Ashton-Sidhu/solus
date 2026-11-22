@@ -35,7 +35,7 @@ function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<strin
   const events = spyOn(serverConnections, 'eventsFor').mockImplementation((serverId: string) => fakes.get(serverId)!.events)
   const store = new SessionListStore({
     connectedRunnerFor: (runnerHostId) => runners[runnerHostId] ?? null,
-    connectedServerIds: () => [...fakes.keys()],
+    serverIds: () => [...fakes.keys()],
     isManagedHost: (serverId) => !isSolusApiId(serverId) && !personal.includes(serverId),
   })
   const announce = (serverId: string, type: 'session.stateChanged' | 'session.viewChanged', sessionId: string, value: SessionState | SessionView) =>

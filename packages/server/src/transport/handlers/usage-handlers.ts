@@ -12,8 +12,9 @@ const log = createLogger('main', 'usage-handlers')
 /** How often to re-read quota while a renderer is watching. */
 const REFRESH_MS = 5 * 60_000
 /** A Claude read costs a subprocess, so polling is only worth it while someone
- *  is actually looking. After this long without a request for a seat its reads
- *  stop; the next `usageLimits` call starts them again. */
+ *  is actually looking: a client that holds a watch (`usageWatch`), or one
+ *  that asked within this long. Otherwise a seat's reads stop; the next ask or
+ *  watch starts them again. */
 const IDLE_TIMEOUT_MS = 15 * 60_000
 
 export interface UsageHandlerDeps {
@@ -23,6 +24,11 @@ export interface UsageHandlerDeps {
   seats?: SeatStore
   /** The clients a seat's numbers go to; without it every snapshot is broadcast. */
   clientsForSeat?: (seat: Seat) => string[]
+}
+
+/** The usage watches of connected clients: a disconnect ends a client's watch. */
+export interface UsageWatches {
+  clientDisconnected(clientId: string): void
 }
 
 interface SeatRead {
@@ -39,10 +45,12 @@ interface SeatRead {
  * A member's seat is read on its own login and published to that member's clients
  * only, so one person's limit never shows on, or blocks, another's meter.
  */
-export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDeps): void {
+export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDeps): UsageWatches {
   const store = deps.sessionRuntime.usageLimits
   /** By `seatKey`. */
   const reads = new Map<string, SeatRead>()
+  /** clientId → the `seatKey` its watch keeps read. A watch ends on unwatch or disconnect. */
+  const watchers = new Map<string, string>()
   let timer: ReturnType<typeof setTimeout> | null = null
 
   const publish = (seat: Seat, snapshots: AgentUsageLimits[]): void => {
@@ -121,7 +129,10 @@ export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDep
   const tick = async (): Promise<void> => {
     timer = null
     const now = Date.now()
-    const watched = [...reads.values()].filter((read) => now - read.lastRequestAt <= IDLE_TIMEOUT_MS)
+    const watchedSeats = new Set(watchers.values())
+    const watched = [...reads.entries()]
+      .filter(([key, read]) => watchedSeats.has(key) || now - read.lastRequestAt <= IDLE_TIMEOUT_MS)
+      .map(([, read]) => read)
     if (watched.length === 0) {
       log.info('usage_poll_suspended')
       return
@@ -130,8 +141,7 @@ export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDep
     schedule()
   }
 
-  server.register('usageLimits', async (_args, ctx) => {
-    const seat = seatFor(ctx.actor)
+  const answer = async (seat: Seat): Promise<AgentUsageLimits[]> => {
     const cached = reads.get(seatKey(seat))
     if (cached) cached.lastRequestAt = Date.now()
     const current = seat.kind === 'host-login' ? store.snapshot() : cached?.snapshots ?? []
@@ -146,5 +156,17 @@ export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDep
     }
     schedule()
     return current
+  }
+
+  server.register('usageLimits', async (_args, ctx) => answer(seatFor(ctx.actor)))
+  server.register('usageWatch', async (_args, ctx) => {
+    if (!ctx.clientId) throw new Error('A usage watch requires a connected client')
+    const seat = seatFor(ctx.actor)
+    watchers.set(ctx.clientId, seatKey(seat))
+    return answer(seat)
   })
+  server.register('usageUnwatch', async (_args, ctx) => {
+    if (ctx.clientId) watchers.delete(ctx.clientId)
+  })
+  return { clientDisconnected: (clientId) => { watchers.delete(clientId) } }
 }

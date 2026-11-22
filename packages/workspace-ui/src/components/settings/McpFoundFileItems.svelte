@@ -6,9 +6,11 @@
    * "On this host" and the Installed row, so both say the same thing. A delete
    * goes to the parent, which asks first.
    */
+  import { FileCode, Power, PowerOff, Trash2 } from "@lucide/svelte";
   import type { FoundPlace, FoundServer } from "@solus/contracts/integration-types";
   import { foundFileActions, type FoundFileAction } from "@solus/contracts/integrations/found-server-labels";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { MiddleTruncate } from "../ui/middle-truncate";
 
   interface Props {
     server: FoundServer;
@@ -29,12 +31,18 @@
 
 {#if turns.length || files.length}<DropdownMenu.Separator />{/if}
 {#each turns as action (`${action.place.path}:${action.change}`)}
-  <DropdownMenu.Item onSelect={() => onAction(action)}>{action.label}</DropdownMenu.Item>
+  <DropdownMenu.Item onSelect={() => onAction(action)}>
+    {#if action.change === "turn-on"}<Power size={14} />{:else}<PowerOff size={14} />{/if}{action.label}
+  </DropdownMenu.Item>
 {/each}
 {#each files as place (place.path)}
-  <DropdownMenu.Item onSelect={() => onOpen(place)}><span class="truncate">Open <span class="font-mono">{place.path}</span></span></DropdownMenu.Item>
+  <!-- The path trails the verb, muted, so a list of files scans by what the item does. -->
+  <DropdownMenu.Item onSelect={() => onOpen(place)}>
+    <FileCode size={14} /><span class="shrink-0">Open</span>
+    <MiddleTruncate value={place.path} class="ml-auto font-mono text-xs text-muted-foreground" />
+  </DropdownMenu.Item>
 {/each}
 {#if deletes.length}<DropdownMenu.Separator />{/if}
 {#each deletes as action (action.place.path)}
-  <DropdownMenu.Item variant="destructive" onSelect={() => onAction(action)}>{action.label}…</DropdownMenu.Item>
+  <DropdownMenu.Item variant="destructive" onSelect={() => onAction(action)}><Trash2 size={14} />{action.label}…</DropdownMenu.Item>
 {/each}

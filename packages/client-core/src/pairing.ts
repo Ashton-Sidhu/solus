@@ -37,6 +37,8 @@ export interface PairServerInput {
   /** What the host called itself on the probe that preceded pairing, used when
    *  the user named nothing. Absent when the host was never asked. */
   reportedName?: string
+  /** The session token this pairing replaces. The host revokes it once the new one is issued, so a device paired again leaves one device row. */
+  replacesSessionToken?: string
   /** The client's own fetch; the global one when absent. */
   fetchImpl?: typeof fetch
   /** Discovery found the host on the tailnet, so its address is saved as a `tailnet`
@@ -135,6 +137,7 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     body: JSON.stringify({
       pairToken: input.pairToken,
       deviceLabel: input.deviceLabel,
+      replacesSessionToken: input.replacesSessionToken,
     }),
   })
   if (!res.ok) {

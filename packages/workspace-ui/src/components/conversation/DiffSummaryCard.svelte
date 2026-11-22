@@ -6,6 +6,11 @@
     FileText as FileTextIcon,
   } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
+  import { sessionTreeStore } from "../../contexts/sessions/session-tree.store.svelte";
+  import { childRows, childRowsIn, mergedFileChanges, scopedNodes, type AgentScope } from "@solus/client-core/session-tree";
+  import type { ChangedFileStat } from "@solus/contracts/git-types";
+  import AgentFilter from "../session/artifacts/AgentFilter.svelte";
+  import { agentFilterOptions } from "../session/artifacts/lib/agent-filter";
   import {
     diffSummaryStore,
     type DiffSummaryScope,
@@ -40,6 +45,8 @@
     onOpenFile?: (filePath: string) => void;
     /** Removes the card surface when a parent popover already provides it. */
     embedded?: boolean;
+    /** The turn's time: the sessions it started that worked in it are the agent filter's choices. Absent, every session it started is. */
+    agentWindow?: { from: number; until: number | null } | null;
   }
   let {
     tabId,
@@ -48,6 +55,7 @@
     onOpenDiff,
     onOpenFile,
     embedded = false,
+    agentWindow = null,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -58,17 +66,63 @@
 
   $effect(() => diffSummaryStore.refresh(session, sessionId, scope, changedFiles));
 
-  const tree = $derived(
-    buildDiffSummaryTree(
-      changedFiles,
-      diffSummaryStore.statsFor(sessionId, scope),
-    ),
-  );
-
   let cardEl = $state<HTMLElement>();
   // Opening the popover is already the "show me the files" click, so it lands on
   // the top-level tree; only the transcript card arrives on its count line.
   let isExpanded = $state(untrack(() => embedded));
+
+  // The agent filter (docs/plans/session-digests.md): this session's change by
+  // default, as the card has always shown, or with the sessions it started. A
+  // closed card asks the host nothing: the tree is read while the card is open.
+  const serverId = $derived(sessionId ? session.serverIdForSession(sessionId) : "");
+  $effect(() => {
+    if (!isExpanded || !sessionId || !serverId) return;
+    return sessionTreeStore.retain(serverId, sessionId);
+  });
+  const sessionTree = $derived(isExpanded ? sessionTreeStore.treeFor(sessionId) : null);
+  const started = $derived.by(() => {
+    if (!sessionTree) return [];
+    return agentWindow ? childRowsIn(sessionTree, sessionId, Date.now(), agentWindow) : childRows(sessionTree, sessionId, Date.now());
+  });
+  const filterOptions = $derived(agentFilterOptions(sessionId, started));
+  let pickedScope = $state<AgentScope | null>(null);
+  const agentScope = $derived(
+    pickedScope !== null && filterOptions.some((option) => option.scope === pickedScope) ? pickedScope : sessionId,
+  );
+  const ownStats = $derived(diffSummaryStore.statsFor(sessionId, scope));
+  /** The started sessions the filter holds, each with its whole change: a digest has no files for one turn. */
+  const scopedOthers = $derived.by((): { sessionId: string; files: ChangedFileStat[] }[] => {
+    if (!sessionTree || agentScope === sessionId) return [];
+    const ids = new Set(agentScope === "all" ? started.map((row) => row.sessionId) : [agentScope]);
+    return scopedNodes(sessionTree, "all")
+      .filter((node) => ids.has(node.record.sessionId))
+      .map((node) => ({ sessionId: node.record.sessionId, files: node.digest?.changes?.files ?? [] }));
+  });
+  const ownTree = $derived(buildDiffSummaryTree(changedFiles, ownStats));
+  const tree = $derived(
+    agentScope === sessionId
+      ? ownTree
+      : buildDiffSummaryTree(undefined, mergedFileChanges([agentScope === "all" ? ownStats : [], ...scopedOthers.map((other) => other.files)])),
+  );
+
+  /** The started session a path belongs to, when this session did not change it. */
+  function startedOwnerOf(path: string): string | null {
+    if (agentScope === sessionId || (agentScope === "all" && ownStats.some((stat) => stat.path === path))) return null;
+    return scopedOthers.find((other) => other.files.some((file) => file.path === path))?.sessionId ?? null;
+  }
+
+  /** This session's file opens its diff; a started session's file opens that session's Threads surface, where its diff is. */
+  function openPath(path: string) {
+    const owner = startedOwnerOf(path);
+    if (owner) router.navigate({ name: "artifacts", params: { sessionId: owner, serverId } });
+    else onOpenDiff?.(path);
+  }
+
+  /** The whole change: this session's in the diff pane, or the started session's Threads surface. */
+  function openWhole() {
+    if (agentScope !== sessionId && agentScope !== "all") router.navigate({ name: "artifacts", params: { sessionId: agentScope, serverId } });
+    else onOpenDiff?.();
+  }
   let expanded = $state<ReadonlySet<string>>(new Set());
   let unfolded = $state<ReadonlySet<string>>(new Set());
 
@@ -115,7 +169,8 @@
   );
 </script>
 
-{#if tree.total > 0}
+<!-- Shown for this session's own change; the filter can then narrow to one with none. -->
+{#if ownTree.total > 0}
   <div
     bind:this={cardEl}
     class="diff-summary px-[0.8125rem] py-[0.6875rem] {embedded
@@ -151,10 +206,20 @@
       {#if onOpenDiff}
         <!-- Names the destination, not the verb. Reachable without opening the
              card, because "show me the diff" is the commonest thing to want. -->
-        <button type="button" class="diff-open-all" onclick={() => onOpenDiff()}>Open in the diff pane</button>
+        <button type="button" class="diff-open-all" onclick={openWhole}>
+          {agentScope !== sessionId && agentScope !== "all" ? "Open its threads" : "Open in the diff pane"}
+        </button>
       {/if}
     </div>
 
+    {#if isExpanded && filterOptions.length > 0}
+      <div class="mt-[0.4375rem]">
+        <AgentFilter options={filterOptions} selected={agentScope} onSelect={(next) => (pickedScope = next)} />
+      </div>
+    {/if}
+    {#if isExpanded && tree.total === 0}
+      <p class="m-0 mt-[0.4375rem] text-transcript-meta text-(--muted-foreground)">No changed files.</p>
+    {/if}
     {#if isExpanded}
       <div class="diff-body mt-[0.4375rem] flex flex-col gap-px">
         {#each rows as row (row.kind === "more" ? `more:${row.folderPath}` : row.kind === "file" ? row.node.path : `dir:${row.node.path}`)}
@@ -204,7 +269,7 @@
                 style="padding-left:{indentFor(row.depth)}"
                 aria-current={openFilePath === row.node.path ? "true" : undefined}
                 title="{STATUS_LABEL[row.node.status]} · {row.node.path}"
-                onclick={() => onOpenDiff?.(row.node.path)}
+                onclick={() => openPath(row.node.path)}
               >
                 <!-- The status letter takes the disclosure column: a folder opens
                      there, a file has nothing to open and says what happened to
@@ -228,7 +293,7 @@
               </button>
               <!-- A deleted file has no source left to read, so the row keeps
                    only the diff. -->
-              {#if onOpenFile && row.node.status !== "D"}
+              {#if onOpenFile && row.node.status !== "D" && !startedOwnerOf(row.node.path)}
                 <button
                   type="button"
                   class="diff-file-open"

@@ -10,7 +10,7 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
   const client = new URL('node_modules/svelte/src/index-client.js', root).href
   const internal = new URL('node_modules/svelte/src/internal/client/index.js', root).href
   function component(source: string, name: string) {
-    const code = compile(source, { filename: `${name}.svelte`, generate: 'client' }).js.code
+    const code = compile(source, { filename: `${name}.svelte`, generate: 'client', runes: true }).js.code
       .replaceAll(/(['"])svelte\/internal\/client\1/g, JSON.stringify(internal))
       .replaceAll(/(['"])svelte\/reactivity\1/g, JSON.stringify(new URL('node_modules/svelte/src/reactivity/index-client.js', root).href))
       .replaceAll(/import ['"]svelte\/internal\/disclose-version['"];?/g, '')
@@ -62,6 +62,9 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
       } });
       flushSync();
       assert.equal(observing, 40);
+      assert.equal(document.querySelectorAll('li button').length, 4);
+      document.querySelector('button[aria-expanded="false"]').click();
+      flushSync();
       assert.equal(document.querySelectorAll('li button').length, 40);
       document.querySelector('li button').click();
       flushSync();

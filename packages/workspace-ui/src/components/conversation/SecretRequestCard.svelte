@@ -95,7 +95,7 @@
   {#if request.expired}
     <p class="m-0 text-transcript-meta text-(--muted-foreground)">This request is closed.</p>
   {:else}
-    <form id="secret-request-{request.questionId}" class="flex flex-col gap-3" autocomplete="off" onsubmit={submit}>
+    <form id="secret-request-{request.questionId}" class="flex flex-col gap-4" autocomplete="off" onsubmit={submit}>
       {#each prompts as prompt, index (index)}
         {@const field = fields[index]}
         {@const inputId = `secret-request-${request.questionId}-${index}`}
@@ -103,8 +103,8 @@
         {#if index > 0}
           <div class="h-px bg-(--border) opacity-60"></div>
         {/if}
-        <div class="flex min-w-0 flex-col gap-2">
-          <div class="flex min-w-0 flex-col gap-0.5">
+        <div class="flex min-w-0 flex-col gap-3">
+          <div class="flex min-w-0 flex-col gap-1">
             <label for={inputId} class="text-transcript-card font-medium">{prompt.name}</label>
             <p class="m-0 text-transcript-meta text-(--muted-foreground) wrap-anywhere">{prompt.reason}</p>
             {#if link}
@@ -112,7 +112,7 @@
               <a
                 href={link.href}
                 title={link.href}
-                class="group mt-1 inline-flex w-fit max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-transcript-meta font-medium text-(--foreground) outline-none focus-visible:ring-2 focus-visible:ring-(--ring)/50"
+                class="group mt-1 inline-flex w-fit max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-transcript-meta font-medium text-(--foreground) outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-tx-focus-ring)"
                 onclick={(event) => {
                   event.preventDefault();
                   void localApi.openExternal(link.href);
@@ -139,20 +139,20 @@
           {#if field.isDeclined}
             <div class="flex min-w-0 items-center justify-between gap-2">
               <p class="m-0 text-transcript-meta text-(--muted-foreground)">Declined. The agent does not get this secret.</p>
-              <Button
-                size="xs"
-                variant="ghost"
-                class="text-(--muted-foreground)"
+              <button
+                type="button"
+                class="interrupt-link"
                 disabled={closed || isSending || !canDrive}
                 aria-label="Undo decline of {prompt.name}"
                 onclick={() => toggleDeclined(field, index)}
               >
                 Undo
-              </Button>
+              </button>
             </div>
           {:else}
-            <div class="flex min-w-0 items-center gap-2">
-              <div class="relative min-w-0 flex-1">
+            <!-- The question card's own-words bar: the field, Show, and the save inside one hairline. -->
+            <div class="interrupt-bar">
+              <div class="min-w-0 flex-1">
                 <Input
                   id={inputId}
                   bind:value={field.value}
@@ -166,28 +166,27 @@
                   placeholder={SECRET_PLACEHOLDER}
                   disabled={closed || isSending || !canDrive}
                   aria-describedby="{inputId}-note"
-                  class="pr-9"
+                  class="h-7 rounded-none border-0 bg-transparent p-0 focus-visible:ring-0 pointer-coarse:h-9"
                 />
-                <!-- Inside the field's right edge; the field's right padding keeps text clear of it. -->
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  class="absolute top-1/2 right-1 -translate-y-1/2 text-(--muted-foreground) pointer-coarse:tap-area"
-                  disabled={closed || isSending || !canDrive}
-                  aria-controls={inputId}
-                  aria-pressed={revealed[index]}
-                  aria-label="{revealed[index] ? 'Hide' : 'Show'} {prompt.name}"
-                  title={revealed[index] ? "Hide secret" : "Show secret"}
-                  onclick={() => toggleRevealed(index, inputId)}
-                >
-                  {#if revealed[index]}<HideIcon size={16} />{:else}<ShowIcon size={16} />{/if}
-                </Button>
               </div>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                class="shrink-0 text-(--muted-foreground) pointer-coarse:tap-area"
+                disabled={closed || isSending || !canDrive}
+                aria-controls={inputId}
+                aria-pressed={revealed[index]}
+                aria-label="{revealed[index] ? 'Hide' : 'Show'} {prompt.name}"
+                title={revealed[index] ? "Hide secret" : "Show secret"}
+                onclick={() => toggleRevealed(index, inputId)}
+              >
+                {#if revealed[index]}<HideIcon size={16} />{:else}<ShowIcon size={16} />{/if}
+              </Button>
               {#if !isGroup}
-                <Button type="submit" disabled={closed || isSending || !canDrive || !canSubmitSecrets(fields)}>Save securely</Button>
+                <button type="submit" class="interrupt-send" disabled={closed || isSending || !canDrive || !canSubmitSecrets(fields)}>Save securely</button>
               {/if}
             </div>
-            <div class="flex min-w-0 items-center justify-between gap-2">
+            <div class="flex min-w-0 items-center justify-between gap-3">
               <p id="{inputId}-note" class="m-0 flex min-w-0 items-center gap-1.5 text-transcript-meta text-(--muted-foreground)">
                 {#if prompt.delivery === "file"}
                   <TerminalIcon size={14} class="shrink-0" />
@@ -196,16 +195,15 @@
                 {/if}
                 {secretPrivacyNote(prompt)}
               </p>
-              <Button
-                size="xs"
-                variant="ghost"
-                class="shrink-0 text-(--muted-foreground)"
+              <button
+                type="button"
+                class="interrupt-link shrink-0"
                 disabled={closed || isSending || !canDrive}
                 aria-label="Decline {prompt.name}"
                 onclick={() => (isGroup ? toggleDeclined(field, index) : void send([null]))}
               >
                 Decline
-              </Button>
+              </button>
             </div>
           {/if}
         </div>

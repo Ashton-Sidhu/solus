@@ -35,6 +35,7 @@ export interface ListedSession {
   awayRunnerServerId?: string
   sessionId: string
   organizationId?: string
+  automationId?: string
   title: string | null
   /** The project the session belongs to, as its host names it. */
   projectPath: string | null
@@ -110,7 +111,7 @@ export interface SessionListHosts {
   connectedRunnerFor(runnerHostId: string): string | null
   /** The known host an account host id names, connected or not. Absent: `connectedRunnerFor`. */
   knownRunnerFor?(hostId: string): string | null
-  connectedServerIds(): string[]
+  serverIds(): string[]
   /** A machine provisioned for an organization; any other is personal (plans/031). Absent: every machine is personal. */
   isManagedHost?(serverId: string): boolean
 }
@@ -118,7 +119,7 @@ export interface SessionListHosts {
 const registryHosts: SessionListHosts = {
   connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
   knownRunnerFor: (hostId) => knownRunnerFor(hostId),
-  connectedServerIds: () => serverConnections.connectedServerIds(),
+  serverIds: () => serverConnections.serverIds(),
   isManagedHost: (serverId) => hostCatalog.managedHostIds().has(serverId),
 }
 
@@ -186,7 +187,7 @@ export class SessionListStore {
 
   /** Read every connected home's list. */
   async load(): Promise<void> {
-    await Promise.all(this.hosts.connectedServerIds().map((serverId) => this.loadHost(serverId)))
+    await Promise.all(this.hosts.serverIds().map((serverId) => this.loadHost(serverId)))
   }
 
   /** Read one home's list. A home that fails the read keeps what it answered last time. */
@@ -222,7 +223,7 @@ export class SessionListStore {
    *  every home is read. */
   async loadConnected(serverId: string): Promise<void> {
     if (isSolusApiId(serverId)) return this.load()
-    const homes = this.hosts.connectedServerIds().filter((id) => id === serverId || isSolusApiId(id))
+    const homes = this.hosts.serverIds().filter((id) => id === serverId || isSolusApiId(id))
     await Promise.all(homes.map((id) => this.loadHost(id)))
   }
 
@@ -316,6 +317,7 @@ export class SessionListStore {
       runnerOffline: isCloud && !runner,
       sessionId: record.sessionId,
       organizationId: record.organizationId,
+      automationId: record.startedBy?.kind === 'automation' ? record.startedBy.automationId : undefined,
       title: record.customTitle ?? record.title ?? record.slug,
       // `record.projectPath` is the provider's encoded folder key, not a path.
       projectPath: record.projectRoot ?? record.cwd ?? null,

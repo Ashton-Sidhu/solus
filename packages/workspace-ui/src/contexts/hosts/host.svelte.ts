@@ -23,6 +23,8 @@ const FACT_KEYS: readonly HostFactKey[] = ['capabilities', 'serverInfo', 'machin
  */
 export class Host {
   #facts: HostFacts
+  #usageWatchers = 0
+  #releaseUsageWatch: (() => void) | null = null
   #stopFacts: () => void
   readonly #listeners = new Set<(key: HostFactKey) => void>()
   readonly #requested = new Set<HostFactKey>()
@@ -146,6 +148,21 @@ export class Host {
     return this.#facts.refresh(key, opts)
   }
 
+  /** Hold the host's usage watch while a reader shows its quota
+   *  (`HostFacts.watchUsage`). The watch follows a replaced connection.
+   *  Answers the release. */
+  watchUsage(): () => void {
+    if (this.#usageWatchers++ === 0) this.#releaseUsageWatch = this.#facts.watchUsage()
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (--this.#usageWatchers > 0) return
+      this.#releaseUsageWatch?.()
+      this.#releaseUsageWatch = null
+    }
+  }
+
   /** The fact once it is ready (see `HostFacts.when`). */
   when<K extends HostFactKey>(key: K): Promise<HostFactValues[K]> {
     return this.#facts.when(key)
@@ -167,6 +184,10 @@ export class Host {
     this.#stopFacts()
     this.#facts = facts
     this.#stopFacts = facts.subscribe((key) => this.#emit(key))
+    if (this.#usageWatchers > 0) {
+      this.#releaseUsageWatch?.()
+      this.#releaseUsageWatch = facts.watchUsage()
+    }
     for (const key of this.#requested) facts.ensure(key)
     for (const key of FACT_KEYS) this.#emit(key)
     for (const listener of Array.from(this.#presenceListeners)) listener()

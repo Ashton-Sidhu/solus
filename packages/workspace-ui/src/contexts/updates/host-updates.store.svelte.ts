@@ -12,7 +12,7 @@ import { isProviderUpdateActive } from '@solus/contracts/host-update-types'
 export interface HostUpdateItem { serverId: string; target: 'solus' | SetupAgent; version: string }
 type ManualOutcome = 'up-to-date' | 'error'
 
-type UpdateConnections = Pick<typeof serverConnections, 'resolveId' | 'readinessFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onReadinessChange'> & {
+type UpdateConnections = Pick<typeof serverConnections, 'resolveId' | 'readinessFor' | 'capabilitiesFor' | 'serverIds' | 'onConnectionCreated' | 'onReadinessChange'> & {
   apiFor(serverId: string): Pick<SolusAPI, 'hostUpdateStatus' | 'hostCheckForUpdates' | 'hostInstallUpdate' | 'hostCancelUpdate'>
   /** The dialed target's directory record; its `uplink.kind` says whether Solus cloud provisioned the host. */
   connectionFor(serverId: string): { target: { uplink?: { kind?: string } } } | undefined
@@ -62,7 +62,7 @@ export class HostUpdatesStore {
       this.operations.delete(serverId)
       for (const key of this.notices.keys()) if (key.startsWith(`${serverId}:`)) this.notices.delete(key)
     })
-    for (const serverId of this.connections.connectedServerIds()) void this.load(serverId)
+    for (const serverId of this.connections.serverIds()) void this.load(serverId)
   }
 
   applyStatus(serverId: string, status: HostUpdateStatus): void {
@@ -207,7 +207,7 @@ export class HostUpdatesStore {
     }
   }
 
-  async checkAll(): Promise<void> { await Promise.all(this.connections.connectedServerIds().map((id) => this.check(id))) }
+  async checkAll(): Promise<void> { await Promise.all(this.connections.serverIds().map((id) => this.check(id))) }
 }
 
 export const hostUpdatesStore = new HostUpdatesStore()

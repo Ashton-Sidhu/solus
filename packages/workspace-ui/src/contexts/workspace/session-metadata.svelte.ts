@@ -59,6 +59,9 @@ export class SessionMetadata {
    *  session_init for a live session (Claude does it when a background task
    *  resumes the parent), and naming is a paid round trip — once per tab. */
   metadataFinalizedTabs = new Set<string>()
+  /** Sessions whose custom name was typed before their host knew them: the
+   *  first init saves it. A name the host gave the tab is never sent back. */
+  readonly unsavedTitleSessionIds = new Set<string>()
 
   readonly regeneratingTitleSessionIds = new SvelteSet<string>()
 
@@ -145,7 +148,7 @@ export class SessionMetadata {
     // requires an editor, and the session's driver names it.
     if (!canDriveSession(runHost(session.run), session.id)) return
 
-    if (session.titleCustom) {
+    if (session.titleCustom && this.unsavedTitleSessionIds.delete(session.id)) {
       // A name typed into a session before the provider knew about it had
       // nowhere to persist — this is the first moment there's an id to hang it on.
       this.metadataFinalizedTabs.add(tabId)
@@ -196,8 +199,10 @@ export class SessionMetadata {
     // Keep the name local until session_init gives the fork its own ID.
     if (session.agentSessionId && !session.forked) {
       this.metadataFinalizedTabs.add(tabId)
+      this.unsavedTitleSessionIds.delete(session.id)
       await this.workspace.apiFor(tabId).setSessionTitle(session.id, trimmed || null, 'manual')
-    }
+    } else if (trimmed) this.unsavedTitleSessionIds.add(session.id)
+    else this.unsavedTitleSessionIds.delete(session.id)
   }
 
   /** Replace a session's name from its opening prompt. This names only the

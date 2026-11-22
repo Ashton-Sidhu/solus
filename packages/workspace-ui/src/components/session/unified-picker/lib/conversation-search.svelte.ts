@@ -38,20 +38,20 @@ export interface ConversationSearchHosts<Api = Pick<HostApi, 'sessionRecordSearc
  * when the machine is off. Every other machine keeps its own sessions.
  */
 export function searchServerIds(
-  connectedServerIds: readonly string[],
+  serverIds: readonly string[],
   localServerId: string | null,
   known: readonly Pick<KnownHost, 'id' | 'uplink'>[],
 ): string[] {
   const organizationMachines = organizationMachineIds(known)
-  const machines = connectedServerIds.filter((id) => !isSolusApiId(id) && !organizationMachines.has(id))
+  const machines = serverIds.filter((id) => !isSolusApiId(id) && !organizationMachines.has(id))
   const ordered = localServerId && machines.includes(localServerId)
     ? [localServerId, ...machines.filter((id) => id !== localServerId)]
     : machines
-  return [...ordered, ...connectedServerIds.filter((id) => isSolusApiId(id))]
+  return [...ordered, ...serverIds.filter((id) => isSolusApiId(id))]
 }
 
 const registryHosts: ConversationSearchHosts<Pick<HostApi, 'sessionRecordSearch' | 'sessionRecordList'>> = {
-  searchServerIds: () => searchServerIds(serverConnections.connectedServerIds(), serverConnections.localServerId(), hostCatalog.hosts()),
+  searchServerIds: () => searchServerIds(serverConnections.serverIds(), serverConnections.localServerId(), hostCatalog.hosts()),
   apiFor: (serverId) => serverConnections.apiFor(serverId),
   connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
 }
@@ -295,7 +295,7 @@ export interface TaskCommentHosts {
 }
 
 const taskHosts: TaskCommentHosts = {
-  serverIds: () => serverConnections.connectedServerIds().filter(
+  serverIds: () => serverConnections.serverIds().filter(
     (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready' && hosts.hasCollaboration(serverId),
   ),
   apiFor: (serverId) => serverConnections.apiFor(serverId),

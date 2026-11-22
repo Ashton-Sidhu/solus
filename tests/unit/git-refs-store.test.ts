@@ -177,9 +177,10 @@ describe('SessionEnvironmentStore refs', () => {
       {
         id: 'dispatch-test-host',
         label: 'Dispatch test host',
-        url: 'http://test.invalid',
+        installationId: 'dispatch-test-host',
         sessionToken: 'test',
-        local: false,
+        lastConnected: 0,
+        routes: [{ kind: 'lan', url: 'http://test.invalid' }],
       },
     )
     const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')

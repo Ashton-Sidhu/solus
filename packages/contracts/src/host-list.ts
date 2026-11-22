@@ -22,7 +22,7 @@ export const HOST_LIST_MAX_BYTES = 512 * 1024
 export const HOST_LIST_SCHEMA_VERSION = 1
 
 export const hostListingSchema = z.object({
-  /** The client's id for the host: its installation id, or its directory id. */
+  /** The host's id on every client: always its installation id (`installationId`). */
   id: z.string().min(1).max(200),
   label: z.string().max(200),
   /** The person typed `label`; it outranks the name the host reports. */
@@ -33,7 +33,7 @@ export const hostListingSchema = z.object({
   identityKey: hostIdentityKeySchema.optional(),
   lastConnected: z.number().int().nonnegative(),
   // Strict: a listing that carries a token, or any field this shape does not name, is refused, not stripped.
-}).strict()
+}).strict().refine((listing) => listing.id === listing.installationId, { message: 'A host listing is named by its installation id.', path: ['id'] })
 export type HostListing = z.infer<typeof hostListingSchema>
 
 /** The account document: one listing per host id; one host is one conflict unit. */

@@ -7,7 +7,7 @@ import { DatabaseSync } from '../helpers/bun-sqlite'
 import { resetTestDatabase } from '../helpers/test-db'
 import { TEST_HANDLER_CTX } from '../helpers/handler-ctx'
 import { startFakeServers } from './fake-servers'
-import type { Integration, IntegrationCustomServerNeeded } from '@solus/contracts/integration-types'
+import type { Integration } from '@solus/contracts/integration-types'
 import type { RunningServer } from '@solus/contracts/running-servers'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { LocalProbeAnswer } from '@solus/server/integrations/local-servers'
@@ -124,19 +124,17 @@ function owner(integrations: Integration[] = [], gateway?: { invalidate: (id: st
   const registry = new FakeRegistry()
   const invalidated: string[] = []
   const factsEvents: string[] = []
-  const cards: IntegrationCustomServerNeeded[] = []
   const local = new LocalMcpServers({
     integrations: () => integrations,
     gateway: {
       invalidate: (id) => { invalidated.push(id); gateway?.invalidate(id) },
-      askForCustomServer: (request) => { cards.push(request) },
     },
     factsChanged: (id) => { factsEvents.push(id) },
     probe,
     now: () => clock,
   })
   local.follow(registry)
-  return { local, registry, invalidated, factsEvents, cards }
+  return { local, registry, invalidated, factsEvents }
 }
 
 describe('the requests a listener gets', () => {
@@ -337,18 +335,14 @@ describe('a TCP listener of a process that Solus started', () => {
     expect(requests).toEqual(['http://127.0.0.1:7507/api/mcp'])
   })
 
-  test('shows under Found on this host and raises the card in the agent\'s session, with no Server URL', async () => {
+  test('shows under Found on this host, with no Server URL', async () => {
     answers.set('http://127.0.0.1:7508/mcp', { isMcp: true, serverInfo: { name: 'notes', title: 'Notes' } })
-    const { local, registry, cards } = owner()
+    const { local, registry } = owner()
     registry.scan([running('a', 7508, { isHttp: false, startedBy: agent })], [7508])
     clock += 3000
     registry.scan()
     const now = await local.runningNow()
     expect(now.servers).toEqual([{ url: 'http://127.0.0.1:7508/mcp', place: { kind: 'port', runningServerId: 'a', endpointId: '7508', port: 7508, processName: 'node', checkout: 'main', serverInfo: { name: 'notes', title: 'Notes' }, startedBySessionId: 'session-9' } }])
-    clock += 3000
-    registry.scan()
-    await local.runningNow()
-    expect(cards).toEqual([{ sessionId: 'session-9', name: 'Notes', url: 'http://127.0.0.1:7508/mcp' }])
   })
 
   test('the owner starts no timer of its own over many scans', async () => {
@@ -659,27 +653,6 @@ describe('Not running', () => {
 })
 
 describe('a server that an agent started', () => {
-  const agent: RunningServer['startedBy'] = { kind: 'agent', sessionId: 'session-7' }
-
-  test('raises one custom server card in its session, with the address filled in', async () => {
-    answers.set('http://127.0.0.1:7401/mcp', { isMcp: true, serverInfo: { name: 'notes', title: 'Notes' } })
-    const { local, registry, cards } = owner()
-    registry.scan([running('a', 7401, { startedBy: agent })], [7401])
-    await local.runningNow()
-    for (let scan = 0; scan < 5; scan++) registry.scan()
-    await local.runningNow()
-    expect(cards).toEqual([{ sessionId: 'session-7', name: 'Notes', url: 'http://127.0.0.1:7401/mcp' }])
-  })
-
-  test('raises none for a server already added, or one that no agent started', async () => {
-    answers.set('http://127.0.0.1:7402/mcp', { isMcp: true })
-    answers.set('http://127.0.0.1:7403/mcp', { isMcp: true })
-    const { local, registry, cards } = owner([loopbackIntegration('int-notes', 'http://localhost:7402/mcp')])
-    registry.scan([running('a', 7402, { startedBy: agent }), running('b', 7403, { startedBy: { kind: 'terminal', terminalId: 't1', sessionId: 'session-7' } })], [7402, 7403])
-    await local.runningNow()
-    expect(cards).toEqual([])
-  })
-
   test('the agent learns it can offer a server it started, with no client watching', () => {
     const tool = (name: string): AgentTool => ({ name, description: name, inputFields: {}, requiresApproval: false, execute: async () => ({ ok: true, text: '' }) })
     const runtime = { harness: 'Codex' as const, model: 'gpt', reasoningEffort: 'high' }

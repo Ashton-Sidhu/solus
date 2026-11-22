@@ -29,7 +29,7 @@ export function startHostStallToasts(): () => void {
     facts.ensure('serverInfo')
   }
 
-  for (const serverId of serverConnections.connectedServerIds()) {
+  for (const serverId of serverConnections.serverIds()) {
     const facts = serverConnections.connectionFor(serverId)?.facts
     if (facts) watch(facts)
   }

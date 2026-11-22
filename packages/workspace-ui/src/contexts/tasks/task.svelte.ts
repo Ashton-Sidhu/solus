@@ -189,7 +189,7 @@ export class Task implements TaskRecord {
 
   /** The host that reads the task first, then the others in catalog order. */
   #hostOrder(): string[] {
-    const order = serverConnections.connectedServerIds()
+    const order = serverConnections.serverIds()
     return this.#serverId ? [this.#serverId, ...order.filter((serverId) => serverId !== this.#serverId)] : order
   }
 

@@ -3,7 +3,9 @@ import { hostForUrl } from '@solus/contracts/entrypoint'
 import {
   DEFAULT_INTEGRATION_ACCOUNT,
   type Integration,
+  type IntegrationAuth,
   type IntegrationAuthFinishedEvent,
+  type IntegrationOAuthClientInput,
   type IntegrationConnectionChangedEvent,
   type IntegrationConnectStartResult,
 } from '@solus/contracts/integration-types'
@@ -17,7 +19,7 @@ import type { IntegrationClients, IntegrationConnectionStore } from './connectio
 import type { IntegrationStore } from './integration-store'
 import { readServerIdentity, ServerCredentialRefusedError } from './server-identity'
 import { solusServerFor } from './solus-servers'
-import { firstPartyOAuthClient } from './first-party'
+import { firstPartyFor, firstPartyOAuthClient } from './first-party'
 import { PublishedClientMetadata } from './client-metadata'
 import { firstPartyClientById } from '@solus/contracts/first-party-clients'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
@@ -51,6 +53,9 @@ function signInFor(integration: Integration): SignInRequest {
   const request: SignInRequest = server
     ? { resource: server.auth.sendsResource ? integration.url : undefined, options: server.auth.sign }
     : { resource: integration.url }
+  // The scopes the person chose go in place of the ones the server or its code names (docs/plans/mcp-add-server.md).
+  const chosen = integration.auth.kind === 'oauth' ? integration.auth.scopes : undefined
+  if (chosen) request.options = { ...request.options, scopes: chosen }
   return withFirstPartyScopes(integration, request)
 }
 
@@ -65,7 +70,7 @@ function withFirstPartyScopes(integration: Integration, request: SignInRequest):
 /** The account a new token belongs to, for the connection label. A Solus server asks its vendor; a remote server answers at `initialize`. */
 async function identityLabel(integration: Integration, accessToken: string, fetchImpl: typeof fetch): Promise<string | null> {
   const server = solusServerFor(integration.url)
-  if (!server) return (await readServerIdentity(integration.url, `Bearer ${accessToken}`, fetchImpl)).label
+  if (!server) return (await readServerIdentity(integration.url, { authorization: `Bearer ${accessToken}` }, fetchImpl)).label
   const signal = AbortSignal.timeout(10_000)
   const context = { fetch: boundFetch(server, { authorization: async () => `Bearer ${accessToken}`, onRefused: () => {}, fetch: fetchImpl }, signal), signal }
   try {
@@ -289,6 +294,43 @@ export class IntegrationOAuth {
   /** The token endpoint of an integration, discovered when needed. */
   async tokenEndpointOf(integration: Integration): Promise<URL> {
     return (await this.metadata(integration)).tokenEndpoint
+  }
+
+  /**
+   * The `oauth` auth of a server whose sign-in `discover` names, for a person
+   * who chose OAuth for a server the probe found usable without it
+   * (docs/plans/mcp-add-server.md). The registration is read as the probe reads
+   * it. Throws `OAuthSignInError` when the metadata gives no usable sign-in.
+   */
+  async oauthAuthAt(url: string, discover: string): Promise<IntegrationAuth> {
+    const metadata = await this.protocol.discover(discover)
+    const registration = metadata.clientIdMetadataDocumentSupported ? 'metadata-document' : metadata.registrationEndpoint ? 'dynamic' : 'client-required'
+    const auth: IntegrationAuth = { kind: 'oauth', discover, registration }
+    const firstParty = firstPartyFor({ authorizationEndpoint: metadata.authorizationEndpoint.href, tokenEndpoint: metadata.tokenEndpoint.href }, url)
+    if (firstParty) auth.firstParty = firstParty
+    return auth
+  }
+
+  /**
+   * The owner's OAuth client (§4.3), from Settings or the add of a server: the
+   * auth with `clientId` and `hasClientSecret` set from the input, or cleared
+   * for `null`. The client, with its secret, is saved here for the issuer the
+   * record signs in at; the secret is never kept on the record.
+   */
+  async withOwnerClient(integration: Integration, input: IntegrationOAuthClientInput | null): Promise<IntegrationAuth> {
+    const { auth } = integration
+    if (auth.kind !== 'oauth') throw new Error('This integration does not sign in with OAuth.')
+    const rest: IntegrationAuth = { kind: 'oauth', discover: auth.discover, registration: auth.registration }
+    if (auth.scopes) rest.scopes = auth.scopes
+    if (!input) {
+      this.deps.clients.removeClient(integration.id)
+      return rest
+    }
+    const { clientId, clientSecret } = input
+    this.deps.clients.saveClient(integration.id, await this.issuerOf(integration), clientSecret
+      ? { clientId, clientSecret, tokenEndpointAuthMethod: 'client_secret_post', redirectUris: [] }
+      : { clientId, tokenEndpointAuthMethod: 'none', redirectUris: [] })
+    return { ...rest, clientId, hasClientSecret: Boolean(clientSecret) }
   }
 
   async issuerOf(integration: Integration): Promise<string> {

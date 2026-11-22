@@ -4,7 +4,7 @@ import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/wo
 import type { IpcContext } from '@solus/contracts/types'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
-import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
+import { claudeHistoryRows } from '@solus/server/execution/agents/claude/claude-session-helpers'
 import { codexItemToMessage } from '@solus/server/execution/agents/codex/codex-utils'
 import { composeAttachmentContext } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
 import { projectSessionHistory } from '@solus/server/data/sessions/result-projection'
@@ -89,7 +89,16 @@ describe('session transcript rehydration', () => {
       expect(documents.map((message) => message.workRef)).toEqual([{ workId: 'doc', title: 'Work', workType: 'doc', contentVersion: 4 }])
     })
   }
-  test('keeps the full thoughts before a tool call or prose block on that message', () => {
+  test('a saved Claude frame keeps each thought beside the text it preceded', () => {
+    const rows = claudeHistoryRows(JSON.stringify({ type: 'assistant', uuid: 'frame', timestamp: 1, message: { content: [
+      { type: 'thinking', thinking: 'First' }, { type: 'text', text: 'Progress' }, { type: 'thinking', thinking: 'Second' },
+    ] } }))
+    expect(rows.map(row => [row.messageId, row.content])).toEqual([
+      ['thought:frame:0', 'First'], [undefined, 'Progress'], ['thought:frame:1', 'Second'],
+    ])
+  })
+
+  test('loads each readable thought at its original position', () => {
     // WHY: a reloaded turn must open the same thoughts the live turn showed.
     // Reasoning with no readable text adds nothing, a message with no reasoning
     // before it carries none, and the prose block keeps its own thoughts.
@@ -108,14 +117,10 @@ describe('session transcript rehydration', () => {
       { role: 'reasoning', content: 'Checking the result', timestamp: 8 },
       { role: 'assistant', content: 'Fixed.', timestamp: 9 },
     ])
-    const tools = transcript.messages.filter((message) => message.role === 'tool')
-    expect(tools.map((tool) => tool.thoughts)).toEqual([
-      ['First idea', '**Reading the stylesheet**\n\nThe rule is unlayered.'],
-      undefined,
+    expect(transcript.messages.map(message => message.thoughts?.[0] ?? message.toolName ?? message.content)).toEqual([
+      'fix the rule', 'First idea', '**Reading the stylesheet**\n\nThe rule is unlayered.', 'Read', 'Edit', 'Checking the result', 'Fixed.',
     ])
-    expect(tools[0].thinkingMs).toBe(4)
-    const answer = transcript.messages.find((message) => message.role === 'assistant')
-    expect(answer?.thoughts).toEqual(['Checking the result'])
+    expect(transcript.messages.find(message => message.toolName === 'Read')?.thinkingMs).toBe(4)
   })
 
   test('late subagent activity follows its owning call across disjoint pages', async () => {

@@ -20,12 +20,13 @@ const IDENTITY_TIMEOUT_MS = 15_000
 /**
  * One `server/discover` (or the SDK legacy fallback) and `tools/list` with a credential, then the
  * session is closed. Proves the server accepts the credential and reads the
- * identity it reports. The credential goes to `url` only.
+ * identity it reports. The credential, an `Authorization` header or a
+ * `headers` server's headers, goes to `url` only.
  */
-export async function readServerIdentity(url: string, authorization: string, fetchImpl: typeof fetch = fetch): Promise<ServerIdentity> {
+export async function readServerIdentity(url: string, credential: Record<string, string>, fetchImpl: typeof fetch = fetch): Promise<ServerIdentity> {
   const client = new Client({ name: 'solus', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } })
   const transport = new StreamableHTTPClientTransport(new URL(url), {
-    requestInit: { headers: { authorization } },
+    requestInit: { headers: credential },
     fetch: (input, init) => fetchImpl(input, { ...init, redirect: 'manual' }),
   })
   try {

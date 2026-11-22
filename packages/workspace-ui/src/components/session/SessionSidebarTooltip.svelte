@@ -1,7 +1,6 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
   import {
-    ClipboardCheck as ClipboardCheckIcon,
     GitBranch as GitBranchIcon,
     Laptop as LaptopIcon,
   } from "@lucide/svelte";
@@ -15,7 +14,6 @@
   import { MiddleTruncate } from "../ui/middle-truncate";
   import { worktreeDisplayName } from "../../lib/git-context";
   import { modelLabelFor, type AgentId } from "@solus/contracts/types";
-  import type { ReviewGuideIndicatorStatus } from "./lib/task-list";
   import ProviderMark from "../ui/ProviderMark.svelte";
   import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
 
@@ -34,7 +32,6 @@
     attention?: AttentionState;
     /** While rate limited: when the provider window reopens, in epoch ms. */
     limitResetsAt?: number;
-    reviewGuideStatus?: ReviewGuideIndicatorStatus;
     /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
     isGuest?: boolean;
   }
@@ -51,7 +48,6 @@
     modelId,
     attention,
     limitResetsAt,
-    reviewGuideStatus,
     isGuest = false,
   }: Props = $props();
 
@@ -131,22 +127,6 @@
       {/if}
       {#if attention}
         <div class="text-(--solus-text-secondary)">{attentionLabel(attention, limitResetsAt)}</div>
-      {/if}
-      {#if reviewGuideStatus}
-        <div
-          class="flex min-w-0 items-center gap-2 {reviewGuideStatus === 'ready'
-            ? 'text-(--solus-art-positive)'
-            : 'text-(--solus-status-running-icon)'}"
-        >
-          <ClipboardCheckIcon
-            class="size-3.5 shrink-0"
-          />
-          <span>
-            {reviewGuideStatus === "ready"
-              ? "Review guide ready"
-              : "Review guide loading"}
-          </span>
-        </div>
       {/if}
     </div>
   </div>

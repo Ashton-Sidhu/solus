@@ -173,6 +173,10 @@
     y: number;
   } | null>(null);
 
+  $effect(() => {
+    if (open) store.showRunGraphs();
+  });
+
   // Tick the clock so "next run in 4 hr" and the rows' ages keep counting down
   // instead of freezing at load.
   let now = $state(Date.now());

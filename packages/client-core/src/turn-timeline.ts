@@ -58,6 +58,8 @@ export interface TimelineBar {
   startedAt: number
   /** Tool calls that started in the bar's span. Zero on a wait. */
   calls: number
+  /** Tool calls of the sessions it started, in the same span, drawn on top of its own. */
+  agentCalls: number
   /** How long the wait was, on a wait bar. */
   waitMs: number
 }
@@ -136,7 +138,7 @@ export function turnIndexAt(turns: readonly TimelineTurn[], time: number): numbe
  * when even the coarsest does not fit (very many turns), the layout keeps the
  * coarsest and the caller scrolls.
  */
-export function timelineLayout(turns: readonly TimelineTurn[], toolCallTimes: readonly number[], maxBars: number): TimelineLayout {
+export function timelineLayout(turns: readonly TimelineTurn[], toolCallTimes: readonly number[], maxBars: number, agentCallTimes: readonly number[] = []): TimelineLayout {
   const span = BAR_SPANS.find((candidate) => barTotal(turns, candidate) <= maxBars) ?? BAR_SPANS[BAR_SPANS.length - 1]!
   const spanMs = span.seconds * 1000
   const bars: TimelineBar[] = []
@@ -146,25 +148,52 @@ export function timelineLayout(turns: readonly TimelineTurn[], toolCallTimes: re
     const from = bars.length
     const count = turnBarCount(turn, span)
     for (let offset = 0; offset < count; offset++) {
-      bars.push({ turn: index, startedAt: turn.startedAt + offset * spanMs, calls: 0, waitMs: 0 })
+      bars.push({ turn: index, startedAt: turn.startedAt + offset * spanMs, calls: 0, agentCalls: 0, waitMs: 0 })
     }
     ranges.push({ from, to: bars.length })
     if (index === turns.length - 1) return
     const waitMs = waitMsAfter(turns, index)
     const gapFrom = bars.length
-    for (let offset = 0; offset < gapBarCount(waitMs); offset++) bars.push({ turn: null, startedAt: turn.endedAt, calls: 0, waitMs })
+    for (let offset = 0; offset < gapBarCount(waitMs); offset++) bars.push({ turn: null, startedAt: turn.endedAt, calls: 0, agentCalls: 0, waitMs })
     gaps.push({ from: gapFrom, to: bars.length, waitMs, isBreak: waitMs >= BREAK_MS })
   })
-  for (const time of toolCallTimes) {
+  /** The bar a call landed in. A call that lands past the turn's last bar (a clock a little ahead) counts in the last one. */
+  const barAt = (time: number): TimelineBar | null => {
     const index = turnIndexAt(turns, time)
-    if (index === -1) continue
+    if (index === -1) return null
     const range = ranges[index]!
-    // A call that lands past the turn's last bar (a clock a little ahead) counts in the last one.
-    bars[Math.min(range.to - 1, range.from + Math.floor((time - turns[index]!.startedAt) / spanMs))]!.calls += 1
+    return bars[Math.min(range.to - 1, range.from + Math.floor((time - turns[index]!.startedAt) / spanMs))]!
   }
-  const counts = bars.flatMap((bar) => (bar.calls > 0 ? [bar.calls] : [])).sort((a, b) => a - b)
+  for (const time of toolCallTimes) {
+    const bar = barAt(time)
+    if (bar) bar.calls += 1
+  }
+  // An agent's call outside the session's own turns has no bar of this line.
+  for (const time of agentCallTimes) {
+    const bar = barAt(time)
+    if (bar) bar.agentCalls += 1
+  }
+  const counts = bars.flatMap((bar) => (bar.calls + bar.agentCalls > 0 ? [bar.calls + bar.agentCalls] : [])).sort((a, b) => a - b)
   const fullHeightCalls = Math.max(MIN_FULL_HEIGHT_CALLS, counts[Math.floor(counts.length * 0.95)] ?? 0)
   return { span, bars, ranges, gaps, fullHeightCalls }
+}
+
+/** A bar's two parts, in px. */
+export interface StackedBarHeights {
+  own: number
+  agents: number
+}
+
+/**
+ * A bar's two parts, in px of a plot `plotHeight` tall: the session's own
+ * calls at the foot, its agents' calls on top. A bar with no calls is a dot.
+ */
+export function stackedBarHeights(bar: TimelineBar, fullHeightCalls: number, plotHeight: number): StackedBarHeights {
+  const total = bar.calls + bar.agentCalls
+  if (total === 0) return { own: 2, agents: 0 }
+  const height = Math.max(4, barHeightShare(total, fullHeightCalls) * plotHeight)
+  const agents = bar.agentCalls === 0 ? 0 : Math.max(2, height * bar.agentCalls / total)
+  return { own: height - agents, agents }
 }
 
 /** How tall a bar is, 0..1 of the plot. */
@@ -198,8 +227,9 @@ export function timelineLabels(ranges: readonly TurnRange[], pitch: number, plot
 /** What a bar says when it is pointed at: its count, or how long the wait was. */
 export function timelineBarText(bar: TimelineBar): string {
   if (bar.turn === null) return `Waited ${formatElapsed(bar.waitMs)} for a prompt`
-  if (bar.calls === 0) return 'No tool calls'
-  return `${bar.calls} tool ${bar.calls === 1 ? 'call' : 'calls'}`
+  if (bar.calls + bar.agentCalls === 0) return 'No tool calls'
+  const own = `${bar.calls} tool ${bar.calls === 1 ? 'call' : 'calls'}`
+  return bar.agentCalls > 0 ? `${own}, ${bar.agentCalls} by agents` : own
 }
 
 /** The time the session worked: its turns, without the waits between them. */

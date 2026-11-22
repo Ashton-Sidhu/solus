@@ -38,10 +38,8 @@ import {
 import { KeybindingsContext, setKeybindingsContext } from '../../lib/keybindings/dispatcher.svelte'
 import {
   reviewGuideStore,
-  sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
 import { reviewLensStore } from '../../components/review/review-lens.store.svelte'
-import { trackSessionReviewGuides } from '../../components/review/lib/session-guide-tracker.svelte'
 import { trackBranchReviewGuides } from '../../components/review/lib/branch-guide-tracker.svelte'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
@@ -120,7 +118,6 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     isConnected: (serverId) => !!serverId && serversStore.readinessFor(serverId).readiness === 'ready',
   }, () => serversStore.activeOrganizationId)
   session.trackVisibleConversations()
-  trackSessionReviewGuides(session)
   trackBranchReviewGuides(session, sessionEnvironmentStore)
   session.onTabClosing = (tabId) => sessionSidebarStore.releaseTab(tabId)
   statusBar.bind(session)
@@ -170,26 +167,6 @@ export function createAppCore(shell: ClientShellContext): AppCore {
       })
       return
     }
-    if (event.scope !== 'session') return
-    const tabId = session.tabOrder.find((candidateTabId) => {
-      if (session.serverIdFor(candidateTabId) !== serverId) return false
-      const identity = sessionGuideIdentity(session.sessionFor(candidateTabId))
-      return identity?.repoRoot === event.repoRoot && identity.key === event.key
-    })
-    if (!tabId) return
-
-    const title = session.sessionFor(tabId)?.title?.trim()
-    toasts.success(title ? `Review guide ready for “${title}”` : 'Review guide ready', {
-      duration: 10_000,
-      action: {
-        label: 'Open guide',
-        onAction: () => {
-          if (!session.tabs[tabId]) return
-          if (session.activeTabId !== tabId) session.selectTab(tabId)
-          session.enterReview('session', tabId, 'guide')
-        },
-      },
-    })
   })
   onDestroy(unsubscribeReviewGuideReady)
 

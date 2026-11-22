@@ -8,7 +8,7 @@ export function prGuideRepository(target: PrGuideTarget): string {
 }
 
 export function prGuideKey(target: PrGuideTarget): string {
-  return reviewGuideKeyForTarget(target, '', null)
+  return reviewGuideKeyForTarget(target, '')
 }
 
 export function prGuidePath(target: PrGuideTarget): string {

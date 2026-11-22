@@ -15,8 +15,10 @@ export function isolatedJob(facts: Map<number, ProcessFacts>, pid: number): Proc
   if (!target || target.protected || !target.groupId) return null
   const members = [...facts.values()].filter((fact) => fact.groupId === target.groupId)
   if (!members.length || members.some((fact) => fact.protected || (fact.sessionId && fact.sessionId !== target.sessionId) || (fact.terminalId && fact.terminalId !== target.terminalId))) return null
-  // A group with no leader cannot be checked against a recycled group id.
-  if (!members.some((fact) => fact.pid === target.groupId)) return null
+  // A server an agent started in the background outlives its shell, the group leader.
+  // Without a leader, every member must carry this server's own tag.
+  if (!members.some((fact) => fact.pid === target.groupId)
+    && (!(target.sessionId || target.terminalId) || members.some((fact) => fact.sessionId !== target.sessionId || fact.terminalId !== target.terminalId))) return null
   return members
 }
 
@@ -32,10 +34,18 @@ export async function stopJob(server: RunningServer, expectedIdentity: string, d
   const current = await deps.processes()
   const checked = isolatedJob(current, target.pid)
   if (!checked || checked.length !== members.length || checked.some((fact) => captured.get(fact.pid) !== fact.identity)) return { status: 'refused', reason: 'identity-changed' }
+  // A group id without its leader is not checked against reuse. Signal each verified member instead.
+  const hasLeader = checked.some((fact) => fact.pid === target.groupId)
+  const signalJob = async (live: readonly ProcessFacts[], signal: 'SIGTERM' | 'SIGKILL') => {
+    if (hasLeader) return deps.signal(-target.groupId, signal)
+    for (const fact of live) {
+      try { await deps.signal(fact.pid, signal) } catch (error) { if (!isMissingProcess(error)) throw error }
+    }
+  }
   const abandon = deps.beforeStop(server, members, current)
-  try { await deps.signal(-target.groupId, 'SIGTERM') } catch (error) {
+  try { await signalJob(checked, 'SIGTERM') } catch (error) {
     abandon?.()
-    if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error
+    if (!isMissingProcess(error)) throw error
   }
   for (let attempt = 0; attempt < 60; attempt++) {
     const table = await (deps.poll ?? deps.processes)()
@@ -43,10 +53,14 @@ export async function stopJob(server: RunningServer, expectedIdentity: string, d
     if (!remaining.length) return { status: 'stopped' }
     // Do not signal a new member or a reused PID during escalation.
     if (remaining.some((fact) => captured.get(fact.pid) !== fact.identity || fact.protected)) return { status: 'refused', reason: 'identity-changed' }
-    if (attempt === 39) await deps.signal(-target.groupId, 'SIGKILL')
+    if (attempt === 39) await signalJob(remaining, 'SIGKILL')
     await deps.wait()
   }
   return { status: 'refused', reason: 'still-running' }
+}
+
+function isMissingProcess(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ESRCH'
 }
 
 export async function readJobProcesses(): Promise<Map<number, ProcessFacts>> {

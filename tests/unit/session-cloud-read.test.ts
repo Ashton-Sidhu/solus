@@ -109,16 +109,15 @@ describe('the words of each state', () => {
     expect(sessionCloudReadText({ kind: 'stale', reason: 'host-online' }, 'Studio')).toMatchObject({ message: 'Studio has this session now.', action: 'show-live' })
     expect(sessionCloudReadText({ kind: 'error', message: 'x' }, 'Studio').action).toBe('retry')
     expect(sessionCloudReadText({ kind: 'not-signed-in' }, 'Studio')).toMatchObject({ message: 'Studio is offline.', action: null })
-    expect(sessionCloudReadText({ kind: 'not-in-cloud' }, 'Studio').detail).toContain('choose a machine')
   })
 
-  test('a reader who cannot pick a machine gets words that name no Run on', () => {
-    // WHY: a read-only tab has no Run on to pick; words that name it send the reader nowhere.
+  test('cloud copy messages give details for a started session', () => {
+    // WHY: host selection is available only on drafts.
     for (const view of [{ kind: 'ready' }, { kind: 'not-in-cloud' }, { kind: 'sync-off' }] as const) {
-      const text = sessionCloudReadText(view, 'Studio', false)
+      const text = sessionCloudReadText(view, 'Studio')
       expect(`${text.message} ${text.detail ?? ''}`).not.toContain('Run on')
     }
-    expect(sessionCloudReadText({ kind: 'ready' }, 'Studio', false).message).toBe('Read only, from Solus Cloud.')
+    expect(sessionCloudReadText({ kind: 'ready' }, 'Studio').message).toBe('Read only, from Solus Cloud.')
   })
 
   test('a turn diff that cannot be drawn says why', () => {

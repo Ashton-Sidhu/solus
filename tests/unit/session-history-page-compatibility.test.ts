@@ -64,3 +64,11 @@ test('settled startup history is available synchronously before normal hydration
   expect(readPrefetchedSessionHistoryPage(api, request)).toBeUndefined()
   expect(api.loadSessionPage).toHaveBeenCalledTimes(1)
 })
+
+test('a mobile account change or reconnect cannot consume the previous first page', async () => {
+  const { prefetchSessionHistoryPage } = await import('@solus/client-core/session-history-page')
+  const api = { loadSessionPage: mock(async () => ({ messages: [], before: null })) }
+  await prefetchSessionHistoryPage(api, request, 3_000, 'previous')
+  await requestSessionHistoryPage(api, request, 'current')
+  expect(api.loadSessionPage).toHaveBeenCalledTimes(2)
+})

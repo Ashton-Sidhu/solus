@@ -27,7 +27,19 @@ export interface ServerEndpoint {
 export type StopRunningServerResult =
   | { status: 'stopped' }
   | { status: 'already-exited' }
-  | { status: 'refused'; reason: 'identity-changed' | 'not-permitted' | 'shared-group' | 'still-running' }
+  | { status: 'refused'; reason: StopRefusalReason }
+
+export type StopRefusalReason = 'identity-changed' | 'not-permitted' | 'shared-group' | 'still-running'
+
+/** What a refused Stop tells the person, the same on every client. */
+export function stopRefusalText(reason: StopRefusalReason): string {
+  switch (reason) {
+    case 'identity-changed': return 'The process changed. Read the server list again.'
+    case 'shared-group': return 'Its process group also holds a process that Solus does not stop, such as an agent, a shell, or a process from another session.'
+    case 'still-running': return 'The process did not exit after Solus sent the stop signals.'
+    case 'not-permitted': return 'Solus does not stop this process.'
+  }
+}
 
 /** The tag children inherit, including detached commands. Never an authorization token. */
 export const RUNNING_SERVER_SESSION_ENV = 'SOLUS_SESSION_ID'

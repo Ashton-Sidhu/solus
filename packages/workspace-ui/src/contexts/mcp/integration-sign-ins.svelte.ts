@@ -1,5 +1,6 @@
 import type { CommandProcesses } from '@solus/client-core/command-processes'
 import { DEFAULT_INTEGRATION_ACCOUNT, isFirstIntegrationAccount, type Integration, type IntegrationAuthFinishedEvent, type IntegrationConnection, type IntegrationConnectionChangedEvent, type IntegrationEnvValue, type IntegrationFacts, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
@@ -267,14 +268,12 @@ export abstract class IntegrationSignIns {
   /** A server the person owns, while their profile syncs: its sign-in runs at the cloud, not on the host. */
   /**
    * The cloud, when this person's sign-in runs there: they are signed in, and the
-   * server is not one whose OAuth client only the host's administrator holds.
+   * server's sign-in does not have to run on the host (`signsInOnHost`).
    */
   private cloudFor(integration: Integration | undefined): CloudSignInPort | null {
     const cloud = this.cloud
     if (!cloud || !integration || cloud.accountUserId() === null) return null
-    // The environment values of a command stay on the host that runs it (mcp-first-class.md §7.8).
-    if (integration.auth.kind === 'env') return null
-    return integration.auth.kind === 'oauth' && (integration.auth.registration === 'client-required' || !!integration.auth.clientId) ? null : cloud
+    return new IntegrationSignIn(integration).signsInOnHost ? null : cloud
   }
 
   /** Reads the caller's connections on one host again. */

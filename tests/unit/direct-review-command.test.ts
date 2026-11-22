@@ -1,7 +1,17 @@
 import { describe, expect, test } from 'bun:test'
+import { parseReviewCommand } from '@solus/contracts/review'
 import { directReviewRequest } from '@solus/workspace-ui/components/review/lib/direct-review-command'
 
 describe('direct review command', () => {
+  test('routes an inline guide with optional focus to the session turn', () => {
+    expect(parseReviewCommand('/review-guide')).toEqual({ mode: 'session' })
+    expect(parseReviewCommand('/review-guide explain migrations\nFocus on rollback')).toEqual({
+      mode: 'session', argument: 'explain migrations', context: 'Focus on rollback',
+    })
+    expect(parseReviewCommand('/review-guidebook')).toBeNull()
+    expect(directReviewRequest('/review-guide focus on tests')).toBeNull()
+  })
+
   test('carries raw skill input into a working-tree review', () => {
     expect(directReviewRequest('/solus-review focus on migrations')).toEqual({
       target: { kind: 'working-tree' },
@@ -32,6 +42,8 @@ describe('direct review command', () => {
   })
 
   test('does not take over prose or an incomplete PR command', () => {
+    expect(directReviewRequest('/review:session')).toBeNull()
+    expect(directReviewRequest('/review:session focus on migrations')).toBeNull()
     expect(directReviewRequest('Please run /review')).toBeNull()
     expect(directReviewRequest('/review:pr')).toBeNull()
   })

@@ -81,7 +81,6 @@ describe('the directory\'s workspace services', () => {
       id: 'workspace:org-1',
       label: 'Acme',
       url: 'https://workspace.solus.test',
-      sessionToken: '',
       local: false,
       routes: [{ kind: 'tunnel', url: 'https://workspace.solus.test' }],
       uplink: { hostId: 'workspace:org-1', directoryUrl: DIRECTORY, organizationIds: ['org-1'] },

@@ -76,7 +76,7 @@ beforeAll(async () => {
           provider: 'claude-code', title: 'Fix the build', customTitle: null, projectId: null, projectPath: '/work/app',
           projectRemote: null, runnerHostId: null, status: 'idle', model: null, reasoningEffort: null, parentSessionId: null,
           rootSessionId: null, publication: 'local', size: 10, cwd: '/work/app', slug: null, isWorktree: false, branch: null,
-          projectRoot: '/work/app', delegation: null, state: null, view: null, listed: true, pullRequests: [],
+          projectRoot: '/work/app', delegation: null, place: 'project', startedBy: null, state: null, view: null, listed: true, pullRequests: [],
         }],
         nextCursor: null,
         indexing: false,

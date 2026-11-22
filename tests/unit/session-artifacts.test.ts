@@ -135,3 +135,20 @@ test('linking and unlinking announce the session, and each ancestor that groups 
     stop()
   }
 })
+
+test('the walk up the tree is one read that ends a cycle and still names a session with no row', async () => {
+  // WHY: each ancestor's readers hear a change only through an event that names
+  // that ancestor; a cycle in the rows must not loop, and a session the host has
+  // not recorded yet still announces itself.
+  const { getDatabase } = await import('@solus/server/db/database')
+  const { ancestorsOf } = await import('@solus/server/data/sessions/session-records')
+  await getDatabase().run(sql`
+    INSERT INTO session_records(session_id, organization_id, created_by, provider, project_path, cwd, status, parent_session_id, created_at, last_activity_at, started_at)
+    VALUES
+      ('loop-a', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'loop-b', 1, 1, 1),
+      ('loop-b', 'local', 'owner', 'codex', ${directory}, ${directory}, 'idle', 'loop-a', 1, 1, 1)
+  `)
+  expect(await ancestorsOf('grandchild')).toEqual(['grandchild', 'child-a', 'lead'])
+  expect(await ancestorsOf('loop-a')).toEqual(['loop-a', 'loop-b'])
+  expect(await ancestorsOf('not-recorded')).toEqual(['not-recorded'])
+})

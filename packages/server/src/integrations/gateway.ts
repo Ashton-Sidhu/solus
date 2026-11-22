@@ -676,18 +676,15 @@ export class IntegrationGateway {
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) throw new Error('This integration was removed.')
     if (integration.kind === 'stdio') return this.openStdio(integration, address, starter)
-    let authorization: string | null = null
     // The host's own work (null) has no connection: it lists anonymously.
-    if (integration.auth.kind !== 'none' && personKey !== null) {
-      authorization = (await this.credentials?.authorizationFor(integrationId, personKey, accountId)) ?? null
-    }
+    const credential = personKey === null ? null : await this.credentialFor(integration, personKey, accountId)
     const key = sessionKey(address)
     this.retire(key)
-    if (integration.auth.kind !== 'none' && !authorization && !allowAnonymous) throw new ConnectionRequiredError()
-    const session = this.newSession(address, !!authorization)
+    if (integration.auth.kind !== 'none' && !credential && !allowAnonymous) throw new ConnectionRequiredError()
+    const session = this.newSession(address, !!credential)
     const client = session.client
     const prior = this.priorFor(integrationId)
-    session.connected = client.connect(upstreamTransport(integration, personKey, authorization, accountId, [], this.credentials), prior ? { prior } : undefined)
+    session.connected = client.connect(upstreamTransport(integration, personKey, credential, accountId, [], this.credentials), prior ? { prior } : undefined)
     this.sessions.set(key, session)
     try {
       await session.connected
@@ -696,8 +693,8 @@ export class IntegrationGateway {
     } catch (error) {
       if (this.sessions.get(key) === session) this.sessions.delete(key)
       void client.close().catch(() => undefined)
-      log.warn('integration_session_failed', { integrationId, personKey, authorized: !!authorization, error: errorText(error) })
-      if (authorization && personKey !== null && isAuthFailure(error)) {
+      log.warn('integration_session_failed', { integrationId, personKey, authorized: !!credential, error: errorText(error) })
+      if (credential && personKey !== null && isAuthFailure(error)) {
         this.credentials?.markNeedsSignIn(integrationId, personKey, refusedMessage(integration, error))
         throw new ConnectionRequiredError()
       }
@@ -708,6 +705,14 @@ export class IntegrationGateway {
     // The list cached before an idle close may be old: read it again in the background.
     if (this.knownServers.get(key)?.stale) void this.list(integrationId, personKey, allowAnonymous).catch((error) => log.warn('integration_relist_failed', { integrationId, error: errorText(error) }))
     return session
+  }
+
+  /** The headers a person's session sends: a `headers` server's own, else the `Authorization` header; null with none. */
+  private async credentialFor(integration: Integration, personKey: string, accountId: string): Promise<Record<string, string> | null> {
+    if (integration.auth.kind === 'none') return null
+    if (integration.auth.kind === 'headers') return this.credentials?.headersFor?.(integration.id, personKey, accountId) ?? null
+    const authorization = await this.credentials?.authorizationFor(integration.id, personKey, accountId)
+    return authorization ? { Authorization: authorization } : null
   }
 
   /** A session and its client, not yet connected. */
@@ -895,7 +900,7 @@ export class IntegrationGateway {
   }
 
   /** The server refused the person's header: drop the session so the next use asks for a new one. */
-  private signInRefused(session: UpstreamSession, integration: Pick<Integration, 'name'>, error: SdkHttpError): void {
+  private signInRefused(session: UpstreamSession, integration: Pick<Integration, 'name' | 'auth'>, error: SdkHttpError): void {
     void this.closeSession(session.key)
     if (session.personKey !== null) this.credentials?.markNeedsSignIn(session.integrationId, session.personKey, refusedMessage(integration, error), session.accountId)
   }
@@ -915,6 +920,7 @@ export class IntegrationGateway {
     const sessionId = context.sessionId()
     if (sessionId) this.askToConnect(integration, sessionId)
     if (integration.auth.kind === 'env') return { ok: false, text: `CONNECTION_REQUIRED: Give the environment values of ${integration.name} in Settings → MCP, then try again.` }
+    if (integration.auth.kind === 'headers') return { ok: false, text: `CONNECTION_REQUIRED: Give the header values of ${integration.name} in Settings → MCP, then try again.` }
     return { ok: false, text: `CONNECTION_REQUIRED: Sign in to ${integration.name} in Settings → MCP, then try again.` }
   }
 

@@ -9,7 +9,7 @@ import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
 import type { AgentId, PermissionMode, Tab, Prompt, Session, SessionSpec, RunConfig, RunLocation, Attachment, PlanDescriptor, SessionCtx, IpcContext, ModelConfig, RuntimeSessionInfo, GitCheckout, ThreadGoal, ThreadGoalSetRequest, QuestionRequest, SessionReference } from '@solus/contracts/types'
 import { type RepoRef } from '@solus/contracts/providers'
-import { type ReviewTarget } from '@solus/contracts/review'
+import { type ReviewGuideTarget } from '@solus/contracts/review'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
@@ -91,7 +91,6 @@ import { workTitleForMarkdownFile } from '../../components/files/lib/markdown-fi
 import type { WorkspaceFileRef } from '../../components/files/lib/save-file-as-work'
 import {
   reviewGuideStore,
-  sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
 import { z } from 'zod'
 import { checkoutGit, checkoutPlace, chooseStart, fileTasksOn, folderLocation, projectHome, projectRoot, runHost, startsWorktree } from './run-location'
@@ -2289,30 +2288,20 @@ export class WorkspaceContext implements SurfaceContext {
 
   // ─── Reviews ───
 
-  /** Open one view of the review pane. `scope` is the guide scope: a session
-   *  walkthrough reads the session's own changes, a branch one reads the whole
-   *  branch — which the pane resolves live, so the route carries no base. */
+  /** Open the branch review for the active checkout. */
   enterReview(
-    scope: 'branch' | 'session' = 'branch',
     sourceTabId?: string,
     view: ReviewView = 'diff',
   ): void {
     const reviewTabId = sourceTabId ?? this.activeTabId
     if (!reviewTabId) return
-    if (scope === 'session') {
-      reviewGuideStore.markOpened(
-        this.serverIdFor(reviewTabId),
-        sessionGuideIdentity(this.sessionFor(reviewTabId)),
-      )
-    }
     const params: RouteParams['review'] = { sourceTabId: reviewTabId, view }
-    if (scope === 'session') params.scope = { kind: 'session' }
     this.router.navigate({ name: 'review', params })
   }
 
   /** Open the exact guide selected by a durable conversation reference. */
   openReviewGuide(
-    target: ReviewTarget,
+    target: ReviewGuideTarget,
     sourceTabId: string,
     prepared?: { repoRoot: string; key: string; serverId: string },
   ): void {
@@ -2338,7 +2327,6 @@ export class WorkspaceContext implements SurfaceContext {
       return
     }
     const params: RouteParams['review'] = { sourceTabId, view: 'guide' }
-    if (target.kind === 'session') params.scope = { kind: 'session' }
     if (target.kind === 'working-tree') params.scope = { kind: 'working-tree' }
     this.router.navigate({ name: 'review', params })
     requestInputFocus({ tabId: sourceTabId })

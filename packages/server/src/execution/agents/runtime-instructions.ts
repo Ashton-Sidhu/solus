@@ -91,7 +91,7 @@ This session is a chat with no project. The person did not choose a folder or a 
 
 const VISUALS_INSTRUCTIONS = `## Showing visuals
 
-Show trends, comparisons, and flows as a chart or diagram, even unasked, and any visual the user asks for: show it as an HTML page in your reply, as the render_artifact tool describes. Check the page with render_artifact preview: true, then write it in a \`\`\`html fence in your reply. A preview shows the page to you only; its screenshot is not the result.`
+Show trends, comparisons, and flows as a chart or diagram, even unasked. For a visual in the conversation, write a self-contained HTML page with inline CSS and any JavaScript it needs. Pass the HTML or file path to render_artifact with preview: true. Check the screenshot and console output, then fix any problems. To show the live page, write it in a \`\`\`html fence in your reply, or call render_artifact without preview when the user needs a saved work. Use the Solus theme and layout rules in the tool description. The preview runs on the host and is visible only to you. Do not scaffold a project or start a server for the preview.`
 
 export interface AgentRuntime {
   harness: 'Claude Code' | 'Codex'

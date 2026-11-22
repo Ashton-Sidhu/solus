@@ -1,5 +1,8 @@
 # Portable sessions
 
+The host controls in this plan describe the original design. The current
+[Run on behavior](../run-on.md#run-on) limits host selection to drafts.
+
 Status: phase 1 implemented, 2026-11-18, on branch `solus/portable-sessions` (§17). Phase 0 ran on 2026-11-18 (§18): the two provider tests passed. Phase 2 is in progress (§19). Phase 4A (desktop and web clients) is implemented (§20). Phase 4B (mobile) is implemented (§21).
 
 Related: [Run location](run-location.md) (run host, checkout),

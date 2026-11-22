@@ -20,17 +20,16 @@ for (const client of ['desktop', 'web'] as const) {
     const ready = mock(() => {})
     const prefetch = mock(() => history)
     const frames: FrameRequestCallback[] = []
-    const target = { id: 'saved-host', local: false, label: 'Saved host', url: 'https://host.example' }
+    const host = { id: 'saved-host', label: 'Saved host', sessionToken: '', installationId: 'saved-host', lastConnected: 0, routes: [] }
     const nativeApi = { refreshLocalSessionToken() {}, rendererReady: ready, rendererMounted() {} }
     const dependencies = {
       performance: { mark() {} },
       window: { solusNative: nativeApi },
       getLocalConnection: async () => ({}),
-      localServerTarget: () => target,
-      knownHostTarget: () => target,
-      hostCatalog: { load: async () => {}, touchLastConnected() {} },
+      localHost: () => host,
+      hostCatalog: { load: async () => {}, touchLastConnected() {}, addPageHost() {} },
       serverConnections: {
-        registerTarget() {},
+        attachNativeBridge() {},
         presenceOf: () => 'present',
         setPrimary: () => ({ api: {} }),
         onReadinessChange: () => () => {},
@@ -53,12 +52,12 @@ for (const client of ['desktop', 'web'] as const) {
       isStaleBuildError: () => false,
     }
     const run = new Function(...Object.keys(dependencies), `
-      let bootTarget, solusApp;
+      let bootHost, solusApp;
       let connectionGeneration = 0;
       const pendingNotificationRoute = null;
       const root = { innerHTML: '' };
       ${executable}
-      return ${name}({ id: 'saved-host' });
+      return ${name}('saved-host');
     `)
     const boot = run(...Object.values(dependencies))
     // Desktop signals the native shell; web is ready once its boot settles.

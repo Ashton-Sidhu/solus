@@ -57,11 +57,10 @@ function setup(fetchImpl?: typeof fetch, now?: () => number) {
     catalog: {} as never,
     gateway,
     events: hostEvents,
-    writes: new IntegrationWrites({ store, events: hostEvents, gateway, connections: {} as never }),
+    writes: new IntegrationWrites({ store, events: hostEvents, gateway, connections: {} as never, oauth }),
     connectionStore: {} as never,
     connections: {} as never,
     oauth,
-    clients: secrets,
     getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
     found: {} as never,
   })

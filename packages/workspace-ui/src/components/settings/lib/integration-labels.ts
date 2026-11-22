@@ -33,9 +33,10 @@ export function readyToolsText(count: number): string {
  * `adding` until the host has the record, then the administrator's OAuth client
  * when the server needs one, then the person's sign-in, then the tools to keep on.
  * A server without sign-in goes straight to its tools. A command starts on its
- * own form (`command`), then goes to its tools (mcp-first-class.md §7.7).
+ * own form (`command`), then goes to its tools (mcp-first-class.md §7.7). A
+ * server the person adds by its address starts on the address form (`address`).
  */
-export type ConnectStep = 'adding' | 'command' | 'oauth-client' | 'sign-in' | 'tools'
+export type ConnectStep = 'address' | 'adding' | 'command' | 'oauth-client' | 'sign-in' | 'tools'
 
 export interface IntegrationStatusText {
   text: string
@@ -127,9 +128,9 @@ export class IntegrationLabels extends IntegrationSignIn {
   /** The server's state in a few words, for its row in the MCP list. */
   statusText(connection: IntegrationConnection | null): IntegrationStatusText {
     if (!this.needsConnection) return { text: 'Ready', tone: 'ready', canConnect: false }
-    // A command's connection is the person's environment values (mcp-first-class.md §7.1).
-    if (this.integration.auth.kind === 'env') {
-      const values = commandValuesText(this.integration.auth.names, connection)
+    // A command's or a `headers` server's connection is the person's values (mcp-first-class.md §7.1).
+    if (this.valueNames.length > 0) {
+      const values = commandValuesText(this.valueNames, connection)
       return values.hasValues ? { text: 'Values saved', tone: 'ready', canConnect: false } : { text: 'Needs values', tone: 'attention', canConnect: true }
     }
     if (this.needsOwnerClient && connection?.status !== 'connected') return { text: 'Needs an OAuth client', tone: 'attention', canConnect: false }

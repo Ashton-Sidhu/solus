@@ -73,6 +73,11 @@ export interface HostEventMap {
    *  file, or an automation (docs/plans/session-artifacts.md). Clients read
    *  `sessionArtifactsList` for the session. */
   'session.artifactsChanged': { sessionId: string }
+  /** What the session, or a session below it, did changed: a turn, a tool
+   *  call, a sub-agent, or a checkpoint (docs/plans/session-digests.md). At
+   *  most once every few seconds while a turn runs. Clients read `sessionTree`
+   *  for the session. */
+  'session.digestChanged': { sessionId: string }
   /** The session was settled or made active. `state` is its state now. */
   'session.stateChanged': { sessionId: string; state: SessionState }
   /** One person archived, returned, snoozed, or woke a session. Only that
@@ -268,6 +273,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.headChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud session repository facts changed.' },
   'session.pullRequestsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's pull request links changed." },
   'session.artifactsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's artifacts changed: a pull request, work, file, or automation was linked or unlinked." },
+  'session.digestChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "What a session, or a session below it, did changed: a turn, a tool call, a sub-agent, or a checkpoint." },
   'session.stateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was settled or made active.' },
   'session.viewChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: "One person's view of a session changed: archived, returned, snoozed, or woken." },
   'session.transcriptChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud transcript changed.' },

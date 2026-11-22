@@ -40,7 +40,6 @@ mock.module(`${workspaceUi}/contexts/projects/projects.store.svelte`, () => ({
   CHATS_GROUP_KEY: 'solus:chats',
   groupKeyFor: (_serverId: string, projectKey: string) => projectKey,
 }))
-mock.module(`${workspaceUi}/components/review/review-guide.store.svelte`, () => ({ reviewGuideStore: {}, sessionGuideIdentity: () => null }))
 mock.module(`${workspaceUi}/lib/toasts`, () => ({ toasts: {} }))
 mock.module(`${workspaceUi}/lib/analytics`, () => ({ track: () => {} }))
 mock.module(`${workspaceUi}/contexts/workspace/session-draft.svelte`, () => ({ ownedTaskId: () => null }))

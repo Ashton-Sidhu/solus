@@ -7,7 +7,7 @@ const branchWrites: unknown[][] = []
 
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
-    connectedServerIds: () => [],
+    serverIds: () => [],
     onConnectionCreated: () => () => {},
     onReadinessChange: () => () => {},
     resolveId: (serverId: string) => serverId,

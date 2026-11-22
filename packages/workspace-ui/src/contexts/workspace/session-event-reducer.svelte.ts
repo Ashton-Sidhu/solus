@@ -80,6 +80,7 @@ export class SessionEventReducer {
   // carried onto the next tool call or prose block, so the activity block can
   // say "Thought for 6s" and open what the agent thought.
   // Transport state, not domain state, so it lives here rather than on Session.
+  private thoughtIndexes = new WeakMap<Session, Map<string, number>>()
   private thinkingSpans = new WeakMap<Session, ThinkingSpan>()
   /** The divider of a compaction that started and has not stopped, per session. */
   private runningCompactions = new WeakMap<Session, Message>()
@@ -313,12 +314,39 @@ export class SessionEventReducer {
       if (event.state === 'start') {
         session.currentActivity = 'Thinking...'
         span.startedAt = Date.now()
-      } else if (span.startedAt !== undefined) {
+      } else if (event.state === 'stop' && span.startedAt !== undefined) {
         span.pendingMs += Date.now() - span.startedAt
         span.startedAt = undefined
       }
       // Several thoughts before one message all belong to it, in order. A
       // thought with no readable text (redacted or encrypted) adds nothing.
+      if (event.thoughtId && event.text?.trim()) {
+        let indexes = this.thoughtIndexes.get(session)
+        if (!indexes) {
+          indexes = new Map()
+          this.thoughtIndexes.set(session, indexes)
+          session.messages.forEach((row, index) => {
+            if (row.id.startsWith('thought:')) indexes.set(row.id, index)
+          })
+        }
+        const liveId = 'thought:' + event.thoughtId
+        const savedId = event.savedThoughtId && 'thought:' + event.savedThoughtId
+        const id = savedId && indexes.has(savedId) ? savedId : liveId
+        let index = indexes.get(id)
+        if (index !== undefined && session.messages[index]?.id !== id) {
+          // Loading an older page can shift a row while the provider is still sending it.
+          index = session.messages.findIndex(row => row.id === id)
+        }
+        const row = index === undefined ? undefined : session.messages[index]
+        if (row?.thoughts && index !== undefined) {
+          indexes.set(id, index)
+          row.thoughts[0] = event.text
+        } else {
+          indexes.set(id, session.messages.length)
+          session.messages.push({ id, role: 'system', content: '', thoughts: [event.text], timestamp: Date.now() })
+        }
+        return
+      }
       const thought = event.state === 'stop' ? event.text?.trim() : ''
       if (thought) span.thoughts.push(thought)
       return

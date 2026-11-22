@@ -20,7 +20,7 @@ export interface ReviewAgentInput {
   workTree: string
   /** Resolved diff base (the episode base SHA, or 'HEAD' when unresolved). */
   base: string
-  /** Exact captured head for session reviews. Null means compare with the live tree. */
+  /** Exact head for pull request reviews. Null means compare with the live tree. */
   head?: string | null
   context: ReviewContext
   agent: AgentId
@@ -127,7 +127,7 @@ function buildPrompt(input: ReviewAgentInput): string {
     parts.push(
       'The COMPLETE diff for this change is provided at the end of this message — do NOT gather it',
       'with git; review it directly. It already includes new/untracked files (as additions with full',
-      `content) and everything in the resolved ${input.head ? 'session snapshot' : 'working tree'} range. If a hunk needs`,
+      `content) and everything in the resolved ${input.head ? 'pull request' : 'working tree'} range. If a hunk needs`,
       'surrounding context, use Read/Grep on the working tree; otherwise you need no git commands.',
       '',
     )

@@ -1,7 +1,7 @@
 import type { Component } from 'svelte'
 import type { DiffScope } from '@solus/contracts/types'
 import type { PrReviewTarget } from '@solus/contracts/providers'
-import type { ReviewTarget } from '@solus/contracts/review'
+import type { ReviewGuideTarget } from '@solus/contracts/review'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 
@@ -163,7 +163,7 @@ export interface RouteParams {
     /** A portable target can resolve to a host-managed checkout outside the
      * source session's project. These fields are supplied by the ready guide
      * status and stay host-scoped. */
-    target?: ReviewTarget
+    target?: ReviewGuideTarget
     guideKey?: string
     cwd?: string
     serverId?: string

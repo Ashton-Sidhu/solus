@@ -18,7 +18,7 @@ import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, isAbsolute } from 'path'
 import { tmpdir } from 'os'
 import { z } from 'zod'
-import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, issueSessionToken, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken } from '../admission/auth'
+import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, issueSessionToken, refreshSessionToken, revokeDevice, revokeSessionToken, verifyPairOpenAdminRequest, verifySessionToken } from '../admission/auth'
 import { createDoors, type Doors } from '../admission/doors'
 import { listReachableEndpoints } from './endpoints'
 import type { TokenVerdict } from '../admission/access-tokens'
@@ -127,6 +127,8 @@ const pairRequestSchema = z.object({
   /** The pairing link's token or the 6-digit code typed by hand; absent for a trusted requester. */
   pairToken: z.string().optional(),
   deviceLabel: z.string().optional(),
+  /** The token of this device's earlier pairing, revoked once the new one is issued. */
+  replacesSessionToken: z.string().optional(),
 })
 
 const revokeRequestSchema = z.object({ deviceId: z.string().min(1) })
@@ -367,7 +369,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       return c.json({ error: 'Invalid or expired pair token' }, 401)
     }
     const { token: sessionToken } = issueSessionToken(deviceLabel)
-    log.info('pair_session_issued', { deviceLabel, trusted: !pairToken })
+    const replaced = body?.replacesSessionToken ? revokeSessionToken(body.replacesSessionToken) : false
+    log.info('pair_session_issued', { deviceLabel, trusted: !pairToken, replaced })
     return c.json({ sessionToken, installationId: getInstallationId(), os: hostOperatingSystem(), identityKey: hostIdentity().publicKey() })
   })
 

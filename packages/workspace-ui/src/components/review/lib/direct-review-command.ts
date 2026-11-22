@@ -1,12 +1,12 @@
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
-import { parseReviewCommand, type ReviewTarget } from '@solus/contracts/review'
+import { parseReviewCommand, type ReviewGuideTarget } from '@solus/contracts/review'
 
 export interface DirectReviewRequest {
-  target: ReviewTarget
+  target: ReviewGuideTarget
   instructions?: string
 }
 
-function withInstructions(target: ReviewTarget, value: string): DirectReviewRequest {
+function withInstructions(target: ReviewGuideTarget, value: string): DirectReviewRequest {
   const instructions = value.trim().slice(0, 20_000)
   return instructions ? { target, instructions } : { target }
 }
@@ -25,7 +25,7 @@ export function directReviewRequest(prompt: string): DirectReviewRequest | null 
   }
 
   const command = parseReviewCommand(prompt)
-  if (!command) return null
+  if (!command || command.mode === 'session') return null
   if (command.mode === 'pr') {
     if (!command.argument) return null
     const parsed = parseGitHubPullRequestUrl(command.argument)
@@ -40,13 +40,10 @@ export function directReviewRequest(prompt: string): DirectReviewRequest | null 
     }, command.context ?? '')
   }
   if (command.mode === 'branch') {
-    const target: ReviewTarget = command.argument
+    const target: ReviewGuideTarget = command.argument
       ? { kind: 'branch', targetBranch: command.argument }
       : { kind: 'branch' }
     return withInstructions(target, command.context ?? '')
   }
-  const target: ReviewTarget = command.mode === 'session'
-    ? { kind: 'session' }
-    : { kind: 'working-tree' }
-  return withInstructions(target, [command.argument, command.context].filter(Boolean).join('\n'))
+  return withInstructions({ kind: 'working-tree' }, [command.argument, command.context].filter(Boolean).join('\n'))
 }

@@ -18,6 +18,7 @@ const DAY = 24 * 60 * 60 * 1000
 
 function harness(options: { self?: string; refuse?: boolean; key?: boolean; pairGate?: Promise<void>; refreshGate?: Promise<void>; refuseRefresh?: boolean } = {}) {
   const sent: Array<{ url: string; authorization: string | null; redirect?: RequestRedirect }> = []
+  const pairBodies: Array<{ replacesSessionToken?: string }> = []
   let time = 1
   const pairStarted = deferred()
   const refreshStarted = deferred()
@@ -33,6 +34,7 @@ function harness(options: { self?: string; refuse?: boolean; key?: boolean; pair
       await options.pairGate
       if (options.refuse) return Response.json({ error: `Rejected ${CODE}` }, { status: 401 })
       expect(JSON.parse(String(init?.body)).pairToken).toBe(CODE)
+      pairBodies.push(JSON.parse(String(init?.body)))
       return Response.json({ sessionToken: TOKEN, installationId: 'remote', os: 'windows', ...(options.key === false ? {} : { identityKey: identity.publicKey() }) })
     }
     if (url.pathname === '/auth/refresh') {
@@ -44,7 +46,7 @@ function harness(options: { self?: string; refuse?: boolean; key?: boolean; pair
     return new Response(null, { status: 404 })
   }
   const service = new HostPairings(() => options.self ?? 'self', () => 'Mac', fetchImpl, () => time)
-  return { service, sent, pairStarted: pairStarted.promise, refreshStarted: refreshStarted.promise, advance: () => { time += DAY + 1 } }
+  return { service, sent, pairBodies, pairStarted: pairStarted.promise, refreshStarted: refreshStarted.promise, advance: () => { time += DAY + 1 } }
 }
 function deferred() {
   let resolve!: () => void
@@ -65,11 +67,23 @@ describe('explicit owner host pairing', () => {
     expect(hostCredential('remote', 'pairing')).toBe(TOKEN)
     putHostListing({ ...host, label: 'My Windows machine', hasUserLabel: true })
     await h.service.pair({ url: URL, code: CODE })
-    expect(h.service.snapshot().hosts[0]?.label).toBe('My Windows machine')
+    expect(h.service.snapshot().hosts[0]?.listing.label).toBe('My Windows machine')
     expect(readHostRecords()).toHaveLength(1)
     expect(harness().service.snapshot().hosts).toHaveLength(1)
     expect(await h.service.credential('remote')).toBe(TOKEN)
     expect(h.sent.find((call) => call.url.endsWith('/pair'))?.redirect).toBe('error')
+  })
+
+  test('pairing a host again replaces this host token there and gives clients a newer pairing to follow', async () => {
+    // WHY: a client whose own token the host refuses pairs again once for each newer `pairedAt`;
+    // the remote host revokes the token this pairing replaces, so it keeps one device row.
+    const h = harness()
+    await h.service.pair({ url: URL, code: CODE })
+    const first = h.service.snapshot().hosts[0]!.pairedAt
+    h.advance()
+    await h.service.pair({ url: URL, code: CODE })
+    expect(h.pairBodies.map((body) => body.replacesSessionToken)).toEqual([undefined, TOKEN])
+    expect(h.service.snapshot().hosts[0]!.pairedAt).toBeGreaterThan(first)
   })
 
   test('a rejected code is never reflected in an error or stored', async () => {
@@ -172,14 +186,25 @@ test('a system turn or an account owner grant cannot grant local host access', a
 test('RPC uses the same pairing record and refuses an account grant', async () => {
   const { SolusServer } = await import('@solus/server/transport/server')
   const { registerHostPairingHandlers } = await import('@solus/server/transport/handlers/host-pairing-handlers')
+  const { registerHostListHandlers } = await import('@solus/server/transport/handlers/host-list-handlers')
   const server = new SolusServer()
   const h = harness()
   registerHostPairingHandlers(server, h.service)
+  const announced: string[][] = []
+  const stop = registerHostListHandlers(server, {
+    // A client that reacts immediately must read the committed host record.
+    broadcast: () => announced.push(h.service.snapshot().hosts.map((host) => host.listing.installationId)),
+  })
   const caller = { clientId: 'test-client', principal: OWNER }
-  await server.handle('hostsPair', [{ url: URL, code: CODE }], caller)
-  expect((await server.handle('hostsListPaired', [], caller)).hosts).toHaveLength(1)
-  await expect(server.handle('hostsListPaired', [], { ...caller, principal: { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'a', deviceLabel: 'Remote', expiresAt: 1 } })).rejects.toThrow()
-  expect(await server.handle('hostsForget', ['remote'], caller)).toEqual({ removed: true })
+  try {
+    await server.handle('hostsPair', [{ url: URL, code: CODE }], caller)
+    expect(announced).toEqual([['remote']])
+    expect((await server.handle('hostListRead', [], caller)).map((host) => host.installationId)).toEqual(['remote'])
+    expect((await server.handle('hostsListPaired', [], caller)).hosts).toHaveLength(1)
+    await expect(server.handle('hostsListPaired', [], { ...caller, principal: { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'a', deviceLabel: 'Remote', expiresAt: 1 } })).rejects.toThrow()
+    expect(await server.handle('hostsForget', ['remote'], caller)).toEqual({ removed: true })
+    expect(announced).toEqual([['remote'], []])
+  } finally { stop() }
 })
 
 test('client pairing uses the host token only on the remote socket and returns a new one-use code', async () => {
@@ -238,5 +263,5 @@ test('an explicit pairing is available to owner agents, ahead of an old introduc
   h.advance()
   expect(await h.service.credential('remote')).toBeNull()
   expect(hostCredential('remote', 'pairing')).toBeNull()
-  expect(h.service.snapshot().hosts.map((host) => host.installationId)).toEqual(['remote'])
+  expect(h.service.snapshot().hosts.map((host) => host.listing.installationId)).toEqual(['remote'])
 })

@@ -515,7 +515,7 @@ export class WorksStore {
       try {
         // Every connected host that serves the collaboration plane: a runner
         // without it (docs/plans/cloud-service-model.md) holds no works.
-        const serverIds = serverConnections.connectedServerIds().filter(
+        const serverIds = serverConnections.serverIds().filter(
           (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready' && hosts.hasCollaboration(serverId),
         )
         await Promise.all(serverIds.map(async (serverId) => {

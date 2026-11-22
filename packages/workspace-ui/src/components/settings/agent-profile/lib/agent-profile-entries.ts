@@ -156,6 +156,7 @@ export function authKindLabel(auth: IntegrationAuth): string {
     case 'none': return 'No sign-in'
     case 'oauth': return 'OAuth sign-in'
     case 'bearer': return 'API key'
+    case 'headers': return 'Headers'
     case 'env': return 'Environment values'
   }
 }
