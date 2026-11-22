@@ -2,12 +2,13 @@ import { Atom } from "effect/reactivity";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { ProviderInstanceId, ProjectId, type EnvironmentId } from "@t3tools/contracts";
-import type { AgentId, PermissionMode } from "@solus/contracts/types";
-import { PROVIDERS, modelChoices } from "@solus-mobile/features/conversation/lib/run-settings";
+import { MODEL_PROFILES, type AgentId, type PermissionMode } from "@solus/contracts/types";
+import { PROVIDERS } from "@solus-mobile/features/conversation/lib/run-settings";
 import { appAtomRegistry } from "../state/atom-registry";
 import { ThreadSettingsPickerScreen } from "../features/threads/ThreadSettingsSheet";
 import { toRuntimeMode } from "./session";
 import { Note } from "./SettingsFeedback";
+import { solusModelGroup } from "./model-picker-catalog";
 
 interface PickerDraft {
   changed: boolean;
@@ -26,30 +27,17 @@ export function AutomationModelPicker({ route }: StaticScreenProps<{ editorKey: 
   const draft = useAtomValue(atom),
     navigation = useNavigation();
   if (!draft) return <Note>Open a scheduled task to choose a model.</Note>;
-  const groups = PROVIDERS.map((p) => {
-    const id = ProviderInstanceId.make(p.id === "claude-code" ? "claudeAgent" : p.id);
+  const groups = PROVIDERS.map((provider) => {
     const choices = [
       { id: "", label: "Provider default" },
-      ...modelChoices(p.id, p.id === draft.provider ? draft.model : null),
-    ];
-    if (p.id === draft.provider && !choices.some((m) => m.id === draft.model))
-      choices.push({ id: draft.model, label: draft.model });
-    return {
-      providerKey: id,
-      providerLabel: p.label,
-      models: choices.map((m) => ({
-        key: JSON.stringify([id, m.id]),
-        label: m.label,
-        subtitle: p.label,
-        providerKey: id,
-        providerLabel: p.label,
-        providerDriver: id,
-        isDefault: !m.id,
-        isLegacy: false,
-        capabilities: null,
-        selection: { instanceId: id, model: m.id },
+      ...Object.entries(MODEL_PROFILES[provider.id] ?? {}).map(([id, profile]) => ({
+        id,
+        label: profile.label,
       })),
-    };
+    ];
+    if (provider.id === draft.provider && !choices.some((model) => model.id === draft.model))
+      choices.push({ id: draft.model, label: draft.model });
+    return solusModelGroup({ ...provider, models: choices, defaultModel: "" });
   });
   function update(patch: Partial<PickerDraft>) {
     const current = appAtomRegistry.get(atom);
