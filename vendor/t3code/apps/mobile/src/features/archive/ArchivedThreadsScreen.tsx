@@ -6,7 +6,6 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import { LegendList } from "@legendapp/list/react-native";
 import {
-  AuthOrchestrationOperateScope,
   type EnvironmentId,
   type EnvironmentMachineKind,
   resolveEnvironmentMachineKind,
@@ -29,7 +28,6 @@ import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { RelativeTime } from "../../components/RelativeTime";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useServerConfigs } from "../../state/entities";
-import { useEnvironmentScope } from "../../state/session";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import type { ArchivedThreadGroup, ArchivedThreadSortOrder } from "./archivedThreadList";
 import { SettingsScreenContent } from "../settings/components/SettingsScreen";
@@ -175,6 +173,7 @@ function ProjectGroupLabel(props: {
 }
 
 function ArchivedThreadRow(props: {
+  readonly canOperateThread: boolean;
   readonly environmentLabel: string | null;
   readonly isFirst: boolean;
   readonly isLast: boolean;
@@ -188,10 +187,7 @@ function ArchivedThreadRow(props: {
   const { width: windowWidth } = useWindowDimensions();
   const gt = useGT();
   const cardColor = useUniwindTheme()["--color-grouped-card"];
-  const canOperateThread = useEnvironmentScope(
-    props.thread.environmentId,
-    AuthOrchestrationOperateScope,
-  );
+
   const subtitle = [props.environmentLabel, props.thread.branch].filter((part): part is string =>
     Boolean(part),
   );
@@ -246,7 +242,7 @@ function ArchivedThreadRow(props: {
     borderBottomRightRadius: props.isLast ? 20 : 0,
     overflow: "hidden" as const,
   };
-  if (!canOperateThread) return <View style={containerStyle}>{rowContent}</View>;
+  if (!props.canOperateThread) return <View style={containerStyle}>{rowContent}</View>;
 
   return (
     <ThreadSwipeable
@@ -255,6 +251,7 @@ function ArchivedThreadRow(props: {
       backgroundColor={cardColor}
       containerStyle={containerStyle}
       fullSwipeWidth={windowWidth - 32}
+      secondaryAction={null}
       onDelete={props.onDelete}
       onSwipeableClose={props.onSwipeableClose}
       onSwipeableWillOpen={props.onSwipeableWillOpen}
@@ -288,6 +285,7 @@ function ArchiveError(props: { readonly message: string; readonly onRetry: () =>
 }
 
 export function ArchivedThreadsScreen(props: {
+  readonly connectedHosts: ReadonlySet<EnvironmentId>;
   readonly environments: ReadonlyArray<ArchivedThreadsHeaderEnvironment>;
   readonly error: string | null;
   readonly groups: ReadonlyArray<ArchivedThreadGroup>;
@@ -369,6 +367,7 @@ export function ArchivedThreadsScreen(props: {
 
     return (
       <ArchivedThreadRow
+        canOperateThread={props.connectedHosts.has(item.thread.environmentId)}
         environmentLabel={item.environmentLabel}
         isFirst={item.isFirst}
         isLast={item.isLast}

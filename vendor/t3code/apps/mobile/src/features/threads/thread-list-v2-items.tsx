@@ -12,8 +12,7 @@ import { RowPressable } from "../../components/ui/RowPressable";
 import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
-import { threadEnvironment } from "../../state/threads";
-import { useAtomCommand } from "../../state/use-atom-command";
+import { listActions } from "../../solus/list-actions";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
 import type { ThreadMoveDestination } from "./threadOrder";
 import type {
@@ -26,7 +25,6 @@ import {
   resolveThreadWorkingStartedAt,
 } from "@t3tools/client-runtime/state/models";
 import {
-  AuthOrchestrationOperateScope,
   type EnvironmentId,
   type EnvironmentMachineKind,
 } from "@t3tools/contracts";
@@ -57,7 +55,6 @@ import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { copyThreadReference } from "../../lib/copyThreadReference";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { useEnvironmentScope } from "../../state/session";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import {
   pendingDraftBranchNeedsRefs,
@@ -778,6 +775,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly onPinThread: (thread: EnvironmentThreadShell) => void;
   readonly onUnpinThread: (thread: EnvironmentThreadShell) => void;
   readonly onSetThreadAutoSettle: (thread: EnvironmentThreadShell, enabled: boolean) => void;
+  readonly canOperateThread: boolean;
+  readonly markedUnread?: boolean | undefined;
   readonly settlementSupported: boolean;
   readonly snoozeSupported: boolean;
   readonly snoozePresets: ReadonlyArray<SnoozePresetSetting> | undefined;
@@ -834,7 +833,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const pinnedRow = props.pinned === true;
   const dormant = useSwipeRowDormant(props.activationKey);
 
-  const selectThread = () => onSelectThread(thread);
+  const selectThread = () => {
+    if (props.canOperateThread && props.markedUnread) void listActions.setRead(thread, true);
+    onSelectThread(thread);
+  };
   const { providerDrivers, providerIconUrl } = useMemo(() => {
     const provider = props.providers?.find(
       (candidate) =>
@@ -869,7 +871,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const rawStatus = resolveThreadListV2Status(thread);
   const status = resolveThreadListV2RowStatus(thread);
-  const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
+  const isUnread = status === "ready" && (props.markedUnread ?? threadHasUnseenCompletion(thread));
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
   const showsWoke = status === "ready" && props.wokeAt !== null;
   const statusEntry =
@@ -910,15 +912,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     m,
   );
 
-  const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
-  const markThreadUnread = useAtomCommand(threadEnvironment.markUnread, { reportFailure: false });
   const handleAcknowledgeWoke = useCallback(() => {
-    if (props.wokeAt === null) return;
-    void visitThread({
-      environmentId: thread.environmentId,
-      input: { threadId: thread.id, visitedAt: props.wokeAt },
-    });
-  }, [props.wokeAt, thread.environmentId, thread.id, visitThread]);
+    if (props.wokeAt !== null) void listActions.setRead(thread, true);
+  }, [props.wokeAt, thread]);
   // VoiceOver cannot focus buttons inside the accessible row.
   const rowAccessibilityActions = useMemo(
     () => [
@@ -930,7 +926,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
   const handleRename = useCallback(() => onRenameThread(thread), [onRenameThread, thread]);
-  const canOperateThread = useEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope);
+  const canOperateThread = props.canOperateThread;
   const canShareWithGuest = useCanShareWithGuest(thread.environmentId);
   const navigation = useNavigation();
   const handleRegenerateTitle = useCallback(
@@ -1222,12 +1218,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "rename") handleRename();
       if (nativeEvent.event === "regenerate-title") handleRegenerateTitle();
       if (nativeEvent.event === "turn-into-project") void turnThreadIntoProject(thread);
-      if (nativeEvent.event === "mark-unread") {
-        void markThreadUnread({
-          environmentId: thread.environmentId,
-          input: { threadId: thread.id },
-        });
-      }
+      if (nativeEvent.event === "mark-unread") void listActions.setRead(thread, false);
       if (nativeEvent.event === "copy-thread") {
         const target = threadChipCopyTarget(
           { environmentId: thread.environmentId, threadId: thread.id },
@@ -1287,7 +1278,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       handleUnpin,
       handleUnsettle,
       handleUnsnooze,
-      markThreadUnread,
       setCustomSnoozeOpen,
       snoozePresets,
       props.snoozePresets,

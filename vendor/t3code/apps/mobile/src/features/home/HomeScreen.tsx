@@ -1,3 +1,5 @@
+import { threadKey } from "@solus-mobile/features/threads/thread-directory";
+import { useSolusDirectory } from "../../solus/runtime";
 import { useGT, useMessages } from "gt-react-native";
 
 import { useContentTopInset } from "../../components/ui/useBarInset";
@@ -400,14 +402,13 @@ export function HomeScreen(props: HomeScreenProps) {
     toggleWorkingShelf,
   } = useThreadListV2ShelfPreferences();
   const now = useThreadListNow(props.threads);
+  const { listHosts, unread } = useSolusDirectory();
+  const { settlementEnvironmentIds, snoozeEnvironmentIds, pinningEnvironmentIds } = listHosts;
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
   const {
     providersByEnvironmentId,
     machineByEnvironmentId,
-    settlementEnvironmentIds,
-    snoozeEnvironmentIds,
     snoozePresetsByEnvironmentId,
-    pinningEnvironmentIds,
     autoSettleOptOutEnvironmentIds,
     pinReorderEnvironmentIds,
     activeReorderEnvironmentIds,
@@ -573,6 +574,8 @@ export function HomeScreen(props: HomeScreenProps) {
         onRenameThread={handleRenameThread}
         onRegenerateThreadTitle={handleRegenerateThreadTitle}
         titleRegenerationSupported={titleRegenerationEnvironmentIds.has(thread.environmentId)}
+        markedUnread={unread?.get(threadKey(thread.environmentId, thread.id))}
+        canOperateThread={listHosts.connectedEnvironmentIds.has(thread.environmentId)}
         settlementSupported={settlementEnvironmentIds.has(thread.environmentId)}
         onSettleThread={handleSettleThread}
         snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}
@@ -608,6 +611,7 @@ export function HomeScreen(props: HomeScreenProps) {
     projectByKey,
     projectTitleByProjectKey: v2ProjectTitleByProjectKey,
     listEnvironments,
+    listHosts,
     savedConnectionsById: props.savedConnectionsById,
     searchQuery: props.searchQuery,
     selectedThreadKey,

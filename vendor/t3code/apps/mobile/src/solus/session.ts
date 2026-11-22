@@ -6,6 +6,7 @@ import {
   ThreadId,
   RunId,
   type RuntimeMode,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import type { PermissionMode, SessionRecord } from "@solus/contracts/types";
@@ -23,6 +24,8 @@ export type SessionRow = Pick<
   | "branch"
   | "cwd"
   | "isWorktree"
+  | "view"
+  | "state"
   | "status"
 >;
 
@@ -35,14 +38,31 @@ export function toThreadShell(
   hostId: string,
   record: SessionRow,
   mode: PermissionMode = "supervised",
+  view = record.view,
+  state = record.state,
+  pinnedAt?: number,
 ) {
+  return presentThreadShell(
+    EnvironmentId.make(hostId),
+    sessionShell(record, mode, view, state, pinnedAt),
+  );
+}
+
+export function sessionShell(
+  record: SessionRow,
+  mode: PermissionMode = "supervised",
+  view = record.view,
+  state = record.state,
+  pinnedAt?: number,
+): OrchestrationV2ThreadShell {
+  const settledAt = view?.settledAt ?? state?.settledAt;
   const id = ThreadId.make(record.sessionId);
   const instanceId = ProviderInstanceId.make(
     record.provider === "claude-code" ? "claudeAgent" : record.provider,
   );
   const busy = record.status === "running";
   const runId = busy ? RunId.make(record.sessionId) : null;
-  return presentThreadShell(EnvironmentId.make(hostId), {
+  return {
     id,
     projectId: ProjectId.make(record.projectPath || "~"),
     title: record.customTitle || record.title || "New session",
@@ -68,10 +88,12 @@ export function toThreadShell(
     visibleItemCount: 0,
     createdAt: DateTime.makeUnsafe(record.createdAt),
     updatedAt: DateTime.makeUnsafe(record.lastActivityAt),
-    archivedAt: null,
-    settledOverride: null,
-    settledAt: null,
+    archivedAt: view?.archivedAt == null ? null : DateTime.makeUnsafe(view.archivedAt),
+    settledOverride: settledAt == null ? null : "settled",
+    settledAt: settledAt == null ? null : DateTime.makeUnsafe(settledAt),
+    snoozedUntil: view?.snoozedUntil == null ? null : DateTime.makeUnsafe(view.snoozedUntil),
+    pinnedAt: pinnedAt == null ? null : DateTime.makeUnsafe(pinnedAt),
     lastVisitedAt: null,
     deletedAt: null,
-  });
+  };
 }

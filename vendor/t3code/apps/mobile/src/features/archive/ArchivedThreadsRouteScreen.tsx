@@ -1,23 +1,18 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
-import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
-import { useArchivedThreadListActions } from "../home/useThreadListActions";
+import { useSolusDirectory } from "../../solus/runtime";
+import { useSolusArchive } from "../../solus/archive";
+import { listActions } from "../../solus/list-actions";
 import {
   ArchivedThreadsScreen,
   type ArchivedThreadsHeaderEnvironment,
 } from "./ArchivedThreadsScreen";
 import { buildArchivedThreadGroups, type ArchivedThreadSortOrder } from "./archivedThreadList";
-import {
-  refreshArchivedThreadsForEnvironment,
-  useArchivedThreadSnapshots,
-} from "./useArchivedThreadSnapshots";
-
 export function ArchivedThreadsRouteScreen() {
-  const { savedConnectionsById } = useSavedRemoteConnections();
+  const { hostsById: savedConnectionsById, listHosts } = useSolusDirectory();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(null);
   const [sortOrder, setSortOrder] = useState<ArchivedThreadSortOrder>("newest");
@@ -34,10 +29,6 @@ export function ArchivedThreadsRouteScreen() {
       ),
     [savedConnectionsById],
   );
-  const environmentIds = useMemo(
-    () => environments.map((environment) => environment.environmentId),
-    [environments],
-  );
   const environmentLabels = useMemo(
     () =>
       Object.fromEntries(
@@ -45,7 +36,9 @@ export function ArchivedThreadsRouteScreen() {
       ),
     [environments],
   );
-  const { error, isLoading, refresh, snapshots } = useArchivedThreadSnapshots(environmentIds);
+  const { error, isLoading, refresh, snapshots } = useSolusArchive(
+    listHosts.connectedEnvironmentIds,
+  );
   const groups = useMemo(
     () =>
       buildArchivedThreadGroups({
@@ -57,30 +50,21 @@ export function ArchivedThreadsRouteScreen() {
       }),
     [environmentLabels, searchQuery, selectedEnvironmentId, snapshots, sortOrder],
   );
-  const refreshChangedEnvironment = (thread: { readonly environmentId: EnvironmentId }) => {
-    refreshArchivedThreadsForEnvironment(thread.environmentId);
-  };
-  const { unarchiveThread, confirmDeleteThread } =
-    useArchivedThreadListActions(refreshChangedEnvironment);
-
-  useFocusEffect(
-    useCallback(() => {
-      refresh();
-    }, [refresh]),
-  );
-
   return (
     <ArchivedThreadsScreen
       environments={environments}
       error={error}
       groups={groups}
       isLoading={isLoading}
-      onDeleteThread={confirmDeleteThread}
+      onDeleteThread={listActions.confirmDeleteThread}
+      connectedHosts={listHosts.connectedEnvironmentIds}
       onEnvironmentChange={setSelectedEnvironmentId}
       onRefresh={refresh}
       onSearchQueryChange={setSearchQuery}
       onSortOrderChange={setSortOrder}
-      onUnarchiveThread={unarchiveThread}
+      onUnarchiveThread={async (thread) => {
+        if (await listActions.unarchiveThread(thread)) refresh();
+      }}
       searchQuery={searchQuery}
       selectedEnvironmentId={selectedEnvironmentId}
       sortOrder={sortOrder}

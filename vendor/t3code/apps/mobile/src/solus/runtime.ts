@@ -7,6 +7,7 @@ import {
   projectWorkspaceConnectionState,
   type WorkspaceEnvironment,
 } from "../state/workspaceModel";
+import { solusListHosts } from "./list-hosts";
 import { toThreadShell } from "./session";
 import { NearbyDiscovery } from "./discovery";
 import { createConversationTransport } from "./transport";
@@ -109,10 +110,6 @@ export function startSolus() {
   };
 }
 
-function iso(time: number | null | undefined) {
-  return time == null ? null : new Date(time).toISOString();
-}
-
 function readDirectory() {
   const environments: WorkspaceEnvironment[] = solus.registry.hosts().map((host) => {
     const state = solus.connections.state(host.id);
@@ -174,22 +171,12 @@ function readDirectory() {
     }
   }
   const facts = solus.threadList.facts();
-  const threads = solus.threads.threads().map(({ hostId, record, key }) => {
-    const shell = toThreadShell(hostId, record);
-    const view = facts.views.get(key) ?? record.view;
-    const settled = view?.settledAt ?? (facts.states.get(key) ?? record.state)?.settledAt;
-    const pinned = facts.pins?.get(key)?.pinnedAt;
-    return {
-      ...shell,
-      archivedAt: iso(view?.archivedAt),
-      settledAt: iso(settled),
-      settledOverride: settled ? ("settled" as const) : null,
-      snoozedUntil: iso(view?.snoozedUntil),
-      pinnedAt: iso(pinned),
-    };
-  });
+  const threads = solus.threads.threads().map(({ hostId, record, key }) =>
+    toThreadShell(hostId, record, undefined, facts.views.get(key) ?? record.view,
+      facts.states.get(key) ?? record.state, facts.pins?.get(key)?.pinnedAt),
+  );
   const hostsById = Object.fromEntries(environments.map((env) => [env.environmentId, env]));
-  return { projects, threads, environments, hostsById, state };
+  return { projects, threads, environments, hostsById, state, unread: facts.unread, listHosts: solusListHosts(environments) };
 }
 let snapshot: ReturnType<typeof readDirectory>;
 let snapshotRevision = -1;

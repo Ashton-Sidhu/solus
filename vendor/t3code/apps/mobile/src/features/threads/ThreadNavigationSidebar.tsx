@@ -1,3 +1,4 @@
+import { threadKey } from "@solus-mobile/features/threads/thread-directory";
 import { listActions } from "../../solus/list-actions";
 import { useSolusDirectory } from "../../solus/runtime";
 import { useGT, useMessages } from "gt-react-native";
@@ -129,10 +130,9 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const insets = useSafeAreaInsets();
   const { fabClearance, fabSize } = useAndroidControlSizing();
   const projects = useProjects();
-  const { threads } = useSolusDirectory();
+  const { threads, listHosts, unread, hostsById: savedConnectionsById } = useSolusDirectory();
   const selectedThreadKey = useSidebarRowThreadKey(props.selectedThreadKey);
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
-  const { hostsById: savedConnectionsById } = useSolusDirectory();
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const sidebarScrollGesture = useNativeGesture();
   const {
@@ -255,14 +255,12 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     toggleWorkingShelf,
   } = useThreadListV2ShelfPreferences();
   const now = useThreadListNow(threads);
+  const { settlementEnvironmentIds, snoozeEnvironmentIds, pinningEnvironmentIds } = listHosts;
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
   const {
     providersByEnvironmentId,
     machineByEnvironmentId,
-    settlementEnvironmentIds,
-    snoozeEnvironmentIds,
     snoozePresetsByEnvironmentId,
-    pinningEnvironmentIds,
     autoSettleOptOutEnvironmentIds,
     pinReorderEnvironmentIds,
     activeReorderEnvironmentIds,
@@ -363,6 +361,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     projectTitleByProjectKey,
     savedConnectionsById,
     listEnvironments,
+    listHosts,
     threadSearchMatchByKey,
     workingShelfEnabled,
   };
@@ -463,6 +462,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             onRenameThread={renameThread}
             onRegenerateThreadTitle={regenerateThreadTitle}
             titleRegenerationSupported={titleRegenerationEnvironmentIds.has(thread.environmentId)}
+            markedUnread={unread?.get(threadKey(thread.environmentId, thread.id))}
+            canOperateThread={listHosts.connectedEnvironmentIds.has(thread.environmentId)}
             settlementSupported={settlementEnvironmentIds.has(thread.environmentId)}
             onSettleThread={settleThread}
             snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}

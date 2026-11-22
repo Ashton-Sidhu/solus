@@ -313,7 +313,7 @@ const SETTINGS_SCREENS = {
     options: settingsPage(),
   }),
   SettingsArchive: createNativeStackScreen({
-    screen: routeBody(ArchivedThreadsRouteScreen, Wip),
+    screen: ArchivedThreadsRouteScreen,
     linking: "settings/archive",
     options: settingsPage(),
   }),
