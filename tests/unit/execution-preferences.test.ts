@@ -329,7 +329,7 @@ describe('execution preferences are parsed strictly where a request carries them
   test('a bad value refuses the request rather than running with a choice the person did not make', async () => {
     const runInput = await import('@solus/server/execution/agents/run-input')
     expect(() => runInput.parseExecutionPreferences({ agentTaskLifecyclePolicy: 'unrestricted' } as never)).toThrow('agentTaskLifecyclePolicy')
-    expect(() => runInput.parseExecutionPreferences({ leadModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: 'extreme' } } as never)).toThrow('Execution preferences refused')
+    expect(() => runInput.parseExecutionPreferences({ workerModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: 'extreme' } } as never)).toThrow('Execution preferences refused')
   })
 
   test('valid preferences pass whole, and a request with none carries none', async () => {

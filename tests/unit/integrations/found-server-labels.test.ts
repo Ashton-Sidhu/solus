@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { FoundServer } from '@solus/contracts/integration-types'
+import type { FoundPlace, FoundServer } from '@solus/contracts/integration-types'
 import type { FoundPortPlace } from '@solus/contracts/integrations/local-servers'
-import { FoundServerLabels } from '@solus/contracts/integrations/found-server-labels'
+import { FoundServerLabels, foundDeleteQuestion, foundFileActions } from '@solus/contracts/integrations/found-server-labels'
 
 // docs/plans/mcp-first-class.md §8.6, §9.2: desktop, web, and mobile say the same
 // words about one found server, and name the host whose loopback a server runs on.
@@ -13,7 +13,7 @@ function server(overrides: Partial<FoundServer> = {}): FoundServer {
     foundId: 'f1',
     fingerprint: 'p1',
     name: 'tool',
-    foundIn: [{ kind: 'file', file: 'cursor', scope: 'user', path: '~/.cursor/mcp.json', name: 'tool' }],
+    foundIn: [{ kind: 'file', file: 'cursor', scope: 'user', path: '~/.cursor/mcp.json', filePath: '/home/me/.cursor/mcp.json', name: 'tool' }],
     transport: { kind: 'stdio', command: 'npx', args: ['-y', 'tool'], envNames: ['API_KEY'] },
     state: 'new',
     projectOnly: false,
@@ -49,21 +49,41 @@ describe('the words of a found server', () => {
     expect(new FoundServerLabels(server(), 'studio').unsupported).toBeNull()
   })
 
-  test('a row says which agents use the server now, so Add does not read as not installed', () => {
-    // WHY: Claude Code and Codex load the servers of their own files by themselves. A row
-    // of ~/.claude.json with only "Add" read as "not installed", though Claude runs used it.
-    const place = (file: 'claude-json' | 'codex-config' | 'cursor', turnedOff?: boolean) => ({ kind: 'file' as const, file, scope: 'user' as const, path: '~/x', name: 'tool', ...(turnedOff && { turnedOff }) })
-    const reach = (overrides: Partial<FoundServer>) => new FoundServerLabels(server(overrides), 'studio').reach
-    expect(reach({ foundIn: [place('claude-json')] })).toBe('Claude uses it now. Add it to use it in Codex too.')
-    expect(reach({ foundIn: [place('codex-config')] })).toBe('Codex uses it now. Add it to use it in Claude too.')
-    expect(reach({ foundIn: [place('claude-json'), place('codex-config')] })).toBe('Claude and Codex use it now, each from its own config file. Add it to manage it in Solus.')
-    expect(reach({ foundIn: [place('cursor')] })).toBe('No agent uses it now. Add it to use it in Claude and Codex.')
+  test('a row shows the logo of each tool whose file has the server, and which agent loads it', () => {
+    // WHY: Claude Code and Codex load the servers of their own files by themselves. A row with
+    // only "Add" read as "not installed", though Claude runs used the server.
+    const place = (file: 'claude-json' | 'codex-config' | 'cursor', turnedOff?: boolean) => ({ kind: 'file' as const, file, scope: 'user' as const, path: `~/${file}`, filePath: `/home/me/${file}`, name: 'tool', ...(turnedOff && { turnedOff }) })
+    const sources = (foundIn: FoundServer['foundIn']) => new FoundServerLabels(server({ foundIn }), 'studio').sources
+    // The agents' own files first, whatever order the host read them in.
+    expect(sources([place('cursor'), place('codex-config'), place('claude-json')])).toEqual([
+      { kind: 'claude-json', label: 'Claude Code · ~/claude-json · Claude loads it', isTurnedOff: false },
+      { kind: 'codex-config', label: 'Codex · ~/codex-config · Codex loads it', isTurnedOff: false },
+      { kind: 'cursor', label: 'Cursor · ~/cursor · No agent loads it', isTurnedOff: false },
+    ])
     // Codex does not load a server its file turns off.
-    expect(reach({ foundIn: [place('codex-config', true)] })).toBe('No agent uses it now. Add it to use it in Claude and Codex.')
-    // A server Solus cannot add still works in the agent whose file has it.
-    expect(reach({ foundIn: [place('codex-config')], state: 'unsupported', unsupported: 'invalid' })).toBe('Codex uses it from its own config file.')
-    expect(reach({ foundIn: [place('codex-config', true)], state: 'unsupported', unsupported: 'invalid' })).toBeNull()
-    expect(reach({ foundIn: [place('claude-json')], state: 'added' })).toBeNull()
+    expect(sources([place('codex-config', true)])).toEqual([{ kind: 'codex-config', label: 'Codex · ~/codex-config · turned off', isTurnedOff: true }])
+    // Solus starts Claude Code without the `local` source, so a project entry of ~/.claude.json loads only outside Solus.
+    expect(sources([{ ...place('claude-json'), scope: 'project' }])[0]!.label).toBe('Claude Code · ~/claude-json · Claude loads it outside Solus only')
+    expect(sources([port])).toEqual([{ kind: 'port', label: 'Port 7201 on studio · node · main', isTurnedOff: false }])
+  })
+
+  test('the file actions follow what the host allows, turns before deletes, with the same words on every client', () => {
+    // WHY (§8.8): the host decides what a caller may change; a client offers that and nothing more.
+    const place = (file: 'claude-json' | 'codex-config' | 'mcp-json', flags: Partial<FoundPlace>) => ({ kind: 'file' as const, file, scope: 'user' as const, path: `~/${file}`, filePath: `/home/me/${file}`, name: 'tool', ...flags })
+    const actions = foundFileActions(server({ foundIn: [
+      place('claude-json', { canTurnOff: true, canDelete: true }),
+      place('codex-config', { canTurnOff: true, turnedOff: true, canDelete: false }),
+      place('mcp-json', { canTurnOff: false, canDelete: true }),
+    ] }))
+    expect(actions.map((action) => action.label)).toEqual(['Turn off in Claude Code', 'Turn on in Codex', 'Delete from Claude Code', 'Delete from .mcp.json'])
+    // A member's list carries no flags, so no client offers a change.
+    expect(foundFileActions(server())).toEqual([])
+    expect(foundDeleteQuestion('paper', place('claude-json', {}))).toBe('Delete paper from ~/claude-json? Claude Code no longer loads it.')
+  })
+
+  test('the add dialog warns when the host has no program for the command', () => {
+    expect(new FoundServerLabels(server({ commandMissing: true }), 'studio').missingProgram).toBe('This host does not have the program npx. Install it before you start the server.')
+    expect(new FoundServerLabels(server(), 'studio').missingProgram).toBeNull()
   })
 
   test('a command offers the file values only when the file gives a value for each name', () => {

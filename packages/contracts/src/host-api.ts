@@ -1,3 +1,4 @@
+import type { HostPairRequest, HostPairingsSnapshot, HostClientPairing } from './host-pairing'
 import type { TaskDetailsRead, TaskProviderRead, TaskReadOptions } from './task-read'
 import type { VaultKeyRef, VaultKeySave, VaultKeyStatus } from './vault-keys'
 import type { PrReactionContent, PrReactions, PrUrlInspection } from './pr-social'
@@ -104,7 +105,7 @@ import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
 import type { McpTask, McpTaskAnswerRequest, McpTaskIdRequest, McpTaskListRequest } from './integrations/mcp-task'
 import type { IntegrationResourceWatchListRequest, IntegrationResourceWatchStopRequest, ResourceWatch } from './integrations/resource-watch'
-import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundListRequest, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationResourceAttachRequest, IntegrationResourceListRequest, IntegrationResourceLists, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
+import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationFacts, IntegrationFoundAddRequest, IntegrationFoundAddResult, IntegrationFoundChangeRequest, IntegrationFoundChangeResult, IntegrationDiscoverRequest, IntegrationFoundListRequest, IntegrationDiscovery, IntegrationFoundTestRequest, IntegrationFoundTestResult, FoundServerList, IntegrationIdRequest, IntegrationProcessStartRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationResourceAttachRequest, IntegrationResourceListRequest, IntegrationResourceLists, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { IntegrationPromptGetRequest, IntegrationPromptList, IntegrationPromptListRequest, IntegrationPromptText } from './integrations/prompts'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
@@ -463,6 +464,11 @@ export interface SolusAPI {
   /** Links a forwarded host to the account over the same SSH target; its forward stays as a route (D9). */
   hostsLinkForwarded(args: { installationId: string; link: SshAddLink }): Promise<{ linked: true }>
   /** The hosts the owner connected to themselves, as this host keeps them while they are signed out (plans/031 D7). Owner only. */
+  /** Explicit owner pairing, used by chat tools and the CLI. */
+  hostsPair(request: HostPairRequest): Promise<HostListing>
+  hostsListPaired(): Promise<HostPairingsSnapshot>
+  hostsPairClient(installationId: string): Promise<HostClientPairing>
+  hostsForget(installationId: string): Promise<{ removed: boolean }>
   hostListRead(): Promise<HostListing[]>
   /** Adds a host to the list, or replaces the listing with the same id. */
   hostListPut(listing: HostListing): Promise<void>
@@ -699,8 +705,14 @@ export interface SolusAPI {
   integrationProcessStop(request: IntegrationIdRequest): Promise<{ stopped: boolean }>
   /** The MCP servers in this host's config files, names only; the user files only for a host administrator. */
   integrationFoundList(request: IntegrationFoundListRequest): Promise<FoundServerList>
-  /** Reads the file again and adds the found server the person saw; a command needs a host administrator and starts nothing. */
+  /** Discovers the MCP servers of every host the caller reaches from this host. The answer names the hosts it asks: this host and each other host it reaches for the caller. Each list comes as `integration.discovered` (§8.9). */
+  integrationDiscover(request: IntegrationDiscoverRequest): Promise<IntegrationDiscovery>
+  /** Reads the file again and adds the found server the person saw; a command needs a host administrator and starts nothing. `hostId`: the add goes to that host through this one. */
   integrationFoundAdd(request: IntegrationFoundAddRequest): Promise<IntegrationFoundAddResult>
+  /** Host administrator: starts a found server once, reads its tools, and stops it. Nothing is saved (mcp-first-class.md §8.8). */
+  integrationFoundTest(request: IntegrationFoundTestRequest): Promise<IntegrationFoundTestResult>
+  /** Host administrator: turns a found server off or on in one of its files, or deletes the entry there (§8.8). */
+  integrationFoundChange(request: IntegrationFoundChangeRequest): Promise<IntegrationFoundChangeResult>
   /** The MCP prompts of the caller's integrations for one project, and the servers that need the caller's sign-in first (mcp-first-class.md §10). */
   integrationPromptList(request: IntegrationPromptListRequest): Promise<IntegrationPromptList>
   /** Owner: expands one MCP prompt with the caller's connection; the text becomes the caller's message. */

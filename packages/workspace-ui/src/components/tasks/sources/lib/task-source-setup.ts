@@ -45,6 +45,14 @@ export function withTaskSource(config: TaskSourceConfig, source: TaskSource): Ta
   return { taskSources: [...sources, source] }
 }
 
+/** Add several sources in one write, in their order, up to the limit. Null
+ *  when none of them is new. */
+export function withTaskSources(config: TaskSourceConfig, sources: readonly TaskSource[]): TaskSourceConfig | null {
+  let next = config
+  for (const source of sources) next = withTaskSource(next, source) ?? next
+  return next === config ? null : next
+}
+
 /** Remove a source. A person with no source has no tasks. */
 export function withoutTaskSource(config: TaskSourceConfig, sourceKey: string): TaskSourceConfig {
   return { taskSources: config.taskSources.filter((held) => taskSourceKey(held) !== sourceKey) }
@@ -231,6 +239,31 @@ export function connectionProviderNames(notes: readonly SourceConnectionNote[]):
   const names = [...new Set(notes.map((note) => PROVIDER_NAME[note.provider]))]
   if (names.length <= 2) return names.join(' and ')
   return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
+}
+
+// ── Your projects' repositories ──
+
+/** A repository of one of the person's projects, offered as a source in one step. */
+export interface ProjectSourceOffer {
+  source: TaskSource
+  sourceKey: string
+  label: string
+  /** The project is a fork's checkout; the offer starts not selected. */
+  isFork: boolean
+}
+
+/**
+ * The repositories of the person's recent projects that are not sources yet:
+ * what the Tasks page offers a person with no source. They are ordinary
+ * sources once added, so they sync, show on the strip, and can be removed.
+ */
+export function projectSourceOffers(options: TaskSourceOptions | null, configured: readonly TaskSource[]): ProjectSourceOffer[] {
+  const held = new Set(configured.map(taskSourceKey))
+  return (options?.github.projectRepositories ?? []).flatMap((repository) => {
+    const source: TaskSource = { kind: 'github-repo', owner: repository.owner, repo: repository.repo }
+    const sourceKey = taskSourceKey(source)
+    return held.has(sourceKey) ? [] : [{ source, sourceKey, label: `${repository.owner}/${repository.repo}`, isFork: !!repository.isFork }]
+  })
 }
 
 /** The choices of a group that a search text keeps. */

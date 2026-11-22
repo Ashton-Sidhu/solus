@@ -8,6 +8,22 @@ import { toAbsoluteFilePaths } from "./changedFiles";
 import { localApi } from "@solus/client-core/local-api";
 import { remoteEditorLink } from "./remote-editor-link";
 
+/** Where a file of `serverId` opens: an SSH link in this device's editor, the host's own editor, or nowhere. */
+function editorRoute(serverId: string | undefined, editorId: EditorId | null): "remote" | "host" | null {
+  if (!serverId || !editorId) return null;
+  if (!hostPolicy.isClientMachine(serverId)) {
+    const info = hosts.get(serverId)?.serverInfo;
+    return info?.state === 'ready' && info.value.sshTarget ? "remote" : null;
+  }
+  if (!hosts.device?.hasDesktopHandlers) return null;
+  return supportsEditor(serverConnections.cachedCapabilitiesFor(serverId), editorId) ? "host" : null;
+}
+
+/** Whether this client can open a file of `serverId` in the configured editor, so a surface offers the action only where it works. */
+export function canOpenInConfiguredEditor(serverId: string | undefined, editorId: EditorId | null): boolean {
+  return editorRoute(serverId, editorId) !== null;
+}
+
 export function openInConfiguredEditor(
   ctx: IpcContext,
   opts: {
@@ -20,9 +36,10 @@ export function openInConfiguredEditor(
   },
 ): boolean {
   const { editorId } = opts;
-  if (!hostPolicy.isClientMachine(opts.serverId)) {
-    if (!opts.serverId || !editorId || opts.filePaths.length === 0) return false;
-    const info = hosts.get(opts.serverId)?.serverInfo;
+  const route = editorRoute(opts.serverId, editorId);
+  if (!route || !editorId || opts.filePaths.length === 0) return false;
+  if (route === "remote") {
+    const info = hosts.get(opts.serverId!)?.serverInfo;
     const target = info?.state === 'ready' ? info.value.sshTarget : undefined;
     const paths = toAbsoluteFilePaths(opts.filePaths, opts.cwd || undefined);
     const link = target && paths.length === 1 ? remoteEditorLink(editorId, target, paths[0]) : null;
@@ -30,9 +47,6 @@ export function openInConfiguredEditor(
     void localApi.openExternal(link);
     return true;
   }
-  if (!hosts.device?.hasDesktopHandlers) return false;
-  if (!editorId || opts.filePaths.length === 0) return false;
-  if (!opts.serverId || !supportsEditor(serverConnections.cachedCapabilitiesFor(opts.serverId), editorId)) return false;
   const cwd = opts.cwd || undefined;
   void opts.api.openInEditor(ctx, {
     filePaths: toAbsoluteFilePaths(opts.filePaths, cwd),

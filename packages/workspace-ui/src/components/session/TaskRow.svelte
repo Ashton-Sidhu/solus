@@ -7,6 +7,7 @@
     Check as CheckIcon,
     Laptop as LaptopIcon,
     Moon as MoonIcon,
+    Pin as PinIcon,
     Sun as SunIcon,
     User as UserIcon,
     LoaderCircle as SpinnerGapIcon,
@@ -459,7 +460,17 @@
              rest of the session's lifecycle. Wake is not — it is a snoozed
              row's only way back, so it holds at every width. -->
         {#if onTogglePin && !isPinned}
-          <SessionPinButton isPinned={false} onToggle={onTogglePin} />
+          <button
+            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
+            title="Pin session"
+            aria-label="Pin session"
+            onclick={(event) => {
+              event.stopPropagation();
+              onTogglePin();
+            }}
+          >
+            <PinIcon size={14} class="-rotate-35" />
+          </button>
         {/if}
         {#if canSnooze && task.status !== "done"}
           {#if task.lifecycle === "snoozed"}
@@ -564,22 +575,6 @@
      it. Colour is inherited from the row, so a receding row's title recedes
      with it rather than being tuned against it. -->
 {#snippet rowTitle()}
-  {#if task.isLead && !renamingRow}
-    <!-- The same glyph as the composer's Meta mode button and the count
-         of sessions a row started: one family for "this session starts
-         sessions". It breathes while the row's session works, as the count
-         does, in the pane's one cool tone for work in flight. -->
-    <span
-      class="flex shrink-0 items-center text-(--solus-text-tertiary) {task.attention === 'running'
-        ? 'text-(--solus-accent) animate-pulse [animation-duration:1.4s] motion-reduce:animate-none'
-        : ''}"
-      title="Meta mode: this session plans the work and starts other sessions to do it"
-      aria-label="Meta mode session"
-      role="img"
-    >
-      <StartedSessionsIcon size={13} onanimationstart={alignStatusAnimationPhase} />
-    </span>
-  {/if}
   {#if renamingRow}
     <SessionNameInput
       value={task.title}

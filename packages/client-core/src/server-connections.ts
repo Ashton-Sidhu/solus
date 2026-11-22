@@ -1,4 +1,6 @@
 /// <reference types="vite/client" />
+import { HostPairingFollower } from './host-pairing-follower'
+import { defaultDeviceLabel } from './device-label'
 import { forgetHostConnections, type HostConnectionOwner } from './forget-host'
 import type { ConnectionsServerInfo, NativeSolusAPI, SolusAPI } from '@solus/contracts/host-api'
 import { mergeNativeOnlySolusApi } from './native-api-overlay'
@@ -44,6 +46,7 @@ export interface ManagedConnection {
   supervisor: HostSupervisor
   /** Everything read about this host, shared by every reader (docs/plans/host-model.md). */
   facts: HostFacts
+  pairings?: HostPairingFollower
 }
 
 type ConnectionListener = (connection: ManagedConnection) => void
@@ -95,6 +98,7 @@ export class ServerConnections {
       for (const connection of this.connections.values()) {
         if (this.undialedServerIds.has(connection.serverId)) continue
         connection.link.wake(signal)
+        if (connection.link.readiness === 'ready') void connection.pairings?.refresh()
       }
     })
   }
@@ -368,6 +372,7 @@ export class ServerConnections {
 
   private managedConnection(serverId: string, target: SolusServerTarget, transport: WsTransport, api: SolusAPI, presence: HostPresence): ManagedConnection {
     let wasReady = false
+    let pairings: HostPairingFollower | undefined
     const link = new HostLink({
       hostId: serverId,
       transport,
@@ -401,14 +406,22 @@ export class ServerConnections {
         if (wasReady && readiness !== 'ready') this.clearConnectionReads(serverId)
         wasReady = readiness === 'ready'
         for (const listener of this.readinessListeners) listener(serverId, readiness, attempt)
-        if (readiness === 'ready') this.introducer.run()
+        if (readiness === 'ready') {
+          this.introducer.run()
+          void pairings?.refresh()
+        }
       },
     })
     link.facts.subscribe((key) => {
       const version = key === 'capabilities' ? link.facts.value('capabilities')?.version : undefined
       if (version) this.lastHostVersions.set(serverId, version)
     })
-    return { serverId, presence, target, link, transport, api, events: link.events, supervisor: link.supervisor, facts: link.facts }
+    pairings = new HostPairingFollower({
+      api, events: link.events, hosts: () => this.catalog.hosts(),
+      save: async (host) => { await this.catalog.pair(host) },
+      forget: (hostId) => this.catalog.forget(hostId), deviceLabel: defaultDeviceLabel(),
+    })
+    return { serverId, presence, target, link, transport, api, events: link.events, supervisor: link.supervisor, facts: link.facts, pairings }
   }
 
   private addConnection(connection: ManagedConnection): ManagedConnection {
@@ -626,6 +639,7 @@ export class ServerConnections {
   }
 
   private destroyConnection(connection: ManagedConnection): void {
+    connection.pairings?.dispose()
     connection.link.destroy()
   }
 

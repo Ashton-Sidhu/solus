@@ -29,7 +29,6 @@ export type ActivityKind =
   // sessions
   | { kind: 'stopped' }
   /** The agent promoted its own session to coordinate work. */
-  | { kind: 'became_lead' }
   /** `sourceSessionId` is the source's provider thread, which opens it; `midRun`
    *  when the source was mid-turn and the fork stops at its last settled turn. */
   | { kind: 'forked'; sourceSessionId: string; sourceTitle?: string; midRun?: boolean }
@@ -92,7 +91,6 @@ const worktreeOfferResolutionSchema: z.ZodType<WorktreeOfferResolution> = z.disc
 export const activityKindSchema: z.ZodType<ActivityKind> = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('mcp_app'), app: mcpAppReferenceSchema }),
   z.object({ kind: z.literal('stopped') }),
-  z.object({ kind: z.literal('became_lead') }),
   z.object({ kind: z.literal('forked'), sourceSessionId: z.string(), sourceTitle: z.string().optional(), midRun: z.boolean().optional() }),
   z.object({ kind: z.literal('moved_to_worktree'), path: z.string(), branch: z.string().optional() }),
   z.object({ kind: z.literal('worktree_offered'), path: z.string(), branch: z.string().optional() }),
@@ -132,6 +130,3 @@ export const activitySchema: z.ZodType<Activity> = z.intersection(
   }),
   activityKindSchema,
 )
-
-/** The promotion divider uses the same words on each client. */
-export const LEAD_PROMOTION_LABEL = 'Meta mode enabled · Coordinates work across sessions'

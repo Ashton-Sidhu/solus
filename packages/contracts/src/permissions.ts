@@ -63,6 +63,10 @@ const PERMISSION_OF_METHOD = {
   hostsAddWsl: 'host.local.reach',
   hostsRemoveForwarded: 'host.local.reach',
   // The owner's own list; the handler also refuses anyone but the host owner.
+  hostsPair: 'host.local.reach',
+  hostsListPaired: 'host.local.reach',
+  hostsPairClient: 'host.local.reach',
+  hostsForget: 'host.local.reach',
   hostListRead: 'host.admin',
   hostListPut: 'host.admin',
   hostListRemove: 'host.admin',
@@ -239,7 +243,10 @@ const PERMISSION_OF_METHOD = {
   // `host.admin`, which the handler checks; the other kinds stay at `host.use` (mcp-first-class.md §7.2).
   integrationProcessStart: HOST_USE, integrationProcessStop: HOST_USE, integrationResourceList: HOST_USE,
   // The handler shows the host's own files and adds a command only for `host.admin` (mcp-first-class.md §8.6).
-  integrationFoundList: HOST_USE, integrationFoundAdd: HOST_USE,
+  // A discovery asks the other hosts as the caller: each host applies its own rule (§8.9).
+  integrationFoundList: HOST_USE, integrationDiscover: HOST_USE, integrationFoundAdd: HOST_USE,
+  // A test runs a command or reaches a server from a file, and a change edits a file of the host's OS user (mcp-first-class.md §8.8).
+  integrationFoundTest: 'host.admin', integrationFoundChange: 'host.admin',
   integrationPromptList: HOST_USE, integrationPromptGet: HOST_USE,
   integrationConnectionList: HOST_USE, integrationConnectStart: HOST_USE, integrationConnectSubmit: HOST_USE,
   integrationConnectCancel: HOST_USE, integrationDisconnect: HOST_USE, agentProfileApply: HOST_USE,

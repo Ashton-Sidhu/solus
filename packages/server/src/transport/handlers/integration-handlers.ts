@@ -16,7 +16,10 @@ import {
   type Integration,
   type IntegrationAuth,
   integrationFoundAddRequestSchema,
+  integrationFoundChangeRequestSchema,
+  integrationDiscoverRequestSchema,
   integrationFoundListRequestSchema,
+  integrationFoundTestRequestSchema,
   type IntegrationFacts,
   type IntegrationResourceLists,
   type IntegrationOAuthClientInput,
@@ -37,6 +40,8 @@ import { probeAddress, probeForWrite, type IntegrationWrites } from '../../integ
 import { integrationPromptList, integrationPromptText } from '../../integrations/integration-prompts'
 import { COMMAND_CHANGE_REFUSAL, mayRunCommands } from '../../integrations/command-admission'
 import type { FoundServers } from '../../integrations/found-servers'
+import { discoverMcpServers } from '../../integrations/discovery'
+import type { ReachRequest, RemoteHost, RemoteHosts } from '../../execution/orchestration/remote-hosts'
 import type { LocalMcpServers } from '../../integrations/local-servers'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { cliSkipLog } from '../../integrations/cli-skips'
@@ -106,6 +111,10 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   writes: IntegrationWrites
   /** The MCP servers in this host's config files (docs/plans/mcp-first-class.md §8). */
   found: FoundServers
+  /** The other hosts this host reaches for a caller, for the found servers of each (§8.9). Absent: this host only. */
+  remote?: { hosts: Pick<RemoteHosts, 'list' | 'find' | 'connect'>; reachOf(principal: Principal): ReachRequest | null }
+  /** This host's name, for its group of discovered servers. */
+  hostLabel?(): string
   /** Whether a server on this host's loopback runs (§9.3). Absent where the host does not follow its running servers. */
   local?: Pick<LocalMcpServers, 'reachable'>
   /**
@@ -116,6 +125,16 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   profile?: { removing(principal: Principal, integration: Integration): Promise<void> }
 }): void {
   const { store, catalog, gateway, events, connectionStore, connections, oauth, clients, writes } = deps
+  /** The caller's connection to another of their hosts, reached as `start_sessions` reaches it. */
+  const remoteHostFor = async (principal: Principal, hostId: string): Promise<RemoteHost> => {
+    const reach = deps.remote?.reachOf(principal)
+    if (!deps.remote || !reach) throw new Error('This host reaches no other host for you.')
+    const target = await deps.remote.hosts.find(reach, hostId)
+    if ('error' in target) throw new Error(target.error)
+    const remote = deps.remote.hosts.connect(target)
+    if ('error' in remote) throw new Error(remote.error)
+    return remote
+  }
   const requireIntegration = (id: string, actor: Actor) => {
     const integration = store.get(id, recordScopeOf(actor.principal))
     if (!integration || forReader(actor, integration).role !== 'owner') throw new Error('That integration is no longer on this host.')
@@ -228,13 +247,54 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     return deps.found.list(ctx.principal, ownerKeyOf(ctx.actor), request)
   })
 
+  // This host and each other host it reaches for the caller; each list comes as an event to this client (§8.9).
+  server.register('integrationDiscover', (args, ctx) => {
+    const request = integrationDiscoverRequestSchema.parse(args[0])
+    if (request.projectPath) assertPathInScope('integrationDiscover', ctx.principal, request.projectPath)
+    return discoverMcpServers({
+      discoveryId: request.discoveryId,
+      selfLabel: deps.hostLabel?.() ?? 'This host',
+      refresh: request.refresh === true,
+      local: () => deps.found.list(ctx.principal, ownerKeyOf(ctx.actor), { projectPath: request.projectPath, refresh: request.refresh }),
+      hosts: deps.remote?.hosts ?? { list: async () => [], connect: () => ({ error: 'This host reaches no other host.' }) },
+      reach: deps.remote?.reachOf(ctx.principal) ?? null,
+      publish: (event) => void events.publish(ctx.clientId, 'integration.discovered', event),
+    })
+  })
+
+  // An action on another host goes there through this one, as the caller; a project is a path here, so it does not go (§8.9).
   server.register('integrationFoundAdd', async (args, ctx) => {
     const request = integrationFoundAddRequestSchema.parse(args[0])
+    if (request.hostId) {
+      const remote = await remoteHostFor(ctx.principal, request.hostId)
+      return remote.call('the add', () => remote.api.integrationFoundAdd({ foundId: request.foundId, fingerprint: request.fingerprint, useFileValues: request.useFileValues }))
+    }
     if (request.projectPath) assertPathInScope('integrationFoundAdd', ctx.principal, request.projectPath)
     const owner = ownerKeyOf(ctx.actor)
     if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
     const result = await deps.found.add(ctx.principal, owner, request)
     return result.kind === 'saved' ? { ...result, integration: forReader(ctx.actor, result.integration) } : result
+  })
+
+  // A test and a change of a found server (mcp-first-class.md §8.8): `host.admin` at the door.
+  server.register('integrationFoundTest', async (args, ctx) => {
+    const request = integrationFoundTestRequestSchema.parse(args[0])
+    if (request.hostId) {
+      const remote = await remoteHostFor(ctx.principal, request.hostId)
+      return remote.call('the test', () => remote.api.integrationFoundTest({ foundId: request.foundId, fingerprint: request.fingerprint }))
+    }
+    if (request.projectPath) assertPathInScope('integrationFoundTest', ctx.principal, request.projectPath)
+    return deps.found.test(ctx.principal, request)
+  })
+
+  server.register('integrationFoundChange', async (args, ctx) => {
+    const request = integrationFoundChangeRequestSchema.parse(args[0])
+    if (request.hostId) {
+      const remote = await remoteHostFor(ctx.principal, request.hostId)
+      return remote.call('the change', () => remote.api.integrationFoundChange({ foundId: request.foundId, fingerprint: request.fingerprint, place: request.place, change: request.change }))
+    }
+    if (request.projectPath) assertPathInScope('integrationFoundChange', ctx.principal, request.projectPath)
+    return deps.found.change(ctx.principal, request)
   })
 
   // MCP prompts as slash commands (mcp-first-class.md §10): the caller's own servers, with the caller's connection.

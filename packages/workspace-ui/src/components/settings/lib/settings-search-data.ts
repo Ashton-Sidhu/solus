@@ -73,19 +73,14 @@ export const sessionSettings = [
     keywords: ["auto", "jev", "interface", "exploration", "task", "general"],
   },
   {
-    id: "lead-model",
-    ...settingsDefinitions["sessions.lead-model"],
-    keywords: ["delegate", "delegating", "lead", "orchestration", "orchestrator", "workers", "agent", "reasoning", "effort", "claude", "codex"],
-  },
-  {
     id: "worker-model",
     ...settingsDefinitions["sessions.worker-model"],
     keywords: ["delegate", "routing", "route", "orchestration", "orchestrator", "agent", "reasoning", "effort"],
   },
   {
-    id: "lead-instructions",
-    ...settingsDefinitions["sessions.lead-instructions"],
-    keywords: ["delegate", "delegating", "lead", "orchestration", "orchestrator", "workers", "routing", "route", "prompt"],
+    id: "delegation-instructions",
+    ...settingsDefinitions["sessions.delegation-instructions"],
+    keywords: ["delegate", "delegating", "orchestration", "orchestrator", "workers", "routing", "route", "prompt"],
   },
 ];
 

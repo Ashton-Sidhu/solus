@@ -209,6 +209,10 @@ export const RPC_PLANES = {
   hostsListSshConfigHosts: 'collaboration',
   hostsAddWsl: 'collaboration',
   hostsRemoveForwarded: 'collaboration',
+  hostsPair: 'execution',
+  hostsListPaired: 'execution',
+  hostsPairClient: 'execution',
+  hostsForget: 'execution',
   hostListRead: 'collaboration',
   hostListPut: 'collaboration',
   hostListRemove: 'collaboration',
@@ -290,7 +294,10 @@ export const RPC_PLANES = {
   integrationProcessStop: 'execution',
   // The host reads its own config files (mcp-first-class.md §8)
   integrationFoundList: 'execution',
+  integrationDiscover: 'execution',
   integrationFoundAdd: 'execution',
+  integrationFoundTest: 'execution',
+  integrationFoundChange: 'execution',
   // The host lists and expands MCP prompts with the caller's connection (mcp-first-class.md §10)
   integrationPromptList: 'execution',
   integrationPromptGet: 'execution',

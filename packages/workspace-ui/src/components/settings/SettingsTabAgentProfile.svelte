@@ -12,6 +12,7 @@
    * only on "Import from this computer": the profile never fills by itself.
    */
   import { LoaderCircle, HardDriveDownload, Laptop } from "@lucide/svelte";
+  import AccountConnectionsLink from "./AccountConnectionsLink.svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { agentProfileLocalStore, agentProfileStore, hosts, serversStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -62,6 +63,7 @@
         {/if}
       </section>
     {/if}
+    <AccountConnectionsLink mcp />
     <AgentProfileConflictsSection />
     <AgentProfileInstructionsSection />
     <AgentProfileSkillsSection registrySkills={sections.registrySkills} writtenSkills={sections.writtenSkills} searchHostId={toolHost?.id ?? null} />

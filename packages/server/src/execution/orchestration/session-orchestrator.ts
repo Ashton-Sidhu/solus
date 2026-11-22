@@ -741,8 +741,6 @@ export class SessionOrchestrator {
     let cancelled = false
     for (const exchange of this.exchanges.values()) {
       if (exchange.kind === 'independent' || exchange.senderSessionId !== senderSessionId || !isOpenExchange(exchange)) continue
-      // Reports held for a stopped lead would wake it again: drop them.
-      if (!cancelled) this.delivery.dropHeld(exchange.senderSessionId)
       this.settle(exchange, 'interrupted', '', { silenced: true })
       cancelled = true
     }
@@ -905,25 +903,17 @@ export class SessionOrchestrator {
     this.deliverReport(exchange, item, exchange.notify && !stoppedBySender)
   }
 
-  /** Sends a settled message's report to its sender, or only wakes the sender
-   *  with the reports held for it when this message has none to send. */
+  /** Sends each settled report as soon as it is ready. */
   private deliverReport(exchange: Exchange, item: OrchestrationItem, hasReport: boolean): void {
     const senderSessionId = exchange.senderSessionId
     const awaitingOthers = this.isAwaitingReplies(senderSessionId)
-    if (!hasReport) {
-      // The last message a lead waited on can end without a report of its own;
-      // the reports held for it still wake it.
-      if (!awaitingOthers) this.delivery.release(senderSessionId)
-    } else {
-      // A lead hears nothing until every message it waits on has settled.
-      const hold = awaitingOthers ? this.runtime.isLead(senderSessionId).catch(() => false) : Promise.resolve(false)
-      this.delivery.deliver(senderSessionId, hold.then((held) => ({
+    if (hasReport) {
+      this.delivery.deliver(senderSessionId, {
         exchangeId: exchange.exchangeId,
         targetSessionId: exchange.targetSessionId,
         continuationExchangeIds: exchange.parentExchangeIds,
         item,
-        hold: held,
-      })))
+      })
     }
     // Asked after the delivery, so a report that wakes the sender has started its turn.
     if (!awaitingOthers) this.delivery.afterDelivered(senderSessionId, () => this.runtime.repliesEnded(senderSessionId))
@@ -953,8 +943,7 @@ export class SessionOrchestrator {
   /**
    * Tells the sender's model about a child that needs a person or is blocked.
    * One notice per sender and request, however many of the sender's messages
-   * the turn answers. A sender that did not ask to hear back, or that is a
-   * task's lead, is not told.
+   * the turn answers. Only send notices when the sender asked to hear back.
    */
   private notify(exchange: Exchange, notice: SessionNotice, key: string): void {
     // A sender waiting in its tool call hears it there: the wait ends at once.
@@ -967,15 +956,12 @@ export class SessionOrchestrator {
     const item: Promise<OrchestrationItem> = this.runtime.taskIdFor(exchange.targetSessionId)
       .catch(() => undefined)
       .then((taskId) => ({ type: 'notice', notice: taskId ? { ...notice, taskId } : notice }))
-    // A lead's person answers on the card and a limit resumes on its own: a
-    // notice would only wake the lead to repeat what the card shows.
-    const isLead = this.runtime.isLead(exchange.senderSessionId).catch(() => false)
-    this.delivery.deliver(exchange.senderSessionId, Promise.all([item, isLead]).then(([resolved, lead]) => lead ? null : {
+    this.delivery.deliver(exchange.senderSessionId, item.then((resolved) => ({
       item: resolved,
       exchangeId: exchange.exchangeId,
       targetSessionId: exchange.targetSessionId,
       noticeKey: openKey,
-    }))
+    })))
   }
 
   /** The notice's cause is over: take it back if the sender has not read it. */

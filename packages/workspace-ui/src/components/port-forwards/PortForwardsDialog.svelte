@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Dialog } from 'bits-ui';
+  import { Square } from '@lucide/svelte';
   import { hosts, serversStore } from '../../contexts';
   import { portForwards } from '../../contexts/running-servers/port-forwards.store.svelte';
   import { runningServers } from '../../contexts/running-servers/running-servers.store.svelte';
@@ -58,7 +59,9 @@
       <span class="block truncate">{hostName(id)} · {remotePort}</span>
       <span class="select-text text-chrome-dense text-(--solus-text-secondary)">127.0.0.1:{localPort}</span>
     </span>
-    <Button size="sm" variant="destructive" disabled={busy} onclick={() => void run(stop)}>Stop forwarding</Button>
+    <Button size="icon-sm" variant="destructive" title="Stop forwarding" aria-label={`Stop forwarding ${hostName(id)} port ${remotePort}`} disabled={busy} onclick={() => void run(stop)}>
+      <Square size={16} class="fill-current" />
+    </Button>
   </li>
 {/snippet}
 

@@ -1,4 +1,4 @@
-import type { ConfigFileKind, FoundServer, FoundUnsupportedReason } from '../integration-types'
+import type { ConfigFileKind, FoundPlace, FoundServer, FoundUnsupportedReason, IntegrationFoundChange } from '../integration-types'
 import { commandLineText } from './command-server'
 import type { FoundPortPlace } from './local-servers'
 
@@ -17,20 +17,6 @@ const FILE_LABELS = {
   'claude-desktop': 'Claude Desktop',
 } satisfies Record<ConfigFileKind, string>
 
-/**
- * The agents of Solus whose CLI loads a file's servers by itself: Claude Code
- * reads its own file and the project `.mcp.json`, Codex reads its own. The
- * other tools' files reach no agent until the person adds the server.
- */
-const FILE_AGENTS = {
-  'mcp-json': ['Claude'],
-  'claude-json': ['Claude'],
-  'codex-config': ['Codex'],
-  cursor: [],
-  vscode: [],
-  'claude-desktop': [],
-} satisfies Record<ConfigFileKind, Array<'Claude' | 'Codex'>>
-
 /** The tool that keeps a config file. */
 export function configFileLabel(file: ConfigFileKind): string {
   return FILE_LABELS[file]
@@ -44,6 +30,36 @@ export function foundUnsupportedText(reason: FoundUnsupportedReason): string {
     case 'not-allowed': return 'Only an administrator of this host can add a command.'
     case 'invalid': return 'Solus cannot read this entry as an MCP server.'
   }
+}
+
+/** The order of a server's source logos: the files of the agents that Solus runs first, then the other tools' files, then a port of the host. */
+const SOURCE_ORDER: Array<ConfigFileKind | 'port'> = ['claude-json', 'codex-config', 'mcp-json', 'cursor', 'vscode', 'claude-desktop', 'port']
+
+/**
+ * Which agent of Solus loads the servers of a file: Claude Code and Codex load
+ * their own files, and no agent loads another tool's file. Solus starts Claude
+ * Code without the `local` setting source, so a project entry of
+ * `~/.claude.json` (the default of `claude mcp add`) loads only outside Solus.
+ */
+function fileLoader(place: FoundPlace): string {
+  switch (place.file) {
+    case 'claude-json': return place.scope === 'project' ? 'Claude loads it outside Solus only' : 'Claude loads it'
+    case 'mcp-json': return 'Claude loads it'
+    case 'codex-config': return 'Codex loads it'
+    default: return 'No agent loads it'
+  }
+}
+
+/**
+ * One place a found server is in, as a logo on its row (§8.6): whose file it
+ * is, or `port`, and the words of its hover and screen-reader label, "Claude
+ * Code · ~/.claude.json · Claude loads it".
+ */
+export interface FoundSource {
+  kind: ConfigFileKind | 'port'
+  label: string
+  /** The file turns the server off, so its tool does not load it: the logo is dimmed. */
+  isTurnedOff: boolean
 }
 
 /**
@@ -88,19 +104,18 @@ export class FoundServerLabels {
     return `${said} Solus did not verify this: any program on this host can answer on a port.`
   }
 
-  /**
-   * Which agents use the server now, from their own files, and what an add
-   * changes: the row's answer to "is this not installed already?". Null for a
-   * server that Solus already has, and for one it cannot add that no agent uses.
-   */
-  get reach(): string | null {
-    if (this.server.state === 'added' || this.server.state === 'changed') return null
-    const agents = new Set(this.server.foundIn.flatMap((place) => place.kind === 'file' && !place.turnedOff ? FILE_AGENTS[place.file] : []))
-    const users = agents.size === 2 ? 'Claude and Codex use' : agents.has('Claude') ? 'Claude uses' : agents.has('Codex') ? 'Codex uses' : null
-    if (this.server.state === 'unsupported') return users ? `${users} it from its own config file.` : null
-    if (agents.size === 2) return 'Claude and Codex use it now, each from its own config file. Add it to manage it in Solus.'
-    if (users) return `${users} it now. Add it to use it in ${agents.has('Claude') ? 'Codex' : 'Claude'} too.`
-    return 'No agent uses it now. Add it to use it in Claude and Codex.'
+  /** Where the server was found, one logo for each file or port, in the source order. */
+  get sources(): FoundSource[] {
+    const rank = (place: FoundServer['foundIn'][number]) => SOURCE_ORDER.indexOf(place.kind === 'port' ? 'port' : place.file)
+    return [...this.server.foundIn].sort((a, b) => rank(a) - rank(b)).map((place) => place.kind === 'port'
+      ? { kind: 'port', label: portPlaceText(place, this.hostLabel), isTurnedOff: false }
+      : { kind: place.file, label: [configFileLabel(place.file), place.path, place.turnedOff ? 'turned off' : fileLoader(place)].join(' · '), isTurnedOff: place.turnedOff === true })
+  }
+
+  /** The host has no program for the command: the add dialog says so before the person adds it. */
+  get missingProgram(): string | null {
+    const transport = this.server.transport
+    return this.server.commandMissing && transport?.kind === 'stdio' ? `This host does not have the program ${transport.command}. Install it before you start the server.` : null
   }
 
   /** The state in a few words, for the row's trailing text or its screen-reader label. */
@@ -153,13 +168,51 @@ export function projectCommandWarning(projectName: string): string {
   return `This command comes from a file in the repository ${projectName}. Read it before you add it.`
 }
 
-/** What the view lists, and that an agent uses only the servers of its own config file (§8.6). */
-export function foundSectionText(hostLabel: string, projectName: string | null): string {
-  return `MCP servers in the config files of Claude Code, Codex, Cursor, VS Code, and Claude Desktop on ${hostLabel}${projectName ? ` and in ${projectName}` : ''}, and MCP servers that run on it. An agent uses only the servers in its own config file. Add a server to use it in Claude and Codex and to manage its tools here.`
+/** One change the person may make to a found server in one of its files (§8.8). */
+export interface FoundFileAction {
+  place: FoundPlace
+  change: IntegrationFoundChange
+  /** "Turn off in Codex", "Delete from Claude Code". */
+  label: string
 }
+
+/** The tool whose behavior a change of the file changes: Claude Code reads the project's `.mcp.json`. */
+function placeTool(place: FoundPlace): string {
+  return place.file === 'mcp-json' ? 'Claude Code' : configFileLabel(place.file)
+}
+
+/**
+ * The changes the caller may make to a server in its files, one place after
+ * another: turn it off or on for the tool, then delete it there. The host
+ * says what each file allows (`canTurnOff`, `canDelete`).
+ */
+export function foundFileActions(server: FoundServer): FoundFileAction[] {
+  const actions: FoundFileAction[] = []
+  for (const place of server.foundIn) {
+    if (place.kind !== 'file' || !place.canTurnOff) continue
+    const change = place.turnedOff ? 'turn-on' : 'turn-off'
+    actions.push({ place, change, label: `${change === 'turn-on' ? 'Turn on' : 'Turn off'} in ${placeTool(place)}` })
+  }
+  for (const place of server.foundIn) {
+    if (place.kind !== 'file' || !place.canDelete) continue
+    actions.push({ place, change: 'delete', label: `Delete from ${place.file === 'mcp-json' ? '.mcp.json' : configFileLabel(place.file)}` })
+  }
+  return actions
+}
+
+/** The question before a delete: what is removed, and who stops loading it. */
+export function foundDeleteQuestion(name: string, place: FoundPlace): string {
+  return `Delete ${name} from ${place.path}? ${placeTool(place)} no longer loads it.`
+}
+
+/** The line under the found list: why a server one agent loads is still worth an add (§8.6). */
+export const FOUND_FOOTER_TEXT = 'Each agent loads only the servers in its own config file. Add a server to give it to Claude and Codex.'
 
 /** The empty state of the view (§8.6, §9.2). */
 export const NO_FOUND_SERVERS_TEXT = 'No MCP servers were found in the config files of this host or running on it.'
+
+/** The empty state when every server on the host is already in Solus: they are on the Installed list. */
+export const ALL_FOUND_ADDED_TEXT = 'Every MCP server on this host is in Solus. You find them under Installed.'
 
 /** Why the view shows no running local server (§9.1): the host could not list its listeners. */
 export function portScanUnavailableText(reason: string): string {

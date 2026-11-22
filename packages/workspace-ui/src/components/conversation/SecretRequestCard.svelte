@@ -5,10 +5,12 @@
    *  in this card's local state: they are never echoed, never kept in a draft or
    *  in the transcript, and they go to the host once through
    *  `secretRequestAnswer`. The host closes the card with `permission_resolved`. */
-  import { ExternalLink as ExternalLinkIcon, Eye as ShowIcon, EyeOff as HideIcon, LockKeyhole as LockIcon, SquareTerminal as TerminalIcon } from "@lucide/svelte";
+  import { ArrowUpRight as ArrowUpRightIcon, Eye as ShowIcon, Globe as GlobeIcon, EyeOff as HideIcon, LockKeyhole as LockIcon, SquareTerminal as TerminalIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
+  import { webLinkIcon } from "@solus/client-core/web-link-icon";
   import type { QuestionRequest } from "@solus/contracts/types";
   import { untrack } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { getWorkspaceContext } from "../../contexts";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { runHost } from "../../contexts/workspace/run-location";
@@ -37,6 +39,8 @@
   let fields = $state<SecretField[]>(untrack(() => prompts.map(() => ({ value: "", isDeclined: false }))));
   // Shows a field's value so the user can check what they entered. Local to the card.
   let revealed = $state<boolean[]>(untrack(() => prompts.map(() => false)));
+  // A site without a favicon shows the globe.
+  const failedFavicons = new SvelteSet<string>();
   let isSending = $state(false);
   let responded = $state(false);
   const closed = $derived(responded || !!request.expired);
@@ -103,19 +107,35 @@
           <div class="flex min-w-0 flex-col gap-0.5">
             <label for={inputId} class="text-transcript-card font-medium">{prompt.name}</label>
             <p class="m-0 text-transcript-meta text-(--muted-foreground) wrap-anywhere">{prompt.reason}</p>
+            {#if link}
+              {@const icon = webLinkIcon(link.href)}
+              <a
+                href={link.href}
+                title={link.href}
+                class="group mt-1 inline-flex w-fit max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-sm text-transcript-meta font-medium text-(--foreground) outline-none focus-visible:ring-2 focus-visible:ring-(--ring)/50"
+                onclick={(event) => {
+                  event.preventDefault();
+                  void localApi.openExternal(link.href);
+                }}
+              >
+                {#if icon?.kind === "favicon" && !failedFavicons.has(icon.url)}
+                  <img
+                    class="size-3.5 shrink-0 rounded-[3px] object-contain"
+                    src={icon.url}
+                    alt=""
+                    width="14"
+                    height="14"
+                    referrerpolicy="no-referrer"
+                    onerror={() => failedFavicons.add(icon.url)}
+                  />
+                {:else}
+                  <GlobeIcon size={14} class="shrink-0 text-(--muted-foreground)" />
+                {/if}
+                <span class="truncate underline decoration-(--border) underline-offset-[3px] group-hover:decoration-current">{link.host}</span>
+                <ArrowUpRightIcon size={14} class="shrink-0 text-(--muted-foreground) group-hover:text-(--foreground)" />
+              </a>
+            {/if}
           </div>
-          {#if link}
-            <div class="flex min-w-0 flex-col items-start gap-1">
-              <Button size="sm" variant="outline" onclick={() => void localApi.openExternal(link.href)}>
-                Open {link.host}
-                <ExternalLinkIcon size={14} />
-              </Button>
-              <!-- A link found in the reason is already shown there. -->
-              {#if !link.isInReason}
-                <p class="m-0 font-mono text-transcript-meta text-(--muted-foreground) wrap-anywhere select-text">{prompt.url}</p>
-              {/if}
-            </div>
-          {/if}
           {#if field.isDeclined}
             <div class="flex min-w-0 items-center justify-between gap-2">
               <p class="m-0 text-transcript-meta text-(--muted-foreground)">Declined. The agent does not get this secret.</p>

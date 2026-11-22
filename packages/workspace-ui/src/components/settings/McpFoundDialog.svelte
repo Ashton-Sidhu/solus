@@ -88,6 +88,11 @@
           {isChange ? "The new command does not start until you start it." : "It runs on this host as the Solus server's user. It does not start until you start it."}
         </p>
       {/if}
+      {#if labels.missingProgram}
+        <p class="flex items-start gap-1.5 text-(--solus-status-permission)">
+          <TriangleAlert size={16} class="mt-0.5 shrink-0" aria-hidden="true" />{labels.missingProgram}
+        </p>
+      {/if}
       {#if server.projectOnly && server.transport?.kind === "stdio" && projectName}
         <p class="flex items-start gap-1.5 text-(--solus-status-permission)">
           <TriangleAlert size={16} class="mt-0.5 shrink-0" aria-hidden="true" />{projectCommandWarning(projectName)}

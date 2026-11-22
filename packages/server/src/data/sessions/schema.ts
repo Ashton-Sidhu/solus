@@ -69,8 +69,6 @@ export const session = defineTable('session_records', {
   last_prompt_at: bigint(),
   /** The execution preferences the session's last run carried (`ExecutionPreferences`; plans/018 §6). Person-derived but shared on purpose. */
   execution_preferences: json(),
-  /** When the session was marked a lead (docs/plans/lead-session.md); never cleared. */
-  lead_started_at: bigint(),
 }, {
   indexes: [
     { name: 'session_api_page', columns: ['organization_id', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },

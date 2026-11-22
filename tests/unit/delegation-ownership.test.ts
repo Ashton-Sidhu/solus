@@ -15,7 +15,7 @@ function harness() {
     respondToPermission: () => false, pendingInputEvents: () => [], replaceQueuedPrompt: () => false,
     hasQueuedPrompt: () => false, cancelQueuedPrompt: () => false,
     turnEnding: async () => ({ outcome: 'completed', reply: 'Done' }),
-    turnOrganization: async () => undefined, taskIdFor: async () => undefined, isLead: async () => false,
+    turnOrganization: async () => undefined, taskIdFor: async () => undefined,
     emit: () => {}, invalidatePlanCaches: () => {}, recordActivity: async () => { throw new Error('No activity expected') },
     trackWork: promise => { work.push(promise); return promise },
     repliesEnded: () => {},

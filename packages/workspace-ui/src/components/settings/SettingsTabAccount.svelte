@@ -10,6 +10,7 @@
    * and, last, the two clear actions. Signed in is synced: there is no
    * switch. The page needs no host.
    */
+  import AccountConnectionsLink from "./AccountConnectionsLink.svelte";
   import { untrack } from "svelte";
   import { RefreshCw as SyncIcon } from "@lucide/svelte";
   import { accountStore, accountSyncStore, getWorkspaceContext, serversStore } from "../../contexts";
@@ -94,6 +95,7 @@
           {account.identity.name ? `${account.identity.email} · ` : ""}{account.consoleUrl.replace(/^https?:\/\//, "")}
         </p>
       </div>
+      <AccountConnectionsLink />
       <Button variant="outline" size="sm" onclick={() => void accountStore.signOut()}>Sign out</Button>
     </div>
   {:else}

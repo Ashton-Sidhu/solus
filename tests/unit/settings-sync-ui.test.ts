@@ -208,12 +208,12 @@ describe('account isolation', () => {
 
     sync.setAccount({ origin: 'https://solus.test', userId: 'user-a' })
     expect(settings.themeMode).toBe('dark')
-    settings.setPersonal('leadInstructions', 'Account only.')
-    expect(profileOf(storage, 'https://solus.test|user-a').leadInstructions).toBe('Account only.')
+    settings.setPersonal('delegationInstructions', 'Account only.')
+    expect(profileOf(storage, 'https://solus.test|user-a').delegationInstructions).toBe('Account only.')
 
     sync.setAccount(null)
-    expect(settings.leadInstructions).toBe(DEFAULT_PERSONAL_SETTINGS.leadInstructions)
-    expect(profileOf(storage).leadInstructions).toBeUndefined()
+    expect(settings.delegationInstructions).toBe(DEFAULT_PERSONAL_SETTINGS.delegationInstructions)
+    expect(profileOf(storage).delegationInstructions).toBeUndefined()
     expect(storage.getItem('solus.personal-settings.v1:https://solus.test|user-a')).toBeNull()
   })
 })

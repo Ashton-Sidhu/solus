@@ -86,8 +86,8 @@ describe('policy export', () => {
   })
 
   test('a document that needs null cannot be a profile, and says to use the file', () => {
-    const withNull: PolicyDocument = { ...document, sessions: { settings: { leadModel: null } } }
-    expect(mobileconfigBlocker(withNull)).toContain('sessions.settings.leadModel')
+    const withNull: PolicyDocument = { ...document, sessions: { settings: { workerModel: null } } }
+    expect(mobileconfigBlocker(withNull)).toContain('sessions.settings.workerModel')
     expect(() => policyMobileconfig(withNull)).toThrow('policy.json')
     expect(mobileconfigBlocker(document)).toBeNull()
   })

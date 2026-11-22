@@ -18,6 +18,7 @@ import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
+import { DelegationSettingsSection } from "./DelegationSettingsSection";
 import { RATE_LIMIT_CHOICES } from "./lib/settings-labels";
 import { PolicyLockNote } from "../policy/PolicyLockNote";
 import { useManagedSettingLines, usePermissionCeilingLines } from "../policy/use-host-policy";
@@ -99,6 +100,8 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
           <PolicyLockNote lines={rateLimitLines} />
           <SettingsNote>What your runs do when they hit a provider rate limit.</SettingsNote>
         </View>
+
+        <DelegationSettingsSection />
 
         <SettingsSection title={settingsDefinitions["sessions.section-sessions"].label}>
           <SettingsSwitchRow

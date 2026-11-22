@@ -13,8 +13,7 @@ unpinned session does. A refused change restores its previous place and pin.
 Reopening it does not restore the pin. When the session's home is an
 organization's Solus API, the client removes the pin on the host that holds
 it. A pin is the host owner's own: the host keeps it with their completion and
-archive of the session, which end it. Snoozing keeps the pin. Meta mode
-sessions use the normal sections.
+archive of the session, which end it. Snoozing keeps the pin.
 
 The session sidebar context menu on desktop and web has a **Snooze** submenu.
 Choose a preset to snooze the session immediately, or **Pick date and time…**

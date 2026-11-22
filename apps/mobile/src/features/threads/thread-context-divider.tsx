@@ -1,5 +1,4 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/thread-context-divider.tsx (MIT, see UPSTREAM.md).
-import { LEAD_PROMOTION_LABEL } from "@solus/contracts/activity";
 import { memo } from "react";
 import { View, type ColorValue } from "react-native";
 
@@ -104,15 +103,4 @@ export const HandoffDivider = memo(function HandoffDivider(props: {
 /** The composer picked another provider: the next prompt hands the thread off. */
 export const HandoffPendingDivider = memo(function HandoffPendingDivider(props: { readonly iconSubtleColor: ColorValue }) {
   return <HandoffLine text="Context handoff pending" iconSubtleColor={props.iconSubtleColor} />;
-});
-
-/** The session's agent now coordinates work across sessions. */
-export const LeadPromotionDivider = memo(function LeadPromotionDivider() {
-  return (
-    <View accessible accessibilityRole="text" accessibilityLabel={LEAD_PROMOTION_LABEL} className="mb-3 flex-row items-center gap-3 px-1 py-1">
-      <View className="h-px min-w-2 flex-1 bg-separator" />
-      <Text className="shrink text-center font-t3-medium text-xs text-foreground-muted">{LEAD_PROMOTION_LABEL}</Text>
-      <View className="h-px min-w-2 flex-1 bg-separator" />
-    </View>
-  );
 });

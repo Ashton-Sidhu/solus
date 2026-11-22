@@ -557,7 +557,7 @@ Each has a default that this plan uses until a maintainer decides.
    stopped turn. Not during a turn.
 5. **Session fork on mobile.** Default: an approved exception until mobile has
    the fork action.
-6. **A child session of a lead session.** Default: each session has its own
+6. **A child session.** Default: each session has its own
    repository; a run host change of the parent does not change its children.
 7. **Organization admission.** Default: each turn passes admission on the host
    that runs it, as a prompt does today.

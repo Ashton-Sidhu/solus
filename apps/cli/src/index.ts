@@ -1,3 +1,4 @@
+import { runHostCommand } from './lib/hosts'
 import { superviseServer } from './lib/server-supervisor'
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
@@ -94,6 +95,9 @@ async function main(argv: string[]): Promise<void> {
     case 'logs':
       await logs(parseLogsOptions(rest))
       return
+    case 'host':
+      await runHostCommand(rest, console.log)
+      return
     case 'pair':
       await pair(parsePairOptions(rest))
       return
@@ -141,6 +145,9 @@ Usage:
   solus status [--data-dir PATH]
   solus service <start|stop|restart|uninstall|status> [--data-dir PATH]
   solus logs [--data-dir PATH] [--lines N]
+  solus host pair <url> (--code CODE | --code-file PATH) [--label NAME] [--data-dir PATH]
+  solus host list [--json] [--data-dir PATH]
+  solus host remove <installation-id> [--data-dir PATH]
   solus pair [--data-dir PATH] [--tailscale] [--tailscale-serve-port N]
   solus connect [--data-dir PATH] [--code CODE] [--cloud-url URL] [--no-open]
   solus connect status [--data-dir PATH] [--json]

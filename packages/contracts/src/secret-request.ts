@@ -82,12 +82,13 @@ function reasonLink(reason: string): string | undefined {
 
 /**
  * The page a secret card offers to open: the agent's `url`, else the one link in
- * its reason. `isInReason` says that the reason already shows the raw link.
+ * its reason. The card names the page by its `host`, so a person sees the site
+ * before they open it.
  */
-export function secretRequestLink(prompt: Pick<SecretRequestPrompt, 'url' | 'reason'>): { href: string; host: string; isInReason: boolean } | null {
+export function secretRequestLink(prompt: Pick<SecretRequestPrompt, 'url' | 'reason'>): { href: string; host: string } | null {
   const raw = prompt.url ?? reasonLink(prompt.reason)
   const url = raw === undefined ? null : secretPageUrl(raw)
-  return url === null ? null : { href: url.href, host: url.host, isInReason: prompt.url === undefined }
+  return url === null ? null : { href: url.href, host: url.host }
 }
 
 /** The empty field's hint. */

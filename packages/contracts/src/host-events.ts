@@ -39,7 +39,7 @@ import type { SeatChangedEvent } from './seats'
 import type { AgentAuthFinishedEvent } from './agent-auth'
 import type { McpTaskChangedEvent } from './integrations/mcp-task'
 import type { ResourceWatchChangedEvent } from './integrations/resource-watch'
-import type { IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnectionChangedEvent, IntegrationConnectNeeded, IntegrationCustomServerNeeded } from './integration-types'
+import type { IntegrationDiscoveredEvent, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnectionChangedEvent, IntegrationConnectNeeded, IntegrationCustomServerNeeded } from './integration-types'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { UplinkStatus } from './uplink'
@@ -60,9 +60,6 @@ export interface HostEventMap {
   'session.indexChanged': SessionIndexUpdatedEvent
   'session.titleChanged': SessionTitleChangedEvent
   'session.headChanged': SessionHeadChanged
-  /** This session became a lead (docs/plans/lead-session.md). A session never
-   *  stops being one, so there is no reverse event. */
-  'session.becameLead': { sessionId: string }
   /** This session was read, or returned to unread, on some client. Every other
    *  mounted surface adopts the boundary so reading on one device clears the
    *  indicator on the rest. `viewedAt` is null when the session is unread. */
@@ -212,6 +209,8 @@ export interface HostEventMap {
   'integration.changed': IntegrationChangedEvent
   /** One person's connection to an integration changed. Delivered to that person's clients only. */
   'integration.connectionChanged': IntegrationConnectionChangedEvent
+  /** One host's answer to an MCP discovery. Delivered to the client that started the discovery only. */
+  'integration.discovered': IntegrationDiscoveredEvent
   /** An integration sign-in ended. Delivered to the clients of the person who started it. */
   'host.integrationAuthFinished': IntegrationAuthFinishedEvent
   /** An integration tool needs the user to connect their account. */
@@ -267,7 +266,6 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
   'session.headChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud session repository facts changed.' },
-  'session.becameLead': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session became a lead: it shows the Meta mode mark.' },
   'session.pullRequestsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's pull request links changed." },
   'session.artifactsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's artifacts changed: a pull request, work, file, or automation was linked or unlinked." },
   'session.stateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was settled or made active.' },
@@ -334,6 +332,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.agentAuthFinished': { owner: 'seats', category: 'targeted', recovery: 'reset', description: 'A Claude Design or MCP server sign-in in one seat ended.' },
   'integration.changed': { owner: 'integrations', category: 'invalidation', recovery: 'reload', description: 'An integration or its tool list changed; read it again by id.' },
   'integration.connectionChanged': { owner: 'integrations', category: 'delta', recovery: 'reload', description: "One person's connection to an integration changed; recover through integrationConnectionList." },
+  'integration.discovered': { owner: 'integrations', category: 'targeted', recovery: 'reset', description: "One host's found MCP servers for one discovery; the discovery id names it." },
   'host.integrationAuthFinished': { owner: 'integrations', category: 'targeted', recovery: 'reset', description: "An integration sign-in in one person's scope ended." },
   'integration.connectNeeded': { owner: 'integrations', category: 'delta', recovery: 'reset', description: 'An integration tool needs the user to connect their account.' },
   'integration.customServerNeeded': { owner: 'integrations', category: 'delta', recovery: 'reset', description: 'An agent needs the address of a server that is not in the catalog.' },

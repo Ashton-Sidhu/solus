@@ -18,7 +18,17 @@ describe('the intent of the page address', () => {
     expect(addressedBootIntent(address)?.firstServerId).toBe('host-a')
   })
 
-  test('an address that names no server, or no route, has no intent', () => {
+  test('personal appearance settings can open before the person has a host', () => {
+    const path = serializeRoute({ name: 'settings', params: { tab: 'appearance' } })
+    expect(path).toBe('/settings/appearance')
+    expect(addressedBootIntent(path)?.hostlessPage).toBe('appearance')
+    expect(addressedBootIntent('/account/appearance')?.hostlessPage).toBe('appearance')
+    expect(addressedBootIntent('/account/agent-profile/')?.hostlessPage).toBe('agent-profile')
+    expect(addressedBootIntent('/account/security')).toBeUndefined()
+    expect(addressedBootIntent('/settings/providers')?.hostlessPage).toBeUndefined()
+  })
+
+  test('the home page and an unknown route have no intent', () => {
     expect(addressedBootIntent('/')).toBeUndefined()
     expect(addressedBootIntent('/not-a-route')).toBeUndefined()
     expect(addressedBootIntent(serializeRoute({ name: 'chat', params: {} }))).toBeUndefined()

@@ -6,6 +6,7 @@ import {
   manualSourceKey,
   parseManualTaskSource,
   matchingChoices,
+  projectSourceOffers,
   sourceChoiceGroups,
   sourceConnectionNotes,
   connectionProviderNames,
@@ -13,6 +14,7 @@ import {
   sourceStripRows,
   taskSourceLabel,
   withTaskSource,
+  withTaskSources,
   withoutTaskSource,
 } from '@solus/workspace-ui/components/tasks/sources/lib/task-source-setup'
 
@@ -362,5 +364,37 @@ describe('a source that a person types or pastes', () => {
     }
     const groups = [{ kind: BOARD.kind, choices: [offered] }]
     expect(manualSourceChoice('https://github.com/orgs/acme/projects/7', [], groups)).toBe(offered)
+  })
+})
+
+describe('your projects\' repositories, offered in one step', () => {
+  const options: TaskSourceOptions = {
+    github: {
+      connected: true,
+      repositories: [],
+      projects: [],
+      projectRepositories: [{ owner: 'acme', repo: 'web' }, { owner: 'berriai', repo: 'litellm', isFork: true }],
+    },
+    jira: { connected: false, projects: [], boards: [] },
+  }
+
+  test('lists each project repository that is not a source yet, and marks a fork', () => {
+    // WHY: a fork's checkout names the original repository, whose issues are
+    // rarely the person's, so the page starts it not selected.
+    expect(projectSourceOffers(options, []).map((offer) => [offer.label, offer.isFork])).toEqual([
+      ['acme/web', false],
+      ['berriai/litellm', true],
+    ])
+    expect(projectSourceOffers(options, [{ kind: 'github-repo', owner: 'acme', repo: 'web' }]).map((offer) => offer.label)).toEqual(['berriai/litellm'])
+    expect(projectSourceOffers(null, [])).toEqual([])
+  })
+
+  test('adds the chosen repositories in one write, skipping what is held and stopping at the limit', () => {
+    // WHY: one click adds them all; a held source or a full list must not lose the others.
+    const web: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'web' }
+    expect(withTaskSources({ taskSources: [REPO] }, [web, REPO])?.taskSources).toEqual([REPO, web])
+    expect(withTaskSources({ taskSources: [REPO] }, [REPO])).toBeNull()
+    const almostFull = Array.from({ length: MAX_TASK_SOURCES - 1 }, (_, index): TaskSource => ({ kind: 'github-project', owner: 'acme', number: index + 1 }))
+    expect(withTaskSources({ taskSources: almostFull }, [web, REPO])?.taskSources).toHaveLength(MAX_TASK_SOURCES)
   })
 })

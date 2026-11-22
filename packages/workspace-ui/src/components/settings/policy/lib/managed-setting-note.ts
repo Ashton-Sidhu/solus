@@ -36,14 +36,13 @@ const TASK_LIFECYCLE = {
 type ManagedValueDescriptions = { [K in ManagedSessionSettingKey]: (value: ManagedValue<K>) => string }
 
 const DESCRIBE: ManagedValueDescriptions = {
-  leadModel: (value) => (value ? modelName(value.provider, value.model) : 'the default lead model'),
-  workerModel: (value) => (value ? modelName(value.provider, value.model) : 'the lead\'s choice of worker model'),
+  workerModel: (value) => (value ? modelName(value.provider, value.model) : 'the caller\'s model by default'),
   modelRouting: () => 'a set model routing',
   textGenerationModel: (value) => modelName(value.provider, value.model),
   sourceControlWriterModel: (value) => (value ? modelName(value.provider, value.model) : 'the text-generation model for commits'),
   extraInstructions: () => 'set custom instructions',
   modelInstructions: () => 'set model instructions',
-  leadInstructions: () => 'set lead instructions',
+  delegationInstructions: () => 'set delegation instructions',
   sourceControlWriting: () => 'a set writing style for commits and pull requests',
   worktreeBranchNaming: () => 'a set branch name format',
   defaultPermissionMode: (value) => `${PERMISSION_MODE_DISPLAY[value].label} by default`,

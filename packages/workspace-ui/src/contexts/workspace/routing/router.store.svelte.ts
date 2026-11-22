@@ -572,9 +572,9 @@ export class RouterStore {
    * Mirror the location into an address bar. Web only: the Electron window has
    * no URL, so it runs on the in-memory history above and nothing else changes.
    */
-  bindAddressBar(): void {
+  bindAddressBar(accountOrigin = false): void {
     if (this.history instanceof BrowserRouteHistory) return
-    const browserHistory = new BrowserRouteHistory(window)
+    const browserHistory = new BrowserRouteHistory(window, accountOrigin)
     this.attachHistory(browserHistory)
 
     if (window.location.hash.startsWith('#/') || window.location.pathname !== '/') {

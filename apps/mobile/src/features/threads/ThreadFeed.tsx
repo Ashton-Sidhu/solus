@@ -68,7 +68,7 @@ import { ThreadAgentGroup } from "./ThreadAgents";
 import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
-import { LeadPromotionDivider, CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
+import { CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionStarterFromHost } from "@solus/contracts/types";
 import { TurnFooter } from "./CloudTurnChanges";
 import { ThreadImage } from "./ThreadImages";
@@ -343,7 +343,6 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
     return <CompactionDivider store={context.store} id={row.id} iconSubtleColor={context.iconSubtleColor} />;
   }
 
-  if (row.type === "lead-promotion") return <LeadPromotionDivider />;
 
   if (row.type === "handoff") {
     return <HandoffDivider store={context.store} id={row.id} iconSubtleColor={context.iconSubtleColor} />;

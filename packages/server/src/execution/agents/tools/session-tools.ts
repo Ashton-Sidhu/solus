@@ -156,7 +156,7 @@ export const ATTACHMENTS_FIELD = z
   .describe(`Up to ${MAX_ATTACHMENT_UPLOAD_COUNT} files on this host, 10 MB each, as absolute or cwd-relative paths. Copied now to the target host. PNG, JPEG, GIF and WebP arrive as images; other files arrive as readable paths.`)
 
 const listAgentTargetsFields = {
-  host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name, with its projects to use as start_sessions cwd. Omit for this host, which also lists the other hosts you can start sessions on.'),
+  host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name, with its projects to use as start_sessions cwd. Omit for this host.'),
 }
 
 // T3 Code's thread read bounds; a larger value reads the bound.
@@ -206,7 +206,7 @@ const stopSessionFields = {
 }
 
 const LIST_AGENT_TARGETS_DESC =
-  'List the agent providers and models currently configured on this Solus host for Solus sessions and delegated agents, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. Superseded model generations are left out (`legacyModelsOmitted` counts them); start_sessions still accepts their ids. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead, and the projects on that host.'
+  'List the agent providers and models currently configured on this Solus host for Solus sessions and delegated agents, including runtime availability and supported reasoning levels. Superseded model generations are left out (`legacyModelsOmitted` counts them); start_sessions still accepts their ids. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead, and the projects on that host.'
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id and the result's `item id` as `item_id` to read the passage, then page around its position, before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
@@ -392,16 +392,7 @@ async function listAgentTargetsTool(args: z.infer<z.ZodObject<typeof listAgentTa
     const projects = await remoteProjects(remote)
     return { ok: true, text: JSON.stringify({ host: remote.label, targets: currentModelsOnly(targets), ...(projects && { projects }) }, null, 2) }
   }
-  const targets = currentModelsOnly(await listAgentTargets())
-  const request = deps.ctx?.sessionId ? reachRequestOf(deps.ctx.sessionId) : null
-  const hosts = remoteHosts && request ? await remoteHosts.list(request) : null
-  if (!hosts || 'error' in hosts) return { ok: true, text: JSON.stringify({ targets }, null, 2) }
-  const otherHosts = hosts.map((host) => {
-    const listed: OtherHost = { id: host.hostId, name: host.label }
-    if (host.managedState) listed.state = host.managedState
-    return listed
-  })
-  return { ok: true, text: JSON.stringify({ targets, otherHosts }, null, 2) }
+  return { ok: true, text: JSON.stringify({ targets: currentModelsOnly(await listAgentTargets()) }, null, 2) }
 }
 
 /** A target as list_agent_targets prints it: the current models, and how many superseded ones it left out. */
@@ -417,12 +408,10 @@ function currentModelsOnly(targets: readonly AgentTarget[]): ListedTarget[] {
   })
 }
 
-/** One of the owner's other hosts, as list_agent_targets names it. */
-interface OtherHost {
-  id: string
-  name: string
-  /** A managed host's lifecycle; work starts only on a `ready` one. */
-  state?: string
+async function listHostsTool(_args: Record<string, never>, deps: SessionToolDeps): Promise<SessionToolResult> {
+  const request = deps.ctx?.sessionId ? reachRequestOf(deps.ctx.sessionId) : null
+  if (!request) return { ok: false, text: 'Only a session with host access can list its remote hosts.' }
+  return { ok: true, text: JSON.stringify({ hosts: remoteHosts ? await remoteHosts.summaries(request) : [] }, null, 2) }
 }
 
 /** The connection to one of the owner's other hosts, by id or name. */
@@ -709,6 +698,7 @@ async function stopSessionTool(args: z.infer<z.ZodObject<typeof stopSessionField
 }
 
 const SESSION_TOOL_HANDLERS = new Map<string, SessionToolHandler>([
+  ['list_hosts', validatedSessionTool(z.object({}), listHostsTool, () => 'list_hosts takes no arguments.')],
   ['list_agent_targets', validatedSessionTool(z.object(listAgentTargetsFields), listAgentTargetsTool, () => 'list_agent_targets received invalid arguments.')],
   ['read_session', validatedSessionTool(z.object(readSessionFields), readSessionTool,
     (error) => `read_session received invalid arguments: ${error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`)],
@@ -740,6 +730,7 @@ function sessionAgentTool(
 }
 
 export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsFields, false)
+export const listHostsAgentTool = sessionAgentTool('list_hosts', 'List the remote machines this session may reach, with ids, routes, and current connection status. Use an id or name as host in list_agent_targets for its providers and models, or start_sessions for work there. No credentials are returned.', {}, false)
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
 export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)

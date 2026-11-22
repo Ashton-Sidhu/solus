@@ -288,6 +288,22 @@ describe('route history adapters', () => {
     expect(seen).toEqual(['/chat/b', '/settings/general', '/chat/b', '/chat/a', '/chat/b'])
   })
 
+  test('account settings URLs survive refresh, Back and Forward with the workspace behind them', () => {
+    const browser = new FakeBrowserWindow()
+    const history = new BrowserRouteHistory(browser, true)
+    history.push('/settings/appearance?from=chat%2Fa')
+    expect(browser.location.pathname).toBe('/account/appearance')
+    history.push('/settings/agent-profile')
+    expect(browser.location.pathname).toBe('/account/agent-profile')
+    browser.history.back()
+    expect(new BrowserRouteHistory(browser, true).current()).toBe('/settings/appearance?from=chat%2Fa')
+    browser.history.forward()
+    expect(history.current()).toBe('/settings/agent-profile')
+    const host = new FakeBrowserWindow()
+    new BrowserRouteHistory(host).push('/settings/appearance')
+    expect(host.location.pathname).toBe('/settings/appearance')
+  })
+
   test('replace after browser back targets the browser current entry', () => {
     const browser = new FakeBrowserWindow()
     const history = new BrowserRouteHistory(browser)

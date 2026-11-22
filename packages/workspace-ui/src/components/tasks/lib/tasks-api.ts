@@ -8,6 +8,7 @@ import type {
   TaskSourceState,
 } from '@solus/contracts/task-types'
 import type { TaskStatusCategory } from '@solus/contracts/task-sources'
+import type { TaskViewFilters } from '@solus/contracts/task-views'
 
 /** How the list/board orders tasks. `created` is the default;
  *  `priority` and `due` answer "what's next". */
@@ -20,6 +21,14 @@ export const TASK_SORT_OPTIONS: { value: TaskSort; label: string }[] = [
   { value: 'updated', label: 'Updated' },
   { value: 'priority', label: 'Priority' },
   { value: 'due', label: 'Due' },
+]
+
+/** The Involvement filter's choices, in the order it shows them. */
+export const TASK_INVOLVEMENT_OPTIONS: { value: TaskViewFilters['involvement']; label: string }[] = [
+  { value: 'all', label: 'Everyone' },
+  { value: 'authored', label: 'Authored by me' },
+  { value: 'assigned', label: 'Assigned to me' },
+  { value: 'mentioned', label: 'Mentioning me' },
 ]
 
 /** Display + ordering metadata per priority. `rank` drives the sort (lower =

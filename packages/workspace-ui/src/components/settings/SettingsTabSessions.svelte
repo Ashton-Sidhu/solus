@@ -13,7 +13,7 @@
   import { managedSetting } from "./policy/managed-setting.svelte";
   import RateLimitSetting from "./RateLimitSetting.svelte";
   import ModelRoutingSection from "./ModelRoutingSection.svelte";
-  import LeadSessionsSection from "./LeadSessionsSection.svelte";
+  import DelegationSettingsSection from "./DelegationSettingsSection.svelte";
   let { searchQuery = "", serverId }: { searchQuery?: string; serverId?: string } = $props();
   const theme = getSettingsContext();
   const session = getWorkspaceContext();
@@ -49,7 +49,7 @@
 
 {#if serverId}<ModelRoutingSection {serverId} visible={isVisible("model-routing")} />{/if}
 
-<LeadSessionsSection {isVisible} />
+<DelegationSettingsSection {isVisible} />
 
 <SettingsSection {...settingsDefinitions["sessions.section-sessions"]} visible={["auto-rename", "ratelimit"].some(isVisible)}>
   <SettingsRow

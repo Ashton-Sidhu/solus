@@ -48,12 +48,12 @@ const linkTool = tool('link')
 const codexRuntime = { model: 'gpt-5.6-sol', reasoningEffort: 'high' }
 
 /** The system prompt append Claude receives for one run with these tools. */
-async function claudeAppend(tools: AgentTool[], systemPrompt?: string, cwd = '/tmp', integrationInstructions?: { name: string; slug: string; text: string }[]): Promise<string> {
+async function claudeAppend(tools: AgentTool[], systemPrompt?: string, cwd = '/tmp', integrationInstructions?: { name: string; slug: string; text: string }[], delegationInstructions?: string): Promise<string> {
   capturedOptions = null
   const backend = new ClaudeBackend()
   backend.on('error', () => {})
   const handle = backend.startRun({
-    provider: 'claude-code', prompt: 'hello', cwd, tools, systemPrompt, integrationInstructions,
+    provider: 'claude-code', prompt: 'hello', cwd, tools, systemPrompt, integrationInstructions, delegationInstructions,
     model: 'claude-opus-4-7', reasoningEffort: 'high',
     permissionMode: 'supervised', persistence: 'ephemeral', service: 'sessions',
     conversation: { kind: 'new' },
@@ -166,7 +166,9 @@ describe('runtime instructions', () => {
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain('## Solus orchestration')
       expect(prompt).toContain('This catalog does not establish native subagent support')
-      expect(prompt).toContain('A provider turn with open child work is not a final result:')
+      expect(prompt).toContain('Decide whether to delegate for each request')
+      expect(prompt).toContain('let reports wake you as they arrive')
+      expect(prompt).toContain('Review all required results before reporting completion')
       expect(prompt).toContain('Use send_session to continue an existing session')
       expect(prompt).toContain('Reuse request_id only to retry the same request')
       expect(prompt).toContain('Do not poll')
@@ -179,20 +181,15 @@ describe('runtime instructions', () => {
     expect(partial).not.toContain('Use read_session_exchange')
   })
 
-  // WHY: Meta mode must start without a choice the person makes first. The
-  // agent decides, so every session that can call become_lead must know when:
-  // the work divides into independent parts.
-  test('both providers learn when to become a lead, only when the tool is available and not in a chat', async () => {
-    const tools = [tool('start_sessions'), tool('become_lead')]
-    for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
-      expect(prompt).toContain('divides into two or more independent parts, call become_lead before you start the parts')
-      expect(prompt).toContain('Do not call it for work that is one part')
-    }
-    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_sessions')])).not.toContain('become_lead')
-    expect(await claudeAppend([tool('start_sessions')])).not.toContain('become_lead')
-    // A chat is refused by the tool, so it is not told to call it.
-    const chatFolder = '/Users/me/.solus/solus-chats/session-1'
-    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime, workingDirectory: chatFolder }, tools)).not.toContain('become_lead')
+  test('custom delegation instructions are scoped to runs with the session tools', async () => {
+    const tools = [tool('start_sessions')]
+    const delegationInstructions = 'Ask before starting reviewers.'
+    const codex = { harness: 'Codex' as const, ...codexRuntime, delegationInstructions }
+    const rule = 'User instructions for delegation:\nAsk before starting reviewers.'
+    expect(runtimeInstructions(codex, tools)).toContain(rule)
+    expect(await claudeAppend(tools, undefined, '/tmp', undefined, delegationInstructions)).toContain(rule)
+    expect(runtimeInstructions(codex, [])).not.toContain(rule)
+    expect(await claudeAppend([], undefined, '/tmp', undefined, delegationInstructions)).not.toContain(rule)
   })
 
   test('one start tool covers both providers, parallel work, and independent starts', async () => {

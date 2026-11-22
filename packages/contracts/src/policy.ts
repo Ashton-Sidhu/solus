@@ -36,14 +36,13 @@ export function clampPermissionMode(mode: PermissionMode, ceiling: PermissionMod
 
 /** Personal settings the host reads from the request it serves, so a lock holds against any client (§4.3). */
 export const MANAGED_SESSION_SETTING_KEYS = [
-  'leadModel',
   'workerModel',
   'modelRouting',
   'textGenerationModel',
   'sourceControlWriterModel',
   'extraInstructions',
   'modelInstructions',
-  'leadInstructions',
+  'delegationInstructions',
   'sourceControlWriting',
   'worktreeBranchNaming',
   'defaultPermissionMode',
@@ -56,14 +55,13 @@ export const MANAGED_SESSION_SETTING_KEYS = [
 export type ManagedSessionSettingKey = (typeof MANAGED_SESSION_SETTING_KEYS)[number]
 
 export const managedSessionSettingsSchema = z.object({
-  leadModel: PERSONAL_SETTING_SCHEMAS.leadModel,
   workerModel: PERSONAL_SETTING_SCHEMAS.workerModel,
   modelRouting: PERSONAL_SETTING_SCHEMAS.modelRouting,
   textGenerationModel: PERSONAL_SETTING_SCHEMAS.textGenerationModel,
   sourceControlWriterModel: PERSONAL_SETTING_SCHEMAS.sourceControlWriterModel,
   extraInstructions: PERSONAL_SETTING_SCHEMAS.extraInstructions,
   modelInstructions: PERSONAL_SETTING_SCHEMAS.modelInstructions,
-  leadInstructions: PERSONAL_SETTING_SCHEMAS.leadInstructions,
+  delegationInstructions: PERSONAL_SETTING_SCHEMAS.delegationInstructions,
   sourceControlWriting: PERSONAL_SETTING_SCHEMAS.sourceControlWriting,
   worktreeBranchNaming: PERSONAL_SETTING_SCHEMAS.worktreeBranchNaming,
   defaultPermissionMode: PERSONAL_SETTING_SCHEMAS.defaultPermissionMode,
@@ -155,7 +153,7 @@ export type PolicyKind = 'mdm' | 'host' | 'organization'
 function lockedModels(settings: ManagedSessionSettings | undefined): { key: string; provider: AgentId; model: string }[] {
   if (!settings) return []
   const out: { key: string; provider: AgentId; model: string }[] = []
-  for (const key of ['leadModel', 'workerModel', 'textGenerationModel', 'sourceControlWriterModel'] as const) {
+  for (const key of ['workerModel', 'textGenerationModel', 'sourceControlWriterModel'] as const) {
     const selection = settings[key]
     if (selection) out.push({ key, provider: selection.provider, model: selection.model })
   }

@@ -10,7 +10,8 @@ import { AppText as Text } from '../../components/AppText'
 import type { ScreenProps } from '../../navigation/routes'
 import { SettingsScreen } from '../settings/components/SettingsScreen'
 import { TaskAction, TaskField } from './task-controls'
-import { useLinearConnection } from '../settings/use-linear-connection'
+import { LinearKeyField } from './LinearKeyField'
+import { ProjectSourceOffer } from './ProjectSourceOffer'
 
 function choices(options: TaskSourceOptions | null): Array<{ source: TaskSource; label: string }> {
   if (!options) return []
@@ -70,19 +71,7 @@ export function TaskSourcesScreen({ route, navigation }: ScreenProps<'TaskSource
     () => store.current
   )
   const [manual, setManual] = useState(''),
-    [linearKey, setLinearKey] = useState(''),
     [error, setError] = useState<string | null>(null)
-  // Linear connects with a pasted key, so this screen takes it in place.
-  const linear = useLinearConnection(route.params.hostId)
-  const mayManageHost = useListened(app.connections.changes, () =>
-    app.connections.may(route.params.hostId, 'host.admin.connections')
-  )
-  const canSaveLinearKey = linear.state.location === 'account' || (linear.state.location === 'host' && mayManageHost)
-  const connectLinear = async () => {
-    const draft = linearKey
-    setLinearKey('')
-    if (await linear.store.save(draft)) void store.loadOptions()
-  }
   useFocusEffect(
     useCallback(() => {
       void store.loadOptions()
@@ -113,6 +102,15 @@ export function TaskSourcesScreen({ route, navigation }: ScreenProps<'TaskSource
           Sources belong to you and sync with your account. Removing one leaves its tasks on the
           provider.
         </Text>
+        {settings.taskSources.length === 0 && state.options?.github.projectRepositories?.length ? (
+          <ProjectSourceOffer
+            repositories={state.options.github.projectRepositories}
+            onAdd={(added) => {
+              if (app.personal.set({ taskSources: [...settings.taskSources, ...added].slice(0, MAX_TASK_SOURCES) }) !== 'saved')
+                setError('Could not save sources.')
+            }}
+          />
+        ) : null}
         {state.optionsPending ? (
           <Text className="text-sm text-foreground-muted">Loading available sources…</Text>
         ) : null}
@@ -169,29 +167,12 @@ export function TaskSourcesScreen({ route, navigation }: ScreenProps<'TaskSource
           </TaskAction>
         ) : null}
         {state.options?.linear && !state.options.linear.connected ? (
-          canSaveLinearKey ? (
-            <View className="gap-2">
-              <TaskField
-                label={state.options.linear.error ?? 'Linear API key'}
-                value={linearKey}
-                onChangeText={setLinearKey}
-                autoCapitalize="none"
-                secureTextEntry
-              />
-              <TaskAction disabled={!linearKey.trim() || linear.state.pending} onPress={() => void connectLinear()}>
-                {linear.state.pending ? 'Connecting…' : 'Connect Linear'}
-              </TaskAction>
-              {linear.state.error ? (
-                <Text accessibilityRole="alert" className="text-sm text-danger-foreground">{linear.state.error}</Text>
-              ) : null}
-            </View>
-          ) : (
-            <TaskAction
-              onPress={() => navigation.navigate('LinearConnection', { hostId: route.params.hostId })}
-            >
-              Connect Linear
-            </TaskAction>
-          )
+          <LinearKeyField
+            hostId={route.params.hostId}
+            problem={state.options.linear.error}
+            onConnected={() => void store.loadOptions()}
+            onOpenSettings={() => navigation.navigate('LinearConnection', { hostId: route.params.hostId })}
+          />
         ) : null}
         {state.options && !state.options.jira.connected ? (
           <Text className="text-sm text-foreground-muted">

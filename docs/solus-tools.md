@@ -26,6 +26,10 @@ person's turn gets a refusal and can open Insights to see their own turns.
 `connect_integration` adds a server only to the calling person's own servers,
 and only from an exact catalog match. For any other address it opens a card
 where the person enters and adds the server (docs/integrations.md).
+`add_mcp_server` adds a server the agent installed for its own CLI, from the
+person's own Claude Code or Codex config file, with no approval: the person
+asked for the install. It never adds a server that only a repository file
+holds, and a command needs a host administrator's turn.
 `list_integration_resources`, `read_integration_resource`, and
 `watch_integration_resource` join a run only when one of that person's servers
 in the run has resources (the watch tool: one that sends changes). They are
@@ -93,10 +97,7 @@ simulator, emulator or connected phone. See
 The Sessions group holds the orchestration tools: `start_sessions`,
 `send_session`, `stop_session`, `read_session`,
 `search_sessions`, and `list_agent_targets`. See
-[Session orchestration](session-orchestration.md). `become_lead` makes the
-calling session a lead (Meta mode) when its work divides into independent
-parts; turn it off to keep Meta mode a choice the person makes in the composer
-([Lead session](plans/lead-session.md)). The group also holds
+[Session orchestration](session-orchestration.md). The group also holds
 `move_to_worktree`, which moves the calling session into a new or an existing
 worktree of its repository, so the diff, Git status, and branch follow. A
 sub-agent cannot call it for its parent. `worktree_status` reports the
@@ -206,3 +207,13 @@ the automation's Schedule block. No scheduled run starts at or after that
 instant, and this includes a run missed while Solus was closed. The automation
 stays enabled, shows "Schedule ended", and can still run manually. Change or
 remove the end to schedule it again.
+
+## Remote host pairing
+
+`pair_host` pairs a remote Solus server from an owner chat session. It takes an
+address and a session-bound `secretRef` from `request_secret`, never a raw code.
+`list_hosts` lists reachable and unavailable machines with connection status.
+`list_agent_targets` lists providers and models on one selected machine.
+`remove_host` forgets a pairing. Both Claude
+and Codex use the same tools. See [Pair hosts](host-pairing.md) for the CLI, client
+credentials, access limits, and removal behavior.

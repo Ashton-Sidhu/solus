@@ -114,8 +114,6 @@ export interface OrchestratedRuntime {
   turnOrganization(sessionId: string): Promise<string | undefined>
   /** The task a session works on. */
   taskIdFor(sessionId: string): Promise<string | undefined>
-  /** Whether the session is a task's lead. */
-  isLead(sessionId: string): Promise<boolean>
   emit(sessionId: string, event: NormalizedEvent): void
   invalidatePlanCaches(sessionId: string): void
   /** Record what a person did to a session as its activity (plans/012 §5). */

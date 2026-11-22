@@ -399,6 +399,14 @@ describe('integration connections', () => {
       await expect(assertRpcAccess(method, MEMBER, [{ projectPath: '/etc' }])).resolves.toBeUndefined()
     }
   })
+
+  test('a test or a change of a found server is for a host administrator only', async () => {
+    // WHY (mcp-first-class.md §8.8): a test runs a command from a file, and a change edits a file of the host's OS user.
+    for (const method of ['integrationFoundTest', 'integrationFoundChange'] as const) {
+      expect(permissionOf(method)).toBe('host.admin')
+      await expect(assertRpcAccess(method, MEMBER, [{ foundId: 'f1' }])).rejects.toThrow()
+    }
+  })
 })
 
 describe('presence', () => {

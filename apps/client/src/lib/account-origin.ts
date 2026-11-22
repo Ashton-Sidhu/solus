@@ -1,6 +1,7 @@
-import { identityClaimsSchema, type AccountIdentity } from '@solus/contracts/auth/clients'
+import { ACCOUNT_SHELL, shellIdentitySchema } from '@solus/contracts/account-web'
+import type { AccountIdentity } from '@solus/contracts/auth/clients'
 import { accountResponseSchema, directoryResponseSchema, type AccountResponse, type DirectoryResponse } from '@solus/contracts/uplink'
-import { z } from 'zod'
+import type { z } from 'zod'
 
 /**
  * What the account origin's shell says about itself (solus-cloud `renderClientShell`;
@@ -24,8 +25,6 @@ export interface AccountOriginShell {
   settingsJson: string | undefined
 }
 
-const signedInSchema = z.object({ identity: identityClaimsSchema, signedInAt: z.number() })
-
 /** The text of a JSON data block of the shell; undefined when it is missing or empty. */
 function dataBlockText(page: Pick<Document, 'querySelector'>, id: string): string | undefined {
   return page.querySelector(`script#${id}`)?.textContent || undefined
@@ -43,11 +42,11 @@ function dataBlock<T>(page: Pick<Document, 'querySelector'>, id: string, schema:
 }
 
 export function accountOriginShell(page: Pick<Document, 'querySelector'>): AccountOriginShell | null {
-  if (!page.querySelector('meta[name="solus-account-origin"]')) return null
+  if (!page.querySelector(`meta[name="${ACCOUNT_SHELL.marker}"]`)) return null
   return {
-    signedIn: dataBlock(page, 'solus-account-identity', signedInSchema),
-    directory: dataBlock(page, 'solus-host-directory', directoryResponseSchema),
-    account: dataBlock(page, 'solus-account', accountResponseSchema),
-    settingsJson: dataBlockText(page, 'solus-account-settings'),
+    signedIn: dataBlock(page, ACCOUNT_SHELL.identity, shellIdentitySchema),
+    directory: dataBlock(page, ACCOUNT_SHELL.directory, directoryResponseSchema),
+    account: dataBlock(page, ACCOUNT_SHELL.account, accountResponseSchema),
+    settingsJson: dataBlockText(page, ACCOUNT_SHELL.settings),
   }
 }

@@ -21,7 +21,6 @@ let lineage: typeof import('@solus/server/data/sessions/session-lineage')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let identity: typeof import('@solus/server/data/sessions/session-identity')
 let states: typeof import('@solus/server/data/sessions/session-states')
-let leads: typeof import('@solus/server/data/sessions/lead-sessions')
 let database: typeof import('@solus/server/db/database')
 let closeDb: typeof import('@solus/server/db')['closeDb']
 let getDb: typeof import('@solus/server/db')['getDb']
@@ -36,7 +35,6 @@ beforeAll(async () => {
   records = await import('@solus/server/data/sessions/session-records')
   identity = await import('@solus/server/data/sessions/session-identity')
   states = await import('@solus/server/data/sessions/session-states')
-  leads = await import('@solus/server/data/sessions/lead-sessions')
   database = await import('@solus/server/db/database')
 })
 
@@ -150,19 +148,6 @@ describe('one session row (plans/029 §4.2)', () => {
     expect((await records.readSessionMetadataPage(sql`session_records.session_id = 'unstarted'`, 10)).map((record) => record.sessionId)).toEqual(['unstarted'])
   })
 
-  test('the lead mark keeps its first value under repeated marks and every state writer', async () => {
-    await leads.markSessionLead('lead')
-    const first = await database.getDatabase().get<{ lead_started_at: number }>(sql`SELECT lead_started_at FROM session_records WHERE session_id = 'lead'`)
-    await new Promise((resolve) => setTimeout(resolve, 2))
-    await leads.markSessionLead('lead', 'A')
-    await new states.SessionShelf('lead').recordPrompt(ALICE)
-    await new states.SessionShelf('lead').settle('task')
-    await new states.SessionShelf('lead').unsettle()
-    await records.upsertOwnSessionRecord(facts('lead'))
-    expect(await database.getDatabase().get(sql`SELECT lead_started_at, organization_id FROM session_records WHERE session_id = 'lead'`)).toEqual({ lead_started_at: first!.lead_started_at, organization_id: 'local' })
-    expect((await records.getSessionRecord('local', 'lead'))?.isLead).toBe(true)
-  })
-
   test('a settle writes its time and its cause together, returns null when settled already, and a prompt on a never-started row is one UPDATE that clears it', async () => {
     const shelf = new states.SessionShelf('settled')
     expect(await shelf.settle('task', 100)).toEqual({ settledAt: 100, settledBy: 'task' })
@@ -185,11 +170,10 @@ describe('one session row (plans/029 §4.2)', () => {
     expect(Number((await database.getDatabase().all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM session_records WHERE (settled_at IS NULL) <> (settled_by IS NULL)`))[0]?.n)).toBe(0)
   })
 
-  test('deleting the session removes its state, its lead and admission facts, its children, and its personal state', async () => {
+  test('deleting the session removes its state, its admission facts, its children, and its personal state', async () => {
     const db = database.getDatabase()
     await identity.admitSession({ organizationId: 'A', admissionId: 'gone', hostId: 'vm-1', ownerKey: ALICE })
     await records.upsertSessionRecord('A', facts('gone'))
-    await leads.markSessionLead('gone', 'A')
     await new states.SessionShelf('gone').settle('task')
     await new states.SessionViewer('gone', ALICE).archive()
     await states.markSessionViewed('gone', ALICE, 5)
@@ -202,7 +186,6 @@ describe('one session row (plans/029 §4.2)', () => {
 
     expect(await identity.sessionIdentityOf('gone')).toBeNull()
     expect(await identity.readSessionAdmission('A', 'gone')).toBeNull()
-    expect(await leads.isLeadSession('gone')).toBe(false)
     expect(await new states.SessionShelf('gone').state()).toEqual({ settledAt: null, settledBy: null })
     expect(await db.all(sql`SELECT * FROM personal_resource_state WHERE resource_kind = 'session' AND resource_id = 'gone'`)).toEqual([])
     expect(await db.all(sql`SELECT * FROM resource_links WHERE source_id = 'gone' OR target_key = 'gone'`)).toEqual([])

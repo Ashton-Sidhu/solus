@@ -9,15 +9,8 @@ import { lastTurnEnding } from './exchange-reports'
 import { SessionOrchestrator } from './session-orchestrator'
 
 /** The host's session orchestrator, running its turns on `sessionRuntime` and
- *  hearing back from it through the control plane's hooks. `isLead` names the
- *  sessions whose reports are held until their last open message settles. No
- *  session is a lead now: the lead contract is session-owned and does not
- *  depend on a task; the person chose it before the first message
- *  (docs/plans/lead-session.md, `isLeadSession`). */
-export function orchestrateSessions(
-  sessionRuntime: SessionRuntime,
-  isLead: (sessionId: string) => Promise<boolean> = async () => false,
-): SessionOrchestrator {
+ *  hearing back from it through the control plane's hooks. */
+export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrchestrator {
   const orchestrator = new SessionOrchestrator({
     activeExchangeIdsFor: (sessionId) => sessionRuntime.activeExchangeIdsFor(sessionId),
     queuedExchanges: () => sessionRuntime.scheduler.queuedExchanges(),
@@ -41,7 +34,6 @@ export function orchestrateSessions(
     turnEnding: (provider, sessionId, projectScope) => lastTurnEnding((limit) => sessionRuntime.history.loadSession(provider, sessionId, projectScope, limit)),
     turnOrganization: (sessionId) => sessionRuntime.turnOrganization(sessionId),
     taskIdFor: async (sessionId) => (await taskIdForSession(ANY_ORGANIZATION, sessionId)) ?? undefined,
-    isLead,
     emit: (sessionId, event) => sessionRuntime.publish(sessionId, event),
     invalidatePlanCaches: (sessionId) => sessionRuntime.history.invalidatePlanCaches(sessionId),
     recordActivity: (subject, actor, kind) => sessionRuntime.recordActivity(subject, actor, kind),

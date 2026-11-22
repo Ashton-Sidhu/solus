@@ -508,7 +508,13 @@ export interface TaskSourceOptions {
     /** The GitHub repositories of the person's projects on this host, the
      *  project used most recently first. Listed even before GitHub is
      *  connected: a project's own repository is the likeliest source. */
-    projectRepositories?: Array<{ owner: string; repo: string }>
+    projectRepositories?: Array<{
+      owner: string
+      repo: string
+      /** The project is a checkout of the person's fork: this is the original
+       *  repository, whose issues are rarely the person's to work on. */
+      isFork?: boolean
+    }>
     projects: Array<{ owner: string; number: number; title: string }>
   }
   jira: {

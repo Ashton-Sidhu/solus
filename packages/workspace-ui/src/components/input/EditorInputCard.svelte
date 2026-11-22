@@ -174,7 +174,7 @@
   {#if !started}
     <!-- Raw `tabId`, not the active-resolved one: unset for the workspace dock,
          which is what keeps it answering the global git-dropdown shortcut. -->
-    <InputBarFooter {active} sourceId={tabId} {paneId} {isPrimary} />
+    <InputBarFooter {active} sourceId={tabId} {paneId} />
   {:else if targetTabId}
     <!-- A started session keeps one destination choice: the host of its next turn. -->
     <RunHostRow tabId={targetTabId} {paneId} />

@@ -91,14 +91,13 @@ const TASK_LIFECYCLE = {
 
 /** Each managed setting: its name, and how its value reads in "Globex sessions use <value> (managed)." */
 const SESSION_SETTINGS: { [K in ManagedSessionSettingKey]: { label: string; describe: (value: ManagedValue<K>) => string } } = {
-  leadModel: { label: 'Lead model', describe: (value) => (value ? modelName(value.provider, value.model) : 'the default lead model') },
-  workerModel: { label: 'Worker model', describe: (value) => (value ? modelName(value.provider, value.model) : "the lead's choice of worker model") },
+  workerModel: { label: 'Worker model', describe: (value) => (value ? modelName(value.provider, value.model) : "the caller's model by default") },
   modelRouting: { label: 'Model routing', describe: () => 'a set model routing' },
   textGenerationModel: { label: 'Text generation model', describe: (value) => modelName(value.provider, value.model) },
   sourceControlWriterModel: { label: 'Commit writer model', describe: (value) => (value ? modelName(value.provider, value.model) : 'the text-generation model for commits') },
   extraInstructions: { label: 'Extra instructions', describe: () => 'set custom instructions' },
   modelInstructions: { label: 'Model instructions', describe: () => 'set model instructions' },
-  leadInstructions: { label: 'Lead instructions', describe: () => 'set lead instructions' },
+  delegationInstructions: { label: 'Delegation instructions', describe: () => 'set delegation instructions' },
   sourceControlWriting: { label: 'Commit and pull request writing', describe: () => 'a set writing style for commits and pull requests' },
   worktreeBranchNaming: { label: 'Branch naming', describe: () => 'a set branch name format' },
   defaultPermissionMode: { label: 'Default mode', describe: (value) => `${PERMISSION_MODE_TEXT[value].label} by default` },

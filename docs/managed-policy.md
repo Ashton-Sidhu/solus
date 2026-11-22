@@ -68,9 +68,9 @@ Bob's laptop is shared with Acme and Globex.
 - Acme assigns "Acme laptops": `host.analyticsEnabled: false` and
   `sessions.limits.maxPermissionMode: full-access`.
 - Globex assigns "Globex laptops": `sessions.limits.maxPermissionMode: supervised`.
-- The organization policy of Globex sets `sessions.settings.leadModel` to Opus.
+- The organization policy of Globex sets `sessions.settings.workerModel` to Opus.
 
-| Bob's active organization | Mode limit | Lead model | Analytics on the laptop |
+| Bob's active organization | Mode limit | Default worker model | Analytics on the laptop |
 | --- | --- | --- | --- |
 | Personal (`local`) | none | his own | off (Acme holds `host`) |
 | Acme | `full-access` | his own | off |
@@ -151,13 +151,13 @@ each key from the request it serves, so a lock holds even against a modified cli
 
 | Purpose | Keys |
 | --- | --- |
-| Models | `leadModel`, `workerModel`, `modelRouting`, `textGenerationModel`, `sourceControlWriterModel` |
-| Instructions | `extraInstructions`, `modelInstructions`, `leadInstructions` |
+| Models | `workerModel`, `modelRouting`, `textGenerationModel`, `sourceControlWriterModel` |
+| Instructions | `extraInstructions`, `modelInstructions`, `delegationInstructions` |
 | Git conventions | `sourceControlWriting`, `worktreeBranchNaming` |
 | Agent autonomy | `defaultPermissionMode`, `agentTaskLifecyclePolicy`, `rateLimitBehavior` |
 | Reviews | `reviewAgent`, `reviewModel`, `reviewGuideInstructions` |
 
-`leadModel: null` locks "the default for new sessions".
+`workerModel: null` locks "inherit the parent model for unqualified child launches".
 
 Auto model routing (`modelRouting`) sends prompts to an external classifier. To
 prevent this, lock `modelRouting` off.
@@ -221,7 +221,7 @@ payload are the top-level keys of the document (`schemaVersion`, `organization`,
 `com.solus.app.mobileconfig` for you.
 
 A profile cannot hold `null`. If your policy needs `null` (for example
-`leadModel: null`), use the file.
+`workerModel: null`), use the file.
 
 Solus converts the profile with `/usr/bin/plutil -convert json`.
 

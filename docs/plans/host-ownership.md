@@ -14,6 +14,7 @@ account machine registration. Each client still owns its own pairing credential.
 - `listing`: identity, label, routes, operating system, and connection time;
 - `forward`, when this host holds an SSH or WSL forward;
 - `introduction`, when this host has introduced access to the remote host;
+- `pairing`, when the owner explicitly paired it from chat or the CLI;
 - `forgotten`: a refusal that prevents an old introduction from restoring access.
 
 The listing id can be an account id. The database row key is always the
@@ -24,7 +25,7 @@ tokens. The signed-in account document is the person's shared list of metadata;
 it does not own processes on another host.
 
 Tokens are in the platform secret store under one `host-connection-<hash>` key
-per installation. Forward and introduction tokens have separate fields because
+per installation. Forward, introduction, and explicit pairing tokens have separate fields because
 they can be issued to different devices and expire at different times. A token
 cannot be read for use without an active database record and its connection
 settings. SSH passwords stay in process memory only.
@@ -68,3 +69,11 @@ credential isolation, forget and restart, late SSH completion, obsolete secret
 lists, SSH password handling, introduction refusal and refresh, and client
 removal errors. The behavior is shared by Claude and Codex. It does not depend
 on Electron and uses the same RPC methods over IPC and WebSockets.
+
+## Explicit pairing from chat and the CLI
+
+`HostPairings` owns explicit pairings in the same record and secret store. See
+[Pair hosts](../host-pairing.md). This extends local reach with an owner-requested
+pairing; automatic introductions remain available. Account reach comes first,
+then explicit pairing, introduction, and a forward. Every client still receives
+its own credential. A host token is never copied to client storage.

@@ -1,5 +1,6 @@
+import { ACCOUNT_SETTINGS_PATHS } from "@solus/contracts/account-web";
 import { useCallback, useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert, Linking, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { useFocusEffect } from "@react-navigation/native";
@@ -110,6 +111,11 @@ export function AccountSyncScreen({ navigation }: ScreenProps<"AccountSync">) {
                 accessibilityHint="Signing in syncs your settings and agent profile"
                 onPress={() => navigation.navigate("CloudSignIn")}
               />
+            )}
+            {account.kind === "signed-in" && (
+              <SettingsActionRow icon="arrow.up.right" label="Connections" onPress={() => {
+                void Linking.openURL(new URL(ACCOUNT_SETTINGS_PATHS.connections, account.origin).href).catch(() => setMessage("Could not open account connections."));
+              }} />
             )}
           </SettingsSection>
           <SettingsNote>{accountSyncDetail(status, formatTime)}</SettingsNote>

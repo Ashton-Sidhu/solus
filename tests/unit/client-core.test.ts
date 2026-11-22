@@ -75,6 +75,22 @@ describe('client core transport helpers', () => {
     }
   })
 
+  test('names the desktop during boot before its host API is installed', () => {
+    // The first connection asks for its device label before desktop boot
+    // installs `window.solus`; the preload bridge is already available.
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+    try {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: { solusNative: { getPlatform: () => 'darwin' } },
+      })
+      expect(defaultDeviceLabel()).toBe('Solus desktop')
+    } finally {
+      if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+      else Reflect.deleteProperty(globalThis, 'window')
+    }
+  })
+
   test('exposes host events separately from the RPC API', () => {
     const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '' })
     const received: unknown[] = []

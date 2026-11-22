@@ -41,7 +41,7 @@ const KEY_LABELS = new Map<PersonalSettingKey, string>([
   ['fontSize', 'Interface font size'],
   ['codeFontFamily', 'Code font'],
   ['codeFontSize', 'Code font size'],
-  ['leadInstructions', 'Lead instructions'],
+  ['delegationInstructions', 'Delegation instructions'],
   ['taskSources', 'Task sources'],
   ['agentTaskLifecyclePolicy', 'Task lifecycle control'],
   ['textGenerationModel', 'Text-generation model'],

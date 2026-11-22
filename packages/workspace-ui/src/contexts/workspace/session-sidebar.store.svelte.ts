@@ -289,7 +289,6 @@ export class SessionSidebarStore {
       linkedTask,
       share,
     }
-    if (session.isLead) row.isLead = true
     return row
   }
 
@@ -330,7 +329,6 @@ export class SessionSidebarStore {
       linkedTask: linkedTask ? { taskId: linkedTask.id, title: linkedTask.title } : undefined,
       share,
     }
-    if (listed.isLead) row.isLead = true
     return row
   }
 

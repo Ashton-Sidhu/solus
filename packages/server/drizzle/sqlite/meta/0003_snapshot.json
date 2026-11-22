@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ddaab774-f398-4957-b030-dbfb033ba5f6",
+  "id": "f9134916-a619-4af9-a710-7120723529d9",
   "prevId": "0bae9bdd-8d7a-4516-ba4c-e8e36bfe6896",
   "tables": {
     "acl_entry": {
@@ -3317,13 +3317,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "lead_started_at": {
-          "name": "lead_started_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -3618,95 +3611,6 @@
             "organization_id"
           ],
           "name": "session_transcripts_session_id_position_organization_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "session_turn_diffs": {
-      "name": "session_turn_diffs",
-      "columns": {
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "turn_index": {
-          "name": "turn_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "runner_host_id": {
-          "name": "runner_host_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "files_changed": {
-          "name": "files_changed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "additions": {
-          "name": "additions",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "deletions": {
-          "name": "deletions",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "patch": {
-          "name": "patch",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "session_turn_diffs_session_id_turn_index_organization_id_pk": {
-          "columns": [
-            "session_id",
-            "turn_index",
-            "organization_id"
-          ],
-          "name": "session_turn_diffs_session_id_turn_index_organization_id_pk"
         }
       },
       "uniqueConstraints": {},

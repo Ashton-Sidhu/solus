@@ -44,7 +44,7 @@ const GLOBEX = source('organization', 'org-globex', {
   sessions: { limits: { maxPermissionMode: 'full-access', providers: { allowed: ['claude-code'] }, insights: { syncAll: true } } },
 })
 
-const ACME = source('organization', 'org-acme', { organization: { name: 'Acme' }, sessions: { settings: { leadInstructions: 'Acme only.' } } })
+const ACME = source('organization', 'org-acme', { organization: { name: 'Acme' }, sessions: { settings: { delegationInstructions: 'Acme only.' } } })
 
 function policySet(overrides: Partial<PolicySet> = {}): PolicySet {
   return {
@@ -83,7 +83,7 @@ describe('the Policy screen', () => {
     const acme = policyScreenModel(new HostPolicies(policySet()), 'org-acme', NAMES)
     expect(acme.sources.map((row) => row.name)).toEqual(['Acme'])
     expect(acme.limits).toEqual([])
-    expect(acme.settings.map((row) => row.label)).toEqual(['Lead instructions'])
+    expect(acme.settings.map((row) => row.label)).toEqual(['Delegation instructions'])
 
     const personal = policyScreenModel(new HostPolicies(policySet({ mdm: MDM })), 'local', NAMES)
     expect(personal.sources.map((row) => row.kind)).toEqual(['mdm'])

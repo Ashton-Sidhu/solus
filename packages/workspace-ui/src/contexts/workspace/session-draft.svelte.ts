@@ -36,7 +36,6 @@ export class SessionDraft {
   boundWorkId = $state<string | null>(null)
   prReview = $state<PrReviewContext | null>(null)
   /** Chosen before the first message; the session it starts carries it. */
-  isLead = $state(false)
   /** Null: Auto balance did not choose this host. */
   balance = $state<'checking' | 'chosen' | 'unavailable' | null>(null)
   readonly #onMove: (draft: SessionDraft) => void
@@ -85,7 +84,6 @@ export class SessionDraft {
       task: this.task,
       boundWorkId: this.boundWorkId,
       prReview: this.prReview,
-      isLead: this.isLead,
     }
   }
 

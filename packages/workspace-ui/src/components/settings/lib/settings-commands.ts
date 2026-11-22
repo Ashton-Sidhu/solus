@@ -72,10 +72,10 @@ export function mcpCommands(shell: { showSettings(tab: SettingsTab, via: Via): v
     },
   }, {
     id: 'find-mcp-servers',
-    label: 'Find MCP servers on this host',
+    label: 'Find MCP servers on your hosts',
     group: 'General',
     icon: FileSearch,
-    keywords: ['mcp', 'server', 'found', 'config', 'claude', 'codex', 'cursor', 'vscode', 'import', 'discover'],
+    keywords: ['mcp', 'server', 'found', 'config', 'claude', 'codex', 'cursor', 'vscode', 'import', 'discover', 'host'],
     run: () => {
       mcpPageRequest.view = 'found'
       shell.showSettings('mcp', 'palette')

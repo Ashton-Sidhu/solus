@@ -86,8 +86,8 @@ export interface TaskSourceOptionsDeps {
   jiraSite(): Promise<{ cloudId: string; siteUrl: string } | null>
   jira: JiraTransport
   linear?: typeof linearConnection
-  /** The repository keys of the caller's projects on this host, the project used most recently first. */
-  projectRepositoryKeys?: () => Promise<string[]>
+  /** The repositories of the caller's projects on this host, the project used most recently first. */
+  projectRepositories?: () => Promise<ProjectRepository[]>
 }
 
 export const defaultTaskSourceOptionsDeps: TaskSourceOptionsDeps = {
@@ -127,31 +127,37 @@ async function githubProjects(github: GithubRun): Promise<GithubOptions['project
   return projects.slice(0, MAX_OPTIONS)
 }
 
-/** The GitHub repositories among the project repository keys (`github.com/owner/repo`), in their order. */
-export function githubProjectRepositories(keys: readonly string[]): NonNullable<GithubOptions['projectRepositories']> {
+/** A project's repository, as the host's checkout names it. */
+export interface ProjectRepository {
+  repositoryKey: string
+  isFork: boolean
+}
+
+/** The GitHub repositories among the project repositories (`github.com/owner/repo`), in their order. */
+export function githubProjectRepositories(projects: readonly ProjectRepository[]): NonNullable<GithubOptions['projectRepositories']> {
   const repositories: NonNullable<GithubOptions['projectRepositories']> = []
-  for (const key of keys) {
-    const [host, owner, repo, ...rest] = key.split('/')
+  for (const { repositoryKey, isFork } of projects) {
+    const [host, owner, repo, ...rest] = repositoryKey.split('/')
     if (host !== 'github.com' || !owner || !repo || rest.length > 0) continue
     if (repositories.some((each) => each.owner === owner && each.repo === repo)) continue
-    repositories.push({ owner, repo })
+    repositories.push(isFork ? { owner, repo, isFork } : { owner, repo })
   }
   return repositories.slice(0, MAX_PROJECT_REPOSITORIES)
 }
 
 async function githubOptions(deps: TaskSourceOptionsDeps): Promise<GithubOptions> {
-  const [status, projectKeys] = await Promise.all([
+  const [status, projects] = await Promise.all([
     deps.githubStatus(),
     // A caught rejection of the project list enters here before it becomes log text.
     // oxlint-disable-next-line anti-slop/no-unknown-parameters
-    deps.projectRepositoryKeys?.().catch((error: unknown) => {
+    deps.projectRepositories?.().catch((error: unknown) => {
       log.warn('task_source_project_repositories_unreadable', { error: error instanceof Error ? error.message : String(error) })
       return []
     }) ?? [],
   ])
   // `gh` can be the person's only GitHub credential: it has no stored login, and it still reads tasks.
   const connected = status.connected || await deps.hasGithubCredential()
-  const options: GithubOptions = { connected, repositories: [], projects: [], projectRepositories: githubProjectRepositories(projectKeys) }
+  const options: GithubOptions = { connected, repositories: [], projects: [], projectRepositories: githubProjectRepositories(projects) }
   if (status.login) options.login = status.login
   if (status.scopes) options.hasProjectScope = status.scopes.includes('project') || status.scopes.includes('read:project')
   if (!connected) return options

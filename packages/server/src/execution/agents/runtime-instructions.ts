@@ -53,24 +53,21 @@ Codex background commands keep the session in background until their results arr
 
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
+Decide whether to delegate for each request. Do small or tightly coupled work in this session. If two or more parts can run at the same time from separate briefs, use child sessions when that helps complete the request. Follow the user's direction about whether to delegate.
+
 Use start_sessions for child work on the same provider or another provider. Each session is a durable child with no parent history, and each has its own provider, model, host, workspace, permission mode, and reports. Give each the complete brief, constraints, and expected result. To run work in parallel, put every session in one start_sessions call; they start together. Native subagent tools remain available for provider-specific features such as context inheritance; their own schemas define those capabilities. For background agent work, use start_sessions, never a background native subagent.
 
 Set independent=true on a session only for an independent conversation. It does not become your child, does not hold your work open, and is not stopped with you. Reports default off. Start an unrelated conversation only when the user asks for it.
 
-Choose the workspace before launching. A session uses isolation='shared' by default; isolation='worktree' gives it a new checkout from the selected local checkout's commit. Set worktree_base_branch to choose another base. cwd selects an existing checkout. On another host, paths belong to that host; an isolated remote session needs cwd and worktree_base_branch. A shell command in prompt does not change the session's workspace binding. Use host only when the user asks to run work on another machine.
+Choose the workspace before launching. Use separate worktrees when child edits can conflict. A session uses isolation='shared' by default; isolation='worktree' gives it a new checkout from the selected local checkout's commit. Set worktree_base_branch to choose another base. cwd selects an existing checkout. On another host, paths belong to that host; an isolated remote session needs cwd and worktree_base_branch. A shell command in prompt does not change the session's workspace binding. Use host only when the user asks to run work on another machine.
 
-Started sessions inherit provider, model, reasoning effort, and permissions where supported. Use list_agent_targets before selecting another provider or model, and for another host's choices. Set requested reasoning_effort explicitly. Never substitute an unsupported level. Permission mode may stay the same or become narrower. Started sessions do not run in fast mode.
+A configured default worker model applies to child sessions when you omit both agent_provider and model_id. Otherwise, same-provider children inherit the caller's model and reasoning effort when those fields are omitted. Choose a provider and model suited to the child’s work if the default does not fit. Follow any model choice the user gives you. Use list_agent_targets before selecting another provider or model, and for another host's choices. Set requested reasoning_effort explicitly. Never substitute an unsupported level. Permission mode may stay the same or become narrower. Started sessions do not run in fast mode.
 
-For start_sessions and follow-up send_session calls, prefer report=true and wait_seconds=0. Keep the session and exchange IDs, end your turn, and let the report wake you. Do not poll. A wait timeout does not cancel work. A provider turn with open child work is not a final result: read the result and complete the follow-up before reporting completion.
+For delegated work, prefer report=true and wait_seconds=0. Keep the session and exchange IDs, end the turn, and let reports wake you as they arrive. Do not poll for reports. Start follow-up work as soon as the results it needs are ready. Review all required results before reporting completion. Read only the details you need to act. Report what is complete, link the outputs, and state what is still open. Save a durable summary in the linked task or a work when it will be useful later. A wait timeout leaves the work running.
 
-Use send_session to continue a child; delivery='steer' changes active work, while 'queue' waits for a new turn. Each request or review round has its own exchange. Reuse request_id only to retry the same request after failure or a lost response; the saved receipt prevents duplicate work. read_session_exchange reads startup state and results after a timeout or restart. Stop a child with stop_session. Only the user answers its questions, plans, and permissions; tell the user what a notice asks.
+Start a fresh child for new work. Use send_session to correct or continue the same work and request a report when you need its result; delivery='steer' changes active work, while 'queue' waits for a new turn. Each request or review round has its own exchange. Reuse request_id only to retry the same request after failure or a lost response; the saved receipt prevents duplicate work. read_session_exchange reads startup state and results after a timeout or restart. Stop a child with stop_session. Only the user answers questions and handles plan and permission requests on the child cards. If a notice asks for input, tell the user what it asks.
 
 Tool definitions can load through tool search. Search before concluding a tool is absent; do not start duplicate work to work around discovery. To show another session, copy the link returned by its tool. Do not invent a session link.`
-
-/** A session becomes a lead by its agent's own decision, with no choice the
- *  person must make first (docs/plans/lead-session.md). The rule for when is
- *  here, since the agent decides before it calls any session tool. */
-const BECOME_LEAD_INSTRUCTIONS = 'When the user\'s work divides into two or more independent parts, call become_lead before you start the parts. Parts are independent when separate sessions can do them at the same time, each from its own brief. A lead coordinates: it starts a session for each part with start_sessions and does not do the parts itself. become_lead is permanent for this session. Do not call it for work that is one part, when the user tells you to do the work yourself, or in a session that another session started as its child.'
 
 const DEVICE_INSTRUCTIONS = `## Solus devices
 
@@ -102,6 +99,7 @@ export interface AgentRuntime {
   reasoningEffort: string
   /** The run's working directory: a chat gets the chat block. */
   workingDirectory?: string
+  delegationInstructions?: string
 }
 
 /** One first-turn note after a session sync changed the run host's paths. */
@@ -121,6 +119,9 @@ When the user asks for an app, a tool, a tracker, a browser for their data, or s
 /** The offer of a local MCP server goes with `connect_integration`, so it works with no client watching the host (mcp-first-class.md §9.4). */
 const LOCAL_MCP_SERVER_INSTRUCTION = 'To test an MCP server that you started on this host, call connect_integration with custom: true and its localhost URL. The user adds it, and its tools join your next turn.'
 
+/** An agent installs an MCP server for its own CLI; this gives it to every agent (mcp-first-class.md §8.7). */
+const INSTALLED_MCP_SERVER_INSTRUCTION = 'When you install an MCP server for your CLI, with `claude mcp add`, `codex mcp add`, or an edit of its config file, call add_mcp_server with its name. Solus then gives it to Claude and Codex.'
+
 /** Blocks that need only their group's entry tool, in prompt order. */
 const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [
   ['device_list', DEVICE_INSTRUCTIONS],
@@ -128,6 +129,7 @@ const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [
   ['request_secret', SECRET_REF_INSTRUCTIONS],
   ['deploy_app', APP_INSTRUCTIONS],
   ['connect_integration', LOCAL_MCP_SERVER_INSTRUCTION],
+  ['add_mcp_server', INSTALLED_MCP_SERVER_INSTRUCTION],
 ]
 
 function singleLine(value: string): string {
@@ -136,22 +138,23 @@ function singleLine(value: string): string {
 
 /** Each tool-group block goes only to a run that has the group's entry tool:
  *  `browser_status` for Browser, `link` for Tasks, `start_sessions` for Sessions
- *  (with the lead rule when `become_lead` is there too),
  *  `move_to_worktree` for worktrees, `render_artifact` for visuals,
  *  `device_list` for Devices, `create_automation` for Automations,
  *  `request_secret` for the secretRef rule, `deploy_app` for Apps,
- *  `connect_integration` for the offer of a local MCP server. */
+ *  `connect_integration` for the offer of a local MCP server, `add_mcp_server`
+ *  for a server the agent installed for its CLI. */
 export function runtimeInstructions(runtime: AgentRuntime, tools: readonly AgentTool[], integrationInstructions: readonly { name: string; slug: string; text: string }[] = []): string {
   const runtimeInfo = `<runtime_info>In case you are asked: you are running in Solus through the ${runtime.harness} harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.
 
 You can embed images and videos in your response with Markdown and absolute file paths. Solus shows them inline.</runtime_info>`
   const has = (name: string) => tools.some((tool) => tool.name === name)
+  const delegationInstructions = runtime.delegationInstructions?.trim()
   return [
     runtimeInfo,
     isChat(runtime.workingDirectory) && CHAT_INSTRUCTIONS,
     has('start_sessions') && [
       ORCHESTRATION_INSTRUCTIONS,
-      has('become_lead') && !isChat(runtime.workingDirectory) && BECOME_LEAD_INSTRUCTIONS,
+      delegationInstructions && `User instructions for delegation:\n${delegationInstructions}`,
       has('list_agent_targets') && 'Before selecting another provider or model, call list_agent_targets for the host model catalog. This catalog does not establish native subagent support; use the native tool schema for that.',
       has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
       has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',

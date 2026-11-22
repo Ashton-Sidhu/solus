@@ -23,7 +23,7 @@ function fixture(previousReply?: string) {
     stopSession: () => false, respondToPermission: () => false,
     pendingInputEvents: () => [], replaceQueuedPrompt: () => false,
     hasQueuedPrompt: () => false, cancelQueuedPrompt: () => false,
-    turnEnding: async () => (previousReply ? { reply: previousReply } : {}), taskIdFor: async () => undefined, isLead: async () => false,
+    turnEnding: async () => (previousReply ? { reply: previousReply } : {}), taskIdFor: async () => undefined,
     turnOrganization: async () => undefined,
     emit: (_id, event) => { updates.push(event) }, invalidatePlanCaches: () => {},
     recordActivity: async () => { throw new Error('No person acted in this test') },

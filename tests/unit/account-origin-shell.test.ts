@@ -1,3 +1,4 @@
+import { legacyAccountTheme } from '@solus/contracts/account-web'
 import { describe, expect, test } from 'bun:test'
 import { accountOriginShell } from '../../apps/client/src/lib/account-origin'
 
@@ -62,5 +63,15 @@ describe('the first screen data in the shell', () => {
     const settings = JSON.stringify({ schemaVersion: 1, generation: 0, revision: null, settings: {}, updatedAt: null })
     expect(accountOriginShell(page({ ...marker, 'script#solus-account-settings': settings }))?.settingsJson).toBe(settings)
     expect(accountOriginShell(page(marker))?.settingsJson).toBeUndefined()
+  })
+})
+
+describe('the console theme migration', () => {
+  test('an explicit console choice fills only a missing workspace preference, once', () => {
+    expect(legacyAccountTheme('dark', undefined, undefined)).toBe('dark')
+    expect(legacyAccountTheme('dark', undefined, 'system')).toBeUndefined()
+    expect(legacyAccountTheme('dark', undefined, 'light')).toBeUndefined()
+    expect(legacyAccountTheme('dark', 'system', undefined)).toBeUndefined()
+    expect(legacyAccountTheme('invalid', undefined, undefined)).toBeUndefined()
   })
 })

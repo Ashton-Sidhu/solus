@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   PullRequestHead,
+  isForkCheckoutRemotes,
   isRepositoryKey,
   localProjectKey,
   parseRemoteUrls,
@@ -114,5 +115,22 @@ describe('pull request head', () => {
     const head = new PullRequestHead({ host: 'github.com', owner: 'me', repo: 'litellm' }, 'Fix')
     expect(head.isHeadOf(pr('me', 'fix'))).toBe(false)
     expect(PullRequestHead.of(pr('ME', 'Fix')).key).toBe(head.key)
+  })
+})
+
+describe('a fork checkout', () => {
+  test('is one whose upstream and origin name different repositories', () => {
+    // WHY: such a project is named by the original repository, whose issues
+    // are rarely the person's work, so the task setup does not select it.
+    expect(isForkCheckoutRemotes(new Map([
+      ['upstream', 'https://github.com/BerriAI/litellm.git'],
+      ['origin', 'git@github.com:Ashton-Sidhu/litellm.git'],
+    ]))).toBe(true)
+    // Two spellings of one repository are not a fork.
+    expect(isForkCheckoutRemotes(new Map([
+      ['upstream', 'https://github.com/acme/web'],
+      ['origin', 'git@github.com:acme/web.git'],
+    ]))).toBe(false)
+    expect(isForkCheckoutRemotes(new Map([['origin', 'git@github.com:acme/web.git']]))).toBe(false)
   })
 })

@@ -129,6 +129,7 @@ describe('readable labels for the Solus tools of the MCP program', () => {
     expect(integrationAgentToolLabel('watch_integration_resource', '{"server":"linear","uri":"issue://1","watching":false}')).toBe('linear · stop watching issue://1')
     expect(integrationAgentToolLabel('mcp__solus__connect_integration', '{"service":"Notion"}')).toBe('Connect Notion')
     expect(integrationAgentToolLabel('connect_integration', '{"custom":true}')).toBe('Connect a server')
+    expect(integrationAgentToolLabel('mcp__solus__add_mcp_server', '{"name":"opensearch"}')).toBe('Add opensearch for every agent')
     expect(integrationAgentToolLabel('mcp__linear__create_issue')).toBeNull()
   })
 

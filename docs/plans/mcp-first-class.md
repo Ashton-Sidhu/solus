@@ -1064,17 +1064,23 @@ for 10 seconds. It has no file watcher.
 `FoundServer[]`. `integrationFoundAdd` (§8.3). Both need `host.use`; the
 handler applies the "Who sees" column of §8.1 and §7.2.
 
-**Surfaces.** Settings → MCP gains the view **Found on this host** in the
+**Surfaces.** Settings → MCP gains the view **On this host** (first named Found on this host) in the
 rail, between Installed and the categories, on desktop and web
 (`SettingsTabMcp.svelte`, a new `McpFoundRow.svelte`) and on mobile
 (`IntegrationsScreen.tsx`). A row shows the name, the full command or URL,
 the files, and **Add**, **Review change**, or the reason it is unsupported.
-A row that Solus does not have yet also says which agents use the server now
-(`FoundServerLabels.reach`): Claude Code loads its own `~/.claude.json` and
-the project `.mcp.json`, Codex its own `config.toml` unless the entry has
-`enabled = false` (`FoundPlace.turnedOff`), and the other tools' files reach
-no agent. So "Add" does not read as "not installed" for a server that one
-agent already uses. The rows that cannot be added come last. The view has
+The view is drawn as the catalog: a small label "Found on <host>" with the
+count, then plain rows in two columns. A row has the server's icon, its name
+with the logo of each tool whose config file has it, and the command or URL
+on one line (`FoundServerLabels.sources`). A logo's label names the tool, the
+file, and which agent loads it: Claude Code loads its own `~/.claude.json` and
+the project `.mcp.json`, Codex its own `config.toml`, and the other tools'
+files reach no agent. A Codex entry with `enabled = false`
+(`FoundPlace.turnedOff`) dims its logo. So "Add" does not read as "not
+installed" for a server that one agent already uses. A server that cannot be
+added is dimmed, says why in place of its command, and comes last. The full
+command, the files, and the warnings are in the add dialog. One line under the
+list says that each agent loads only its own file. The label has
 **Refresh**. A project row carries the warning: "This command
 comes from a file in the repository `<name>`. Read it before you add it."
 The command palette gains "Find MCP servers on this host". The connect dialog
@@ -1117,6 +1123,116 @@ an `sse` entry and an entry with `${…}` are unsupported; a member does not
 get the owner's user files; a project entry gets the project key and joins
 only that project's runs; the Claude flag settings and the Codex thread
 config name the taken server and no other.
+
+### 8.7 An agent gives an installed server to every agent (2026-11-20)
+
+The person tells an agent "install the OpenSearch MCP server from GitHub". The
+agent installs it for its own CLI, so before this only that agent had it. Now
+the agent calls `add_mcp_server` with the server's name, and Solus adds it
+through `FoundServers.add`, the same add as **Add** in Found on this host
+(`integrations/add-mcp-server-tool.ts`). Decisions:
+
+- **No card.** The maintainers decided that the person's request to install
+  is the approval (§8 says nothing is added automatically; this is the one
+  exception, and only on an agent's call). The tool has
+  `requiresApproval: false`.
+- **The file's values.** The add copies them (`useFileValues: true`). A value
+  the file does not give, or a sign-in, opens the connect card.
+- **First start.** A command starts once (`startProcess`), so its tools are
+  saved (§7.5) and join the next turn of both agents. A failed start keeps the
+  record; the row shows the error.
+- **Not from a repository.** A server that only repository files hold
+  (`scope: 'project'` of any file but `~/.claude.json`) is refused: a clone
+  can hold any command. The person adds it in Found on this host.
+- **Admission.** The add runs as the turn's principal, so a command still
+  needs `host.admin` (§7.2).
+- **The CLI copy.** The CLI skip (§8.5) leaves out the CLI's own copy from the
+  next run, so each tool shows once.
+- **Guidance.** A run with the tool gets one sentence: after an install for
+  the CLI, call `add_mcp_server` (`runtime-instructions.ts`).
+
+### 8.8 The lifecycle of a server on this host (2026-11-21)
+
+The maintainers renamed the view **On this host** and asked for more than Add
+on it, on every client, and on Installed too. Decisions:
+
+- **On this host lists what Solus does not have.** An `added` server is under
+  Installed; the list hides it (`McpFound.notAdded`).
+- **Solus edits another tool's file, on a person's request only.** This
+  replaces "Solus never edits the person's files" (§8.5) for these actions;
+  the CLI skip still edits nothing. A change names one place; the host reads
+  the files again, finds that entry by file, path, and name, and refuses
+  another fingerprint (`integrationFoundChange`).
+- **The tool's own writer where it has one** (`found/config-writes.ts`), so
+  Solus does not race the tool on its file. Delete: `claude mcp remove
+  --scope user|local|project` (in the project for the last two), `codex mcp
+  remove` (the user file only; a project's `.codex/config.toml` is the
+  repository's). Turn off or on in Codex: `config/value/write` of
+  `mcp_servers.<name>.enabled`. Claude Code has no command for its
+  per-project lists, so Solus edits `projects["<root>"].disabledMcpServers`
+  (and `disabledMcpjsonServers` / `enabledMcpjsonServers` for `.mcp.json`) in
+  `~/.claude.json`. Cursor, VS Code, and Claude Desktop get a JSON edit. A JSON
+  edit parses only the keys it changes, keeps the others, and writes with a
+  rename in the same folder.
+- **What a caller may change** is the host's answer: `FoundPlace.canTurnOff`
+  and `canDelete` are set for a host administrator only, and the list says
+  `mayChange`. Both RPCs need `host.admin` at the door.
+- **Test** (`integrationFoundTest`) starts the entry once with the file's
+  values, reads `tools/list`, and stops it (`found/found-test.ts`). Nothing is
+  saved. A URL gets the file's Authorization header only.
+- **Open the file** uses the configured editor, on the host or over SSH
+  (`openInConfiguredEditor`). The file's content never goes to the client, so
+  the file pane is not used. `FoundPlace.filePath` carries the host path.
+  Mobile does not have it: a phone has no editor for a host file. This is the
+  one platform exception.
+- **Installed rows** get Turn off all tools and Turn on all tools (the
+  existing `disabledTools`; a tool the server adds later is on), and, for a
+  server that came from a file, Open and Delete from that file. Turning off
+  in the tool is not offered there: Solus runs already leave the tool's copy
+  out (§8.5).
+- **Claude Code's local scope.** Solus starts Claude Code without the
+  `local` setting source, so a project entry of `~/.claude.json` loads only
+  outside Solus; its logo label says so. Not proven: whether a Solus run of
+  Claude Code honors `disabledMcpServers` for a user entry.
+
+### 8.9 Found servers of every host (2026-11-21)
+
+The view showed the files of the one host that Settings showed, so a person
+with more hosts did not see what the other hosts have. The maintainers
+decided that the page's host discovers the servers of every host, and that the
+client shows each host's list as it arrives. Decisions:
+
+- **One discovery, on the page's host.** The client makes a `discoveryId`
+  and calls `integrationDiscover({ discoveryId, projectPath?, refresh? })` on
+  the page's host (`integrations/discovery.ts`; `McpDiscovery` on desktop and
+  web). The host starts its own list first, then lists the other hosts it
+  reaches for the caller, and answers with every host it asks
+  (`IntegrationDiscovery`).
+- **Each host's list as it arrives.** Each answer is one
+  `integration.discovered` event (`{ discoveryId, host, result }`), sent to
+  the client that started the discovery only. The event names its host, so it can
+  come before the discovery's own answer. A slow host holds back only its own
+  group. An answer of an older discovery is ignored. A failed host says why, and
+  an older host says that it is older than found servers.
+- **Who the host asks.** The hosts of `RemoteHosts`, with the reach of a
+  session sync: the owner through their personal delegation and the paired,
+  introduced, and forwarded hosts; a member through their organization;
+  anyone else, this host only. Another host gets the plain
+  `integrationFoundList` with its user files only, so that host asks no
+  further, and its own rules (`host.admin` there) apply to the caller.
+- **The project stays on its host.** The open session's project is a path on
+  the page's host, so only that host reads its project files.
+- **An action goes through the page's host.** `integrationFoundAdd`,
+  `Test`, and `Change` take an optional `hostId`. The page's host forwards
+  the action to that host as the caller, without the project. Then every
+  host reads again; the action does not wait for that.
+- **Not on another host.** Open a file (the client has no route to that
+  host's editor), the integration in use beside a `changed` entry (this
+  client does not have that host's integrations), and the values form of a
+  command added there (it is on that host's MCP page). Another host looks for
+  servers on its loopback only while one of its own clients holds its lease.
+- **An older page host** answers only its own list through
+  `integrationFoundList`.
 
 ## 9. Discovery of running local servers
 

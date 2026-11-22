@@ -127,9 +127,9 @@ describe('secret card link', () => {
     }
   })
 
-  test('the card shows the url the agent gave, and says that the reason does not show it', () => {
-    expect(secretRequestLink({ url: 'https://github.com/login/device', reason: 'Enter the code.' }))
-      .toEqual({ href: 'https://github.com/login/device', host: 'github.com', isInReason: false })
+  test('the card names the page the agent gave by its host', () => {
+    expect(secretRequestLink({ url: 'https://github.com/login/device?x=1', reason: 'Enter the code.' }))
+      .toEqual({ href: 'https://github.com/login/device?x=1', host: 'github.com' })
     // The url wins over a link in the reason; a bad url opens nothing.
     expect(secretRequestLink({ url: 'https://a.dev/x', reason: 'See https://b.dev' })?.host).toBe('a.dev')
     expect(secretRequestLink({ url: 'javascript:alert(1)', reason: 'See https://b.dev' })).toBeNull()
@@ -145,7 +145,6 @@ describe('secret card link', () => {
     expect(link('Sign in at `https://a.dev/login`.')).toBe('https://a.dev/login')
     expect(link('Sign in at <https://a.dev/login>.')).toBe('https://a.dev/login')
     expect(link('The page (https://a.dev/wiki/Foo_(bar)) has it.')).toBe('https://a.dev/wiki/Foo_(bar)')
-    expect(secretRequestLink({ reason: 'Open https://a.dev.' })?.isInReason).toBe(true)
   })
 
   test('repeats of one link count once; no link or two links give no button', () => {

@@ -12,7 +12,7 @@ import {
   type ReasoningEffort,
 } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
-import type { LeadModelSelection, PersonalSettings } from '@solus/contracts/settings'
+import type { PersonalSettings } from '@solus/contracts/settings'
 
 /**
  * The model, reasoning effort, and permission mode a native conversation runs
@@ -155,16 +155,6 @@ export function selectModel(provider: AgentId, modelId: string, defaults: RunDef
     ? saved.contextWindow
     : profile?.defaultContextWindow ?? defaultContextWindowFor(provider, modelId)
   return { preferredModel: modelId, reasoningEffort: effort, contextWindow: window, fastMode: rememberedFastMode(provider, modelId, defaults, metadata) }
-}
-
-/** An agent and a model with that model's options. */
-export type LeadModelRun = ModelSelection & { provider: AgentId }
-
-/** The run a lead session starts on: the lead model with its own options and
- *  the reasoning level the selection names, as the desktop's `runOnModel`. */
-export function leadModelRun(selection: LeadModelSelection, defaults: RunDefaults | null): LeadModelRun {
-  const model = selectModel(selection.provider, selection.model, defaults)
-  return { ...model, provider: selection.provider, reasoningEffort: selection.reasoningEffort ?? model.reasoningEffort }
 }
 
 /** A new session's model: the person's default for the provider, else the profile's. */

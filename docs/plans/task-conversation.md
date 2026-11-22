@@ -27,8 +27,6 @@ linked to a task reads that context with `read_task`.
   relationship, not ownership.
 - **task chip** — the mark on a session row that names the task the session
   is linked to. It opens the task page.
-- **lead** — no longer a task concept. The word stays for the orchestrator's
-  lead contract, which no session gets now (see "Orchestrator").
 
 Do not coin "task thread", "task conversation" or "task row".
 
@@ -75,16 +73,9 @@ The orchestration runtime is unchanged: `start_sessions`, `send_session`,
 the parent, and the cards where a person answers a child
 (`docs/session-orchestration.md`).
 
-The lead parts have nothing to do with tasks: a lead is a session the user
-opts in when they start it, and a lead may or may not be linked to a task. The
-opt-in, the lead contract, and the lead wake rule are in
-`docs/plans/lead-session.md`.
-
 ## Verification
 
-- Unit: the packet carries no lead contract, and the lead contract keeps its
-  rules and the user's settings (`injected-context`); the lead wake rule
-  (`session-orchestrator`, "a lead"); task links (`task-store`); the Sessions
+- Unit: the task packet (`injected-context`); task links (`task-store`); the Sessions
   list (`task-page`); a session's default task target (`session-task-target`);
   a task clicked past does not take the screen (`task-open-latency`); the
   sidebar lists sessions only (`sidebar-list-items`, `task-list`); the keys

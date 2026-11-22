@@ -6,7 +6,7 @@ import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/s
 import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionMeta, SessionStarterFromHost, SessionRecord, SessionStatus, StatusCardState, WatchSessionResult, GitCheckoutBranchResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
-import type { ExecutionPreferences, LeadModelSelection } from '@solus/contracts/settings'
+import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { BranchRef } from '@solus/contracts/git-types'
 import { isChat } from '@solus/contracts/chat'
 import type { ModelOptions } from '@solus/contracts/settings'
@@ -26,7 +26,6 @@ import {
   type RunSettings,
 } from './lib/ipc-context'
 import { hostAgents } from './lib/host-agents'
-import { LeadSessionChoice } from './lib/lead-session'
 import { queuedMessageAttachments, uploadedMessageAttachments } from './lib/message-attachments'
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
 import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
@@ -191,7 +190,6 @@ export class ConversationController {
   /** The branch a pick moved the project's checkout to; null when none did. */
   private projectBranch: string | null = null
   private settings: RunSettings | null = null
-  private readonly leadChoice = new LeadSessionChoice()
   /** Bumps on each (re)load; an answer for an older load is dropped. */
   private loadGeneration = 0
   private held: WireNormalizedEvent[] | null = null
@@ -404,18 +402,10 @@ export class ConversationController {
     return canRouteAuto({ started: this.started, agentSessionId: this.run.agentSessionId })
   }
 
-  /** Meta mode and a new worktree: open until the first prompt starts the
+  /** A new worktree can be chosen until the first prompt starts the
    *  session, and never for a chat, which has no project. */
   get canChooseStart(): boolean {
     return this.canRoute && !isChat(this.run.workingDirectory)
-  }
-
-  /** Makes the new session a lead or not (docs/plans/lead-session.md). False
-   *  when nothing changed or the session has started. */
-  chooseLead(lead: boolean, leadModel: LeadModelSelection | null): boolean {
-    if (!this.canChooseStart || !this.leadChoice.choose(this.run, lead, leadModel, this.settings)) return false
-    // An empty change keeps the new run inside what the agent offers and shows it.
-    return this.updateRun({})
   }
 
   /** The new session starts in a new worktree from `baseBranch`, or in the
@@ -1424,7 +1414,7 @@ export class ConversationController {
           imageAttachments: record.payload?.imageAttachments,
           imageAttachmentRefs: record.payload?.imageAttachmentRefs,
           queueAttachments: record.payload?.queueAttachments,
-          queueAttachmentContext: record.payload?.queueAttachmentContext, isLead: this.run.lead && !this.started ? true : undefined,
+          queueAttachmentContext: record.payload?.queueAttachmentContext,
         }).catch((error: unknown) => {
           // The bubble shows the host's words; a policy refusal also keeps its code for the one fix it offers.
           const code = error instanceof Error ? rpcErrorCode(error) : null

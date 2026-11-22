@@ -1,3 +1,4 @@
+import { ACCOUNT_SETTINGS_PATHS, accountSettingsDestination } from '@solus/contracts/account-web'
 export interface RouteHistory {
   readonly canGoBack: boolean
   readonly canGoForward: boolean
@@ -112,7 +113,7 @@ export class BrowserRouteHistory implements RouteHistory {
   private readonly listeners = new Set<RouteListener>()
   private readonly onBrowserNavigation = () => this.emit()
 
-  constructor(private readonly browserWindow: BrowserWindowLike = window) {}
+  constructor(private readonly browserWindow: BrowserWindowLike = window, private readonly accountOrigin = false) {}
 
   // `History` does not expose its cursor; the Navigation API does. Without it
   // these answer only whether requesting navigation is meaningful, and the
@@ -128,18 +129,26 @@ export class BrowserRouteHistory implements RouteHistory {
   current(): string {
     const { hash, pathname, search } = this.browserWindow.location
     // Old workspace links still open. Share and pairing secrets are not routes.
-    return hash.startsWith('#/') ? hash.slice(1) : `${pathname}${search}`
+    if (hash.startsWith('#/')) return hash.slice(1)
+    const accountTab = this.accountOrigin && accountSettingsDestination(pathname)
+    return accountTab ? `/settings/${accountTab}${search}` : `${pathname}${search}`
+  }
+
+  private address(location: string): string {
+    const path = location.replace(/^#/, '')
+    if (!this.accountOrigin) return path
+    return path.replace(/^\/settings\/(appearance|agent-profile)(?=\?|$)/, (_, tab: 'appearance' | 'agent-profile') => ACCOUNT_SETTINGS_PATHS[tab])
   }
 
   push(location: string): void {
     if (this.current() === location) return
-    this.browserWindow.history.pushState(null, '', location.replace(/^#/, ''))
+    this.browserWindow.history.pushState(null, '', this.address(location))
     this.emit()
   }
 
   replace(location: string): void {
     // Replace even when the route matches: boot converts old hash links in place.
-    this.browserWindow.history.replaceState(null, '', location.replace(/^#/, ''))
+    this.browserWindow.history.replaceState(null, '', this.address(location))
     this.emit()
   }
 

@@ -251,13 +251,13 @@ function reportRuns(backend: Backend, senderThreadId: string): string[] {
 /** Sessions with their turns open: targets solus-target (and solus-second), sender
  *  solus-sender. The orchestrator names them by session id; the fake provider
  *  runs them on threads thread-1 (and thread-3) and thread-2. */
-async function sessions(options: { secondTarget?: boolean; claude?: Backend; lead?: string } = {}) {
+async function sessions(options: { secondTarget?: boolean; claude?: Backend } = {}) {
   const backend = new Backend()
   const backends = new Map<AgentId, Backend>([['codex', backend]])
   if (options.claude) backends.set('claude-code', options.claude)
   const plane = new sessionRuntimeModule.SessionRuntime(backends)
   plane.on('error', () => {})
-  const orchestrator = runtime.orchestrateSessions(plane, async (sessionId) => sessionId === options.lead)
+  const orchestrator = runtime.orchestrateSessions(plane)
   const updates: AgentConversationUpdate[] = []
   /** The sender's queued prompts, by queue id, as its clients see them. */
   const senderQueue = new Set<string>()
@@ -307,7 +307,7 @@ describe('session orchestration', () => {
       backend.complete('thread-2', 'coordinated')
       await backend.run(isReportFor('thread-2'))
       expect(reportsIn(reportRuns(backend, 'thread-2')[0]!)).toEqual([
-        { messageId: sent.exchangeId, sessionId: 'solus-target', provider: 'codex', status: 'completed', durationMs: expect.any(Number), outputs: [], reply: 'second' },
+        { messageId: sent.exchangeId, sessionId: 'solus-target', provider: 'codex', model: 'gpt-test', status: 'completed', durationMs: expect.any(Number), outputs: [], reply: 'second' },
       ])
     } finally {
       plane.shutdown()
@@ -661,7 +661,7 @@ describe('session orchestration', () => {
 
   test('one turn that answers two messages from one sender is one report, naming both', async () => {
     // WHY: a parent that steers twice into one turn read the same reply twice,
-    // once per message, in a live lead session.
+    // once per message, in a live session.
     const { backend, plane, orchestrator, updates } = await sessions()
     try {
       const first = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'part one', delivery: 'steer', notify: true })
@@ -868,79 +868,30 @@ describe('session orchestration', () => {
   })
 })
 
-// WHY: a lead is the conversation a person reads, and every wake reads its
-// whole thread again. It is woken once, when the work it sent out is done, to
-// tell the person — not for each worker's turn, and not for a request the
-// person answers on the card.
-describe('a lead', () => {
-  const leadSessions = (options: { secondTarget?: boolean } = {}) => sessions({ ...options, lead: 'solus-sender' })
+test('an idle parent receives a child report while another child is still working', async () => {
+  const { backend, plane, orchestrator } = await sessions({ secondTarget: true })
+  try {
+    const first = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'part one', delivery: 'queue', notify: true })
+    const second = await orchestrator.send('solus-sender', 'solus-second', { prompt: 'part two', delivery: 'queue', notify: true })
+    backend.complete('thread-2', 'workers started')
+    backend.complete('thread-1')
+    backend.complete('thread-3')
+    await backend.started(5)
 
-  test('is woken once, when its last worker finishes, with every report', async () => {
-    const { backend, plane, orchestrator, updates } = await leadSessions({ secondTarget: true })
-    try {
-      const toFirst = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'part one', delivery: 'queue', notify: true })
-      const toSecond = await orchestrator.send('solus-sender', 'solus-second', { prompt: 'part two', delivery: 'queue', notify: true })
-      backend.complete('thread-2', 'workers started')
-      backend.complete('thread-1')
-      backend.complete('thread-3')
-      await backend.started(5)
+    backend.complete('thread-1', 'one done')
+    await backend.run(isReportFor('thread-2'))
+    expect(reportsIn(reportRuns(backend, 'thread-2')[0]!).map((report) => report.messageId)).toEqual([first.exchangeId])
+    expect(orchestrator.isAwaitingReplies('solus-sender')).toBe(true)
 
-      backend.complete('thread-1', 'one done')
-      // Held for the lead, not sent: the card knows its reply waits.
-      await until(() => orchestrator.progressOf(toFirst.exchangeId)?.state === 'reply_queued')
-      expect(reportRuns(backend, 'thread-2')).toEqual([])
-
-      backend.complete('thread-3', 'two done')
-      await backend.run(isReportFor('thread-2'))
-      expect(updates.filter((update) => update.phase === 'settled')).toHaveLength(2)
-      expect(reportRuns(backend, 'thread-2')).toHaveLength(1)
-      expect(reportsIn(reportRuns(backend, 'thread-2')[0]!).map((report) => [report.messageId, report.reply])).toEqual([
-        [toFirst.exchangeId, 'one done'],
-        [toSecond.exchangeId, 'two done'],
-      ])
-    } finally {
-      plane.shutdown()
-    }
-  })
-
-  test("is not woken by a worker's question; the person answers it on the card", async () => {
-    const { backend, plane, orchestrator, updates } = await leadSessions()
-    try {
-      await orchestrator.send('solus-sender', 'solus-target', { prompt: 'pick a database', delivery: 'queue', notify: true })
-      backend.complete('thread-2', 'waiting on the worker')
-      backend.complete('thread-1', 'first')
-      await backend.started(3)
-      const questions = [{ id: 'db', question: 'Which database?', options: [{ label: 'SQLite' }], multiSelect: false }]
-      backend.send('thread-1', { type: 'question_request', questionId: 'q1', questions })
-      await until(() => updates.some((update) => update.phase === 'awaiting_input'))
-
-      backend.complete('thread-1', 'asked and ended')
-      await orchestratorRun(backend, 'thread-2')
-      expect(orchestratorRuns(backend, 'thread-2').map((prompt) => parseOrchestrationItems(prompt)!.map((item) => item.type))).toEqual([['report']])
-    } finally {
-      plane.shutdown()
-    }
-  })
-
-  test('stopped by the person, is not woken later by the reports it held', async () => {
-    const { backend, plane, orchestrator } = await leadSessions({ secondTarget: true })
-    try {
-      const toFirst = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'part one', delivery: 'queue', notify: true })
-      const toSecond = await orchestrator.send('solus-sender', 'solus-second', { prompt: 'part two', delivery: 'queue', notify: true })
-      backend.complete('thread-2', 'workers started')
-      backend.complete('thread-1')
-      backend.complete('thread-3')
-      await backend.started(5)
-      backend.complete('thread-1', 'one done')
-      await until(() => orchestrator.progressOf(toFirst.exchangeId)?.state === 'reply_queued')
-
-      expect(orchestrator.cancelSentBy('solus-sender')).toBe(true)
-      await until(() => [toFirst, toSecond].every((sent) => orchestrator.progressOf(sent.exchangeId)?.state === 'settled'))
-      expect(orchestratorRuns(backend, 'thread-2')).toEqual([])
-    } finally {
-      plane.shutdown()
-    }
-  })
+    await backend.started(6)
+    backend.complete('thread-2', 'one result reviewed')
+    backend.complete('thread-3', 'two done')
+    await backend.run((request) => isReportFor('thread-2')(request)
+      && reportsIn(request.prompt).some((report) => report.messageId === second.exchangeId))
+    expect(reportsIn(reportRuns(backend, 'thread-2')[1]!).map((report) => report.messageId)).toEqual([second.exchangeId])
+  } finally {
+    plane.shutdown()
+  }
 })
 
 /** Resolves once the orchestrator has woken the sender's model. */

@@ -1050,9 +1050,6 @@ export interface SessionSpec {
   /** PR context carried by a composer opened from a pull request. Optional so
    *  drafts saved before this field existed still restore normally. */
   prReview?: PrReviewContext | null
-  /** The person chose that the session leads: it coordinates workers and does
-   *  not implement (docs/plans/lead-session.md). Sent with the first prompt. */
-  isLead?: boolean
 }
 
 /** UI-only state. One per open tab in the renderer. */
@@ -1186,10 +1183,6 @@ export interface Session {
   /** A fresh tab has no provider thread id yet. `/goal <objective>` stores the
    *  objective here until the first prompt initializes the thread. */
   pendingGoalObjective?: string | null
-  /** The person chose, before the first message, that this session leads:
-   *  it coordinates workers and does not implement. Sent with the first
-   *  prompt; fixed once the session has started. */
-  isLead?: boolean
   /** Live inline progress card for the current multi-step action (worktree
    *  setup, etc.). Live-only — not persisted to the transcript. */
   statusCard: StatusCardState | null
@@ -2212,10 +2205,6 @@ export interface PromptOptions {
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string
-  /** The first prompt of a lead session (docs/plans/lead-session.md). The
-   *  host marks the session as a lead and appends the lead contract to every
-   *  run of it. Ignored on a session that has already started. */
-  isLead?: boolean
   systemPrompt?: string
   maxTurns?: number
   maxBudgetUsd?: number
@@ -2662,9 +2651,6 @@ export interface SessionMeta {
   delegation?: SessionDelegation
   /** What started this session (docs/plans/session-starter.md); absent for a session made before the host recorded it. */
   startedBy?: SessionStarter
-  /** The session is in Meta mode: it is a lead
-   *  (docs/plans/lead-session.md). The sidebar marks it. Absent when not. */
-  isLead?: boolean
   /** The organization of the session's record: `local` or an organization id
    *  (organization-scope §3). Absent when the host keeps no record of it. */
   organizationId?: string
@@ -2763,9 +2749,6 @@ export interface SessionRecord {
   place: SessionPlace | null
   /** What started the session. Written once, as `place` is. */
   startedBy: SessionStarter | null
-  /** The session is in Meta mode: it is a lead
-   *  (docs/plans/lead-session.md). The list marks it. Absent when not. */
-  isLead?: boolean
   /** Whether the session's work is finished (docs/plans/session-archive.md).
    *  Null when nothing settled it. */
   state?: SessionState | null
@@ -2794,7 +2777,7 @@ export type SessionRecordDelegation = Omit<SessionDelegation, 'parentSessionId' 
 
 /** `sessionRecordUpsert`: a field left out keeps the stored value; `lastActivityAt`
  *  is always the caller's. The organization is the caller's, never an argument. */
-export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'ownerKey' | 'state' | 'view' | 'listed' | 'pullRequests' | 'role' | 'sharedBy' | 'grantedAt' | 'isLead'>> {
+export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'ownerKey' | 'state' | 'view' | 'listed' | 'pullRequests' | 'role' | 'sharedBy' | 'grantedAt'>> {
   sessionId: string
   provider: AgentId
   projectPath: string

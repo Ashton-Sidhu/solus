@@ -1,9 +1,6 @@
 <script lang="ts">
   import { settingsDefinitions } from "@solus/client-core/settings-definitions";
-  /** Lead sessions: the model a new lead session starts on, the default model
-   *  its workers start on, and the instructions added to its contract. Lives
-   *  under Sessions; the Sessions tab owns the search entries. */
-  import type { LeadModelSelection } from "@solus/contracts/settings";
+  import type { WorkerModelSelection } from "@solus/contracts/settings";
   import { Switch } from "../ui/switch";
   import SessionChip from "../pickers/SessionChip.svelte";
   import {
@@ -17,107 +14,64 @@
   import { managedSetting } from "./policy/managed-setting.svelte";
   import SettingsTextField from "./SettingsTextField.svelte";
   import {
-    leadModelAgents,
-    leadModelFor,
-    pickerFromLeadModel,
-  } from "./lib/lead-models";
+    workerModelAgents,
+    workerModelFor,
+    pickerFromWorkerModel,
+  } from "./lib/worker-models";
 
   let { isVisible }: { isVisible: (id: string) => boolean } = $props();
 
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
-  const agents = $derived(leadModelAgents(agentContext.metadata));
+  const agents = $derived(workerModelAgents(agentContext.metadata));
 
   /** What a model switch turns on with: the default agent's default model,
-   *  or the first agent a lead may name. */
-  function initialModel(): LeadModelSelection | null {
+   *  or the first available worker provider. */
+  function initialModel(): WorkerModelSelection | null {
     const agent = agents[0];
     return (
-      leadModelFor(
+      workerModelFor(
         theme.activeAgent,
         defaultModelIdFor(theme.activeAgent, agentContext.metadata),
-      ) ?? (agent ? leadModelFor(agent.id, agent.defaultModel) : null)
+      ) ?? (agent ? workerModelFor(agent.id, agent.defaultModel) : null)
     );
   }
 
-  // The chips edit a detached selection in place, so each keeps its own
-  // `$state` and follows the saved value.
-  let leadPickerSelection = $state<PickerSelection | null>(null);
+  // The picker edits a detached selection that follows the saved value.
   let workerPickerSelection = $state<PickerSelection | null>(null);
 
   $effect(() => {
-    leadPickerSelection = theme.leadModel ? pickerFromLeadModel(theme.leadModel) : null;
-  });
-
-  $effect(() => {
     const workerModel = theme.workerModel;
-    workerPickerSelection = workerModel ? pickerFromLeadModel(workerModel) : null;
+    workerPickerSelection = workerModel ? pickerFromWorkerModel(workerModel) : null;
   });
-
-  function setLeadModelEnabled(enabled: boolean) {
-    theme.setPersonal("leadModel", enabled ? initialModel() : null);
-  }
-
-  function selectLeadModel(selection: PickerSelection) {
-    const leadModel = leadModelFor(selection.provider, selection.modelId, selection.reasoningEffort);
-    if (leadModel) theme.setPersonal("leadModel", leadModel);
-  }
 
   function setWorkerModelEnabled(enabled: boolean) {
     theme.setPersonal("workerModel", enabled ? initialModel() : null);
   }
 
   function selectWorkerModel(selection: PickerSelection) {
-    const workerModel = leadModelFor(selection.provider, selection.modelId, selection.reasoningEffort);
+    const workerModel = workerModelFor(selection.provider, selection.modelId, selection.reasoningEffort);
     if (workerModel) theme.setPersonal("workerModel", workerModel);
   }
 
   // Saved on blur, not per keystroke: a synced profile sends after a pause anyway.
-  let leadInstructionsDraft = $state("");
+  let delegationInstructionsDraft = $state("");
   $effect(() => {
-    leadInstructionsDraft = theme.leadInstructions;
+    delegationInstructionsDraft = theme.delegationInstructions;
   });
 
-  function commitLeadInstructions() {
-    if (leadInstructionsDraft !== theme.leadInstructions) {
-      theme.setPersonal("leadInstructions", leadInstructionsDraft);
+  function commitDelegationInstructions() {
+    if (delegationInstructionsDraft !== theme.delegationInstructions) {
+      theme.setPersonal("delegationInstructions", delegationInstructionsDraft);
     }
     requestInputFocus();
   }
 </script>
 
 <SettingsSection
-  {...settingsDefinitions["sessions.section-meta-mode"]}
-  visible={["lead-model", "worker-model", "lead-instructions"].some(isVisible)}
+  {...settingsDefinitions["sessions.section-delegation"]}
+  visible={["worker-model", "delegation-instructions"].some(isVisible)}
 >
-  <SettingsRow
-    {...settingsDefinitions["sessions.lead-model"]}
-    managed={managedSetting("leadModel")}
-    visible={isVisible("lead-model")}
-  >
-    {#snippet control()}
-      <div class="flex items-center justify-end gap-2">
-        {#if leadPickerSelection}
-          <SessionChip
-            selection={leadPickerSelection}
-            {agents}
-            allowFastMode={false}
-            menuSide="bottom"
-            ariaLabel="Lead model and reasoning"
-            returnFocusOnClose
-            class="w-full @min-[30rem]/pane:w-56"
-            onSelectionChange={selectLeadModel}
-          />
-        {/if}
-        <Switch
-          checked={theme.leadModel !== null}
-          onCheckedChange={setLeadModelEnabled}
-          aria-label="Use a separate model for Meta mode sessions"
-        />
-      </div>
-    {/snippet}
-  </SettingsRow>
-
   <SettingsRow
     {...settingsDefinitions["sessions.worker-model"]}
     managed={managedSetting("workerModel")}
@@ -147,16 +101,16 @@
   </SettingsRow>
 
   <SettingsRow
-    {...settingsDefinitions["sessions.lead-instructions"]}
-    managed={managedSetting("leadInstructions")}
-    visible={isVisible("lead-instructions")}
+    {...settingsDefinitions["sessions.delegation-instructions"]}
+    managed={managedSetting("delegationInstructions")}
+    visible={isVisible("delegation-instructions")}
   >
     {#snippet body()}
       <SettingsTextField
-        label="Meta mode instructions"
-        value={leadInstructionsDraft}
-        onValueChange={(text) => (leadInstructionsDraft = text)}
-        onBlur={commitLeadInstructions}
+        label="Delegation instructions"
+        value={delegationInstructionsDraft}
+        onValueChange={(text) => (delegationInstructionsDraft = text)}
+        onBlur={commitDelegationInstructions}
         placeholder="Send frontend work to Claude Opus and backend work to Codex. Ask before you start more than three workers."
         class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />

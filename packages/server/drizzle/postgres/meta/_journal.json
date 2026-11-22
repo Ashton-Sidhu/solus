@@ -12,8 +12,15 @@
     {
       "idx": 1,
       "version": "7",
-      "when": 1795282977062,
-      "tag": "0001_session_turn_diffs",
+      "when": 1795239340035,
+      "tag": "0001_remove_meta_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795319711638,
+      "tag": "0002_session_turn_diffs",
       "breakpoints": true
     }
   ]

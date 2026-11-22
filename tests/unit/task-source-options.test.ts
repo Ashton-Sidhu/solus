@@ -142,9 +142,19 @@ test('the GitHub repositories of the person\'s recent projects come first, even 
   const options = await taskSourceOptions(deps({
     githubStatus: async () => ({ connected: false }),
     hasGithubCredential: async () => false,
-    projectRepositoryKeys: async () => ['github.com/acme/app', 'gitlab.com/acme/web', 'github.com/acme/app', 'github.com/group/sub/repo', 'github.com/octocat/dotfiles'],
+    projectRepositories: async () => [
+      { repositoryKey: 'github.com/acme/app', isFork: false },
+      { repositoryKey: 'gitlab.com/acme/web', isFork: false },
+      { repositoryKey: 'github.com/acme/app', isFork: false },
+      { repositoryKey: 'github.com/group/sub/repo', isFork: false },
+      { repositoryKey: 'github.com/berriai/litellm', isFork: true },
+    ],
   }))
-  // Only github.com repositories, once each, in the order of last use.
-  expect(options.github.projectRepositories).toEqual([{ owner: 'acme', repo: 'app' }, { owner: 'octocat', repo: 'dotfiles' }])
+  // Only github.com repositories, once each, in the order of last use. A fork's
+  // checkout names the original repository, and says so.
+  expect(options.github.projectRepositories).toEqual([
+    { owner: 'acme', repo: 'app' },
+    { owner: 'berriai', repo: 'litellm', isFork: true },
+  ])
   expect(options.github.connected).toBe(false)
 })
