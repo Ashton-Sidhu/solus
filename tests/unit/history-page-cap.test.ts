@@ -7,7 +7,7 @@ import { loadClaudeHistoryPage } from '@solus/server/execution/agents/claude/cla
 import { loadHistoryPage, type HistorySegment } from '@solus/server/execution/sessions/history-page'
 import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
 
 // WHY: a page cut inside a turn changes that turn on the client when the older
 // page arrives: the row the reader is on is replaced and the view jumps. So a

@@ -1,0 +1,365 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { Alert, Pressable, View } from "react-native";
+import { StackActions, useNavigation } from "@react-navigation/native";
+import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
+import type { TranscriptItem } from "@solus-mobile/features/conversation/lib/transcript-model";
+import { mayWorkLocallyDuringSetup } from "@solus/contracts/setup-card";
+import { RequestActionButton } from "@solus-mobile/features/threads/RequestActionButton";
+import { compactionDividerText } from "@solus/contracts/context-compaction";
+import { handoffDividerText } from "@solus-mobile/features/conversation/lib/provider-handoff";
+import { threadKey } from "@solus-mobile/features/threads/thread-directory";
+import { useTranscriptItem } from "@solus-mobile/features/threads/use-transcript-items";
+import {
+  toolFullDetail,
+  toolRowLabel,
+} from "@solus-mobile/features/threads/thread-work-log-presentation";
+import { InlineHtmlRender } from "../features/threads/HtmlRenderWebView";
+import { AppActivityIndicator } from "../components/ui/AppActivityIndicator";
+import { ThreadMcpApp } from "@solus-mobile/features/threads/ThreadMcpApp";
+import { WorktreeOfferCard } from "@solus-mobile/features/threads/WorktreeOfferCard";
+import { ThreadToolAudio } from "@solus-mobile/features/threads/ThreadToolAudio";
+import { AppText } from "../components/ui/AppText";
+import { ConversationMedia, conversationImageSource } from "./ConversationMedia";
+import { PlanCard } from "./PlanCard";
+import { solus } from "./runtime";
+
+function Details({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View className="mb-2 gap-2 rounded-2xl border border-border bg-card p-3">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+      >
+        <AppText className="font-medium">{title}</AppText>
+        {subtitle ? <AppText className="text-xs text-foreground-muted">{subtitle}</AppText> : null}
+      </Pressable>
+      {open && children}
+    </View>
+  );
+}
+
+function AgentCard({
+  store,
+  item,
+}: {
+  store: ConversationStore;
+  item: Extract<TranscriptItem, { kind: "agent" }>;
+}) {
+  const navigation = useNavigation();
+  const [loading, setLoading] = useState(false);
+  const open = async () => {
+    if (loading) return;
+    setLoading(true);
+    const hostId = store.controller.hostId;
+    try {
+      if (!solus.threads.thread(hostId, item.sessionId)) {
+        const connection = solus.connections.connection(hostId);
+        const record = await connection?.api.sessionRecordGet(item.sessionId);
+        if (!record) throw new Error("This session is unavailable on this host.");
+        solus.threads.rememberSearchResult({
+          hostId,
+          hostLabel: solus.registry.host(hostId)?.label ?? hostId,
+          key: threadKey(hostId, record.sessionId),
+          record,
+        });
+      }
+      navigation.dispatch(
+        StackActions.push("Thread", { environmentId: hostId, threadId: item.sessionId }),
+      );
+    } catch (error) {
+      Alert.alert("Could not open session", error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <Details
+      title={item.title || "Agent session"}
+      subtitle={[item.provider, item.model, item.exchanges.at(-1)?.status]
+        .filter(Boolean)
+        .join(" · ")}
+    >
+      <AppText selectable>{item.prompt}</AppText>
+      {item.reply && <AppText selectable>{item.reply}</AppText>}
+      <Pressable accessibilityRole="button" disabled={loading} onPress={() => void open()}>
+        <AppText className="font-medium">{loading ? "Opening…" : "Open session"}</AppText>
+      </Pressable>
+    </Details>
+  );
+}
+
+function ToolCard({
+  store,
+  item,
+}: {
+  store: ConversationStore;
+  item: Extract<TranscriptItem, { kind: "tool" }>;
+}) {
+  const text = toolFullDetail(item);
+  return (
+    <Details
+      title={toolRowLabel(item)}
+      subtitle={[item.toolName, item.status, item.progress?.message].filter(Boolean).join(" · ")}
+    >
+      {text && (
+        <AppText selectable className="font-mono text-xs">
+          {text}
+        </AppText>
+      )}
+      {item.report && <AppText selectable>{item.report}</AppText>}
+      {item.children?.order.map((id) => {
+        const child = item.children?.items.get(id);
+        if (child?.kind === "tool") return <ToolCard key={id} item={child} store={store} />;
+        if (child?.kind === "assistant" || child?.kind === "notice" || child?.kind === "user")
+          return (
+            <AppText key={id} selectable>
+              {child.text}
+            </AppText>
+          );
+        return null;
+      })}
+      {item.images?.map((image, i) => (
+        <ConversationMedia
+          key={image.assetId}
+          store={store}
+          source={{ assetId: image.assetId }}
+          label={`Tool image ${i + 1}`}
+        />
+      ))}
+      {item.audio?.map((audio, i) => (
+        <ThreadToolAudio
+          key={audio.assetId}
+          audio={audio}
+          label={`Tool audio ${i + 1}`}
+          store={store}
+        />
+      ))}
+      {item.leftOut?.map((line, i) => (
+        <AppText key={i}>{line}</AppText>
+      ))}
+      {!text &&
+        !item.report &&
+        !item.images?.length &&
+        !item.audio?.length &&
+        !item.leftOut?.length &&
+        !item.childCount && (
+          <AppText className="text-xs text-foreground-muted">
+            {item.status === "running"
+              ? "Waiting for the tool."
+              : "The host supplied no further detail."}
+          </AppText>
+        )}
+    </Details>
+  );
+}
+
+function ArtifactCard({
+  store,
+  item,
+  superseded,
+}: {
+  store: ConversationStore;
+  item: Extract<TranscriptItem, { kind: "artifact" }>;
+  superseded: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = !superseded || expanded;
+  const pending = !item.html && !!item.contentVersion;
+  const needsRead = visible && pending && !item.loading && !item.error;
+  useEffect(() => {
+    if (needsRead) void store.controller.ensureArtifact(item.id);
+  }, [store, item.id, needsRead]);
+  return (
+    <View className="px-1">
+      {superseded && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          className="min-h-11 justify-center"
+          onPress={() => setExpanded(!expanded)}
+        >
+          <AppText className="text-sm text-foreground-secondary">
+            {item.title} · earlier version
+          </AppText>
+        </Pressable>
+      )}
+      {visible &&
+        (pending ? (
+          item.error ? (
+            <View className="min-h-28 items-center justify-center">
+              <AppText accessibilityRole="alert">{item.error}</AppText>
+              <RequestActionButton
+                label="Try again"
+                onPress={() => void store.controller.ensureArtifact(item.id)}
+              />
+            </View>
+          ) : (
+            <AppActivityIndicator accessibilityLabel="Loading artifact" />
+          )
+        ) : (
+          <InlineHtmlRender html={item.html} title={item.title} />
+        ))}
+    </View>
+  );
+}
+
+export function ConversationCard({
+  store,
+  id,
+  superseded = false,
+}: {
+  store: ConversationStore;
+  id: string;
+  superseded?: boolean;
+}) {
+  const item = useTranscriptItem(store, id);
+  if (!item) return null;
+  switch (item.kind) {
+    case "user":
+      return (
+        <View>
+          {item.delivery === "failed" && (
+            <View>
+              <AppText accessibilityRole="alert">{item.error ?? "Message failed to send."}</AppText>
+              {store.controller.mayDrive && (
+                <RequestActionButton
+                  label="Retry message"
+                  onPress={() => void store.controller.retry(item.id)}
+                />
+              )}
+            </View>
+          )}
+          {item.attachments.map((a) =>
+            a.kind === "file" ? (
+              <ConversationMedia
+                key={a.key}
+                store={store}
+                label={a.name}
+                source={{ path: a.hostPath }}
+                file
+              />
+            ) : (
+              <ConversationMedia
+                key={a.key}
+                store={store}
+                label={a.name}
+                source={a.kind === "image" ? { uri: a.dataUrl } : { path: a.hostPath }}
+              />
+            ),
+          )}
+        </View>
+      );
+    case "assistant":
+      return null; // The upstream feed renders the message.
+    case "artifact":
+      return <ArtifactCard store={store} item={item} superseded={superseded} />;
+    case "mcp_app":
+      return <ThreadMcpApp store={store} id={id} />;
+    case "tool":
+      return <ToolCard item={item} store={store} />;
+    case "agent":
+      return <AgentCard item={item} store={store} />;
+    case "image":
+      return (
+        <ConversationMedia
+          store={store}
+          label="Image"
+          source={conversationImageSource(item.path)}
+        />
+      );
+    case "browser_snapshot":
+      return (
+        <ConversationMedia
+          store={store}
+          label={item.snapshot.title || "Browser screenshot"}
+          source={{ assetId: item.snapshot.assetId }}
+        />
+      );
+    case "notice":
+      return (
+        <AppText
+          accessibilityRole={item.tone === "error" ? "alert" : "text"}
+          selectable
+          className="my-2 text-sm text-foreground-secondary"
+        >
+          {item.text}
+        </AppText>
+      );
+    case "plan":
+      return <PlanCard store={store} plan={item} />;
+    case "worktree_offer":
+      return <WorktreeOfferCard store={store} offer={item} />;
+    case "setup":
+      return (
+        <Details title={item.card.title} subtitle={item.card.status}>
+          {item.card.steps.map((step) => (
+            <AppText key={step.id}>
+              {[
+                step.label,
+                step.status,
+                step.percent !== undefined ? step.percent + "%" : null,
+                step.detail,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </AppText>
+          ))}
+          {item.card.output?.length ? (
+            <AppText selectable className="font-mono text-xs">
+              {item.card.output.join("\n")}
+            </AppText>
+          ) : null}
+          {store.controller.mayDrive &&
+            item.card.recovery === "worktree" &&
+            item.card.status === "error" && (
+              <RequestActionButton
+                label="Retry setup"
+                onPress={() => void store.controller.recoverWorktreeSetup(id, false)}
+              />
+            )}
+          {store.controller.mayDrive &&
+            (mayWorkLocallyDuringSetup(item.card) ||
+              (item.card.status === "error" && item.card.recovery === "worktree")) && (
+              <RequestActionButton
+                label="Work locally"
+                tone="secondary"
+                onPress={() => void store.controller.recoverWorktreeSetup(id, true)}
+              />
+            )}
+          {store.controller.mayDrive && item.card.status === "active" && (
+            <RequestActionButton
+              label="Cancel setup"
+              tone="secondary"
+              onPress={() => void store.controller.stop()}
+            />
+          )}
+        </Details>
+      );
+    case "compaction": {
+      const { label, detail } = compactionDividerText(item.compaction);
+      return (
+        <AppText className="my-2 text-xs text-foreground-muted">
+          {[label, detail].filter(Boolean).join(" · ")}
+        </AppText>
+      );
+    }
+    case "handoff":
+      return (
+        <AppText className="my-2 text-xs text-foreground-muted">
+          {handoffDividerText(item.activity)}
+        </AppText>
+      );
+    default:
+      return item satisfies never;
+  }
+}

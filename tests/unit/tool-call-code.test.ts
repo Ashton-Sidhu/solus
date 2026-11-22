@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { formatShellCommand, toolCallCode } from '@solus/client-core/tool-call-code'
-import { toolRowView } from '../../apps/mobile/src/features/threads/thread-work-log-presentation'
+import { toolRowView } from '../../apps/mobile/solus-core/features/threads/thread-work-log-presentation'
 
 describe('toolCallCode', () => {
   test('shows a Bash call as its script, one statement on each line', () => {

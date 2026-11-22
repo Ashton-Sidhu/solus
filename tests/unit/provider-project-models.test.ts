@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { newProviderInstance, type ProviderInstancesSnapshot } from '@solus/contracts/provider-instances'
 import { agentForProject, changeProjectProviderOverride, instanceModelCatalog, providerProjectOverride } from '@solus/contracts/provider-instance-models'
 import { MODEL_PROFILES, SOLUS_WORKTREE_DIR, type AgentMetadata } from '@solus/contracts/types'
-import { newSessionModel, selectModel } from '../../apps/mobile/src/features/conversation/lib/run-settings'
+import { newSessionModel, selectModel } from '../../apps/mobile/solus-core/features/conversation/lib/run-settings'
 
 function fixture() {
   const base = newProviderInstance('codex', 'codex', 'Codex')

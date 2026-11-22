@@ -3,11 +3,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { BUNDLED_MODEL_PROFILES, MODEL_PROFILES, replaceModelProfiles, type AgentMetadata, type IpcContext, type ModelProfilesStatus, type PromptOptions } from '@solus/contracts/types'
-import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
-import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
-import { canChoosePermissionMode, canRouteAuto, modelChoices, PERMISSION_MODE_ICON, rememberedFastMode, newSessionModel, permissionModesFor, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode } from '../../apps/mobile/src/features/conversation/lib/run-settings'
-import { KeyboardCommands } from '../../apps/mobile/src/features/keyboard/keyboard-commands'
-import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
+import { ConversationController, type ConversationTarget } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
+import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../../apps/mobile/solus-core/features/conversation/lib/ipc-context'
+import { canChoosePermissionMode, canRouteAuto, modelChoices, PERMISSION_MODE_ICON, rememberedFastMode, newSessionModel, permissionModesFor, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode } from '../../apps/mobile/solus-core/features/conversation/lib/run-settings'
+import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 
@@ -99,39 +98,6 @@ describe('native run settings in a conversation', () => {
     // The chosen options are the person's (plans/018), kept on this device, never written to the host.
     expect(busy.savedOptions).toEqual([['claude-code', 'claude-haiku-4-5-20251001', { reasoningEffort: busy.controller.run.reasoningEffort, contextWindow: busy.controller.run.contextWindow, fastMode: false }]])
     expect(busy.api.callsOf('configUpdate')).toEqual([])
-  })
-})
-
-describe('native hardware keyboard commands', () => {
-  test('Stop on an idle visible thread cannot interrupt a mounted thread behind it', () => {
-    const commands = new KeyboardCommands()
-    const stopped: string[] = []
-    commands.register('stop', () => { stopped.push('hidden running thread') })
-    // The visible thread owns Stop even when it has nothing to cancel.
-    const leaveVisible = commands.register('stop', () => {})
-    expect(commands.dispatch('stop')).toBe(true)
-    expect(stopped).toEqual([])
-    leaveVisible()
-
-    // Keep the screen binding tied to navigation focus: native stacks retain
-    // older screens, and registration order does not follow Back navigation.
-    const detail = readFileSync(join(process.cwd(), 'apps/mobile/src/features/threads/ThreadDetailScreen.tsx'), 'utf8')
-    expect(detail).toContain('const isFocused = useIsFocused();')
-    expect(detail).toMatch(/useKeyboardCommand\("stop", \(\) => \{\s*if \(canStop\) stopThread\(\);\s*\}, isFocused\)/)
-  })
-
-  test('the newest handler answers; one that declines passes the command on', () => {
-    const commands = new KeyboardCommands()
-    const calls: string[] = []
-    const stopBelow = commands.register('stop', () => { calls.push('below') })
-    const stopTop = commands.register('stop', () => { calls.push('top'); return false })
-    expect(commands.enabledCommands()).toEqual(['stop'])
-    expect(commands.dispatch('stop')).toBe(true)
-    expect(calls).toEqual(['top', 'below'])
-    stopTop()
-    stopBelow()
-    expect(commands.enabledCommands()).toEqual([])
-    expect(commands.dispatch('stop')).toBe(false)
   })
 })
 

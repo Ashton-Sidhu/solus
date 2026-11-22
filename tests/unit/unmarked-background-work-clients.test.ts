@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Session } from '@solus/contracts/types'
 import { showsBackgroundWork } from '@solus/client-core/background-work'
 import { SessionEventReducer, type SessionEventReducerDeps } from '@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte'
-import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
 
 // A Claude turn that leaves a dev server or its Monitor running, unmarked,
 // completes (docs/background-work.md). The status no longer says that work

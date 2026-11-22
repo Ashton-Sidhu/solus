@@ -26,10 +26,10 @@ describe('native mobile workloads', () => {
     const order = model.order
     expect(model.takeChanges()).toEqual({ items: [], order: false, meta: false })
     expect(model.order).toBe(order)
-    expect(feedRows(model)).toEqual(feedRows(model))
+    expect(feedRows(model).map(row => row.id)).toEqual(feedRows(model).map(row => row.id))
   })
 
-  test('a long feed keeps one row per prompt, tool group, and reply', () => {
+  test('a long feed keeps one row per prompt, tool call, and reply', () => {
     const rows = feedRows(conversation(1_000))
     expect(rows.filter((row) => row.type === 'message')).toHaveLength(2_000)
     expect(rows.length).toBeGreaterThanOrEqual(2_000)

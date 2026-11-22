@@ -45,7 +45,7 @@ describe('personal task views', () => {
 
 test('a saved no-column filter has the same meaning on the native list', async () => {
   const { tasksForSavedView } = await import('@solus/client-core/task-views')
-  const { mobileTaskFilters } = await import('../../apps/mobile/src/features/tasks/task-list')
+  const { mobileTaskFilters } = await import('../../apps/mobile/solus-core/features/tasks/task-list')
   const task = {
     id: 'github:I1',
     providerId: 'github' as const,

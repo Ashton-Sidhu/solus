@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readNativeAddress } from '../../apps/mobile/src/platform/read-native-address'
+import { readNativeAddress } from '../../apps/mobile/solus-core/platform/read-native-address'
 
 class FakeRequest extends EventTarget {
   status = 0

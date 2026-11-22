@@ -12,10 +12,10 @@ import {
   type AgentProfile,
   type AgentProfileStatus,
 } from '@solus/contracts/agent-profile'
-import { SolusApp } from '../../apps/mobile/src/app/solus-app'
-import { AgentProfileLocalStore } from '../../apps/mobile/src/features/settings/agent-profile-local'
-import { AccountSync, alwaysOnlineEnvironment, type ReachableHost } from '../../apps/mobile/src/features/account/account-sync'
-import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/personal-settings'
+import { SolusApp } from '../../apps/mobile/solus-core/app/solus-app'
+import { AgentProfileLocalStore } from '../../apps/mobile/solus-core/features/settings/agent-profile-local'
+import { AccountSync, alwaysOnlineEnvironment, type ReachableHost } from '../../apps/mobile/solus-core/features/account/account-sync'
+import { PersonalSettingsStore } from '../../apps/mobile/solus-core/features/settings/personal-settings'
 import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import {
   agentProfileParts,
@@ -25,8 +25,8 @@ import {
   integrationEntryFromProbe,
   profileServerStatus,
   skillEntryFromRemote,
-} from '../../apps/mobile/src/features/settings/lib/agent-profile-entries'
-import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
+} from '../../apps/mobile/solus-core/features/settings/lib/agent-profile-entries'
+import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/solus-core/platform/ports'
 import { FakeApi, FakeTransport, flushPromises, seedAccountGrant } from './helpers/native-mobile-fakes'
 import { identityKeyFor, signedHealth } from './helpers/signing-host'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
@@ -388,17 +388,6 @@ describe('the parts the screen shows', () => {
     expect(hostProfileText(PULLED, null, (ms) => `at ${ms}`)).toBe('Copied from your account at 5: 1 file.')
     expect(hostProfileText({ ...PULLED, syncedAt: null }, null, String)).toBe('Not on this host yet.')
     expect(hostProfileText(null, 'Refused.', String)).toBe('Refused.')
-  })
-})
-
-describe('navigation', () => {
-  test('the agent profile screen opens without a host, from Settings and from the account page', () => {
-    const mobile = resolve(import.meta.dir, '../../apps/mobile/src')
-    expect(readFileSync(join(mobile, 'navigation/routes.ts'), 'utf8')).toMatch(/\n\s*AgentProfile: undefined\n/)
-    expect(readFileSync(join(mobile, 'navigation/RootNavigator.tsx'), 'utf8')).toContain('name="AgentProfile"')
-    for (const screen of ['features/settings/SettingsScreen.tsx', 'features/account/CloudHostsScreen.tsx']) {
-      expect(readFileSync(join(mobile, screen), 'utf8')).toContain('navigate("AgentProfile")')
-    }
   })
 })
 

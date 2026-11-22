@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrProjectListing } from '@solus/contracts/providers'
-import { PullRequestDirectory, type HostPullRequests } from '../../apps/mobile/src/features/prs/pull-request-directory'
+import { PullRequestDirectory, type HostPullRequests } from '../../apps/mobile/solus-core/features/prs/pull-request-directory'
 import {
   DEFAULT_PULL_REQUEST_LIST_CONTROLS, filterPullRequestRows, hostNoticesSummary, pullRequestLabelColor, pullRequestListFacets,
   pullRequestRowKey, pullRequestRowReviewStatus, pullRequestRows, type PullRequestRow,
-} from '../../apps/mobile/src/features/prs/lib/pull-request-list'
-import { shownValue } from '../../apps/mobile/src/features/prs/pull-request-reads'
+} from '../../apps/mobile/solus-core/features/prs/lib/pull-request-list'
+import { shownValue } from '../../apps/mobile/solus-core/features/prs/pull-request-reads'
 import { FakeApi } from './helpers/native-mobile-fakes'
 import { hostWorld, project, pullRequest } from './helpers/native-mobile-prs-fixtures'
 

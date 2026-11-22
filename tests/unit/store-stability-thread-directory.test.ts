@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProjectEntry, SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
-import { ThreadDirectory } from '../../apps/mobile/src/features/threads/thread-directory'
+import { ThreadDirectory } from '../../apps/mobile/solus-core/features/threads/thread-directory'
 
 // The native project filter, sidebar, and new-task picker read
 // `ThreadDirectory.projects()` through `useSyncExternalStore`, which renders

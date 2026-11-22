@@ -3,7 +3,7 @@ import type { Message, QuestionRequest } from '@solus/contracts/types'
 import { canSubmitSecret, canSubmitSecrets, isSecretRequest, secretAnswer, secretOutcomesFromResult, secretPrivacyNote, secretPageUrl, secretReceiptRows, secretRequestLink, secretRequestPrompts } from '@solus/contracts/secret-request'
 import { projectSessionEvent, projectSessionHistory } from '@solus/server/data/sessions/result-projection'
 import { groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
-import { summarizeToolGroup, toolRowLabel } from '../../apps/mobile/src/features/threads/thread-work-log-presentation'
+import { summarizeToolGroup, toolRowLabel } from '../../apps/mobile/solus-core/features/threads/thread-work-log-presentation'
 
 function request(patch: Partial<QuestionRequest>): QuestionRequest {
   return { questionId: 'q1', questions: [{ header: 'GitHub webhook secret', question: 'To verify GitHub requests.', options: [], multiSelect: false }], kind: 'secret', ...patch }

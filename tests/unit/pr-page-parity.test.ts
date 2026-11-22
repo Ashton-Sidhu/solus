@@ -14,12 +14,12 @@ import { filterPrFacets } from '@solus/workspace-ui/components/prs/lib/pr-utils'
 import {
   applyPrView as applyNativeView,
   capturePrView as captureNativeView
-} from '../../apps/mobile/src/features/prs/lib/pr-saved-views'
+} from '../../apps/mobile/solus-core/features/prs/lib/pr-saved-views'
 import {
   filterPullRequestRows,
   type PullRequestRow
-} from '../../apps/mobile/src/features/prs/lib/pull-request-list'
-import { resolvePullRequestListScope } from '../../apps/mobile/src/features/workspace/list-preferences'
+} from '../../apps/mobile/solus-core/features/prs/lib/pull-request-list'
+import { resolvePullRequestListScope } from '../../apps/mobile/solus-core/features/workspace/list-preferences'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { PullRequest } from '@solus/contracts/providers'
 

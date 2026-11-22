@@ -1,14 +1,14 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test'
 import type { ReactElement } from 'react'
-import type { GuideNotice } from '../../apps/mobile/src/features/prs/lib/pull-request-guide-state'
+import type { GuideNotice } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-guide-state'
 
 // The card's native parts cannot load in Bun; the card is called as a plain
 // function, so only their names are needed.
 mock.module('react-native', () => ({ Pressable: 'Pressable', View: 'View' }))
-mock.module('../../apps/mobile/src/components/AppSymbol', () => ({ SymbolView: 'SymbolView' }))
-mock.module('../../apps/mobile/src/components/AppText', () => ({ AppText: 'Text' }))
+mock.module('../../apps/mobile/solus-core/components/AppSymbol', () => ({ SymbolView: 'SymbolView' }))
+mock.module('../../apps/mobile/solus-core/components/AppText', () => ({ AppText: 'Text' }))
 
-const { GuideNoticeCard } = await import('../../apps/mobile/src/features/prs/detail/GuideNoticeCard')
+const { GuideNoticeCard } = await import('../../apps/mobile/solus-core/features/prs/detail/GuideNoticeCard')
 
 const notice = (kind: GuideNotice['kind']): GuideNotice => ({ kind, title: kind, description: '', action: 'Write guide' })
 const props = { compact: false, canWrite: true, onWrite: () => {}, onReload: () => {} }

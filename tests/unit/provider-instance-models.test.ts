@@ -3,7 +3,7 @@ import { newProviderInstance } from '@solus/contracts/provider-instances'
 import { isLegacyModel } from '@solus/contracts/types'
 import { instanceModelCatalog, changeModelPreference } from '@solus/contracts/provider-instance-models'
 import { modelOptionsFor, splitLegacyModels } from '@solus/workspace-ui/components/pickers/lib/picker-selection'
-import { newSessionModel } from '../../apps/mobile/src/features/conversation/lib/run-settings'
+import { newSessionModel } from '../../apps/mobile/solus-core/features/conversation/lib/run-settings'
 
 const customModel = { id: 'private-model', label: 'Private model', reasoningLevels: ['low', 'high'] as const, defaultReasoningEffort: 'low' as const, contextWindows: [32000], defaultContextWindow: 32000, supportsFastMode: true }
 

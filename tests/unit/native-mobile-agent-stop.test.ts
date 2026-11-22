@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Activity } from '@solus/contracts/activity'
 import type { SessionHistoryPage } from '@solus/contracts/session-history'
-import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
 
 /**
  * When another agent session stops a run, the phone says so and names that

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { filterChangedFiles, toggleChangeKind, parseChangeKinds, changeFilterOptions } from '@solus/client-core/change-breakdown'
-import { buildReviewParsedDiff } from '../../apps/mobile/src/features/review/reviewModel'
-import { filterPullRequestFileKinds } from '../../apps/mobile/src/features/prs/lib/pull-request-file-filters'
+import { buildReviewParsedDiff } from '../../apps/mobile/solus-core/features/review/reviewModel'
+import { filterPullRequestFileKinds } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-file-filters'
 
 const paths = ['src/app.ts', 'tests/app.test.ts', 'tests/fixtures/app.json', 'bun.lock', 'README.md']
 

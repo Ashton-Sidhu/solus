@@ -11,8 +11,8 @@
  * `scripts/measure-mobile-workloads.ts` (timings).
  */
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
-import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
-import { deriveThreadFeedPresentation, type FeedSourceEntry, type ThreadFeedRow } from '../../apps/mobile/src/features/threads/thread-feed-presentation'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
+import { conversationFeed } from '../../apps/mobile/src/solus/conversation-feed'
 
 /** `turns` finished turns: a prompt, a tool call with its result, and a reply of `replyWords` words. */
 export function longHistory(turns: number, replyWords = 120): SessionHistoryPage {
@@ -33,27 +33,14 @@ export function conversation(turns: number): TranscriptModel {
   return model
 }
 
-/** The entries `ThreadFeed` builds from the store's order (ThreadFeed.tsx, `entries`). */
-export function feedEntries(model: TranscriptModel): FeedSourceEntry[] {
-  return model.order.flatMap((id) => {
-    const item = model.items.get(id)
-    if (!item) return []
-    const kind = item.kind === 'tool' && item.subagent ? 'agent' : item.kind
-    if (item.kind === 'notice') return [{ id, kind, tone: item.tone }]
-    if (item.kind === 'artifact') return [{ id, kind, workId: item.workId }]
-    return [{ id, kind }]
-  })
-}
-
-/** The rows `ThreadFeed` hands its list, for a conversation that is not working. */
-export function feedRows(model: TranscriptModel, turnActive = false): ThreadFeedRow[] {
-  return deriveThreadFeedPresentation({
-    entries: feedEntries(model),
-    turnActive,
-    working: turnActive,
-    expandedTurnIds: new Set(),
-    expandedWorkGroupIds: new Set(),
-  })
+/** Project the same message and card rows as the mobile session screen. */
+export function feedRows(model: TranscriptModel) {
+  return conversationFeed(
+    { item: (id) => model.items.get(id), subscribeItem: () => () => {} },
+    model.order,
+    'workload',
+    () => null,
+  ).get()
 }
 
 export type StreamStep = {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { toolProgressView } from '@solus/contracts/tool-progress'
-import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
 
 /**
  * A `tool_progress` event on the native client (docs/plans/mcp-first-class.md

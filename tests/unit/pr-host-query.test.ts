@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { hostSearchQuery, withMenuQualifiers } from '@solus/client-core/pr-host-query'
 import { prMenuQualifiers } from '@solus/workspace-ui/components/prs/lib/pr-filter-menu'
 import { parsePrSearchQuery } from '@solus/workspace-ui/components/prs/lib/pr-search-query'
-import { pullRequestHostQuery } from '../../apps/mobile/src/features/prs/lib/pull-request-list'
+import { pullRequestHostQuery } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-list'
 
 const menu = (choices: { author?: string | null; label?: string | null; draft?: 'all' | 'ready' | 'draft' }) =>
   prMenuQualifiers({ author: null, label: null, draft: 'all', ...choices })

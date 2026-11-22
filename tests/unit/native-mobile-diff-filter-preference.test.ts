@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
-import { DiffFilterPreference } from '../../apps/mobile/src/features/review/diff-filter-preference'
-import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
+import { DiffFilterPreference } from '../../apps/mobile/solus-core/features/review/diff-filter-preference'
+import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 
 test('native diffs restore the saved classification after closing or restarting', () => {
   const storage = memoryKeyValueStore()

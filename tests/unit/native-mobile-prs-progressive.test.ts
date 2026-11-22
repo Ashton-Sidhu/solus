@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PrProjectListing, PrSyncChange, PullRequest } from '@solus/contracts/providers'
-import { PullRequestDirectory } from '../../apps/mobile/src/features/prs/pull-request-directory'
+import { PullRequestDirectory } from '../../apps/mobile/solus-core/features/prs/pull-request-directory'
 import { memoryPullRequestCacheDatabase, PullRequestCache } from '@solus/client-core/pull-request-cache'
 import { FakeApi, flushPromises } from './helpers/native-mobile-fakes'
 import { deferred, detailApi, hostWorld, PR_REF, project, pullRequest } from './helpers/native-mobile-prs-fixtures'

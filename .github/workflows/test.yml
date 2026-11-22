@@ -36,8 +36,15 @@ jobs:
           restore-keys: |
             deps-${{ runner.os }}-${{ runner.arch }}-
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.13.1
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install mobile dependencies
+        run: bun run mobile:install
 
       # Runs before the build: the suite takes seconds, so failing here saves
       # the several minutes the Electron build costs. `--parallel` (in the
@@ -46,6 +53,9 @@ jobs:
       # runs after them, and the suite reports failures that no file actually has.
       - name: Run unit tests
         run: bun run test:unit
+
+      - name: Test the native Solus integration
+        run: bun run --cwd apps/mobile test:logic
 
       - name: Setup Rust for the resource monitor
         uses: dtolnay/rust-toolchain@stable
@@ -68,7 +78,9 @@ jobs:
       # then see CRLF (docs/plans/windows.md §11.2). It must be off before the
       # checkout writes the files.
       - name: Keep LF line endings
-        run: git config --global core.autocrlf false
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.symlinks true
 
       - uses: actions/checkout@v4
 
@@ -87,8 +99,15 @@ jobs:
           restore-keys: |
             deps-${{ runner.os }}-${{ runner.arch }}-
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.13.1
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install mobile dependencies
+        run: bun run mobile:install
 
       - name: Run unit tests
         run: bun scripts/test-unit.ts

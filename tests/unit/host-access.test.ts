@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { bestPairEndpoint, pairLink, parsePairLink } from '@solus/client-core/pairing'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
-import { HostAccess, networkNote, pairedDeviceDetail, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/src/features/settings/host-access'
+import { HostAccess, networkNote, pairedDeviceDetail, showsPairedDevices, type HostEndpoint } from '../../apps/mobile/solus-core/features/settings/host-access'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 

@@ -6,7 +6,7 @@ import {
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
 import { desktopSettingsRequests } from '../../apps/desktop/src/main/account/settings-client'
-import { CloudAccountClient } from '../../apps/mobile/src/features/account/account-client'
+import { CloudAccountClient } from '../../apps/mobile/solus-core/features/account/account-client'
 import {
   webSettingsRequests,
   settingsCloudRequests,

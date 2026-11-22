@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { localProjectParts, projectKeyLabel } from '../../packages/client-core/src/project-identity'
-import { shortWorktreePath } from '../../apps/mobile/src/features/conversation/lib/worktree-offer'
-import { resolveMarkdownRelativePath } from '../../apps/mobile/src/features/files/lib/file-preview-kind'
+import { shortWorktreePath } from '../../apps/mobile/solus-core/features/conversation/lib/worktree-offer'
+import { resolveMarkdownRelativePath } from '../../apps/mobile/solus-core/features/files/lib/file-preview-kind'
 
 describe('Windows host paths on the phone and the client core', () => {
   test('a local project key on a Windows host names its host, folder, and label', () => {

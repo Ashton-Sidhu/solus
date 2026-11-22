@@ -11,8 +11,8 @@ import {
   queuedMessageAttachments,
   splitAttachedFiles,
   uploadedMessageAttachments,
-} from '../../apps/mobile/src/features/conversation/lib/message-attachments'
-import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
+} from '../../apps/mobile/solus-core/features/conversation/lib/message-attachments'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
 
 // A sent prompt's attachments render as T3 draws them (pictures, file cards),
 // read from the same sources the desktop bubble reads, never as a raw
@@ -99,14 +99,6 @@ describe('native sent-prompt attachments', () => {
 
 describe('native attachment presentation', () => {
   const mobile = (path: string) => readFileSync(join(import.meta.dir, '../../apps/mobile', path), 'utf8')
-
-  test('media above the bubble is capped at the bubble\'s own max width', () => {
-    // WHY: pictures and videos sit beside the bubble as their own shape, so a
-    // width narrower than the bubble's leaves them misaligned with its edge,
-    // and a wider one runs past the column.
-    const row = mobile('src/features/threads/ThreadUserMessageRow.tsx')
-    expect(row).toContain('maxWidth={props.userBubbleMaxWidth}')
-  })
 
   test('a file shows its type icon from T3\'s bundled Pierre set, by name', () => {
     expect(resolveFileIcon('notes.md').token).toBe('markdown')

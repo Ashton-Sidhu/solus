@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { uplinkControl } from '@solus/client-core/uplink-control'
 import type { HostSelfTest } from '@solus/contracts/host-connection'
 import type { UplinkEnrollmentTicket, UplinkStatus } from '@solus/contracts/uplink'
-import { HostCloudLink } from '../../apps/mobile/src/features/settings/host-cloud-link'
+import { HostCloudLink } from '../../apps/mobile/solus-core/features/settings/host-cloud-link'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 

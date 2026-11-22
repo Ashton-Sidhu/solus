@@ -1,6 +1,6 @@
 import type { Dirent } from 'node:fs'
 import { relativeHostPath } from '@solus/contracts/host-path'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { DevicePlatform, DeviceProjectInfo } from '@solus/contracts/device-types'
 
@@ -83,6 +83,18 @@ export async function scanDeviceProject(root: string): Promise<DeviceProjectInfo
       if (packages.usesExpo) usesExpo = true
       if (packages.usesReactNative) usesReactNative = true
       for (const entry of entries) {
+        // A monorepo can expose its native workspace through apps/mobile.
+        // Read just that manifest, and only when the link stays in this project.
+        if (relative === 'apps' && entry.name === 'mobile' && entry.isSymbolicLink()) {
+          const location = await realpath(join(folder.path, entry.name)).catch(() => null)
+          if (location && relativeHostPath(await realpath(root), location) !== null) {
+            const manifest = await readSmall(join(location, 'package.json'))
+            const packages = manifest ? declaredMobilePackages(manifest) : []
+            if (packages.length) mark(['ios', 'android'], at('mobile/package.json'))
+            if (packages.includes('expo')) usesExpo = true
+            if (packages.includes('react-native')) usesReactNative = true
+          }
+        }
         if (!entry.isDirectory()) continue
         if (entry.name.endsWith('.xcodeproj') || entry.name.endsWith('.xcworkspace')) {
           mark(['ios'], at(entry.name))

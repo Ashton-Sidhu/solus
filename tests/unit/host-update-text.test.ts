@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { updateCheckFailureText } from '@solus/client-core/host-update-text'
-import { updateStatusText } from '../../apps/mobile/src/features/settings/lib/update-status'
+import { updateStatusText } from '../../apps/mobile/solus-core/features/settings/lib/update-status'
 import type { HostUpdateStatus, UpdateCheckState } from '@solus/contracts/host-update-types'
 
 const failed = (message: string): UpdateCheckState => ({ kind: 'error', message, latestVersion: '2.0.0', checkedAt: 0 })

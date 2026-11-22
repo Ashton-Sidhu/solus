@@ -5,7 +5,7 @@ import { argumentHint, missingArguments, promptFromLine, promptStart } from '@so
 import { buildRows, isSelectable, type MenuItem, type RowInput } from '@solus/workspace-ui/components/editor/unified-autocomplete/rows'
 import { findAnchor, readTrigger } from '@solus/workspace-ui/components/editor/unified-autocomplete/trigger'
 import { mcpPromptItems } from '@solus/workspace-ui/components/editor/unified-autocomplete/mcp-prompt-items'
-import { mcpPromptSections } from '../../apps/mobile/src/features/threads/lib/mcp-prompt-sheet'
+import { mcpPromptSections } from '../../apps/mobile/solus-core/features/threads/lib/mcp-prompt-sheet'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 // The composer keeps its form in `$state`; outside the Svelte compiler a plain value stands in, as in git-refs-store.test.ts.

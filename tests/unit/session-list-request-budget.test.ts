@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
 import { workspaceRecordMethods } from '@solus/client-core/workspace-records'
-import { ThreadDirectory } from '../../apps/mobile/src/features/threads/thread-directory'
+import { ThreadDirectory } from '../../apps/mobile/solus-core/features/threads/thread-directory'
 
 // A host's Solus API allows each person a budget of requests. A session list
 // must cost a few requests at any history size, and a list the client already

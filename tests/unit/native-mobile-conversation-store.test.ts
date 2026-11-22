@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import { ConversationStore } from '../../apps/mobile/src/features/conversation/conversation-store'
-import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
+import { ConversationStore } from '../../apps/mobile/solus-core/features/conversation/conversation-store'
+import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 

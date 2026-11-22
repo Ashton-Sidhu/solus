@@ -5,8 +5,8 @@ import { createServer, type IncomingMessage, type Server as HttpServer } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WsTransport } from '@solus/client-core/ws-transport'
-import { SolusApp } from '../../apps/mobile/src/app/solus-app'
-import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
+import { SolusApp } from '../../apps/mobile/solus-core/app/solus-app'
+import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/solus-core/platform/ports'
 import { identityKeyFor, signedHealth } from './helpers/signing-host'
 
 /**

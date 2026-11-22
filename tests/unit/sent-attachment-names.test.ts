@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { UPLOAD_NAME_PREFIX } from '@solus/contracts/host-path'
 import { attachmentLabel } from '../../packages/workspace-ui/src/lib/attachment-label'
-import { attachmentDisplayName } from '../../apps/mobile/src/features/conversation/lib/message-attachments'
+import { attachmentDisplayName } from '../../apps/mobile/solus-core/features/conversation/lib/message-attachments'
 import { codexItemToMessage } from '../../packages/server/src/execution/agents/codex/codex-utils'
 
 // What another session's send_session produced: the host stores each file as

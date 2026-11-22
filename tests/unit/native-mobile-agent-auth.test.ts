@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { HOST_LOGIN_SEAT as seat } from '@solus/contracts/seats'
-import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
-import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
+import { ConversationController } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
+import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 

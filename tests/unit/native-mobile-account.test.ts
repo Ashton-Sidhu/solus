@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 import { ACCOUNT_AUDIENCE, hostAudience, type DirectoryHost, type DirectoryResponse } from '@solus/contracts/uplink'
 import { SOLUS_CLIENT_IDS } from '@solus/contracts/auth/clients'
-import { AccountSession } from '../../apps/mobile/src/features/account/account-session'
+import { AccountSession } from '../../apps/mobile/solus-core/features/account/account-session'
 import {
   authSessionAuthorizer,
   callbackOf,
   MOBILE_REDIRECT_URI,
   type AuthSessionResult,
-} from '../../apps/mobile/src/features/account/auth-session-authorizer'
-import { ACCOUNT_GRANT_KEY, KeychainTokenStore } from '../../apps/mobile/src/features/account/keychain-token-store'
-import { HostRegistry } from '../../apps/mobile/src/features/hosts/host-registry'
-import { memoryKeyValueStore, memorySecretStore, type SecretStore } from '../../apps/mobile/src/platform/ports'
+} from '../../apps/mobile/solus-core/features/account/auth-session-authorizer'
+import { ACCOUNT_GRANT_KEY, KeychainTokenStore } from '../../apps/mobile/solus-core/features/account/keychain-token-store'
+import { HostRegistry } from '../../apps/mobile/solus-core/features/hosts/host-registry'
+import { memoryKeyValueStore, memorySecretStore, type SecretStore } from '../../apps/mobile/solus-core/platform/ports'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 import { HOST_LIST_PATH, HOST_LIST_SCHEMA_VERSION, type HostListing } from '@solus/contracts/host-list'
 

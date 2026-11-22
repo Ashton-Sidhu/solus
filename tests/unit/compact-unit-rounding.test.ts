@@ -5,7 +5,7 @@ import { formatVoiceModelBytes } from '@solus/workspace-ui/components/settings/l
 import { formatTokens } from '@solus/workspace-ui/components/insights/lib/format'
 import { compactCount } from '@solus/workspace-ui/components/ui/list-page/list-page'
 import { buildSize } from '@solus/workspace-ui/components/devices/lib/build-list'
-import { fileSizeLabel } from '../../apps/mobile/src/features/files/lib/file-tree'
+import { fileSizeLabel } from '../../apps/mobile/solus-core/features/files/lib/file-tree'
 
 // A compact figure picks its unit after rounding. Picking it first shows a
 // value that rounds up to the next unit as "1024 KB" or "1000k", a figure

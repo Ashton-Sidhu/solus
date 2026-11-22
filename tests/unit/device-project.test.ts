@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DeviceProjectDetector, scanDeviceProject } from '@solus/server/devices/device-project'
@@ -28,6 +28,15 @@ describe('mobile project detection', () => {
     })
     const info = await scanDeviceProject(root)
     expect(info).toEqual({ isMobileApp: true, platforms: ['android', 'ios'], markers: ['apps/mobile/package.json'], usesExpo: true, usesReactNative: true })
+  })
+
+  test('the primary mobile workspace link keeps its project-relative build path', async () => {
+    const root = project({ 'vendor/client/package.json': '{"dependencies":{"expo":"58"}}', 'apps/': '' })
+    symlinkSync(join(root, 'vendor/client'), join(root, 'apps/mobile'), 'junction')
+    expect((await scanDeviceProject(root)).markers).toEqual(['apps/mobile/package.json'])
+    const other = project({ 'apps/': '' })
+    symlinkSync(join(root, 'vendor/client'), join(other, 'apps/mobile'), 'junction')
+    expect((await scanDeviceProject(other)).isMobileApp).toBe(false)
   })
 
   test('native iOS and Android projects count by their own files', async () => {

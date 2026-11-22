@@ -25,7 +25,7 @@ const { HOST_ACTOR } = await import('@solus/server/admission/actor')
 const { withActor } = await import('./helpers/actors')
 const { REQUEST_NOT_ANSWERABLE_CODE } = await import('@solus/contracts/types')
 const { getAttentionState } = await import('@solus/workspace-ui/lib/sessionUtils')
-const { TranscriptModel } = await import('../../apps/mobile/src/features/conversation/lib/transcript-model')
+const { TranscriptModel } = await import('../../apps/mobile/solus-core/features/conversation/lib/transcript-model')
 const metricsDb = await import('@solus/server/data/insights/metrics-db')
 const db = await import('@solus/server/db')
 

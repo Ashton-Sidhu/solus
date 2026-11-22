@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import type { NormalizedEvent, PermissionRequest, Session } from '@solus/contracts/types'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import { permissionForFeedback, promptSendPath } from '@solus/workspace-ui/components/input/lib/pending-permission'
-import { permissionForFeedback as mobilePermissionForFeedback, type PendingPermission } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
+import { permissionForFeedback as mobilePermissionForFeedback, type PendingPermission } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
 
 // The host modules open SQLite through node:sqlite, which Bun serves as bun:sqlite.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))

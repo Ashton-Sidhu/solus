@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { markdownWithCallouts } from '../../apps/mobile/src/lib/markdownDocument'
+import { markdownWithCallouts } from '../../apps/mobile/solus-core/lib/markdownDocument'
 
 // Plan: docs/plans/unified-prose.md, step 3. The phone's renderer has no custom
 // block, so a callout shows as a quote led by its kind. The kind must stay

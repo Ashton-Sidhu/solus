@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { fileMediaView, isMarkdownFile, resolveMarkdownRelativePath } from '../../apps/mobile/src/features/files/lib/file-preview-kind'
+import { fileMediaView, isMarkdownFile, resolveMarkdownRelativePath } from '../../apps/mobile/solus-core/features/files/lib/file-preview-kind'
 
 describe('native file preview kind', () => {
   test('shows raster images and video inline, and opens SVG and PDF in the platform viewer', () => {

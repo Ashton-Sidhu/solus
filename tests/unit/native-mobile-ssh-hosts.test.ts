@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { ForwardedHost, SshAddProgress, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
-import { ForwardedHosts, forwardedHostRow, forwardedRemoveChoice, type ForwardedHostsConnection } from '../../apps/mobile/src/features/hosts/forwarded-hosts'
-import { runSshAdd, sshAddFormIssue, sshAddOutcome, sshPasswordIssue, sshRunnerChoices, type SshAddForm } from '../../apps/mobile/src/features/hosts/lib/ssh-add'
+import { ForwardedHosts, forwardedHostRow, forwardedRemoveChoice, type ForwardedHostsConnection } from '../../apps/mobile/solus-core/features/hosts/forwarded-hosts'
+import { runSshAdd, sshAddFormIssue, sshAddOutcome, sshPasswordIssue, sshRunnerChoices, type SshAddForm } from '../../apps/mobile/solus-core/features/hosts/lib/ssh-add'
 
 // A phone cannot run SSH: it asks a connected host to (docs/plans/host-routes.md D6).
 // A machine linked to the account is reachable from the phone; a forwarded one only

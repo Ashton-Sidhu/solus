@@ -4,8 +4,8 @@ import {
   threadProjectFallbackTitle,
   threadProjectKey,
   threadProjectPath,
-} from '../../apps/mobile/src/features/threads/threadListV2'
-import type { SolusThreadShell } from '../../apps/mobile/src/features/threads/thread-directory'
+} from '../../apps/mobile/solus-core/features/threads/threadListV2'
+import type { SolusThreadShell } from '../../apps/mobile/solus-core/features/threads/thread-directory'
 
 // A Claude session lists the provider's encoded storage folder as its
 // `projectPath`. The phone must name and group it by the real project, or the

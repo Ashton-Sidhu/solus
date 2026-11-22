@@ -14,16 +14,16 @@ import {
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
 import type { IpcContext, PromptOptions } from '@solus/contracts/types'
-import { SolusApp } from '../../apps/mobile/src/app/solus-app'
-import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
-import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
-import { AppearancePreference, type AppearanceMode } from '../../apps/mobile/src/features/settings/appearance'
-import { HostSettings } from '../../apps/mobile/src/features/settings/host-settings'
-import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/personal-settings'
-import { AccountSync, alwaysOnlineEnvironment } from '../../apps/mobile/src/features/account/account-sync'
-import { AgentProfileLocalStore } from '../../apps/mobile/src/features/settings/agent-profile-local'
+import { SolusApp } from '../../apps/mobile/solus-core/app/solus-app'
+import { ConversationController } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
+import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/solus-core/features/conversation/lib/ipc-context'
+import { AppearancePreference, type AppearanceMode } from '../../apps/mobile/solus-core/features/settings/appearance'
+import { HostSettings } from '../../apps/mobile/solus-core/features/settings/host-settings'
+import { PersonalSettingsStore } from '../../apps/mobile/solus-core/features/settings/personal-settings'
+import { AccountSync, alwaysOnlineEnvironment } from '../../apps/mobile/solus-core/features/account/account-sync'
+import { AgentProfileLocalStore } from '../../apps/mobile/solus-core/features/settings/agent-profile-local'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
-import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
+import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, FakeTransport, flushPromises, healthFetch, seedAccountGrant } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 
@@ -331,28 +331,5 @@ describe('prompts carry the person\'s execution preferences', () => {
     const [ctx] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
     expect(ctx.session.permissionMode).toBe('auto')
     expect(ctx.settings.executionPreferences).toMatchObject({ defaultPermissionMode: 'auto', extraInstructions: 'Changed after opening.' })
-  })
-})
-
-describe('settings navigation', () => {
-  const mobile = resolve(import.meta.dir, '../../apps/mobile/src')
-  const navigator = readFileSync(join(mobile, 'navigation/RootNavigator.tsx'), 'utf8')
-  const routes = readFileSync(join(mobile, 'navigation/routes.ts'), 'utf8')
-
-  test('every route a settings screen opens is registered', () => {
-    const settingsDir = join(mobile, 'features/settings')
-    const targets = new Set<string>()
-    for (const file of readdirSync(settingsDir).filter((name) => name.endsWith('.tsx'))) {
-      for (const match of readFileSync(join(settingsDir, file), 'utf8').matchAll(/navigate\(\s*["']([A-Za-z]+)["']/g)) targets.add(match[1]!)
-    }
-    expect([...targets]).toContain('AccountSync')
-    expect([...targets]).toContain('Policy')
-    for (const target of targets) expect(navigator).toContain(`name="${target}"`)
-  })
-
-  test('personal screens open without a host', () => {
-    for (const route of ['AccountSync', 'AgentDefaults', 'NotificationSettings', 'AppearanceSettings']) {
-      expect(routes).toMatch(new RegExp(`\\n\\s*${route}: undefined\\n`))
-    }
   })
 })

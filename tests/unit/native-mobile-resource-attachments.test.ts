@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { resourceAttachRequest, type IntegrationResource } from '@solus/contracts/integration-types'
-import { resourceAddress, resourceAttachments, resourceSections } from '../../apps/mobile/src/features/conversation/lib/resource-attachments'
+import { resourceAddress, resourceAttachments, resourceSections } from '../../apps/mobile/solus-core/features/conversation/lib/resource-attachments'
 
 /** The mobile "MCP Resource…" sheet and what a read adds to the composer (mcp-first-class.md §11.3). */
 describe('mobile MCP resources', () => {

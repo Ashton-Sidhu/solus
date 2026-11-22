@@ -4,8 +4,8 @@ import { HostRpcError, TransportDisconnectedError } from '@solus/client-core/rpc
 import { REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import type { IpcContext, PromptOptions, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contracts/session-history'
-import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
-import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
+import { ConversationController, type ConversationTarget } from '../../apps/mobile/solus-core/features/conversation/conversation-controller'
+import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
 import { identityKeyFor } from './helpers/signing-host'
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { ForwardedHost, SshAddResult, WslDistro } from '@solus/contracts/remote-machines'
 import { unaddedDistros } from '@solus/client-core/wsl-distros'
 import { wslAddOutcome as webOutcome, wslBridgePhase } from '@solus/workspace-ui/components/servers/lib/add-wsl-distro'
-import { distroNote, wslAddOutcome as mobileOutcome } from '../../apps/mobile/src/features/hosts/lib/wsl-add'
+import { distroNote, wslAddOutcome as mobileOutcome } from '../../apps/mobile/solus-core/features/hosts/lib/wsl-add'
 
 // Adding a WSL distro from desktop, web, and the phone (docs/plans/windows.md §13.6).
 

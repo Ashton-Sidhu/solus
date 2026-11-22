@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import { providerDefaultModel, providerModelChoices, providerModelOptions, withProviderDefault } from '@solus/contracts/provider-model-settings'
-import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/personal-settings'
-import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
-import { newSessionModel } from '../../apps/mobile/src/features/conversation/lib/run-settings'
+import { PersonalSettingsStore } from '../../apps/mobile/solus-core/features/settings/personal-settings'
+import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
+import { newSessionModel } from '../../apps/mobile/solus-core/features/conversation/lib/run-settings'
 
 describe('provider settings', () => {
   test('new sessions use High for each built-in default model and keep an explicit reasoning choice', () => {

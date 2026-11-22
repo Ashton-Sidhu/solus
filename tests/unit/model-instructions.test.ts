@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentMetadata } from '@solus/contracts/types'
 import { modelInstructionGroups } from '@solus/workspace-ui/components/settings/agent-profile/lib/agent-profile-entries'
-import { modelInstructionChoices } from '../../apps/mobile/src/features/settings/lib/agent-profile-entries'
+import { modelInstructionChoices } from '../../apps/mobile/solus-core/features/settings/lib/agent-profile-entries'
 
 /**
  * Per-model instructions are keyed by model id alone and added only when that

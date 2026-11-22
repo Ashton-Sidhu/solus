@@ -12,9 +12,9 @@ import {
 } from '@solus/client-core/tool-outputs'
 import { integrationAgentToolLabel, toolServerName } from '@solus/client-core/mcp-tool-label'
 import { hasGallerySlides } from '@solus/workspace-ui/components/conversation/lib/turn-images'
-import { threadTurnImages } from '../../apps/mobile/src/features/threads/thread-turn-images'
-import type { ToolItem } from '../../apps/mobile/src/features/conversation/lib/tool-item'
-import { toolCallOutputs } from '../../apps/mobile/src/features/threads/thread-work-log-presentation'
+import { threadTurnImages } from '../../apps/mobile/solus-core/features/threads/thread-turn-images'
+import type { ToolItem } from '../../apps/mobile/solus-core/features/conversation/lib/tool-item'
+import { toolCallOutputs } from '../../apps/mobile/solus-core/features/threads/thread-work-log-presentation'
 
 const asset = (letter: string, extension = 'png') => `${letter.repeat(64)}.${extension}`
 const image = (letter: string) => ({ assetId: asset(letter), mimeType: 'image/png' })

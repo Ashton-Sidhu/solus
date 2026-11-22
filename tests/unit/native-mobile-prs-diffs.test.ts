@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrDiffSlice } from '@solus/contracts/providers'
-import { PullRequestDiffs } from '../../apps/mobile/src/features/prs/pull-request-diffs'
-import { PullRequestDirectory } from '../../apps/mobile/src/features/prs/pull-request-directory'
-import { pullRequestDiffPatch, retainPullRequestDiffPage } from '../../apps/mobile/src/features/prs/lib/pull-request-diff-pages'
-import { shownValue } from '../../apps/mobile/src/features/prs/pull-request-reads'
+import { PullRequestDiffs } from '../../apps/mobile/solus-core/features/prs/pull-request-diffs'
+import { PullRequestDirectory } from '../../apps/mobile/solus-core/features/prs/pull-request-directory'
+import { pullRequestDiffPatch, retainPullRequestDiffPage } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-diff-pages'
+import { shownValue } from '../../apps/mobile/solus-core/features/prs/pull-request-reads'
 import { FakeApi, flushPromises } from './helpers/native-mobile-fakes'
 import { deferred, detailApi, hostWorld, PR_REF, pullRequest } from './helpers/native-mobile-prs-fixtures'
 

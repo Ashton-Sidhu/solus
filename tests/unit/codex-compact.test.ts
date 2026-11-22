@@ -4,7 +4,7 @@ import type { AgentId, IpcContext, NormalizedEvent } from '@solus/contracts/type
 import { asHostApi } from '@solus/client-core/host-api'
 import type { SlashCommandRunContext } from '@solus/workspace-ui/components/input/slash-commands'
 let commands: typeof import('@solus/workspace-ui/components/input/slash-commands')
-import { conversationContext, DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
+import { conversationContext, DEFAULT_RUN_SETTINGS } from '../../apps/mobile/solus-core/features/conversation/lib/ipc-context'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))

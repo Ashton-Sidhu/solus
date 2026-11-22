@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { Message, Session, Tab, WireNormalizedEvent } from '@solus/contracts/types'
 import { StreamedProse } from '../../packages/server/src/transport/events/streamed-prose'
-import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
+import { TranscriptModel } from '../../apps/mobile/solus-core/features/conversation/lib/transcript-model'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 

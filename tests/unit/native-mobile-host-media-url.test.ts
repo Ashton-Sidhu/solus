@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
-import type { HostConnection } from '../../apps/mobile/src/features/hosts/host-connections'
-import { resolveHostMediaUrl } from '../../apps/mobile/src/features/files/host-media-url'
+import type { HostConnection } from '../../apps/mobile/solus-core/features/hosts/host-connections'
+import { resolveHostMediaUrl } from '../../apps/mobile/solus-core/features/files/host-media-url'
 
 function fakeConnection(hostId: string, options: { assetUrls?: boolean; expiresIn?: number } = {}) {
   let minted = 0

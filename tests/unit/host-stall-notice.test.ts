@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { ConnectionsServerInfo, HostEventLoopStall } from '@solus/contracts/host-api'
 import { hostStallNotice, unshownHostStallNotice } from '@solus/client-core/host-stall-notice'
-import { hostStallLine } from '../../apps/mobile/src/features/connection/lib/host-stall-line'
-import type { NativeHost } from '../../apps/mobile/src/features/hosts/host-registry'
+import { hostStallLine } from '../../apps/mobile/solus-core/features/connection/lib/host-stall-line'
+import type { NativeHost } from '../../apps/mobile/solus-core/features/hosts/host-registry'
 
 // docs/mobile-connections.md "When a host freezes": a client says why its host
 // dropped, one time for each stall, and says only what the host reported.

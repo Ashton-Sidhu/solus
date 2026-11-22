@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { replySegments } from '../../apps/mobile/src/features/threads/reply-html-fences'
+import { replySegments } from '../../apps/mobile/solus-core/features/threads/reply-html-fences'
 
 const PAGE = '<style>p{color:red}</style><p>Chart</p>'
 const kinds = (markdown: string) => replySegments(markdown).map((segment) => segment.kind)

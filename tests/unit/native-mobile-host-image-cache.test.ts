@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { stableImageCacheKey } from '../../apps/mobile/src/features/files/host-media-url'
+import { stableImageCacheKey } from '../../apps/mobile/solus-core/features/files/host-media-url'
 
 describe('native mobile host image cache key', () => {
   test('names an asset by its host and asset id, so a new signed URL hits the cache', () => {

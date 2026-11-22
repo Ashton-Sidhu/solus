@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import type { HostUpdateStatus } from '@solus/contracts/host-update-types'
 import type { Permission } from '@solus/contracts/permissions'
 import type { ServerUpdateOperation } from '@solus/contracts/server-update'
-import { serverInfoAllows } from '../../apps/mobile/src/features/hosts/host-connections'
-import { hostUpdateControls, serverUpdateText } from '../../apps/mobile/src/features/settings/lib/update-status'
+import { serverInfoAllows } from '../../apps/mobile/solus-core/features/hosts/host-connections'
+import { hostUpdateControls, serverUpdateText } from '../../apps/mobile/solus-core/features/settings/lib/update-status'
 
 // T3 #21402 on Solus: the phone updates Solus on a host and offers only the
 // host controls this person may use. The host gates each command by a

@@ -9,7 +9,7 @@ import {
   userMessageLayout,
 } from '@solus/workspace-ui/components/conversation/lib/user-message-layout'
 import { attachmentLabel } from '@solus/workspace-ui/lib/attachment-label'
-import { attachmentCardDetail, attachmentDisplayName } from '../../apps/mobile/src/features/conversation/lib/message-attachments'
+import { attachmentCardDetail, attachmentDisplayName } from '../../apps/mobile/solus-core/features/conversation/lib/message-attachments'
 
 let clock = 1_000
 function msg(partial: Partial<Message> & Pick<Message, 'role'>): Message {

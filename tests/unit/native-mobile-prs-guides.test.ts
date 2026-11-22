@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { ReviewGuide, ReviewGuideStatusEvent } from '@solus/contracts/review'
-import { PullRequestGuides } from '../../apps/mobile/src/features/prs/pull-request-guides'
-import { guideNotice, prGuideKey, prGuideStatus, prGuideTarget, reviewGuideState } from '../../apps/mobile/src/features/prs/lib/pull-request-guide-state'
-import { shownValue, type LoadState } from '../../apps/mobile/src/features/prs/pull-request-reads'
-import type { PullRequestGuide } from '../../apps/mobile/src/features/prs/lib/pull-request-guide-state'
+import { PullRequestGuides } from '../../apps/mobile/solus-core/features/prs/pull-request-guides'
+import { guideNotice, prGuideKey, prGuideStatus, prGuideTarget, reviewGuideState } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-guide-state'
+import { shownValue, type LoadState } from '../../apps/mobile/solus-core/features/prs/pull-request-reads'
+import type { PullRequestGuide } from '../../apps/mobile/solus-core/features/prs/lib/pull-request-guide-state'
 import { FakeApi, flushPromises } from './helpers/native-mobile-fakes'
 import { hostWorld, PR_REF, pullRequest } from './helpers/native-mobile-prs-fixtures'
 

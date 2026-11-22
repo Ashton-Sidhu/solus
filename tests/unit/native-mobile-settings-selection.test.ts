@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { NOTIFICATION_CHANNELS, SESSION_NOTIFICATION_EVENTS } from '@solus/contracts/notification-types'
 import type { PersonalSettings } from '@solus/contracts/settings'
-import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/personal-settings'
-import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
+import { PersonalSettingsStore } from '../../apps/mobile/solus-core/features/settings/personal-settings'
+import { memoryKeyValueStore } from '../../apps/mobile/solus-core/platform/ports'
 
 // The Notifications and Agent defaults screens read the personal settings
 // through useSyncExternalStore, which re-renders a reader when its answer is

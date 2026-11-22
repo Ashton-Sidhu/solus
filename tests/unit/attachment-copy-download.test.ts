@@ -8,9 +8,9 @@ import {
 } from '@solus/client-core/attachment-clipboard'
 import { reattachedAttachment } from '@solus/workspace-ui/lib/attachment-clipboard'
 import { attachmentDownloadName } from '@solus/workspace-ui/components/conversation/lib/attachment-download'
-import { copyableImage } from '../../apps/mobile/src/features/conversation/lib/message-attachments'
-import { referencedAttachments, refsOnHost, withoutPastedText } from '../../apps/mobile/src/features/conversation/lib/pasted-attachments'
-import { base64OfDataUrl } from '../../apps/mobile/src/lib/dataUrlBase64'
+import { copyableImage } from '../../apps/mobile/solus-core/features/conversation/lib/message-attachments'
+import { referencedAttachments, refsOnHost, withoutPastedText } from '../../apps/mobile/solus-core/features/conversation/lib/pasted-attachments'
+import { base64OfDataUrl } from '../../apps/mobile/solus-core/lib/dataUrlBase64'
 
 const image: Attachment = { id: 'a1', type: 'image', name: 'shot.png', path: '/h/u/0-0123456789ab-shot.png', hostPath: '/h/u/0-0123456789ab-shot.png', hostServerId: 'host-1', mimeType: 'image/png', size: 2048 }
 const pdf: Attachment = { id: 'a2', type: 'file', name: 'spec.pdf', path: 'spec.pdf', hostPath: '/h/u/1-0123456789ab-spec.pdf' }
