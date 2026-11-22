@@ -32,7 +32,8 @@ export type ActivityKind =
   /** `sourceSessionId` is the source's provider thread, which opens it; `midRun`
    *  when the source was mid-turn and the fork stops at its last settled turn. */
   | { kind: 'forked'; sourceSessionId: string; sourceTitle?: string; midRun?: boolean }
-  | { kind: 'moved_to_worktree'; path: string; branch?: string }
+  /** `projectFolder` when the session moved into the repository's main checkout, not a linked worktree. */
+  | { kind: 'moved_to_worktree'; path: string; branch?: string; projectFolder?: true }
   /** The agent works in a worktree of the session's repository that the session
    *  is not bound to. The activity id is the offer id. `resolution` is never
    *  stored: a client folds the later `worktree_offer_decided` row onto it. */
@@ -96,7 +97,7 @@ export const activityKindSchema: z.ZodType<ActivityKind> = z.discriminatedUnion(
   z.object({ kind: z.literal('mcp_app'), app: mcpAppReferenceSchema }),
   z.object({ kind: z.literal('stopped') }),
   z.object({ kind: z.literal('forked'), sourceSessionId: z.string(), sourceTitle: z.string().optional(), midRun: z.boolean().optional() }),
-  z.object({ kind: z.literal('moved_to_worktree'), path: z.string(), branch: z.string().optional() }),
+  z.object({ kind: z.literal('moved_to_worktree'), path: z.string(), branch: z.string().optional(), projectFolder: z.literal(true).optional() }),
   z.object({ kind: z.literal('worktree_offered'), path: z.string(), branch: z.string().optional() }),
   z.object({ kind: z.literal('worktree_offer_decided'), offerId: z.string(), resolution: worktreeOfferResolutionSchema }),
   z.object({ kind: z.literal('agent_switched'), provider: agentIdSchema, model: z.string().optional(), fromProvider: agentIdSchema.optional(), fromModel: z.string().optional() }),

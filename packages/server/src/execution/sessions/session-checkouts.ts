@@ -23,6 +23,9 @@ export class SessionCheckouts {
   private movedCheckouts = new Set<string>()
   /** Sessions attach to a checkout path; the Git service owns its identity. */
   sessionCheckoutPaths = new Map<string, string>()
+  /** A move an agent asked for that finishes when its turn ends
+   *  (`WorktreeMover.moveForAgent`). The session's next turn waits for it. */
+  private heldMoves = new Map<string, () => Promise<void>>()
 
   constructor(private readonly rt: SessionRuntime) {
     rt.checkouts.onChange(({ state }) => {
@@ -64,14 +67,26 @@ export class SessionCheckouts {
   }
 
   /**
-   * Bind a session to the checkout it moved into. Clients get the new checkout
-   * at once, and the next turn forks the active thread into that directory: a
-   * provider thread cannot change its directory in place.
+   * Bind a session to the checkout it moved into: a linked worktree, or the
+   * project folder. Clients get the new checkout at once, and the next turn
+   * forks the active thread into that directory: a provider thread cannot
+   * change its directory in place.
    */
-  moveSessionCheckout(sessionId: string, checkout: GitCheckout & { worktreePath: string }): void {
-    this.setSessionGitEnvironment(sessionId, checkout.worktreePath, checkout)
+  moveSessionCheckout(sessionId: string, directory: string, checkout: GitCheckout): void {
+    this.setSessionGitEnvironment(sessionId, directory, checkout)
     this.movedCheckouts.add(sessionId)
     this.rt.publish(sessionId, { type: 'git_context', gitContext: this.getGitContext(sessionId) ?? checkout })
+  }
+
+  /** The session's next turn waits for `finish`; null releases it. */
+  holdNextTurn(sessionId: string, finish: (() => Promise<void>) | null): void {
+    if (finish) this.heldMoves.set(sessionId, finish)
+    else this.heldMoves.delete(sessionId)
+  }
+
+  /** Finish the move the last turn left waiting, before the next turn starts. */
+  async finishHeldMove(sessionId: string): Promise<void> {
+    await this.heldMoves.get(sessionId)?.()
   }
 
   /** The first turn after a move forks the active thread in the new checkout.
@@ -81,8 +96,9 @@ export class SessionCheckouts {
     if (!this.movedCheckouts.delete(sessionId) || input.forked) return request
     const active = resolveSessionLineageById(sessionId)?.active
     const checkout = this.getGitContext(sessionId)
-    if (!active?.providerSessionId || !checkout?.worktreePath) return request
-    log.info('moved_checkout_fork', { sessionId, worktreePath: checkout.worktreePath })
+    const directory = this.sessionCheckoutPaths.get(sessionId)
+    if (!active?.providerSessionId || !checkout || !directory) return request
+    log.info('moved_checkout_fork', { sessionId, directory })
     return {
       ...request,
       target: { kind: 'new-session' },
@@ -93,7 +109,7 @@ export class SessionCheckouts {
         forked: true,
         forkExcludeLatestTurn: false,
         gitContext: checkout,
-        workingDirectory: checkout.worktreePath,
+        workingDirectory: directory,
       },
     }
   }

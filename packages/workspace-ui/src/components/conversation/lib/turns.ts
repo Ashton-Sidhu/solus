@@ -369,6 +369,12 @@ const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   'plan',
 ])
 
+/** The offer to switch into the agent's worktree is a question to the reader,
+ *  and its answer stays on it. Folding it with the tool calls would hide both. */
+function isWorktreeOffer(item: GroupedItem): boolean {
+  return item.kind === 'system' && item.message.activity?.kind === 'worktree_offered'
+}
+
 /** A turn can end while its backgrounded sub-agents still run. Their card is
  *  what the session waits on, so it stays on screen until they report; then it
  *  folds with the rest of the work. */
@@ -507,7 +513,7 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
       if (echoesEnd(item, turn.end)) continue
       if (j < cut) {
         turn.body.push(item)
-        if (COLLAPSE_EXCLUDED_KINDS.has(item.kind) || hasRunningSubagent(item)) {
+        if (COLLAPSE_EXCLUDED_KINDS.has(item.kind) || hasRunningSubagent(item) || isWorktreeOffer(item)) {
           turn.visibleWhenCollapsed.push(item)
         }
       } else {

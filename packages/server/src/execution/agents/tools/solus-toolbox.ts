@@ -71,7 +71,7 @@ import {
 } from '../../../browser/browser-tools'
 import { readConfigAgentTool, readThemeAgentTool, updateConfigAgentTool } from './config-tools'
 import { createProjectAgentTool, cloneProjectAgentTool } from './project-tools'
-import { moveToWorktreeAgentTool, worktreeStatusAgentTool } from './worktree-tools'
+import { checkoutStatusAgentTool, moveCheckoutAgentTool } from './worktree-tools'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 import { organizeSessionAgentTool } from './session-organize-tool'
 import { backgroundWaitAgentTool } from './background-wait-tool'
@@ -189,8 +189,8 @@ export const solusToolbox = {
     listLinks: listLinksAgentTool,
     link: linkAgentTool,
     backgroundWait: backgroundWaitAgentTool,
-    worktreeStatus: worktreeStatusAgentTool,
-    moveToWorktree: moveToWorktreeAgentTool,
+    checkoutStatus: checkoutStatusAgentTool,
+    moveCheckout: moveCheckoutAgentTool,
   },
   projects: {
     create: createProjectAgentTool,

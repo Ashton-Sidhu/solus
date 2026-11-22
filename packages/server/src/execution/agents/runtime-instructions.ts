@@ -81,7 +81,7 @@ create_automation sets up recurring, scheduled, and "remind me" work. Pass trigg
  *  leaves the diff, status, and branch on the old one. */
 const WORKTREE_INSTRUCTION = `## Worktrees
 
-Solus binds this session to its directory. When you want an isolated checkout, call move_to_worktree. Do not use \`git worktree add\` and \`cd\` for this: the diff, Git status, and branch that the user sees stay on the old checkout.`
+Solus binds this session to one checkout of its repository. Do work that should not touch the project folder in a worktree: call move_checkout with \`to: "new_worktree"\`. To go back, call move_checkout with \`to: "project_folder"\`. Add \`remove_worktree\` when the worktree's work is done, or \`branch: "bring"\` to continue its branch in the project folder. Check checkout_status first, and call move_checkout last in your turn. Do not use \`git worktree add\`, \`cd\`, or EnterWorktree for this: the diff, Git status, and branch that the user sees stay on the old checkout.`
 
 /** A chat has no project (docs/plans/projectless-chat.md). Its folder is a
  *  scratch folder the person never sees, so the agent must not lead them to it. */
@@ -138,7 +138,7 @@ function singleLine(value: string): string {
 
 /** Each tool-group block goes only to a run that has the group's entry tool:
  *  `browser_status` for Browser, `link` for Tasks, `start_sessions` for Sessions
- *  `move_to_worktree` for worktrees, `render_artifact` for visuals,
+ *  `move_checkout` for worktrees, `render_artifact` for visuals,
  *  `device_list` for Devices, `create_automation` for Automations,
  *  `request_secret` for the secretRef rule, `deploy_app` for Apps,
  *  `connect_integration` for the offer of a local MCP server, `add_mcp_server`
@@ -159,7 +159,7 @@ You can embed images and videos in your response with Markdown and absolute file
       has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
       has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',
     ].filter(Boolean).join('\n\n'),
-    has('move_to_worktree') && !isChat(runtime.workingDirectory) && WORKTREE_INSTRUCTION,
+    has('move_checkout') && !isChat(runtime.workingDirectory) && WORKTREE_INSTRUCTION,
     has('browser_status') && SOLUS_BROWSER_TOOL_INSTRUCTIONS,
     ...ENTRY_TOOL_BLOCKS.filter(([tool]) => has(tool)).map(([, block]) => block),
     has('render_artifact') && VISUALS_INSTRUCTIONS,

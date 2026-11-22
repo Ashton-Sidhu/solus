@@ -427,6 +427,23 @@ describe('turn collapse', () => {
     expect(turn.visibleWhenCollapsed.map((item) => item.kind)).toEqual(['plan'])
   })
 
+  test('keeps the worktree offer on screen after the turn collapses', () => {
+    const offer = divider({ kind: 'worktree_offered', path: '/repo/.claude/worktrees/fix', branch: 'fix' })
+    const [turn] = turnsFor([
+      msg({ role: 'user', content: 'fix the flaky test' }),
+      tool('EnterWorktree', '{"name":"fix"}'),
+      msg({ role: 'system', activity: offer }),
+      tool('Edit', '{"file_path":"a.ts"}'),
+      msg({ role: 'assistant', content: 'Fixed.' }),
+    ])
+
+    // WHY: the card asks the reader to switch the session into the agent's
+    // worktree, and its answer stays on it. Folded with the tool calls, the
+    // question and its answer disappear once the turn ends.
+    expect(turn.visibleWhenCollapsed.map((item) => item.kind === 'system' && item.message.activity?.kind)).toEqual(['worktree_offered'])
+    expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
+  })
+
   test('a new-session divider opens its own turn instead of joining the previous fold', () => {
     const turns = turnsFor([
       msg({ role: 'user', content: 'plan the exchange protocol' }),

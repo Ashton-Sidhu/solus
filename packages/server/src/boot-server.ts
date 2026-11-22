@@ -839,7 +839,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     checkouts: opts.sessionRuntime.checkouts,
     getGitContext: (sessionId) => sessionCheckouts.getGitContext(sessionId),
     trackWorktreeMove: (sessionId, controller) => sessionCheckouts.trackWorktreeMove(sessionId, controller),
-    moveSessionCheckout: (sessionId, checkout) => sessionCheckouts.moveSessionCheckout(sessionId, checkout),
+    moveSessionCheckout: (sessionId, directory, checkout) => sessionCheckouts.moveSessionCheckout(sessionId, directory, checkout),
+    boundDirectories: () => sessionCheckouts.sessionCheckoutPaths.entries(),
+    holdNextTurn: (sessionId, finish) => sessionCheckouts.holdNextTurn(sessionId, finish),
+    continueSession: async (sessionId, prompt) => { await opts.sessionRuntime.dispatch.promptSession(sessionId, prompt, 'queue', { sender: { kind: 'agent', sessionId } }) },
     recordActivity: (subject, actor, kind) => opts.sessionRuntime.recordActivity(subject, actor, kind),
     nameWorktreeBranch: (...args) => sessionCheckouts.nameWorktreeBranch(...args),
   })
@@ -851,7 +854,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     hostActor: HOST_ACTOR,
   })
   opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
-    if (!to) worktreeOffers.observe(sessionId, event)
+    if (to) return
+    worktreeOffers.observe(sessionId, event)
+    if (event.type === 'turn_settled') worktreeMover.turnSettled(sessionId, event.outcome)
   })
   // What each session did, kept up to date by the host that runs it (docs/plans/session-digests.md).
   const sessionDigests = new SessionDigests({

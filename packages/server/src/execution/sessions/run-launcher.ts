@@ -244,6 +244,7 @@ export class RunLauncher {
   }
 
   private async launchRun(request: SessionRunRequest, turnTraceId: string, turn: TurnStop, releaseLaunch: () => void): Promise<StartedRun> {
+    await this.rt.sessionCheckouts.finishHeldMove(request.sessionId)
     request = this.rt.sessionCheckouts.continueInMovedCheckout(request)
     await this.rt.handoffs.handOffForPrompt(request, request.actor ?? HOST_ACTOR)
     const { input, target, options, sessionId, sourceClientId } = request

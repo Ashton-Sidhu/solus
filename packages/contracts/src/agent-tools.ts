@@ -139,8 +139,8 @@ export const SOLUS_TOOL_GROUPS = [
     'list_links',
     'link',
     'background_wait',
-    'worktree_status',
-    'move_to_worktree',
+    'checkout_status',
+    'move_checkout',
   ] },
   { id: 'projects', label: 'Projects', tools: [
     'create_project',

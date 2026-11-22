@@ -98,7 +98,7 @@ export class WorktreeOffers {
 
   /**
    * Answer an offer. `switch` moves the session through the same path as the
-   * `move_to_worktree` tool. An answered offer returns its answer; a failed
+   * `move_checkout` tool. An answered offer returns its answer; a failed
    * switch can be answered again.
    */
   async decide(
