@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import { ProviderInstanceId, ProjectId, type RuntimeMode } from "@t3tools/contracts";
+import { ProjectId } from "@t3tools/contracts";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
 import {
   ThreadSettingsPickerScreen,
@@ -10,6 +10,7 @@ import { useComposerDraft, setComposerDraftText } from "../state/use-composer-dr
 import { EmptyState } from "../components/ui/EmptyState";
 import { toRuntimeMode } from "./session";
 import { solus } from "./runtime";
+import { solusModelGroup } from "./model-picker-catalog";
 
 const permissionModes = {
   "approval-required": "supervised",
@@ -52,29 +53,12 @@ function Picker({
       (__DEV__ || agent.id !== "replay") &&
       !controller.policy.providerDenial(agent.id),
   );
-  const groups = agents.map((agent) => {
-    const instanceId = ProviderInstanceId.make(
-      agent.id === "claude-code" ? "claudeAgent" : agent.id,
-    );
-    return {
-      providerKey: instanceId,
-      providerLabel: agent.label,
-      models: agent.models
-        .filter((model) => !controller.policy.modelDenial(agent.id, model.id))
-        .map((model) => ({
-          key: JSON.stringify([instanceId, model.id]),
-          label: model.label,
-          subtitle: agent.label,
-          providerKey: instanceId,
-          providerLabel: agent.label,
-          providerDriver: instanceId,
-          isDefault: agent.defaultModel === model.id,
-          isLegacy: false,
-          capabilities: null,
-          selection: { instanceId, model: model.id },
-        })),
-    };
-  });
+  const groups = agents.map((agent) =>
+    solusModelGroup({
+      ...agent,
+      models: agent.models.filter((model) => !controller.policy.modelDenial(agent.id, model.id)),
+    }),
+  );
   const selected = groups
     .flatMap((group) => group.models)
     .find(

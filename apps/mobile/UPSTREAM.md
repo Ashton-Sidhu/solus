@@ -7,3 +7,5 @@ This workspace contains the T3 mobile app, its workspace dependencies, native in
 Make Solus mobile changes here. See `AGENTS.md` for the frontend and backend integration rules. Installation and tests use the source in this repository.
 
 For an upstream update, compare the new T3 revision with the previous import over the paths in `SOURCE_PATHS`. Apply the relevant changes in an isolated Solus checkout. Keep the production app identity, the local `solus-core` import, the LAN module, and these workspace instructions. Review changes to the native package manifest, native inputs, patches and workspace dependencies. Install with the frozen lockfile, run the mobile checks and export both native bundles. Record the tested revision with the update.
+
+The model picker sheet, its catalog filter, and its iOS and Android rows match T3 Code revision `9b7f5eb4479c5287340a863407ad083e2fdbeb7a`. The Solus adapter gives the sheet the host's model groups. The default list hides legacy models unless they are selected or favorited. Search and the Show legacy models filter can include them.
