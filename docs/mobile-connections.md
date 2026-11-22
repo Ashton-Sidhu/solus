@@ -43,3 +43,11 @@ screen shows the same text while the connection that read it stays open.
 The filter at the top of Settings selects connected Solus hosts and their projects. Source control and issue tracker connections, maintenance, and scheduled tasks use that selection. The Worktrees page changes the person's branch naming defaults. The Projects page manages a selected checkout and shows name and default branch controls for a matching workspace project the person can edit.
 
 Scheduled tasks are Solus automations. The phone can create, edit, pause, resume, run, and delete them. Fixed-time schedules keep their time zone. Custom cron schedules and existing end dates survive edits on the phone. A new run can use the project folder or a new worktree.
+
+## Opening sessions on a phone
+
+The phone applies title and status events to the session list. When the host names a changed session, the phone reads that record. A new connection with no event history, or a large set of changed records, starts a new list read.
+
+The three most recently closed conversations keep their live watches until the phone needs the memory. A recovered connection replays missed events. A connection reset, a change in access, or a change to a mirrored transcript releases the affected saved watch.
+
+After an app restart, the phone can show the first page saved for the current account and host. It sends the hashes of saved groups of messages with its history request. The host checks access and returns the current order, older-page cursor and changed groups. A host that does not support the hashes sends a complete page. Older messages still load when the reader scrolls back.

@@ -20,11 +20,13 @@ async function loadHistory(api: HistoryApi, request: SessionHistoryPageRequest, 
   const cached = await readCache().catch(() => null)
   const rows = new Map<string, SessionHistoryPage['messages']>()
   let offset = 0
-  for (const block of cached?.historyBlocks ?? []) {
-    rows.set(block.hash, cached!.messages.slice(offset, offset + block.count))
-    offset += block.count
+  if (cached?.historyBlocks) {
+    for (const block of cached.historyBlocks) {
+      rows.set(block.hash, cached.messages.slice(offset, offset + block.count))
+      offset += block.count
+    }
+    if (offset !== cached.messages.length) rows.clear()
   }
-  if (offset !== cached?.messages.length) rows.clear()
   const page = await api.loadSessionPage({ ...request, knownHistoryBlocks: [...rows.keys()].slice(0, 128) })
   if (!page.historyBlocks?.some(block => block.reused)) return page
   const messages: SessionHistoryPage['messages'] = []

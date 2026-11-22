@@ -29,6 +29,7 @@ import {
 } from './lib/ipc-context'
 import { hostAgents } from './lib/host-agents'
 import { attachmentKind } from '@solus/contracts/media-types'
+import { reconcileWatchReplay } from './lib/watch-replay'
 import { queuedMessageAttachments, uploadedMessageAttachments, type MessageAttachment } from './lib/message-attachments'
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
 import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
@@ -202,6 +203,8 @@ export class ConversationController {
   /** Bumps on each (re)load; an answer for an older load is dropped. */
   private loadGeneration = 0
   private held: WireNormalizedEvent[] | null = null
+  private watchReplay: WireNormalizedEvent[] | null = null
+  private replayTimeout?: ReturnType<typeof setTimeout>
   /** The prompt that started a new session, until the host names the session from it. */
   private openingPrompt: string | null = null
   private watching = false
@@ -523,6 +526,8 @@ export class ConversationController {
         this.flush(true)
       })
     }
+    this.watchReplay = null
+    clearTimeout(this.replayTimeout)
     this.held = []
     this.watching = false
     this.setPhase({ kind: 'loading' })
@@ -552,8 +557,17 @@ export class ConversationController {
       this.flush()
       await settings
       if (generation !== this.loadGeneration || this.closed) return
+      const replay: WireNormalizedEvent[] = []
+      this.watchReplay = replay
       const watched = await this.watch()
       if (generation !== this.loadGeneration) return
+      if (this.watchReplay === replay) {
+        if (!watched.runtime || !this.model.order.some(id => this.model.items.get(id)?.kind === 'tool')) this.finishWatchReplay()
+        // Room delivery may reach this socket after the RPC reply. The host
+        // ends a live replay with pending_input_sync. Release buffered events
+        // on older hosts that do not send that boundary.
+        else this.replayTimeout = setTimeout(() => this.finishWatchReplay(), 3000)
+      }
       this.applyWatch(watched)
       this.setPhase({ kind: 'ready' })
       void this.deps.connection.api.setSessionReadState(this.run.sessionId, Date.now()).catch(() => undefined)
@@ -572,6 +586,7 @@ export class ConversationController {
     } catch (error) {
       if (generation !== this.loadGeneration) return
       this.held = null
+      this.finishWatchReplay()
       if (error instanceof Error && ['FORBIDDEN', 'NOT_FOUND', 'UNAUTHORIZED'].includes(rpcErrorCode(error) ?? '')) {
         void this.deps.sessionCache?.saveHistory(this.run.sessionId, null)
         this.model = TranscriptModel.fromHistory(this.run.sessionId, { messages: [], before: null })
@@ -1311,6 +1326,8 @@ export class ConversationController {
   close(): void {
     if (this.closed) return
     this.closed = true
+    clearTimeout(this.replayTimeout)
+    this.watchReplay = null
     this.loadGeneration += 1
     for (const cleanup of this.cleanups.splice(0)) cleanup()
     if (this.watching) void this.deps.connection.api.unwatchSession(this.run.sessionId).catch(() => undefined)
@@ -1318,7 +1335,19 @@ export class ConversationController {
 
   // ─── Internals ───
 
+  private finishWatchReplay(): void {
+    const replay = this.watchReplay
+    this.watchReplay = null
+    clearTimeout(this.replayTimeout)
+    if (replay) for (const event of reconcileWatchReplay(this.model, replay)) this.receive(event)
+  }
+
   private receive(event: WireNormalizedEvent): void {
+    if (this.watchReplay) {
+      this.watchReplay.push(event)
+      if (event.type === 'pending_input_sync') this.finishWatchReplay()
+      return
+    }
     this.liveEvents += 1
     if (this.held) {
       this.held.push(event)

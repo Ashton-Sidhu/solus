@@ -21,9 +21,9 @@ export interface SessionHistoryPageRequest {
   /** The client reads a saved `render_artifact` HTML from its work when the
    *  frame mounts, so the page leaves it out and names its `toolInputKey`.
    *  A compiled render is 100–300 KB, and a page carries every revision. */
+  deferArtifactHtml?: boolean
   /** Hashes of groups of rows held by this reader. Only these clients receive a historyBlocks manifest. */
   knownHistoryBlocks?: string[]
-  deferArtifactHtml?: boolean
 }
 
 /** The rows after which a history page ends at its next turn start. */

@@ -685,9 +685,17 @@ test('a recent conversation keeps its live watch through replay and is evicted o
     await app.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
     app.connections.connection('inst-a')
     await transport.accept()
-    const store = app.conversation('inst-a', { record: record() })!
+    const readySession = async (sessionId: string) => {
+      const store = app.conversation('inst-a', { record: { ...record(), sessionId } })!
+      if (store.controller.phase.kind === 'loading') await new Promise<void>(resolve => {
+        const stop = store.meta.subscribe(() => {
+          if (store.controller.phase.kind !== 'loading') { stop(); resolve() }
+        })
+      })
+      return store
+    }
+    const store = await readySession('thread-1')
     const release = app.observeConversation(store)
-    await flushPromises()
     expect(store.controller.phase.kind).toBe('ready')
     release()
     await transport.accept(true)
@@ -703,8 +711,51 @@ test('a recent conversation keeps its live watch through replay and is evicted o
     await transport.accept(false)
     expect(app.openConversation('inst-a', 'thread-1')).toBeNull()
     expect(api.callsOf('loadSessionPage')).toHaveLength(1)
-    app.conversation('inst-a', { record: record() })
-    await flushPromises()
-    expect(api.callsOf('loadSessionPage')).toHaveLength(2)
+    for (const sessionId of ['thread-1', 'two', 'three', 'four']) {
+      const store = await readySession(sessionId)
+      const leave = app.observeConversation(store)
+      leave()
+    }
+    expect(app.openConversation('inst-a', 'thread-1')).toBeNull()
+    expect(app.openConversation('inst-a', 'two')).not.toBeNull()
+    transport.emit('share.changed', { resource: { kind: 'session', id: 'two' }, removedUserIds: [] })
+    expect(app.openConversation('inst-a', 'two')).toBeNull()
+    expect(await app.sessionCache.forHost('inst-a').history('two')).toBeNull()
+    app.releaseRecentConversations()
+    expect(app.openConversation('inst-a', 'three')).toBeNull()
+    expect(app.openConversation('inst-a', 'four')).toBeNull()
   } finally { app.dispose() }
+})
+
+test('opening a running turn consumes the overlapping watch replay once and preserves the live tail', async () => {
+  const api = baseApi().on('loadSessionPage', () => page([
+    userRow('check', 'u'), assistantRow('Reading files', 'a'),
+    { role: 'tool', content: '', toolId: 'call', toolName: 'Read', messageId: 't' },
+  ]))
+  const { controller, transport } = await open({ api })
+  api.on('watchSession', () => {
+    transport.emitSession('thread-1', { type: 'text_chunk', text: 'Reading ' })
+    transport.emitSession('thread-1', { type: 'text_chunk', text: 'files' })
+    transport.emitSession('thread-1', { type: 'tool_call', toolId: 'call', toolName: 'Read', index: 0 })
+    transport.emitSession('thread-1', { type: 'text_chunk', text: 'New reply' })
+    return { runtime: null }
+  })
+  await controller.load()
+  expect(texts(controller)).toEqual(['user:check', 'assistant:Reading files', 'tool', 'assistant:New reply'])
+  controller.close()
+})
+
+test('the watch RPC can answer before its replay reaches the socket', async () => {
+  const api = baseApi().on('loadSessionPage', () => page([
+    userRow('check', 'u'), assistantRow('Reading', 'a'),
+    { role: 'tool', content: '', toolId: 'call', toolName: 'Read', messageId: 't' },
+  ])).on('watchSession', () => ({ runtime: { status: 'running', modelConfig: null, permissionMode: null, queuedPrompts: [], rateLimitInfo: null } }))
+  const { controller, transport } = await open({ api })
+  await controller.load()
+  transport.emitSession('thread-1', { type: 'text_chunk', text: 'Reading' })
+  transport.emitSession('thread-1', { type: 'tool_call', toolId: 'call', toolName: 'Read', index: 0 })
+  transport.emitSession('thread-1', { type: 'pending_input_sync', pendingInputEvents: [] })
+  transport.emitSession('thread-1', { type: 'text_chunk', text: 'After replay' })
+  expect(texts(controller)).toEqual(['user:check', 'assistant:Reading', 'tool', 'assistant:After replay'])
+  controller.close()
 })
