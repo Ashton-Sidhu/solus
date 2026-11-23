@@ -1,4 +1,3 @@
-import { solusPrDetail, solusPrActivity } from "../../solus/source-control";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import {
   parsePullRequestAnchor,
@@ -57,10 +56,10 @@ function Discussion({ params }: { params: PullRequestParams & { readonly discuss
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
   const bottomInset = keyboardVisible ? 8 : Math.max(insets.bottom, 12);
-  const activity = useEnvironmentQuery(solusPrActivity(target));
-  const detail = useEnvironmentQuery(solusPrDetail(target));
+  const activity = useEnvironmentQuery(composerPullRequests.activity(target));
+  const detail = useEnvironmentQuery(composerPullRequests.detail(target));
   const permissions = usePullRequestPermissions(params, detail.data);
-  const refresh = useAtomRefresh(solusPrActivity(target));
+  const refresh = useAtomRefresh(composerPullRequests.activity(target));
   const reply = useAtomCommand(composerPullRequests.replyToThread, { reportFailure: false });
   const resolve = useAtomCommand(composerPullRequests.setThreadResolution, {
     reportFailure: false,

@@ -61,6 +61,7 @@ export const session = defineTable('session_records', {
   // person's own settle, archive, and snooze are in `personal_resource_state`.
   /** When its pull requests or task settled the session. Null while it is active. */
   settled_at: bigint(),
+  auto_settle_disabled_at: bigint(),
   /** What settled it: `pull-request`, `task`, or `idle`. */
   settled_by: text(),
   /** When a person made a settled session active again. Its pull requests settle it again only if they end after this time. */

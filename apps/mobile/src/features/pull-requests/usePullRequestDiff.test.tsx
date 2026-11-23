@@ -8,7 +8,11 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({ diff: vi.fn() }));
-vi.mock("../../solus/source-control", () => ({ solusPrDiff: mocks.diff }));
+vi.mock("../../state/pull-requests", () => ({ composerPullRequests: { diff: mocks.diff } }));
+vi.mock("../../state/host-query-scope", () => ({
+  useHostQueryTargets: (targets: readonly { environmentId: string }[]) =>
+    targets.map((target) => ({ ...target, scope: "account" })),
+}));
 
 import { usePullRequestDiff, usePullRequestDiffEntry } from "./usePullRequestDiff";
 import * as reviewModel from "../review/reviewModel";

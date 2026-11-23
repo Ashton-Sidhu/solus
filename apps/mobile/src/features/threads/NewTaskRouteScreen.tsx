@@ -1,6 +1,7 @@
+import { prepareDraftCheckout, type DraftAttachmentSource } from "../../solus/draft-checkout";
 import { NEW_CHAT_DIRECTORY, isChat } from "@solus/contracts/chat";
 import { ProjectId } from "@t3tools/contracts";
-import { useSolusDirectory } from "../../solus/runtime";
+import { useSolusWorkspace } from "../../solus/runtime";
 import { isDraftThreadRoute } from "./thread-route-state";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { msg, T, useGT, useMessages } from "gt-react-native";
@@ -17,7 +18,10 @@ import {
   type StaticScreenProps,
 } from "@react-navigation/native";
 import { SymbolView } from "../../components/ui/AppSymbol";
-import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
+import {
+  isPickableProjectMember,
+  pickableProjectGroups,
+} from "@t3tools/client-runtime/state/project-grouping";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,6 +36,7 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { useServerConfigs } from "../../state/entities";
 import {
+  retargetNewTaskDraft,
   retargetSavedNewTaskDraft,
   waitForComposerDraftsLoaded,
 } from "../../state/use-composer-drafts";
@@ -48,6 +53,8 @@ import {
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
 
 type NewTaskRouteParams = {
+  readonly source?: DraftAttachmentSource;
+  readonly environmentId?: string;
   readonly incomingShareId?: string | string[];
   /** An existing draft whose project is gone; the chosen project takes it over. */
   readonly draftId?: string | string[];
@@ -168,11 +175,11 @@ function NewTaskHeader(props: {
 export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRouteParams | undefined>) {
   const gt = useGT();
   const m = useMessages();
-  const {
-    projects,
-    environments: connectedEnvironments,
-    state: catalogState,
-  } = useSolusDirectory();
+  const { projects, environments, state: catalogState } = useSolusWorkspace();
+  const hostFilter = route.params?.environmentId;
+  const connectedEnvironments = hostFilter
+    ? environments.filter((e) => e.environmentId === hostFilter)
+    : environments;
   const [searchText, setSearchText] = useState("");
   const { projectScopes, selectedEnvironmentId, setProject } = useNewTaskFlow();
 
@@ -206,14 +213,25 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   const screenTitle = incomingShare ? gt("Start a task") : gt("Choose project");
   const projectEmptyState = deriveProjectEmptyState(catalogState, m);
   const serverConfigs = useServerConfigs();
-  const listScopes = pickableProjectGroups(projectScopes).filter(
-    (scope) =>
-      !scope.projects.every(
-        (project) =>
-          isChat(project.workspaceRoot) ||
-          isScratchProject(project, serverConfigs.get(project.environmentId)?.scratchWorkspaceRoot),
-      ),
-  );
+  const listScopes = pickableProjectGroups(projectScopes)
+    .flatMap((group) => {
+      if (!hostFilter) return [group];
+      const projects = group.projects.filter(
+        (project) => project.environmentId === hostFilter && isPickableProjectMember(project),
+      );
+      return projects[0] ? [{ ...group, projects, representative: projects[0] }] : [];
+    })
+    .filter(
+      (scope) =>
+        !scope.projects.every(
+          (project) =>
+            isChat(project.workspaceRoot) ||
+            isScratchProject(
+              project,
+              serverConfigs.get(project.environmentId)?.scratchWorkspaceRoot,
+            ),
+        ),
+    );
   const visibleScopes = filterProjectScopes(listScopes, searchText);
   const resumedDestinationKeyRef = useRef<string | null>(null);
   const reservedDestinationProject = incomingShare?.destination
@@ -279,6 +297,24 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           source: threadRoute.key,
         });
       root?.goBack();
+      return;
+    }
+    if (route.params?.source && routeDraftId) {
+      try {
+        const threadId = prepareDraftCheckout(
+          route.params.source,
+          project.environmentId,
+          project.workspaceRoot,
+        );
+        const target = { environmentId: project.environmentId, projectId: project.id };
+        retargetNewTaskDraft(routeDraftId, target);
+        selectDetail({
+          name: "Thread",
+          params: { threadId, draft: { ...target, draftId: routeDraftId } },
+        });
+      } catch (error) {
+        Dialog.alert(gt("Could not change project"), String(error));
+      }
       return;
     }
     // Restamp only on choice, so backing out leaves the draft as it was.

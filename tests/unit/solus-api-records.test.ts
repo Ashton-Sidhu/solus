@@ -87,6 +87,22 @@ test('an artifact keeps its session and is not filed on the task of that session
   expect((await taskAttachments('A', taskKey)).links.map(link => link.targetKey)).not.toContain(artifact.id)
 })
 
+test('a viewer can archive a shared session for themselves and both people retain its transcript', async () => {
+  const db = database.getDatabase()
+  const id = 'shared-archive'
+  await db.run(sql`INSERT INTO session_records(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES (${id},'A','alice','codex','/project','idle',1,2,100,1)`)
+  const message = JSON.stringify({ messageId: 'm1', role: 'assistant', content: 'Shared history', timestamp: 1000 })
+  await db.run(sql`INSERT INTO session_transcripts(organization_id,session_id,position,runner_host_id,message,updated_at) VALUES ('A',${id},0,'host',${message},1)`)
+  await shares.setEntries({ resource: { kind: 'session', id }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, context.principal)
+  const viewer: WorkspaceRequestContext = { ...bob, scopes: ['sessions:read', 'sessions:write'] }
+  expect((await operations.updateSession(viewer, id, { archived: true })).view?.archivedAt).toBeGreaterThan(0)
+  for (const reader of [context, viewer]) {
+    expect((await operations.listSessionMessages(reader, id, { limit: 1 })).items[0]?.content).toBe('Shared history')
+  }
+  await expect(operations.updateSession(viewer, id, { autoSettle: false })).rejects.toThrow()
+  expect((await operations.updateSession(viewer, id, { archived: false })).view?.archivedAt).toBeNull()
+})
+
 test('transcript paging reconstructs Unicode text without loading an unbounded message', async () => {
   const db = database.getDatabase(), sessionId = 'text-session'
   await db.run(sql`INSERT INTO session_records(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES (${sessionId},'A','alice','codex','/project','idle',1,2,100,1)`)
@@ -148,6 +164,33 @@ test('HTTP works without a socket; the bearer binds scope and strict inputs reje
   expect((await client.request('getWork', { id: work.id })).id).toBe(work.id)
   expect(seen).toEqual([{ path: '/v1/works/' + work.id, authorization: 'Bearer paired-source', organization: 'A' }])
   expect(admitted.at(-1)).toBe('A')
+})
+
+test('a session list revision confirms only the current authorized page', async () => {
+  const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
+  const admission = {
+    socket: async () => null,
+    bearer: async (token: string) => token === 'alice' ? context : token === 'bob' ? bob : null,
+  }
+  const app = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['session-records'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const read = (person: string, revision?: string) => app.request('/sessions?scope=all&projectPath=%2Fconditional', {
+    headers: { Authorization: 'Bearer ' + person, ...(revision && { 'If-None-Match': revision }) },
+  })
+  const before = await read('alice')
+  expect(before.status).toBe(200)
+  const revision = before.headers.get('ETag')!
+  expect(revision).toMatch(/^"[a-f0-9]{64}"$/)
+  const same = await read('alice', revision)
+  expect(same.status).toBe(304)
+  expect(await same.text()).toBe('')
+  await database.getDatabase().run(sql`INSERT INTO session_records(session_id,organization_id,created_by,provider,project_path,status,created_at,last_activity_at,size,started_at) VALUES ('conditional-session','A','alice','codex','-conditional','idle',1,${Date.now()},100,1)`)
+  const changed = await read('alice', revision)
+  expect(changed.status).toBe(200)
+  expect((await changed.json()).items.map((session: { id: string }) => session.id)).toContain('conditional-session')
+  const other = await read('bob', changed.headers.get('ETag')!)
+  expect(other.status).toBe(200)
+  expect((await other.json()).items).toEqual([])
+  expect((await read('expired', revision)).status).toBe(401)
 })
 
 test('the API has no task record: GitHub or Jira holds each task, so no task path answers', async () => {

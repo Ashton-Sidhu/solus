@@ -12,6 +12,8 @@
 
   interface Props {
     href?: string;
+    /** A literal host file path. Only its signed URL can be loaded. */
+    hostPath?: string;
     title?: string;
     text?: string;
     /** A click opens the picture at full size over the workspace. Off where
@@ -19,7 +21,7 @@
     expandable?: boolean;
   }
 
-  let { href = "", title = undefined, text = "", expandable = false }: Props = $props();
+  let { href = "", hostPath, title = undefined, text = "", expandable = false }: Props = $props();
   let dialog = $state<HTMLDialogElement>();
   let expanded = $state(false);
   let zoomed = $state(false);
@@ -75,7 +77,7 @@
   }
   const context = getMarkdownImageContext();
   const assetId = $derived(markdownAssetId(href));
-  const path = $derived(markdownImagePath(href, context?.cwd()));
+  const path = $derived(hostPath ?? markdownImagePath(href, context?.cwd()));
   // `![caption](/abs/path.mp4)` in an agent reply plays in place.
   const isVideo = $derived(isMarkdownVideo(href, path, assetId));
   // A host file or stored asset loads from a signed URL; anything else is a
@@ -91,8 +93,8 @@
     };
   });
   const image = new HostMediaUrl(() => (isVideo ? null : hostRequest));
-  // A host that cannot sign the file still gets the reference as written.
-  const src = $derived(!hostRequest || image.hasFailed ? href : image.url);
+  // Only authored Markdown can fall back to its original reference.
+  const src = $derived(hostPath ? image.url : !hostRequest || image.hasFailed ? href : image.url);
 </script>
 
 {#if isVideo}

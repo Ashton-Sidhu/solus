@@ -30,6 +30,8 @@ export const personalResourceState = defineTable('personal_resource_state', {
   viewed_at: bigint(),
   /** When this person pinned the session; their settle or archive ends it. */
   pinned_at: bigint(),
+  pin_order_key: text(),
+  active_order_key: text(),
 }, {
   primaryKey: ['organization_id', 'resource_kind', 'resource_id', 'created_by'],
   indexes: [

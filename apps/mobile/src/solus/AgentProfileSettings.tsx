@@ -136,7 +136,7 @@ export function AgentProfileSettings() {
         <AppTextInput
           accessibilityLabel="Skill search"
           placeholder="Search skills"
-          className="px-4 py-3 text-foreground"
+          className="mx-4 my-3 min-h-10 rounded-xl px-3 py-2"
           value={query}
           onChangeText={setQuery}
         />
@@ -176,7 +176,7 @@ export function AgentProfileSettings() {
           keyboardType="url"
           value={address}
           onChangeText={setAddress}
-          className="px-4 py-3 text-foreground"
+          className="mx-4 my-3 min-h-10 rounded-xl px-3 py-2"
         />
         <SettingsRow
           label={checking ? "Checking address…" : "Check and add server"}

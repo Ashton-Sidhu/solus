@@ -13,9 +13,8 @@
   import {
     LibraryBig as BooksIcon,
     Search as SearchIcon,
-    RefreshCw as ArrowsClockwiseIcon,
-    ChartBar as ChartBarIcon,
-    GitPullRequest as GitPullRequestIcon,
+    Workflow as WorkflowIcon,
+    Activity as ActivityIcon,
     MessagesSquare as SessionsIcon,
   } from "@lucide/svelte";
   import { projectScopeOf } from "@solus/contracts/types";
@@ -45,7 +44,7 @@
   import { comboHint } from "../../lib/keybindings/manifest";
   import { pointAnchor, type PanelMenuAnchor } from "../project-panel/lib/panel-items";
   import { Button } from "../ui/button";
-  import TaskIcon from "../ui/TaskIcon.svelte";
+  import { GitPullRequestIcon, IssueOpenedIcon } from "../ui/octicons";
   import * as TooltipUI from "../ui/tooltip";
   import SidebarAccountFooter from "./SidebarAccountFooter.svelte";
   import SidebarPlacesMenu from "./SidebarPlacesMenu.svelte";
@@ -55,7 +54,7 @@
     shortcut?: string;
     isActive: boolean;
     onclick: () => void;
-    icon?: typeof BooksIcon | typeof TaskIcon;
+    icon?: typeof BooksIcon;
     /** A pinned app's letter, in place of an icon, on a tile of the app's own hue. */
     monogram?: string;
     monogramHue?: number;
@@ -111,7 +110,7 @@
   function showSessions() {
     if (session.router.at("settings")) session.router.close("settings");
     if (!showsSession) session.router.close(session.router.destination.name);
-    else if (!frameChrome.sidebarOpen) frameChrome.expandSidebar?.();
+    else if (!frameChrome.sidebarOpen) frameChrome.toggleSidebar?.();
     requestInputFocus();
   }
 
@@ -139,7 +138,7 @@
           shortcut: comboHint("global.toggle-automations"),
           isActive: session.router.at("automations"),
           onclick: () => session.toggleAutomations(),
-          icon: ArrowsClockwiseIcon,
+          icon: WorkflowIcon,
         };
       case "insights":
         return {
@@ -147,7 +146,7 @@
           shortcut: comboHint("global.toggle-insights"),
           isActive: session.router.at("insights"),
           onclick: () => session.toggleInsights(),
-          icon: ChartBarIcon,
+          icon: ActivityIcon,
         };
       case "prs":
         return {
@@ -164,7 +163,7 @@
           shortcut: comboHint("global.toggle-tasks"),
           isActive: session.router.at("tasks"),
           onclick: () => session.toggleTasks(),
-          icon: TaskIcon,
+          icon: IssueOpenedIcon,
         };
       case "search":
         return {
@@ -372,14 +371,9 @@
     class="pointer-events-none absolute inset-y-0 right-0 w-[0.03125rem] bg-[linear-gradient(to_bottom,transparent,var(--color-sidebar-border)_3.5rem,var(--color-sidebar-border)_calc(100%-3.5rem),transparent)]"
     aria-hidden="true"
   ></div>
-  <!-- Collapsed, the column has no header or sky above it, so the places
-       slide up to sit one step under the frame toggle (3.25rem down the
-       window, below the toggle row) rather than where the open header ends.
-       A translate, so the slide costs no layout and keeps the pane's curve.
-       The account footer stays at the foot. -->
-  <div
-    class="flex min-h-0 flex-col items-center gap-0.5 transition-[translate] duration-240 ease-[cubic-bezier(0.2,0,0,1)] pointer-coarse:gap-2 motion-reduce:transition-none in-[.side-panel-root--column]:translate-y-[calc(3.25rem-var(--side-panel-window-inset,5px)-var(--side-panel-head-flow,2.5rem)-var(--sidebar-head-drop,0px))]"
-  >
+  <!-- The panel header keeps its space when it fades, so the places stay at
+       the same height when the sidebar opens and closes. -->
+  <div class="flex min-h-0 flex-col items-center gap-0.5 pointer-coarse:gap-2">
     <nav aria-label="Places" class="flex flex-col items-center gap-0.5 pointer-coarse:gap-2">
       {@render place({ label: "Sessions", isActive: atSessions, onclick: showSessions, icon: SessionsIcon })}
       {#each places as item, index (item.id)}

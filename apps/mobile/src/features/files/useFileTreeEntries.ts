@@ -1,5 +1,5 @@
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
-import { useAtomMount, useAtomSubscribe } from "@effect/atom-react";
+import { useAtomValue, useAtomMount, useAtomSubscribe } from "@effect/atom-react";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import { ProjectListEntriesError, type EnvironmentId, type ProjectEntry } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -8,10 +8,10 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Atom } from "effect/reactivity";
 import { msg } from "gt-react-native";
 
-import { environmentCatalog } from "../../connection/catalog";
+import { fileAccountScope, mobileHost } from "../../state/mobile-host";
 import { m } from "../../i18n/messages";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { projectEnvironment } from "../../state/projects";
+import * as projectEnvironment from "../../solus/checkout-files";
 import { useDebouncedValue } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
 
@@ -103,7 +103,7 @@ function getRequests(
   }
   return requests;
 }
-const noSessionGeneration = Atom.make(0);
+const noSessionGeneration = Atom.make(null);
 
 export function useFileTreeEntries(input: {
   readonly cwd: string | null;
@@ -111,24 +111,30 @@ export function useFileTreeEntries(input: {
   readonly searchQuery: string;
 }) {
   const { cwd, environmentId } = input;
+  const accountKey = useAtomValue(fileAccountScope).key;
   const searching = input.searchQuery.trim().length > 0;
   const query = input.searchQuery.trim().slice(0, 256);
   const debouncedQuery = useDebouncedValue(query, 200);
   const root = useEnvironmentQuery(
     cwd !== null && environmentId !== null
-      ? projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath: "" } })
+      ? projectEnvironment.listEntries({
+          accountKey,
+          environmentId,
+          input: { cwd, directoryPath: "" },
+        })
       : null,
   );
   const { refresh: refreshRoot } = root;
   const search = useEnvironmentQuery(
     searching && debouncedQuery.length > 0 && cwd !== null && environmentId !== null
       ? projectEnvironment.searchEntries({
+          accountKey,
           environmentId,
           input: { cwd, query: debouncedQuery, limit: 200 },
         })
       : null,
   );
-  const workspaceKey = JSON.stringify([environmentId, cwd]);
+  const workspaceKey = JSON.stringify([accountKey, environmentId, cwd]);
   const [cache, setCache] = useState(() => ({
     key: workspaceKey,
     workspaces: new Map([[workspaceKey, createDirectories()]]),
@@ -220,7 +226,11 @@ export function useFileTreeEntries(input: {
       errors.delete(directoryPath);
       return { ...current, errors, loading: new Set(current.loading).add(directoryPath) };
     });
-    const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
+    const atom = projectEnvironment.listEntries({
+      accountKey,
+      environmentId,
+      input: { cwd, directoryPath },
+    });
     appAtomRegistry.refresh(atom);
     return executeAtomQuery(appAtomRegistry, atom, {
       signal: controller.signal,
@@ -299,9 +309,7 @@ export function useFileTreeEntries(input: {
   // A folder read fails at once while its environment is unreachable; read it again once a new
   // session is up rather than leaving the error until someone refreshes.
   const sessionGeneration =
-    environmentId === null
-      ? noSessionGeneration
-      : environmentCatalog.sessionGenerationAtom(environmentId);
+    environmentId === null ? noSessionGeneration : mobileHost(environmentId);
   // A listener alone does not compute the atom, so nothing would follow the connection.
   useAtomMount(sessionGeneration);
   useAtomSubscribe(sessionGeneration, () => {
@@ -482,10 +490,15 @@ export function useFileTreeEntries(input: {
     const queries =
       cwd !== null && environmentId !== null
         ? [
-            projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath: "" } }),
+            projectEnvironment.listEntries({
+              accountKey,
+              environmentId,
+              input: { cwd, directoryPath: "" },
+            }),
             ...(searching && !missingRoot
               ? [
                   projectEnvironment.searchEntries({
+                    accountKey,
                     environmentId,
                     input: { cwd, query: debouncedQuery, limit: 200 },
                   }),

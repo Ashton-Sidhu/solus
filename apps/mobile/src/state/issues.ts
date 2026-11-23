@@ -1,6 +1,8 @@
+import { taskEditCandidates, updateIssue } from "../solus/source-control-actions";
+import { hostQueryScope, useHostQueryTargets } from "./host-query-scope";
 import { useEffect } from "react";
 import { solus } from "../solus/runtime";
-import { solusIssueList, solusIssueCandidates, sourceScope } from "../solus/source-control";
+import { solusIssueList, solusIssueDetail, solusIssueCandidates } from "../solus/source-control";
 import {
   createIssueEnvironmentAtoms,
   createMergedIssueCandidatesAtoms,
@@ -15,19 +17,26 @@ import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "./atom-registry";
 import { formatEnvironmentQueryError } from "./query";
 
-export const issueEnvironment = createIssueEnvironmentAtoms(connectionAtomRuntime);
+export const issueEnvironment = {
+  ...createIssueEnvironmentAtoms(connectionAtomRuntime),
+  list: solusIssueList,
+  detail: solusIssueDetail,
+  candidates: solusIssueCandidates,
+  editCandidates: taskEditCandidates,
+  update: updateIssue,
+};
 
 const mergedIssueLists = createMergedIssueListAtoms(
   {
-    list: solusIssueList,
-    refreshList: (registry, target) => registry.refresh(solusIssueList(target)),
+    list: issueEnvironment.list,
+    refreshList: (registry, target) => registry.refresh(issueEnvironment.list(target)),
   },
   formatEnvironmentQueryError,
 );
 
 /** One listing read across every environment asked. */
 export function useIssueList(targets: ReadonlyArray<IssueListTarget>) {
-  const scoped = targets.map((target) => ({ ...target, scope: sourceScope(target.environmentId) }));
+  const scoped = useHostQueryTargets(targets);
   const hostsKey = JSON.stringify(scoped.map((target) => [target.environmentId, target.scope]));
   useEffect(() => {
     const hosts: [EnvironmentId, string][] = JSON.parse(hostsKey);
@@ -50,7 +59,7 @@ export function useIssueList(targets: ReadonlyArray<IssueListTarget>) {
   const view = useAtomValue(mergedIssueLists.atom(scoped));
   return {
     ...view,
-    refresh: () => mergedIssueLists.refresh(appAtomRegistry, targets, "manual"),
+    refresh: () => mergedIssueLists.refresh(appAtomRegistry, scoped, "manual"),
   };
 }
 
@@ -60,20 +69,19 @@ export function refreshIssueLists(environmentId: EnvironmentId) {
 }
 
 const mergedIssueCandidates = createMergedIssueCandidatesAtoms(
-  solusIssueCandidates,
+  issueEnvironment.candidates,
   formatEnvironmentQueryError,
 );
 
 /** The labels and people of every scope a list filter covers; no targets reads nothing. */
 export function useIssueFilterCandidates(targets: ReadonlyArray<IssueCandidatesTarget>) {
-  return useAtomValue(
-    mergedIssueCandidates.atom(
-      targets.map((target) => ({ ...target, scope: sourceScope(target.environmentId) })),
-    ),
-  );
+  return useAtomValue(mergedIssueCandidates.atom(useHostQueryTargets(targets)));
 }
 
 /** Asks again only the scopes that failed; the ones that answered keep their answer. */
 export function refreshIssueFilterCandidates(targets: ReadonlyArray<IssueCandidatesTarget>) {
-  mergedIssueCandidates.retry(appAtomRegistry, targets);
+  mergedIssueCandidates.retry(
+    appAtomRegistry,
+    targets.map((target) => ({ ...target, scope: hostQueryScope(target.environmentId) })),
+  );
 }

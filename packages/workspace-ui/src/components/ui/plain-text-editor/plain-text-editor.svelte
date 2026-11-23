@@ -272,13 +272,10 @@
     return true;
   }
 
-  /** A drop on the text lands at that point; a drop beside it, at the end. */
   function dropSessions(event: DragEvent): boolean {
     isSessionDropTarget = false;
-    if (!view || event.defaultPrevented || !acceptsSessionDrops) return false;
-    const position =
-      view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.doc.length;
-    if (!insertSessionsAt(position, readSessionDrag(event.dataTransfer))) return false;
+    if (event.defaultPrevented) return false;
+    if (!insertSessionReferences(readSessionDrag(event.dataTransfer))) return false;
     event.preventDefault();
     return true;
   }
@@ -670,7 +667,7 @@
     return view ? insertReferenceAtCursor(view, token, pattern) : false;
   }
 
-  /** The keyboard path of a session drop: the chips go at the caret. */
+  /** Insert the session chips at the editor's current caret. */
   export function insertSessionReferences(
     sessions: readonly SessionReference[],
   ): boolean {

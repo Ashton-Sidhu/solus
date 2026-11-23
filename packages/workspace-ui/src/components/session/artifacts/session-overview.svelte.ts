@@ -271,6 +271,7 @@ export class SessionOverview {
       this.allOwned.length > 0 ||
       this.agentRows.length > 0 ||
       this.agentChoices.length > 0 ||
+      (this.tree?.relations?.length ?? 0) > 0 ||
       (this.ownNode?.digest?.turns.length ?? 0) > 0 ||
       (this.session?.sessionChangedFiles.length ?? 0) > 0,
   )

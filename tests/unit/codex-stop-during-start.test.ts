@@ -79,4 +79,54 @@ describe('Codex Stop before the turn starts', () => {
     expect(client.requests.find((entry) => entry.method === 'turn/interrupt')?.params)
       .toEqual({ threadId: 'thread-1', turnId: 'turn-1' })
   })
+
+  test.each(['before', 'after'] as const)('retries an early interrupt when turn/started arrives %s the refusal', async (order) => {
+    const backend = new CodexBackend()
+    const turnStartRequested = Promise.withResolvers<void>()
+    const refusal = Promise.withResolvers<never>()
+    const interrupts: Array<{ threadId?: string; turnId?: string }> = []
+    const client = {
+      request: async (method: string, params: { threadId?: string; turnId?: string }) => {
+        if (method === 'thread/start') return { thread: { id: 'thread-1' } }
+        if (method === 'turn/start') {
+          turnStartRequested.resolve()
+          return { turn: { id: 'turn-1' } }
+        }
+        if (method === 'turn/interrupt') {
+          interrupts.push(params)
+          if (interrupts.length === 1) return refusal.promise
+        }
+        return {}
+      },
+    }
+    Reflect.set(backend, 'client', client)
+    const notify = (method: 'turn/started' | 'turn/completed', status: 'inProgress' | 'interrupted') => {
+      const { onNotification } = backend as unknown as { onNotification: (message: {
+        method: string; params: { threadId: string; turn: { id: string; status: string } }
+      }, source: typeof client) => void }
+      onNotification.call(backend, { method, params: { threadId: 'thread-1', turn: { id: 'turn-1', status } } }, client)
+    }
+    const handle = backend.startRun(request)
+    await turnStartRequested.promise
+    await Promise.resolve()
+    expect(backend.cancelSession('thread-1')).toBe(true)
+    expect(interrupts).toEqual([{ threadId: 'thread-1', turnId: 'turn-1' }])
+
+    if (order === 'before') notify('turn/started', 'inProgress')
+    refusal.reject(new Error('no active turn to interrupt'))
+    if (order === 'after') {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(interrupts).toHaveLength(1)
+      notify('turn/started', 'inProgress')
+    }
+
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(interrupts).toEqual([
+      { threadId: 'thread-1', turnId: 'turn-1' },
+      { threadId: 'thread-1', turnId: 'turn-1' },
+    ])
+    notify('turn/completed', 'interrupted')
+    await handle.runPromise
+    expect(backend.isSessionRunning('thread-1')).toBe(false)
+  })
 })

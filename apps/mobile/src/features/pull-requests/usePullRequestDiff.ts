@@ -1,4 +1,5 @@
-import { solusPrDiff } from "../../solus/source-control";
+import { useHostQueryTargets } from "../../state/host-query-scope";
+import { composerPullRequests } from "../../state/pull-requests";
 import type { ChangeRequestTerminology } from "@t3tools/client-runtime/source-control-clients";
 import {
   EnvironmentId,
@@ -49,12 +50,12 @@ export function pullRequestTarget(params: PullRequestParams) {
 const NO_PAGES: readonly PullRequestDiffPage[] = [];
 const NO_PATHS: readonly string[] = [];
 
-type PullRequestDiffTarget = Parameters<typeof solusPrDiff>[0];
+type PullRequestDiffTarget = Parameters<typeof composerPullRequests.diff>[0];
 
 // Keyed by the diff's serialized target, which the hook already holds as its scope.
 const withheldFileDiff = (targetKey: string, path: string) => {
   const target = JSON.parse(targetKey) as PullRequestDiffTarget;
-  return solusPrDiff({ ...target, input: { ...target.input, path } });
+  return composerPullRequests.diff({ ...target, input: { ...target.input, path } });
 };
 
 // One read per withheld file the reader asked for, so only that file's diff crosses the wire.
@@ -112,16 +113,23 @@ export function usePullRequestDiffEntry(navigation: {
 export function usePullRequestDiff(
   params: PullRequestDiffParams,
   terminology: ChangeRequestTerminology,
+  expectedHead?: string,
 ) {
   const reference = pullRequestTarget(params);
-  const target = {
-    ...reference,
-    input: { ...reference.input, ...(params.commit ? { commit: params.commit } : {}) },
-  };
+  const target = useHostQueryTargets([
+    {
+      ...reference,
+      input: {
+        ...reference.input,
+        ...(expectedHead && { expectedHead }),
+        ...(params.commit ? { commit: params.commit } : {}),
+      },
+    },
+  ])[0]!;
   const key = JSON.stringify(target);
   const messages = useMessages();
   const locale = useLocale();
-  const firstPageAtom = solusPrDiff(target);
+  const firstPageAtom = composerPullRequests.diff(target);
   const firstPage = useAtomValue(firstPageAtom);
   const refreshFirstPage = useAtomRefresh(firstPageAtom);
   const registry = useContext(RegistryContext);
@@ -136,7 +144,7 @@ export function usePullRequestDiff(
   const cursor = state.key === key ? state.cursor : null;
   const reloadedFrom = state.key === key ? state.reloadedFrom : undefined;
   const pageAtom = (pageCursor: string | null) =>
-    solusPrDiff({
+    composerPullRequests.diff({
       ...target,
       input: { ...target.input, ...(pageCursor ? { cursor: pageCursor } : {}) },
     });

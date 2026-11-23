@@ -26,6 +26,8 @@ function project(id: string, workspaceRoot: string): EnvironmentProject {
 
 const regular = project("app", "/repo/app");
 const scratch = project("solus:new-chat", "solus:new-chat");
+const otherHost = EnvironmentId.make("env-2");
+const otherCopy = { ...regular, environmentId: otherHost, id: ProjectId.make("/other/app") };
 
 const harness = vi.hoisted(() => ({
   setProject: vi.fn(),
@@ -46,9 +48,12 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock("../../solus/runtime", () => ({
-  useSolusDirectory: () => ({
-    projects: [regular, scratch],
-    environments: [{ environmentId, connectionState: "connected" }],
+  useSolusWorkspace: () => ({
+    projects: [regular, scratch, otherCopy],
+    environments: [
+      { environmentId, connectionState: "connected" },
+      { environmentId: otherHost, connectionState: "connected" },
+    ],
     state: { hasReadyEnvironment: true },
   }),
 }));
@@ -135,7 +140,7 @@ vi.mock("./new-task-flow-provider", () => ({
         key: "app",
         title: "app",
         representative: regular,
-        projects: [regular],
+        projects: [regular, otherCopy],
         projectRefs: [],
         pinned: false,
         archived: false,
@@ -231,4 +236,31 @@ it("cancels the No project draft retarget when another project is picked", async
   await act(async () => screen.retargeting.resolve(true));
 
   expect(harness.selectDetail.mock.calls).toEqual(appDraftSelection);
+});
+
+it("uses the checkout on the chosen host when two hosts have a copy of the same project", async () => {
+  vi.mocked(retargetSavedNewTaskDraft).mockResolvedValue(true);
+  harness.selectDetail.mockClear();
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  using _root = { [Symbol.dispose]: () => act(() => root.unmount()) };
+  act(() =>
+    root.render(
+      <NewTaskRouteScreen
+        route={{ params: { draftId: "saved", environmentId: otherHost } } as never}
+      />,
+    ),
+  );
+  await act(async () => container.querySelector<HTMLElement>('[aria-label="app"]')!.click());
+  expect(harness.selectDetail).toHaveBeenCalledWith({
+    name: "Thread",
+    params: {
+      draft: {
+        environmentId: otherHost,
+        projectId: otherCopy.id,
+        draftId: "saved",
+        incomingShareId: undefined,
+      },
+    },
+  });
 });

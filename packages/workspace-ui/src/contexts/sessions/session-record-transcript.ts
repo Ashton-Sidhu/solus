@@ -12,6 +12,7 @@ export interface SessionRecordPageRequest {
   before?: string
   /** Tool results of the page above whose calls are in this one. */
   pendingMessages?: WireSessionLoadMessage[]
+  viaParentId?: string
 }
 
 export interface SessionRecordPage {
@@ -29,13 +30,16 @@ export interface SessionRecordPage {
  */
 export async function readSessionRecordPage(workspace: SurfaceContext, serverId: string, meta: SessionMeta, request: SessionRecordPageRequest): Promise<SessionRecordPage> {
   const ctx = workspace.ctxForDirectory(meta.cwd)
-  const page = await requestSessionHistoryPage(serverConnections.apiFor(serverId), {
+  const api = serverConnections.apiFor(serverId)
+  const page = request.viaParentId
+    ? await api.sessionLineageHistory(request.viaParentId, meta.sessionId, request.before, request.turnLimit)
+    : await requestSessionHistoryPage(api, {
     sessionId: meta.sessionId,
     projectPath: meta.projectPath,
     provider: meta.provider,
     turnLimit: request.turnLimit,
     before: request.before,
-  })
+    })
   const history = request.pendingMessages?.length ? page.messages.concat(request.pendingMessages) : page.messages
   const result = materializeSessionTranscript(workspace, {
     sessionId: meta.sessionId,

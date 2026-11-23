@@ -1,4 +1,4 @@
-import { useSolusDirectory } from "../solus/runtime";
+import { useSolusDirectory, useSolusWorkspace } from "../solus/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import { deriveReportedModelSelection } from "@t3tools/client-runtime/state/thread-execution";
 
@@ -195,7 +195,7 @@ export function waitForProject(
 }
 
 export function useProjects(): ReadonlyArray<EnvironmentProject> {
-  return useSolusDirectory().projects;
+  return useSolusWorkspace().projects;
 }
 
 export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {

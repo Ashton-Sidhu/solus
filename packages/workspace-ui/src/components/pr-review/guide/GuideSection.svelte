@@ -6,6 +6,7 @@
   import type { DiffComment } from "@solus/contracts/types";
   import { detectMovedBlocksInPatches } from "../../../lib/diff-moves";
   import { Button } from "../../ui/button";
+  import { scrollGuideTo } from "./lib/guide-scroll";
   import GuideFileDiff from "./GuideFileDiff.svelte";
   import DiffFileCardHeader from "../../diff/DiffFileCardHeader.svelte";
   import DiffFileTypeBadge from "../../diff/DiffFileTypeBadge.svelte";
@@ -21,6 +22,7 @@
   let {
     section,
     patchByPath,
+    scrollEl,
     loadDiffFiles,
     onFileJump,
     comments = [],
@@ -31,6 +33,7 @@
     total,
   }: {
     section: GuideSection;
+    scrollEl: HTMLElement | null;
     patchByPath: Map<string, string>;
     loadDiffFiles?: FileDiffContentsLoader;
     /** When set, the diff-card "open" action routes here (the PR-review surface
@@ -78,7 +81,8 @@
   const cards = new Map<string, HTMLElement>();
   function jumpToCard(path: string): void {
     collapsed.delete(path);
-    cards.get(path)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const card = cards.get(path);
+    if (card && scrollEl) scrollGuideTo(scrollEl, card, 24);
   }
 
   // Per-file collapse for the diff cards; diffs are open by default.
@@ -264,8 +268,11 @@
               <p
                 class="guide-diff-in px-3 py-3  text-(--solus-text-tertiary)"
               >
-                Diff unavailable for this file (binary, or not in the current
-                change).
+                {#if file.missingFromTurn}
+                  This path is absent from the turn {file.missingFromTurn} patch.
+                {:else}
+                  Diff unavailable for this file.
+                {/if}
               </p>
             {:else}
               <div class="h-24"></div>

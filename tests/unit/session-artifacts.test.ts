@@ -152,3 +152,45 @@ test('the walk up the tree is one read that ends a cycle and still names a sessi
   expect(await ancestorsOf('loop-a')).toEqual(['loop-a', 'loop-b'])
   expect(await ancestorsOf('not-recorded')).toEqual(['not-recorded'])
 })
+
+test('an artifact work gets a still in each appearance once, and its readers hear when it is ready', async () => {
+  // WHY: an artifact draws itself with script, so the card can only show what
+  // it is from a picture of its render; one capture per content keeps the
+  // headless browser from running on every read.
+  const { setBrowserHeadlessHost } = await import('@solus/server/browser/surface-driver')
+  const { onSessionArtifactsChanged, readOwnSessionArtifacts } = await import('@solus/server/data/sessions/session-artifacts')
+  const { createWork } = await import('@solus/server/data/works/works')
+  const opened: string[] = []
+  setBrowserHeadlessHost({
+    open: async (request) => {
+      const appearance = request.emulation?.appearance ?? 'light'
+      opened.push(appearance)
+      const driver = {
+        evaluate: async () => '"ok"',
+        captureScreenshot: async () => `data:image/png;base64,${Buffer.from(`still ${appearance}`).toString('base64')}`,
+        dispose: async () => {},
+      }
+      return driver as unknown as Awaited<ReturnType<NonNullable<ReturnType<typeof import('@solus/server/browser/surface-driver')['browserHeadlessHost']>>['open']>>
+    },
+  })
+  let stop = () => {}
+  try {
+    const work = await createWork('local', 'Chart', 'artifact', '<div id="root"></div><script>root.textContent = "Drawn"</script>', 'Interactive artifact — Chart', 'other', 'codex')
+    const ready = new Promise<void>((resolve) => {
+      // The work's own creation also announces the session; only the announcement after both captures is the still's.
+      stop = onSessionArtifactsChanged((sessionId) => { if (sessionId === 'other' && opened.length === 2) resolve() })
+    })
+    const listed = (items: Awaited<ReturnType<typeof readOwnSessionArtifacts>>) => items.find((item) => item.kind === 'work' && item.workId === work.id)
+
+    expect(listed(await readOwnSessionArtifacts('local', 'other'))).not.toHaveProperty('stills')
+    await ready
+    const stills = (listed(await readOwnSessionArtifacts('local', 'other')) as { stills?: { light: string; dark: string } }).stills
+    expect(stills?.light).toMatch(/^[0-9a-f]{64}\.png$/)
+    expect(stills?.dark).toMatch(/^[0-9a-f]{64}\.png$/)
+    expect(stills?.light).not.toBe(stills?.dark)
+    expect(opened.sort()).toEqual(['dark', 'light'])
+  } finally {
+    stop()
+    setBrowserHeadlessHost(null)
+  }
+})

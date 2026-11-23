@@ -1,4 +1,4 @@
-import { useSolusDirectory } from "../../solus/runtime";
+import { useSolusWorkspace } from "../../solus/runtime";
 import { ActiveNewTaskContext } from "../../state/active-new-task";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { msg, useMessages } from "gt-react-native";
@@ -246,7 +246,7 @@ export function NewTaskFlowProvider(
   const projects = useProjects();
   const messages = useMessages();
   const threads = useThreadShells();
-  const { hostsById: savedConnectionsById } = useSolusDirectory();
+  const { hostsById: savedConnectionsById } = useSolusWorkspace();
   const groupingSettings = useMobileProjectGroupingSettings();
 
   const projectScopes = sortHomeProjectScopes({

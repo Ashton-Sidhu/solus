@@ -1,3 +1,4 @@
+import { steadyNavigationThreadShellsAtom } from "../../state/threads";
 import { isWorkspaceCatalogPending } from "../../state/workspaceModel";
 import { threadKey } from "@solus-mobile/features/threads/thread-directory";
 import { listActions } from "../../solus/list-actions";
@@ -131,14 +132,14 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const insets = useSafeAreaInsets();
   const { fabClearance, fabSize } = useAndroidControlSizing();
   const projects = useProjects();
-  const { threads, listHosts, unread, hostsById: savedConnectionsById } = useSolusDirectory();
+  const threads = useAtomValue(steadyNavigationThreadShellsAtom);
+  const { listHosts, unread, hostsById: savedConnectionsById } = useSolusDirectory();
   const selectedThreadKey = useSidebarRowThreadKey(props.selectedThreadKey);
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const sidebarScrollGesture = useNativeGesture();
   const {
     archiveThread,
-    confirmDeleteThread,
     settleThread,
     snoozeThread,
     unsnoozeThread,
@@ -262,11 +263,9 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     providersByEnvironmentId,
     machineByEnvironmentId,
     snoozePresetsByEnvironmentId,
-    autoSettleOptOutEnvironmentIds,
-    pinReorderEnvironmentIds,
-    activeReorderEnvironmentIds,
-    titleRegenerationEnvironmentIds,
   } = listEnvironments;
+  const { listControlEnvironmentIds: autoSettleOptOutEnvironmentIds, listControlEnvironmentIds: pinReorderEnvironmentIds,
+    listControlEnvironmentIds: activeReorderEnvironmentIds, connectedEnvironmentIds: titleRegenerationEnvironmentIds } = listHosts;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
   const pendingOrder = usePendingThreadOrder();
   const {
@@ -458,7 +457,6 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             fullSwipeWidth={props.width - 20}
             onSelectThread={handleSelectThread}
             onOpenThreadPullRequests={handleOpenThreadPullRequests}
-            onDeleteThread={confirmDeleteThread}
             onArchiveThread={archiveThread}
             onRenameThread={renameThread}
             onRegenerateThreadTitle={regenerateThreadTitle}

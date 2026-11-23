@@ -31,6 +31,7 @@ const digestSchema = z.object({
     startedAt: z.number(),
     endedAt: z.number(),
     settled: z.boolean(),
+    outcome: z.enum(['completed', 'failed', 'interrupted', 'dead']).optional(),
     prompt: z.string(),
     toolCalls: z.array(z.tuple([z.number(), z.number()])),
     changes: changeCountsSchema.nullable(),
@@ -45,6 +46,14 @@ const digestSchema = z.object({
     startedAt: z.number(),
     endedAt: z.number().nullable(),
     detail: z.string(),
+    canStop: z.literal(true).optional(),
+    workflow: z.object({
+      phases: z.array(z.object({ index: z.number(), title: z.string() })),
+      agents: z.array(z.object({
+        index: z.number(), label: z.string(), state: z.enum(['queued', 'running', 'completed', 'failed']),
+        phaseIndex: z.number().optional(), phaseTitle: z.string().optional(), attempt: z.number().optional(),
+      })),
+    }).optional(),
   })),
   lastReply: z.string().nullable(),
   updatedAt: z.number(),

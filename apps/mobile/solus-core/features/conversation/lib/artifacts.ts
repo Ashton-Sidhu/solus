@@ -22,6 +22,7 @@ export interface ArtifactRender {
   workId: string | null
   /** The work version an `html_path` call saved. Its HTML is empty until the card reads it. */
   contentVersion?: number
+  toolInputKey?: string
   /** The saved version is being read. */
   loading?: boolean
   /** The saved version could not be read; the card offers a retry. */
@@ -53,25 +54,29 @@ function parseInput<T>(schema: z.ZodType<T>, text: string | null): T | null {
   }
 }
 
+export function htmlFromSavedRenderInput(input: string): string | null {
+  return parseInput(renderInput, input)?.html ?? null
+}
+
 type ArtifactWorkRef = WireSessionLoadMessage['artifactWorkRef']
 
 /** The render a finished call in history shows, or null when it shows none. */
-export function artifactFromHistory(toolName: string, toolInput: string | null, result: WireSessionLoadMessage): ArtifactRender | null {
+export function artifactFromHistory(toolName: string, toolInput: string | null, result: WireSessionLoadMessage, toolInputKey?: string): ArtifactRender | null {
   if (result.status === 'error') return null
-  if (isArtifactRenderTool(toolName)) return renderFromHistory(toolInput, result.artifactWorkRef)
+  if (isArtifactRenderTool(toolName)) return renderFromHistory(toolInput, result.artifactWorkRef, toolInputKey)
   if (toolName.endsWith('update_work')) return updateFromHistory(toolInput, result.artifactWorkRef)
   return null
 }
 
-function renderFromHistory(toolInput: string | null, ref: ArtifactWorkRef): ArtifactRender | null {
+function renderFromHistory(toolInput: string | null, ref: ArtifactWorkRef, toolInputKey?: string): ArtifactRender | null {
   const input = parseInput(renderInput, toolInput)
   // A preview is the agent's own check: it showed nothing live.
   if (!input || input.preview || input.kind === 'image') return null
   if (input.html) {
     return { html: input.html, title: ref?.title ?? resolveArtifactTitle(input.title, input.html), workId: ref?.workId ?? null }
   }
-  if (!input.html_path || !ref?.contentVersion) return null
-  return { html: '', title: ref.title, workId: ref.workId, contentVersion: ref.contentVersion }
+  if ((!input.html_path && !toolInputKey) || !ref?.contentVersion) return null
+  return { ...(toolInputKey && { toolInputKey }), html: '', title: ref.title, workId: ref.workId, contentVersion: ref.contentVersion }
 }
 
 function updateFromHistory(toolInput: string | null, ref: ArtifactWorkRef): ArtifactRender | null {

@@ -1,17 +1,18 @@
 import { useAtomValue } from "@effect/atom-react";
+import { resourceAllows } from "@solus/contracts/permissions";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { solus, solusDirectoryAtom } from "../../solus/runtime";
 
-import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
-import { canShareWithGuest } from "./guestShareAvailability";
-
-/**
- * Whether this environment offers "Share with guest": the user may create links there, and its
- * Guest links beta is on (Settings > Labs). The server refuses links while the beta is off.
- * Guests arrive through T3 Connect, so a policy that turns Connect off hides sharing too.
- */
-export function useCanShareWithGuest(environmentId: EnvironmentId | null): boolean {
-  const permitted = useAtomValue(serverEnvironment.createGuestShare.permissionAtom(environmentId));
-  return useAtomValue(environmentServerConfigsAtom, (configs) =>
-    canShareWithGuest(permitted, environmentId === null ? undefined : configs.get(environmentId)),
+export function useCanShareWithGuest(
+  environmentId: EnvironmentId | null,
+  threadId: string | undefined,
+): boolean {
+  return useAtomValue(
+    solusDirectoryAtom,
+    (directory) =>
+      environmentId !== null &&
+      !!threadId &&
+      directory.listHosts.connectedEnvironmentIds.has(environmentId) &&
+      resourceAllows({ role: solus.threads.thread(environmentId, threadId)?.record.role }, "share"),
   );
 }

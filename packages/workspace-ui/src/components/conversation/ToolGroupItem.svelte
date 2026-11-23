@@ -6,7 +6,9 @@
   import { toolRowsCopyText } from "./lib/tool-row-copy";
   import { toolProgressView } from "@solus/contracts/tool-progress";
   import { getMarkdownImageContext } from "./lib/markdown-image";
-  import { toolRowImages } from "./lib/turn-images";
+  import { toolGroupViewedImages, toolRowImages } from "./lib/turn-images";
+  import { hostPathBaseName } from "@solus/contracts/host-path";
+  import { nearViewport } from "../../lib/near-viewport";
   import { toasts } from "../../lib/toasts";
   import { toolCallCode } from "@solus/client-core/tool-call-code";
   import CodeBlock from "../ui/CodeBlock.svelte";
@@ -75,6 +77,8 @@
 
   const disclosure = getTranscriptDisclosure();
   const imageContext = getMarkdownImageContext();
+  const viewedImages = $derived(imageContext?.serverId() ? toolGroupViewedImages(tools, imageContext.cwd()) : []);
+  let viewedImagesAreNear = $state(false);
   const view = $derived(disclosure.forKey(toolGroupKey(tools[0]?.id)));
   const openLines = $derived(openToolLines(disclosure, toolGroupKey(tools[0]?.id)));
 
@@ -211,9 +215,10 @@
   {#if thought}
     <!-- The same glyph slot, gap, and type as the live row below it, so the
          icon and the text start on the same edges. The slot is one line tall,
-         which centres the icon on the first line of a wrapped thought. -->
+         which centres the icon on the first line of a wrapped thought.
+         The activity row's top padding sets the gap below the preview. -->
     <button type="button" aria-expanded="false" onclick={toggleExpanded}
-      class="flex w-full items-start gap-2.5 rounded-sm border-0 bg-transparent p-0 pb-1 text-left text-activity-label text-muted-foreground cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)">
+      class="flex w-full items-start gap-2.5 rounded-sm border-0 bg-transparent p-0 text-left text-activity-label text-muted-foreground cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent-border-medium)">
       <span class="inline-flex h-lh min-w-5.5 shrink-0 items-center"><BrainIcon class="size-(--text-activity-label)" /></span>
       <span class="line-clamp-4 min-w-0">{thought}</span>
     </button>
@@ -399,6 +404,19 @@
       {/each}
     {/snippet}
   </ActivityRow>
+  {#if viewedImages.length > 0}
+    <div
+      class="mt-1 flex min-h-px flex-wrap gap-2 ps-8 [&>button>img]:max-h-24"
+      data-slot="viewed-workspace-images"
+      use:nearViewport={() => (viewedImagesAreNear = true)}
+    >
+      {#if viewedImagesAreNear}
+        {#each viewedImages as path (path)}
+          <MarkdownImage hostPath={path} text={hostPathBaseName(path)} expandable />
+        {/each}
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>

@@ -29,6 +29,13 @@
       "when": 1795324922855,
       "tag": "0003_session_digests",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795402060918,
+      "tag": "0004_session_list_controls",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { solusPrDetail, solusPrBreakdown } from "../../solus/source-control";
+import { composerPullRequests } from "../../state/pull-requests";
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
@@ -44,13 +44,13 @@ const BREAKDOWN_LABELS = {
 } satisfies Record<keyof NonNullable<PullRequestChangeBreakdown>, string>;
 
 function useChangedFiles(params: PullRequestDiffParams) {
-  const detail = useEnvironmentQuery(solusPrDetail(pullRequestTarget(params)));
+  const detail = useEnvironmentQuery(composerPullRequests.detail(pullRequestTarget(params)));
   // A commit's diff is part of the pull request, so the PR's file counts and viewed state don't apply.
   const pr = params.commit ? null : detail.data;
   const terminology = sourceControlClients.get(
     (detail.data ?? params.initialSummary)?.provider,
   ).changeRequest;
-  const diff = usePullRequestDiff(params, terminology);
+  const diff = usePullRequestDiff(params, terminology, detail.data?.headSha);
   const viewed = usePullRequestFilesViewed(params, pr);
   const filter = usePullRequestFileFilter(diff.parsed);
   const parsed = filter.parsed;
@@ -286,7 +286,7 @@ export function usePullRequestFilesSection(params: PullRequestParams) {
   const files = useChangedFiles(params);
   const { diff, filter, viewed, pr, parsed, loading } = files;
   const breakdown = useEnvironmentQuery(
-    solusPrBreakdown(pullRequestTarget(params)),
+    composerPullRequests.changeBreakdown(pullRequestTarget(params)),
   ).data;
   const expected = pr ?? params.initialSummary;
   return {

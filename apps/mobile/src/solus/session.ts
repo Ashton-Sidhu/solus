@@ -141,6 +141,9 @@ export function sessionShell(
     snoozedUntil: view?.snoozedUntil == null ? null : DateTime.makeUnsafe(view.snoozedUntil),
     pinnedAt: pinnedAt == null ? null : DateTime.makeUnsafe(pinnedAt),
     lastVisitedAt: activity?.viewedAt == null ? null : DateTime.makeUnsafe(activity.viewedAt),
+    autoSettleDisabledAt: state?.autoSettleDisabledAt == null ? null : DateTime.makeUnsafe(state.autoSettleDisabledAt),
+    activeOrderKey: view?.activeOrderKey ?? null,
+    pinOrderKey: view?.pinOrderKey ?? null,
     deletedAt: null,
   };
 }

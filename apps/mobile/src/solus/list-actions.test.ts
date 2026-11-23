@@ -1,9 +1,18 @@
+import { ThreadId } from "@t3tools/contracts";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import { listActions } from "./list-actions";
 import { toThreadShell } from "./session";
 import { readThreadUndoNotice, dismissThreadUndoNotice } from "../features/home/thread-undo-notice";
 
 const host = vi.hoisted(() => ({
+  registryRead: vi.fn(),
+  registrySet: vi.fn(),
+  directory: vi.fn(),
+  scope: vi.fn(() => "alice"),
+  getSessionInfo: vi.fn(),
+  generateSessionMetadata: vi.fn(),
+  setSessionTitle: vi.fn(),
+  setListControls: vi.fn(),
   setSettled: vi.fn(),
   snooze: vi.fn(),
   setArchived: vi.fn(),
@@ -13,11 +22,22 @@ const host = vi.hoisted(() => ({
   refreshSessionRow: vi.fn(),
   alert: vi.fn(),
 }));
+vi.mock("../state/host-query-scope", () => ({ hostQueryScope: host.scope }));
+vi.mock("../state/use-thread-outbox", () => ({ queuedThreadKeysAtom: {} }));
+vi.mock("../state/thread-order", () => ({ threadDropBusyAtom: {} }));
+vi.mock("../state/atom-registry", () => ({
+  appAtomRegistry: { get: host.registryRead, set: host.registrySet },
+}));
 vi.mock("react-native", () => ({ Alert: { alert: host.alert } }));
 vi.mock("../components/ui/Dialog", () => ({ prompt: vi.fn() }));
 vi.mock("./runtime", () => ({
+  navigationThreadsAtom: {},
+  getSolusDirectory: host.directory,
+  noteSessionListAction: vi.fn(),
   refreshSessionRow: host.refreshSessionRow,
   solus: {
+    personal: { executionPreferences: () => ({}) },
+    connections: { connection: () => ({ state: { readiness: "ready" }, api: host }) },
     threadList: { ...host, facts: () => ({ pins: new Map() }) },
     threads: { load: host.load, thread: () => ({ key: "mac/session" }) },
   },
@@ -85,4 +105,47 @@ it("marks a session unread and clears it on open without reloading the session l
     ["mac", "session", true],
   ]);
   expect(host.load).not.toHaveBeenCalled();
+});
+
+it("writes a generated title only to the session and account that requested it", async () => {
+  host.getSessionInfo.mockResolvedValue({ firstMessage: "Inspect the repo", cwd: "/repo" });
+  host.generateSessionMetadata.mockResolvedValueOnce({
+    title: "Inspect repo",
+    description: "Review the checkout",
+  });
+  expect(await listActions.regenerateThreadTitle(thread)).toBe(true);
+  expect(host.setSessionTitle).toHaveBeenCalledWith(
+    "session",
+    "Inspect repo",
+    "generated",
+    "Review the checkout",
+  );
+  host.generateSessionMetadata.mockImplementationOnce(async () => {
+    host.scope.mockReturnValueOnce("another account");
+    return { title: "Late answer" };
+  });
+  expect(await listActions.regenerateThreadTitle(thread)).toBe(false);
+  expect(host.setSessionTitle).toHaveBeenCalledTimes(1);
+});
+
+it("writes the move planned for the selected section and skips an older host", async () => {
+  const other = { ...thread, id: ThreadId.make("second"), activeOrderKey: "b" };
+  const first = { ...thread, activeOrderKey: "a" };
+  const listControlEnvironmentIds = new Set(["mac"]);
+  host.directory.mockReturnValue({
+    threads: [first, other],
+    listHosts: { listControlEnvironmentIds },
+  });
+  host.registryRead
+    .mockReturnValueOnce({ holding: false })
+    .mockReturnValueOnce(false)
+    .mockReturnValueOnce(new Set());
+  expect(await listActions.moveThread(first, "down")).toBe(true);
+  expect(host.setListControls).toHaveBeenCalledWith("mac", "session", {
+    activeOrderKey: expect.any(String),
+  });
+  expect(host.registrySet.mock.calls.map((call) => call[1])).toEqual([true, false]);
+  listControlEnvironmentIds.clear();
+  host.registryRead.mockReturnValueOnce({ holding: false }).mockReturnValueOnce(false);
+  expect(await listActions.moveThread(first, "up")).toBe(false);
 });

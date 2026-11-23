@@ -71,7 +71,7 @@ export function taskItem(task: SidebarTask, section: SidebarSection): Extract<Si
     ? task.lifecycle === 'active' || !!task.share
     : section === 'sessions' || section === 'shared' || section === 'working'
   const variant = isCard ? 'card' : 'slim'
-  return { kind: 'task', key: `${task.id}:${variant}`, section, task }
+  return { kind: 'task', key: `${task.key}:${variant}`, section, task }
 }
 
 export function sectionItems(

@@ -177,7 +177,6 @@ function ArchivedThreadRow(props: {
   readonly environmentLabel: string | null;
   readonly isFirst: boolean;
   readonly isLast: boolean;
-  readonly onDelete: () => void;
   readonly onSwipeableClose: (methods: SwipeableMethods) => void;
   readonly onSwipeableWillOpen: (methods: SwipeableMethods) => void;
   readonly simultaneousSwipeGesture?: ComponentProps<typeof ThreadSwipeable>["simultaneousWith"];
@@ -252,7 +251,6 @@ function ArchivedThreadRow(props: {
       containerStyle={containerStyle}
       fullSwipeWidth={windowWidth - 32}
       secondaryAction={null}
-      onDelete={props.onDelete}
       onSwipeableClose={props.onSwipeableClose}
       onSwipeableWillOpen={props.onSwipeableWillOpen}
       primaryAction={{
@@ -293,14 +291,13 @@ export function ArchivedThreadsScreen(props: {
   readonly searchQuery: string;
   readonly selectedEnvironmentId: EnvironmentId | null;
   readonly sortOrder: ArchivedThreadSortOrder;
-  readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
   readonly onEnvironmentChange: (environmentId: EnvironmentId | null) => void;
   readonly onRefresh: () => void;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onSortOrderChange: (sortOrder: ArchivedThreadSortOrder) => void;
   readonly onUnarchiveThread: (thread: EnvironmentThreadShell) => void;
 }) {
-  const { onDeleteThread, onUnarchiveThread } = props;
+  const { onUnarchiveThread } = props;
   const gt = useGT();
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const archiveScrollGesture = useNativeGesture();
@@ -371,7 +368,6 @@ export function ArchivedThreadsScreen(props: {
         environmentLabel={item.environmentLabel}
         isFirst={item.isFirst}
         isLast={item.isLast}
-        onDelete={() => onDeleteThread(item.thread)}
         onSwipeableClose={handleSwipeableClose}
         onSwipeableWillOpen={handleSwipeableWillOpen}
         onUnarchive={() => onUnarchiveThread(item.thread)}

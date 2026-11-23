@@ -573,9 +573,12 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     // A branch is the head it pushes to from this checkout: the name alone
     // matches every fork's branch of that name.
     const checkout = ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory
-    const resolved = await Promise.all(interests.map(async (interest): Promise<SyncInterest> => interest.kind === 'branch'
-      ? { kind: 'head', head: await pushHeadFor(host, checkout, interest.head) }
-      : interest))
+    // A branch never published has no pull request: it costs no lookup.
+    const resolved = (await Promise.all(interests.map(async (interest): Promise<SyncInterest | null> => {
+      if (interest.kind !== 'branch') return interest
+      const head = await pushHeadFor(host, checkout, interest.head)
+      return head ? { kind: 'head', head } : null
+    }))).filter((interest): interest is SyncInterest => interest !== null)
     return deps.prSync.setInterest(ownerId, host, resolved)
   })
 

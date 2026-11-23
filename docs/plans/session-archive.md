@@ -125,6 +125,8 @@ tab is a different action: it changes nothing on the home.
      rows close, they archive or settle with it, and Undo returns them too.
      Without this, a delegated session loses the row it nests under and shows
      as a row of its own.
+     Completing or archiving a session from the sidebar keeps the current page
+     open when it is in the leading pane.
    - The picker lists every session; an archived one has a mark and "Return to
      List", and the Archive filter shows only archived ones.
    - Mobile reads the list and the sessions out of it, and archives, snoozes,

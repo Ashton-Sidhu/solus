@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitMerge as GitMergeIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { GitMergeIcon, GitPullRequestIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon } from "../ui/octicons";
   import { statusLabel, statusPillColors } from "./lib/pr-status";
 
   /**
@@ -14,20 +14,18 @@
   let { status }: { status: string } = $props();
 
   const tone = $derived(statusPillColors(status));
+  const StatusIcon = $derived(
+    status === "merged" ? GitMergeIcon
+      : status === "closed" ? GitPullRequestClosedIcon
+      : status === "draft" ? GitPullRequestDraftIcon
+      : GitPullRequestIcon,
+  );
 </script>
 
 <span
   class="inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium whitespace-nowrap"
   style="background:{tone.background};color:{tone.color}"
 >
-  {#if status === "merged"}
-    <GitMergeIcon size={12} class="shrink-0" />
-  {:else}
-    <GitPullRequestIcon
-      size={12}
-      weight={status === "draft" ? "light" : "regular"}
-      class="shrink-0 {status === 'draft' ? 'opacity-70' : ''}"
-    />
-  {/if}
+  <StatusIcon size={12} class="shrink-0" />
   {statusLabel(status)}
 </span>

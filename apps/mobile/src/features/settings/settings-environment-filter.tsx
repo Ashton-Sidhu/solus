@@ -1,4 +1,4 @@
-import { useSolusDirectory } from "../../solus/runtime";
+import { useSolusWorkspace } from "../../solus/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { buildProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 import { useLocale, useMessages } from "gt-react-native";
@@ -183,7 +183,7 @@ export function useSettingsEnvironmentFilter() {
 export function useSolusSettingsFilter() {
   const scope = useContext(SettingsEnvironmentSelectionContext);
   if (!scope) throw new Error("Settings environment filter provider is missing.");
-  const { environments, projects } = useSolusDirectory();
+  const { environments, projects } = useSolusWorkspace();
   const availableTargets = environments.filter(host => host.connectionState === "connected");
   const selectedTargets = availableTargets.filter(host => !scope.selectedIds || scope.selectedIds.has(host.environmentId));
   const grouping = useMobileProjectGroupingSettings();

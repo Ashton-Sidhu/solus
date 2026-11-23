@@ -1,5 +1,5 @@
 <script lang="ts">
-  import TaskIcon from "../ui/TaskIcon.svelte";
+  import { GitPullRequestIcon, IssueOpenedIcon } from "../ui/octicons";
   import { isSolusApiId } from "@solus/contracts/uplink";
   import { untrack, type Component } from "svelte";
   import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
@@ -18,7 +18,6 @@
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
     ChevronDown as CaretDownIcon,
-    GitPullRequest as GitPullRequestIcon,
     Bell as BellIcon,
     Palette as PaletteIcon,
     Smartphone as SmartphoneIcon,
@@ -166,7 +165,7 @@
       id: "tasks",
       label: "Tasks",
       description: "How agents work on tasks, and how a task's lead runs.",
-      icon: TaskIcon,
+      icon: IssueOpenedIcon,
       group: "Agents",
     },
     {

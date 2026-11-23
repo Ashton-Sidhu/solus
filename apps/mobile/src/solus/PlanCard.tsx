@@ -1,3 +1,4 @@
+import { ProposedPlanView } from "../features/threads/ProposedPlanView";
 import { useRef, useState } from "react";
 import { Alert, View } from "react-native";
 import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
@@ -11,14 +12,16 @@ import { AppText, AppTextInput } from "../components/ui/AppText";
 export function PlanCard({
   store,
   plan,
+  history = false,
 }: {
   store: ConversationStore;
+  history?: boolean;
   plan: Extract<TranscriptItem, { kind: "plan" }> | AgentPlanAwaiting;
 }) {
   const styles = useMarkdownStyles();
   const child = "targetSessionId" in plan;
   const pending = child || plan.decision === "pending";
-  const [expanded, setExpanded] = useState(pending);
+  const [expanded, setExpanded] = useState(pending && !history);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
@@ -42,25 +45,30 @@ export function PlanCard({
     }
   };
   return (
-    <View className="mb-2 gap-2 rounded-2xl border border-border bg-card p-4">
-      <AppText className="font-bold">{child ? plan.planTitle : "Plan"}</AppText>
+    <ProposedPlanView
+      markdown={plan.content}
+      title={child ? plan.planTitle : undefined}
+      renderMarkdown={(markdown) =>
+        expanded ? (
+          <SelectableMarkdownText
+            markdown={markdown}
+            textStyle={styles.assistant.nativeTextStyle}
+          />
+        ) : (
+          <AppText numberOfLines={3}>{markdown}</AppText>
+        )
+      }
+    >
       <AppText className="text-xs text-foreground-muted">
         {child ? plan.sessionTitle : plan.decision}
       </AppText>
-      {expanded ? (
-        <SelectableMarkdownText
-          markdown={plan.content}
-          textStyle={styles.assistant.nativeTextStyle}
-        />
-      ) : (
-        <AppText numberOfLines={3}>{plan.content}</AppText>
-      )}
       <RequestActionButton
         label={expanded ? "Show less" : "Show full plan"}
         tone="secondary"
         onPress={() => setExpanded(!expanded)}
       />
       {pending &&
+        !history &&
         (store.controller.mayApprove ? (
           <>
             <AppTextInput
@@ -87,6 +95,6 @@ export function PlanCard({
         ) : (
           <AppText>Waiting for an editor</AppText>
         ))}
-    </View>
+    </ProposedPlanView>
   );
 }

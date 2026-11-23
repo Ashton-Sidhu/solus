@@ -1,4 +1,22 @@
-import { sourceScope } from "../solus/source-control";
+import { prGuide, generatePrGuide } from "../solus/pr-guide";
+import {
+  editPr,
+  labelPr,
+  commentPr,
+  reviewPr,
+  requestPrReviewers,
+  prLabelChoices,
+  prReviewerChoices,
+} from "../solus/source-control-actions";
+import { hostQueryScope } from "./host-query-scope";
+import {
+  solusPrList,
+  solusPrDetail,
+  solusPrActivity,
+  solusPrDiff,
+  solusPrBreakdown,
+  solusPrFilterOptions,
+} from "../solus/source-control";
 import {
   createPullRequestEnvironmentAtoms,
   editHeldPullRequestListEntries,
@@ -23,7 +41,13 @@ import {
 export const pullRequestListPagesKey = (target: {
   readonly environmentId: EnvironmentId;
   readonly input: PullRequestListInput;
-}) => JSON.stringify([target.environmentId, target.input, sourceScope(target.environmentId)]);
+  readonly scope?: string;
+}) =>
+  JSON.stringify([
+    target.environmentId,
+    target.input,
+    target.scope ?? hostQueryScope(target.environmentId),
+  ]);
 
 // Which listing each pages atom holds, so an action's reply can reach the pages past its head.
 const pullRequestListPagesTargets = new WeakMap<
@@ -54,7 +78,7 @@ export const filesViewedReadsFamily = Atom.family((_key: string) =>
   Atom.make(0).pipe(Atom.setIdleTTL(5 * 60_000)),
 );
 
-export const composerPullRequests = createPullRequestEnvironmentAtoms(connectionAtomRuntime, {
+const upstreamPullRequests = createPullRequestEnvironmentAtoms(connectionAtomRuntime, {
   // Rows on pages past each listing's head; the head itself is patched where it is cached.
   actionReply: (target, reply, registry) =>
     Effect.sync(() => {
@@ -97,9 +121,9 @@ export const composerPullRequests = createPullRequestEnvironmentAtoms(connection
   // refreshed where the new head lands. The detail atom still holds the previous answer here.
   detail: (target, value, registry) =>
     Effect.sync(() => {
-      const previous = AsyncResult.value(registry.get(composerPullRequests.detail(target)));
+      const previous = AsyncResult.value(registry.get(upstreamPullRequests.detail(target)));
       if (Option.isSome(previous) && previous.value.headSha !== value.headSha)
-        registry.refresh(composerPullRequests.filesViewed(target));
+        registry.refresh(upstreamPullRequests.filesViewed(target));
     }),
   filesViewed: (target, _value, registry) =>
     Effect.sync(() =>
@@ -112,7 +136,7 @@ export const composerPullRequests = createPullRequestEnvironmentAtoms(connection
       registry.set(statsAtom, cache);
       for (const input of refresh)
         registry.refresh(
-          composerPullRequests.listStats({ environmentId: target.environmentId, input }),
+          upstreamPullRequests.listStats({ environmentId: target.environmentId, input }),
         );
       if (target.input.cursors === undefined)
         registry.update(pullRequestListPagesFamily(pullRequestListPagesKey(target)), (previous) =>
@@ -126,7 +150,36 @@ export const composerPullRequests = createPullRequestEnvironmentAtoms(connection
       ),
     ),
 });
+const detailReadVersion = Atom.family((source: ReturnType<typeof solusPrDetail>) =>
+  Atom.make((get) => {
+    const result = get(source);
+    return result._tag === "Success" && !result.waiting
+      ? result.timestamp
+      : Option.getOrElse(get.self<number>(), () => 0);
+  }),
+);
+
+export const composerPullRequests = {
+  ...upstreamPullRequests,
+  reviewGuide: prGuide,
+  generateReviewGuide: generatePrGuide,
+  list: solusPrList,
+  update: editPr,
+  setLabels: labelPr,
+  comment: commentPr,
+  submitReview: reviewPr,
+  requestReviewers: requestPrReviewers,
+  labelCandidates: prLabelChoices,
+  reviewerCandidates: prReviewerChoices,
+  detail: solusPrDetail,
+  detailReadVersion: (target: Parameters<typeof solusPrDetail>[0]) =>
+    detailReadVersion(solusPrDetail(target)),
+  activity: solusPrActivity,
+  diff: solusPrDiff,
+  changeBreakdown: solusPrBreakdown,
+  filterOptions: solusPrFilterOptions,
+};
 export const pullRequestStackAtom = createPullRequestStackAtomFamily(
   connectionAtomRuntime,
-  composerPullRequests.refreshes,
+  upstreamPullRequests.refreshes,
 );

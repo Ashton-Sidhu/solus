@@ -5,13 +5,8 @@ import { expect, it, vi } from "vite-plus/test";
 
 const queries = vi.hoisted(() => [] as { cwd: string | null; searchQuery: string }[]);
 
-vi.mock("@t3tools/client-runtime/state/filesystem", () => ({
-  resolveFilesystemReadAccess: () => ({ canReadFiles: true, isPending: false }),
-}));
-vi.mock("../../state/session", () => ({ environmentSession: { sessionStateAtom: () => null } }));
-vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: null, error: null }) }));
-vi.mock("../../state/presentation", () => ({
-  useEnvironmentPresentation: () => ({ isReady: true, presentation: null }),
+vi.mock("../../solus/use-checkout-files", () => ({
+  useCheckoutAccess: () => ({canReadFiles: true, isPending: false}),
 }));
 vi.mock("../settings/appearance/AppearancePreferencesProvider", () => ({
   useAppearancePreferences: () => ({ themeAppearance: "dark" }),

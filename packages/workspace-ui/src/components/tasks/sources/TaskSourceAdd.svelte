@@ -1,94 +1,61 @@
 <script lang="ts">
-  import { ChevronDown as CaretDownIcon, Plus as PlusIcon, RefreshCw as RefreshIcon } from "@lucide/svelte";
+  import { Plus as PlusIcon } from "@lucide/svelte";
   import { untrack } from "svelte";
-  import { taskSourceKey, taskSourceProvider } from "@solus/contracts/task-sources";
-  import { getSettingsContext, getSurfaceContext, taskHostId, taskSourcesStore } from "../../../contexts";
-  import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
+  import type { taskSourceProvider } from "@solus/contracts/task-sources";
+  import { taskHostId, taskSourcesStore } from "../../../contexts";
+  import { atlassianStore } from "../../../contexts/atlassian/atlassian.store.svelte";
+  import AtlassianConnectForm from "../../atlassian/AtlassianConnectForm.svelte";
+  import IntegrationDialog from "../../settings/IntegrationDialog.svelte";
+  import { PROVIDER_LOGOS } from "../../settings/lib/provider-logos";
+  import { Button } from "../../ui/button";
+  import { Input } from "../../ui/input";
   import * as Popover from "../../ui/popover";
-  import * as Command from "../../ui/command";
-  import { MenuSearch } from "../../ui/menu";
   import { SourceLogo } from "../../ui/list-page";
-  import {
-    connectionProviderNames,
-    manualSourceChoice,
-    manualSourceKey,
-    matchingChoices,
-    sourceChoiceGroups,
-    sourceConnectionNotes,
-    withTaskSource,
-    type SourceChoice,
-  } from "./lib/task-source-setup";
-  import { saveTaskSources } from "./lib/save-task-sources.svelte";
   import { MenuLinearKey } from "./lib/menu-linear-key.svelte";
-  import LinearKeyField from "./LinearKeyField.svelte";
+  import TaskSourcePicker from "./TaskSourcePicker.svelte";
 
   /**
-   * Add a task source: a GitHub repository, a GitHub Project, a Jira project
-   * or a Jira board (docs/tasks.md). Each add is one write of the personal
-   * settings; the task host then reads the sources again.
-   *
-   * Two looks. On the strip of sources it is the quiet last chip. With no
-   * source it invites: full-strength text and a hairline, because that is a
-   * decision nobody has made yet.
+   * Opens the menu that adds a task source (docs/tasks.md). Two looks. On the
+   * strip of sources it is the quiet last chip. On the first-source setup it is
+   * one card for each provider, and the menu opens on that provider's
+   * choices. The menu stays open after an add, so a person adds several. Every
+   * card looks the same; one whose provider is not connected opens the dialog
+   * Settings uses to connect it, and then its menu.
    */
   interface Props {
-    /** "invite" when the person has no source. */
-    look: "strip" | "invite";
+    look: "strip" | "providers";
     /** Called after a source is added, so the page reads its tasks again. */
     onChanged?: () => void;
   }
   let { look, onChanged }: Props = $props();
 
-  const settings = getSettingsContext();
-  const session = getSurfaceContext();
+  type SourceProvider = ReturnType<typeof taskSourceProvider>;
+  const PROVIDERS: { id: SourceProvider; label: string; detail: string }[] = [
+    { id: "github", label: "GitHub", detail: "Repositories and Projects" },
+    { id: "jira", label: "Jira", detail: "Projects and boards" },
+    { id: "linear", label: "Linear", detail: "Teams" },
+  ];
 
   let open = $state(false);
-  let query = $state("");
-  let menuContent = $state<HTMLElement | null>(null);
+  /** The provider button that opened the menu, and whose choices it shows. */
+  let provider = $state<SourceProvider | null>(null);
+  let providerButton = $state<HTMLElement | null>(null);
 
-  const config = $derived({ taskSources: settings.taskSources });
-  const configured = $derived(config.taskSources);
+  function openFor(shown: SourceProvider, button: HTMLElement) {
+    providerButton = button;
+    provider = shown;
+    open = true;
+  }
+
+  // ── Connecting a provider from its card ──
+  const serverId = $derived(taskHostId());
   const options = $derived(taskSourcesStore.options);
-  const optionsError = $derived(taskSourcesStore.optionsError);
-  const groups = $derived(options ? sourceChoiceGroups(options, configured) : []);
-  // A repository or a Project that the host did not list: typed as
-  // `owner/repo`, or pasted as a github.com URL. It needs no answer from the
-  // host, so it is offered while the listed choices still load.
-  const typedChoice = $derived(manualSourceChoice(query, configured, groups));
-  const offered = $derived(
-    groups
-      .flatMap((group) => matchingChoices(group, query))
-      .filter((choice) => choice.sourceKey !== typedChoice?.sourceKey),
-  );
-  // Linear connects with a pasted key, so the menu takes it in place: the person
-  // picks a team without a trip to Settings. Read again on each open.
-  const linearKey = $derived.by(() => {
-    const serverId = open ? taskHostId() : null;
-    return serverId ? new MenuLinearKey(serverId) : null;
-  });
-  const offersLinearKey = $derived(
-    !!linearKey?.canSave && !!options?.linear && !options.linear.connected && !query.trim(),
-  );
-  // A connection problem is worth a line only while a person browses, not
-  // while they search for one source by name. Linear's is the key field when
-  // the menu offers it.
-  const connectionNotes = $derived(
-    options && !query.trim()
-      ? sourceConnectionNotes(options).filter((note) => !(offersLinearKey && note.provider === "linear"))
-      : [],
-  );
-  const connectionNames = $derived(connectionProviderNames(connectionNotes));
-  // The full reasons, for a pointer that rests on the action.
-  const connectionHelp = $derived(connectionNotes.map((note) => note.text).join("\n") || undefined);
-  const alreadyConfigured = $derived(
-    !typedChoice && !!query.trim() && configured.some((source) => taskSourceKey(source) === manualSourceKey(query)),
-  );
-
-  // Opening the control is the only moment the choices are worth a provider
-  // read, and a person connects GitHub or Jira in between two opens.
+  // The connections as Settings reads them: quick, so a card opens the
+  // connect dialog before the providers have listed any choice. The choices answer only
+  // while a connection has not.
+  const linearKey = $derived(look === "providers" && serverId ? new MenuLinearKey(serverId) : null);
   $effect(() => {
-    if (!open) return;
-    untrack(() => void taskSourcesStore.loadOptions());
+    if (look === "providers" && serverId) untrack(() => void atlassianStore.ensureStatus(serverId));
   });
   $effect(() => {
     const key = linearKey;
@@ -97,58 +64,121 @@
     untrack(() => void key.connection.load());
     return stop;
   });
+  /** Whether the provider cannot list a choice until it is connected. GitHub
+   *  connects through its menu, which says how. */
+  function needsConnecting(shown: SourceProvider): boolean {
+    if (shown === "jira") {
+      if (serverId && atlassianStore.statusLoaded(serverId)) {
+        return !atlassianStore.connected(serverId) || !atlassianStore.status(serverId)?.products?.includes("jira");
+      }
+      return !!options && (!options.jira.connected || !options.jira.cloudId);
+    }
+    if (shown === "linear") {
+      if (linearKey && linearKey.state.location !== null) return !linearKey.state.connected;
+      return !!options?.linear && !options.linear.connected;
+    }
+    return false;
+  }
+  const cards: Partial<Record<SourceProvider, HTMLElement>> = {};
+  let connecting = $state<"jira" | "linear" | null>(null);
 
-  // The teams read again, and the search takes the keys for the next step.
-  function linearConnected() {
-    void taskSourcesStore.loadOptions();
-    menuContent?.querySelector<HTMLInputElement>("input")?.focus();
+  function choose(shown: SourceProvider, button: HTMLElement) {
+    if ((shown === "jira" || shown === "linear") && needsConnecting(shown)) connecting = shown;
+    else openFor(shown, button);
   }
 
-  function openIntegrations() {
-    open = false;
-    session.workspace?.showSettings("integrations");
+  // Connected: the choices are read again, and the menu opens on them.
+  async function connected(shown: "jira" | "linear") {
+    connecting = null;
+    if (shown === "jira" && serverId) void atlassianStore.refreshStatus(serverId);
+    await taskSourcesStore.loadOptions();
+    const card = cards[shown];
+    if (card) openFor(shown, card);
   }
 
-  function add(choice: SourceChoice) {
-    query = "";
-    if (saveTaskSources(settings, withTaskSource(config, choice.source))) onChanged?.();
+  // A browser sign-in in flight holds a loopback port on the host, so closing
+  // the dialog releases it, as Settings does.
+  function closeJira(host: string) {
+    connecting = null;
+    if (atlassianStore.awaitingBrowser(host)) void atlassianStore.cancelBrowserWait(host);
+    atlassianStore.clearFailure(host);
+  }
+
+  // Linear takes a personal key, saved where Settings › Integrations saves it.
+  let linearDraft = $state("");
+  async function saveLinearKey(event: SubmitEvent) {
+    event.preventDefault();
+    const draft = linearDraft;
+    linearDraft = "";
+    if (linearKey && (await linearKey.connection.save(draft))) void connected("linear");
   }
 </script>
 
-{#snippet choiceRow(choice: SourceChoice)}
-  <Command.Item value={choice.sourceKey} onSelect={() => add(choice)}>
-    <span class="flex w-[15px] shrink-0 items-center justify-center">
-      <SourceLogo source={taskSourceProvider(choice.source)} />
-    </span>
-    <span class="min-w-0 flex-1 truncate">{choice.label}</span>
-    {#if choice.detail}
-      <span class="max-w-[45%] shrink-0 truncate text-xs text-(--solus-text-tertiary)">{choice.detail}</span>
-    {/if}
-    <PlusIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
-  </Command.Item>
-{/snippet}
+{#if look === "providers"}
+  <!-- The menu anchors to the card that opened it, so these are plain buttons
+       rather than one trigger. The cards are the setup's own cards. -->
+  <div class="grid grid-cols-1 gap-2 @min-[40rem]/pane:grid-cols-3" role="group" aria-label="Add a task source">
+    {#each PROVIDERS as shown (shown.id)}
+      <button
+        bind:this={cards[shown.id]}
+        type="button"
+        class="flex min-w-0 cursor-pointer items-center gap-3 overflow-hidden rounded-xl border-0 bg-card py-3 pr-3 pl-2.5 text-left shadow-[inset_0_0_0_0.5px_var(--hairline-strong)] transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-1)]"
+        aria-haspopup="dialog"
+        aria-expanded={(open && provider === shown.id) || connecting === shown.id}
+        onclick={(event) => choose(shown.id, event.currentTarget)}
+      >
+        <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--wash-2)]" aria-hidden="true">
+          <SourceLogo source={shown.id} />
+        </span>
+        <span class="flex min-w-0 flex-1 flex-col">
+          <span class="truncate text-workspace-chrome leading-5 font-medium text-foreground">{shown.label}</span>
+          <span class="truncate text-xs leading-4 text-muted-foreground">{shown.detail}</span>
+        </span>
+        <PlusIcon size={16} class="shrink-0 text-muted-foreground" aria-hidden="true" />
+      </button>
+    {/each}
+  </div>
+{/if}
 
-<Popover.Root bind:open>
-  <Popover.Trigger>
-    {#snippet child({ props })}
-      {#if look === "invite"}
-        <!-- No source is marked by a hairline and full-strength text, never by
-             colour: the accent belongs to the page's one primary action. -->
-        <button
-          {...props}
-          type="button"
-          class="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-lg border-0 bg-transparent px-2.5 font-medium text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-colors duration-150 hover:bg-[var(--wash-2)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:min-h-10"
-          title="Add a GitHub repository or Project, a Jira project or board, or a Linear team."
-        >
-          <span class="flex shrink-0 items-center gap-1" aria-hidden="true">
-            <SourceLogo source="github" />
-            <SourceLogo source="jira" />
-            <SourceLogo source="linear" />
-          </span>
-          <span class="truncate">Add a task source</span>
-          <CaretDownIcon size={9} class="shrink-0 opacity-70" />
-        </button>
-      {:else}
+{#if look === "providers" && serverId}
+  <IntegrationDialog
+    isOpen={connecting === "jira"}
+    title="Connect Jira"
+    description="Sign in to your Atlassian site, then pick the Jira projects and boards your tasks come from."
+    logo={PROVIDER_LOGOS.atlassian}
+    onClose={() => closeJira(serverId)}
+  >
+    <AtlassianConnectForm {serverId} onconnected={() => void connected("jira")} />
+  </IntegrationDialog>
+  <IntegrationDialog
+    isOpen={connecting === "linear"}
+    title="Connect Linear"
+    description="Paste a personal API key, then pick the Linear teams your tasks come from."
+    logo={PROVIDER_LOGOS.linear}
+    onClose={() => { connecting = null; linearDraft = ""; }}
+  >
+    <form class="flex flex-col gap-4" onsubmit={saveLinearKey}>
+      <div class="flex flex-col gap-1">
+        <label for="setup-linear-key" class="text-xs font-medium text-foreground">API key</label>
+        <Input id="setup-linear-key" type="password" bind:value={linearDraft} autocomplete="new-password" maxlength={4096}
+          placeholder="lin_api_…" disabled={linearKey?.state.pending} class="text-workspace-chrome" />
+        <a href="https://linear.app/settings/account/security" target="_blank" rel="noreferrer"
+          class="w-fit text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">Create a key in Linear Settings → Security &amp; access</a>
+      </div>
+      {#if linearKey?.state.error}<p role="alert" class="m-0 text-pretty text-xs text-(--solus-status-error)">{linearKey.state.error}</p>{/if}
+      <div>
+        <Button type="submit" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={!linearDraft.trim() || !!linearKey?.state.pending}>
+          {linearKey?.state.pending ? "Connecting…" : "Connect"}
+        </Button>
+      </div>
+    </form>
+  </IntegrationDialog>
+{/if}
+
+<Popover.Root bind:open onOpenChange={(isOpen) => { if (!isOpen) provider = null; }}>
+  {#if look === "strip"}
+    <Popover.Trigger>
+      {#snippet child({ props })}
         <!-- The last chip of the strip, in the chips' own geometry. The label
              goes first in a narrow pane; the plus and the title carry it. -->
         <button
@@ -161,84 +191,18 @@
           <PlusIcon size={16} class="shrink-0" aria-hidden="true" />
           <span class="truncate @max-[30rem]/pane:hidden">Add source</span>
         </button>
-      {/if}
-    {/snippet}
-  </Popover.Trigger>
+      {/snippet}
+    </Popover.Trigger>
+  {/if}
   <Popover.Content
-    bind:ref={menuContent}
     data-solus-ui
     side="bottom"
-    align={look === "invite" ? "center" : "start"}
+    align="start"
     sideOffset={6}
     collisionPadding={8}
+    customAnchor={look === "providers" ? providerButton : undefined}
     class="menu-surface z-[10002] w-[min(24rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0"
   >
-    <Command.Root shouldFilter={false}>
-      <MenuSearch bind:value={query} placeholder="Search, or paste a GitHub URL" />
-      <Command.List class="max-h-[280px] overflow-y-auto p-1.5">
-        {#if typedChoice}
-          {@render choiceRow(typedChoice)}
-        {/if}
-        {#if !options && optionsError}
-          <p class="px-2.5 py-2 text-xs text-(--failure)" role="alert">
-            Couldn't read what you can add: {optionsError}
-          </p>
-        {:else if !options}
-          <ContentSkeleton label="Loading sources" />
-        {:else}
-          <!-- One flat list: each row says its kind, so the menu has no heading
-               for each kind. The typed source has its own row above. -->
-          {#each offered as choice (choice.sourceKey)}
-            {@render choiceRow(choice)}
-          {/each}
-          {#if !typedChoice && offered.length === 0}
-            <p class="m-0 px-2.5 py-2 text-xs text-(--solus-text-tertiary)">
-              {#if alreadyConfigured}
-                You have that source already.
-              {:else if query.trim()}
-                Nothing matches. Type owner/repo, or paste the URL of a GitHub repository or Project.
-              {:else if connectionNotes.length === 0 && !offersLinearKey}
-                You have every source your connections offer. Paste a GitHub URL to add another.
-              {/if}
-            </p>
-          {/if}
-        {/if}
-      </Command.List>
-    </Command.Root>
-    {#if offersLinearKey && linearKey}
-      <LinearKeyField {linearKey} problem={options?.linear?.error} onConnected={linearConnected} />
-    {/if}
-    <!-- What keeps a source out of the list, and where to fix it, in one
-         row: each logo carries its own reason as a tooltip. -->
-    <div
-      class="flex items-center gap-1 rounded-b-[inherit] border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) py-1 pr-1.5 pl-2.5 text-xs text-(--solus-text-tertiary)"
-    >
-      {#if connectionNotes.length > 0}
-        <span class="flex shrink-0 items-center gap-1 pl-1.5">
-          {#each connectionNotes as note (note.text)}
-            <SourceLogo source={note.provider} title={note.text} />
-          {/each}
-        </span>
-      {/if}
-      <!-- Every connection is made in Settings › Integrations, signed in or not.
-           A surface with no workspace has no Settings to open. -->
-      {#if session.workspace}
-      <button
-        type="button"
-        title={connectionHelp}
-        class="min-w-0 cursor-pointer truncate rounded-md border-0 bg-transparent px-1.5 py-1 font-medium text-(--solus-text-secondary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:py-2"
-        onclick={openIntegrations}
-      >{connectionNotes.length > 0 ? `Connect ${connectionNames}` : "Manage connections"}</button>
-      {/if}
-      <button
-        type="button"
-        class="ml-auto flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"
-        aria-label="Refresh sources"
-        title="Refresh sources"
-        onclick={() => void taskSourcesStore.loadOptions()}
-      >
-        <RefreshIcon size={13} aria-hidden="true" />
-      </button>
-    </div>
+    <TaskSourcePicker active={open} {provider} {onChanged} onLeave={() => (open = false)} />
   </Popover.Content>
 </Popover.Root>

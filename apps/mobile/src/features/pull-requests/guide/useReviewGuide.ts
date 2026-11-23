@@ -4,20 +4,20 @@ import { useFocusEffect } from "@react-navigation/native";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import { msg } from "gt-react-native";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { useWorkspaceEnvironments } from "../../../state/workspace";
 import { usePullRequestConnected } from "../usePullRequestConnected";
 import { composerPullRequests } from "../../../state/pull-requests";
 import { useEnvironmentQuery } from "../../../state/query";
-import { serverEnvironment } from "../../../state/server";
+
 import { useAtomCommand } from "../../../state/use-atom-command";
 import { pullRequestTarget, type PullRequestParams } from "../usePullRequestDiff";
 import { m } from "../../../i18n/messages";
 
 export function useReviewGuidesEnabled(params: PullRequestParams) {
-  const settings = useAtomValue(
-    serverEnvironment.settingsValueAtom(pullRequestTarget(params).environmentId),
+  return useWorkspaceEnvironments().some(
+    (environment) => environment.environmentId === params.environmentId && environment.isEnabled,
   );
-  return settings?.reviewGuidesEnabled === true;
 }
 
 export function useReviewGuide(params: PullRequestParams, visible = true) {
@@ -37,13 +37,15 @@ export function useReviewGuide(params: PullRequestParams, visible = true) {
   const pending = useRef(false);
   const running = starting || query.data?.run?._tag === "Running";
   const refresh = query.refresh;
-  useFocusEffect(() => {
-    if (!enabled || !visible) return;
-    refresh();
-    if (!running) return;
-    const timer = setInterval(refresh, 5_000);
-    return () => clearInterval(timer);
-  });
+  useFocusEffect(
+    useCallback(() => {
+      if (!connected || !enabled || !visible) return;
+      refresh();
+      if (!running) return;
+      const timer = setInterval(refresh, 5_000);
+      return () => clearInterval(timer);
+    }, [connected, enabled, visible, refresh, running]),
+  );
   const write = async () => {
     if (!enabled || !canWrite || running || pending.current) return;
     pending.current = true;

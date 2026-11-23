@@ -45,6 +45,15 @@ describe('settings search', () => {
     expect(settingVisible(pageQuery, chatSettings, 'show-tool-calls')).toBe(false)
   })
 
+  test('sidebar animation searches open Appearance and show its duration control', () => {
+    for (const query of ['Sidebar animation', 'motion duration']) {
+      expect(settingsPageMatches('appearance', query)).toBe(true)
+      expect(settingsPageMatches('general', query)).toBe(false)
+      const pageQuery = settingsPageQuery('appearance', query)
+      expect(settingVisible(pageQuery, settingsByPage.appearance, 'sidebar-motion')).toBe(true)
+    }
+  })
+
   test('section headings and nested controls open their page without hiding all rows', () => {
     expect(settingsPageMatches('appearance', 'Typography')).toBe(true)
     expect(settingsPageQuery('appearance', 'Typography')).toBe('')

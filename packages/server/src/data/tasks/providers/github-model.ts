@@ -80,6 +80,7 @@ const DRAFT_FIELDS = `
 export interface IssueQueries {
   listIssues: string
   issueByNumber: string
+  issueDetailsByNumber: string
   taskNode: string
 }
 
@@ -87,6 +88,7 @@ function issueQueries(issueFields: string, draftFields: string): IssueQueries {
   return {
     listIssues: listIssuesQuery(issueFields),
     issueByNumber: issueByNumberQuery(issueFields),
+    issueDetailsByNumber: issueByNumberQuery(issueFields, ISSUE_COMMENTS),
     taskNode: taskNodeQuery(issueFields, draftFields),
   }
 }
@@ -107,13 +109,21 @@ const listIssuesQuery = (issueFields: string) => `
   }
 `
 
-/** One issue by its number, for the read after a write (a `TaskHome` has no node id). */
-const issueByNumberQuery = (issueFields: string) => `
+const ISSUE_COMMENTS = `
+  comments(first: 100) {
+    totalCount
+    nodes { id author { login } body createdAt }
+  }
+`
+
+/** One issue by its number, for URL reads and reads after a write. */
+const issueByNumberQuery = (issueFields: string, comments = '') => `
   query($owner: String!, $repo: String!, $number: Int!) {
     repository(owner: $owner, name: $repo) {
       issue(number: $number) {
         ${issueFields}
         parent { body }
+        ${comments}
       }
     }
   }
@@ -127,10 +137,7 @@ const taskNodeQuery = (issueFields: string, draftFields: string) => `
       ... on Issue {
         ${issueFields}
         parent { body }
-        comments(first: 100) {
-          totalCount
-          nodes { id author { login } body createdAt }
-        }
+        ${ISSUE_COMMENTS}
       }
 ${draftFields}
     }

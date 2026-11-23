@@ -1,3 +1,6 @@
+import { ReviewSheet } from "./features/review/ReviewSheet";
+import { CheckoutBranches } from "./solus/CheckoutGit";
+import { ThreadFilesTreeScreen, ThreadFileScreen } from "./features/files/ThreadFilesRouteScreen";
 import { SourceControlSettings, GithubSettings, IssueTrackerSettings } from "./solus/SourceControlSettings";
 import { AutomationModelPicker } from "./solus/AutomationModelPicker";
 import { WorktreeSettings, MaintenanceSettings, LabsSettings, ProjectSettings } from "./solus/HostSettingsControls";
@@ -60,25 +63,22 @@ import {
   type RenderFailureProps,
 } from "./components/RenderErrorBoundary";
 import { ArchivedThreadsRouteScreen } from "./features/archive/ArchivedThreadsRouteScreen";
-import { ConnectOnboardingRouteScreen } from "./features/cloud/ConnectOnboardingRouteScreen";
 import { AttachmentFileScreen } from "./features/files/AttachmentFileScreen";
-import { ThreadFilesTreeScreen, ThreadFileScreen } from "./features/files/ThreadFilesRouteScreen";
 import { AdaptiveWorkspaceLayout } from "./features/layout/AdaptiveWorkspaceLayout";
 import {
   HardwareKeyboardCommandOverlay,
   HardwareKeyboardCommandProvider,
 } from "./features/keyboard/HardwareKeyboardCommandProvider";
 import { ReviewCommentComposerSheet } from "./features/review/ReviewCommentComposerSheet";
-import { ReviewSheet } from "./features/review/ReviewSheet";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
 import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteScreen";
 import { BrowserPreviewRouteScreen } from "./features/browser/BrowserPreviewRouteScreen";
 import { LocalPreviewRouteScreen } from "./features/browser/LocalPreviewRouteScreen";
-import { GitBranchesSheet } from "./features/threads/git/GitBranchesSheet";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
-import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
+import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
 import { ThreadPullRequestsSheet } from "./features/threads/ThreadPullRequestsSheet";
+import { ProviderAgentTranscript } from "./features/threads/ProviderAgentTranscript";
 import { ThreadAgentsSheet } from "./features/threads/ThreadAgentsSheet";
 import { LinkedThreadSheet } from "./features/threads/LinkedThreadSheet";
 import { ThreadGuestShareSheet } from "./features/threads/ThreadGuestShareSheet";
@@ -192,7 +192,7 @@ const ROUTE_TITLES: Readonly<Record<string, string>> = {
   AddProject: msg("Add project"),
   ThreadFiles: msg("Files"),
   SettingsLegal: msg("Legal"),
-  ConnectOnboarding: msg("Set up {product}", { product: "T3 Connect" }),
+  ConnectOnboarding: msg("Connect to Solus"),
   Connections: msg("Environments"),
   ConnectionsNew: msg("Add Environment"),
 };
@@ -574,7 +574,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: pageRoute({ duoMinimize: "never" }),
     }),
     PullRequestGuideStop: createNativeStackScreen({
-      screen: routeBody(PullRequestGuideStopScreen, Wip),
+      screen: PullRequestGuideStopScreen,
       options: pageRoute(),
     }),
     PullRequestFile: createNativeStackScreen({
@@ -586,11 +586,11 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: sheetRoute({ detent: 0.6 }),
     }),
     PullRequestReviewers: createNativeStackScreen({
-      screen: routeBody(PullRequestReviewersScreen, Wip),
+      screen: PullRequestReviewersScreen,
       options: sheetRoute({ detent: 0.75, itemStyle: "editor", duoMinimize: "never" }),
     }),
     PullRequestLabels: createNativeStackScreen({
-      screen: routeBody(PullRequestLabelsScreen, Wip),
+      screen: PullRequestLabelsScreen,
       options: SEARCH_SHEET_ROUTE,
     }),
     PullRequestFilterSearch: createNativeStackScreen({
@@ -602,15 +602,15 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: pageRoute(),
     }),
     PullRequestInlineComment: createNativeStackScreen({
-      screen: routeBody(PullRequestInlineCommentScreen, Wip),
+      screen: PullRequestInlineCommentScreen,
       options: sheetRoute({ detent: 0.75, android: "fullScreen" }),
     }),
     PullRequestReview: createNativeStackScreen({
-      screen: routeBody(PullRequestReviewSheet, Wip),
+      screen: PullRequestReviewSheet,
       options: sheetRoute({ detent: 0.75, androidFit: true }),
     }),
     PullRequestEdit: createNativeStackScreen({
-      screen: routeBody(PullRequestEditScreen, Wip),
+      screen: PullRequestEditScreen,
       options: sheetRoute({ detent: 0.75, androidFit: true }),
     }),
     Issue: createNativeStackScreen({
@@ -619,15 +619,15 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: pageRoute({ duoMinimize: "never" }),
     }),
     IssueEdit: createNativeStackScreen({
-      screen: routeBody(IssueEditScreen, Wip),
+      screen: IssueEditScreen,
       options: sheetRoute({ detent: 0.75, androidFit: true }),
     }),
     IssueLabels: createNativeStackScreen({
-      screen: routeBody(IssueLabelsScreen, Wip),
+      screen: IssueLabelsScreen,
       options: SEARCH_SHEET_ROUTE,
     }),
     IssueAssignees: createNativeStackScreen({
-      screen: routeBody(IssueAssigneesScreen, Wip),
+      screen: IssueAssigneesScreen,
       options: SEARCH_SHEET_ROUTE,
     }),
     IssueFilterSearch: createNativeStackScreen({
@@ -646,17 +646,17 @@ const RootStackConfig = createWorkspaceStackNavigator({
     }),
     NewTaskEnvironment: createNativeStackScreen({
       linking: "new/draft/environment",
-      screen: routeBody(NewTaskEnvironmentPickerRouteScreen, Wip),
+      screen: NewTaskEnvironmentPickerRouteScreen,
       options: pageRoute(),
     }),
     NewTaskBranch: createNativeStackScreen({
       linking: "new/draft/branch",
-      screen: routeBody(NewTaskBranchPickerRouteScreen, Wip),
+      screen: NewTaskBranchPickerRouteScreen,
       options: pageRoute(),
     }),
     NewTaskRepositories: createNativeStackScreen({
       linking: "new/draft/repositories",
-      screen: routeBody(NewTaskRepositoriesPickerRouteScreen, Wip),
+      screen: NewTaskRepositoriesPickerRouteScreen,
       options: pageRoute(),
     }),
     AddProject: createNativeStackScreen({
@@ -687,16 +687,16 @@ const RootStackConfig = createWorkspaceStackNavigator({
     }),
     NewTaskFiles: createNativeStackScreen({
       linking: "new/draft/files",
-      screen: routeBody(ThreadFilesTreeScreen, Wip),
+      screen: ThreadFilesTreeScreen,
       options: pageRoute({ header: "solid" }),
     }),
     NewTaskFile: createNativeStackScreen({
       linking: "new/draft/files/:path*",
-      screen: routeBody(ThreadFileScreen, Wip),
+      screen: ThreadFileScreen,
       options: pageRoute({ header: "solid" }),
     }),
     NewTaskAttachment: createNativeStackScreen({
-      screen: routeBody(AttachmentFileScreen, Wip),
+      screen: AttachmentFileScreen,
       linking: "new/draft/attachments/:attachmentId",
       options: pageRoute({ header: "solid" }),
     }),
@@ -711,7 +711,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: pageRoute({ header: "solid" }),
     }),
     ThreadInspectorFullscreen: createNativeStackScreen({
-      screen: routeBody(FullscreenThreadRouteScreen, Wip),
+      screen: FullscreenThreadRouteScreen,
       options: modalRoute({ header: "glass", itemStyle: "editor", duoMinimize: "onScrollUp" }),
     }),
     ThreadDevicePreview: createNativeStackScreen({
@@ -730,32 +730,32 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: immersiveRoute({ fullWidth: true }),
     }),
     ThreadReview: createNativeStackScreen({
-      screen: routeBody(ReviewSheet, Wip),
+      screen: ReviewSheet,
       linking: `${THREAD_LINKING_PREFIX}/review`,
       options: pageRoute(),
     }),
     ThreadReviewComment: createNativeStackScreen({
-      screen: routeBody(ReviewCommentComposerSheet, Wip),
+      screen: ReviewCommentComposerSheet,
       linking: `${THREAD_LINKING_PREFIX}/review-comment`,
       options: sheetRoute({ detent: 0.55, android: "fullScreen" }),
     }),
     ThreadFiles: createNativeStackScreen({
-      screen: routeBody(ThreadFilesTreeScreen, Wip),
+      screen: ThreadFilesTreeScreen,
       linking: `${THREAD_LINKING_PREFIX}/files`,
       options: pageRoute(),
     }),
     ThreadFile: createNativeStackScreen({
-      screen: routeBody(ThreadFileScreen, Wip),
+      screen: ThreadFileScreen,
       linking: `${THREAD_LINKING_PREFIX}/files/:path*`,
       options: pageRoute(),
     }),
     ThreadMcpApp: createNativeStackScreen({
-      screen: routeBody(McpAppFullscreenScreen, Wip),
+      screen: McpAppFullscreenScreen,
       linking: `${THREAD_LINKING_PREFIX}/apps/:itemId`,
       options: { ...modalRoute({ header: "solid" }), gestureEnabled: false },
     }),
     ThreadAttachment: createNativeStackScreen({
-      screen: routeBody(AttachmentFileScreen, Wip),
+      screen: AttachmentFileScreen,
       linking: `${THREAD_LINKING_PREFIX}/attachments/:attachmentId`,
       options: pageRoute({ header: "solid" }),
     }),
@@ -768,28 +768,32 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: sheetRoute({ detent: 0.65, androidMaxDetent: 0.95 }),
     }),
     ThreadBackgroundWork: createNativeStackScreen({
-      screen: routeBody(ThreadBackgroundWorkSheet, Wip),
+      screen: ThreadBackgroundWorkSheet,
       options: sheetRoute({ detent: 0.5, androidMaxDetent: 0.9 }),
     }),
+    ProviderAgentTranscript: createNativeStackScreen({
+      screen: ProviderAgentTranscript,
+      options: sheetRoute({ detent: 0.9, android: "fullScreen" }),
+    }),
     ThreadAgents: createNativeStackScreen({
-      screen: routeBody(ThreadAgentsSheet, Wip),
+      screen: ThreadAgentsSheet,
       options: sheetRoute({ detent: 0.5, androidMaxDetent: 0.9 }),
     }),
     LinkedThread: createNativeStackScreen({
-      screen: routeBody(LinkedThreadSheet, Wip),
+      screen: LinkedThreadSheet,
       options: sheetRoute({ detent: 0.9, android: "fullScreen" }),
     }),
     // Maximized from the inspector, like ThreadInspectorFullscreen.
     LinkedThreadFullscreen: createNativeStackScreen({
-      screen: routeBody(LinkedThreadSheet, Wip),
+      screen: LinkedThreadSheet,
       options: modalRoute({ header: "glass", itemStyle: "editor", duoMinimize: "onScrollUp" }),
     }),
     ThreadGuestShare: createNativeStackScreen({
-      screen: routeBody(ThreadGuestShareSheet, Wip),
+      screen: ThreadGuestShareSheet,
       options: sheetRoute({ detent: 0.5 }),
     }),
     GitOverview: createNativeStackScreen({
-      screen: routeBody(GitOverviewSheet, Wip),
+      screen: GitOverviewSheet,
       linking: `${THREAD_LINKING_PREFIX}/git`,
       options: sheetRoute({ detent: 0.55 }),
     }),
@@ -799,17 +803,17 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: sheetRoute({ detent: 0.55 }),
     }),
     GitCommit: createNativeStackScreen({
-      screen: routeBody(GitCommitSheet, Wip),
+      screen: GitCommitSheet,
       linking: `${THREAD_LINKING_PREFIX}/git/commit`,
       options: sheetRoute({ detent: 0.8, androidFit: true }),
     }),
     GitBranches: createNativeStackScreen({
-      screen: routeBody(GitBranchesSheet, Wip),
+      screen: CheckoutBranches,
       linking: `${THREAD_LINKING_PREFIX}/git/branches`,
       options: sheetRoute({ detent: 0.55, androidFit: true }),
     }),
     GitConfirm: createNativeStackScreen({
-      screen: routeBody(GitConfirmSheet, Wip),
+      screen: GitConfirmSheet,
       linking: `${THREAD_LINKING_PREFIX}/git-confirm`,
       options: sheetRoute({ detent: 0.55, maxDetent: 0.7, androidFit: true }),
     }),
@@ -820,7 +824,7 @@ const RootStackConfig = createWorkspaceStackNavigator({
       options: modalRoute({ header: "solid" }),
     }),
     ConnectOnboarding: createNativeStackScreen({
-      screen: routeBody(ConnectOnboardingRouteScreen, Wip),
+      screen: ConnectionsNewRouteScreen,
       linking: "connect-onboarding",
       options: sheetRoute({
         header: "solid",

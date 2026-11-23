@@ -2,6 +2,7 @@ import * as NodeFS from "node:fs";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
+import { githubOcticonPaths } from "../../../packages/client-core/src/github-octicons.ts";
 
 const scriptDirectory = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const appDirectory = NodePath.resolve(scriptDirectory, "..");
@@ -36,10 +37,6 @@ const lucideIcons = [
   "bot",
   "circle-dashed",
   "film",
-  "git-merge",
-  "git-pull-request-arrow",
-  "git-pull-request-closed",
-  "git-pull-request-draft",
   "image",
   "message-circle",
   "messages-square",
@@ -47,6 +44,12 @@ const lucideIcons = [
   "server",
   "terminal",
 ];
+const pullRequestIcons = {
+  "git-merge": githubOcticonPaths.pullRequestMerged,
+  "git-pull-request-arrow": githubOcticonPaths.pullRequest,
+  "git-pull-request-closed": githubOcticonPaths.pullRequestClosed,
+  "git-pull-request-draft": githubOcticonPaths.pullRequestDraft,
+};
 
 async function lucideSvg(name) {
   const module = await import(
@@ -82,6 +85,9 @@ NodeFS.mkdirSync(outputDirectory, { recursive: true });
 
 for (const name of lucideIcons) {
   await renderIcon(name, await lucideSvg(name));
+}
+for (const [name, path] of Object.entries(pullRequestIcons)) {
+  await renderIcon(name, `<svg viewBox="-1.6 -1.6 19.2 19.2" fill="currentColor"><path d="${path}"/></svg>`);
 }
 await renderIcon("skill", skillSvg);
 
@@ -157,7 +163,7 @@ for (const { driverKind, svg } of providerLogos) {
   await renderIcon(`provider-${driverKind}`, svg);
 }
 
-const tokens = [...lucideIcons, "skill"].sort();
+const tokens = [...lucideIcons, ...Object.keys(pullRequestIcons), "skill"].sort();
 const generatedSource = `import type { ImageSourcePropType } from "react-native";\n\nexport const CONTEXT_CHIP_ICON_SOURCES = {\n${tokens
   .map(
     (token) =>

@@ -232,12 +232,15 @@ export type WorkspaceWorkPage = z.infer<typeof workspaceWorkPageSchema>
 
 /** Whether its pull requests or its task finished a session's work: shared by every person (docs/plans/session-archive.md). */
 export const workspaceSessionStateSchema = z.strictObject({
+  autoSettleDisabledAt: z.number().int().optional(),
   settledAt: z.number().int().min(0).nullable(),
   settledBy: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
 }).meta({ description: "Whether the session's pull requests or task finished its work. Every person sees the same state. A person's own settle is in their view." })
 
 /** One person's view of a session: their settle, archive, and snooze. */
 export const workspaceSessionViewSchema = z.strictObject({
+  pinOrderKey: z.string().max(256).optional(),
+  activeOrderKey: z.string().max(256).optional(),
   settledAt: z.number().int().min(0).nullable().default(null),
   archivedAt: z.number().int().min(0).nullable(),
   snoozedUntil: z.number().int().min(0).nullable(),
@@ -315,6 +318,9 @@ export type WorkspaceSessionLinkList = z.infer<typeof workspaceSessionLinkListSc
 
 /** A change to a session in the caller's own view (viewer). */
 export const workspaceUpdateSessionSchema = z.strictObject({
+  pinOrderKey: z.string().min(1).max(256).optional(),
+  activeOrderKey: z.string().min(1).max(256).optional(),
+  autoSettle: z.boolean().optional(),
   settled: z.boolean().optional().meta({ description: "Settle the session in the caller's list, or make a settled one active again. An editor's unsettle also clears a settle by the session's pull requests or task." }),
   archived: z.boolean().optional().meta({ description: "Take the session out of the caller's list, or return it." }),
   snoozedUntil: z.number().int().min(0).nullable().optional().meta({ description: 'Snooze until this time (ms); null wakes it now.' }),

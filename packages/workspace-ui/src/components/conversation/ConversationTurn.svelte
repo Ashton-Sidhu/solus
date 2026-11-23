@@ -149,13 +149,18 @@
    reloads and flashes blank. Folded work mounts on first expansion, then
    stays mounted so folding retains its local state. -->
 {#if items.length > 0}
-  <div class="space-y-2 @max-[30rem]/pane:space-y-3">
+  <div class="turn-items space-y-(--turn-item-gap)">
     {#if body.length > 0 && expanded && settings.showToolCalls}
       <div class="turn-item" class:is-open={!live}><ToolInputStatus tools={turn.tools} history={history} /></div>
     {/if}
     {#each items as item, itemIdx (itemKey(item))}
       {@const folds = itemIdx < body.length && !turn.visibleWhenCollapsed.includes(item)}
-      <div class="turn-item" hidden={folds && !live && !expanded} class:is-open={itemIdx < body.length && !live && expanded}>
+      <div
+        class="turn-item"
+        data-body-kind={itemIdx < body.length ? item.kind : undefined}
+        hidden={folds && !live && !expanded}
+        class:is-open={itemIdx < body.length && !live && expanded}
+      >
         {#if hasSummaryRow && itemIdx === body.length}<div class="turn-rule"></div>{/if}
         <TurnBody visible={!folds || live || expanded}>
           {#if item.kind === "tool-group"}
@@ -253,12 +258,21 @@
 {/if}
 
 <style>
+  .turn-items { --turn-item-gap: 0.5rem; }
+  @container pane (width < 30rem) {
+    .turn-items { --turn-item-gap: 0.75rem; }
+  }
+  .turn-item[data-body-kind="tool-group"]:has(+ .turn-item[data-body-kind="assistant"]:not([hidden])),
+  .turn-item[data-body-kind="assistant"]:has(+ .turn-item[data-body-kind="tool-group"]:not([hidden])) {
+    --turn-item-gap: 0.25rem;
+  }
+
   /* The open body's rail: each item draws its own edge, and an item followed
      by another open item bridges the gap between them. */
   .turn-item.is-open { position: relative; margin-left: 0.9375rem; padding-left: 0.75rem; border-left: 0.0625rem solid color-mix(in oklch, var(--foreground) 9%, transparent); }
-  .turn-item.is-open:has(+ .turn-item.is-open)::after { content: ""; position: absolute; left: -0.0625rem; top: 100%; width: 0.0625rem; height: 0.5rem; background: color-mix(in oklch, var(--foreground) 9%, transparent); }
-  @container pane (width < 30rem) {
-    .turn-item.is-open:has(+ .turn-item.is-open)::after { height: 0.75rem; }
-  }
+  /* A message's hover rail hangs left of the rule, not across it, and the
+     margin left for it is the indent narrower. */
+  .turn-item.is-open { --hover-rail-clear: 0.8125rem; --hover-rail-indent: 1.75rem; }
+  .turn-item.is-open:has(+ .turn-item.is-open)::after { content: ""; position: absolute; left: -0.0625rem; top: 100%; width: 0.0625rem; height: var(--turn-item-gap); background: color-mix(in oklch, var(--foreground) 9%, transparent); }
   .turn-rule { height: 0.0625rem; margin: 0 0 0.75rem; background: color-mix(in oklch, var(--foreground) 8%, transparent); }
 </style>

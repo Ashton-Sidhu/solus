@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SVGAttributes } from "svelte/elements";
+  import { githubOcticonPaths } from "@solus/client-core/github-octicons";
 
   interface Props extends SVGAttributes<SVGSVGElement> {
     size?: number | string;
@@ -13,15 +14,10 @@
   xmlns="http://www.w3.org/2000/svg"
   width={size}
   height={size}
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
-  stroke-width="1.5"
-  stroke-linecap="round"
-  stroke-linejoin="round"
+  viewBox="-1.6 -1.6 19.2 19.2"
+  fill="currentColor"
   class={className}
   aria-hidden="true"
 >
-  <rect x="3" y="3" width="18" height="18" rx="4" />
-  <path d="m8 12.5 2.5 2.5L16 9" />
+  <path d={githubOcticonPaths.issueOpened} />
 </svg>

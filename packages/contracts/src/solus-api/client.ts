@@ -7,6 +7,8 @@ type Operations = typeof solusApiOperations
 type ResponseFor<K extends SolusApiOperation> = Operations[K] extends { response: z.ZodType<infer T> } ? T : void
 type BodyFor<K extends SolusApiOperation> = Operations[K] extends { body: z.ZodType<infer T> } ? T : never
 type RequestInput<K extends SolusApiOperation> = {
+  /** The content hash returned with an authorized response. */
+  onEntityTag?(tag: string): void
   /** The first path parameter. `params` names any other, as `{ turnIndex: '3' }`. */
   id?: string; params?: Readonly<Record<string, string>>; query?: z.input<Operations[K]['query']>; body?: BodyFor<K>; version?: string; key?: string
 }
@@ -65,6 +67,10 @@ export class SolusApiClient {
     if (this.transport.contextKey() !== key) throw contextChanged()
     if (response.status === 304 && input.ifNoneMatch) return undefined
     if (response.status < 200 || response.status > 299) throw requestError(response)
+    if (response.etag && input.onEntityTag) {
+      const tag = /^"([a-f0-9]{64})"$/.exec(response.etag)
+      if (tag?.[1]) input.onEntityTag(tag[1])
+    }
     const value = 'response' in operation ? operation.response.parse(JSON.parse(response.body)) : undefined
     // SAFETY: The registry associates each operation key with this exact response schema.
     return value as ResponseFor<K>

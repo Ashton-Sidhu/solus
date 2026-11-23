@@ -18,6 +18,8 @@ describe('host-scoped route grammar', () => {
       { name: 'chat', params: { sessionId: 'sess-1', serverId: 'host-a' } },
       { name: 'goal', params: { sessionId: 'sess-1', serverId: 'host-a' } },
       { name: 'subagent', params: { sessionId: 'sess-1', messageId: 'msg-9', serverId: 'host-a' } },
+      { name: 'subagent', params: { sessionId: 'sess-1', toolId: 'tool/call#1', serverId: 'host-a' } },
+      { name: 'sessionRecord', params: { sessionId: 'child-1', serverId: 'host-a', viaParentId: 'parent/1' } },
       { name: 'task', params: { taskId: 'task-1', serverId: 'host-a' } },
       { name: 'plan', params: { planId: 'sess__tool', serverId: 'host-a' } },
       { name: 'automation', params: { automationId: 'auto-1', serverId: 'host-a' } },

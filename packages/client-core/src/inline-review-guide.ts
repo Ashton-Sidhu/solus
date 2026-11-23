@@ -22,11 +22,15 @@ export async function resolveInlineReviewGuide(
   for (const [turn, files] of turns) {
     try {
       const diff = await read(turn - 1)
-      const patches = diff && split(diff.patch)
+      if (!diff) {
+        unavailable.add(turn)
+        continue
+      }
+      const patches = split(diff.patch)
       for (const file of files.values()) {
-        const patch = patches?.get(file.path)
+        const patch = patches.get(file.path)
         if (!patch) {
-          unavailable.add(turn)
+          file.missingFromTurn = turn
           continue
         }
         file.hunks = patch
@@ -52,4 +56,29 @@ export async function resolveInlineReviewGuide(
     })),
   }
   return { guide, unavailable: [...unavailable] }
+}
+
+type ResolvedGuide = Awaited<ReturnType<typeof resolveInlineReviewGuide>>
+type GuideRead = { ready: Promise<ResolvedGuide>; value?: ResolvedGuide }
+
+// The reader belongs to one session connection. Transcript rows can unmount or
+// parse the same fence again while that connection is still open.
+const guideReads = new WeakMap<ReadTurnDiff, Map<string, GuideRead>>()
+export function loadInlineReviewGuide(
+  draft: InlineReviewGuide,
+  read: ReadTurnDiff,
+  split: (patch: string) => Map<string, string>,
+  retry = false,
+): GuideRead {
+  const key = JSON.stringify(draft)
+  let entries = guideReads.get(read)
+  if (!entries) guideReads.set(read, entries = new Map())
+  const previous = entries.get(key)
+  if (previous && !(retry && previous.value?.unavailable.length)) return previous
+  const entry: GuideRead = { ready: resolveInlineReviewGuide(draft, read, split) }
+  void entry.ready.then(value => { entry.value = value })
+  entries.set(key, entry)
+  // Bound the patch text retained by a conversation with many past guides.
+  if (entries.size > 4) entries.delete(entries.keys().next().value!)
+  return entry
 }

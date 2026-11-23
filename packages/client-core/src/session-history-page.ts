@@ -15,26 +15,42 @@ type HistoryApi = Pick<HostApi, 'loadSessionPage'>
 
 type CachedHistory = () => Promise<SessionHistoryPage | null>
 
+function sameHistoryManifest(left: SessionHistoryPage, right: SessionHistoryPage): boolean {
+  const before = left.historyBlocks
+  const after = right.historyBlocks
+  if (!before || !after || before.length !== after.length || left.before !== right.before) return false
+  if (left.turnDiffs !== right.turnDiffs && JSON.stringify(left.turnDiffs) !== JSON.stringify(right.turnDiffs)) return false
+  return before.every((block, index) => block.hash === after[index]?.hash && block.count === after[index]?.count)
+}
+
+/** The host confirmed the same rows, older boundary and turn diffs. */
+export function sameHistoryPage(left: SessionHistoryPage, right: SessionHistoryPage): boolean {
+  return left === right || (left.messages.length === right.messages.length && sameHistoryManifest(left, right))
+}
+
 async function loadHistory(api: HistoryApi, request: SessionHistoryPageRequest, readCache?: CachedHistory): Promise<SessionHistoryPage> {
   if (!readCache) return api.loadSessionPage(request)
   const cached = await readCache().catch(() => null)
-  const rows = new Map<string, SessionHistoryPage['messages']>()
-  let offset = 0
-  if (cached?.historyBlocks) {
-    for (const block of cached.historyBlocks) {
-      rows.set(block.hash, cached.messages.slice(offset, offset + block.count))
-      offset += block.count
-    }
-    if (offset !== cached.messages.length) rows.clear()
+  const offsets = new Map<string, { start: number; count: number }>()
+  let savedRows = 0
+  for (const block of cached?.historyBlocks ?? []) {
+    offsets.set(block.hash, { start: savedRows, count: block.count })
+    savedRows += block.count
   }
-  const page = await api.loadSessionPage({ ...request, knownHistoryBlocks: [...rows.keys()].slice(0, 128) })
+  if (savedRows !== cached?.messages.length) offsets.clear()
+  const page = await api.loadSessionPage({ ...request, knownHistoryBlocks: [...offsets.keys()].slice(0, 128) })
+  if (cached && savedRows === cached.messages.length && !page.messages.length &&
+      page.historyBlocks?.every(block => block.reused) && sameHistoryManifest(cached, page)) return cached
   if (!page.historyBlocks?.some(block => block.reused)) return page
   const messages: SessionHistoryPage['messages'] = []
-  offset = 0
+  let offset = 0
   for (const block of page.historyBlocks) {
-    const source = block.reused ? rows.get(block.hash) : page.messages.slice(offset, offset + block.count)
-    if (!source || source.length !== block.count) return api.loadSessionPage(request)
-    for (const row of source) messages.push(row)
+    const saved = block.reused ? offsets.get(block.hash) : undefined
+    if (block.reused && (!cached || !saved || saved.count !== block.count)) return api.loadSessionPage(request)
+    const source = saved && cached ? cached.messages : page.messages
+    const start = saved?.start ?? offset
+    if (start + block.count > source.length) return api.loadSessionPage(request)
+    for (let index = start; index < start + block.count; index++) messages.push(source[index]!)
     if (!block.reused) offset += block.count
   }
   if (offset !== page.messages.length) return api.loadSessionPage(request)

@@ -29,8 +29,38 @@ describe('shared running server state', () => {
     first()
     expect(s.unwatch).not.toHaveBeenCalled()
     second()
+    // The watch ends once the tick ends with no holder.
+    await Promise.resolve()
     expect(s.unwatch).toHaveBeenCalledTimes(1)
     second()
+    await Promise.resolve()
+    expect(s.unwatch).toHaveBeenCalledTimes(1)
+  })
+
+  // WHY: a tab switch unmounts the old Git section and mounts the new one in
+  // one tick. That sent an unwatch, a watch, a checkout-roots read, and a second
+  // watch; it is one watch with the new path, and a checkout read before
+  // needs no roots read.
+  test('a tab switch moves the watch to the new checkout in one call', async () => {
+    const s = setup()
+    const roots = mock(async (paths: string[]) => paths.map((path) => ({ path, root: path })))
+    s.source.api.runningServersCheckoutRoots = roots
+    const releaseA = s.store.retainCheckout('/a')
+    await s.answer()
+    releaseA()
+    const releaseB = s.store.retainCheckout('/b')
+    await Promise.resolve()
+    expect(s.unwatch).not.toHaveBeenCalled()
+    expect(s.watch.mock.calls.map(([paths]) => paths)).toEqual([['/a'], ['/b']])
+    await s.answer()
+    releaseB()
+    const releaseAgain = s.store.retainCheckout('/a')
+    await Promise.resolve()
+    expect(s.watch.mock.calls.map(([paths]) => paths)).toEqual([['/a'], ['/b'], ['/a']])
+    expect(roots.mock.calls.map(([paths]) => paths)).toEqual([['/a'], ['/b']])
+    await s.answer()
+    releaseAgain()
+    await Promise.resolve()
     expect(s.unwatch).toHaveBeenCalledTimes(1)
   })
 

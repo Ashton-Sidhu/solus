@@ -2,10 +2,10 @@
   import { localApi } from "@solus/client-core/local-api";
   import {
     ExternalLink as ExternalLinkIcon,
-    GitPullRequest as GitPullRequestIcon,
     Plus as PlusIcon,
     X as XIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";

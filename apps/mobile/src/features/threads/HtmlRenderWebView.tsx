@@ -13,7 +13,7 @@ import {
 } from "@t3tools/shared/htmlRender";
 import { injectMcpAppCsp } from "@t3tools/shared/mcpApp";
 import { T, useGT } from "gt-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Modal, Platform, Pressable, View, type ColorValue } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
@@ -326,7 +326,6 @@ export function InlineHtmlRender({
 }) {
   const gt = useGT();
   const [height, setHeight] = useState(120);
-  const [expanded, setExpanded] = useState(false);
   const [failed, setFailed] = useState(false);
   const page = (nested: boolean) =>
     failed ? (
@@ -350,8 +349,24 @@ export function InlineHtmlRender({
       />
     );
   return (
+    <InlinePreviewFrame title={title} expandedContent={() => page(false)}>
+      <View style={{ height }}>{page(true)}</View>
+    </InlinePreviewFrame>
+  );
+}
+
+export function InlinePreviewFrame({ title, heading, children, expandedContent }: {
+  readonly title: string;
+  readonly children: ReactNode;
+  readonly heading?: ReactNode;
+  readonly expandedContent: () => ReactNode;
+}) {
+  const gt = useGT();
+  const [expanded, setExpanded] = useState(false);
+  return (
     <View style={{ marginBottom: ROW_BOTTOM_MARGIN }}>
-      <View style={{ height: ACTION_ROW_HEIGHT }} className="flex-row items-start justify-end">
+      <View style={heading ? undefined : { height: ACTION_ROW_HEIGHT }} className="flex-row items-start justify-end gap-3">
+        {heading && <View className="min-w-0 flex-1">{heading}</View>}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={gt("Open {title}", { title })}
@@ -367,7 +382,7 @@ export function InlineHtmlRender({
           />
         </Pressable>
       </View>
-      <View style={{ height }}>{page(true)}</View>
+      {children}
       {expanded && (
         <Modal
           visible
@@ -394,7 +409,7 @@ export function InlineHtmlRender({
                 />
               </Pressable>
             </View>
-            {page(false)}
+            {expandedContent()}
           </SafeAreaView>
         </Modal>
       )}

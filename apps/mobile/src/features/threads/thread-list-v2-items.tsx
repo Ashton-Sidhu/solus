@@ -182,53 +182,21 @@ function ThreadListV2Duration(props: {
   );
 }
 
-const CARD_MENU_ACTIONS: MenuAction[] = [
-  { id: "settle", title: msg("Settle", { $context: "verb, thread action" }), image: "checkmark" },
-  {
-    id: "delete",
-    title: msg("Delete", { $context: "verb, thread action" }),
-    image: "trash",
-    attributes: { destructive: true },
-  },
-];
+const SETTLE_ACTION: MenuAction = { id: "settle", title: msg("Settle", { $context: "verb, thread action" }), image: "checkmark" };
 
-const SLIM_MENU_ACTIONS: MenuAction[] = [
-  {
+const UNSETTLE_ACTION: MenuAction = {
     id: "unsettle",
     title: msg("Un-settle", { $context: "verb, thread action" }),
     image: "arrow.uturn.backward",
-  },
-  {
-    id: "delete",
-    title: msg("Delete", { $context: "verb, thread action" }),
-    image: "trash",
-    attributes: { destructive: true },
-  },
-];
+  };
 
-const SNOOZED_MENU_ACTIONS: MenuAction[] = [
-  { id: "unsnooze", title: msg("Wake thread"), image: "clock" },
-  {
-    id: "delete",
-    title: msg("Delete", { $context: "verb, thread action" }),
-    image: "trash",
-    attributes: { destructive: true },
-  },
-];
+const WAKE_ACTION: MenuAction = { id: "unsnooze", title: msg("Wake thread"), image: "clock" };
 
-const LEGACY_MENU_ACTIONS: MenuAction[] = [
-  {
+const ARCHIVE_ACTION: MenuAction = {
     id: "archive",
     title: msg("Archive", { $context: "verb, thread action" }),
     image: "archivebox",
-  },
-  {
-    id: "delete",
-    title: msg("Delete", { $context: "verb, thread action" }),
-    image: "trash",
-    attributes: { destructive: true },
-  },
-];
+  };
 
 function ThreadListV2Section(props: {
   readonly label: string;
@@ -764,7 +732,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     thread: EnvironmentThreadShell,
     pr: ThreadPrPresentation,
   ) => void;
-  readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
   readonly onNewThreadOnBranch: (thread: EnvironmentThreadShell) => void;
   readonly onRenameThread: (thread: EnvironmentThreadShell) => void;
   readonly onRegenerateThreadTitle: (thread: EnvironmentThreadShell) => void;
@@ -816,7 +783,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     variant,
     onSelectThread,
     onOpenThreadPullRequests,
-    onDeleteThread,
     onRenameThread,
     onRegenerateThreadTitle,
     onNewThreadOnBranch,
@@ -937,10 +903,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     [gt, prBadgeLabel, showsWoke],
   );
 
-  const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
   const handleRename = useCallback(() => onRenameThread(thread), [onRenameThread, thread]);
   const canOperateThread = props.canOperateThread;
-  const canShareWithGuest = useCanShareWithGuest(thread.environmentId);
+  const canShareWithGuest = useCanShareWithGuest(thread.environmentId, thread.id);
   const navigation = useNavigation();
   const handleRegenerateTitle = useCallback(
     () => onRegenerateThreadTitle(thread),
@@ -1127,14 +1092,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       return layoutThreadListV2RowMenuActions(
         {
           nested,
-          direct: [...direct, localized(SNOOZED_MENU_ACTIONS[0]!)],
+          direct: [...direct, localized(WAKE_ACTION)],
           reorder: [],
           pin: [],
           secondary: [
             ...titleMenuItems,
             ...autoSettleMenuItems,
-            localized(LEGACY_MENU_ACTIONS[0]!),
-            localized(SNOOZED_MENU_ACTIONS[1]!),
+            localized(ARCHIVE_ACTION),
           ],
         },
         m,
@@ -1144,10 +1108,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       return layoutThreadListV2RowMenuActions(
         {
           nested,
-          direct: [...direct, localized(LEGACY_MENU_ACTIONS[0]!)],
+          direct: [...direct, localized(ARCHIVE_ACTION)],
           reorder: reorderMenuItems,
           pin: pinMenuItems,
-          secondary: [...titleMenuItems, localized(LEGACY_MENU_ACTIONS[1]!)],
+          secondary: titleMenuItems,
         },
         m,
       );
@@ -1156,7 +1120,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       return layoutThreadListV2RowMenuActions(
         {
           nested,
-          direct: [...direct, localized(SLIM_MENU_ACTIONS[0]!)],
+          direct: [...direct, localized(UNSETTLE_ACTION)],
           reorder: reorderMenuItems.filter(
             (action) => action.id !== "move-up" && action.id !== "move-down",
           ),
@@ -1164,8 +1128,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           secondary: [
             ...titleMenuItems,
             ...autoSettleMenuItems,
-            localized(LEGACY_MENU_ACTIONS[0]!),
-            localized(SLIM_MENU_ACTIONS[1]!),
+            localized(ARCHIVE_ACTION),
           ],
         },
         m,
@@ -1176,7 +1139,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         nested,
         direct: [
           ...direct,
-          localized(CARD_MENU_ACTIONS[0]!),
+          localized(SETTLE_ACTION),
           ...(swipeActions.secondary === "snooze"
             ? [
                 {
@@ -1193,8 +1156,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         secondary: [
           ...titleMenuItems,
           ...autoSettleMenuItems,
-          localized(LEGACY_MENU_ACTIONS[0]!),
-          localized(CARD_MENU_ACTIONS[1]!),
+          localized(ARCHIVE_ACTION),
         ],
       },
       m,
@@ -1252,7 +1214,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           threadId: thread.id,
         });
       }
-      if (nativeEvent.event === "delete") handleDelete();
       if (nativeEvent.event === "snooze:custom") {
         setCustomSnoozeOpen(true);
         return;
@@ -1279,7 +1240,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       thread,
       navigation,
       handleArchive,
-      handleDelete,
       handleRegenerateTitle,
       handleRename,
       handleMoveDown,
@@ -1796,7 +1756,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         fullSwipeAction="primary"
         fullSwipeWidth={props.fullSwipeWidth ?? windowWidth - 32}
         listAnimatesLayout
-        onDelete={handleDelete}
         onSwipeableClose={props.onSwipeableClose}
         onSwipeableWillOpen={props.onSwipeableWillOpen}
         primaryAction={primaryAction}

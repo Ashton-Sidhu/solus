@@ -3,8 +3,8 @@ import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 import { useMemo, useState } from "react";
 
-import { useSolusDirectory } from "../../solus/runtime";
-import { useSolusArchive } from "../../solus/archive";
+import { useSolusWorkspace } from "../../solus/runtime";
+import { useArchivedThreadSnapshots } from "./useArchivedThreadSnapshots";
 import { listActions } from "../../solus/list-actions";
 import {
   ArchivedThreadsScreen,
@@ -12,7 +12,7 @@ import {
 } from "./ArchivedThreadsScreen";
 import { buildArchivedThreadGroups, type ArchivedThreadSortOrder } from "./archivedThreadList";
 export function ArchivedThreadsRouteScreen() {
-  const { hostsById: savedConnectionsById, listHosts } = useSolusDirectory();
+  const { hostsById: savedConnectionsById, listHosts } = useSolusWorkspace();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<EnvironmentId | null>(null);
   const [sortOrder, setSortOrder] = useState<ArchivedThreadSortOrder>("newest");
@@ -36,9 +36,8 @@ export function ArchivedThreadsRouteScreen() {
       ),
     [environments],
   );
-  const { error, isLoading, refresh, snapshots } = useSolusArchive(
-    listHosts.connectedEnvironmentIds,
-  );
+  const connectedIds = useMemo(() => [...listHosts.connectedEnvironmentIds], [listHosts.connectedEnvironmentIds]);
+  const { error, isLoading, refresh, snapshots } = useArchivedThreadSnapshots(connectedIds);
   const groups = useMemo(
     () =>
       buildArchivedThreadGroups({
@@ -53,10 +52,9 @@ export function ArchivedThreadsRouteScreen() {
   return (
     <ArchivedThreadsScreen
       environments={environments}
-      error={error}
+      error={connectedIds.length ? error : "Connect to a host to see archived sessions."}
       groups={groups}
       isLoading={isLoading}
-      onDeleteThread={listActions.confirmDeleteThread}
       connectedHosts={listHosts.connectedEnvironmentIds}
       onEnvironmentChange={setSelectedEnvironmentId}
       onRefresh={refresh}

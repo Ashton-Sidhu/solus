@@ -696,6 +696,7 @@ export function persistIndexedSessionStart(
   branch: string | null = null,
   delegation?: SessionDelegationStart,
   startedBy?: SessionStarter,
+  onRecorded?: () => void,
 ): void {
   const parent = delegationRowValues(delegation)
   // The host made this folder for the session, so the folder decides the place (session-starter.md §3.1).
@@ -766,6 +767,7 @@ export function persistIndexedSessionStart(
     place,
     startedBy,
   }).then((record) => {
+    onRecorded?.()
     // The record owns the session's name. The index row keeps a copy for
     // local reads, and a thread that joins a named session takes it.
     if (record.customTitle) {

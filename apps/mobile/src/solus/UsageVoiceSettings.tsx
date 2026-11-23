@@ -12,7 +12,7 @@ import { useSettingsEnvironmentMenu } from "../features/settings/components/Sett
 import { SettingsPage } from "./SettingsPages";
 import { Note, useSettingsAction } from "./SettingsFeedback";
 import { useHostSettingsRead } from "./use-host-settings-read";
-import { useSolusDirectory } from "./runtime";
+import { useSolusWorkspace } from "./runtime";
 
 const readLimits = (api: HostApi) => api.usageLimits();
 function HostLimits({
@@ -127,7 +127,7 @@ export function UsageAccountSettings({
   windowId: string;
   now: number;
 }>) {
-  const { hostsById } = useSolusDirectory();
+  const { hostsById } = useSolusWorkspace();
   return (
     <SettingsPage title="Account">
       {route.params.environmentIds?.map((id) => (

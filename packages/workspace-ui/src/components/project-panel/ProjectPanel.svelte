@@ -26,9 +26,12 @@
   import SidePanel from "../layout/SidePanel.svelte";
   import PanelSection from "./PanelSection.svelte";
   import GoalSection from "./GoalSection.svelte";
+  import AgentsSection from "./AgentsSection.svelte";
+  import { getClientShellContext } from "../../contexts/app/client-shell.svelte";
   import RunningServers from "./RunningServers.svelte";
   import ServerUrlsEditor from "./ServerUrlsEditor.svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
   import GitSetupSection from "./GitSetupSection.svelte";
@@ -88,6 +91,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const shell = getClientShellContext();
   const pullRequests = getPullRequestsContext();
   const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
@@ -254,6 +258,9 @@
       refreshResetTimer = null;
     }
     refreshState = "spinning";
+    // The repository's setup (a remote added outside Solus) is read once per
+    // checkout; a person's refresh reads it again.
+    if (gitCwd && gitCwd !== "~") void repositorySetupStore.refresh(session.apiFor(sourceId), serverHostId, gitCwd);
     // Floor the spin at one full rotation so a fast refresh still reads.
     const [result] = await Promise.all([
       environmentStore.refreshEnvironment(session, {
@@ -424,7 +431,7 @@
         {@render environmentHeaderExtra()}
       </div>
     {/if}
-    {#if allPanelItemsHidden(hiddenItems)}
+    {#if allPanelItemsHidden(hiddenItems, shell.supportsNativeSettings)}
       <!-- Every section is hidden: say so, and give the way back. -->
       <div class="flex flex-col items-start gap-2 px-1.5 text-(--solus-text-tertiary)">
         <p class="m-0">The panel shows no sections.</p>
@@ -479,6 +486,20 @@
         onResizePointerDown={startResize}
         {hiddenItems}
       />
+    {/if}
+    {#if shell.supportsNativeSettings && panelSession && isSectionShown(hiddenItems, "agents")}
+      {#key panelSession.id}
+        <AgentsSection
+          tabId={sourceId}
+          sessionId={panelSession.id}
+          serverId={session.serverIdFor(sourceId)}
+          active={active && open}
+          collapsed={collapsedSections.agents}
+          onToggle={() => toggleSection("agents")}
+          onResizePointerDown={startResize}
+          {hiddenItems}
+        />
+      {/key}
     {/if}
     {#if webhooksShown && projectWebhooks.length > 0}
       <WebhooksSection

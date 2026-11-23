@@ -44,6 +44,9 @@ export interface PrInterdiffResult {
   commentMatches: ReviewThreadHunkMatch[]
 }
 
+/** The most `diffStatsBatch` answers in one call. */
+export const DIFF_STATS_BATCH_LIMIT = 50
+
 /** Per-file add/delete tally from `git diff --numstat`, for the changed-files
  *  list. Cheaper than shipping the whole patch just to count lines. */
 export interface ChangedFileStat {

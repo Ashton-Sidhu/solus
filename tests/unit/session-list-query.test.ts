@@ -190,3 +190,32 @@ describe('the session list reads only the sessions that can be in it', () => {
     }
   })
 })
+
+test('removing a shared session changes only the reader’s list and can be reversed', async () => {
+  await recorded('shared-active', now, { owner: BOB })
+  await granted('shared-active', 'user', ALICE, now - DAY)
+  const session = new states.SessionViewer('shared-active', ALICE)
+  const listed = async (personKey: string) => (await records.readSessionListPage(
+    sql`session_records.session_id = 'shared-active'`, 1, 'last_activity_at', { personKey, now }
+  )).length === 1
+  await session.reorder('active', 'a1')
+  expect((await session.view()).activeOrderKey).toBe('a1')
+  expect((await new states.SessionViewer('shared-active', BOB).view()).activeOrderKey).toBeUndefined()
+  await session.archive(now)
+  expect(await listed(ALICE)).toBe(false)
+  expect(await listed(BOB)).toBe(true)
+  await session.unarchive()
+  expect(await listed(ALICE)).toBe(true)
+})
+
+test('disabling automatic settlement keeps personal settlement available', async () => {
+  await recorded('manual-only', now)
+  const shelf = new states.SessionShelf('manual-only')
+  const reader = new states.SessionViewer('manual-only', ALICE)
+  await shelf.setAutoSettle(false)
+  expect(await shelf.settle('pull-request')).toBeNull()
+  expect(await shelf.settle('task')).toBeNull()
+  expect(await reader.settle()).toBe(true)
+  await shelf.setAutoSettle(true)
+  expect((await shelf.settle('pull-request'))?.settledBy).toBe('pull-request')
+})

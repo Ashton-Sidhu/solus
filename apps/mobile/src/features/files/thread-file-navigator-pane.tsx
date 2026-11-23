@@ -1,14 +1,11 @@
-import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
-import { environmentSession } from "../../state/session";
+import { useCheckoutAccess } from "../../solus/use-checkout-files";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { AppBar } from "../../components/ui/AppBar";
 import { ScreenContent } from "../../components/ui/ScreenContent";
-import { useGT, useMessages } from "gt-react-native";
+import { useGT } from "gt-react-native";
 import { useState } from "react";
 import { SheetPane } from "../../components/ui/SheetPane";
 
-import { useEnvironmentQuery } from "../../state/query";
-import { useEnvironmentPresentation } from "../../state/presentation";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { FileTreeBrowser } from "./FileTreeBrowser";
 import { useFileTreeEntries } from "./useFileTreeEntries";
@@ -28,20 +25,7 @@ export function ThreadFileNavigatorPane(props: {
   const searchQuery = search.workspaceKey === workspaceKey ? search.query : "";
   const setSearchQuery = (query: string) => setSearch({ workspaceKey, query });
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
-  const messages = useMessages();
-  const fileAccessSession = useEnvironmentQuery(
-    environmentSession.sessionStateAtom(props.environmentId),
-  );
-  const fileEnvironment = useEnvironmentPresentation(props.environmentId);
-  const fileAccess = resolveFilesystemReadAccess(
-    {
-      isCatalogReady: fileEnvironment.isReady,
-      connection: fileEnvironment.presentation?.connection ?? null,
-      session: fileAccessSession.data,
-      sessionError: fileAccessSession.error,
-    },
-    messages,
-  );
+  const fileAccess = useCheckoutAccess(props.environmentId);
   const { canReadFiles } = fileAccess;
   const entriesQuery = useFileTreeEntries({
     environmentId: props.environmentId,

@@ -1,5 +1,5 @@
-import { Atom } from "effect/reactivity";
-import * as Effect from "effect/Effect";
+import { persistQuery } from "@t3tools/client-runtime/state/query-persistence";
+import { hostQuery } from "./host-query";
 import {
   EnvironmentId,
   IssueTrackerKind,
@@ -10,13 +10,17 @@ import {
   type IssueListEntry,
   type IssueRef,
   type IssueDetail,
+  type IssueEvent,
+  type IssueLinkedPullRequest,
   type PullRequestListInput,
-  type PullRequestListResult,
+  PullRequestListResult,
   type PullRequestRef,
-  type PullRequestDetail,
-  type PullRequestActivity,
+  PullRequestDetail,
+  PullRequestActivity,
+  PullRequestChangeBreakdown,
   type PullRequestDiffInput,
-  type PullRequestDiffResult,
+  type PullRequestDiffFileContentsInput,
+  PullRequestDiffResult,
   type PullRequestCheckStatus,
   type IssueScopeRef,
   type IssueCandidates,
@@ -26,41 +30,21 @@ import {
 import { summarizeChangedFiles } from "@t3tools/shared/changedFileKind";
 import type { CheckItem } from "@solus/contracts/checks-types";
 import type { TaskSummary } from "@solus/contracts/task-types";
+import type { TaskProviderData, TaskProviderEvent } from "@solus/contracts/task-data";
 import type { ProjectEntry } from "@solus/contracts/types";
 import { githubIssueRow, githubPullRequestRow } from "./issue-pr-rows";
 import { solus } from "./runtime";
 
-export function sourceScope(id: string) {
-  return JSON.stringify([
-    solus.sessionCache.scope(),
-    solus.connections.state(id)?.sessionGeneration,
-  ]);
-}
-
-function query<I, A>(read: (hostId: string, input: I) => Promise<A>) {
-  const family = Atom.family((key: string) => {
-    const [hostId, input]: [string, I] = JSON.parse(key);
-    return Atom.make(
-      Effect.tryPromise({
-        try: () => read(hostId, input),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
-    ).pipe(Atom.setIdleTTL(30_000));
-  });
-  return (target: { environmentId: EnvironmentId; input: I }) =>
-    family(JSON.stringify([target.environmentId, target.input, sourceScope(target.environmentId)]));
-}
-
-function apiFor(id: string) {
+export function sourceControlApi(id: string) {
   const connection = solus.connections.connection(id);
   if (!connection || connection.state.readiness !== "ready")
     throw new Error("Connect to this environment to load its data.");
   return connection.api;
 }
 
-export const solusPrList = query(
+export const solusPrList = hostQuery(
   async (id, input: PullRequestListInput): Promise<PullRequestListResult> => {
-    const api = apiFor(id);
+    const api = sourceControlApi(id);
     const projects = (await api.listProjects()).filter(
       (p) =>
         p.repositoryKey &&
@@ -146,6 +130,10 @@ export const solusPrList = query(
       ),
     };
   },
+  {
+    label: "environment-data:pull-requests:list",
+    persistence: persistQuery(PullRequestListResult),
+  },
 );
 
 const issueCapabilities = {
@@ -196,107 +184,108 @@ function issueRow(task: TaskSummary, projects: readonly ProjectEntry[]): IssueLi
   };
 }
 
-export const solusIssueList = query(async (id, input: IssueListInput): Promise<IssueListResult> => {
-  const api = apiFor(id);
-  const sources = solus.personal.current().taskSources;
-  const search = input.query || (input.involvement && input.involvement !== "all");
-  const readTasks = async () => {
-    if (search && sources.length)
-      return api.tasksSearch(sources, input.query ?? "", input.involvement);
-    if (sources.length)
-      await api.tasksSources(sources, { refresh: input.refresh ? "force" : "stale" });
-    const { tasks } = await api.tasksSidebarSnapshot();
-    if (input.involvement && input.involvement !== "all") return [];
-    const words = input.query?.trim().toLowerCase().split(/\s+/) ?? [];
-    return tasks.filter((task) =>
-      words.every((word) =>
-        (task.title + " " + (task.reference ?? "")).toLowerCase().includes(word),
-      ),
+export const solusIssueList = hostQuery(
+  async (id, input: IssueListInput): Promise<IssueListResult> => {
+    const api = sourceControlApi(id);
+    const sources = solus.personal.current().taskSources;
+    const search = input.query || (input.involvement && input.involvement !== "all");
+    const readTasks = async () => {
+      if (search && sources.length)
+        return api.tasksSearch(sources, input.query ?? "", input.involvement);
+      if (sources.length)
+        await api.tasksSources(sources, { refresh: input.refresh ? "force" : "stale" });
+      const { tasks } = await api.tasksSidebarSnapshot();
+      if (input.involvement && input.involvement !== "all") return [];
+      const words = input.query?.trim().toLowerCase().split(/\s+/) ?? [];
+      return tasks.filter((task) =>
+        words.every((word) =>
+          (task.title + " " + (task.reference ?? "")).toLowerCase().includes(word),
+        ),
+      );
+    };
+    const [tasks, projects] = await Promise.all([readTasks(), api.listProjects()]);
+    const rows = tasks.flatMap((task) => {
+      const row = issueRow(task, projects);
+      return row ? [{ ...row, solusTaskId: task.id }] : [];
+    });
+    const scopes = new Map(
+      rows.map(({ projectId, tracker, host, scope }) => [
+        JSON.stringify([projectId, tracker, host, scope]),
+        { projectId, tracker, host, scope },
+      ]),
     );
-  };
-  const [tasks, projects] = await Promise.all([readTasks(), api.listProjects()]);
-  const rows = tasks.flatMap((task) => {
-    const row = issueRow(task, projects);
-    return row ? [{ ...row, solusTaskId: task.id }] : [];
-  });
-  const scopes = new Map(
-    rows.map(({ projectId, tracker, host, scope }) => [
-      JSON.stringify([projectId, tracker, host, scope]),
-      { projectId, tracker, host, scope },
-    ]),
-  );
-  const groups = new Map(
-    rows.map((row) => [
-      row.host + " " + row.tracker,
-      {
-        host: row.host,
-        tracker: row.tracker,
-        configured: true,
-        detail: null,
-        capabilities: issueCapabilities,
-        projectCount: 1,
-      },
-    ]),
-  );
-  const entries = rows.filter(
-    (row) =>
-      (input.state === "all" || row.state.category === input.state) &&
-      (!input.projectId || row.projectId === input.projectId) &&
-      !input.excludeProjectIds?.includes(row.projectId) &&
-      (!input.host || input.host === row.host) &&
-      (!input.assignee || row.assignees.some((a) => a.login === input.assignee)) &&
-      (!input.labels || input.labels.every((label) => row.labels.some((l) => l.name === label))),
-  );
-  entries.sort((a, b) =>
-    input.sort === "created"
-      ? b.createdAt.localeCompare(a.createdAt)
-      : b.updatedAt.localeCompare(a.updatedAt),
-  );
-  return {
-    entries,
-    scopes: [...scopes.values()],
-    errors: [],
-    viewers: {},
-    nextCursors: {},
-    trackers: [...groups.values()],
-  };
-});
+    const groups = new Map(
+      rows.map((row) => [
+        row.host + " " + row.tracker,
+        {
+          host: row.host,
+          tracker: row.tracker,
+          configured: true,
+          detail: null,
+          capabilities: issueCapabilities,
+          projectCount: 1,
+        },
+      ]),
+    );
+    const entries = rows.filter(
+      (row) =>
+        (input.state === "all" || row.state.category === input.state) &&
+        (!input.projectId || row.projectId === input.projectId) &&
+        !input.excludeProjectIds?.includes(row.projectId) &&
+        (!input.host || input.host === row.host) &&
+        (!input.assignee || row.assignees.some((a) => a.login === input.assignee)) &&
+        (!input.labels || input.labels.every((label) => row.labels.some((l) => l.name === label))),
+    );
+    entries.sort((a, b) =>
+      input.sort === "created"
+        ? b.createdAt.localeCompare(a.createdAt)
+        : b.updatedAt.localeCompare(a.updatedAt),
+    );
+    return {
+      entries,
+      scopes: [...scopes.values()],
+      errors: [],
+      viewers: {},
+      nextCursors: {},
+      trackers: [...groups.values()],
+    };
+  },
+);
 
-export const solusIssueDetail = query(
-  async (id, input: IssueRef & { taskId?: string }): Promise<IssueDetail> => {
-    const api = apiFor(id);
-    const matches = (row: IssueListEntry | null) =>
-      row?.tracker === input.tracker &&
-      row.scope === input.scope &&
-      row.key === input.key &&
-      (!input.host || row.host === input.host);
-    // List rows carry the host's durable task id. A deep link has only the provider reference.
-    const taskId =
-      input.taskId ??
-      (await api.tasksSidebarSnapshot()).tasks.find((task) => matches(issueRow(task, [])))?.id;
-    if (!taskId) throw new Error("The task is no longer in this environment.");
-    const detail = await api.tasksGet(taskId);
-    const row = issueRow(
-      detail.task,
-      solus.threads
-        .projects()
-        .filter((p) => p.hostId === id)
-        .map((p) => p.project),
-    );
-    if (!matches(row)) throw new Error("The task reference has changed.");
-    if (!row) throw new Error("The task is unavailable.");
+export const solusIssueDetail = hostQuery(
+  async (
+    id,
+    input: IssueRef & { taskId?: string; issueUrl?: string },
+  ): Promise<IssueDetail & {
+    writableFields: TaskSummary["writableFields"];
+    events: ReadonlyArray<ProviderIssueEvent>;
+    providerPullRequests?: ReadonlyArray<IssueProviderPullRequest>;
+    providerTaskId?: string;
+  }> => {
+    const external = input.issueUrl
+      ? await sourceControlApi(id).tasksResolve(input.issueUrl, { detailsOnly: true })
+      : null;
+    const { detail, row } = external
+      ? { detail: external.details, row: issueRow(external.details.task, []) }
+      : await readIssueRecord(id, input);
+    if (!row) throw new Error("The issue is unavailable.");
+    const writableFields = external ? [] : detail.task.writableFields;
     return {
       ...row,
       body: detail.task.body,
       commentCount: detail.comments.length,
-      writable: false,
-      capabilities: issueCapabilities,
+      writableFields,
+      writable: writableFields.length > 0,
+      capabilities: external
+        ? { ...issueCapabilities, events: true }
+        : { ...issueCapabilities, edit: true, labels: true, assignees: true },
       viewerPermissions: {
-        edit: false,
+        edit:
+          writableFields.includes("title") || writableFields.includes("body"),
         setState: false,
         comment: false,
-        labels: false,
-        assignees: false,
+        labels: writableFields.includes("labels"),
+        assignees: writableFields.includes("assignee"),
       },
       states: [],
       viewer: null,
@@ -308,15 +297,49 @@ export const solusIssueDetail = query(
         url: null,
       })),
       commentsCursor: null,
-      events: [],
+      ...(external?.inspection
+        ? issueProviderActivity(external.inspection)
+        : { events: [], providerTaskId: detail.task.id }),
       linkedPullRequests: [],
     };
   },
 );
 
-export const solusPrDetail = query(
+export type IssueProviderPullRequest = Omit<IssueLinkedPullRequest, "state"> & {
+  state: IssueLinkedPullRequest["state"] | "unknown";
+};
+
+export type ProviderIssueEvent = IssueEvent & { providerText?: string; providerLink?: TaskProviderEvent["link"] };
+
+function issueProviderActivity(inspection: TaskProviderData) {
+  return {
+    events: inspection.events.map((event) => ({
+      id: event.id,
+      kind: "state-changed" as const,
+      actor: event.actor ? { login: event.actor, name: null, avatarUrl: null } : null,
+      createdAt: new Date(event.at).toISOString(),
+      detail: null,
+      providerText: event.text,
+      providerLink: event.link,
+    })),
+    historyCursor: inspection.historyCursor,
+    providerPullRequests: inspection.pullRequests.map((pullRequest) => ({
+      ...pullRequest,
+      repository: new URL(pullRequest.url).pathname.split("/").slice(1, 3).join("/"),
+      isDraft: false,
+    })),
+  };
+}
+
+export const solusIssueActivity = hostQuery(async (id, input: { taskId: string; cursor?: string }) => {
+  const inspection = await sourceControlApi(id).tasksGet(input.taskId, { section: "provider", ...(input.cursor && { cursor: input.cursor }) });
+  if ("task" in inspection) throw new Error("Update the task host to read provider activity.");
+  return issueProviderActivity(inspection);
+});
+
+export const solusPrDetail = hostQuery(
   async (id, input: PullRequestRef): Promise<PullRequestDetail> => {
-    const api = apiFor(id);
+    const api = sourceControlApi(id);
     const context = solus.pullRequests.context(input.projectId);
     const [{ pullRequest: pr, reviewers }, checksSnapshot] = await Promise.all([
       api.prGetOverview(context, input.number),
@@ -353,6 +376,7 @@ export const solusPrDetail = query(
     );
     return {
       ...row,
+      headSha: pr.headSha,
       workspaceRoot: input.projectId,
       body: pr.body,
       changedFiles: pr.changedFiles ?? 0,
@@ -367,27 +391,45 @@ export const solusPrDetail = query(
       mergeCapabilities: { merge: false, squash: false, rebase: false },
       capabilities: {
         diff: true,
-        comment: false,
+        comment: true,
+        labels: pr.capabilities.labelManagement,
+        edit: { changeRequest: true, maintainerEdits: false, comment: false },
         actions: [],
         mergeMethods: [],
         search: true,
-        review: { inlineComment: false, resolve: false, reply: false, verdicts: [] },
-        reviewers: { request: false, listCandidates: false },
+        review: {
+          inlineComment: pr.capabilities.inlineComments,
+          rangeComment: pr.capabilities.inlineComments,
+          resolve: false,
+          reply: false,
+          verdicts: pr.capabilities.reviewVerdicts,
+        },
+        reviewers: {
+          request: pr.capabilities.reviewerRequests,
+          listCandidates: pr.capabilities.reviewerCandidates,
+        },
       },
       viewerPermissions: {
         actions: [],
-        comment: false,
+        comment: pr.viewerPermissions.comment,
+        labels: pr.viewerPermissions.manageLabels,
+        editChangeRequest: pr.viewerPermissions.editPullRequest ?? false,
         resolve: false,
-        verdicts: [],
-        requestReviewers: false,
+        verdicts: pr.viewerPermissions.reviewVerdicts,
+        requestReviewers: pr.viewerPermissions.requestReviewers,
       },
     };
   },
+  {
+    label: "environment-data:pull-requests:detail",
+    persistence: persistQuery(PullRequestDetail),
+    staleTimeMs: 60_000,
+  },
 );
 
-export const solusPrActivity = query(
+export const solusPrActivity = hostQuery(
   async (id, input: PullRequestRef): Promise<PullRequestActivity> => {
-    const api = apiFor(id),
+    const api = sourceControlApi(id),
       ctx = solus.pullRequests.context(input.projectId);
     const [events, commits, threads] = await Promise.all([
       api.prListComments(ctx, input.number),
@@ -444,24 +486,65 @@ export const solusPrActivity = query(
       })),
     };
   },
+  {
+    label: "environment-data:pull-requests:activity",
+    persistence: persistQuery(PullRequestActivity),
+    staleTimeMs: 60_000,
+  },
 );
 
-export const solusPrBreakdown = query(async (id, input: PullRequestRef) =>
-  summarizeChangedFiles(
-    await apiFor(id).prChangedFiles(solus.pullRequests.context(input.projectId), input.number),
-  ),
+export const solusPrBreakdown = hostQuery(
+  async (id, input: PullRequestRef): Promise<PullRequestChangeBreakdown> =>
+    summarizeChangedFiles(
+      await sourceControlApi(id).prChangedFiles(
+        solus.pullRequests.context(input.projectId),
+        input.number,
+      ),
+    ),
+  {
+    label: "environment-data:pull-requests:change-breakdown",
+    persistence: persistQuery(PullRequestChangeBreakdown),
+    staleTimeMs: 60_000,
+  },
 );
 
-export const solusPrDiff = query(
-  async (id, input: PullRequestDiffInput): Promise<PullRequestDiffResult> => {
-    const api = apiFor(id),
-      ctx = solus.pullRequests.context(input.projectId);
-    const target = await api.prOpenReview(ctx, input.number);
-    if (
-      target.owner + "/" + target.repo !== input.repository ||
-      (input.host && input.host !== target.host)
-    )
-      throw new Error("The project now points to a different repository.");
+export async function prDiffSource(id: string, input: PullRequestRef & { expectedHead?: string }) {
+  const api = sourceControlApi(id);
+  const ctx = solus.pullRequests.context(input.projectId);
+  const target = await api.prOpenReview(ctx, input.number);
+  if (
+    target.owner + "/" + target.repo !== input.repository ||
+    (input.host && input.host !== target.host)
+  )
+    throw new Error("The project now points to a different repository.");
+  if (input.expectedHead && target.headSha !== input.expectedHead)
+    throw new Error("The pull request changed. Refresh the diff.");
+  return { api, ctx, target };
+}
+
+export const prDiffContents = hostQuery(
+  async (id, input: PullRequestDiffFileContentsInput & { expectedHead?: string }) => {
+    const { api, ctx, target } = await prDiffSource(id, input);
+    return api.prGetDiffFileContents(ctx, {
+      number: input.number,
+      baseSha: target.baseSha,
+      headSha: target.headSha,
+      commitSha: input.commit,
+      oldPath: input.oldPath,
+      newPath: input.newPath,
+      changeType: input.changeType,
+    });
+  },
+  30_000,
+  60_000,
+);
+
+export const solusPrDiff = hostQuery(
+  async (
+    id,
+    input: PullRequestDiffInput & { expectedHead?: string },
+  ): Promise<PullRequestDiffResult> => {
+    const { api, ctx, target } = await prDiffSource(id, input);
     return api.prGetDiff(ctx, {
       number: input.number,
       baseSha: target.baseSha,
@@ -470,11 +553,46 @@ export const solusPrDiff = query(
       commitSha: input.commit,
     });
   },
+  {
+    label: "environment-data:pull-requests:diff",
+    persistence: persistQuery(PullRequestDiffResult),
+    staleTimeMs: 60_000,
+  },
 );
 
-export const solusIssueCandidates = query(
-  async (id, input: IssueScopeRef): Promise<IssueCandidates> => {
-    const { tasks } = await apiFor(id).tasksSidebarSnapshot();
+export const solusIssueCandidates = hostQuery(
+  async (id, input: IssueScopeRef & { query?: string }): Promise<IssueCandidates> => {
+    const api = sourceControlApi(id);
+    // A bound GitHub checkout can search the repository's labels, including unused ones.
+    if (
+      input.query !== undefined &&
+      input.tracker === "github" &&
+      input.projectId !== "~" &&
+      input.host
+    ) {
+      const project = solus.threads
+        .projects()
+        .find((p) => p.hostId === id && p.project.path === input.projectId)?.project;
+      if (
+        project?.repositoryKey?.toLowerCase() === (input.host + "/" + input.scope).toLowerCase()
+      ) {
+        const labels = await api.prFilterOptions(
+          solus.pullRequests.context(input.projectId),
+          "label",
+          input.query,
+        );
+        return {
+          labels: labels.map((label) => ({
+            name: label.value,
+            color: label.color ?? null,
+            description: null,
+          })),
+          assignees: [],
+          truncated: labels.length === 50,
+        };
+      }
+    }
+    const { tasks } = await api.tasksSidebarSnapshot();
     const rows = tasks.flatMap((task) => {
       const row = issueRow(task, []);
       return row &&
@@ -503,9 +621,9 @@ export const solusIssueCandidates = query(
     };
   },
 );
-export const solusPrFilterOptions = query(
+export const solusPrFilterOptions = hostQuery(
   async (id, input: PullRequestFilterOptionsInput): Promise<PullRequestFilterOptions> => {
-    const api = apiFor(id);
+    const api = sourceControlApi(id);
     const projects = (await api.listProjects()).filter(
       (p) =>
         p.repositoryKey &&
@@ -538,4 +656,33 @@ export const solusPrFilterOptions = query(
       truncated: false,
     };
   },
+  5 * 60_000,
 );
+
+function issueMatches(input: IssueRef, row: IssueListEntry | null) {
+  return (
+    row?.tracker === input.tracker &&
+    row.scope === input.scope &&
+    row.key === input.key &&
+    (!input.host || row.host === input.host)
+  );
+}
+export async function readIssueRecord(id: string, input: IssueRef & { taskId?: string }) {
+  const api = sourceControlApi(id);
+  const taskId =
+    input.taskId ??
+    (await api.tasksSidebarSnapshot()).tasks.find((task) => issueMatches(input, issueRow(task, [])))
+      ?.id;
+  if (!taskId) throw new Error("The task is no longer in this environment.");
+  const detail = await api.tasksGet(taskId);
+  const row = issueRow(
+    detail.task,
+    solus.threads
+      .projects()
+      .filter((p) => p.hostId === id)
+      .map((p) => p.project),
+  );
+  if (!issueMatches(input, row)) throw new Error("The task reference has changed.");
+  if (!row) throw new Error("The task is unavailable.");
+  return { api, detail, row };
+}

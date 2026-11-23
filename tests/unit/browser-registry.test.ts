@@ -384,6 +384,96 @@ describe('browser registry', () => {
     expect(snapshot.network[0]?.status).toBe(500)
   })
 
+  test('a page that changes while it is captured says so, so the picture is not taken as the truth', async () => {
+    // WHY: the structure is read before the screenshot. An app that renders in
+    // between gives a picture and an element list of two different moments.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET }, 'local:owner')
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('data-solus-browser-ref', JSON.stringify({ title: 'Solus', url: 'http://localhost:5173/', watching: true, elements: [] }))
+    driver.answers.set('if (!watch) return', JSON.stringify({ changes: 4, url: 'http://localhost:5173/' }))
+
+    expect((await registry.snapshot(page.browserPageId)).changedDuringCapture).toBe('content')
+
+    driver.answers.set('if (!watch) return', JSON.stringify({ changes: 0, url: 'http://localhost:5173/' }))
+    expect((await registry.snapshot(page.browserPageId)).changedDuringCapture).toBeUndefined()
+  })
+
+  test('a document replaced during the capture is captured again from the new one', async () => {
+    // WHY: an app that redirects as it starts replaces the document under the
+    // first read. The second read is of one page, so it is the one to keep.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET }, 'local:owner')
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('data-solus-browser-ref', JSON.stringify({ title: 'Solus', url: 'http://localhost:5173/draft/1', watching: true, elements: [] }))
+    driver.answers.set('if (!watch) return', 'null')
+    let structureReads = 0
+    const evaluate = driver.evaluate.bind(driver)
+    driver.evaluate = async (expression) => {
+      if (expression.includes('data-solus-browser-ref')) structureReads++
+      const answer = await evaluate(expression)
+      // The new document keeps the watch its own structure read starts.
+      if (expression.includes('if (!watch) return')) {
+        driver.answers.set('if (!watch) return', JSON.stringify({ changes: 0, url: 'http://localhost:5173/draft/1' }))
+      }
+      return answer
+    }
+
+    const snapshot = await registry.snapshot(page.browserPageId)
+
+    expect(structureReads).toBe(2)
+    expect(snapshot.changedDuringCapture).toBeUndefined()
+  })
+
+  test('a settle read that a redirect cuts off is read again from the new document', async () => {
+    // WHY: an app that redirects as it starts destroys the page the first read
+    // ran in. The second read reports the page the redirect reached.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET }, 'local:owner')
+    await registry.attachSurface(page.browserPageId, 1)
+    const reached = { settled: true, waitedMs: 600, loading: false, url: 'http://localhost:5173/draft/1', title: 'Solus', visibleText: 'New session' }
+    driver.answers.set('changedAt', JSON.stringify(reached))
+    let reads = 0
+    const evaluate = driver.evaluate.bind(driver)
+    driver.evaluate = async (expression) => {
+      if (expression.includes('changedAt') && reads++ === 0) throw new Error('Execution context was destroyed.')
+      return evaluate(expression)
+    }
+
+    expect(await registry.settle(page.browserPageId)).toEqual(reached)
+    expect(reads).toBe(2)
+  })
+
+  test('a click waits for a loading screen to go, then clicks the element', async () => {
+    // WHY: a click at a covered element lands on the cover. A page that is
+    // still starting should get the moment a person would give it.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET }, 'local:owner')
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 95, y: 20, coveredBy: 'div#solus-boot-shell' }))
+    setTimeout(() => driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 95, y: 20 })), 300)
+
+    const result = await registry.interact(page.browserPageId, { kind: 'click', ref: '#toggle' })
+
+    expect(result).toEqual({ ok: true })
+    expect(driver.clicks).toEqual([{ x: 95, y: 20 }])
+  })
+
+  test('a click at an element that stays covered lands on the cover, and the result says so', async () => {
+    // WHY: some covers are meant (a floating label over its field), so the
+    // click still happens; the agent must not read it as a click on the element.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET }, 'local:owner')
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 95, y: 20, coveredBy: 'div#solus-boot-shell' }))
+
+    const result = await registry.interact(page.browserPageId, { kind: 'click', ref: '#toggle' })
+
+    expect(result.ok).toBe(true)
+    expect(result.message).toContain('covered by div#solus-boot-shell')
+    expect(driver.clicks).toEqual([{ x: 95, y: 20 }])
+  })
+
   test('a snapshot can skip the image when only the structure is wanted', async () => {
     // WHY: the image is the expensive half; an agent checking whether a button
     // exists should not pay for it.

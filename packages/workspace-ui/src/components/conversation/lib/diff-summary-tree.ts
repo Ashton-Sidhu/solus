@@ -175,3 +175,22 @@ export function changeRatio(folder: { additions: number; deletions: number }): C
   const added = Math.round((folder.additions / total) * 100)
   return { added, removed: 100 - added }
 }
+
+/** A turn's totals from its snapshot: what a closed card shows before it reads files. */
+export interface DiffTotals {
+  files: number
+  additions: number
+  deletions: number
+}
+
+/** What the card's count line says. */
+export interface DiffCountLine extends DiffTotals {
+  /** Zero until the files are read: a snapshot does not name folders. */
+  folders: number
+}
+
+/** The count line from the files read, else from the turn's snapshot totals. */
+export function diffCountLine(tree: DiffTree, totals: DiffTotals | null): DiffCountLine {
+  if (tree.total > 0 || !totals) return { files: tree.total, folders: tree.folderCount, additions: tree.additions, deletions: tree.deletions }
+  return { ...totals, folders: 0 }
+}

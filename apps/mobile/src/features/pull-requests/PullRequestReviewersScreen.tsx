@@ -75,9 +75,7 @@ export function PullRequestReviewersScreen({ route }: StaticScreenProps<PullRequ
   const term = changeRequestTermKind(
     sourceControlClients.get((pr ?? route.params.initialSummary)?.provider).changeRequest,
   );
-  const canWrite = useAtomValue(
-    composerPullRequests.requestReviewers.permissionAtom(target.environmentId),
-  );
+  const canWrite = useAtomValue(composerPullRequests.requestReviewers.permissionAtom(target.environmentId));
   const connected = usePullRequestConnected(route.params.environmentId);
   const allowed =
     connected &&

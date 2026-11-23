@@ -224,44 +224,37 @@
   onkeydown={onKey}
 >
   <div
-    class="schema-sheet-enter flex h-[min(82vh,52rem)] w-[clamp(20rem,94vw,72rem)] origin-top flex-col overflow-hidden rounded-2xl bg-card shadow-[0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] outline-none"
+    class="schema-sheet-enter flex h-[min(82vh,52rem)] w-[clamp(20rem,94vw,72rem)] max-w-[calc(100vw-3rem)] origin-top flex-col overflow-hidden rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] outline-none [.dark_&]:shadow-[shadow:var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)]"
     role="dialog"
     aria-modal="true"
     aria-label="Schema"
   >
     <header
-      class="flex h-12 shrink-0 items-center gap-3 pr-2.5 pl-4 shadow-[inset_0_-0.5px_0_var(--hairline)]"
+      class="flex shrink-0 items-center gap-2.5 border-b border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] px-4 pt-3.5 pb-3"
     >
-      <h2
-        class="shrink-0 text-[length:calc(.8125rem*var(--solus-font-scale,1))] font-medium text-foreground"
-      >
-        Schema
-      </h2>
-      <div
-        class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-[var(--wash-1)] px-2.5 shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-shadow focus-within:shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--primary)_40%,transparent)]"
-      >
-        <MagnifyingGlassIcon size={13} class="shrink-0 text-muted-foreground opacity-70" />
-        <input
-          bind:this={searchEl}
-          bind:value={query}
-          class="min-w-0 flex-1 bg-transparent text-[length:calc(.8125rem*var(--solus-font-scale,1))] outline-none placeholder:text-muted-foreground"
-          placeholder="Search columns"
-          aria-label="Search columns"
-        />
-        {#if searching}
-          <span
-            class="shrink-0 text-[length:calc(.75rem*var(--solus-font-scale,1))] tabular-nums text-muted-foreground"
-            >{matches.length}</span
-          >
-        {/if}
-      </div>
+      <MagnifyingGlassIcon size={15} class="shrink-0 text-(--solus-text-tertiary)" />
+      <input
+        bind:this={searchEl}
+        bind:value={query}
+        class="min-w-0 flex-1 bg-transparent text-[length:calc(.8125rem*var(--solus-font-scale,1))] caret-(--solus-accent) outline-none placeholder:text-(--solus-text-tertiary)"
+        placeholder="Search schema columns…"
+        aria-label="Search columns"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      {#if searching}
+        <span
+          class="shrink-0 text-[length:calc(.75rem*var(--solus-font-scale,1))] tabular-nums text-(--solus-text-tertiary)"
+          >{matches.length}</span
+        >
+      {/if}
       <button
         type="button"
-        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
+        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--solus-text-tertiary) transition-colors [@media(hover:hover)]:hover:bg-(--solus-surface-hover) [@media(hover:hover)]:hover:text-(--solus-text-primary)"
         onclick={onClose}
         aria-label="Close schema"
       >
-        <XIcon size={14} />
+        <XIcon size={12} />
       </button>
     </header>
 
@@ -276,8 +269,7 @@
         <!-- Navigation. The two query tables lead; the sources a reader is not
              choosing between sit under their own heading. -->
         <nav
-          class="flex shrink-0 gap-1 overflow-x-auto px-2 py-2 shadow-[inset_0_-0.5px_0_var(--hairline)] md:w-52 md:flex-col md:overflow-x-visible lg:w-60 md:overflow-y-auto md:px-2 md:py-2.5 md:shadow-[inset_-0.5px_0_0_var(--hairline)]"
-          style="background:var(--wash-1)"
+          class="flex shrink-0 gap-1 overflow-x-auto border-b border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] px-2 py-2 md:w-52 md:flex-col md:overflow-x-visible lg:w-60 md:overflow-y-auto md:border-r md:border-b-0 md:px-2 md:py-2.5"
           data-sb
           aria-label="Tables"
         >
@@ -342,7 +334,7 @@
             <!-- What this table is, before what it holds: the description is
                  the answer to "should I be querying this one at all". -->
             <div
-              class="sticky top-0 z-10 bg-card px-6 pt-5 pb-3.5 shadow-[inset_0_-0.5px_0_var(--hairline)]"
+              class="sticky top-0 z-10 border-b border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] bg-(--solus-popover-bg) px-6 pt-5 pb-3.5"
             >
               <h3
                 class="text-[length:calc(.8125rem*var(--solus-font-scale,1))] font-medium text-foreground"
@@ -392,7 +384,7 @@
                 {#each tables as table (table.name)}
                   <button
                     type="button"
-                    class="cursor-pointer rounded-xl bg-card p-3.5 text-left shadow-[shadow:var(--elev-ring)] transition-shadow hover:shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0.25rem_0.75rem_-0.375rem_rgba(0,0,0,0.1)]"
+                    class="cursor-pointer rounded-xl bg-(--solus-popover-bg) p-3.5 text-left shadow-[shadow:var(--elev-ring)] transition-shadow hover:shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0.25rem_0.75rem_-0.375rem_rgba(0,0,0,0.1)]"
                     onclick={() => select(table.name)}
                   >
                     <span class="flex items-baseline gap-2">
@@ -431,8 +423,7 @@
       </div>
 
       <footer
-        class="flex h-9 shrink-0 items-center gap-4 px-4 text-[length:calc(.75rem*var(--solus-font-scale,1))] text-muted-foreground shadow-[inset_0_0.5px_0_var(--hairline)]"
-        style="background:var(--wash-1)"
+        class="flex shrink-0 items-center gap-5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] bg-(--wash-1) px-4 py-2.5 text-[length:calc(.75rem*var(--solus-font-scale,1))] text-muted-foreground"
       >
         <span class="inline-flex items-center gap-1.5">
           <Kbd variant="keycap">↑</Kbd>
@@ -470,7 +461,7 @@
   @keyframes schema-sheet-enter {
     from {
       opacity: 0;
-      transform: translate3d(0, 0.5rem, 0) scale(0.99);
+      transform: translate3d(0, 0.25rem, 0) scale(0.985);
     }
     to {
       opacity: 1;

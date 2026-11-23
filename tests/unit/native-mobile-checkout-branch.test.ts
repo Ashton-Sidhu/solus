@@ -63,6 +63,19 @@ describe('native current-checkout branch', () => {
     expect(prompts()[0]?.[0].session).toMatchObject({ workingDirectory: '/work/feature', worktreeBaseBranch: null })
   })
 
+  test('the Git sheet creates its branch in the displayed checkout and refuses a stale checkout', async () => {
+    const { controller, api, answerWith } = await open()
+    answerWith(() => ({ success: true, gitContext: checkout('feature', '/work/feature'), workingDirectory: '/work/feature' }))
+    await controller.chooseCheckoutBranch(ref('feature'))
+    expect(await controller.chooseCheckoutBranch(ref('topic'), { create: true, cwd: '/work/app' })).toBe('The checkout has changed.')
+    expect(api.callsOf('gitCheckoutBranch')).toHaveLength(1)
+    await controller.chooseCheckoutBranch(ref('topic'), { create: true, cwd: '/work/feature' })
+    expect(api.callsOf('gitCheckoutBranch')[1]).toEqual([
+      expect.objectContaining({ session: expect.objectContaining({ workingDirectory: '/work/feature' }) }),
+      'topic', { remoteOnly: false, create: true },
+    ])
+  })
+
   test('the next pick asks about the project again, not the worktree the last pick named', async () => {
     const { controller, switches, answerWith } = await open()
     answerWith(() => ({ success: true, gitContext: checkout('feature', '/work/feature'), workingDirectory: '/work/feature' }))

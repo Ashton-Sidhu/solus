@@ -202,14 +202,14 @@
   // holds — it may belong to another host. `modelId: null` means "the provider's
   // default model": the picker shows it without writing it back. Pinning and
   // saving here used to fire on mount, creating a ghost "Untitled automation"
-  // the moment the New view opened. Automations cannot carry fast mode.
+  // the moment the New view opened.
   let selection = $state<PickerSelection>({
     provider:
       initial?.action.agentProvider ??
       untrack(() => runnableAutomationAgent(agentContext.agents, undefined)),
     modelId: initial?.action.modelId ?? null,
     reasoningEffort: initial?.action.reasoningEffort ?? "medium",
-    fastMode: false,
+    fastMode: initial?.action.fastMode ?? false,
   });
   let cwd = $state(
     initial?.action.cwd ??
@@ -297,6 +297,7 @@
       agentProvider: selection.provider,
       modelId: selection.modelId,
       reasoningEffort: selection.reasoningEffort,
+      ...(selection.fastMode || current?.action.fastMode ? { fastMode: selection.fastMode } : {}),
       cwd: cwd.trim() || "~",
       useWorktree,
       planRefs: planRefs.length ? planRefs : undefined,
@@ -781,7 +782,6 @@
             bind:selection
             agents={automationAgents(agentContext.agents)}
             serverId={selectedServerId}
-            allowFastMode={false}
             menuSide="bottom"
             ariaLabel="Automation agent, model and reasoning"
             disabled={!canEdit}

@@ -334,6 +334,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // Asked before the watch, which makes any session known.
     const startsSession = !sessionRuntime.isKnownSession(sessionId)
     const watched = sessionRuntime.watchers.watchSession(input, requireClientId(handlerCtx))
+    if (watched.resumed === false) return watched
     log.info('rpc_watch_session', { sessionId })
     // A guest or member can only watch a session that was shared with them, so a
     // claim here never gives them one; it records the owner of a brand-new session.

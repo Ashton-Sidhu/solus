@@ -187,6 +187,8 @@ export interface GuideFileRef {
    *  agent named no range, or for older guides: the renderer then shows the
    *  full-file diff. */
   hunks?: string
+  /** The cited snapshot loaded, but its patch has no entry for this path. */
+  missingFromTurn?: number
 }
 
 export type ReviewGuideDraft = Pick<ReviewGuide, 'title' | 'summary' | 'sections'>

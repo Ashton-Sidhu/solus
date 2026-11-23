@@ -357,16 +357,16 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       ) ?? null
     );
   })();
-  const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
+  const openDraftDocument = (attachment: ComposerDocumentAttachment, hostUploadId?: string) => {
     Keyboard.dismiss();
-    navigation.navigate("ThreadAttachment", {
+    navigation.navigate(props.isDraft ? "NewTaskAttachment" : "ThreadAttachment", {
       environmentId: String(props.environmentId),
       threadId: String(props.selectedThread.id),
       attachmentId: attachment.attachmentId,
       name: attachment.name,
       mimeType: attachment.mimeType,
       sizeBytes: String(attachment.sizeBytes),
-      draftKey: composerDraftKey,
+      ...(hostUploadId ? { hostUploadId } : { draftKey: composerDraftKey }),
     });
   };
   const { onSendMessage, onChangeDraftMessage, onShowUsageLimits } = props;
@@ -674,13 +674,15 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
             onPressDocument={
               isSubmissionLocked
                 ? undefined
-                : (attachment) =>
+                : (attachment) => {
+                    const hostFile = props.hostMedia?.includes(attachment) && attachment.uploadedAttachmentId;
                     openDraftDocument({
-                      attachmentId: attachment.id,
+                      attachmentId: hostFile || attachment.id,
                       name: attachment.name,
                       mimeType: attachment.mimeType,
                       sizeBytes: attachment.sizeBytes,
-                    })
+                    }, hostFile ? attachment.id : undefined);
+                  }
             }
           />
         </Animated.View>

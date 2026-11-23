@@ -15,24 +15,30 @@ export type IssueParams = {
   readonly host?: string;
   readonly scope: string;
   readonly issueKey: string;
+  readonly issueUrl?: string;
   /** The list row the issue was opened from, shown until its detail arrives. */
-  readonly initialSummary?: IssueListEntry & {readonly solusTaskId?: string};
+  readonly solusTaskId?: string;
+  readonly initialSummary?: IssueListEntry & { readonly solusTaskId?: string };
 };
 
 export function issueTarget(params: IssueParams) {
-  const input: IssueRef = {
+  const taskId = params.solusTaskId ?? params.initialSummary?.solusTaskId;
+  const input: IssueRef & { taskId?: string; issueUrl?: string } = {
     projectId: ProjectId.make(params.projectId),
     tracker: IssueTrackerKind.make(params.tracker),
     ...(params.host ? { host: params.host } : {}),
     scope: params.scope,
     key: params.issueKey,
+    ...(taskId && { taskId }),
+    ...(params.issueUrl && { issueUrl: params.issueUrl }),
   };
   return { environmentId: EnvironmentId.make(params.environmentId), input };
 }
 
 /** The params without the list row, for the screens an issue opens. */
-export function issueIdentity({ initialSummary: _, ...identity }: IssueParams) {
-  return identity;
+export function issueIdentity({ initialSummary, ...identity }: IssueParams) {
+  const taskId = identity.solusTaskId ?? initialSummary?.solusTaskId;
+  return taskId ? { ...identity, solusTaskId: taskId } : identity;
 }
 
 /** The identity the Issues tab remembers and the list marks as selected. */

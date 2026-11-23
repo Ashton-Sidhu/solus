@@ -118,6 +118,32 @@ describe('session sidebar dismissal', () => {
     expect(store.openedDraftOptions).toEqual([{ freshTask: true, sourceId: 'root-tab', via: 'click' }])
   })
 
+  test.each([false, true])('selects the next session only when the closing conversation is shown (%s)', (showsConversation) => {
+    const store = sidebarStoreForDismissal()
+    Object.assign(store, {
+      pinnedRows: [],
+      sessionRows: [{ tabIds: ['closing'] }, { tabIds: ['next'] }],
+      sharedRows: [],
+      workingRows: [],
+      snoozedTasks: [],
+      completedTasks: [],
+      sessionsFor: (task: SidebarTask) => task.tabIds.map((tabId) => ({ tabId })),
+    })
+    const selectedTabIds: string[] = []
+    store.session = {
+      showsConversation,
+      activeTabId: 'closing',
+      tabs: { next: {} },
+      closeTab: (tabId: string) => store.closedTabIds.push(tabId),
+      selectTab: (tabId: string) => selectedTabIds.push(tabId),
+    }
+
+    SessionSidebarStore.prototype.closeTabs.call(store, ['closing'])
+
+    expect(store.closedTabIds).toEqual(['closing'])
+    expect(selectedTabIds).toEqual(showsConversation ? ['next'] : [])
+  })
+
   test('ending a row while others are still live keeps the pane where it is', () => {
     // WHY: the composer fallback exists only for an emptied column. Yanking the
     // user off a conversation that still has live siblings would be a worse

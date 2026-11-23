@@ -2,9 +2,9 @@
   import type { Snippet } from "svelte";
   import {
     CircleAlert as WarningCircleIcon,
-    GitPullRequest as GitPullRequestIcon,
     RefreshCw as ArrowsClockwiseIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import { Button } from "../ui/button";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import PrListLoading from "./PrListLoading.svelte";

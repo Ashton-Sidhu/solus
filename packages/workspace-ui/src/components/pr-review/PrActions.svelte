@@ -6,19 +6,12 @@
   import type { MergeAction, MergeReadiness } from "./lib/merge-readiness";
   import type { PullRequest as IndexedPullRequest } from "../../contexts/prs/pull-request.svelte";
 
-  // The PR's action cluster, Linear-style: it lives inside the status card in
-  // the right rail. The pull request's one move (PrPrimaryAction) leads it, so
-  // the card says what it will do right under the state it changes. Under it,
-  // one quiet full-width row. The
-  // rarely-used actions are in the pull request's ⋯ in the chrome band (see
-  // PrOverflowMenu).
-  //
-  // Once the rail folds into the reading column the card is not drawn: the
-  // pull request's move rides in the chrome band instead (PrReviewPane).
+  // Review Mode uses the rail's primary action because it has no PR header.
   let {
     pullRequest,
     detail,
     readiness,
+    showPrimaryAction,
     onAgentAction,
     feedbackCount = 0,
     addressCommentsReady = true,
@@ -29,6 +22,7 @@
     pullRequest: IndexedPullRequest;
     detail: PullRequest | null;
     readiness: MergeReadiness;
+    showPrimaryAction: boolean;
     onAgentAction: (action: MergeAction) => Promise<void>;
     feedbackCount?: number;
     addressCommentsReady?: boolean;
@@ -36,8 +30,6 @@
     onAddressComments?: () => void;
   } = $props();
 
-  // Every action here is gated on the PR still being open, so a merged or
-  // closed PR renders nothing at all rather than an empty cluster.
   const showAddressComments = $derived(
     !!onAddressComments &&
       feedbackCount > 0 &&
@@ -45,24 +37,24 @@
       !detail.draft &&
       !detail.headRepo.isFork,
   );
-  // A merged or closed pull request has no move; the card's headline already
-  // says so, and an empty wrapper would still hold a gap inside the card.
+  const hasPrimaryAction = $derived(
+    showPrimaryAction && readiness.key !== "merged" && readiness.key !== "closed",
+  );
   const hasActions = $derived(
-    readiness.key !== "merged" && readiness.key !== "closed",
+    hasPrimaryAction || showAddressComments,
   );
 </script>
 
 {#if hasActions}
-<!-- One saturated button and one quiet one: the tiers are set by how much
-     surface each carries, so the eye lands on the merge decision first without
-     either shouting. -->
 <div class="mt-[13px] flex w-full flex-col gap-[7px]">
-  <PrPrimaryAction
-    number={pullRequest.number}
-    {pullRequest}
-    {readiness}
-    {onAgentAction}
-  />
+  {#if hasPrimaryAction}
+    <PrPrimaryAction
+      number={pullRequest.number}
+      {pullRequest}
+      {readiness}
+      {onAgentAction}
+    />
+  {/if}
 
   {#if showAddressComments}
     <Button

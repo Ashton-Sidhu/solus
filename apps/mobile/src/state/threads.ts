@@ -10,14 +10,17 @@ import {
   createThreadEnvironmentAtoms,
   createThreadFamilyAtoms,
 } from "@t3tools/client-runtime/state/threads";
-import { createSteadyShellAtoms } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
-import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage } from "@solus/client-core/session-history-page";
-import { solus } from "../solus/runtime";
+import { appAtomRegistry } from "./atom-registry";
+import { scopedThreadKey } from "../lib/scopedEntities";
+import { pendingThreadCreationOutcomesAtom, selectThreadCreationDetail } from "./pending-thread-creation";
+import { threadOutboxManager } from "./thread-outbox";
+import { sessionDetailAtom } from "../solus/session-detail";
+import { navigationThreadsAtom } from "../solus/runtime";
 import { serverEnvironment } from "./server";
 import { environmentShell } from "./shell";
 
@@ -42,42 +45,34 @@ export const environmentThreadShells = createEnvironmentThreadShellAtoms({
   snapshotAtom: threadEnvironment.snapshotAtom,
   hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
 });
-const steadyShells = createSteadyShellAtoms({
-  catalogValueAtom: environmentCatalog.catalogValueAtom,
-  snapshotAtom: threadEnvironment.snapshotAtom,
-  shellStateAtom: environmentShell.stateValueAtom,
-  rowActionsAtom: threadEnvironment.rowActionsAtom,
-  connectionStateAtom: environmentCatalog.stateAtom,
-});
-/**
- * The threads that lists arrange. Rows wait while their environment synchronizes, so a list
- * changes once when environments connect, not once per environment.
- */
-export const steadyShellsHoldingAtom = steadyShells.holdingAtom;
-export const steadyNavigationThreadShellsAtom = createEnvironmentThreadShellAtoms({
-  catalogValueAtom: environmentCatalog.catalogValueAtom,
-  snapshotAtom: steadyShells.snapshotAtom,
-  hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
-}).navigationThreadShellsAtom;
+export const steadyShellsHoldingAtom = navigationThreadsAtom.pipe(Atom.map(state => state.holding));
+export const steadyNavigationThreadShellsAtom = navigationThreadsAtom.pipe(Atom.map(state => state.threads));
 export const childThreadApprovalsAtom = createChildThreadApprovalsAtom({
   childThreadInputsAtom: environmentThreadShells.childThreadInputsAtom,
   pendingRequestsAtom: environmentThreadDetails.pendingRequestsAtom,
 });
 
-/** Start the same first page that the conversation will consume after navigation. */
+// Long enough for the opened screen to subscribe; its subscription keeps the thread after this.
+const OPENING_THREAD_HOLD_MS = 3_000;
+
+/**
+ * Starts loading a thread being opened before its screen renders and subscribes, which
+ * otherwise waits for navigation to commit.
+ */
 export function startOpeningEnvironmentThread(environmentId: EnvironmentId, threadId: ThreadId) {
-  const thread = solus.threads.thread(environmentId, threadId);
-  const connection = solus.connections.connection(environmentId);
-  if (!thread || thread.cloudOnly || connection?.state.readiness !== "ready" ||
-      solus.openConversation(environmentId, threadId)) return;
-  const { record } = thread;
-  const cache = solus.sessionCache.forHost(environmentId);
-  void prefetchSessionHistoryPage(connection.api, {
-    sessionId: threadId,
-    provider: record.provider,
-    projectPath: record.projectPath || record.cwd || undefined,
-    turnLimit: INITIAL_HISTORY_TURNS,
-  }, 3_000, cache.historyScope(connection.state.sessionGeneration), () => cache.history(threadId)).catch(() => {});
+  // A thread whose creation is still queued would load as not found and stay deleted;
+  // the opened screen loads it once creation is delivered.
+  const { detailRef } = selectThreadCreationDetail({
+    threadRef: { environmentId, threadId },
+    threadKey: scopedThreadKey(environmentId, threadId),
+    queuedMessagesByThreadKey: appAtomRegistry.get(
+      threadOutboxManager.queuedMessagesByThreadKeyAtom,
+    ),
+    outcomes: appAtomRegistry.get(pendingThreadCreationOutcomesAtom),
+  });
+  if (detailRef === null) return;
+  const release = appAtomRegistry.mount(sessionDetailAtom(environmentId, threadId));
+  setTimeout(release, OPENING_THREAD_HOLD_MS);
 }
 
 const EMPTY_THREAD_STATE_ATOM = Atom.make(AsyncResult.success(EMPTY_ENVIRONMENT_THREAD_STATE)).pipe(

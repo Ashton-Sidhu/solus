@@ -266,9 +266,8 @@ Older live events without a block ID can still attach a thought to the next
 tool call or reply.
 
 Agent reply images, generated images, and browser captures appear in a compact
-image gallery below the final reply. Raw tool-result images, including device
-inspection screenshots, are excluded: they show in the outputs strip of the
-folded row (see [Tool outputs](#tool-outputs)). Each preview shows a thumbnail, a file
+image gallery below the final reply. Open the tool details to see images
+returned by a tool, including device screenshots. Each gallery preview shows a thumbnail, a file
 name or label, and the format. Image embeds in assistant replies render as file
 chips at their authored positions. A chip opens the file; the gallery below the reply provides image
 previews. Videos keep their existing presentation. Prompt attachments stay with the prompt.
@@ -330,35 +329,18 @@ A tool call can give the person visible outputs. One rule says where each one
 shows, for every tool: Solus tools, the built-in tools of Claude and Codex, MCP
 tools, and resource reads.
 
-1. **Every output that a tool line shows only while open goes to the outputs
-   strip** under the row that folds it: the folded turn row, or the folded tool
-   group row of an open turn. This includes the images that tool calls return.
-   The open tool line also shows them, as now.
-2. **An output that already shows outside the folds stays where it is.**
-3. **Only the final output of a turn goes to its image gallery**: images in
-   the agent's replies, generated images, and browser captures. A tool image
-   does not go to the gallery.
+1. Open a tool call to see the images it returned.
+2. The turn gallery shows images in the agent's replies, generated images, and
+   browser captures.
+3. Desktop and web show chips below folded rows for audio clips and left-out
+   notes. Each audio chip shows the server name and format, such as
+   `elevenlabs MP3`. A chip opens the tool details and moves focus there.
+   A running call adds no chips.
 
-The strip shows only while its row is folded. It is one line that wraps, on the
-left edge of the row label, with no box around it. It shows, in this order:
-
-- **Thumbnails** of the images the row's calls returned, in call order: at
-  most 6, 56 by 40 pixels, with the hairline border and a small radius. Then a
-  `+N` tile for the images past the limit. A thumbnail opens the image viewer
-  on all the images of that row; `+N` opens it at the first image it stands
-  for. The fold does not change. Two calls that return the same picture show it
-  once. A browser capture shows once, as its capture card: the scaled copy in
-  its result is not in the strip. The screenshot that `render_artifact` returns
-  for the agent's preview check is not in the strip: the artifact card shows
-  the page.
-- **Chips**, with a light fill and a full radius, the style of the chips that
-  list what a turn linked: one for each audio clip, with the play glyph, the
-  server name, and the format (`elevenlabs MP3`), and one for each call's
-  left-out notes (`N left out`). A chip opens the folds down to its tool line
-  and moves focus there. It writes only to `ConversationViewState`.
-
-A thumbnail signs its image URL only when it mounts and comes near the
-viewport. A running call adds nothing to the strip.
+When a read tool successfully opens a raster image from the workspace, a
+preview appears below its tool group on desktop, web, and mobile. Expand
+the turn to see the group. Select the preview to open the file at full size.
+The preview loads the current file from the session's host.
 
 The rule is in code at one place, `packages/client-core/src/tool-outputs.ts`
 (`TOOL_OUTPUT_PLACES`), shared by desktop, web, and mobile. A new output field
@@ -367,11 +349,11 @@ on a tool call's message must get a place there: the type check and
 
 | Output | Place | Why |
 | --- | --- | --- |
-| Images (`toolImages`): MCP image blocks, a `Read` of a picture, device screenshots, resource reads | Strip, as thumbnails | Rule 1 |
-| Browser capture (`browser_snapshot`) | Gallery, as its capture card | Rule 3 |
+| Images (`toolImages`): MCP image blocks, a `Read` of a picture, device screenshots, resource reads | Open tool details | Rule 1 |
+| Browser capture (`browser_snapshot`) | Gallery, as its capture card | Rule 2 |
 | Artifact preview screenshot (`render_artifact`) | Neither | The agent's own check; the artifact card shows the page |
-| Audio (`toolAudio`) | Strip | Rule 1 |
-| "Left out" notes (`toolLeftOut`) | Strip | Rule 1 |
+| Audio (`toolAudio`) | Strip on desktop and web, tool details on all clients | Rule 3 |
+| "Left out" notes (`toolLeftOut`) | Strip on desktop and web, tool details on all clients | Rule 3 |
 | Progress (`toolProgress`) | Neither | The running row's label and bar show it, and a live turn does not fold |
 | Error head (`errorHead`) | Neither | A failed row and a failed turn say so on their own line; the head is diagnosis |
 | The call's input (code in the open line) | Neither | It is the call, not an output |
@@ -381,9 +363,6 @@ on a tool call's message must get a place there: the type check and
 | MCP task rows, resource watch rows | Neither | Shown after the last turn |
 | Linked pull requests and files, changed files | Neither | Chips and the changes summary at the turn's end |
 | Sub-agent card, answered question, secret receipt | Neither | Steps of the work: the turn row counts them |
-
-Mobile shows the same strip under its "Worked" row and under each folded tool
-group. A thumbnail opens the native file viewer on the row's images.
 
 On desktop and web, more than one tool line of a group can be open at a time,
 as on mobile. The open lines are part of the conversation's view state, so they

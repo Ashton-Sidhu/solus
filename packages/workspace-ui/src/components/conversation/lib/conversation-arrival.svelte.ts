@@ -8,8 +8,17 @@ interface ConversationArrivalOptions {
   scroll: () => HTMLElement | null
   follower: () => ReturnType<typeof createEndFollow> | undefined
   openingSearch: () => boolean
+  /** A read still on its way whose answer adds rows, such as the turn
+   *  snapshots that draw each turn's changes card. */
+  pendingRowData: () => Promise<unknown> | undefined
+  hasOlderHistory: () => boolean
+  loadOlderHistory: () => Promise<void>
   onSettled: () => void
 }
+
+/** The longest the rows stay hidden for row data. A slow host must not hold
+ *  the conversation: its rows then show, and the data moves them when it lands. */
+const ROW_DATA_WAIT_MS = 300
 
 /** Owns the visible view's arrival, not the session's history request. */
 export class ConversationArrival {
@@ -30,6 +39,24 @@ export class ConversationArrival {
       if (cancelled) return
       const element = this.options.scroll()
       if (!element) return
+      // A card that mounts after the rows show grows its turn and pushes the
+      // reader away from the place settled below. Let the data land first.
+      const rowData = this.options.pendingRowData()
+      if (rowData) {
+        await Promise.race([rowData.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, ROW_DATA_WAIT_MS))])
+        await tick()
+        if (cancelled) return
+      }
+      // A first page shorter than the view reads older pages now, while the
+      // rows are hidden. Read after they show, each page lands above the
+      // reader and the view snaps down to the end.
+      while (element.clientHeight > 0 && element.scrollHeight <= element.clientHeight && this.options.hasOlderHistory()) {
+        const height = element.scrollHeight
+        const loaded = await this.options.loadOlderHistory().then(() => true, () => false)
+        await tick()
+        if (cancelled) return
+        if (!loaded || element.scrollHeight <= height) break
+      }
       const { virtualizer } = viewState
       let target: (() => number | undefined) | undefined
       if (this.options.openingSearch()) {

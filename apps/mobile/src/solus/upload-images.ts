@@ -1,3 +1,4 @@
+import { uploadAttachmentId } from "./upload-attachment-id";
 import type {
   ChatAttachment,
   ChatFileAttachment,
@@ -56,18 +57,22 @@ export function isUploadVideo(a: ChatAttachment): a is UploadVideo {
   return a.type === "file" && "videoPreview" in a;
 }
 
-export function messageMediaAttachments(
+export function messageAttachments(
+  sessionId: string,
   attachments: readonly MessageAttachment[],
   resolvePath: (path: string, refresh?: boolean) => Promise<string>,
-): (UploadImage | UploadVideo)[] {
-  return attachments.flatMap((a, index): (UploadImage | UploadVideo)[] => {
+): (UploadImage | UploadVideo | ChatFileAttachment)[] {
+  return attachments.flatMap((a, index): (UploadImage | UploadVideo | ChatFileAttachment)[] => {
     if (a.kind === "local-video" || (a.kind === "file" && a.video)) {
       return [{ type: "file", id: a.key, name: a.name, sizeBytes: 0,
         mimeType: videoMimeType(a) ?? "video/mp4",
         videoPreview: a.kind === "local-video" ? { uri: a.uri } : { resolveUrl: refresh => resolvePath(a.hostPath, refresh) },
       }];
     }
-    if (a.kind === "file") return [];
+    if (a.kind === "file") return [{
+      type: "file", id: uploadAttachmentId(sessionId,a.hostPath), name:a.name,
+      mimeType:a.mimeType ?? "application/octet-stream", sizeBytes:0,
+    }];
     const uri = a.kind === "image" ? a.dataUrl : a.kind === "local-image" ? a.uri : null;
     const preview =
       a.kind === "host-image"
@@ -101,14 +106,15 @@ export function uploadImagePreview(
 }
 
 export function composerUploadMedia(
+  sessionId: string,
   ready: readonly UploadedAttachment[],
   waiting: readonly DraftComposerImageAttachment[],
   waitingVideos: readonly DraftComposerFileAttachment[],
 ): DraftComposerAttachment[] {
   return [
     ...ready.flatMap((a): DraftComposerAttachment[] => {
-      if (a.kind === "file" && a.localUri && videoMimeType(a)) {
-        return [{ type: "file", id: a.id, name: a.name, mimeType: a.mimeType, sizeBytes: a.size, fileUri: a.localUri }];
+      if (a.kind === "file" && a.localUri) {
+        return [{ type: "file", id: a.id, name: a.name, mimeType: a.mimeType, sizeBytes: a.size, fileUri: a.localUri, uploadedAttachmentId:uploadAttachmentId(sessionId, a.hostPath) }];
       }
       const previewUri = a.localUri ?? a.dataUrl;
       if (a.kind !== "image" || !previewUri) return [];

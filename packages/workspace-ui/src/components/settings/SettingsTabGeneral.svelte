@@ -4,9 +4,7 @@
   import { generalSettings as settingItems } from "./lib/settings-search-data";
   import { Skeleton } from "../ui/skeleton";
   import { untrack } from "svelte";
-  import { MAX_SIDEBAR_MOTION_MS } from "@solus/contracts/settings";
   import type { HostApi } from "@solus/client-core/host-api";
-  import { Input } from "../ui/input";
   import {
     Folder as FolderIcon,
     ChevronRight as CaretRightIcon,
@@ -117,17 +115,6 @@
     });
   }
 
-  /** One press of the stepper: fine enough to tune by feel, coarse enough that
-   *  the full range is a couple of dozen presses. */
-  const SIDEBAR_MOTION_STEP_MS = 25;
-
-  /** The settings context clamps the value; a field left empty keeps the
-   *  current one rather than turning the motion off. */
-  function commitSidebarMotionMs(value: number) {
-    if (!Number.isFinite(value)) return;
-    theme.setPersonal("sidebarMotionMs", value);
-  }
-
   const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
   const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)));
@@ -135,53 +122,8 @@
 
 <SettingsSection
   {...settingsDefinitions["general.section-workspace"]}
-  visible={isVisible("sidebar-motion") || isVisible("projects-base") || isVisible("text-generation-model")}
+  visible={isVisible("projects-base") || isVisible("text-generation-model")}
 >
-  <SettingsRow
-    {...settingsDefinitions["general.sidebar-motion"]}
-    visible={isVisible("sidebar-motion")}
-  >
-    {#snippet control()}
-      <div
-        class="flex h-7 items-center overflow-hidden rounded-md border border-input bg-white shadow-xs/5 dark:bg-input/30"
-      >
-        <button
-          type="button"
-          onclick={() =>
-            commitSidebarMotionMs(theme.sidebarMotionMs - SIDEBAR_MOTION_STEP_MS)}
-          aria-label="Shorten sidebar animation"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >&minus;</button
-        >
-        <Input
-          type="number"
-          min={0}
-          max={MAX_SIDEBAR_MOTION_MS}
-          step={SIDEBAR_MOTION_STEP_MS}
-          value={String(theme.sidebarMotionMs)}
-          aria-label="Sidebar animation in milliseconds"
-          onchange={(event) => {
-            commitSidebarMotionMs(
-              Number((event.target as HTMLInputElement).value),
-            );
-            (event.target as HTMLInputElement).value = String(
-              theme.sidebarMotionMs,
-            );
-          }}
-          class="h-auto w-10 rounded-none border-0 bg-transparent p-0 text-center text-xs font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        />
-        <span class="mr-1 text-xs text-(--solus-text-tertiary)">ms</span>
-        <button
-          type="button"
-          onclick={() =>
-            commitSidebarMotionMs(theme.sidebarMotionMs + SIDEBAR_MOTION_STEP_MS)}
-          aria-label="Lengthen sidebar animation"
-          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >+</button
-        >
-      </div>
-    {/snippet}
-  </SettingsRow>
   <SettingsRow
     {...settingsDefinitions["general.projects-base"]}
     visible={isVisible("projects-base")}

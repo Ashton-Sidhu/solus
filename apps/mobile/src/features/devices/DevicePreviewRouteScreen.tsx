@@ -8,7 +8,7 @@ import { useDeviceControlRenewal } from "../../solus/devices/useDeviceControlRen
 import { useIsFocused, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { msg, useGT } from "gt-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as Haptics from "expo-haptics";
 import { Accelerometer } from "expo-sensors";
 import { Pressable, View } from "react-native";
@@ -100,7 +100,7 @@ export function DevicePreviewScreen({
   const streamRef = useRef<DeviceStreamRef>(null);
   const state = useListened(solus.devices.changes, () => solus.devices.stateOf(environmentId));
   const error = useListened(solus.devices.changes, () => solus.devices.errorOf(environmentId));
-  const previews = threadDevicePreviews(state, threadId);
+  const previews = useMemo(() => threadDevicePreviews(state, threadId), [state, threadId]);
   const preview = selectedThreadDevicePreview(previews, selectedKey ?? undefined);
   const target = preview?.preview;
   const held = useListened(

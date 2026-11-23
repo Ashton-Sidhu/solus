@@ -12,11 +12,11 @@ import {
 } from "@solus-mobile/features/conversation/lib/run-settings";
 import { RATE_LIMIT_CHOICES } from "./settings-labels";
 import { InstructionSettings } from "./SettingsPages";
-import { solus, useSolusDirectory } from "./runtime";
+import { solus, useSolusWorkspace } from "./runtime";
 
 export function SolusHosts() {
   const navigation = useNavigation();
-  const { environments } = useSolusDirectory();
+  const { environments } = useSolusWorkspace();
   return (
     <SettingsScreen title="Environments">
       <ScreenScrollView

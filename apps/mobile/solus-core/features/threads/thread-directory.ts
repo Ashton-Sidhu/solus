@@ -53,6 +53,7 @@ export interface SessionRowChange {
 }
 
 export interface HostThreads {
+  readonly revision?: string
   readonly threads: readonly SolusThreadShell[]
   /** The most recently active sessions out of this person's list (archived,
    *  or idle): search finds them and a thread screen opens one, but the list
@@ -92,9 +93,13 @@ export class ThreadDirectory {
   readonly changes = new Listeners()
   private readonly hosts = new Map<string, HostThreadsState>()
   private readonly requests = new Map<string, number>()
+  private readonly directoryWrites = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly retries = new Map<string, ReturnType<typeof setTimeout>>()
   /** The pins of each host's last whole read; a sessions-only read keeps them. */
   private readonly pins = new Map<string, readonly PinnedSession[]>()
+  private readonly positions = new Map<string, Map<string, number>>()
+  private lastReplacement?: { previous: readonly SolusThreadShell[]; positions: number[] }
+  private visiblePositions = new Map<string, number>()
   private nextRequest = 0
   private organizationId: string | null = null
   /** A stable snapshot, replaced only when a host's state changes. */
@@ -154,6 +159,16 @@ export class ThreadDirectory {
   threads = (): readonly SolusThreadShell[] => this.merged.threads
 
   /** Every readable host's recent sessions out of the list, newest activity first. */
+  changedPositions(previous: readonly SolusThreadShell[], previousFactsKeys: readonly string[]): number[] | undefined {
+    if (previous !== this.merged.threads && previous !== this.lastReplacement?.previous) return undefined
+    const positions = previous === this.merged.threads ? [] : [...this.lastReplacement!.positions]
+    for (const key of previousFactsKeys) {
+      const index = this.visiblePositions.get(key)
+      if (index !== undefined) positions.push(index)
+    }
+    return positions
+  }
+
   unlistedThreads = (): readonly SolusThreadShell[] => this.merged.unlisted
 
   projects = (): readonly SolusProjectShell[] => this.merged.projects
@@ -178,7 +193,8 @@ export class ThreadDirectory {
     const state = this.stateOf(hostId)
     const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
     const key = threadKey(hostId, sessionId)
-    return value?.threads.find((thread) => thread.key === key)
+    const position = this.positions.get(hostId)?.get(sessionId)
+    return (position === undefined ? undefined : value?.threads[position])
       ?? value?.unlisted?.find((thread) => thread.key === key)
       ?? this.children.get(key)
       ?? this.openedSearchResults.get(key)
@@ -227,7 +243,8 @@ export class ThreadDirectory {
       && this.connectionFor(hostId) === connection
       && connection.state.sessionGeneration === generation
     try {
-      const listRead = connection.api.sessionRecordList({ includeWorktrees: true })
+      const knownRevision = previous?.revision && (!previous.threads.length || previous.threads[0]?.hostLabel === host.label) ? previous.revision : undefined
+      const listRead = connection.api.sessionRecordList({ includeWorktrees: true, ...(knownRevision && { knownRevision }) })
       const details = Promise.all([
         connection.api.sessionRecordList({ includeWorktrees: true, scope: 'all', limit: UNLISTED_LIMIT }),
         this.readProjectsAndPins(hostId, connection, scope === 'sessions' && previous !== null),
@@ -235,13 +252,16 @@ export class ThreadDirectory {
       void details.catch(() => {}) // The list and its secondary reads can fail independently.
       const list = await listRead
       if (!isCurrent()) return
-      const previousShells = new Map(previous?.threads.map(thread => [thread.record.sessionId, thread]))
+      const previousPositions = this.positions.get(hostId)
       const shell = (record: SessionRecord): SolusThreadShell => {
-        const held = previousShells.get(record.sessionId)
+        const position = previousPositions?.get(record.sessionId)
+        const held = position === undefined ? undefined : previous?.threads[position]
         if (held?.hostLabel === host.label && keepEqual(record, held.record) === held.record) return held
         return { key: threadKey(hostId, record.sessionId), hostId, hostLabel: host.label, record }
       }
-      const shells = list.records.map(shell)
+      const confirmed = list.unchanged && previous && knownRevision && list.revision === knownRevision
+      const shells = confirmed ? previous.threads : list.records.map(shell)
+      const indexing = confirmed ? previous.indexing : list.indexing
       // On a cold open the visible rows can paint while projects, archived rows and pins arrive.
       if (shells.length && !previous?.threads.length) {
         this.set(hostId, { kind: 'loading', previous: {
@@ -251,9 +271,9 @@ export class ThreadDirectory {
       const [unlisted, listed] = await details
       const { projects, pins } = listed
       readPins = listed.readPins
-      const knownSessions = new Set([...list.records, ...unlisted.records].map((record) => record.sessionId))
+      const knownSessions = pins.length ? new Set([...shells.map(thread => thread.record.sessionId), ...unlisted.records.map(record => record.sessionId)]) : null
       // A pin must remain available even after its record leaves recent history.
-      const missingPins = await Promise.all(pins.filter((pin) => !knownSessions.has(pin.sessionId))
+      const missingPins = await Promise.all(pins.filter((pin) => !knownSessions?.has(pin.sessionId))
         .map((pin) => connection.api.sessionRecordGet(pin.sessionId).catch(() => null)))
       const pinnedRecords = missingPins.filter((record): record is SessionRecord => record !== null)
       // An unchanged project keeps its object, so a reader of projects alone sees no change.
@@ -270,7 +290,8 @@ export class ThreadDirectory {
           threads: shells,
           unlisted: [...unlisted.records.filter((record) => record.listed === false), ...pinnedRecords].map(shell),
           projects: previous && sameItems(projectShells, previous.projects) ? previous.projects : projectShells,
-          indexing: list.indexing,
+          indexing,
+          revision: list.revision,
         },
       }
     } catch (error) {
@@ -314,24 +335,57 @@ export class ThreadDirectory {
     const state = this.stateOf(hostId)
     const missing = new Set(changes.keys())
     if (!changes.size || state.kind !== 'loaded') return [...missing]
-    let changed = false
-    const threads = state.value.threads.map(thread => {
+    const positions = this.positions.get(hostId)
+    let threads: SolusThreadShell[] | undefined
+    let orderChanged = false
+    const replaced: SolusThreadShell[] = []
+    for (const [id, delta] of changes) {
+      const index = positions?.get(id)
+      if (index === undefined) continue
+      missing.delete(id)
+      const thread = state.value.threads[index]!
       const record = thread.record
-      const delta = changes.get(record.sessionId)
-      if (!delta) return thread
-      missing.delete(record.sessionId)
       const customTitle = delta.title !== undefined ? delta.title : record.customTitle
       const status = delta.status ? sessionRecordStatusOf(delta.status.status) : record.status
       const lastActivityAt = Math.max(record.lastActivityAt, delta.status?.at ?? record.lastActivityAt)
-      if (customTitle === record.customTitle && status === record.status && lastActivityAt === record.lastActivityAt) return thread
-      changed = true
-      return { ...thread, record: { ...record, customTitle, status, lastActivityAt } }
-    })
-    if (changed) {
-      threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
-      const value = { ...state.value, threads }
-      this.set(hostId, { kind: 'loaded', value })
-      void this.cache?.forHost(hostId).saveDirectory(value)
+      if (customTitle === record.customTitle && status === record.status && lastActivityAt === record.lastActivityAt) continue
+      if (!orderChanged && lastActivityAt !== record.lastActivityAt) {
+        // Activity only moves forward. A row below both preceding rows keeps
+        // its place in both lists. Recheck equal times to preserve tie order.
+        const visible = this.visiblePositions.get(thread.key)
+        const hostBefore = state.value.threads[index - 1]
+        const visibleBefore = visible === undefined ? undefined : this.merged.threads[visible - 1]
+        orderChanged = visible === undefined || lastActivityAt >= (hostBefore?.record.lastActivityAt ?? Infinity)
+          || lastActivityAt >= (visibleBefore?.record.lastActivityAt ?? Infinity)
+      }
+      threads ??= state.value.threads.slice()
+      const next = { ...thread, record: { ...record, customTitle, status, lastActivityAt } }
+      threads[index] = next
+      replaced.push(next)
+    }
+    if (threads) {
+      const value = { ...state.value, revision: undefined, threads }
+      if (orderChanged) {
+        threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
+        this.set(hostId, { kind: 'loaded', value })
+      } else {
+        this.hosts.set(hostId, { kind: 'loaded', value })
+        const positions: number[] = []
+        let visible: SolusThreadShell[] | undefined
+        for (const row of replaced) {
+          const index = this.visiblePositions.get(row.key)
+          if (index === undefined) continue
+          visible ??= this.merged.threads.slice()
+          visible[index] = row
+          positions.push(index)
+        }
+        if (visible) {
+          this.lastReplacement = { previous: this.merged.threads, positions }
+          this.merged = { ...this.merged, threads: visible }
+        }
+        this.changes.notify()
+      }
+      this.scheduleDirectorySave(hostId)
     }
     return [...missing]
   }
@@ -368,9 +422,9 @@ export class ThreadDirectory {
     unlisted.sort(newest)
     this.children = children
     const pinned = new Set(this.pins.get(hostId)?.map(pin => pin.sessionId))
-    const next = { ...value, threads: listed, unlisted: unlisted.filter((thread, index) => index < UNLISTED_LIMIT || pinned.has(thread.record.sessionId)) }
+    const next = { ...value, revision: undefined, threads: listed, unlisted: unlisted.filter((thread, index) => index < UNLISTED_LIMIT || pinned.has(thread.record.sessionId)) }
     this.set(hostId, { kind: 'loaded', value: next })
-    void this.cache?.forHost(hostId).saveDirectory(next)
+    this.scheduleDirectorySave(hostId)
     const shared = this.shareArrivals.take(hostId, listed.map(thread => thread.record))
       .map(record => listed.find(thread => thread.record === record)!)
     if (shared.length) for (const listener of this.shareListeners) listener(shared)
@@ -409,12 +463,27 @@ export class ThreadDirectory {
   /** The child sessions read so far, replaced on each read. */
   childThreads = (): ReadonlyMap<string, SolusThreadShell> => this.children
 
+  /** Save the newest directory once after a burst of row events. A full read
+   * writes immediately; a removed host or a changed account cancels this write. */
+  private scheduleDirectorySave(hostId: string): void {
+    if (!this.cache || this.directoryWrites.has(hostId)) return
+    const disk = this.cache.forHost(hostId)
+    this.directoryWrites.set(hostId, setTimeout(() => {
+      this.directoryWrites.delete(hostId)
+      const state = this.stateOf(hostId)
+      if (state.kind === 'loaded') void disk.saveDirectory(state.value)
+    }, 500))
+  }
+
   forgetHost(hostId: string): void {
     clearTimeout(this.retries.get(hostId))
     this.retries.delete(hostId)
     this.denied.delete(hostId)
     this.requests.delete(hostId)
+    clearTimeout(this.directoryWrites.get(hostId))
+    this.directoryWrites.delete(hostId)
     this.hosts.delete(hostId)
+    this.positions.delete(hostId)
     this.pins.delete(hostId)
     this.shareArrivals.forget(hostId)
     this.children = new Map([...this.children].filter(([, child]) => child.hostId !== hostId))
@@ -423,7 +492,15 @@ export class ThreadDirectory {
   }
 
   private set(hostId: string, state: HostThreadsState): void {
+    const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
+    const prior = this.stateOf(hostId)
+    const previous = prior.kind === 'loaded' ? prior.value : prior.kind === 'idle' ? null : prior.previous
     this.hosts.set(hostId, state)
+    if (previous === value) {
+      this.changes.notify()
+      return
+    }
+    if (previous?.threads !== value?.threads) this.positions.set(hostId, new Map(value?.threads.map((row, index) => [row.record.sessionId, index])))
     this.remerge()
   }
 
@@ -454,8 +531,13 @@ export class ThreadDirectory {
     const held = this.merged
     const shownThreads = this.oneRowPerSession(threads, held.threads)
     const shownUnlisted = this.oneRowPerSession(unlisted, held.unlisted)
+    this.lastReplacement = undefined
+    const sameThreads = sameItems(shownThreads, held.threads)
+    if (!sameThreads) {
+      this.visiblePositions = new Map(shownThreads.map((row, index) => [row.key, index]))
+    }
     this.merged = {
-      threads: sameItems(shownThreads, held.threads) ? held.threads : shownThreads,
+      threads: sameThreads ? held.threads : shownThreads,
       unlisted: sameItems(shownUnlisted, held.unlisted) ? held.unlisted : shownUnlisted,
       projects: sameItems(projects, held.projects) ? held.projects : projects,
     }

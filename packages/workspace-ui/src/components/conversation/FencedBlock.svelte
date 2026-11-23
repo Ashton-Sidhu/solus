@@ -3,6 +3,7 @@
   import { INLINE_REVIEW_FENCE, parseInlineReviewGuide } from "@solus/contracts/inline-review-guide";
   import { getTurnDiffReader } from "./lib/inline-review-context";
   import CodeBlock from "../ui/CodeBlock.svelte";
+  import SandboxFrame from "../artifact/SandboxFrame.svelte";
   import HtmlBlock from "./HtmlBlock.svelte";
   import ConversationArtifact from "./ConversationArtifact.svelte";
   import { fenceArtifactIdentity } from "./lib/artifact-revisions";
@@ -34,7 +35,7 @@
 
   let { text, lang, raw }: Props = $props();
 
-  const read = getTurnDiffReader();
+  const getReader = getTurnDiffReader();
   const guide = $derived(lang === INLINE_REVIEW_FENCE && fenceIsSettled(raw) ? parseInlineReviewGuide(text) : null);
   const language = $derived(fenceLanguage(lang));
   const artifactRevisions = getArtifactRevisions();
@@ -59,9 +60,15 @@
 </script>
 
 {#if guide}
-  {#await import("./InlineReviewGuide.svelte") then module}
-    <module.default draft={guide} {read} />
-  {/await}
+  <!-- Reserve the guide's viewport before the lazy renderer loads so opening
+       the transcript can measure its end on the first layout. -->
+  <SandboxFrame>
+    <div class="not-prose flex h-[min(70vh,52rem)] w-full min-w-0 flex-col overflow-hidden [.artifact-frame.expanded_&]:h-full">
+      {#await import("./InlineReviewGuide.svelte") then module}
+        <module.default draft={guide} read={getReader?.()} />
+      {/await}
+    </div>
+  </SandboxFrame>
 {:else if mode === "block"}
   {#if revisions && revision}
     <ConversationArtifact {revisions} {revision} />

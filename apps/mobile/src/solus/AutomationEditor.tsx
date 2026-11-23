@@ -1,3 +1,7 @@
+import {
+  WeeklyScheduleFields,
+  OnceScheduleFields,
+} from "../features/settings/components/ScheduledTaskTimeFields";
 import { useAtomValue } from "@effect/atom-react";
 import { appAtomRegistry } from "../state/atom-registry";
 import { automationModelDraft } from "./AutomationModelPicker";
@@ -8,21 +12,22 @@ import { useVoiceInputController } from "../features/voice-input/useVoiceInputCo
 import { useRoute } from "@react-navigation/native";
 import { newSessionModel, selectModel } from "@solus-mobile/features/conversation/lib/run-settings";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, View, Platform } from "react-native";
+import { Alert, View } from "react-native";
 import { useNavigation, useFocusEffect, usePreventRemove } from "@react-navigation/native";
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { Automation, AutomationTrigger, AgentId } from "@solus/contracts/types";
 import { resourceAllows } from "@solus/contracts/permissions";
 import { modelChoices } from "@solus-mobile/features/conversation/lib/run-settings";
-import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { SettingsSection } from "../features/settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitchRow";
 import { FormField, SelectRow } from "../features/settings/components/ScheduledTaskFields";
 import { useSolusSettingsFilter } from "../features/settings/settings-environment-filter";
-import { SettingsPage } from "./SettingsPages";
+import {
+  ScheduledTaskDetails,
+  ScheduledTaskEditor,
+} from "../features/settings/components/ScheduledTaskEditor";
 import { useSettingsAction } from "./SettingsFeedback";
-import { solus, useSolusDirectory } from "./runtime";
+import { solus, useSolusWorkspace } from "./runtime";
 import { automationEditPatch, editedTrigger, weeklySchedule } from "./automation-settings";
 
 export function TaskEditor({
@@ -34,7 +39,7 @@ export function TaskEditor({
 }) {
   const [task] = useState(openedTask);
   const nav = useNavigation(),
-    directory = useSolusDirectory();
+    directory = useSolusWorkspace();
   const { scopedTargets, selectedProjects } = useSolusSettingsFilter();
   const [host, setHost] = useState(environmentId);
   const projects = directory.projects.filter((p) => p.environmentId === host);
@@ -51,6 +56,15 @@ export function TaskEditor({
   const [model, setModel] = useState(
     task ? (task.action.modelId ?? "") : (solus.personal.current().defaultModels[provider] ?? ""),
   );
+  const [reasoningEffort, setReasoningEffort] = useState(
+    () =>
+      task?.action.reasoningEffort ??
+      (model
+        ? selectModel(provider, model, solus.personal.runSettings())
+        : newSessionModel(provider, solus.personal.runSettings(), undefined, false)
+      ).reasoningEffort,
+  );
+  const [fastMode, setFastMode] = useState(task?.action.fastMode ?? false);
   const [enabled, setEnabled] = useState(task?.enabled ?? true),
     [worktree, setWorktree] = useState(task?.action.useWorktree ?? false);
   const [mode, setMode] = useState<AutomationTrigger["type"]>(task?.trigger.type ?? "cron");
@@ -72,8 +86,6 @@ export function TaskEditor({
     task?.trigger.type === "cron" && !weeklySchedule(task.trigger.expr),
   );
   const weekly = weeklySchedule(cron);
-  const [clockOpen, setClockOpen] = useState(false);
-  const [picker, setPicker] = useState<"date" | "time" | null>(null);
   const [dirty, setDirty] = useState(false),
     saved = useRef(false);
   const { busy, run } = useSettingsAction();
@@ -119,16 +131,20 @@ export function TaskEditor({
       if (
         picked.provider !== provider ||
         picked.model !== model ||
+        picked.reasoningEffort !== reasoningEffort ||
+        picked.fastMode !== fastMode ||
         picked.prompt !== prompt ||
         picked.permissions !== permissions
       )
         setDirty(true);
       setProvider(picked.provider);
       setModel(picked.model);
+      setReasoningEffort(picked.reasoningEffort);
+      setFastMode(picked.fastMode);
       setPrompt(picked.prompt);
       setPermissions(picked.permissions);
       appAtomRegistry.set(modelAtom, null);
-    }, [modelAtom, picked, provider, model, prompt, permissions]),
+    }, [modelAtom, picked, provider, model, reasoningEffort, fastMode, prompt, permissions]),
   );
   useEffect(
     () => () => {
@@ -165,6 +181,8 @@ export function TaskEditor({
         prompt: prompt.trim(),
         agentProvider: provider,
         modelId: model || null,
+        reasoningEffort,
+        fastMode,
         cwd,
         useWorktree: worktree,
       };
@@ -189,13 +207,7 @@ export function TaskEditor({
       } else
         await api.automationCreate(
           title.trim(),
-          {
-            ...action,
-            reasoningEffort: (model
-              ? selectModel(provider, model, solus.personal.runSettings())
-              : newSessionModel(provider, solus.personal.runSettings())
-            ).reasoningEffort,
-          },
+          { ...action, fastMode: fastMode || undefined },
           enabled,
           trigger,
           {
@@ -207,65 +219,47 @@ export function TaskEditor({
       nav.goBack();
     });
   return (
-    <SettingsPage title={task ? "Edit scheduled task" : "New scheduled task"} guardBack={dirty}>
-      <SettingsSection title="Task">
-        <FormField label="Name" value={title} onChange={change(setTitle)} />
-        <ScheduledTaskPromptField
-          value={prompt}
-          onChange={change(setPrompt)}
-          selection={selection}
-          onChangeSelection={setSelection}
-          disabled={busy}
-          voiceInput={voiceInput}
-        />
-        <SettingsSwitchRow label="Enabled" value={enabled} onValueChange={change(setEnabled)} />
-      </SettingsSection>
-      <SettingsSection title="Environment">
-        <SelectRow
-          label="Environment"
-          value={directory.hostsById[host]?.environmentLabel ?? host}
-          actions={
-            task
-              ? []
-              : scopedTargets.map((h) => ({
-                  id: h.environmentId,
-                  title: h.environmentLabel,
-                }))
-          }
-          onSelect={(id) => {
+    <ScheduledTaskEditor
+      title={task ? "Edit scheduled task" : "New scheduled task"}
+      guardBack={dirty}
+    >
+      <ScheduledTaskDetails
+        host={{
+          value: directory.hostsById[host]?.environmentLabel ?? host,
+          actions: task
+            ? []
+            : scopedTargets.map((h) => ({
+                id: h.environmentId,
+                title: h.environmentLabel,
+              })),
+          onSelect: (id) => {
             const h = scopedTargets.find((h) => h.environmentId === id);
             if (h) {
               change(setHost)(h.environmentId);
               setCwd(defaultCwd(id));
             }
-          }}
-        />
-        <SelectRow
-          label="Project"
-          value={projects.find((p) => p.workspaceRoot === cwd)?.title ?? cwd}
-          actions={projects.map((p) => ({
+          },
+        }}
+        name={{ value: title, onChange: change(setTitle), disabled: busy }}
+        project={{
+          value: projects.find((p) => p.workspaceRoot === cwd)?.title ?? cwd,
+          actions: projects.map((p) => ({
             id: p.workspaceRoot,
             title: p.title,
-          }))}
-          onSelect={change(setCwd)}
-        />
-        <SettingsSwitchRow
-          label="Run in a new worktree"
-          value={worktree}
-          onValueChange={change(setWorktree)}
-        />
-      </SettingsSection>
-      <SettingsSection title="Model">
-        <SettingsRow
-          icon="person.crop.circle"
-          label="Model"
-          value={modelItems.find((m) => m.id === model)?.label ?? model}
-          onPress={() => {
+          })),
+          onSelect: change(setCwd),
+        }}
+        model={{
+          value: modelItems.find((m) => m.id === model)?.label ?? model,
+          onPress: () => {
             appAtomRegistry.set(modelAtom, {
               host,
               cwd,
+              organizationId: task?.organizationId ?? solus.account.organizationId,
               provider,
               model,
+              reasoningEffort,
+              fastMode,
               prompt,
               permissions,
               changed: false,
@@ -273,7 +267,26 @@ export function TaskEditor({
             nav.navigate("SettingsScheduledTaskModel", {
               editorKey: route.key,
             });
-          }}
+          },
+          disabled: busy || voiceInput.blocksSubmission,
+        }}
+        prompt={
+          <ScheduledTaskPromptField
+            value={prompt}
+            onChange={change(setPrompt)}
+            selection={selection}
+            onChangeSelection={setSelection}
+            disabled={busy}
+            voiceInput={voiceInput}
+          />
+        }
+      />
+      <SettingsSection>
+        <SettingsSwitchRow label="Enabled" value={enabled} onValueChange={change(setEnabled)} />
+        <SettingsSwitchRow
+          label="Run in a new worktree"
+          value={worktree}
+          onValueChange={change(setWorktree)}
         />
       </SettingsSection>
       <SettingsSection title="Schedule">
@@ -315,107 +328,36 @@ export function TaskEditor({
               }}
             />
             {!customCron && weekly ? (
-              <>
-                <SettingsRow
-                  icon="clock"
-                  label="Time"
-                  value={
-                    String(weekly.hour).padStart(2, "0") +
-                    ":" +
-                    String(weekly.minute).padStart(2, "0")
-                  }
-                  onPress={() => setClockOpen(!clockOpen)}
-                />
-                {clockOpen && (
-                  <DateTimePicker
-                    value={new Date(2024, 0, 1, weekly.hour, weekly.minute)}
-                    mode="time"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onDismiss={() => setClockOpen(false)}
-                    onValueChange={(_, d) => {
-                      change(setCron)(d.getMinutes() + " " + d.getHours() + " * * " + weekly.days);
-                      if (Platform.OS !== "ios") setClockOpen(false);
-                    }}
-                  />
-                )}
-                <SelectRow
-                  label="Repeat"
-                  value={
-                    weekly.days === "0,1,2,3,4,5,6"
-                      ? "Every day"
-                      : weekly.days === "1,2,3,4,5"
-                        ? "Weekdays"
-                        : weekly.days
-                            .split(",")
-                            .map(
-                              (d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][Number(d)],
-                            )
-                            .join(", ")
-                  }
-                  actions={[
-                    { id: "all", title: "Every day" },
-                    { id: "weekdays", title: "Weekdays" },
-                    ...[
-                      "Sunday",
-                      "Monday",
-                      "Tuesday",
-                      "Wednesday",
-                      "Thursday",
-                      "Friday",
-                      "Saturday",
-                    ].map((title, i) => ({
-                      id: String(i),
-                      title,
-                      state: weekly.days.split(",").includes(String(i))
-                        ? ("on" as const)
-                        : ("off" as const),
-                    })),
-                  ]}
-                  onSelect={(id) => {
-                    const days = new Set(weekly.days.split(","));
-                    if (days.has(id)) days.delete(id);
-                    else days.add(id);
-                    if (!days.size) return;
-                    const field =
-                      id === "all" ? "*" : id === "weekdays" ? "1-5" : [...days].sort().join(",");
-                    change(setCron)(weekly.minute + " " + weekly.hour + " * * " + field);
-                  }}
-                />
-              </>
+              <WeeklyScheduleFields
+                runAtZone={zone}
+                timeOfDay={
+                  String(weekly.hour).padStart(2, "0") +
+                  ":" +
+                  String(weekly.minute).padStart(2, "0")
+                }
+                weekdays={weekly.days.split(",").map(Number)}
+                onTimeChange={(time) => {
+                  const [hour, minute] = time.split(":").map(Number);
+                  change(setCron)(minute + " " + hour + " * * " + weekly.days);
+                }}
+                onDaysChange={(days) => {
+                  if (days.length)
+                    change(setCron)(
+                      weekly.minute +
+                        " " +
+                        weekly.hour +
+                        " * * " +
+                        days.sort((a, b) => a - b).join(","),
+                    );
+                }}
+              />
             ) : (
               <FormField label="Cron schedule" value={cron} onChange={change(setCron)} />
             )}
             <FormField label="Time zone" value={zone} onChange={change(setZone)} />
           </>
         )}
-        {mode === "once" && (
-          <>
-            <SettingsRow
-              label="Date"
-              icon="clock"
-              value={once.toLocaleDateString()}
-              onPress={() => setPicker("date")}
-            />
-            <SettingsRow
-              label="Time"
-              icon="clock"
-              value={once.toLocaleTimeString()}
-              onPress={() => setPicker("time")}
-            />
-            {picker && (
-              <DateTimePicker
-                mode={picker}
-                value={once}
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                onDismiss={() => setPicker(null)}
-                onValueChange={(_, value) => {
-                  change(setOnce)(value);
-                  if (Platform.OS !== "ios") setPicker(null);
-                }}
-              />
-            )}
-          </>
-        )}
+        {mode === "once" && <OnceScheduleFields runAt={once} onChange={change(setOnce)} />}
       </SettingsSection>
       <Button
         label={busy ? "Saving…" : task ? "Save changes" : "Create scheduled task"}
@@ -424,6 +366,6 @@ export function TaskEditor({
         }
         onPress={() => void save()}
       />
-    </SettingsPage>
+    </ScheduledTaskEditor>
   );
 }

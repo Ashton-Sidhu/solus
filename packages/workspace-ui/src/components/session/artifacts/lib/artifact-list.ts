@@ -61,6 +61,28 @@ export function artifactTooltip(artifact: SessionArtifact): string {
   }
 }
 
+/** A heading longer than this is the document's first paragraph, not its title. */
+const PAGE_HEADING_MAX = 80
+
+export interface WorkPagePreview {
+  heading: string
+  paragraphs: string[]
+}
+
+/**
+ * A written work as a small picture of its page: its heading, then its
+ * paragraphs one by one. The preview (`workPreview`) is the start of the
+ * document with its markdown marks taken out, so a document that opens with
+ * its own title has that title as its first line. That line becomes the
+ * heading, never a repeat at the start of the text.
+ */
+export function workPagePreview(title: string, preview: string | undefined): WorkPagePreview {
+  const lines = (preview ?? '').split('\n').map((line) => line.trim()).filter(Boolean)
+  const first = lines[0]
+  if (first && first.length <= PAGE_HEADING_MAX) return { heading: first, paragraphs: lines.slice(1) }
+  return { heading: title, paragraphs: lines }
+}
+
 /** Where a pull request stands, as PR sync last saw it. Null before it answers. */
 export type PullRequestArtifactState = 'open' | 'draft' | 'merged' | 'closed' | 'missing'
 

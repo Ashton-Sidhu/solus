@@ -104,6 +104,15 @@ describe('the sidebar as one list', () => {
     expect(sidebarListOrderKey(idle)).not.toBe(sidebarListOrderKey(busy))
   })
 
+  test('a completed row stays in place when its tab opens or is replaced', () => {
+    const listed = row('session:finished', 'completed')
+    const before = sidebarListOrderKey(list({ completed: [listed] }))
+    for (const tabId of ['first-tab', 'replacement-tab']) {
+      const mounted = { ...listed, id: tabId, tabIds: [tabId] }
+      expect(sidebarListOrderKey(list({ completed: [mounted] }))).toBe(before)
+    }
+  })
+
   test('drafts lead, then the sessions, then each shelf under its header', () => {
     // WHY: tasks have no place in the sidebar. Every row is one session, and a
     // session linked to a task names it on a chip; there is no Tasks section.

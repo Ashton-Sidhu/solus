@@ -239,15 +239,22 @@ or a message, and do not call the scope a filter.
     sideways, and is the whole session's: a turn or a search does not narrow
     it. Its label folds it, as the cards' labels fold them, and its arrows
     page the row. Each item is a small picture over its name on one line, cut
-    with an ellipsis, and a short age ("10m"): a written work shows its title
-    and the start of its text (`preview`), an image shows itself, and an
-    artifact, an app, or a file shows its icon. A pin
+    with an ellipsis, and a short age ("10m"): a written work shows its
+    heading and the start of its text (`preview`), an artifact shows a still
+    of its render, an image shows itself, and an app or a file shows its icon.
+    A pin
     marks a pinned work. One model orders the row on every client
     (`packages/client-core/src/recent-artifacts.ts`).
     - The read gives each work its `pinned`, `updatedAt`, and `preview`
       (optional: an older host leaves them out, and the row orders by the
       link time alone). A client reads the list again on every `works.changed`
       for a work the list holds, so a pin or an edit moves the row.
+    - An artifact draws itself with script, so its text says nothing of what
+      it shows. The host that reads the list takes a still of each artifact
+      work in light and dark, once for each content, in the headless browser
+      (`data/works/artifact-stills.ts`), stores them as assets, and announces
+      the session when they are ready. The read gives them as `stills`; until
+      then, and on a host with no headless browser, the card shows the icon.
     - When an item was opened is kept on each device (`localStorage` on
       desktop and web, the app's key-value store on the phone), at most the
       newest 200 opens. Every open of a session's artifact on that device

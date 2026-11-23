@@ -61,8 +61,8 @@ Rules:
   then re-points its colour tokens (`headerOnDark` on `SidePanel`), so every
   control in the title bar reads light without a change to the control.
 - The mark is the sun of each scene. The glow and the orbit lines centre on it.
-  `SidePanel` puts the lockup one gap after the macOS window buttons, or at the
-  header's padding where there are none; `SidebarSky` computes the same point.
+  `SidePanel` puts the lockup beside the sidebar toggle. The header and
+  `SidebarSky` use the same position.
 - The sky is a band, not a tinted title bar. It keeps 0.75rem under the title
   bar row for itself (`SKY_HEADER_DROP_REM`): the sidebar's content starts that
   much lower.
@@ -85,9 +85,7 @@ Rules:
   lockup, so no star reads as punctuation.
 - The wordmark is set in Geist at medium weight, not in the interface font, so
   it does not change with the font setting. On dawn and day its ink is the
-  theme's text colour warmed with the colour of the mark, not plain text
-  colour. On macOS the lockup starts 1.25rem
-  after the window buttons.
+  theme's text colour warmed with the colour of the mark.
 
 ## Settings
 
@@ -119,20 +117,20 @@ Settings → Appearance → Sky has three controls:
   card. Settings at the foot of the column uses the same style.
 - When the sidebar collapses, the sidebar pane stops at the width of the
   places column, not at zero (`WorkspaceBody`). The column is the same
-  element in both states, and the content slides on the curve of the pane.
-  With no header or sky above them, the places slide up on the same curve
-  to sit just under the expand button, 3.25rem down the window. The slide
-  is a translate, so the list does not lay out again. The card of the sidebar fades out as it
+  element in both states. The header keeps its space as it fades, so the
+  place buttons stay at the same height when the sidebar opens or closes.
+  The card of the sidebar fades out as it
   collapses: no background, border, shadow, or sky stay, only the icons and
   the column's own hairline stay on the background of the pane. The hairline
   is the same divider as in the open sidebar: it fades in at the top and
   fades out the same distance above the foot of the column. The collapsed
   pane holds the whole card around the column, so the card does not clip
-  the hairline. After the collapse, the list and the title bar
-  controls are hidden, so Tab does not go to them. The expand button stays
-  where it was, beside the window buttons. Where there are no window
-  buttons (web, Windows, Linux), it takes the empty corner over the places
-  column.
+  the hairline. After the collapse, the list and sidebar header leave the Tab
+  order. One frame button toggles the sidebar in both states. It keeps the
+  same size and position, even while the sidebar moves. The toggle has a
+  transparent background and its icon is white over dusk or night. On macOS it sits
+  beside the window buttons. On web, Windows, and Linux it sits above the
+  places column.
 - A place button shows a review count as small muted numerals, as the saved
   sessions button does. A filled badge is for Notifications only.
 - A guest of a share link sees Search only, as before. Search was named

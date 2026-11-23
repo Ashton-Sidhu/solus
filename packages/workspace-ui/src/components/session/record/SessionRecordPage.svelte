@@ -33,7 +33,7 @@
   let record = $state<SessionRecordStore | null>(null);
   $effect(() => {
     // On the host that runs the session, watch it so each turn lands as it happens.
-    const current = new SessionRecordStore(workspace, params.serverId, params.sessionId, { watch: live === true });
+    const current = new SessionRecordStore(workspace, params.serverId, params.sessionId, { watch: live === true, viaParentId: params.viaParentId });
     record = current;
     return () => current.dispose();
   });
@@ -62,7 +62,7 @@
   // No chip until the record says which runner it waits on: "Read only" before then would be a guess.
   const showsRecordState = $derived(live !== true && live !== null && !loading);
   const liveServerId = $derived(
-    live !== undefined || !workspace.workspace ? null
+    params.viaParentId || live !== undefined || !workspace.workspace ? null
       : runnerServerId && hosts.hasExecution(runnerServerId) ? runnerServerId
       : hosts.hasExecution(params.serverId) ? params.serverId
       : null,

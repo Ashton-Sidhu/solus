@@ -2,6 +2,7 @@
   import { RefreshCw as ArrowsClockwiseIcon, TriangleAlert as TriangleAlertIcon } from "@lucide/svelte";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import type { LensTabState } from "./lib/lens-surface";
+  import { PAGE_PILL_GROUP } from "../../lib/page-chrome";
 
   /**
    * Which face of the change you are reading: Map · Guide · Lens · Diff.
@@ -64,11 +65,11 @@
   );
 </script>
 
-<!-- No track behind the group and no rule under it: the active tab's own wash is
-     the whole cue. A track would draw a second object into a band whose point is
-     that it holds still. -->
+<!-- The tabs share one pill, and the active tab's wash is the cue: the same
+     shape as the pull request's view tabs. `self-center` keeps the pill its own
+     height on the narrow rung, whose row stretches its children. -->
 <div
-  class="no-drag flex shrink-0 items-center gap-1"
+  class="{PAGE_PILL_GROUP} self-center"
   role="tablist"
   aria-label="Review views"
 >
@@ -81,8 +82,8 @@
       role="tab"
       aria-selected={isActive}
       title={tab.id === "guide" ? guideHint : tab.id === "lens" ? lensHint : undefined}
-      class="relative flex h-6.5 cursor-pointer items-center gap-1 rounded-full px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
-        ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
+      class="relative flex h-7 cursor-pointer items-center gap-1 rounded-full px-2.5 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area {isActive
+        ? 'bg-[var(--wash-2)] font-medium text-foreground'
         : isUnread
           ? 'bg-transparent font-medium text-(--success) hover:bg-[var(--wash-1)]'
           : 'bg-transparent font-normal text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground'}"

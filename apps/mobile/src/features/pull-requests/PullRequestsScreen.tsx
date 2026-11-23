@@ -151,7 +151,7 @@ export function PullRequestsScreen(
       environments
         .filter(
           (environment) =>
-            environment.connectionState === "connected" &&
+            environment.isEnabled &&
             (environmentId === null || environment.environmentId === environmentId) &&
             (!controls.projectEnvironmentId ||
               environment.environmentId === controls.projectEnvironmentId),

@@ -12,10 +12,13 @@ import { parseTaskKey, type TaskSource } from '@solus/contracts/task-sources'
 import type {
   TaskExternalIssue,
   TaskProviderData,
+  TaskProviderEvent,
   TaskReactionContent,
   TaskTemplate
 } from '@solus/contracts/task-data'
 import { githubRun, jiraTransport, taskAdapters } from './providers/registry'
+import { githubIssueDetails, readIssueNode } from './providers/github'
+import type { ProviderTaskDetails } from './providers/types'
 import { getTask } from './task'
 import type { RecordScope } from '../../admission/principal'
 import { emitChanged } from './task-store'
@@ -45,6 +48,12 @@ const eventSchema = z.object({
   assignee: z.object({ login: z.string().optional() }).nullish(),
   previousTitle: z.string().nullish(),
   currentTitle: z.string().nullish(),
+  milestoneTitle: z.string().nullish(),
+  commit: z.object({
+    abbreviatedOid: z.string(),
+    commitUrl: z.string(),
+    messageHeadline: z.string()
+  }).nullish(),
   source: z
     .object({
       __typename: z.string(),
@@ -83,7 +92,7 @@ const INSPECTION_QUERY = `query($id: ID!, $before: String) {
     id author { login } assignees(first: 100) { nodes { login avatarUrl } }
     reactionGroups { content viewerHasReacted users { totalCount } }
     comments(first: 100) { nodes { id reactionGroups { content viewerHasReacted users { totalCount } } } pageInfo { hasNextPage } }
-    timelineItems(last: 50, before: $before, itemTypes: [CLOSED_EVENT, REOPENED_EVENT, LABELED_EVENT, UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT, RENAMED_TITLE_EVENT, CROSS_REFERENCED_EVENT]) {
+    timelineItems(last: 50, before: $before, itemTypes: [CLOSED_EVENT, REOPENED_EVENT, LABELED_EVENT, UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT, RENAMED_TITLE_EVENT, CROSS_REFERENCED_EVENT, REFERENCED_EVENT, MILESTONED_EVENT, DEMILESTONED_EVENT, LOCKED_EVENT, UNLOCKED_EVENT]) {
       pageInfo { hasPreviousPage startCursor }
       nodes {
         __typename
@@ -94,9 +103,16 @@ const INSPECTION_QUERY = `query($id: ID!, $before: String) {
         ... on AssignedEvent { id createdAt actor { login } assignee { ... on User { login } } }
         ... on UnassignedEvent { id createdAt actor { login } assignee { ... on User { login } } }
         ... on RenamedTitleEvent { id createdAt actor { login } previousTitle currentTitle }
-        ... on CrossReferencedEvent { id createdAt actor { login } source { __typename ... on PullRequest {
-          url number title state closingIssuesReferences(first: 100) { nodes { id } }
-        } } }
+        ... on ReferencedEvent { id createdAt actor { login } commit { abbreviatedOid commitUrl messageHeadline } }
+        ... on MilestonedEvent { id createdAt actor { login } milestoneTitle }
+        ... on DemilestonedEvent { id createdAt actor { login } milestoneTitle }
+        ... on LockedEvent { id createdAt actor { login } }
+        ... on UnlockedEvent { id createdAt actor { login } }
+        ... on CrossReferencedEvent { id createdAt actor { login } source {
+          __typename
+          ... on Issue { url number title }
+          ... on PullRequest { url number title state closingIssuesReferences(first: 100) { nodes { id } } }
+        } }
       }
     }
   } }
@@ -127,30 +143,7 @@ export async function inspectTask(taskId: string, cursor?: string): Promise<Task
         return emptyInspection('Draft items do not expose provider history or reactions.')
       const { node } = githubInspectionSchema.parse(answer)
       if (!node) throw new Error('This issue is unavailable to your GitHub connection.')
-      const events = node.timelineItems.nodes.flatMap((event) => {
-        if (!event) return []
-        const texts = {
-          ClosedEvent: 'closed the issue',
-          ReopenedEvent: 'reopened the issue',
-          LabeledEvent: `added label ${event.label?.name ?? ''}`,
-          UnlabeledEvent: `removed label ${event.label?.name ?? ''}`,
-          AssignedEvent: `assigned ${event.assignee?.login ?? 'an account'}`,
-          UnassignedEvent: `unassigned ${event.assignee?.login ?? 'an account'}`,
-          RenamedTitleEvent: `changed the title from “${event.previousTitle ?? ''}” to “${event.currentTitle ?? ''}”`,
-          CrossReferencedEvent: `referenced this issue from ${event.source?.title ?? 'another issue'}`
-        }
-        const text = Object.entries(texts).find(([kind]) => kind === event.__typename)?.[1]
-        return text
-          ? [
-              {
-                id: event.id,
-                at: Date.parse(event.createdAt),
-                actor: event.actor?.login ?? null,
-                text
-              }
-            ]
-          : []
-      })
+      const events = node.timelineItems.nodes.flatMap((event) => event ? githubIssueEvent(event) ?? [] : [])
       return {
         commentsTruncated: node.comments.pageInfo.hasNextPage,
         author: node.author?.login ?? null,
@@ -244,6 +237,33 @@ export async function inspectTask(taskId: string, cursor?: string): Promise<Task
         : null,
     capabilities: { history: true, reactions: false, multipleAssignees: false, templates: false }
   }
+}
+
+export function githubIssueEvent(event: z.infer<typeof eventSchema>): TaskProviderEvent | null {
+  const texts = {
+    ClosedEvent: 'closed the issue',
+    ReopenedEvent: 'reopened the issue',
+    LabeledEvent: `added label ${event.label?.name ?? ''}`,
+    UnlabeledEvent: `removed label ${event.label?.name ?? ''}`,
+    AssignedEvent: event.assignee?.login === event.actor?.login && event.actor?.login
+      ? 'self-assigned this issue' : `assigned ${event.assignee?.login ?? 'an account'}`,
+    UnassignedEvent: `unassigned ${event.assignee?.login ?? 'an account'}`,
+    RenamedTitleEvent: `changed the title from “${event.previousTitle ?? ''}” to “${event.currentTitle ?? ''}”`,
+    CrossReferencedEvent: event.source?.url ? 'referenced this issue from' : 'referenced this issue',
+    ReferencedEvent: 'added a commit that references this issue',
+    MilestonedEvent: `added this issue to milestone ${event.milestoneTitle ?? ''}`,
+    DemilestonedEvent: `removed this issue from milestone ${event.milestoneTitle ?? ''}`,
+    LockedEvent: 'locked the conversation',
+    UnlockedEvent: 'unlocked the conversation'
+  }
+  const text = Object.entries(texts).find(([kind]) => kind === event.__typename)?.[1]
+  if (!text) return null
+  const commit = event.commit
+  const source = event.source
+  const link = commit
+    ? { url: commit.commitUrl, label: `${commit.messageHeadline} (${commit.abbreviatedOid})` }
+    : source?.url && source.title ? { url: source.url, label: source.title } : undefined
+  return { id: event.id, at: Date.parse(event.createdAt), actor: event.actor?.login ?? null, text, ...(link && { link }) }
 }
 
 /** Verify a reaction target belongs to this issue before sending the mutation. */
@@ -379,23 +399,22 @@ export async function taskTemplates(source: TaskSource): Promise<TaskTemplate[]>
 export async function resolveTaskUrl(
   scope: RecordScope,
   address: string,
-  personKey: string
+  personKey: string,
+  detailsOnly = false
 ): Promise<TaskExternalIssue> {
   const url = new URL(z.string().max(2048).parse(address))
   if (url.protocol !== 'https:' || url.username || url.password || url.port)
     throw new Error('Use an HTTPS issue URL without credentials or a custom port.')
-  let taskId: string
+  let resolved: ProviderTaskDetails
   if (url.hostname === 'github.com') {
     const match = /^\/([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)\/issues\/([1-9]\d*)\/?$/.exec(url.pathname)
     if (!match) throw new Error('This URL does not name a GitHub issue.')
     const [, owner, repo, number] = match
-    const issue = await githubRun(
+    resolved = await githubRun(
       'resolve_github_issue',
-      async ({ rest }) =>
-        (await rest.issues.get({ owner, repo, issue_number: Number(number) })).data
+      async ({ graphql }) =>
+        githubIssueDetails(await readIssueNode(graphql, { owner, repo, number: Number(number) }, true))
     )
-    if (issue.pull_request) throw new Error('This URL names a pull request, not an issue.')
-    taskId = `github:${issue.node_id}`
   } else if (url.hostname === 'linear.app') {
     const match = /^\/([^/]+)\/issue\/([A-Za-z][A-Za-z0-9]*-[1-9]\d*)(?:\/[^/]*)?\/?$/.exec(
       url.pathname
@@ -404,24 +423,22 @@ export async function resolveTaskUrl(
     const account = await linearConnection()
     if (match[1] !== account.organization.urlKey)
       throw new Error('This URL belongs to another Linear workspace.')
-    const answer = await taskAdapters()
+    resolved = await taskAdapters()
       .provider('linear')
       .fetch({ provider: 'linear', workspaceId: account.organization.id, id: match[2] })
-    taskId = taskKey(answer.task.ref)
   } else {
     const site = await connectedSite('jira')
     if (!site || new URL(site.siteUrl).origin !== url.origin)
       throw new Error('This URL is not on a connected issue provider.')
     const match = /^\/browse\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)\/?$/.exec(url.pathname)
     if (!match) throw new Error('This URL does not name a Jira issue.')
-    const answer = await taskAdapters()
+    resolved = await taskAdapters()
       .provider('jira')
       .fetch({ provider: 'jira', cloudId: site.cloudId, id: match[1] })
-    taskId = taskKey(answer.task.ref)
   }
-  return {
-    details: await getTask(scope, taskId, personKey),
-    inspection: await inspectTask(taskId),
-    readOnly: true
-  }
+  const taskId = taskKey(resolved.task.ref)
+  const details = getTask(scope, taskId, personKey, resolved)
+  if (detailsOnly) return { details: await details, readOnly: true }
+  const [task, inspection] = await Promise.all([details, inspectTask(taskId)])
+  return { details: task, inspection, readOnly: true }
 }

@@ -51,6 +51,28 @@ export async function renderArtifactPreview(
   }
 }
 
+/** A card's picture of the artifact is this tall: the card's shape at the
+ *  reply column's width, where the artifact is laid out when it is shown. */
+const ARTIFACT_STILL_HEIGHT = 450
+
+/** PNG data URL of the top of the artifact, as the conversation renders it in
+ *  this appearance: in the sandbox page, with the Solus theme. */
+export async function renderArtifactStill(html: string, appearance: ArtifactPreviewAppearance): Promise<string> {
+  const inlined = await inlineLocalImages(html, readHostImage)
+  const themeCss = sandboxThemeCss(appearance === 'dark', (variable) => SOLUS_THEME_SNAPSHOT[appearance][variable])
+  const driver = await openPreviewPage(wrapSandboxDocument(inlined.html, themeCss), appearance, {
+    width: HTML_PREVIEW_DEFAULT_WIDTH,
+    height: ARTIFACT_STILL_HEIGHT,
+    deviceScaleFactor: 1,
+  })
+  try {
+    await driver.evaluate(settleScript(SETTLE_TIMEOUT_MS))
+    return await driver.captureScreenshot()
+  } finally {
+    await driver.dispose().catch(() => {})
+  }
+}
+
 function headlessHost() {
   const host = browserHeadlessHost()
   if (!host) {

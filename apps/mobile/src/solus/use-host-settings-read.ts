@@ -1,70 +1,56 @@
-import { useCallback, useRef, useState } from "react";
+import { useMemo } from "react";
 import { AppState } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
-import { useListened } from "@solus-mobile/app/app-context";
+import { useIsFocused } from "@react-navigation/native";
+import { useAtomValue } from "@effect/atom-react";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventName } from "@solus/contracts/host-events";
+import { EnvironmentId } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
+import { mobileHost } from "../state/mobile-host";
+import { useEnvironmentQuery } from "../state/query";
+import { hostQuery } from "./host-query";
 import { solus } from "./runtime";
 
 type Read<T> = (api: HostApi) => Promise<T>;
 
-/** Keep settings reads bound to the visible page and the current host connection. */
+/** Follow host events only while a page reads this setting. Reopening shows its last answer during refresh. */
 export function useHostSettingsRead<T>(hostId: string, read: Read<T>, topic?: HostEventName) {
-  const connection = useListened(solus.connections.changes, () =>
-    solus.connections.connection(hostId),
+  const environmentId = EnvironmentId.make(hostId);
+  const host = useAtomValue(mobileHost(environmentId));
+  const focused = useIsFocused();
+  const queryForHost = useMemo(
+    () =>
+      hostQuery((id, _input: null) => {
+        const connection = solus.connections.connection(id);
+        if (connection?.state.readiness !== "ready")
+          throw new Error("Reconnect to this environment.");
+        return read(connection.api);
+      }, 0),
+    [read],
   );
-  const generation = useListened(
-    solus.connections.changes,
-    () => solus.connections.state(hostId)?.sessionGeneration,
+  const source = queryForHost({ environmentId, input: null });
+  const observed = useMemo(
+    () =>
+      Atom.readable(
+        (get) => {
+          if (topic && host)
+            get.addFinalizer(host.events.subscribe(topic, () => get.refresh(source)));
+          const active = AppState.addEventListener("change", (state) => {
+            if (state === "active") get.refresh(source);
+          });
+          get.addFinalizer(() => active.remove());
+          return get(source);
+        },
+        (refresh) => refresh(source),
+      ).pipe(Atom.setIdleTTL(0)),
+    [source, host, topic],
   );
-  const ready = useListened(
-    solus.connections.changes,
-    () => solus.connections.state(hostId)?.readiness === "ready",
-  );
-  const [result, setResult] = useState<{
-    key: string;
-    data?: T;
-    error?: string;
-  }>();
-  const [refreshId, setRefreshId] = useState(0);
-  const accountScope = useListened(solus.account.changes, solus.sessionCache.scope);
-  const key = JSON.stringify([accountScope, hostId, generation]);
-  const request = useRef(0);
-  useFocusEffect(
-    useCallback(() => {
-      if (!ready || !connection) return;
-      const api = connection.api;
-      function refresh() {
-        const version = ++request.current;
-        void read(api).then(
-          (data) => {
-            if (version === request.current) setResult({ key, data });
-          },
-          (error) => {
-            if (version === request.current) setResult({ key, error: String(error) });
-          },
-        );
-      }
-      refresh();
-      const stop = topic && connection.events.subscribe(topic, refresh);
-      const active = AppState.addEventListener("change", (state) => {
-        if (state === "active") refresh();
-      });
-      return () => {
-        request.current++;
-        active.remove();
-        if (stop) stop();
-      };
-    }, [key, ready, connection, read, topic, refreshId]),
-  );
+  const query = useEnvironmentQuery(focused && host ? observed : null);
   return {
-    api: ready ? connection?.api : undefined,
-    data: ready && result?.key === key ? result.data : undefined,
-    error: !ready
-      ? "Reconnect to this environment."
-      : result?.key === key
-        ? result.error
-        : undefined,
-    refresh: () => setRefreshId((id) => id + 1),
+    api: host?.api,
+    data: query.isSuccess ? query.data : undefined,
+    error: host ? (query.error ?? undefined) : "Reconnect to this environment.",
+    isRefreshing: query.isSuccess && query.isPending,
+    refresh: query.refresh,
   };
 }

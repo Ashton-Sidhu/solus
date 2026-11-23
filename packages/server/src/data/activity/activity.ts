@@ -136,6 +136,33 @@ export async function deleteActivityFor(subject: ActivitySubject, db: Db = getDa
   await db.run(sql`DELETE FROM ${activityTable} WHERE subject_kind = ${subject.kind} AND subject_id = ${subject.id}`)
 }
 
+/** A session's own fork event and the most recent forks of any of its provider threads. */
+export async function sessionForkActivity(scope: RecordScope, sessionId: string, sourceIds: readonly string[]): Promise<Extract<Activity, { kind: 'forked' }>[]> {
+  const db = getDatabase()
+  const where = sql`${scopeClause(scope)} AND subject_kind = 'session' AND kind = 'forked'`
+  const source = db.engine === 'postgres'
+    ? sql`data::jsonb->>'sourceSessionId'`
+    : sql`json_extract(data, '$.sourceSessionId')`
+  const ids = sql.join(sourceIds.map((id) => sql`${id}`), sql`, `)
+  const rows = await db.all(sql`
+    SELECT * FROM (
+      SELECT id, subject_kind, subject_id, at, turn_id, by, data FROM ${activityTable}
+      WHERE ${where} AND subject_id = ${sessionId}
+      ORDER BY at DESC, id DESC LIMIT 1
+    ) origin
+    UNION ALL
+    SELECT * FROM (
+      SELECT id, subject_kind, subject_id, at, turn_id, by, data FROM ${activityTable}
+      WHERE ${where} AND ${source} IN (${ids}) AND subject_id <> ${sessionId}
+      ORDER BY at DESC, id DESC LIMIT 32
+    ) forks
+  `)
+  return activityRowSchema.array().parse(rows).flatMap((row) => {
+    const entry = activityFromRow(row)
+    return entry?.kind === 'forked' ? [entry] : []
+  })
+}
+
 const activityRowSchema = z.object({
   id: z.string(),
   subject_kind: z.enum(['session', 'task', 'work']),

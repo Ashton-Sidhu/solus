@@ -21,8 +21,6 @@ import type { PendingQuestion } from "../conversation/lib/transcript-model";
 
 export interface PendingSecretCardProps {
   readonly request: PendingQuestion;
-  /** Constant while a request is pending (it reserves keyboard space). */
-  readonly maxHeight: number;
   readonly responding: boolean;
   /** False for a reader who may only view the session: an editor answers. */
   readonly mayDrive: boolean;
@@ -65,7 +63,6 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
   return (
     <View
       className="overflow-hidden gap-2.5 rounded-[20px] border border-border bg-card-alt p-4"
-      style={{ maxHeight: props.maxHeight }}
     >
       <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
         {isGroup ? `${prompts.length} secrets requested` : "Secret requested"}
@@ -85,6 +82,7 @@ export function PendingSecretCard(props: PendingSecretCardProps) {
         ) : null}
         {prompts.map((prompt, index) => {
           const field = fields[index];
+          if (!field) return null;
           const isRevealed = revealed[index];
           const isFile = prompt.delivery === "file";
           const link = secretRequestLink(prompt);

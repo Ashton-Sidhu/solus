@@ -240,7 +240,10 @@ export class HostConnections {
     // Whether the host is still setting this person up is in its server info (docs/plans/member-isolation.md §8.1).
     created.facts.subscribe((key) => {
       if (key === 'serverInfo') this.changes.notify()
-      if (key === 'capabilities') created.hostVersion = created.facts.value('capabilities')?.version ?? created.hostVersion
+      if (key === 'capabilities') {
+        created.hostVersion = created.facts.value('capabilities')?.version ?? created.hostVersion
+        this.changes.notify()
+      }
     })
     this.connections.set(host.id, created)
     link.start()

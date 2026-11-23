@@ -59,7 +59,6 @@
     onEditSubmit?: (text: string) => void;
     /** More controls for a held prompt, drawn in the same hover row as Remove. */
     actions?: Snippet;
-    skipMotion?: boolean;
     /** The conversation this bubble belongs to. Image attachments resolve
      *  against its run host, which is not always the focused one. */
     tabId?: string;
@@ -69,7 +68,7 @@
     /** A sent prompt's place in a burst of one person's messages. */
     burst?: UserBurst;
   }
-  let { message, content, attachments, deliveryState = 'sent', onEditSubmit, actions, skipMotion = false, tabId, author, burst }: Props = $props();
+  let { message, content, attachments, deliveryState = 'sent', onEditSubmit, actions, tabId, author, burst }: Props = $props();
 
   // A transcript read as a cloud record (the console) has no workspace: its
   // attachments stay on the runner, and the routes below have nowhere to open.
@@ -614,11 +613,13 @@
 {/snippet}
 
 <!-- The rail hangs in the message's outer margin and aligns with the bottom of
-     the bubble. The heavy body retains its off-screen rendering optimization. -->
+     the bubble. The heavy body retains its off-screen rendering optimization.
+     A sent prompt has no entrance motion: it lands at the end the view just
+     scrolled to, and a slide-in read as the transcript bouncing on every send. -->
 <div
   data-testid="user-message"
   data-nav-msg-id={message?.id}
-  class="cv-rail-host relative {skipMotion ? '' : 'animate-msg-in-up'}"
+  class="cv-rail-host relative"
 >
   <!-- A held message has nothing worth copying yet and states its own time in
        the caption, so it gets no rail. -->

@@ -1,9 +1,11 @@
-import { videoMimeType } from "@solus/contracts/media-types";
+import { useNavigation } from "@react-navigation/native";
+import { attachmentRoute } from "./upload-attachment-id";
 import { useRef, useState } from "react";
 import { useKeyboardState } from "react-native-keyboard-controller";
 import { AppText } from "../components/ui/AppText";
-import { Alert, Pressable, useWindowDimensions, View, ScrollView } from "react-native";
-import { PendingApprovalCard } from "@solus-mobile/features/threads/PendingApprovalCard";
+import { Alert, Pressable, View } from "react-native";
+import { ApprovalCardView } from "../features/threads/PendingApprovalCard";
+import { requestExpiryText } from "@solus/contracts/types";
 import { PendingSecretCard } from "@solus-mobile/features/threads/PendingSecretCard";
 import { ThreadMcpPipDock } from "@solus-mobile/features/threads/ThreadMcpPipDock";
 import type {
@@ -15,18 +17,69 @@ import { PlanCard } from "./PlanCard";
 export function RequestCards({
   store,
   meta,
+  draft,
+}: {
+  store: ConversationStore;
+  meta: ConversationMeta;
+  draft: boolean;
+}) {
+  const navigation = useNavigation();
+  const keyboardVisible = useKeyboardState((state) => state.height > 0);
+  const fileChips = meta.attachments.filter(
+    (a) => !a.localUri && !(a.kind === "image" && a.dataUrl),
+  );
+  const pendingFileCount = meta.uploading - meta.pendingImages.length - meta.pendingVideos.length;
+  return (
+    <>
+      <ThreadMcpPipDock store={store} isKeyboardVisible={keyboardVisible} />
+      {fileChips.length || pendingFileCount ? (
+        <View className="flex-row flex-wrap gap-2 px-4">
+          {fileChips.map((a) => (
+            <View key={a.id} className="flex-row items-center rounded-xl bg-card">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={a.name}
+                onPress={() =>
+                  navigation.navigate(draft ? "NewTaskAttachment" : "ThreadAttachment", {
+                    ...attachmentRoute(
+                      store.controller.hostId,
+                      store.controller.run.sessionId,
+                      a.hostPath,
+                      a.name,
+                      a.mimeType,
+                      a.size,
+                    ),
+                    hostUploadId: a.id,
+                  })
+                }
+              >
+                <AppText className="px-3 py-2">{a.name}</AppText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${a.name}`}
+                onPress={() => store.controller.removeAttachment(a.id)}
+              >
+                <AppText className="px-2 py-2">×</AppText>
+              </Pressable>
+            </View>
+          ))}
+          {pendingFileCount > 0 && <AppText>Uploading {pendingFileCount}…</AppText>}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+export function RequestPanels({
+  store,
+  meta,
 }: {
   store: ConversationStore;
   meta: ConversationMeta;
 }) {
-  const keyboardVisible = useKeyboardState((state) => state.height > 0);
-  const maxHeight = useWindowDimensions().height * 0.48;
   const lock = useRef(false);
   const [responding, setResponding] = useState<string | null>(null);
-  const fileChips = meta.attachments.filter(
-    (a) => !(a.kind === "image" && (a.localUri || a.dataUrl)) && !(a.localUri && videoMimeType(a)),
-  );
-  const pendingFileCount = meta.uploading - meta.pendingImages.length - meta.pendingVideos.length;
   const permission = meta.permissions.find((p) => !p.expired) ?? meta.permissions[0];
   const question = meta.questions.find((q) => !q.expired) ?? meta.questions[0];
   const submit = async (id: string, answer: () => Promise<boolean>) => {
@@ -42,66 +95,60 @@ export function RequestCards({
       setResponding(null);
     }
   };
+  const firstAllow =
+    permission?.options.find((option) => option.kind?.startsWith("allow"))?.id ??
+    permission?.options[0]?.id;
   return (
     <>
-      <ThreadMcpPipDock store={store} isKeyboardVisible={keyboardVisible} />
-      {fileChips.length || pendingFileCount ? (
-        <View className="flex-row flex-wrap gap-2 px-4">
-          {fileChips.map((a) => (
-            <Pressable
-              key={a.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${a.name}`}
-              onPress={() => store.controller.removeAttachment(a.id)}
-            >
-              <AppText className="rounded-xl bg-card px-3 py-2">{a.name} ×</AppText>
-            </Pressable>
-          ))}
-          {pendingFileCount > 0 && <AppText>Uploading {pendingFileCount}…</AppText>}
-        </View>
-      ) : null}
-      {permission || question?.kind === "secret" || meta.agentPlans.length ? (
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          nestedScrollEnabled
-          style={{ maxHeight }}
-          contentContainerClassName="gap-2 px-4 pb-2"
-        >
-          {permission && (
-            <PendingApprovalCard
-              key={permission.questionId}
-              approval={permission}
-              respondingApprovalId={responding}
-              mayDrive={store.controller.mayApprove}
-              maxHeight={maxHeight}
-              onRespond={(id, optionId) =>
-                submit(id, () => store.controller.answerPermission(id, optionId))
-              }
-            />
-          )}
-          {question?.kind === "secret" && (
-            <PendingSecretCard
-              key={question.questionId}
-              request={question}
-              responding={responding !== null}
-              mayDrive={store.controller.mayApprove}
-              maxHeight={maxHeight}
-              onSubmit={(values) =>
-                submit(question.questionId, () =>
-                  store.controller.answerSecretRequest(question.questionId, values),
-                )
-              }
-            />
-          )}
-          {meta.agentPlans.map((plan) => (
-            <PlanCard
-              key={JSON.stringify([plan.targetSessionId, plan.messageId])}
-              store={store}
-              plan={plan}
-            />
-          ))}
-        </ScrollView>
-      ) : null}
+      {permission && (
+        <ApprovalCardView
+          key={permission.questionId}
+          title={permission.toolName}
+          detail={permission.description ?? undefined}
+          reason={permission.guestTurn ? "Guest turn · Ask mode" : undefined}
+          canRespond={!permission.expired}
+          expiredReason={permission.expired ? requestExpiryText(permission.expired) : undefined}
+          mayApprove={store.controller.mayApprove}
+          disabled={responding !== null}
+          options={permission.options.map((option) => ({
+            id: option.id,
+            label: option.label,
+            tone:
+              option.kind === "deny" || option.kind?.startsWith("reject")
+                ? "danger"
+                : option.id === firstAllow
+                  ? "primary"
+                  : "secondary",
+            respond: () =>
+              submit(permission.questionId, () =>
+                store.controller.answerPermission(permission.questionId, option.id),
+              ),
+          }))}
+        />
+      )}
+      {question?.kind === "secret" && (
+        <PendingSecretCard
+          key={question.questionId}
+          request={question}
+          responding={responding !== null}
+          mayDrive={store.controller.mayApprove}
+          onSubmit={(values) =>
+            submit(question.questionId, () =>
+              store.controller.answerSecretRequest(question.questionId, values),
+            )
+          }
+        />
+      )}
+      {meta.pendingPlan && (
+        <PlanCard key={meta.pendingPlan.id} store={store} plan={meta.pendingPlan} />
+      )}
+      {meta.agentPlans.map((plan) => (
+        <PlanCard
+          key={JSON.stringify([plan.targetSessionId, plan.messageId])}
+          store={store}
+          plan={plan}
+        />
+      ))}
     </>
   );
 }

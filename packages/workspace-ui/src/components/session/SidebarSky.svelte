@@ -72,15 +72,9 @@
 
 <style>
   .sidebar-sky {
-    /* The centre of the mark in the title bar: SidePanel places the brand
-       1.25rem after the native window buttons, or at the header's padding,
-       and the mark is 1.25rem wide (SidebarBrand). */
-    --sidebar-sky-sun-x: max(
-      1.25rem,
-      calc(
-        var(--solus-traffic-light-end) + 1.875rem -
-          var(--side-panel-window-inset, 0px)
-      )
+    /* Centre on the 1.125rem mark beside the frame's sidebar toggle. */
+    --sidebar-sky-sun-x: calc(
+      var(--solus-sidebar-brand-left) - var(--side-panel-window-inset) + 0.5625rem
     );
     --sidebar-sky-sun-y: 1.25rem;
     /* From the top of the picture to where the sidebar's content starts. */

@@ -4,6 +4,7 @@ import { clientFor, type GitHubClient } from '@solus/server/providers/github/oct
 import { GitHubProvider } from '@solus/server/providers/github/provider'
 import { asBackgroundWork } from '@solus/server/providers/github/request-budget'
 import { GitHubRateLimitedError } from '@solus/server/providers/github/rate-limit'
+import { PullRequestHead } from '@solus/contracts/repository-key'
 
 /**
  * What PR sync, the watcher, and check polls cost on GitHub
@@ -328,6 +329,7 @@ describe('host-wide documents', () => {
 })
 
 describe('PR sync branch lookups', () => {
+  const headsOf = (repo: RepoRef, ...branches: string[]) => branches.map((branch) => new PullRequestHead(repo, branch))
   const headDocuments = (documents: GraphqlDocument[]) => documents.filter(({ operation }) => operation === 'PrSyncByHead')
   function opened(repo: RepoRef, branch: string, numbers: number[]): void {
     const heads = github.heads.get(nameOf(repo)) ?? new Map<string, number[]>()
@@ -346,15 +348,15 @@ describe('PR sync branch lookups', () => {
     let answers: Array<Map<string, Array<{ number: number }>>> = []
     const { documents, rest } = await requestsOf(async () => {
       answers = await asBackgroundWork(() => Promise.all([
-        provider.getPullRequestsByHead(first, ['topic-a', 'topic-b']),
-        provider.getPullRequestsByHead(second, ['topic-c']),
+        provider.getPullRequestsByHead(first, headsOf(first, 'topic-a', 'topic-b')),
+        provider.getPullRequestsByHead(second, headsOf(second, 'topic-c')),
       ]))
     })
 
     expect(headDocuments(documents).map(({ pullRequests }) => pullRequests)).toEqual([[
       `${nameOf(first)}@topic-a`, `${nameOf(first)}@topic-b`, `${nameOf(second)}@topic-c`,
     ]])
-    expect(answers.map((byHead) => [...byHead].map(([head, rows]) => [head, rows.map(({ number }) => number)]))).toEqual([
+    expect(answers.map((byHead) => [...byHead].map(([head, rows]) => [head.split(':').at(-1), rows.map(({ number }) => number)]))).toEqual([
       [['topic-a', [4]], ['topic-b', []]],
       [['topic-c', [9, 7]]],
     ])
@@ -368,9 +370,10 @@ describe('PR sync branch lookups', () => {
     const branch = 'odd"name\\x'
     opened(repo, branch, [3])
 
-    const answer = await asBackgroundWork(() => provider.getPullRequestsByHead(repo, [branch]))
+    const [head] = headsOf(repo, branch)
+    const answer = await asBackgroundWork(() => provider.getPullRequestsByHead(repo, [head!]))
 
-    expect(answer.get(branch)?.map(({ number }) => number)).toEqual([3])
+    expect(answer.get(head!.key)?.map(({ number }) => number)).toEqual([3])
   })
 
   test('a spent quota fails the lookups of every repository with one request', async () => {
@@ -379,7 +382,7 @@ describe('PR sync branch lookups', () => {
     github.failures.push('rate-limited')
 
     const { documents } = await requestsOf(async () => {
-      const results = await asBackgroundWork(() => Promise.allSettled(repositories.map((repo) => provider.getPullRequestsByHead(repo, ['topic']))))
+      const results = await asBackgroundWork(() => Promise.allSettled(repositories.map((repo) => provider.getPullRequestsByHead(repo, headsOf(repo, 'topic')))))
       for (const result of results) {
         expect(result.status === 'rejected' && result.reason instanceof GitHubRateLimitedError).toBe(true)
       }

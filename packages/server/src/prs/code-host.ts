@@ -6,7 +6,7 @@
 import type { PrUnavailableReason, PullRequest, RepoRef } from '@solus/contracts/providers'
 import { isAbsolute } from 'node:path'
 import { PullRequestHead } from '@solus/contracts/repository-key'
-import { resolvePrimaryRepoRef, resolvePushHead, resolveRepoRoot } from '../git/git-helpers'
+import { isUnpublishedBranch, resolvePrimaryRepoRef, resolvePushHead, resolveRepoRoot } from '../git/git-helpers'
 import { providerForRepo } from '../providers/registry'
 import type { Provider } from '../providers/types'
 
@@ -53,14 +53,18 @@ export async function codeHostFor(projectScope: string): Promise<CodeHost | null
 /** The head of `branch`: where `git push` sends it from the checkout at
  *  `scope`. A scope that is no checkout here, such as a repository link or
  *  the record of a run on another machine, names the branch of `host`'s
- *  repository. */
-export async function pushHeadFor(host: CodeHost, scope: string, branch: string): Promise<PullRequestHead> {
-  return (isAbsolute(scope) ? await resolvePushHead(scope, branch) : null) ?? new PullRequestHead(host.repo, branch)
+ *  repository. Null for a branch this checkout never published
+ *  (`isUnpublishedBranch`): it has no pull request to look up. */
+export async function pushHeadFor(host: CodeHost, scope: string, branch: string): Promise<PullRequestHead | null> {
+  if (!isAbsolute(scope)) return new PullRequestHead(host.repo, branch)
+  if (await isUnpublishedBranch(scope, branch)) return null
+  return await resolvePushHead(scope, branch) ?? new PullRequestHead(host.repo, branch)
 }
 
 /** The pull request into `host`'s repository opened from `head`: its open
- *  one, else its newest. */
-export async function pullRequestForHead(host: CodeHost, head: PullRequestHead): Promise<PullRequest | undefined> {
+ *  one, else its newest. None for a branch never published (a null head). */
+export async function pullRequestForHead(host: CodeHost, head: PullRequestHead | null): Promise<PullRequest | undefined> {
+  if (!head) return undefined
   const rows = (await host.provider.review.getPullRequestsByHead(host.repo, [head])).get(head.key) ?? []
   return rows.find(({ state }) => state === 'open') ?? rows[0]
 }

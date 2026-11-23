@@ -5,7 +5,6 @@ import { changeRequestTermKind } from "../../lib/changeRequestTerm";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import type { PullRequestComment } from "@t3tools/contracts";
-import { AsyncResult } from "effect/reactivity";
 import { useGT } from "gt-react-native";
 import { useRef, useState } from "react";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
@@ -67,12 +66,9 @@ export function PullRequestEditScreen({ route }: StaticScreenProps<PullRequestEd
     params.field === "comment"
       ? permissions.canEditComment(params.comment)
       : permissions.canEditChangeRequest;
-  const canWrite = useAtomValue(
-    (params.field === "comment"
-      ? composerPullRequests.updateComment
-      : composerPullRequests.update
-    ).permissionAtom(target.environmentId),
-  );
+  const canWritePr = useAtomValue(composerPullRequests.update.permissionAtom(target.environmentId));
+  const canWriteComment = useAtomValue(composerPullRequests.updateComment.permissionAtom(target.environmentId));
+  const canWrite = params.field === "comment" ? canWriteComment : canWritePr;
   // Name the first thing in the way, so the notice says what would actually fix it.
   const readOnlyReason =
     !pr || allowed
@@ -114,7 +110,7 @@ export function PullRequestEditScreen({ route }: StaticScreenProps<PullRequestEd
           });
     inFlight.current = false;
     setBusy(false);
-    if (AsyncResult.isFailure(result)) {
+    if (result._tag === "Failure") {
       const cause = squashAtomCommandFailure(result);
       setError(
         cause instanceof Error

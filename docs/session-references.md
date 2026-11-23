@@ -2,16 +2,18 @@
 
 A session reference is a chip in the prompt that names another session. When
 you send the prompt, the agent gets the session's id and reads the session with
-`read_session`. The chip does not copy the transcript into the prompt.
+`read_session`. The conversation shows your prompt and its session link. The
+chip does not copy the transcript into the prompt.
 
 ## Add a reference
 
 On desktop and web:
 
 - **Drag** a session row from the sidebar onto the input bar. The chip goes
-  where you drop it. A drop beside the text puts it at the end. While the drag
-  is over the input bar, a dashed outline shows where it lands. If you selected
-  more than one row, drag one of the selected rows to add a chip for each.
+  at the caret or at the end of a newly opened draft. While the drag is over
+  the input bar, a dashed outline shows that the input bar accepts the drop.
+  If you selected more than one row, drag one of the selected rows to add a
+  chip for each.
 - **Keyboard or touch:** open the row's menu (right-click, or long-press on a
   touch screen) and choose **Reference in Prompt**. The chip goes at the caret
   of the input bar that has the keyboard. The menu does not show this item for

@@ -4,8 +4,8 @@ import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/wo
 import type { IpcContext } from '@solus/contracts/types'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { claudeHistoryRows } from '@solus/server/execution/agents/claude/claude-session-helpers'
-import { codexItemToMessage } from '@solus/server/execution/agents/codex/codex-utils'
 import { composeAttachmentContext } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
 import { projectSessionHistory } from '@solus/server/data/sessions/result-projection'
 import { deferSessionToolInputs } from '@solus/server/data/sessions/session-tool-inputs'
@@ -13,6 +13,7 @@ import type { SessionLoadMessage } from '@solus/contracts/session-history'
 
 const connections = singleHostServerConnections()
 
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: connections,
 }))
@@ -23,10 +24,34 @@ const {
   materializeSessionTranscript,
 } = await import('@solus/workspace-ui/contexts/workspace/session-transcript')
 const { INITIAL_HISTORY_TURNS } = await import('@solus/client-core/session-history-page')
+const { codexItemToMessage } = await import('@solus/server/execution/agents/codex/codex-utils')
 
 afterEach(() => connections.reset())
 
 describe('session transcript rehydration', () => {
+  test('Codex and Claude restore the session link without the agent instruction', () => {
+    const typed = '[Restore Project Agent Lineage](session://ref?sessionId=prior&provider=codex) Why did this happen?'
+    const content = [
+      typed,
+      '',
+      '[Referenced Session: "Restore Project Agent Lineage" (session_id: prior, provider: codex)]',
+      'Call read_session with session_id "prior" to read its transcript before responding.',
+    ].join('\n')
+    const codex = codexItemToMessage({ type: 'userMessage', content: [{ type: 'text', text: content }] }, 1)
+    const claude = claudeHistoryRows(JSON.stringify({ type: 'user', timestamp: 1, message: { content } }))
+    expect(codex?.content).toBe(typed)
+    expect(claude.map((row) => row.content)).toEqual([typed])
+
+    // Older hosts and mirrored pages can still return the original row.
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host') } as unknown as WorkspaceContext
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, [{ role: 'user', content, timestamp: 1 }])
+    expect(transcript.messages.map((message) => message.content)).toEqual([typed])
+  })
+
   test('shared history hydration keeps the durable Q&A row', () => {
     const questionAnswer = { questionId: 'codex-async:session:ask', questions: [{ id: '0', question: 'Which branch?', options: [], multiSelect: false }], answers: { '0': 'main' } }
     const history = projectSessionHistory([{ role: 'system', content: '', timestamp: 10, questionAnswer }])

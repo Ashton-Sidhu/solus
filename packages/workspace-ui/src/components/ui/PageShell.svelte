@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import { X as XIcon } from "@lucide/svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
-  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
+  import FramePanelButton from "../layout/FramePanelButton.svelte";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
 
   /** Scroll shell for full-page library surfaces (Automations, Tasks, Folio,
@@ -50,7 +50,7 @@
 {/if}
 <div class="no-drag pointer-events-auto absolute right-2.5 top-2.5 z-10 flex items-center gap-1">
   {#if trailing}{@render trailing()}{/if}
-  <FrameExpandButton variant="projectPanel" />
+  <FramePanelButton variant="projectPanel" />
   {#if onClose}
     <button type="button" class={PAGE_ICON_BTN} onclick={onClose} aria-label="Close">
       <XIcon size={16} />

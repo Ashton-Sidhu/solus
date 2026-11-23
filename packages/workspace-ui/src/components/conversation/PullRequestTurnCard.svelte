@@ -2,9 +2,9 @@
   import {
     Eye as EyeIcon,
     EyeOff as EyeOffIcon,
-    GitPullRequest as GitPullRequestIcon,
     Lightbulb as LightbulbIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import { WATCH_OFFER, WATCHING_NOTE, type PullRequestCard } from "@solus/client-core/pull-request-card";
   import { prStatusBadge } from "../prs/lib/pr-utils";
   import TranscriptCard from "./TranscriptCard.svelte";

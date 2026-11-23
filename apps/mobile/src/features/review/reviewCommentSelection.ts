@@ -341,8 +341,17 @@ function parseReviewInlineComment(
 }
 
 export function formatReviewCommentContext(target: ReviewCommentTarget, comment: string): string {
-  const rangeLabel = formatReviewSelectedRangeLabel(target);
-  const diff = formatReviewSelectedDiff(target);
+  return formatReviewCommentBlock({
+    ...target,
+    rangeLabel: formatReviewSelectedRangeLabel(target),
+    text: comment,
+    diff: formatReviewSelectedDiff(target),
+  });
+}
+
+/** Solus stores the text of a prompt. This form keeps the selected code readable in its saved transcript. */
+export function formatReviewCommentBlock(target: Omit<ReviewInlineComment, "id">): string {
+  const { rangeLabel, diff } = target;
   const longestBacktickRun = Math.max(
     0,
     ...Array.from(diff.matchAll(/`+/g), (match) => match[0].length),
@@ -359,8 +368,8 @@ export function formatReviewCommentContext(target: ReviewCommentTarget, comment:
       ` rangeLabel="${escapeReviewCommentAttribute(rangeLabel)}"`,
       ">",
     ].join(""),
-    comment.trim(),
-    `${fence}diff`,
+    target.text.trim(),
+    `${fence}${target.fenceLanguage || "diff"}`,
     diff,
     fence,
     "</review_comment>",

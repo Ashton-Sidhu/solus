@@ -24,6 +24,7 @@ type Harness = Pick<SessionSidebarStore, 'removeRow'> & {
 function harness<T extends Harness>(rows: SidebarTask[] = []): T {
   const store = Object.create(SessionSidebarStore.prototype) as T
   Object.defineProperty(store, 'catalogTasks', { value: rows })
+  Object.defineProperty(store, 'pinnedSessions', { value: [] })
   return store
 }
 

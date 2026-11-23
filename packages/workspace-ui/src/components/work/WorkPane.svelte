@@ -285,19 +285,19 @@
 {/snippet}
 
 {#if work && draft}
-  <!-- The header reserves exactly the raised cluster it sits beside: the
-       0.625rem right inset, one 1.625rem pill per control 0.375rem apart, and
-       one more gap before the header's last control. A slot reserved for a
+  <!-- The header reserves exactly the pill it sits beside: the 0.625rem right
+       inset, the pill's 0.125rem padding, one 1.75rem button per control
+       0.125rem apart, and one 0.375rem gap before the header's last control. A slot reserved for a
        control the pane does not show reads as a hole in the row. Guest shells
        supply their own measured inset; keep it for every pointer type. -->
   <div
     class="flex h-full flex-col min-h-0 work-live-host {!canOpenWorkspace || isUnderStrip()
       ? ''
       : canMaximizePane
-        ? 'pointer-fine:[--solus-pane-chrome-inset:6.625rem]'
+        ? 'pointer-fine:[--solus-pane-chrome-inset:4.875rem]'
         : shell.hasCompanionPanes
           ? 'pointer-fine:[--solus-pane-chrome-inset:4.625rem]'
-          : 'pointer-fine:[--solus-pane-chrome-inset:2.625rem]'}"
+          : 'pointer-fine:[--solus-pane-chrome-inset:3rem]'}"
     class:work-live-pulse={justUpdated}
   >
     {#if openWork?.status === "unavailable"}
@@ -402,7 +402,7 @@
         maximized={pane.maximized}
         closeLabel={work.type === "artifact" ? "Close artifact" : "Close document"}
         closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
-        raised="strong"
+        raised="pill"
       />
     {/if}
   </div>
@@ -424,6 +424,7 @@
     onToggleMaximize={canMaximizePane ? pane.toggleMaximize : null}
     maximized={pane.maximized}
     closeLabel="Close loading work"
+    raised="pill"
   />
 {/if}
 

@@ -50,10 +50,15 @@ function dragOf(references: SessionReference[]): FakeDataTransfer {
 }
 
 describe("session drag into the input bar", () => {
-  test("a dropped session becomes the chip the agent resolves by id and host", () => {
+  test("a dropped session can go inside a draft and keeps its id and host", () => {
     const references = readSessionDrag(dragOf([remote]));
-    const insertion = sessionDropInsertion("Compare with ", 13, references)!;
-    const text = "Compare with " + insertion.insert;
+    const beforeCaret = "Compare with ";
+    const afterCaret = "to find the cause";
+    const draft = beforeCaret + afterCaret;
+    const { from, insert } = sessionDropInsertion(draft, beforeCaret.length, references)!;
+    const text = draft.slice(0, from) + insert + draft.slice(from);
+    expect(from).toBe(beforeCaret.length);
+    expect(text).toBe(beforeCaret + insert + afterCaret);
 
     // The composer sends what it tracks from the text: the same reference the
     // picker would have inserted, so the agent is told to read_session it.
@@ -78,12 +83,12 @@ describe("session drag into the input bar", () => {
     expect(data.getData("text/plain")).toStartWith("[Fix \\[flaky\\] login test](session://ref?");
   });
 
-  test("a drop keeps chips whole and separated from the words around them", () => {
+  test("insertion keeps chips whole and separated from the words around them", () => {
     const existing = `See ${"[Old](session://ref?sessionId=old&provider=codex&cwd=)"} now`;
-    // A drop inside the existing chip's source lands after the chip.
+    // Inserting inside the existing chip's source puts the new chip after it.
     const inside = sessionDropInsertion(existing, 8, [local])!;
     expect(inside.from).toBe(existing.indexOf(" now"));
-    // A drop against a word gets a space before it, and always one after.
+    // A chip appended directly after a word gets a space on each side.
     const afterWord = sessionDropInsertion("hello", 5, [local])!;
     expect(afterWord.insert.startsWith(" [Plan the migration]")).toBe(true);
     expect(afterWord.insert.endsWith(") ")).toBe(true);

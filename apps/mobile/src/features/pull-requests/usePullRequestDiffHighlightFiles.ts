@@ -1,11 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useCallback, useContext } from "react";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
 import { environmentCatalog } from "../../connection/catalog";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { composerPullRequests } from "../../state/pull-requests";
-import { useAtomCommand } from "../../state/use-atom-command";
+import { prDiffContents } from "../../solus/source-control";
+import { RegistryContext } from "@effect/atom-react";
+import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
+import { useHostQueryTargets } from "../../state/host-query-scope";
+import type { PullRequestDiffFileContentsInput } from "@t3tools/contracts";
 import type { NativeReviewDiffFile } from "../diffs/nativeReviewDiffTypes";
 import { diffHighlightTraceHash, traceDiffHighlight } from "../diffs/nativeReviewDiffTrace";
 import type { ReviewParsedDiff } from "../review/reviewModel";
@@ -32,12 +35,21 @@ export function usePullRequestDiffHighlightFiles(
   params: PullRequestDiffParams,
   parsed: ReviewParsedDiff,
   files: ReadonlyArray<NativeReviewDiffFile>,
+  expectedHead?: string,
 ) {
-  const fetchContents = useAtomCommand(composerPullRequests.diffFileContents, {
-    reportFailure: false,
-  });
+  const registry = useContext(RegistryContext);
+  const scope = useHostQueryTargets([{ environmentId: params.environmentId }])[0]!.scope;
+  const fetchContents = useCallback(
+    (target: { environmentId: EnvironmentId; input: PullRequestDiffFileContentsInput }) =>
+      executeAtomQuery(
+        registry,
+        prDiffContents({ ...target, scope, input: { ...target.input, expectedHead } }),
+        { reportFailure: false },
+      ),
+    [registry, scope, expectedHead],
+  );
   const { environmentId, projectId, repository, number, host, commit } = params;
-  const cache = createPullRequestDiffHighlightCache();
+  const cache = useMemo(createPullRequestDiffHighlightCache, [scope, expectedHead]);
   return useMemo(() => {
     if (process.env.EXPO_PUBLIC_T3_DIFF_TRACE === "1") {
       const catalog = appAtomRegistry.get(environmentCatalog.catalogValueAtom);

@@ -1,8 +1,5 @@
-import { useEnvironmentQuery } from "../../state/query";
-import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
-import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
-import { useThreadSelection } from "../../state/use-thread-selection";
-import { vcsEnvironment } from "../../state/vcs";
+import { useCheckoutGitControls } from "../../solus/CheckoutGit";
+import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
 import { useThreadGitMenuDefinition } from "../threads/ThreadGitControls";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { ReviewSectionItem } from "./reviewModel";
@@ -18,6 +15,8 @@ interface ReviewHeaderPresentation {
 }
 
 export function useReviewHeaderPresentation(props: {
+  readonly controller: ConversationController;
+  readonly draftKey?: string;
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly title: string;
@@ -27,34 +26,16 @@ export function useReviewHeaderPresentation(props: {
   readonly selectedSection: ReviewSectionItem | null;
   readonly onRefresh: () => Promise<void>;
 }): ReviewHeaderPresentation {
-  const { selectedThread, selectedThreadProject } = useThreadSelection();
-  const gitState = useSelectedThreadGitState();
-  const gitActions = useSelectedThreadGitActions();
-  const gitStatusQuery = useEnvironmentQuery(
-    selectedThread !== null && props.selectedThreadCwd !== null
-      ? vcsEnvironment.status({
-          environmentId: selectedThread.environmentId,
-          input: { cwd: props.selectedThreadCwd },
-        })
-      : null,
+  const controls = useCheckoutGitControls(
+    props.controller,
+    props.controller.run.workingDirectory,
+    props.controller.canChooseStart,
   );
-  // Selection-based git hooks apply only to reviews of the selected thread.
-  const gitMenuAvailable =
-    selectedThread !== null && String(selectedThread.id) === String(props.threadId);
-  const gitMenu = useThreadGitMenuDefinition({
-    environmentId: props.environmentId,
-    threadId: props.threadId,
-    currentBranch: selectedThread?.branch ?? null,
-    tracksRepositories: (selectedThreadProject?.trackedFolders?.length ?? 0) > 0,
-    gitStatus: gitStatusQuery.data,
-    gitOperationLabel: gitState.gitOperationLabel,
-    onPull: gitActions.onPullSelectedThreadBranch,
-    onRunAction: gitActions.onRunSelectedThreadGitAction,
-  });
+  const gitMenu = useThreadGitMenuDefinition({ ...controls, draftKey: props.draftKey });
   return {
     title: props.title,
     subtitle: props.subtitle,
     menuIcon: "ellipsis",
-    gitMenu: gitMenuAvailable ? gitMenu : null,
+    gitMenu,
   };
 }

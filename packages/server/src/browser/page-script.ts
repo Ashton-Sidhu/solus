@@ -13,10 +13,78 @@
  *  the user picked and an element an agent snapshotted must have one name. */
 export const REF_ATTRIBUTE = 'data-solus-browser-ref'
 
+/** A snapshot ref as an agent may write it: the full selector, or the bare
+ *  `e4` that the selector names. Anything else is a selector already. */
+export function refSelector(ref: string): string {
+  const bare = ref.trim()
+  return /^e\d+$/.test(bare) ? `[${REF_ATTRIBUTE}="${bare}"]` : ref
+}
+
+/** In-page source: names an element in a few characters (`div#splash`,
+ *  `section.toast`), so a report can say what covers another element. */
+const DESCRIBE_ELEMENT = `function describeElement(el) {
+    const id = el.id ? '#' + el.id : '';
+    const className = typeof el.className === 'string' ? el.className.trim().split(/\\s+/)[0] : '';
+    return (el.tagName.toLowerCase() + (id || (className ? '.' + className : ''))).slice(0, 60);
+  }`
+
+/** In-page source: what covers the centre of an element, or '' when the
+ *  element itself (or a child of it) is on top there. */
+const COVERED_BY = `function coveredBy(el, rect) {
+    const x = rect.x + rect.width / 2;
+    const y = rect.y + rect.height / 2;
+    if (typeof document.elementFromPoint !== 'function') return '';
+    if (x < 0 || y < 0 || !(x < window.innerWidth) || !(y < window.innerHeight)) return '';
+    const hit = document.elementFromPoint(x, y);
+    // An ancestor on top means the element does not take pointer events, which
+    // is not the same as something else being in front of it.
+    if (!hit || hit === el || el.contains(hit) || hit.contains(el)) return '';
+    return describeElement(hit);
+  }`
+
+/** In-page source: the text a person can read in the viewport, in document
+ *  order, up to \`limit\` characters. Text the page draws as dots stays out, as
+ *  masked field values do. */
+const VISIBLE_TEXT = `function visibleText(limit) {
+    if (!document.body || typeof document.createTreeWalker !== 'function') return '';
+    const walker = document.createTreeWalker(document.body, 4);
+    const parts = [];
+    let length = 0;
+    let node;
+    while (length < limit && (node = walker.nextNode())) {
+      const text = (node.nodeValue || '').replace(/\\s+/g, ' ').trim();
+      const parent = node.parentElement;
+      if (!text || !parent) continue;
+      const rect = parent.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 || rect.top > window.innerHeight) continue;
+      const style = window.getComputedStyle(parent);
+      if (style.visibility === 'hidden') continue;
+      const textSecurity = style.webkitTextSecurity || (style.getPropertyValue ? style.getPropertyValue('-webkit-text-security') : '');
+      if (textSecurity && textSecurity !== 'none') continue;
+      parts.push(text);
+      length += text.length + 3;
+    }
+    return parts.join(' · ').slice(0, limit).replace(/[\\uD800-\\uDBFF]$/, '');
+  }`
+
+/** The global that carries the change watch from a snapshot's structure read
+ *  to the read after its screenshot. */
+const SNAPSHOT_WATCH = '__solusSnapshotWatch'
+
+/** How much visible text a snapshot carries: enough to read a loading screen,
+ *  an error, or a heading, not a whole transcript. */
+const SNAPSHOT_TEXT_LIMIT = 1000
+
 /**
  * The elements an agent can act on, plus the labelled landmarks that say where
  * it is. Bounded: an unbounded element list is the fastest way to blow an
  * agent's context on a page it only needed to look at.
+ *
+ * It also says whether the document is still loading, which text is on screen,
+ * and which elements something else covers, and it starts a watch that
+ * `snapshotChangesExpression` reads after the screenshot. Without these, a
+ * loading screen in front of a mounted app gave a picture of the loading screen
+ * and a list of the app's buttons, and nothing said that the two disagreed.
  */
 export function elementSnapshotExpression(maxElements: number): string {
   return `(() => {
@@ -24,6 +92,9 @@ export function elementSnapshotExpression(maxElements: number): string {
   const MAX = ${Math.max(1, Math.trunc(maxElements))};
   // A cut must not end on half of a surrogate pair; this code cannot import cutText.
   const LONE_HALF = /[\\uD800-\\uDBFF]$/;
+  ${DESCRIBE_ELEMENT}
+  ${COVERED_BY}
+  ${VISIBLE_TEXT}
   const SELECTOR = 'a[href], button, input, select, textarea, summary, [role], [tabindex], [data-testid], [contenteditable="true"]';
   for (const stale of document.querySelectorAll('[' + REF + ']')) stale.removeAttribute(REF);
   const out = [];
@@ -62,6 +133,8 @@ export function elementSnapshotExpression(maxElements: number): string {
     const identifier = el.getAttribute('data-testid') || el.id;
     if (identifier) entry.identifier = identifier;
     if (el.disabled) entry.disabled = true;
+    const cover = coveredBy(el, rect);
+    if (cover) entry.coveredBy = cover;
     // A value the page masks (a password field, or text the page draws as
     // dots) stays in the page: nothing that reads the snapshot needs it.
     const textSecurity = style.webkitTextSecurity || (style.getPropertyValue ? style.getPropertyValue('-webkit-text-security') : '');
@@ -73,22 +146,130 @@ export function elementSnapshotExpression(maxElements: number): string {
     if (meta && meta.file) entry.source = { file: meta.file, line: meta.line || 0, column: meta.column || 0 };
     out.push(entry);
   }
-  return JSON.stringify({ title: document.title, url: location.href, elements: out });
+  // Content changes only: the refs stamped above are attributes, and so are
+  // the class toggles of hover and focus, which do not change what is shown.
+  const prior = window.${SNAPSHOT_WATCH};
+  if (prior) prior.observer.disconnect();
+  let watching = false;
+  if (typeof MutationObserver === 'function' && document.documentElement) {
+    const watch = { changes: 0, observer: null };
+    watch.observer = new MutationObserver((records) => { watch.changes += records.length; });
+    watch.observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    window.${SNAPSHOT_WATCH} = watch;
+    watching = true;
+  }
+  return JSON.stringify({
+    title: document.title,
+    url: location.href,
+    loading: document.readyState === 'loading' || document.readyState === 'interactive',
+    visibleText: visibleText(${SNAPSHOT_TEXT_LIMIT}),
+    watching,
+    elements: out,
+  });
 })()`
+}
+
+/**
+ * What changed since `elementSnapshotExpression` read the page: the number of
+ * content changes and the URL now. `null` when no watch is on this window,
+ * which after a snapshot started one means the document was replaced.
+ */
+export function snapshotChangesExpression(): string {
+  return `(() => {
+  const watch = window.${SNAPSHOT_WATCH};
+  if (!watch) return JSON.stringify(null);
+  watch.observer.disconnect();
+  window.${SNAPSHOT_WATCH} = undefined;
+  return JSON.stringify({ changes: watch.changes, url: location.href });
+})()`
+}
+
+/**
+ * Wait until the document has loaded and its content has not changed for
+ * `quietMs`, or until `timeoutMs`, and say which. A `load` event is not a
+ * ready app: a single-page app loads its code, connects, and renders after it.
+ * The answer carries the visible text, so a loading screen shows in words.
+ */
+export function settleExpression(quietMs: number, timeoutMs: number): string {
+  return `new Promise((resolve) => {
+  ${VISIBLE_TEXT}
+  const started = performance.now();
+  let changedAt = started;
+  const observer = typeof MutationObserver === 'function' && document.documentElement
+    ? new MutationObserver(() => { changedAt = performance.now(); })
+    : null;
+  if (observer) observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  const finish = (settled) => {
+    if (observer) observer.disconnect();
+    resolve(JSON.stringify({
+      settled,
+      waitedMs: Math.round(performance.now() - started),
+      loading: document.readyState !== 'complete',
+      url: location.href,
+      title: document.title,
+      visibleText: visibleText(300),
+    }));
+  };
+  const check = () => {
+    const now = performance.now();
+    if (document.readyState === 'complete' && now - changedAt >= ${Math.max(0, Math.trunc(quietMs))}) return finish(true);
+    if (now - started >= ${Math.max(0, Math.trunc(timeoutMs))}) return finish(false);
+    setTimeout(check, 100);
+  };
+  check();
+})`
+}
+
+/**
+ * A wait condition as one expression: every condition given must hold. Text
+ * is matched in the rendered text of the page, case sensitive; a selector must
+ * match an element with a size. A lone `expression` is returned unchanged, so
+ * its own value still comes back to the caller.
+ */
+export function waitConditionExpression(conditions: {
+  expression?: string
+  text?: string
+  selector?: string
+  urlIncludes?: string
+}): string {
+  const checks: string[] = []
+  if (conditions.text !== undefined) {
+    checks.push(`(!!document.body && document.body.innerText.includes(${JSON.stringify(conditions.text)}))`)
+  }
+  if (conditions.selector !== undefined) {
+    checks.push(`(() => {
+    const el = document.querySelector(${JSON.stringify(conditions.selector)});
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  })()`)
+  }
+  if (conditions.urlIncludes !== undefined) checks.push(`location.href.includes(${JSON.stringify(conditions.urlIncludes)})`)
+  if (conditions.expression !== undefined) {
+    if (checks.length === 0) return conditions.expression
+    checks.push(`!!(${conditions.expression})`)
+  }
+  return checks.join(' && ')
 }
 
 /** Where a selector is on screen, in CSS pixels, after scrolling it into view.
  *  Returns `null` when nothing matches, which is how a drive verb reports a
- *  stale ref instead of clicking an arbitrary point. */
+ *  stale ref instead of clicking an arbitrary point. `coveredBy` names what is
+ *  on top of the element's centre, where a click would land instead. */
 export function elementRectExpression(selector: string): string {
   return `(() => {
+  ${DESCRIBE_ELEMENT}
+  ${COVERED_BY}
   const el = document.querySelector(${JSON.stringify(selector)});
   if (!el) return JSON.stringify(null);
   el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
   const rect = el.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return JSON.stringify(null);
   if (typeof el.focus === 'function') el.focus();
-  return JSON.stringify({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+  const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  const cover = coveredBy(el, rect);
+  if (cover) point.coveredBy = cover;
+  return JSON.stringify(point);
 })()`
 }
 

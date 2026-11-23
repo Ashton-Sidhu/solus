@@ -400,7 +400,7 @@
 {/if}
 
 <style>
-  /* Matches the header's other verbs (see WorkHeaderActions .wha-verb): the
+  /* Matches the header's other standalone pills (Review, Share): the
      cluster has to read as one row of words, with tone reserved for the states
      that need a decision. */
   .wpm-verb {
@@ -429,7 +429,7 @@
   }
   /* In a work's header it is one of the row's raised pills. */
   .wpm-verb:not(.wpm-verb--conversation-card) {
-    height: 1.625rem;
+    height: 2rem;
     padding: 0 0.625rem;
     font-size: var(--text-workspace-chrome);
     border-radius: 9999px;

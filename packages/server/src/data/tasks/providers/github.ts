@@ -75,13 +75,15 @@ function githubHome(home: TaskHome): IssueHome | DraftHome {
   return home
 }
 
-function issueReference(home: IssueHome): string {
+type IssueNumber = Pick<IssueHome, 'owner' | 'repo' | 'number'>
+
+function issueReference(home: IssueNumber): string {
   return `${home.owner}/${home.repo}#${home.number}`
 }
 
 /** Read one issue by its number. GitHub reads follow a repository rename. */
-export async function readIssueNode(graphql: Graphql, home: IssueHome): Promise<IssueNode> {
-  const res = await withoutProjectScope((queries) => graphql<IssueByNumberResponse>(queries.issueByNumber, {
+export async function readIssueNode(graphql: Graphql, home: IssueNumber, includeComments = false): Promise<IssueNode> {
+  const res = await withoutProjectScope((queries) => graphql<IssueByNumberResponse>(includeComments ? queries.issueDetailsByNumber : queries.issueByNumber, {
     owner: home.owner,
     repo: home.repo,
     number: home.number,
@@ -94,6 +96,15 @@ export async function readIssueNode(graphql: Graphql, home: IssueHome): Promise<
     )
   }
   return issue
+}
+
+export function githubIssueDetails(node: IssueNode): ProviderTaskDetails {
+  const comments = node.comments ?? { totalCount: 0, nodes: [] }
+  return {
+    task: issueToTask(node),
+    comments: comments.nodes.map(commentFromNode),
+    commentsTruncated: comments.totalCount > comments.nodes.length,
+  }
 }
 
 /** The draft of one board item, with the Status option the board gives it. */
@@ -227,14 +238,7 @@ export class GitHubTaskProvider implements TaskProviderAdapter {
     if (ref.provider !== 'github') throw new Error(`The GitHub task provider cannot read a ${ref.provider} task.`)
     return this.run('get_github_task', async ({ graphql }) => {
       const { node } = await withoutProjectScope((queries) => graphql<TaskNodeResponse>(queries.taskNode, { id: ref.id }))
-      if (node?.__typename === 'Issue') {
-        const comments = node.comments ?? { totalCount: 0, nodes: [] }
-        return {
-          task: issueToTask(node),
-          comments: comments.nodes.map(commentFromNode),
-          commentsTruncated: comments.totalCount > comments.nodes.length,
-        }
-      }
+      if (node?.__typename === 'Issue') return githubIssueDetails(node)
       const item = node?.__typename === 'DraftIssue' ? node.projectV2Items.nodes.find(Boolean) : null
       if (node?.__typename !== 'DraftIssue' || !item) {
         throw new TaskProviderError(

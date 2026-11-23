@@ -1,6 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   presentPendingBackgroundWork,
   type PendingBackgroundWorkItem,
@@ -15,7 +14,9 @@ import { SheetHeader } from "../../components/ui/SheetHeader";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenContent } from "../../components/ui/ScreenContent";
-import { environmentThreadShells } from "../../state/threads";
+import { backgroundTasksAtom } from "../../solus/session-work";
+import { useSyncExternalStore } from "react";
+import { solus } from "../../solus/runtime";
 
 const KIND_LABELS = {
   subagent: msg("Subagent"),
@@ -32,10 +33,9 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
   const gt = useGT();
   const m = useMessages();
   const target = route.params;
-  const thread = useAtomValue(
-    environmentThreadShells.threadShellAtom(scopeThreadRef(target.environmentId, target.threadId)),
-  );
-  const presentation = presentPendingBackgroundWork(thread?.pendingBackgroundTasks ?? [], m);
+  useSyncExternalStore(solus.account.changes.subscribe, solus.sessionCache.scope);
+  const tasks = useAtomValue(backgroundTasksAtom(target.environmentId, target.threadId));
+  const presentation = presentPendingBackgroundWork(tasks ?? [], m);
   const openThread = (threadId: ThreadId) => {
     void Haptics.selectionAsync();
     // A thread replaces the leaf sheet so workspace back navigation still works.

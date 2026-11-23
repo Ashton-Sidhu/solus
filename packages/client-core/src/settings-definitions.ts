@@ -37,10 +37,6 @@ export const settingsDefinitions = {
   "general.section-workspace": {
     label: "Workspace",
   },
-  "general.sidebar-motion": {
-    label: "Sidebar animation",
-    description: "Sidebar task animation length. 0 turns it off.",
-  },
   "general.projects-base": {
     label: "Projects folder",
     description: "Where new projects are created and clones land.",
@@ -137,6 +133,10 @@ export const settingsDefinitions = {
   "appearance.sidebar-places": {
     label: "Sidebar places",
     description: "The places and pinned apps in the column at the left of the sidebar, and their order. Right-click the column to change them there.",
+  },
+  "appearance.sidebar-motion": {
+    label: "Sidebar animation",
+    description: "Sidebar task animation length. 0 turns it off.",
   },
   "appearance.project-panel-items": {
     label: "Project panel",

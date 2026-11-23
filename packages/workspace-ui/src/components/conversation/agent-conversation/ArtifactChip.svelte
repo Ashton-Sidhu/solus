@@ -3,12 +3,12 @@
   import {
     AppWindow as ArtifactIcon,
     FileText as DocIcon,
-    GitPullRequest as GitPullRequestIcon,
     Image as ImageIcon,
     LayoutGrid as AppIcon,
     Presentation as SlidesIcon,
     Workflow as AutomationIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../../ui/octicons";
   import type { Component } from "svelte";
   import type { WorkType } from "@solus/contracts/types";
   import type { ArtifactChipSize } from "@solus/contracts/settings";

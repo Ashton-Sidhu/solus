@@ -286,11 +286,7 @@ export function PullRequestReviewersRow(props: RowProps) {
     composerPullRequests.activity(pullRequestTarget(props.params)),
   );
   const summary = pullRequestReviewSummary(props.pr, activity.data, m);
-  const canWrite = useAtomValue(
-    composerPullRequests.requestReviewers.permissionAtom(
-      pullRequestTarget(props.params).environmentId,
-    ),
-  );
+  const canWrite = useAtomValue(composerPullRequests.update.permissionAtom(pullRequestTarget(props.params).environmentId));
   const connected = usePullRequestConnected(props.params.environmentId);
   const canRequest =
     connected &&

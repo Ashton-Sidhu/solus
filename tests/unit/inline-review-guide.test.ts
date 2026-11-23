@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { parseInlineReviewGuide } from '@solus/contracts/inline-review-guide'
-import { resolveInlineReviewGuide } from '@solus/client-core/inline-review-guide'
+import { loadInlineReviewGuide, resolveInlineReviewGuide } from '@solus/client-core/inline-review-guide'
 import { splitPatchByFile } from '../../packages/workspace-ui/src/components/pr-review/guide/lib/guide-data'
 import { replySegments } from '../../apps/mobile/solus-core/features/threads/reply-html-fences'
 
@@ -33,4 +33,25 @@ test('the native reader recognizes a complete structured guide and leaves incomp
   expect(replySegments(open + '\n```')[0]).toMatchObject({ kind: 'guide', guide: draft })
   expect(replySegments('```review-guide\n{}\n```')[0].kind).toBe('markdown')
   expect(parseInlineReviewGuide(JSON.stringify({ ...draft, sections: [{...draft.sections[0], files: [{path: 'settings', turn: 0}]}] }))).toBeNull()
+})
+
+test('a remounted reply reuses its pending and completed guide within one session reader', async () => {
+  const reads: number[] = []
+  const read = async (index: number) => { reads.push(index); return null }
+  const first = loadInlineReviewGuide(draft, read, splitPatchByFile)
+  expect(loadInlineReviewGuide(structuredClone(draft), read, splitPatchByFile)).toBe(first)
+  await first.ready
+  expect(loadInlineReviewGuide(structuredClone(draft), read, splitPatchByFile).value).toBe(first.value)
+  expect(reads).toEqual([0, 1, 2])
+  const retried = loadInlineReviewGuide(draft, read, splitPatchByFile, true)
+  expect(retried).not.toBe(first)
+  await retried.ready
+  expect(reads).toEqual([0, 1, 2, 0, 1, 2])
+  expect(loadInlineReviewGuide(draft, async () => null, splitPatchByFile)).not.toBe(retried)
+})
+
+test('a wrong path identifies the citation and does not offer to retry the snapshot', async () => {
+  const result = await resolveInlineReviewGuide(draft, async () => ({patch: ''}), splitPatchByFile)
+  expect(result.unavailable).toEqual([])
+  expect(result.guide.sections[0].files[0]).toMatchObject({path: 'settings', missingFromTurn: 1})
 })

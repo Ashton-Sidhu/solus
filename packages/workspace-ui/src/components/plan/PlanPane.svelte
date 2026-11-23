@@ -61,4 +61,5 @@
   maximized={pane.maximized}
   closeLabel="Close plan"
   closeTestId="plan-modal-close"
+  raised="pill"
 />

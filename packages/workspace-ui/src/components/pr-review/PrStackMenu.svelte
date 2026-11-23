@@ -105,7 +105,7 @@
           type="button"
           variant="ghost"
           size="xs"
-          class="h-6.5 shrink-0 gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome font-normal text-foreground tabular-nums shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:bg-[var(--wash-1)] pointer-coarse:tap-area "
+          class="h-7 shrink-0 gap-1.5 rounded-full px-2.5 text-workspace-chrome font-normal text-foreground tabular-nums hover:bg-[var(--wash-1)] pointer-coarse:tap-area "
           aria-label="Stack, layer {position} of {stack.layers.length}"
           title="Layer {position} of {stack.layers.length} in a stack on {stack.base}"
         >

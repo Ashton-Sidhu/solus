@@ -3,11 +3,10 @@
     ExternalLink as ArrowSquareOutIcon,
     Copy as CopyIcon,
     GitMerge as GitMergeIcon,
-    GitPullRequest as GitPullRequestIcon,
     GitPullRequestArrow as GitPullRequestArrowIcon,
-    GitPullRequestClosed as GitPullRequestClosedIcon,
     ListChecks as ListChecksIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon, GitPullRequestClosedIcon } from "../ui/octicons";
   import type { PullRequest } from "@solus/contracts/providers";
   import type { PrRowAction, PrRowActionKind } from "./lib/pr-row-actions";
   import { requestInputFocus } from "../../lib/inputFocus";

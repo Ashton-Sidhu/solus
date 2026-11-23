@@ -1,4 +1,4 @@
-import type { PullRequestReviewGuideResult } from "@t3tools/contracts";
+import type { MobileGuideResult as PullRequestReviewGuideResult } from "../../../solus/pr-guide";
 import { msg } from "gt-react-native";
 
 import { m, type MessageResolver } from "../../../i18n/messages";

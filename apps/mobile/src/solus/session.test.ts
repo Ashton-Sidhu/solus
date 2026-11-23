@@ -1,6 +1,7 @@
 import { presentThreadLinkedPullRequests, resolveThreadPrBadgeAction } from "../state/thread-pr-presentation";
 import { linkedPullRequestDestination } from "../lib/pullRequestNavigation";
 import type { AttentionEntry } from "@solus/contracts/attention-types";
+import { createNavigationThreads } from "./navigation-threads";
 import { EMPTY_SESSION_VIEW } from "@solus/contracts/session-state";
 import { createSessionListProjection } from "./session-list";
 import { EnvironmentId } from "@t3tools/contracts";
@@ -216,6 +217,25 @@ it("clears the wake badge only after a visit at or after the wake time", () => {
     );
   expect(wokeAt(2000)).toBe(new Date(3000).toISOString());
   expect(wokeAt(4000)).toBeNull();
+});
+
+it("releases cached host rows together and removes revoked rows even during a hold", () => {
+  const project = createNavigationThreads();
+  const a = toThreadShell("a", session);
+  const b = toThreadShell("b", session);
+  const removed = toThreadShell("a", { ...session, sessionId: "revoked" });
+  const updated = { ...a, title: "Confirmed by host" };
+  const hosts = [a, b].map(({ environmentId }) => ({ environmentId, connectionState: "connected" }));
+  const old = [a, removed, b];
+  const fresh = [updated, b];
+  expect(project(old, hosts, () => "loading", "person", 0).threads).toBe(old);
+  const waiting = project(fresh, hosts, id => id === a.environmentId ? "loaded" : "loading", "person", 10);
+  expect(waiting.holding).toBe(true);
+  expect(waiting.threads).toEqual([a, b]);
+  expect(project(fresh, hosts, () => "loaded", "person", 20).threads).toBe(fresh);
+  const empty = project([], hosts, () => "loading", "another person", 30);
+  expect(empty.threads).toEqual([]);
+  expect(empty.holding).toBe(false);
 });
 
 it("restores Input and Done on connect and clears only the completion that was read", () => {

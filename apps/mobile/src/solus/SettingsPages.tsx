@@ -18,7 +18,7 @@ import { SettingsScreen } from "../features/settings/components/SettingsScreen";
 import { SettingsRow } from "../features/settings/components/SettingsRow";
 import { SettingsSection } from "../features/settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../features/settings/components/SettingsSwitchRow";
-import { nearby, solus, useSolusDirectory } from "./runtime";
+import { nearby, solus, useSolusWorkspace } from "./runtime";
 import { SYNC_STATE_LABELS } from "./settings-labels";
 
 export function SettingsPage({
@@ -61,7 +61,7 @@ export function TextSetting(props: {
         accessibilityLabel={props.label}
         multiline
         autoCapitalize="none"
-        className="px-4 py-3 text-foreground"
+        className="mx-4 my-3 min-h-10 rounded-xl px-3 py-2"
         editable={!saving}
         value={draft ?? props.value}
         onChangeText={setDraft}
@@ -126,7 +126,7 @@ export function InstructionSettings() {
 }
 
 export function SolusVoice() {
-  const {environments}=useSolusDirectory();
+  const {environments}=useSolusWorkspace();
   const navigation=useNavigation();
   const { voiceDictionary } = useListened(
     solus.personal.changes,
@@ -284,7 +284,7 @@ export function SolusHostDetail({
 }: StaticScreenProps<{ environmentId: EnvironmentId }>) {
   const id = route.params.environmentId;
   const nav = useNavigation();
-  const directory = useSolusDirectory();
+  const directory = useSolusWorkspace();
   const host = directory.hostsById[id];
   const state = useListened(solus.hostSettings.changes, () =>
     solus.hostSettings.stateOf(id),

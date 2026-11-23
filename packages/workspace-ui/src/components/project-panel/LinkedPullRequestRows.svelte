@@ -7,12 +7,12 @@
     EyeOff as EyeOffIcon,
     Globe as GlobeIcon,
     GitMerge as GitMergeIcon,
-    GitPullRequest as GitPullRequestIcon,
     Glasses as EyeglassesIcon,
     Hammer as HammerIcon,
     PanelRight as PanelRightIcon,
     SquareArrowOutUpRight as OpenIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import { onDestroy, untrack } from "svelte";
   import type { HostApi } from "@solus/client-core/host-api";
   import { localApi } from "@solus/client-core/local-api";

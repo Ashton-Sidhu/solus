@@ -303,6 +303,31 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
     expect(afterExit.runtime).toBeNull()
     plane.shutdown()
   })
+  test('a resumed watch receives only the retained suffix and refuses a cursor from before settlement', async () => {
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const sessionId = 'resume-active-turn'
+    const lifecycle = await plane.runTurn({ target: {kind: 'new-session'}, sessionId, input: input(), tools: [], options: {prompt: 'resume', promptSource: 'typed'} })
+    await lifecycle.agentSessionId
+    const first: NormalizedEvent = { type: 'assistant_message', text: 'already seen' }
+    const second: NormalizedEvent = { type: 'assistant_message', text: 'missed' }
+    plane.publish(sessionId, first)
+    const afterEvent = plane.eventCursor(first)!
+    plane.publish(sessionId, second)
+    const delivered: NormalizedEvent[] = []
+    plane.on('event', (_sessionId, event, to) => { if (to?.only === 'rejoined') delivered.push(event) })
+    expect(plane.watchers.watchSession({sessionId, attachRuntime: true, afterEvent}, 'rejoined').resumed).toBe(true)
+    expect(delivered).toContain(second)
+    expect(delivered).not.toContain(first)
+    expect(plane.watchers.watchSession({sessionId, attachRuntime: true, afterEvent: 'wrong'}, 'other')).toEqual({resumed: false})
+    expect(plane.watchers.clientsWatching(sessionId)).not.toContain('other')
+    backend.complete('thread-1')
+    await lifecycle.done
+    expect(plane.watchers.watchSession({sessionId, attachRuntime: true, afterEvent}, 'late')).toEqual({resumed: false})
+    plane.shutdown()
+  })
+
   test('reconnect replays delivered blocks without flushing or duplicating a partial paragraph', async () => {
     const backend = new Backend()
     const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))

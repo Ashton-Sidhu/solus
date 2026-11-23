@@ -154,6 +154,30 @@ describe('queue author', () => {
   })
 })
 
+test('a prompt sent after Stop waits for the stopped provider run to exit', async () => {
+  const backend = holdingBackend('codex', 'stopping-codex')
+  const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend.value]]))
+  plane.on('error', () => {})
+  cleanups.push(() => { plane.shutdown(); backend.releaseAll() })
+  // Codex accepts the interrupt but reports the exit separately.
+  spyOn(backend.value, 'cancelSession').mockReturnValue(true)
+  const context = ctx('stopping', 'stopping-codex-1')
+  context.session.provider = 'codex'
+  await plane.dispatch.submitPrompt(context, { prompt: 'start' }, { actor: HOST_ACTOR })
+  await Promise.resolve()
+  expect(plane.stopSession('stopping', HOST_ACTOR)).toBe(true)
+  expect(plane.activeSessions.get('stopping')?.status).toBe('interrupted')
+
+  const next = await plane.dispatch.submitPrompt(context, { prompt: 'next turn' }, { actor: HOST_ACTOR })
+  expect(next.disposition).toBe('queued')
+  expect(plane.scheduler.processQueueForSession('stopping')).toBe(false)
+  expect(backend.requests.map((request) => request.prompt)).toEqual(['start'])
+
+  const nextRun = backend.nextStart()
+  backend.releaseOne()
+  expect((await nextRun).prompt).toBe('next turn')
+})
+
 // WHY: a session restored without its git context still points at its old
 // worktree. Spawned there, Claude fails with a libc message and the sender
 // cannot tell the worktree is gone. The provider must not start at all.

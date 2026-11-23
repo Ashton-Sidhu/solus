@@ -1,6 +1,6 @@
 <script lang="ts">
   import { checkoutGit } from "../../contexts/workspace/run-location";
-  import { agentForProject } from "@solus/contracts/provider-instance-models";
+  import { agentForProject, agentProjectInstance } from "@solus/contracts/provider-instance-models";
   import { isModelPickerAgentVisible } from "@solus/client-core/model-picker-agents";
   import { hosts } from "../../contexts/hosts/hosts.svelte";
   import { tick, untrack } from "svelte";
@@ -144,11 +144,12 @@
   const policyHostId = $derived(serverId ?? ((tabId || draftId) ? session.serverIdFor(tabId ?? draftId!) : undefined));
   const policy = $derived(policyHostId ? workPolicy(policyHostId, sess?.organizationId) : null);
 
+  const modelCatalogCwd = $derived(modelOnly ? undefined : checkoutGit(sess?.run ?? (draftId ? session.drafts.sessionDrafts.get(draftId)?.run : undefined))?.repoRoot ?? ctx.workingDirectory);
   const metadata = $derived.by(() => {
     const hostId = policyHostId;
     const hostAgents = agents ?? (hostId ? hosts.get(hostId).machineInfo?.agents : undefined);
     if (!hostAgents) return agentContext.metadata;
-    const entries = hostAgents.map((agent) => [agent.id, agentForProject(agent, modelOnly ? undefined : checkoutGit(sess?.run ?? (draftId ? session.drafts.sessionDrafts.get(draftId)?.run : undefined))?.repoRoot ?? ctx.workingDirectory)] as const);
+    const entries = hostAgents.map((agent) => [agent.id, agentForProject(agent, modelCatalogCwd)] as const);
     return Object.fromEntries(entries);
   });
 
@@ -164,7 +165,13 @@
   );
   // Superseded models stay selectable but sit behind a disclosure, so the column
   // reads as the generation we expect people to pick.
-  const modelSections = $derived(splitLegacyModels(activeAgent, models, modelMeta?.modelProfiles));
+  const favoriteModelIds = $derived(new Set(modelMeta ? agentProjectInstance(modelMeta, modelCatalogCwd)?.favoriteModels : undefined));
+  const modelSections = $derived.by(() => {
+    const favorites = models.filter((model) => favoriteModelIds.has(model.id));
+    const others = models.filter((model) => !favoriteModelIds.has(model.id));
+    const sections = splitLegacyModels(activeAgent, others, modelMeta?.modelProfiles);
+    return { current: [...favorites, ...sections.current], legacy: sections.legacy };
+  });
   let legacyExpanded = $state(false);
   const canRoute = $derived(!modelOnly && isPrimary && !sess?.agentSessionId && !sess?.forked);
   // A model-only picker hides the reasoning column Auto normally sits in, so its

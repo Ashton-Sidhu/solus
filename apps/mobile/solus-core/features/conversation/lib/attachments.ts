@@ -83,8 +83,8 @@ export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadD
     mimeType: mime,
     size: file.size ?? 0,
     dataUrl: isImage ? dataUrl : null,
+    localUri: file.uri,
   }
-  if (video || isImage) uploaded.localUri = file.uri
   return uploaded
 }
 

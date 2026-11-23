@@ -25,6 +25,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   Text as NativeText,
   TextInput,
@@ -97,7 +98,8 @@ const ACTION_ICONS: Record<string, AppSymbolName> = {
   settings: "gearshape",
   appearance: "paintbrush",
   environments: "desktopcomputer",
-  usage: "chart.bar.xaxis",
+  scheduledTasks: "workflow",
+  usage: "waveform.path.ecg",
   archive: "archivebox",
   files: "doc.text",
   terminal: "terminal",
@@ -229,7 +231,8 @@ export function CommandPalette(props: {
   const navigation = useNavigation();
   const gt = useGT();
   const selectTab = useSelectWorkspaceTab();
-  const { themeVariables } = useAppearancePreferences();
+  const { themeAppearance, themeVariables } = useAppearancePreferences();
+  const caretColor = { light: "#000", dark: "#fff" }[themeAppearance];
   const selectDetail = useSelectWorkspaceDetail();
   const runCommand = props.onCommand;
   const projects = useProjects();
@@ -291,7 +294,7 @@ export function CommandPalette(props: {
     useAtomValue(serverEnvironment.prepareTriage.permissionAtom(triageEnvironmentId)) &&
     triageEnvironmentId !== null &&
     serverConfigs.get(triageEnvironmentId)?.environment.capabilities.triage === true;
-  const canShareWithGuest = useCanShareWithGuest(activeThreadRef?.environmentId ?? null);
+  const canShareWithGuest = useCanShareWithGuest(activeThreadRef?.environmentId ?? null, activeThreadRef?.threadId);
   const contentMatchByKey = new Map(
     search.matches
       .filter((match) => match.source === "user" || match.source === "assistant")
@@ -678,6 +681,8 @@ export function CommandPalette(props: {
                     accessibilityLabel={gt("Search commands, projects, and threads")}
                     placeholder={gt("Search commands, projects, and threads…")}
                     placeholderTextColorClassName="accent-placeholder"
+                    cursorColor={caretColor}
+                    selectionColor={Platform.select({ ios: caretColor })}
                     autoCorrect={false}
                     autoCapitalize="none"
                     clearButtonMode="while-editing"

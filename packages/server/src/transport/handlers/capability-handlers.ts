@@ -34,6 +34,7 @@ export function registerCapabilityHandlers(
       // The machine's own name. A client saved this host under whatever it could
       // derive at pairing time; this is the host correcting that record.
       name: hostDisplayName(),
+      sessionListControls: true,
       attachUpload: server.hasHandler('attachUpload'),
       attachStreamUpload: server.hasHandler('attachUploadToken'),
       // Not a handler: this build reads image refs off a prompt. An older host

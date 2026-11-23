@@ -1,7 +1,8 @@
+import { attachmentsRoot, uploadFolderName } from './attachment-store'
 import { createHash, randomBytes } from 'crypto'
 import { createReadStream, existsSync } from 'fs'
 import { chmod, copyFile, mkdir, open, realpath, rename, stat, unlink, writeFile } from 'fs/promises'
-import { basename, extname, isAbsolute, join } from 'path'
+import { basename, extname, isAbsolute, join, sep } from 'path'
 import { Readable } from 'stream'
 import { z } from 'zod'
 import {
@@ -91,7 +92,9 @@ interface AssetTokenPayload {
   path: string
   expiresAt: number
   downloadName?: string
-  /** The type read from the file's bytes, when its name does not give one. */
+  /** An upload URL names exactly the file that was signed. */
+  uploadFile?: { dev: number; ino: number }
+  /** The type determined when the URL was signed. */
   mime?: string
 }
 
@@ -100,7 +103,8 @@ const assetTokenPayloadSchema = z
     path: z.string(),
     expiresAt: z.number().int(),
     downloadName: z.string().optional(),
-    mime: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']).optional(),
+    uploadFile: z.object({ dev: z.number(), ino: z.number() }).optional(),
+    mime: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/octet-stream']).optional(),
   })
   .strict()
 
@@ -218,10 +222,10 @@ export async function writeAssetFile(
 }
 
 /**
- * Sign a short-lived URL for one media file on this host, or one stored asset.
+ * Sign a short-lived URL for host media, a stored asset, or a file uploaded to this conversation.
  * A path may name any media file the host can read: every caller already reads
  * host files over `readProjectFile`, and a guest cannot call this at all. Only a
- * relative path needs the session, which it resolves against.
+ * relative media path needs a project directory. A document upload must belong to the request's session.
  */
 export async function createAssetUrl(
   ctx: IpcContext | undefined,
@@ -244,10 +248,17 @@ export async function createAssetUrl(
   }
   const targetStat = await stat(target)
   if (!targetStat.isFile()) throw new Error('Only files can be served as assets.')
-  let sniffedMime: string | undefined
+  let hostMime: string | undefined
   if (!assetId && !mediaTypeFor(target)) {
-    sniffedMime = (await sniffRasterImageMime(target)) ?? undefined
-    if (!sniffedMime) throw new Error('This asset type is not allowed.')
+    hostMime = (await sniffRasterImageMime(target)) ?? undefined
+    if (!hostMime) {
+      const sessionId = ctx?.session.sessionId || ctx?.session.draftId
+      const root = sessionId ? await realpath(attachmentsRoot()).catch(() => null) : null
+      if (!sessionId || !root || !target.startsWith(join(root, uploadFolderName(sessionId)) + sep)) {
+        throw new Error('This asset type is not allowed.')
+      }
+      hostMime = 'application/octet-stream'
+    }
   }
 
   const now = options.now ?? Date.now()
@@ -256,7 +267,8 @@ export async function createAssetUrl(
     path: target,
     expiresAt,
     downloadName: assetId ? request.name : undefined,
-    mime: sniffedMime,
+    mime: hostMime,
+    ...(hostMime === 'application/octet-stream' && { uploadFile: { dev: targetStat.dev, ino: targetStat.ino } }),
   }
   const token = signToken(payload, options.secret ?? getAssetSigningSecret())
   return { relativeUrl: `/api/assets/${token}`, expiresAt }
@@ -325,13 +337,26 @@ export async function serveAssetToken(
     'Content-Security-Policy': "default-src 'none'; img-src data: *; media-src 'self' *; style-src 'unsafe-inline'",
     'X-Content-Type-Options': 'nosniff',
   }
-  if (isStoredAsset && !isInline) {
+  if ((isStoredAsset && !isInline) || mime === 'application/octet-stream') {
     const safeName = (payload.downloadName || basename(payload.path)).replace(/["\\\r\n]/g, '_')
     Object.assign(headers, { 'Content-Disposition': `attachment; filename="${safeName}"` })
   }
   if (range) Object.assign(headers, { 'Content-Range': `bytes ${start}-${end}/${fileStat.size}` })
   if (request.method === 'HEAD') return new Response(null, { status: range ? 206 : 200, headers })
-  const stream = createReadStream(payload.path, range ? { start, end } : undefined)
+  const streamRange = range ? { start, end } : undefined
+  let stream
+  if (payload.uploadFile) {
+    const file = await open(payload.path, 'r').catch(() => null)
+    if (!file) return new Response('Not found', { status: 404 })
+    const current = await file.stat().catch(() => null)
+    if (current?.dev !== payload.uploadFile.dev || current.ino !== payload.uploadFile.ino) {
+      await file.close()
+      return new Response('Attachment no longer available', { status: 404 })
+    }
+    stream = file.createReadStream(streamRange)
+  } else {
+    stream = createReadStream(payload.path, streamRange)
+  }
   return new Response(Readable.toWeb(stream), {
     status: range ? 206 : 200,
     headers,

@@ -1,3 +1,10 @@
+import { useSessionController } from "../../../solus/use-session-controller";
+import { useCheckoutCommit } from "../../../solus/CheckoutGit";
+import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
+import { FilePreviewLoading } from "../../files/FilePreviewFeedback";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import type { GitActionRequestInput } from "@t3tools/client-runtime/state/vcs";
+import type { VcsStatusResult } from "@t3tools/contracts";
 import { FitSheet } from "../../../components/ui/FitSheet";
 import { SheetHeader } from "../../../components/ui/SheetHeader";
 import { Button } from "../../../components/ui/Button";
@@ -10,16 +17,7 @@ import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 import { SymbolView } from "../../../components/ui/AppSymbol";
 import { AppText as Text, AppTextInput as TextInput } from "../../../components/ui/AppText";
 import { cn } from "../../../lib/cn";
-import { useEnvironmentQuery } from "../../../state/query";
-import {
-  gitRepositoryTargetFromRoute,
-  type GitRepositoryRouteParams,
-} from "../../../state/thread-git-target";
-import { useThreadSelection } from "../../../state/use-thread-selection";
-import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
-import { useSelectedThreadGitState } from "../../../state/use-selected-thread-git-state";
-import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-worktree";
-import { vcsEnvironment } from "../../../state/vcs";
+import { type GitRepositoryRouteParams } from "../../../state/thread-git-target";
 
 type GitCommitSheetProps = StaticScreenProps<
   {
@@ -29,29 +27,68 @@ type GitCommitSheetProps = StaticScreenProps<
 >;
 
 export function GitCommitSheet(props: GitCommitSheetProps) {
-  const repository = gitRepositoryTargetFromRoute(props.route.params);
+  const controller = useSessionController(props.route.params);
+  return controller ? (
+    <Commit key={JSON.stringify(props.route.params)} controller={controller} />
+  ) : (
+    <EmptyState title="Session unavailable" detail="Open the session to commit changes." />
+  );
+}
+function Commit({ controller }: { controller: ConversationController }) {
+  const { git, files } = useCheckoutCommit(controller);
+  const error = files.error ?? git.error;
+  if (error)
+    return (
+      <EmptyState
+        title="Git unavailable"
+        detail={error}
+        actionLabel="Retry"
+        onAction={() => {
+          files.refresh();
+          git.refresh();
+        }}
+      />
+    );
+  if (!files.data || !git.status) return <FilePreviewLoading message="Loading changed files…" />;
+  return (
+    <GitCommitForm
+      allFiles={files.data}
+      branch={git.status.refName}
+      busy={git.busy}
+      canWriteSourceControl={git.canWrite}
+      canCreateFeatureBranch={git.canWrite && controller.canChooseStart}
+      isDefaultRef={git.status.isDefaultRef}
+      onCommit={(input) =>
+        git.perform({
+          ...input,
+          filePaths: input.filePaths ?? files.data?.map((file) => file.path),
+        })
+      }
+    />
+  );
+}
+
+export function GitCommitForm({
+  allFiles,
+  isDefaultRef,
+  busy,
+  canWriteSourceControl,
+  canCreateFeatureBranch,
+  branch,
+  repositoryName,
+  onCommit,
+}: {
+  allFiles: VcsStatusResult["workingTree"]["files"];
+  isDefaultRef: boolean;
+  busy: boolean;
+  canWriteSourceControl: boolean;
+  canCreateFeatureBranch: boolean;
+  branch?: string | null;
+  repositoryName?: string;
+  onCommit: (input: GitActionRequestInput) => Promise<unknown>;
+}) {
   const gt = useGT();
   const navigation = useNavigation();
-  const { selectedThread } = useThreadSelection();
-  const threadWorktree = useSelectedThreadWorktree();
-  const selectedThreadCwd = repository?.cwd ?? threadWorktree.selectedThreadCwd;
-  const gitState = useSelectedThreadGitState(repository);
-  const gitActions = useSelectedThreadGitActions(repository);
-  const { canWriteSourceControl, canCreateFeatureBranch } = gitActions;
-
-  const gitStatus = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadCwd !== null
-      ? vcsEnvironment.status({
-          environmentId: selectedThread.environmentId,
-          input: { cwd: selectedThreadCwd },
-        })
-      : null,
-  );
-
-  const busy = gitState.gitOperationLabel !== null;
-  const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
-  const allFiles = gitStatus.data?.workingTree?.files ?? [];
-
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
 
@@ -65,7 +102,7 @@ export function GitCommitSheet(props: GitCommitSheetProps) {
     if (!canWriteSourceControl || (featureBranch && !canCreateFeatureBranch)) return;
     const commitMessage = dialogCommitMessage.trim();
     navigation.goBack();
-    await gitActions.onRunSelectedThreadGitAction({
+    await onCommit({
       action: "commit",
       featureBranch,
       ...(commitMessage ? { commitMessage } : {}),
@@ -78,9 +115,7 @@ export function GitCommitSheet(props: GitCommitSheetProps) {
       header={
         <SheetHeader
           title={gt("Commit changes")}
-          subtitle={[repository?.name, gitStatus.data?.refName ?? gt("(detached HEAD)")]
-            .filter(Boolean)
-            .join(" · ")}
+          subtitle={[repositoryName, branch ?? gt("(detached HEAD)")].filter(Boolean).join(" · ")}
           onCancel={() => navigation.goBack()}
           accessibilityLabel={gt("Cancel commit")}
         />

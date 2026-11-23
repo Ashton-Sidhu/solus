@@ -48,6 +48,7 @@ export interface DigestTurn {
   endedAt: number
   /** False while the turn runs: a reader ends it at the present moment. */
   settled: boolean
+  outcome?: 'completed' | 'failed' | 'interrupted' | 'dead'
   /** The prompt as one line. */
   prompt: string
   /** Tool calls started, counted in DIGEST_TOOL_BUCKET_MS buckets from `startedAt`: [bucketStart, count], oldest first. */
@@ -66,6 +67,21 @@ export interface DigestSubagent {
   endedAt: number | null
   /** What it came back with, as one line. Empty while it runs. */
   detail: string
+  /** Host can stop this provider task independently while it runs. */
+  canStop?: true
+  workflow?: DigestWorkflow
+}
+
+export interface DigestWorkflow {
+  phases: { index: number; title: string }[]
+  agents: {
+    index: number
+    label: string
+    state: 'queued' | 'running' | 'completed' | 'failed'
+    phaseIndex?: number
+    phaseTitle?: string
+    attempt?: number
+  }[]
 }
 
 export interface SessionDigest {
@@ -94,6 +110,22 @@ export interface SessionTreeNode {
 export interface SessionTree {
   /** The session first, then the sessions below it, level by level, oldest started first. */
   nodes: SessionTreeNode[]
+  relations?: SessionTreeRelation[]
+}
+
+/** Relationships of the requested session that the reader may open. */
+export interface SessionTreeRelation {
+  kind: 'parent' | 'fork-source' | 'fork'
+  sessionId: string
+  title: string
+  runnerHostId: string | null
+  /** The host label a remote starter recorded when no local parent record is available. */
+  hostLabel?: string
+}
+
+export interface SessionMergeBackPrompt {
+  target: SessionTreeRelation
+  prompt: string
 }
 
 /** A text as one line, cut to DIGEST_TEXT_LENGTH with an ellipsis. */

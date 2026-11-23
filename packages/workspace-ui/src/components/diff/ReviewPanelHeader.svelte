@@ -195,7 +195,7 @@
             {...tooltipProps}
             bind:this={commentsBtn}
             type="button"
-            class="no-drag flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-2.5 text-chrome-dense font-medium text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
+            class="no-drag flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-(--solus-accent-light) px-2.5 text-chrome-dense font-medium text-(--solus-accent) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:tap-area"
             aria-haspopup="dialog"
             aria-expanded={commentsOpen}
             aria-label={`${commentsCount} pending comments`}

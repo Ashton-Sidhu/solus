@@ -189,6 +189,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
       getServerInfo: () => ({ host: '0.0.0.0', port: 3000, allowLan: true, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'] }),
       getActiveSessions: () => [],
       discoverLanServers: async () => [],
+      getTailscaleServe: async () => ({ enabled: false, port: 3000, state: 'off', url: null, error: null }),
       setRemoteAccess: async () => { throw new Error('not here') },
       setTrustLocalNetwork: () => { throw new Error('not here') },
       tunnelUrl: () => null,

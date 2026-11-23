@@ -12,7 +12,8 @@ import {
   AuthSourceControlWriteScope,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/reactivity";
+import { AsyncResult, AtomRegistry } from "effect/reactivity";
+import { RegistryContext } from "@effect/atom-react";
 import { act, createElement, isValidElement, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -149,6 +150,7 @@ vi.mock("../../state/use-atom-query-runner", () => ({
         ? AsyncResult.success({ parentPath: "/home/tester", entries: [] })
         : undefined,
 }));
+vi.mock("../../solus/use-checkout-files", () => ({ useCheckoutAccess: () => ({ canReadFiles: true }) }));
 vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: null }) }));
 vi.mock("../../state/presentation", () => ({
   useEnvironmentPresentation: () => ({ isReady: true, presentation: null }),
@@ -182,10 +184,14 @@ vi.mock("../../solus/runtime", () => {
     projects: [...state.existingProjects, ...projectedProjects.values()],
   });
   return {
-    useSolusDirectory: directory,
+    useSolusWorkspace: directory,
     getSolusDirectory: directory,
     solus: {
+      account: { organizationId: null, changes: { subscribe: () => () => {} } },
+      sessionCache: { scope: () => "account" },
       connections: {
+        changes: { subscribe: () => () => {} },
+        state: () => ({ sessionGeneration: 1, readiness: "ready" }),
         may: () => state.scopes.has(AuthOrchestrationOperateScope),
         connection: (id: string) => ({
           api: {
@@ -300,13 +306,21 @@ function findAction(
   return findAction(node.props.children, label, includeDisabled);
 }
 
-const mountedRoots: ReturnType<typeof createRoot>[] = [];
+function createTestRoot() {
+  const root = createRoot(document.createElement("div"));
+  const registry = AtomRegistry.make();
+  return {
+    render: (child: ReactNode) => root.render(createElement(RegistryContext.Provider, { value: registry }, child)),
+    unmount: () => { root.unmount(); registry.dispose(); },
+  };
+}
+const mountedRoots: ReturnType<typeof createTestRoot>[] = [];
 afterEach(() => {
   for (const root of mountedRoots.splice(0)) act(() => root.unmount());
 });
 async function renderScreen(render: () => ReactNode) {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const root = createRoot(document.createElement("div"));
+  const root = createTestRoot();
   mountedRoots.push(root);
   let screen: ReactNode;
   function Observer() {
@@ -481,7 +495,7 @@ describe("add project source environment", () => {
       { environmentId: "another-environment", environmentLabel: "Another environment" },
     ];
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-    const root = createRoot(document.createElement("div"));
+    const root = createTestRoot();
     let screen: ReactNode;
     function SourceObserver() {
       screen = AddProjectSourceScreen({ environmentId: "environment" });
@@ -533,7 +547,7 @@ describe("add project source environment", () => {
     ];
     state.connectionStates = { environment: "connecting" };
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-    const root = createRoot(document.createElement("div"));
+    const root = createTestRoot();
     let screen: ReactNode;
     function SourceObserver() {
       screen = AddProjectSourceScreen({ environmentId: "environment" });
@@ -571,7 +585,7 @@ describe("add project source environment", () => {
       { environmentId: "another-environment", environmentLabel: "Another environment" },
     ];
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-    const root = createRoot(document.createElement("div"));
+    const root = createTestRoot();
     let actions: { local: () => unknown; selectEnvironment: () => unknown } | undefined;
     function SourceRouteObserver(props: { environmentId?: string | string[] }) {
       const route = AddProjectSourceRoute({ route: { params: props } });
@@ -723,7 +737,7 @@ describe("local project navigation", () => {
     });
     const navigation = mountProjectFlow(false, true, true, "AddProjectNew");
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-    const root = createRoot(document.createElement("div"));
+    const root = createTestRoot();
     let screen: ReactNode;
     function NewProjectObserver() {
       screen = AddProjectNewScreen({ environmentId: "environment" });
@@ -846,7 +860,7 @@ describe("local folder path", () => {
       { environmentId: "another-environment", environmentLabel: "Another environment" },
     ];
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-    const root = createRoot(document.createElement("div"));
+    const root = createTestRoot();
     const renderedPaths: string[] = [];
     let input: ReturnType<typeof findPathInput> = null;
     function LocalFolderObserver(props: { environmentId?: string }) {

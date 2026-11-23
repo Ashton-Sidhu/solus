@@ -417,6 +417,7 @@ export class PromptDispatch {
     provider: AgentId
     modelId: string | null
     reasoningEffort: ReasoningEffort
+    fastMode?: boolean
     cwd: string
     gitContext?: GitCheckout | null
     abortSignal?: AbortSignal
@@ -439,7 +440,7 @@ export class PromptDispatch {
       gitContext: req.gitContext ?? null,
       worktreeBaseBranch: null,
       reasoningEffort: req.reasoningEffort,
-      fastMode: false,
+      fastMode: req.provider === 'codex' && req.fastMode === true,
       // The default of unattended work, lowered to a policy's ceiling (plans/030 §6.3).
       permissionMode: hostPolicies().forWork(req.organizationId).clampMode('full-access'),
       rateLimitBehavior: 'queue',

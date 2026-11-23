@@ -130,6 +130,7 @@ export function PullRequestReviewSheet({
               ...target,
               input: {
                 ...target.input,
+                headSha: result.data?.headSha ?? "",
                 verdict: verdict.value,
                 body,
                 comments: submitted.comments.map(

@@ -18,8 +18,10 @@
   import {
     buildDiffSummaryTree,
     changeRatio,
+    diffCountLine,
     flattenDiffTree,
     type DiffFolderNode,
+    type DiffTotals,
   } from "./lib/diff-summary-tree";
   import { revealInTranscript } from "./lib/reveal-in-transcript";
 
@@ -47,6 +49,9 @@
     embedded?: boolean;
     /** The turn's time: the sessions it started that worked in it are the agent filter's choices. Absent, every session it started is. */
     agentWindow?: { from: number; until: number | null } | null;
+    /** A turn's totals from its snapshot (`listTurnSnapshots`): the closed card
+     *  draws its count line from them and reads per-file stats only when opened. */
+    totals?: DiffTotals | null;
   }
   let {
     tabId,
@@ -56,6 +61,7 @@
     onOpenFile,
     embedded = false,
     agentWindow = null,
+    totals = null,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -64,12 +70,17 @@
   // The card sits in a tab, but the change it summarises belongs to the session.
   const sessionId = $derived(session.tabs[tabId]?.sessionId ?? "");
 
-  $effect(() => diffSummaryStore.refresh(session, sessionId, scope, changedFiles));
-
   let cardEl = $state<HTMLElement>();
   // Opening the popover is already the "show me the files" click, so it lands on
   // the top-level tree; only the transcript card arrives on its count line.
   let isExpanded = $state(untrack(() => embedded));
+
+  // A closed turn card with its snapshot's totals asks git nothing: opening a
+  // conversation read every visible turn's per-file stats only to draw count lines.
+  $effect(() => {
+    if (totals && !isExpanded) return;
+    diffSummaryStore.refresh(session, sessionId, scope, changedFiles);
+  });
 
   // The agent filter (docs/plans/session-digests.md): this session's change by
   // default, as the card has always shown, or with the sessions it started. A
@@ -104,6 +115,7 @@
       ? ownTree
       : buildDiffSummaryTree(undefined, mergedFileChanges([agentScope === "all" ? ownStats : [], ...scopedOthers.map((other) => other.files)])),
   );
+  const countLine = $derived(diffCountLine(tree, totals));
 
   /** The started session a path belongs to, when this session did not change it. */
   function startedOwnerOf(path: string): string | null {
@@ -170,7 +182,7 @@
 </script>
 
 <!-- Shown for this session's own change; the filter can then narrow to one with none. -->
-{#if ownTree.total > 0}
+{#if ownTree.total > 0 || (totals?.files ?? 0) > 0}
   <div
     bind:this={cardEl}
     class="diff-summary px-[0.8125rem] py-[0.6875rem] {embedded
@@ -196,12 +208,12 @@
             : ''}"
         />
         <span class="truncate text-transcript-meta text-(--muted-foreground)">
-          {tree.total} file{tree.total === 1 ? "" : "s"} changed
-          {#if tree.folderCount > 1}<span class="opacity-55">in {tree.folderCount} folders</span>{/if}
+          {countLine.files} file{countLine.files === 1 ? "" : "s"} changed
+          {#if countLine.folders > 1}<span class="opacity-55">in {countLine.folders} folders</span>{/if}
         </span>
         <span class="flex-1"></span>
-        <span class="diff-add tabular-nums">+{tree.additions}</span>
-        <span class="diff-del tabular-nums" class:is-zero={tree.deletions === 0}>−{tree.deletions}</span>
+        <span class="diff-add tabular-nums">+{countLine.additions}</span>
+        <span class="diff-del tabular-nums" class:is-zero={countLine.deletions === 0}>−{countLine.deletions}</span>
       </button>
       {#if onOpenDiff}
         <!-- Names the destination, not the verb. Reachable without opening the

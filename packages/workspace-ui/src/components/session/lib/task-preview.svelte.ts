@@ -1,5 +1,5 @@
-import { GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
-  import type { TaskDetails, TaskLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import { GitPullRequestIcon } from '../../ui/octicons'
+import type { TaskDetails, TaskLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
 import type { LinkedPrLifecycle } from '../../tasks/task-page/lib/task-prs'
 import type { LinkedPr, PrLink } from '../../../contexts/prs/linked-pr'
 import { taskPrRows, prLifecycleOf, titleWithoutPrRef } from '../../tasks/task-page/lib/task-prs'

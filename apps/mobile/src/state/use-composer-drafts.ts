@@ -1769,7 +1769,7 @@ function stripAttachmentUploadReference(
   return rest;
 }
 
-function mergeComposerDraftText(existing: string, incoming: string): string {
+export function mergeComposerDraftText(existing: string, incoming: string): string {
   if (incoming.length === 0) {
     return existing;
   }

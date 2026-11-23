@@ -28,6 +28,7 @@ export type AutomationBackgroundSessionDispatcher = (opts: {
   provider: AgentId
   modelId: string | null
   reasoningEffort: ReasoningEffort
+  fastMode?: boolean
   cwd: string
   gitContext?: GitCheckout | null
   abortSignal?: AbortSignal
@@ -240,6 +241,7 @@ async function executeRunAs(automation: Automation, run: AutomationRun, entry: A
       provider: action.agentProvider,
       modelId: action.modelId,
       reasoningEffort: action.reasoningEffort,
+      fastMode: action.fastMode,
       cwd,
       gitContext,
       abortSignal: entry.abort.signal,

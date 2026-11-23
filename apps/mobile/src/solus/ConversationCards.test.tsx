@@ -3,12 +3,9 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { SolusApp } from "@solus-mobile/app/solus-app";
 import { memoryKeyValueStore, memorySecretStore } from "@solus-mobile/platform/ports";
-import type {
-  PendingPermission,
-  PendingQuestion,
-} from "@solus-mobile/features/conversation/lib/pending-requests";
+import type { PendingQuestion } from "@solus-mobile/features/conversation/lib/pending-requests";
 import { WsTransport } from "@solus/client-core/ws-transport";
-import { RequestCards } from "./RequestCards";
+import { RequestPanels } from "./RequestCards";
 import { TurnDiffReader } from "./turn-diff-context";
 import { AssistantReplyMarkdown } from "./AssistantReplyMarkdown";
 import { ConversationCard } from "./ConversationCard";
@@ -40,8 +37,8 @@ vi.mock("react-native", () => ({
   Modal: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   View: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   ScrollView: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  Pressable: ({ onPress, children }: { onPress: () => void; children: ReactNode }) => (
-    <button onClick={onPress}>{children}</button>
+  Pressable: ({ onPress, children, accessibilityLabel }: { onPress: () => void; children: ReactNode; accessibilityLabel?: string }) => (
+    <button aria-label={accessibilityLabel} onClick={onPress}>{children}</button>
   ),
   Alert: { alert: vi.fn() },
   useWindowDimensions: () => ({ height: 800, width: 360 }),
@@ -51,9 +48,14 @@ vi.mock("../components/ui/AppText", () => ({
   AppText: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 vi.mock("react-native-keyboard-controller", () => ({ useKeyboardState: () => false }));
+vi.mock("../features/threads/useOpenLinkedThread", () => ({useOpenLinkedThreadRead: () => vi.fn()}));
+vi.mock("./host-query", () => ({hostQuery: vi.fn()}));
+vi.mock("../state/host-query-scope", () => ({hostQueryScope: () => "mac/current"}));
 vi.mock("./runtime", () => ({
   solus: {
-    threads: { thread: () => null, rememberSearchResult: host.remember },
+    cloudSessions: {headFor: () => null},
+    account: {organizationId: null},
+    threads: { thread: () => null, managedHostIds: () => new Set(), rememberSearchResult: host.remember },
     connections: { connection: () => ({ api: { sessionRecordGet: host.read } }) },
     registry: { host: () => ({ label: "Host" }) },
   },
@@ -118,18 +120,16 @@ vi.mock("@solus-mobile/features/threads/RequestActionButton", () => ({
 vi.mock("@solus-mobile/features/threads/ThreadMcpPipDock", () => ({
   ThreadMcpPipDock: () => null,
 }));
-vi.mock("@solus-mobile/features/threads/PendingApprovalCard", () => ({
-  PendingApprovalCard: ({
-    approval,
-    onRespond,
-  }: {
-    approval: PendingPermission;
-    onRespond: (id: string, option: string) => void;
-  }) => (
-    <button onClick={() => onRespond(approval.questionId, approval.options[0]!.id)}>
-      Answer permission
-    </button>
-  ),
+vi.mock("../features/threads/CopyTextButton", () => ({ CopyTextButton: () => null }));
+vi.mock("../components/ui/Button", () => ({
+  Button: ({ label, onPress, disabled }: { label: string; onPress: () => void; disabled: boolean }) =>
+    <button disabled={disabled} onClick={onPress}>{label}</button>,
+}));
+vi.mock("gt-react-native", () => ({
+  msg: (value: string) => value,
+  T: ({children}: {children: ReactNode}) => <>{children}</>,
+  useGT: () => (value: string) => value,
+  useMessages: () => (value: string) => value,
 }));
 vi.mock("@solus-mobile/features/threads/PendingSecretCard", () => ({
   PendingSecretCard: ({ onSubmit }: { onSubmit: (values: (string | null)[]) => void }) => (
@@ -188,7 +188,7 @@ it("sends an opaque permission option unchanged, and private answers only to the
     ],
     questions: [question],
   };
-  await act(async () => root.render(<RequestCards store={store} meta={meta} />));
+  await act(async () => root.render(<RequestPanels store={store} meta={meta} />));
   const [approve, submit] = container.querySelectorAll("button");
   await act(async () => approve!.click());
   expect(permission).toHaveBeenCalledWith("approval", "acceptWithExecpolicyAmendment");
@@ -267,7 +267,7 @@ it("routes a child plan approval to the child instead of accepting the parent pl
   const acceptParent = vi.spyOn(store.controller, "approvePlan");
   await act(async () =>
     root.render(
-      <RequestCards store={store} meta={{ ...store.metaSnapshotOf(), agentPlans: [plan] }} />,
+      <RequestPanels store={store} meta={{ ...store.metaSnapshotOf(), agentPlans: [plan] }} />,
     ),
   );
   await act(async () =>
@@ -367,7 +367,12 @@ it("opens a session guide stop inline with the host patch for its numbered turn"
   ));
   await vi.waitFor(() => expect(container.textContent).toContain("Open stop"));
   expect(read).toHaveBeenCalledWith(1);
-  await act(async () => container.querySelector("button")!.click());
+  const click = (label: string) => act(async () => [...container.querySelectorAll("button")].find(button => button.textContent === label)!.click());
+  await click("Open stop");
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="Open "]')!.click());
+  expect(container.querySelector("section pre")?.textContent).toBe(patch);
+  await act(async () => container.querySelector<HTMLButtonElement>('section button[aria-label^="Close "]')!.click());
+  expect(read).toHaveBeenCalledTimes(1);
   expect(container.querySelector("pre")?.textContent).toBe(patch);
   expect(container.textContent).toContain("Check the new value.");
 });

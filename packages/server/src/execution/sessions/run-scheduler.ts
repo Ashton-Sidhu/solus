@@ -415,6 +415,7 @@ export class RunScheduler {
 
   private isQueuedRequestReady(req: QueuedRequest): boolean {
     if (req.held || this.applyingQueuedSwitch.has(req.sessionId)) return false
+    if (this.rt.statuses.isStoppingProviderRun(req.sessionId)) return false
     if (req.kind === 'provider_switch') {
       const session = this.rt.activeSessions.get(req.sessionId)
       if (session && (isSessionBusyStatus(session.status) || (!!session.agentSessionId && this.rt.backendFor(session.backendId).isSessionRunning(session.agentSessionId)))) return false

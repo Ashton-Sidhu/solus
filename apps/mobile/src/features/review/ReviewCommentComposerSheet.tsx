@@ -1,3 +1,4 @@
+import { useSessionController } from "../../solus/use-session-controller";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { TextInputWrapper } from "expo-paste-input";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -35,6 +36,7 @@ const NO_LINES: ReturnType<typeof getSelectedReviewCommentLines> = [];
 const NO_HIGHLIGHTS: ReturnType<typeof highlightReviewSelectedLines> = {};
 
 type ReviewCommentComposerSheetProps = StaticScreenProps<{
+  readonly draftKey?: string;
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
 }>;
@@ -47,6 +49,7 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
   const target = useReviewCommentTarget();
   const { codeSurface } = useAppearanceCodeSurface();
   const { environmentId, threadId } = props.route.params;
+  const controller = useSessionController(props.route.params);
   const [commentText, setCommentText] = useState("");
   const [attachments, setAttachments] = useState<ReadonlyArray<DraftComposerImageAttachment>>([]);
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
@@ -68,7 +71,11 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
   const firstNumber = firstLine ? getReviewUnifiedLineNumber(firstLine) : null;
   const lastNumber = lastLine ? getReviewUnifiedLineNumber(lastLine) : null;
   const canSubmit =
-    commentText.trim().length > 0 && target !== null && !!environmentId && !!threadId;
+    controller?.mayDrive === true &&
+    commentText.trim().length > 0 &&
+    target !== null &&
+    !!environmentId &&
+    !!threadId;
   const selectionLabel =
     selectedLines.length === 1
       ? firstNumber !== null
@@ -116,16 +123,25 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
   }
 
   const handleSubmit = () => {
-    if (!target || !environmentId || !threadId || commentText.trim().length === 0) {
+    if (!canSubmit || !target || !controller?.mayDrive) {
       return;
     }
 
-    appendReviewCommentToDraft({
+    const inserted = appendReviewCommentToDraft({
+      draftKey: props.route.params.draftKey,
       environmentId,
       threadId,
       text: formatReviewCommentContext(target, commentText),
-      attachments,
     });
+    if (!inserted) return;
+    void controller.attach(
+      attachments.map((image) => ({
+        name: image.name,
+        mimeType: image.mimeType,
+        size: image.sizeBytes,
+        uri: image.fileUri ?? image.previewUri,
+      })),
+    );
     setAttachments([]);
     dismissComposer();
   };

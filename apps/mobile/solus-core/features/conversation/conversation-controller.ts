@@ -1,10 +1,11 @@
+import { clearActiveHistoryLoading, isActiveHistoryRequestCursor } from "@t3tools/client-runtime/state/thread-history-merge"
 import type { MobileSessionCache } from "../threads/session-cache"
 import type { TaskSnapshot } from '@solus/contracts/task-types'
 import type { SessionHistoryPage } from '@solus/contracts/session-history'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { agentForProject } from '@solus/contracts/provider-instance-models'
 import type { SendOutbox } from '@solus/client-core/send-outbox'
-import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
+import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS, readPrefetchedSessionHistoryPage, requestSessionHistoryPage, sameHistoryPage } from '@solus/client-core/session-history-page'
 import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionMeta, SessionStarterFromHost, SessionRecord, SessionStatus, StatusCardState, WatchSessionResult, GitCheckoutBranchResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { hostStarterOf } from '@solus/contracts/session-starter'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -29,6 +30,7 @@ import {
 } from './lib/ipc-context'
 import { hostAgents } from './lib/host-agents'
 import { attachmentKind } from '@solus/contracts/media-types'
+import { htmlFromSavedRenderInput } from './lib/artifacts'
 import { reconcileWatchReplay } from './lib/watch-replay'
 import { queuedMessageAttachments, uploadedMessageAttachments, type MessageAttachment } from './lib/message-attachments'
 import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
@@ -83,7 +85,7 @@ export interface ConversationTarget {
   /** A saved session to open, or a new one to start in `workingDirectory`.
    *  A record's `role` is the reader's, from the list (docs/plans/access-model.md §2.7). */
   record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role'> & Partial<Pick<SessionRecord, 'organizationId'>>
-  newSession?: { sessionId: string; provider: AgentId; workingDirectory: string }
+  newSession?: { sessionId: string; provider: AgentId; workingDirectory: string; attachments?: readonly UploadedAttachment[] }
   /** The host this saved session was open on before the person chose this
    *  one to run its next turn (docs/plans/portable-sessions.md §10). */
   movedFrom?: string
@@ -133,7 +135,14 @@ export function conversationOutboxPrefix(hostId: string): string {
 }
 
 /** An upload in flight. `landed` is the host's copy, or null when it failed. */
+interface HistoryPreview {
+  shown: SessionHistoryPage | null
+  saved: SessionHistoryPage | null
+  paint(page: SessionHistoryPage | null): void
+}
+
 interface InFlightUpload {
+  readonly file?: PickedFile
   cancelled?: boolean
   readonly video?: { type: 'file'; id: string; name: string; mimeType: string; sizeBytes: number; fileUri: string }
   readonly preview?: { type: 'image'; id: string; name: string; mimeType: string; sizeBytes: number; previewUri: string }
@@ -151,14 +160,10 @@ export class ConversationController {
   retained = false
   phase: ConversationPhase = { kind: 'loading' }
   run: ConversationRun
-  loadingOlder = false
   /** The agent session on another host that started this one, from the host's description. */
   startedBy: SessionStarterFromHost | null = null
   /** Uploaded to the host, waiting for the next prompt. */
   attachments: readonly UploadedAttachment[] = []
-  /** The text of a prompt that did not go because one of its uploads failed.
-   *  The composer takes it back with `takeUnsentText`. */
-  unsentText: string | null = null
   /** Uploads in flight that no prompt took yet. */
   private uploads: InFlightUpload[] = []
   /** The last prompt that waits for its uploads or for an earlier prompt. */
@@ -203,6 +208,8 @@ export class ConversationController {
   /** Bumps on each (re)load; an answer for an older load is dropped. */
   private loadGeneration = 0
   private held: WireNormalizedEvent[] | null = null
+  private bufferedCursor?: string
+  private appliedCursor?: string
   private watchReplay: WireNormalizedEvent[] | null = null
   private replayTimeout?: ReturnType<typeof setTimeout>
   /** The prompt that started a new session, until the host names the session from it. */
@@ -252,7 +259,11 @@ export class ConversationController {
     this.flush()
     const read = (async () => {
       try {
-        const html = await this.savedWorkBody(workId, contentVersion)
+        let html = await this.savedWorkBody(workId, contentVersion).catch(error => {
+          if (!item.toolInputKey) throw error
+          return null
+        })
+        if (html === null && item.toolInputKey && isCurrent()) html = htmlFromSavedRenderInput(await this.readToolInput(item.toolInputKey))
         if (!isCurrent()) return
         model.updateArtifact(id, html === null
           ? { loading: false, error: 'This artifact version is no longer available.' }
@@ -278,6 +289,7 @@ export class ConversationController {
   }
 
   constructor(readonly target: ConversationTarget, private readonly deps: ConversationDeps) {
+    this.attachments = target.newSession?.attachments ?? []
     this.projectPath = target.record?.projectPath ?? ''
     this.run = initialRun(target, deps.organizationId(), deps.uuid)
     this.started = !!target.record
@@ -298,7 +310,12 @@ export class ConversationController {
     this.resourceWatches = new ResourceWatchesFeed(connection, () => this.run.sessionId)
     this.cleanups.push(() => this.mcpTasks.close(), () => this.resourceWatches.close())
     this.cleanups.push(connection.events.subscribe('session.eventReceived', (payload) => {
-      if (payload.sessionId === this.run.sessionId) this.receive(payload.event)
+      if (payload.sessionId !== this.run.sessionId) return
+      this.receive(payload.event)
+      if (payload.cursor) {
+        if (this.held || this.watchReplay) this.bufferedCursor = payload.cursor
+        else this.appliedCursor = payload.cursor
+      }
     }))
     // One sheet lists every integration the turn asked for, as the group card
     // does on desktop and web; a repeated ask keeps its one row.
@@ -330,12 +347,14 @@ export class ConversationController {
     }))
     // The event carries no person's key, so the person's own status is read again.
     this.cleanups.push(connection.facts.subscribe((key) => {
-      if (key !== 'machine' || this.run.agentSessionId) return
+      if (key !== 'machine') return
       const info = connection.facts.value('machine')
       if (!info) return
       this.agents = info.agents.map((agent) => agentForProject(agent, this.projectPath || this.run.workingDirectory))
-      if (!this.modelPicked) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents.find((agent) => agent.id === this.run.provider)))
-      this.settleRun()
+      if (!this.run.agentSessionId) {
+        if (!this.modelPicked) Object.assign(this.run, newSessionModel(this.run.provider, this.settings, this.agents.find((agent) => agent.id === this.run.provider)))
+        this.settleRun()
+      }
       this.flush(true)
     }))
     // The policy follows `host.policyChanged`: work that has not started takes the new ceiling at once.
@@ -348,7 +367,7 @@ export class ConversationController {
     this.cleanups.push(connection.events.subscribe('config.changed', () => {
       void this.loadKeyStatus()
     }))
-    this.cleanups.push(connection.onReset(() => { if (!this.retained) void this.load() }))
+    this.cleanups.push(connection.onReset(() => { if (!this.retained) void this.load(true) }))
     this.cleanups.push(connection.onAccepted(() => {
       // The host is back after its read failed while the cloud read showed: its history replaces the copy.
       if (this.phase.kind === 'error' && this.cloudRead.kind !== 'idle') void this.load()
@@ -436,18 +455,20 @@ export class ConversationController {
    *  checks the branch out in the project or names the worktree that already
    *  has it; the draft works in the folder the host names. Returns the
    *  host's refusal, or null. */
-  async chooseCheckoutBranch(branch: BranchRef): Promise<string | null> {
+  async chooseCheckoutBranch(branch: Pick<BranchRef, 'name' | 'remoteOnly'>, options?: { create: boolean; cwd: string }): Promise<string | null> {
     if (!this.canChooseStart) return 'The session has started.'
     const project = this.projectDirectory
     let result: GitCheckoutBranchResult
     try {
-      result = await this.deps.connection.api.gitCheckoutBranch(this.projectCheckoutContext(), branch.name, { remoteOnly: branch.remoteOnly })
+      const ctx = options ? this.context() : this.projectCheckoutContext()
+      if (options && ctx.session.workingDirectory !== options.cwd) return 'The checkout has changed.'
+      result = await this.deps.connection.api.gitCheckoutBranch(ctx, branch.name, { remoteOnly: branch.remoteOnly, ...(options?.create && { create: true }) })
     } catch (error) {
       return error instanceof Error ? error.message : String(error)
     }
     if (!result.success) return result.error || "Couldn't switch the branch."
     // An older host names no folder: its switch is always in the project.
-    const workingDirectory = result.workingDirectory ?? project
+    const workingDirectory = result.workingDirectory ?? options?.cwd ?? project
     const picked = result.gitContext?.branch ?? branch.name
     if (workingDirectory === project) this.projectBranch = picked
     if (this.canChooseStart) {
@@ -513,19 +534,56 @@ export class ConversationController {
   }
 
   /** First load, and the rebuild after a reset. */
-  async load(): Promise<void> {
+  async load(resume = false): Promise<void> {
     if (this.closed) return
     const generation = ++this.loadGeneration
+    const afterEvent = resume && this.phase.kind === 'ready' && !this.watchReplay ? this.appliedCursor : undefined
+    this.appliedCursor = undefined
+    this.bufferedCursor = undefined
+    if (afterEvent) {
+      this.held = []
+      this.setPhase({ kind: 'loading' })
+      // A new socket can retain the same live turn. Keep the open rows (including
+      // older pages) only after the host confirms it can replay the exact suffix.
+      const watched = await this.deps.connection.api.watchSession({
+        sessionId: this.run.sessionId, attachRuntime: true, afterEvent,
+      }).catch(() => null)
+      if (this.closed || generation !== this.loadGeneration) return
+      if (watched?.resumed) {
+        this.watching = true
+        this.applyWatch(watched)
+        const held = this.held
+        this.held = null
+        for (const event of held) this.receive(event)
+        this.appliedCursor = this.bufferedCursor ?? afterEvent
+        this.bufferedCursor = undefined
+        this.setPhase({ kind: 'ready' })
+        this.flush(true)
+        void this.suggestions.refresh()
+        void this.mcpTasks.refresh()
+        void this.resourceWatches.refresh()
+        void this.drainOutbox()
+        return
+      }
+    }
+    this.bufferedCursor = undefined
     let receivedHistory = false
-    const cached = this.target.record && !this.target.movedFrom && !this.target.fromCloud
-      ? this.deps.sessionCache?.history(this.run.sessionId).catch(() => null) : undefined
-    if (!this.model.order.length) {
-      void cached?.then(page => {
+    const preview: HistoryPreview = {
+      shown: null,
+      saved: null,
+      paint: (page: SessionHistoryPage | null) => {
         if (!page || this.closed || generation !== this.loadGeneration || receivedHistory || (this.phase.kind === 'error' && this.phase.noAccess) || this.model.order.length) return
         this.model = TranscriptModel.fromHistory(this.run.sessionId, page)
+        preview.shown = page
         this.flush(true)
-      })
+      },
     }
+    const cache = this.target.record && !this.target.movedFrom && !this.target.fromCloud ? this.deps.sessionCache : undefined
+    const prefetched = cache && readPrefetchedSessionHistoryPage(this.deps.connection.api,
+      { ...this.historySource, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true }, cache.historyScope(this.deps.connection.state.sessionGeneration))
+    const cached = prefetched ? undefined : cache?.history(this.run.sessionId).catch(() => null)
+    if (prefetched) preview.paint(prefetched)
+    else void cached?.then(page => { preview.saved = page; preview.paint(page) })
     this.watchReplay = null
     clearTimeout(this.replayTimeout)
     this.held = []
@@ -538,7 +596,7 @@ export class ConversationController {
       })
       // A history read does not use composer defaults. Start both on open.
       void this.runOptionsLoaded.catch(() => {})
-      const model = await this.readHistory(generation, cached)
+      const model = await this.readHistory(generation, cached, preview)
       if (!model) return
       receivedHistory = true
       this.keepUnsentPrompts(model)
@@ -551,15 +609,16 @@ export class ConversationController {
       const held = this.held ?? []
       this.held = null
       for (const event of held) this.receive(event)
+      this.appliedCursor = this.bufferedCursor
+      this.bufferedCursor = undefined
 
       // Show the history now. Joining the live session can take another
       // network round trip and must not hold back rows already read.
       this.flush()
-      await settings
       if (generation !== this.loadGeneration || this.closed) return
       const replay: WireNormalizedEvent[] = []
       this.watchReplay = replay
-      const watched = await this.watch()
+      const [watched] = await Promise.all([this.watch(), settings])
       if (generation !== this.loadGeneration) return
       if (this.watchReplay === replay) {
         if (!watched.runtime || !this.model.order.some(id => this.model.items.get(id)?.kind === 'tool')) this.finishWatchReplay()
@@ -681,16 +740,16 @@ export class ConversationController {
   /** The first history page as a fresh model, or null when a newer load began.
    *  A session that no prompt started has no history. A new session that a
    *  prompt started has history, so a reset reads it again. */
-  private async readHistory(generation: number, cached?: Promise<SessionHistoryPage | null>): Promise<TranscriptModel | null> {
+  private async readHistory(generation: number, cached: Promise<SessionHistoryPage | null> | undefined, preview: HistoryPreview): Promise<TranscriptModel | null> {
     if (!this.started) return new TranscriptModel(this.run.sessionId)
     const api = this.deps.connection.api
     // The page travels while the session is described. A lineage that moves
     // the thread to another provider reads the page again from that provider.
     const firstSource = this.historySource
     const firstPage = this.target.movedFrom || this.target.fromCloud
-      ? null : requestSessionHistoryPage(api, { ...firstSource, turnLimit: INITIAL_HISTORY_TURNS },
+      ? null : requestSessionHistoryPage(api, { ...firstSource, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true },
         this.deps.sessionCache?.historyScope(this.deps.connection.state.sessionGeneration), cached ? () => cached : undefined)
-    void firstPage?.catch(() => {})
+    void firstPage?.then(preview.paint).catch(() => {}) // The authoritative read below reports errors.
     const description = await api.describeSession(this.run.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
     this.startedBy = hostStarterOf(description?.meta?.startedBy)
@@ -707,10 +766,11 @@ export class ConversationController {
     const source = this.historySource
     const page = await (firstPage && source.provider === firstSource.provider && source.projectPath === firstSource.projectPath
       ? firstPage
-      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS }))
+      : api.loadSessionPage({ ...source, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true }))
     if (generation !== this.loadGeneration) return null
-    void this.deps.sessionCache?.saveHistory(this.run.sessionId, page)
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
+    if (!preview.saved || !sameHistoryPage(preview.saved, page)) void this.deps.sessionCache?.saveHistory(this.run.sessionId, page)
+    if (preview.shown && sameHistoryPage(preview.shown, page)) return this.model
     return TranscriptModel.fromHistory(this.run.sessionId, page)
   }
 
@@ -754,10 +814,10 @@ export class ConversationController {
     const cursor = this.model.olderCursor
     // A copy from the cloud reads its older turns there, with no host.
     const isCloudRead = this.deps.cloudHistory?.isCopy(this.model) === true
-    if (!cursor || this.loadingOlder || (this.phase.kind !== 'ready' && !isCloudRead)) return
+    if (!cursor || this.model.history.loading || (this.phase.kind !== 'ready' && !isCloudRead)) return
     const generation = this.loadGeneration
     const model = this.model
-    this.loadingOlder = true
+    model.history = { ...model.history, loading: true, error: null }
     this.flush(true)
     try {
       if (isCloudRead) {
@@ -765,15 +825,17 @@ export class ConversationController {
       } else {
         const page = await this.deps.connection.api.loadSessionPage({
           ...this.historySource,
-          turnLimit: OLDER_HISTORY_TURNS,
+          turnLimit: OLDER_HISTORY_TURNS, deferArtifactHtml: true,
           before: cursor,
         })
-        if (generation === this.loadGeneration && model === this.model) model.prependHistory(page)
+        if (generation === this.loadGeneration && model === this.model && isActiveHistoryRequestCursor(cursor, model.history)) model.prependHistory(page)
       }
-    } catch {
-      // The reader can scroll up again; a failed older page changes nothing shown.
+    } catch (error) {
+      if (generation === this.loadGeneration && model === this.model && isActiveHistoryRequestCursor(cursor, model.history)) {
+        model.history = { ...model.history, error: error instanceof Error ? error.message : 'Could not load earlier turns.' }
+      }
     } finally {
-      this.loadingOlder = false
+      model.history = clearActiveHistoryLoading(cursor, model.history)
       this.flush(true)
     }
   }
@@ -814,7 +876,13 @@ export class ConversationController {
    *  host confirms it, so any retry is the same message to the host. While a
    *  turn runs, `delivery` chooses queue or steer; a waiting queue always queues.
    *  A sign-in command never reaches the agent: it runs here. */
-  async send(text: string, options: { permissionMode?: PermissionMode; delivery?: 'queue' | 'steer' } = {}): Promise<void> {
+  async send(text: string, options: {
+    permissionMode?: PermissionMode
+    delivery?: 'queue' | 'steer'
+    onSubmitted?: (clientPromptId: string) => void
+    onQueued?: (clientPromptId: string) => void
+    onUploadFailed?: () => void
+  } = {}): Promise<void> {
     const prompt = text.trim()
     if (this.run.provider === 'codex' && /^\/compact(?:\s|$)/.test(prompt)) return this.compact(prompt)
     const authCommand = parseAgentAuthCommand(prompt, this.run.provider)
@@ -838,6 +906,7 @@ export class ConversationController {
     ], busy || this.queue.entries.length > 0 || this.queue.held)
     if (!busy && !this.queue.entries.length && !this.queue.held) this.model.setStatus('connecting')
     this.flush(true)
+    options.onSubmitted?.(clientPromptId)
     // A later prompt waits behind one that waits, so the host gets them in order.
     const before = this.heldSend
     let release = () => {}
@@ -849,8 +918,21 @@ export class ConversationController {
     try {
       await before
       const ready = await this.landedAttachments(clientPromptId, prompt, attachments, waiting, statusBefore)
-      if (!ready) return
-      await this.enqueuePrompt(clientPromptId, prompt, ready, busy, options.delivery)
+      if (!ready) {
+        options.onUploadFailed?.()
+        return
+      }
+      try {
+        await this.enqueuePrompt(clientPromptId, prompt, ready, busy, options.delivery)
+      } catch (error) {
+        this.model.dropOptimisticUser(clientPromptId)
+        this.attachments = [...ready, ...this.attachments]
+        if (this.openingPrompt === prompt) this.openingPrompt = null
+        if (this.model.status === 'connecting') this.model.setStatus(statusBefore)
+        this.flush(true)
+        throw error
+      }
+      options.onQueued?.(clientPromptId)
     } finally {
       release()
     }
@@ -877,7 +959,6 @@ export class ConversationController {
       if (this.openingPrompt === prompt) this.openingPrompt = null
       if (this.model.status === 'connecting') this.model.setStatus(statusBefore)
       this.attachments = [...all, ...this.attachments]
-      this.unsentText = prompt
       this.model.addNotice('The message was not sent because an attachment did not upload.', 'error')
       this.flush(true)
       return null
@@ -897,7 +978,7 @@ export class ConversationController {
     const hostReadsImageRefs = attachments.some((attachment) => attachment.kind === 'image')
       && hasHostCapability(await this.deps.connection.facts.when('capabilities'), 'promptImageRefs')
     const composed = composePrompt(prompt, attachments, hostReadsImageRefs)
-    this.deps.outbox.enqueue(this.outboxKey, {
+    const saved = this.deps.outbox.enqueue(this.outboxKey, {
       clientPromptId,
       sessionId: this.run.sessionId,
       text: prompt,
@@ -908,6 +989,7 @@ export class ConversationController {
         queueAttachmentContext: attachments.filter((attachment) => attachment.kind === 'file').map((attachment) => `[Attached file: ${attachment.hostPath}]`).join('\n'),
       },
     })
+    if (!saved) throw new Error('Could not save the prompt to the local outbox.')
   }
 
   /** Runs the host command and leaves refused requests visible in the transcript. */
@@ -935,12 +1017,18 @@ export class ConversationController {
     return this.uploads.flatMap(upload => upload.preview ? [upload.preview] : [])
   }
 
-  /** The composer takes back the text of a prompt that did not go. */
-  takeUnsentText(): string | null {
-    const text = this.unsentText
-    this.unsentText = null
-    this.flush(true)
-    return text
+  /** Preserve this draft's files when the project picker opens a new checkout. */
+  filesForDraftCheckout(hostId: string): { uploaded: readonly UploadedAttachment[]; picked: PickedFile[] } {
+    const picked = this.uploads.map(upload => {
+      if (!upload.file) throw new Error('Wait for the host resource to finish attaching before changing the checkout.')
+      return upload.file
+    })
+    if (hostId === this.hostId) return { uploaded: this.attachments, picked }
+    const landed = this.attachments.map(file => {
+      if (!file.localUri) throw new Error(`Remove ${file.name} before switching hosts. Its only copy is on this host.`)
+      return { name: file.name, uri: file.localUri, size: file.size, mimeType: file.mimeType }
+    })
+    return { uploaded: [], picked: [...landed, ...picked] }
   }
 
   /** Uploads picked files to the host now, so the prompt can name them. A
@@ -958,7 +1046,7 @@ export class ConversationController {
     const uploads = files.map((file) => {
       const landed = previous.then(() => this.uploadOne(file, io, upload))
       const media = attachmentKind(file)
-      const upload: InFlightUpload = { landed, ...(media.type === 'image' && {
+      const upload: InFlightUpload = { file, landed, ...(media.type === 'image' && {
         preview: { type: 'image', id: this.deps.uuid(), name: file.name, mimeType: media.mimeType, sizeBytes: file.size ?? 0, previewUri: file.uri },
       }), ...(media.isVideo && {
         video: { type: 'file', id: this.deps.uuid(), name: file.name, mimeType: media.mimeType, sizeBytes: file.size ?? 0, fileUri: file.uri },
@@ -1339,7 +1427,11 @@ export class ConversationController {
     const replay = this.watchReplay
     this.watchReplay = null
     clearTimeout(this.replayTimeout)
-    if (replay) for (const event of reconcileWatchReplay(this.model, replay)) this.receive(event)
+    if (replay) {
+      for (const event of reconcileWatchReplay(this.model, replay)) this.receive(event)
+      if (this.bufferedCursor) this.appliedCursor = this.bufferedCursor
+      this.bufferedCursor = undefined
+    }
   }
 
   private receive(event: WireNormalizedEvent): void {
@@ -1444,7 +1536,7 @@ export class ConversationController {
     if (runtime) {
       this.model.setStatus(runtime.status)
       this.model.setRateLimit(runtime.rateLimitInfo)
-      this.model.setBackgroundWorkRunning(!!runtime.backgroundWorkRunning)
+      this.model.setBackgroundWorkRunning(!!runtime.backgroundWorkRunning, runtime.backgroundTaskIds)
       this.queue = { held: runtime.queuedPrompts.some((entry) => entry.held), entries: runtime.queuedPrompts }
       this.model.setQueued(runtime.queuedPrompts.map((queued) => ({ queueId: queued.queueId, text: queued.text, clientPromptId: queued.clientPromptId })))
       // A pick waiting for a send keeps its own model.
@@ -1602,7 +1694,7 @@ export class ConversationController {
 
   readTurnDiff = (index: number) => this.deps.connection.api.diff(this.context(), { scope: { kind: 'turn', index } })
 
-  private context() {
+  context() {
     this.run.status = this.model.status
     this.run.organizationId = this.deps.organizationId()
     return conversationContext(this.run, this.settings ?? DEFAULT_RUN_SETTINGS, this.deps.executionPreferences())

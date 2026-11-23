@@ -1,14 +1,15 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, OrchestrationV2Subagent } from "@t3tools/contracts";
 import { useGT, useMessages } from "gt-react-native";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { View } from "react-native";
 
 import * as Dialog from "../../components/ui/Dialog";
 import { IconButton } from "../../components/ui/IconButton";
-import { orchestrationEnvironment } from "../../state/orchestration";
-import { threadEnvironment } from "../../state/threads";
-import { useAtomCommand } from "../../state/use-atom-command";
+import { mobileHost } from "../../state/mobile-host";
+import { rememberSession } from "../../solus/session-record";
+import { hostQueryScope, hostQueryScopeAtom } from "../../state/host-query-scope";
+import { resourceAllows } from "@solus/contracts/permissions";
 import {
   resolveSubagentRowPresentation,
   resolveSubagentStopTarget,
@@ -22,28 +23,30 @@ export function SubagentStopButton(props: {
   const gt = useGT();
   const messages = useMessages();
   const target = resolveSubagentStopTarget(props.subagent);
-  const canStop = useAtomValue(
-    orchestrationEnvironment.stopWorkflow.permissionAtom(props.environmentId),
-  );
-  const stopWorkflow = useAtomCommand(orchestrationEnvironment.stopWorkflow);
-  const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
+  const host = useAtomValue(mobileHost(props.environmentId));
+  const scope = useAtomValue(hostQueryScopeAtom(props.environmentId));
   const [stopping, setStopping] = useState(false);
+  const lock = useRef(false);
+  const childId = props.subagent.childThreadId;
+  if (target?.kind !== "subagent" || !host || !childId) return null;
 
-  if (target === null || !canStop) return null;
-
-  const workflow = target.kind === "workflow";
-  const label =
-    props.subagent.workflow?.name ??
-    resolveSubagentRowPresentation(props.subagent, false, messages).title;
+  const label = resolveSubagentRowPresentation(props.subagent, false, messages).title;
   const stop = async () => {
+    if (lock.current) return;
+    lock.current = true;
     setStopping(true);
-    const result = await (
-      target.kind === "workflow"
-        ? stopWorkflow({ environmentId: props.environmentId, input: target.input })
-        : interruptTurn({ environmentId: props.environmentId, input: target.input })
-    ).finally(() => setStopping(false));
-    if (result._tag === "Failure") {
-      Dialog.alert(workflow ? gt("Could not stop workflow") : gt("Could not stop agent"));
+    try {
+      if (hostQueryScope(props.environmentId) !== scope) throw new Error("The connection changed.");
+      const child = await rememberSession(props.environmentId, childId);
+      if (!resourceAllows(child, "drive.prompt") || hostQueryScope(props.environmentId) !== scope)
+        throw new Error("You cannot stop this session.");
+      if (!(await host.api.stopSession(childId)))
+        throw new Error("The agent is no longer running.");
+    } catch (error) {
+      Dialog.alert(gt("Could not stop agent"), String(error));
+    } finally {
+      lock.current = false;
+      setStopping(false);
     }
   };
 
@@ -53,21 +56,13 @@ export function SubagentStopButton(props: {
         icon="stop.fill"
         variant="danger"
         accessibilityLabel={
-          workflow
-            ? stopping
-              ? gt("Stopping workflow {label}", { label })
-              : gt("Stop workflow {label}", { label })
-            : stopping
-              ? gt("Stopping agent {label}", { label })
-              : gt("Stop agent {label}", { label })
+          stopping ? gt("Stopping agent {label}", { label }) : gt("Stop agent {label}", { label })
         }
         disabled={stopping}
         onPress={() =>
           Dialog.confirm({
-            title: workflow ? gt("Stop workflow?") : gt("Stop agent?"),
-            message: workflow
-              ? gt("Every running agent in {label} stops.", { label })
-              : gt("Stop {label}?", { label }),
+            title: gt("Stop agent?"),
+            message: gt("Stop {label}?", { label }),
             confirmText: gt("Stop", { $context: "verb, confirm button" }),
             destructive: true,
             onConfirm: () => void stop(),

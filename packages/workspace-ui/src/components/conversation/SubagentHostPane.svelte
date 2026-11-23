@@ -13,7 +13,9 @@
   <ConversationPaneSkeleton />
 {:then subagentModule}
   {@const SubagentPane = subagentModule.default}
-  <SubagentPane sessionId={params.sessionId} messageId={params.messageId} />
+  {#key params.toolId ?? params.messageId}
+    <SubagentPane sessionId={params.sessionId} serverId={params.serverId} messageId={params.messageId} requestedToolId={params.toolId} />
+  {/key}
 {/await}
 <!-- After the content: a window drag rect later in the DOM would re-cover this
      cluster's no-drag holes. -->

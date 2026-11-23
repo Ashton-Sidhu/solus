@@ -103,6 +103,7 @@ export interface AgentBackend extends EventEmitter {
   setBackgroundCommandWaiting?(sessionId: string, taskId: string, waiting: boolean): string | null
   /** Stop one background task without ending the turn. */
   stopBackgroundTask?(sessionId: string, taskId: string): Promise<boolean>
+  stopNativeSubagent?(sessionId: string, toolId: string): Promise<boolean>
   /** Whether work the agent left running outlives its turn's end. Absent when
    *  a provider's background tasks end with its run (Claude). */
   hasBackgroundTasks?(sessionId: string): boolean
@@ -115,7 +116,7 @@ export interface AgentBackend extends EventEmitter {
   getEnrichedError(sessionId: string | null, exitCode: number | null): EnrichedError
   /** When `limit` is set, returns only the most recent `limit` messages (windowed load for fast hydration). */
   loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]>
-  loadSessionPage?(sessionId: string, projectPath: string | undefined, turnLimit: number, before?: string): Promise<ProviderHistoryPage>
+  loadSessionPage?(sessionId: string, projectPath: string | undefined, turnLimit: number, before?: string, cachePage?: boolean): Promise<ProviderHistoryPage>
   /** The rows from the start of a transcript through its first turn, read from the start. */
   loadSessionFirstTurn?(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]>
   loadSessionPreview?(sessionId: string, projectPath?: string): Promise<SessionPreviewResult>

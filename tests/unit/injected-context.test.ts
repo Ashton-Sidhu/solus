@@ -83,6 +83,28 @@ describe('stripInjectedContext', () => {
 
     expect(stripInjectedContext(prompt)).toBe('fix the scroll bug')
   })
+
+  test('keeps the session links and attachments when the provider saved the full prompt', () => {
+    const typed = '[Attached file: /tmp/log.txt]\n\nCompare [First](session://ref?sessionId=first&provider=codex) with [Second](session://ref?sessionId=second&provider=claude-code).'
+    const prompt = [
+      typed,
+      '',
+      '[Referenced Session: "First" (session_id: first, provider: codex)]',
+      'Call read_session with session_id "first" to read its transcript before responding.',
+      '',
+      '[Referenced Session: "Second\nsession" (session_id: second, provider: claude-code)]',
+      'Call read_session with session_id "second" to read its transcript before responding.',
+      '',
+      '[Referenced Host: "Studio" (host: studio)]',
+    ].join('\n')
+
+    expect(stripInjectedContext(prompt)).toBe(typed)
+  })
+
+  test('preserves a paragraph that mentions the reference marker', () => {
+    const typed = 'What adds this text?\n\n[Referenced Session: "Example"]'
+    expect(stripInjectedContext(typed)).toBe(typed)
+  })
 })
 
 describe('task lifecycle work contracts', () => {

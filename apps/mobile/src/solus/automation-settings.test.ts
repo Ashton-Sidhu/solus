@@ -55,3 +55,23 @@ it("renaming a task preserves the host's schedule, permission snapshot and actio
     ),
   ).toEqual({ name: "Review changes", action: {} });
 });
+
+it("saves task-specific effort and can turn off Fast Mode", () => {
+  const saved = {
+    name: "Review",
+    enabled: true,
+    trigger: { type: "manual" },
+    action: {
+      prompt: "Inspect changes",
+      agentProvider: "codex",
+      cwd: "/repo",
+      modelId: "gpt-6.2-sol",
+      reasoningEffort: "medium",
+      fastMode: true,
+    },
+  } as const;
+  expect(automationEditPatch(saved, {
+    ...saved,
+    action: { ...saved.action, reasoningEffort: "high", fastMode: false },
+  })).toEqual({ action: { reasoningEffort: "high", fastMode: false } });
+});

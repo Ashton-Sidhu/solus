@@ -77,6 +77,7 @@
 {#snippet modelRow(model: { id: string; label: string })}
   {@const custom = instance.customModels.find((item) => item.id === model.id)}
   {@const hidden = !custom && instance.hiddenModels.includes(model.id)}
+  {@const favorite = instance.favoriteModels.includes(model.id)}
   <div class="py-3">
     <div class="flex min-w-0 items-center gap-1">
       <div class="min-w-0 flex-1">
@@ -107,6 +108,11 @@
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-52">
+          <DropdownMenu.Item onSelect={() => {
+            instance.favoriteModels = favorite
+              ? instance.favoriteModels.filter((id) => id !== model.id)
+              : [...instance.favoriteModels, model.id];
+          }}>{favorite ? "Remove from favorites" : "Add to favorites"}</DropdownMenu.Item>
           <DropdownMenu.Item onSelect={() => moveGroup(model.id)}>{isLegacy(model.id) ? "Move to main models" : "Move to legacy models"}</DropdownMenu.Item>
           {#if custom}
             <DropdownMenu.Item variant="destructive" onSelect={() => instance.customModels.splice(instance.customModels.indexOf(custom), 1)}>Remove custom model</DropdownMenu.Item>

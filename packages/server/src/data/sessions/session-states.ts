@@ -28,6 +28,7 @@ import { stateFromColumns, viewFromColumns } from './session-state-columns'
 const rowSchema = z.object({
   session_id: z.string(),
   settled_at: z.number().nullable(),
+  auto_settle_disabled_at: z.number().nullable(),
   settled_by: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
   unsettled_at: z.number().nullable(),
   last_prompt_at: z.number().nullable(),
@@ -35,6 +36,8 @@ const rowSchema = z.object({
 type Row = z.infer<typeof rowSchema>
 
 const viewRowSchema = z.object({
+  active_order_key: z.string().nullable(),
+  pin_order_key: z.string().nullable(),
   view_settled_at: z.number().nullable(),
   archived_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),
@@ -87,7 +90,7 @@ export function onSessionReadStateChanged(listener: ReadStateListener): () => vo
   return () => readStateListeners.delete(listener)
 }
 
-const COLUMNS = sql`session_id, settled_at, settled_by, unsettled_at, last_prompt_at`
+const COLUMNS = sql`session_id, auto_settle_disabled_at, settled_at, settled_by, unsettled_at, last_prompt_at`
 
 /**
  * What every person sees of one session: the settle by its pull requests or
@@ -113,7 +116,7 @@ export class SessionShelf {
       INSERT INTO ${session} (session_id, organization_id, created_by, created_at, settled_at, settled_by)
       VALUES (${this.sessionId}, ${home.organizationId}, ${home.ownerKey}, ${at}, ${at}, ${by})
       ON CONFLICT(session_id) DO UPDATE SET settled_at = excluded.settled_at, settled_by = excluded.settled_by
-      WHERE session_records.settled_at IS NULL
+      WHERE session_records.settled_at IS NULL AND session_records.auto_settle_disabled_at IS NULL
       RETURNING ${COLUMNS}
     `))
     const state = row && stateFromColumns(row)
@@ -158,6 +161,11 @@ export class SessionShelf {
     if (personKey) await new SessionViewer(this.sessionId, personKey).returnToList()
   }
 
+  async setAutoSettle(enabled: boolean): Promise<SessionState> {
+    await this.update(sql`auto_settle_disabled_at = ${enabled ? null : Date.now()}`)
+    return this.announce()
+  }
+
   private async row(): Promise<Row | null> {
     return rowSchema.nullish().parse(await getDatabase().get(sql`
       SELECT ${COLUMNS} FROM ${session} WHERE session_id = ${this.sessionId}
@@ -171,9 +179,10 @@ export class SessionShelf {
     `)).changes > 0
   }
 
-  private async announce(): Promise<void> {
+  private async announce(): Promise<SessionState> {
     const state = await this.state()
     for (const listener of listeners) listener(this.sessionId, state)
+    return state
   }
 }
 
@@ -194,7 +203,7 @@ export class SessionViewer {
   /** This person's view now; empty when they did nothing to the session. */
   async view(): Promise<SessionView> {
     const row = viewRowSchema.nullish().parse(await getDatabase().get(sql`
-      SELECT settled_at AS view_settled_at, archived_at, snoozed_until, snooze_note, viewed_at FROM ${personalResourceState}
+      SELECT settled_at AS view_settled_at, archived_at, snoozed_until, snooze_note, viewed_at, pin_order_key, active_order_key FROM ${personalResourceState}
       WHERE ${personRow(this.sessionId, this.personKey)}
     `))
     return row ? viewFromColumns(row) ?? EMPTY_SESSION_VIEW : EMPTY_SESSION_VIEW
@@ -233,16 +242,21 @@ export class SessionViewer {
     await this.write(sql`settled_at = NULL, archived_at = NULL, snoozed_until = NULL, snooze_note = NULL`, sql`(settled_at IS NOT NULL OR archived_at IS NOT NULL OR snoozed_until IS NOT NULL)`, {})
   }
 
+  async reorder(section: 'active' | 'pinned', key: string): Promise<void> {
+    if (section === 'active') await this.write(sql`active_order_key = ${key}`, undefined, { active_order_key: key })
+    else await this.write(sql`pin_order_key = ${key}`, undefined, { pin_order_key: key })
+  }
+
   /** One write: an insert for a person with no row yet, else an update when
    *  `when` holds. Announces the view when it changed. */
-  private async write(set: SQL, when: SQL | undefined, insert?: { settled_at?: number | null; archived_at?: number | null; snoozed_until?: number | null; snooze_note?: string | null }): Promise<boolean> {
+  private async write(set: SQL, when: SQL | undefined, insert?: { active_order_key?: string; pin_order_key?: string; settled_at?: number | null; archived_at?: number | null; snoozed_until?: number | null; snooze_note?: string | null }): Promise<boolean> {
     const organizationId = await organizationOfSession(this.sessionId)
     const database = getDatabase()
     let changed = false
     if (insert) {
       changed = (await database.run(sql`
-        INSERT INTO ${personalResourceState} (organization_id, resource_kind, resource_id, created_by, settled_at, archived_at, snoozed_until, snooze_note)
-        VALUES (${organizationId}, 'session', ${this.sessionId}, ${this.personKey}, ${insert.settled_at ?? null}, ${insert.archived_at ?? null}, ${insert.snoozed_until ?? null}, ${insert.snooze_note ?? null})
+        INSERT INTO ${personalResourceState} (organization_id, resource_kind, resource_id, created_by, settled_at, archived_at, snoozed_until, snooze_note, pin_order_key, active_order_key)
+        VALUES (${organizationId}, 'session', ${this.sessionId}, ${this.personKey}, ${insert.settled_at ?? null}, ${insert.archived_at ?? null}, ${insert.snoozed_until ?? null}, ${insert.snooze_note ?? null}, ${insert.pin_order_key ?? null}, ${insert.active_order_key ?? null})
         ON CONFLICT (organization_id, resource_kind, resource_id, created_by) DO NOTHING
       `)).changes > 0
     }

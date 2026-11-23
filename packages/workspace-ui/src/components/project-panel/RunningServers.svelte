@@ -109,7 +109,7 @@
 
 {#if host.me.may('host.use') && rows.length > 0}
 <PanelSection title="Running servers" {collapsed} {onToggle} {onResizePointerDown}>
-<section class="flex flex-col gap-0.5 px-1.5 text-workspace-chrome" aria-label="Running servers">
+<section class="flex flex-col gap-0.5 px-1.5" aria-label="Running servers">
     {#each visibleRows as row (`${row.server.serverId}:${row.endpoint.endpointId}`)}
       {@const { server, endpoint } = row}
       {@const forwarded = server.forwarded(endpoint)}

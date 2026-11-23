@@ -20,6 +20,8 @@ export type ActivityKind = 'think' | 'ask' | 'search' | 'read' | 'edit' | 'run' 
 
 const KIND_FOR_TOOL = {
   Read: 'read',
+  read_file: 'read',
+  view_image: 'read',
   NotebookRead: 'read',
   Glob: 'search',
   Grep: 'search',
@@ -171,6 +173,8 @@ const STEP_FOR_TOOL = new Map<string, (parsed: ParsedToolInput | null) => LiveTo
   ['Bash', commandStep],
   ['exec_command', commandStep],
   ['Read', (parsed) => ({ label: 'Reading', target: filesTarget(parsed) })],
+  ['read_file', (parsed) => ({ label: 'Reading', target: filesTarget(parsed) })],
+  ['view_image', (parsed) => ({ label: 'Viewing', target: filesTarget(parsed) })],
   ['NotebookRead', (parsed) => ({ label: 'Reading', target: filesTarget(parsed) })],
   ['Edit', (parsed) => ({ label: 'Editing', target: filesTarget(parsed) })],
   ['NotebookEdit', (parsed) => ({ label: 'Editing', target: filesTarget(parsed) })],
@@ -415,6 +419,8 @@ export function getToolDescriptionFromParsed(
   if (name.startsWith('mcp__')) return describeMcpTool(name, parsed, truncate)
   switch (name) {
     case 'Read':
+    case 'read_file':
+    case 'view_image':
     case 'NotebookRead':
       return describeFilePaths('Read', toolPathsFromParsed(parsed))
     case 'Edit':

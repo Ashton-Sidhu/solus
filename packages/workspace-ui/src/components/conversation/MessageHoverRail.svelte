@@ -85,10 +85,13 @@
     position: absolute;
     right: 100%;
     bottom: 0.375rem;
-    margin-right: 0.625rem;
+    /* An open turn indents its messages behind a rule; `--hover-rail-clear`
+       moves the rail past that rule and `--hover-rail-indent` is the gutter the
+       indent takes. */
+    margin-right: calc(0.625rem + var(--hover-rail-clear, 0rem));
     /* The rail may not reach past the pane edge, where the transcript clips it. */
     width: max-content;
-    max-width: calc(var(--transcript-gutter, 3rem) - 0.875rem);
+    max-width: calc(var(--transcript-gutter, 3rem) - 0.875rem - var(--hover-rail-indent, 0rem));
     gap: 0.25rem;
     opacity: 0;
     /* Hide is slower than reveal, and lags slightly so the rail survives the

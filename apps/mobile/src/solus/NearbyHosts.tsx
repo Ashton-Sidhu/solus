@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { Pressable, View } from "react-native";
 import { AppText } from "../components/ui/AppText";
 import { nearbyUrl } from "./discovery";
-import { nearby, solus, useSolusDirectory } from "./runtime";
+import { nearby, solus, useSolusWorkspace } from "./runtime";
 
 export function NearbyHosts({
   onSelect,
@@ -11,7 +11,7 @@ export function NearbyHosts({
   onSelect: (url: string, hostId: string) => void;
   disabled: boolean;
 }) {
-  const { environments } = useSolusDirectory();
+  const { environments } = useSolusWorkspace();
   const state = useSyncExternalStore(nearby.changes.subscribe, nearby.snapshot);
   useEffect(() => {
     void nearby.scan();

@@ -1,31 +1,27 @@
 import IconGitBranch from "@tabler/icons-react-native/IconGitBranch";
 import IconGitMerge from "@tabler/icons-react-native/IconGitMerge";
 import IconGitCommit from "@tabler/icons-react-native/IconGitCommit";
-import IconGitPullRequestClosed from "@tabler/icons-react-native/IconGitPullRequestClosed";
-import IconGitPullRequestDraft from "@tabler/icons-react-native/IconGitPullRequestDraft";
 import type { SFSymbol } from "expo-symbols";
-import IconCircleDot from "@tabler/icons-react-native/IconCircleDot";
-import IconGitPullRequest from "@tabler/icons-react-native/IconGitPullRequest";
 import IconFileDiff from "@tabler/icons-react-native/IconFileDiff";
 import IconRobot from "@tabler/icons-react-native/IconRobot";
+import IconSitemap from "@tabler/icons-react-native/IconSitemap";
 import { SymbolView as ExpoSymbolView } from "expo-symbols";
 import { withUniwind } from "uniwind";
+import { githubOcticons } from "./GitHubOcticons";
 import type { AppSymbolViewProps } from "./AppSymbol.android";
 
 export type { SFSymbol } from "expo-symbols";
 export type { AppSymbolName, AppSymbolViewProps } from "./AppSymbol.android";
 
 const CUSTOM_ICONS = {
+  ...githubOcticons,
   "file.diff": IconFileDiff,
-  "arrow.triangle.pull": IconGitPullRequest,
   "arrow.triangle.merge": IconGitMerge,
   "arrow.triangle.branch": IconGitBranch,
   "arrow.branch": IconGitBranch,
-  "git.pull-request.closed": IconGitPullRequestClosed,
-  "git.pull-request.draft": IconGitPullRequestDraft,
   "git.commit": IconGitCommit,
-  "git.issue": IconCircleDot,
   robot: IconRobot,
+  workflow: IconSitemap,
 };
 
 function AppSymbolView(props: AppSymbolViewProps) {

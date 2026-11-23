@@ -1,5 +1,6 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { IpcContext } from '@solus/contracts/types'
+import { untrack } from 'svelte'
 import { assetUrlCache } from '../components/artifact/lib/asset-url'
 
 /** A file on a host that a client wants to show: a path or a stored asset. */
@@ -51,9 +52,23 @@ export class HostMediaUrl {
 
   constructor(request: () => HostMediaRequest | null) {
     this.request = request
+    const current = $derived(request())
+    // The request also carries live session state for RPC. A new turn changes
+    // that state even when every mounted player still points at the same file.
+    const sourceKey = $derived.by(() => {
+      if (!current) return null
+      const { serverId, assetId, name, path, ctx } = current
+      if (assetId) return JSON.stringify([serverId, 'asset', assetId, name])
+      if (!path) return null
+      // Paths can be project-relative or refer to a session's upload.
+      const session = ctx?.session
+      return JSON.stringify([
+        serverId, 'path', path, session?.gitContext?.worktreePath,
+        session?.workingDirectory, session?.sessionId || session?.draftId,
+      ])
+    })
     $effect(() => {
-      const current = request()
-      void this.load(current, false)
+      void this.load(sourceKey === null ? null : untrack(() => current), false)
     })
   }
 

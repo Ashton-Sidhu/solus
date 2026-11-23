@@ -111,6 +111,9 @@ archive and snooze (`view`), and its pull requests.
 
 ### Sidebar views
 
+On desktop and web, set the task animation duration in
+**Settings → Appearance → Layout → Sidebar animation**. Set it to 0 to turn it off.
+
 On desktop and web, **Settings → Appearance → Layout → Sidebar view** (or "Group sidebar
 by project" / "Group sidebar by status" in the command palette) selects how
 the sidebar groups the list. The setting is personal and syncs with the

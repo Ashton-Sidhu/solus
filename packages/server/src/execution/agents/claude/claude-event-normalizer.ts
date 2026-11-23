@@ -1,5 +1,6 @@
 import { FIVE_HOUR_WINDOW_MINS, WEEKLY_WINDOW_MINS, type ContextUsage, type NormalizedEvent, type PartialTurnUsage, type PermissionMode, type UsageData } from '@solus/contracts/types'
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, CompactBoundaryEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
+import type { DigestWorkflow } from '@solus/contracts/session-digest'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import { isRateLimitMessage, normalizeResetNumber } from '../../rate-limits'
 import { isAuthFailureMessage } from '../auth-failure'
@@ -50,6 +51,37 @@ interface ClaudeTaskSystemEvent {
   status?: string
   patch?: { status?: string }
   task_type?: string
+  workflow_name?: string
+  workflow_progress?: unknown
+}
+
+const workflowEntrySchema = z.discriminatedUnion('type', [
+    z.object({ type: z.literal('workflow_phase'), index: z.number().int().nonnegative(), title: z.string() }),
+    z.object({
+      type: z.literal('workflow_agent'), index: z.number().int().nonnegative(), label: z.string(),
+      state: z.enum(['queued', 'start', 'done', 'error']), phaseIndex: z.number().int().nonnegative().optional(),
+      phaseTitle: z.string().optional(), attempt: z.number().int().positive().optional(), startedAt: z.number().optional(),
+    }),
+])
+
+function workflowProgress(message: ClaudeTaskSystemEvent): DigestWorkflow | undefined {
+  const entries = message.workflow_progress
+  if (!Array.isArray(entries)) return undefined
+  const result: DigestWorkflow = { phases: [], agents: [] }
+  for (const entry of entries.slice(0, 256)) {
+    const parsed = workflowEntrySchema.safeParse(entry)
+    if (!parsed.success) continue
+    if (parsed.data.type === 'workflow_phase') {
+      result.phases.push({ index: parsed.data.index, title: parsed.data.title.slice(0, 240) })
+    } else {
+      const { index, label, state, phaseIndex, phaseTitle, attempt, startedAt } = parsed.data
+      result.agents.push({
+        index, label: label.slice(0, 240), phaseIndex, phaseTitle: phaseTitle?.slice(0, 240), attempt,
+        state: state === 'done' ? 'completed' : state === 'error' ? 'failed' : state === 'start' && startedAt !== undefined ? 'running' : 'queued',
+      })
+    }
+  }
+  return result
 }
 
 /** Task types that are as often a process left running (a dev server, its
@@ -384,9 +416,14 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
   if (sys.subtype === 'task_started' && sys.task_id) {
     const started: Extract<NormalizedEvent, { type: 'background_task_started' }> = { type: 'background_task_started', taskId: sys.task_id, toolUseId: sys.tool_use_id }
     if (sys.task_type && AWAITABLE_TASK_TYPES.has(sys.task_type)) started.awaitable = true
+    if (sys.task_type === 'local_workflow' || sys.task_type === 'local_agent') {
+      const kind = sys.task_type === 'local_workflow' ? 'workflow' : 'subagent'
+      started.lineageTask = { kind, title: (sys.workflow_name || sys.description || (kind === 'workflow' ? 'Workflow' : 'Sub-agent')).slice(0, 240) }
+    }
     return [started]
   }
   if (sys.subtype === 'task_progress' && sys.task_id) {
+    const workflow = workflowProgress(sys)
     return [{
       type: 'background_task_progress',
       taskId: sys.task_id,
@@ -396,6 +433,7 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
       totalTokens: sys.usage?.total_tokens,
       durationMs: sys.usage?.duration_ms,
       lastToolName: sys.last_tool_name,
+      ...(workflow && { workflow }),
     }]
   }
   if (sys.subtype === 'task_updated' && sys.task_id) {

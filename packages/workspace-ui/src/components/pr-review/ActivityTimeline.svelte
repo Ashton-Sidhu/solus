@@ -7,13 +7,13 @@
     Ellipsis as EllipsisIcon,
     MessageCircle as MessageCircleIcon,
     GitCommitHorizontal as GitCommitIcon,
-    GitPullRequest as GitPullRequestIcon,
     LayoutTemplate as ArtifactIcon,
     LoaderCircle as LoaderIcon,
     Reply as ReplyIcon,
     Tag as TagIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import CommentMarkdown from '../github-markdown/CommentMarkdown.svelte';
   import { isOwnConversationComment } from "@solus/client-core/pull-request-comments";
   import type {
@@ -508,7 +508,7 @@
     <span
       class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-primary"
     >
-      <GitPullRequestIcon size={13} weight="bold" />
+      <GitPullRequestIcon size={13} />
     </span>
     <div class="min-w-0 flex-1 pt-1">
       <p class="text-muted-foreground">

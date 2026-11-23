@@ -5,7 +5,8 @@ import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { clearForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { getIndexedSession, persistIndexedSessionStart } from '../../db/session-indexer'
-import { completeSessionHandoff, registerSessionLineage, replaceSessionLineageThread } from '../../data/sessions/session-lineage'
+import { completeSessionHandoff, registerSessionLineage, replaceSessionLineageThread, sessionIdOfThread } from '../../data/sessions/session-lineage'
+import { emitSessionDigestChanged } from '../../data/sessions/session-digests'
 import type { AgentBackend, RunHandle } from '../agents/agent-backend'
 import type { SessionStatus, NormalizedEvent, PromptVia, ThreadGoal } from '@solus/contracts/types'
 import { encodePathAsFolder, isSessionBusyStatus } from '@solus/contracts/types'
@@ -205,6 +206,7 @@ export class ProviderEvents {
         if (runReqInput && indexedStart && this.indexedThreadStarts.get(event.sessionId) !== indexedStart) {
           this.indexedThreadStarts.set(event.sessionId, indexedStart)
           this.rt.statuses.recordStatusWritten.set(initSessionId, 'running')
+          const forkSource = firstDispatchRun?.input.forked ? firstDispatchRun.input.agentSessionId : null
           persistIndexedSessionStart(
             event.sessionId,
             backend.id,
@@ -216,6 +218,12 @@ export class ProviderEvents {
             runReqInput.gitContext?.branch ?? null,
             firstDispatchRun?.delegation,
             firstDispatchRun?.startedBy,
+            forkSource ? () => {
+              const sourceId = sessionIdOfThread(forkSource)
+              if (sourceId !== initSessionId) void emitSessionDigestChanged(sourceId).catch((error) => {
+                log.warn('fork_lineage_notify_failed', { sessionId: initSessionId, error: String(error) })
+              })
+            } : undefined,
           )
         }
         if (existingSession) {
@@ -353,6 +361,7 @@ export class ProviderEvents {
         if (event.type === 'background_task_started') {
           const wasRunning = !!session.backgroundTaskIds?.size
           ;(session.backgroundTaskIds ??= new Set()).add(event.taskId)
+          if (event.lineageTask) (session.lineageTaskIds ??= new Map()).set(event.toolUseId ?? event.taskId, event.taskId)
           if (!wasRunning) this.rt.publish(session.sessionId, { type: 'background_work', running: true })
           if (event.awaitable) (session.awaitableTaskIds ??= new Set()).add(event.taskId)
           log.info('task_started', { taskId: event.taskId, sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size, awaitable: !!event.awaitable })
@@ -362,6 +371,9 @@ export class ProviderEvents {
         }
 
         if (event.type === 'background_task_settled') {
+          for (const [toolId, taskId] of session.lineageTaskIds ?? []) {
+            if (taskId === event.taskId) session.lineageTaskIds?.delete(toolId)
+          }
           if (session.backgroundTaskIds?.delete(event.taskId) && !session.backgroundTaskIds.size) {
             this.rt.publish(session.sessionId, { type: 'background_work', running: false })
           }

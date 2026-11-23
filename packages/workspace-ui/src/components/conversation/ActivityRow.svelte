@@ -73,6 +73,7 @@
     class="activity-row"
     class:is-static={!onToggle}
     class:is-nested={nested}
+    class:is-stacked={stacked}
     data-testid={testid}
   >
     <button
@@ -142,6 +143,12 @@
 
   .activity-row.is-nested {
     --activity-icon-size: var(--text-tool-step);
+  }
+
+  /* A stacked row runs to several lines, where capped ends read as an oval.
+     It takes a card's corner instead. */
+  .activity-row.is-stacked {
+    border-radius: 0.75rem;
   }
 
   /* The row takes its content's width at the right of the column. The chassis

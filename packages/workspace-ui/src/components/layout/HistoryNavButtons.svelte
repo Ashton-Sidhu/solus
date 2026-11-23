@@ -19,7 +19,7 @@
         <Button
           variant="ghost"
           size="icon-xs"
-          class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+          class="text-(--solus-text-primary) disabled:opacity-70"
           aria-label="Go back"
           disabled={!router.canGoBack}
           onclick={() => { if (router.back()) requestInputFocus(); }}
@@ -38,7 +38,7 @@
         <Button
           variant="ghost"
           size="icon-xs"
-          class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+          class="text-(--solus-text-primary) disabled:opacity-70"
           aria-label="Go forward"
           disabled={!router.canGoForward}
           onclick={() => { if (router.forward()) requestInputFocus(); }}

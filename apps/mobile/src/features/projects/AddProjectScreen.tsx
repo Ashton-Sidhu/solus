@@ -1,6 +1,7 @@
-import { projectContext } from "@solus-mobile/features/conversation/lib/ipc-context";
-import { solus, getSolusDirectory, useSolusDirectory } from "../../solus/runtime";
-import type { DirectoryListResult, HostReadiness } from "@solus/contracts/types";
+import { createProject, cloneProject, addLocalProject, useProjectHosts, browseProjectFolders } from "../../solus/project-host";
+import { useEnvironmentQuery } from "../../state/query";
+import { useCheckoutAccess } from "../../solus/use-checkout-files";
+import { solus, useSolusWorkspace } from "../../solus/runtime";
 import { errorDisplayMessage, type MarkedText } from "@t3tools/client-runtime/errors";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
@@ -15,7 +16,6 @@ import {
   addProjectRemoteSourcePathHint,
   addProjectRemoteSourceProvider,
   canCreateProjectInEnvironment,
-  findExistingAddProject,
   getAddProjectInitialQuery,
   getCloneDestinationBrowsePath,
   getCloneDestinationPath,
@@ -58,7 +58,7 @@ import {
 } from "@react-navigation/native";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { msg, useGT, useMessages } from "gt-react-native";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "../../lib/cn";
@@ -343,30 +343,8 @@ function useBrowsePathInput(
 function useEnvironmentOptions(
   selectedEnvironmentId: EnvironmentId | null = null,
 ): ReadonlyArray<EnvironmentOption> {
-  const { environments } = useSolusDirectory();
-  const [facts, setFacts] = useState(new Map<string, HostReadiness>());
-  const hosts = JSON.stringify(
-    environments
-      .filter((e) => e.connectionState === "connected")
-      .map((e) => e.environmentId)
-      .sort(),
-  );
-  useEffect(() => {
-    let active = true;
-    const ids: string[] = JSON.parse(hosts);
-    for (const id of ids) {
-      void solus.connections
-        .connection(id)
-        ?.api.setupHostReadiness()
-        .then((value) => {
-          if (active) setFacts((previous) => new Map(previous).set(id, value));
-        })
-        .catch(() => {});
-    }
-    return () => {
-      active = false;
-    };
-  }, [hosts]);
+  const { environments } = useSolusWorkspace();
+  const facts = useProjectHosts(environments.filter((e) => e.connectionState === "connected").map((e) => e.environmentId));
   return environments
     .filter((e) => e.connectionState === "connected" || e.environmentId === selectedEnvironmentId)
     .map((e) => {
@@ -386,13 +364,6 @@ function useEnvironmentOptions(
       };
     })
     .sort((a, b) => a.label.localeCompare(b.label));
-}
-
-function projectHost(environment: EnvironmentOption) {
-  const host = solus.connections.connection(environment.environmentId);
-  if (!host || !solus.connections.may(environment.environmentId, "host.use"))
-    throw new Error("The project host is unavailable.");
-  return host.api;
 }
 
 function useSelectedEnvironment(requestedEnvironmentId: EnvironmentId | null): {
@@ -793,48 +764,21 @@ function FolderBrowser(props: {
   readonly pinnedDirectoryName?: string;
   readonly cloning?: boolean;
 }) {
-  const messages = useMessages();
   const browsePath = getFilesystemBrowsePath(props.pathInput, props.environment.platform);
   const browseInput =
     browsePath.directoryPath.length > 0 ? { partialPath: browsePath.directoryPath } : null;
   const hostId = props.environment.environmentId;
-  const directory = browseInput?.partialPath ?? "~";
-  const [listing, setListing] = useState<{
-    directory: string;
-    hostId: string;
-    result?: DirectoryListResult;
-    error?: string;
-  } | null>(null);
-  useEffect(() => {
-    let active = true;
-    const host = solus.connections.connection(hostId);
-    if (!host) {
-      setListing({ directory, hostId, error: "The project host is unavailable." });
-      return;
-    }
-    void host.api.listDirectory(directory, true).then(
-      (result) => {
-        if (active) setListing({ directory, hostId, result });
-      },
-      (error) => {
-        if (active) setListing({ directory, hostId, error: String(error) });
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [hostId, directory]);
-  const current = listing?.directory === directory && listing.hostId === hostId ? listing : null;
-  const error = current?.error ?? current?.result?.error;
+  const access = useCheckoutAccess(hostId);
+  const browseState = useEnvironmentQuery(
+    access.canReadFiles && browseInput ? browseProjectFolders({ environmentId: hostId, input: browseInput }) : null,
+  );
   const pinnedDirectoryName = props.pinnedDirectoryName ?? "";
   const pinnedDirectoryMatches = isWindowsPlatform(props.environment.platform)
     ? browsePath.filterQuery.toLowerCase() === pinnedDirectoryName.toLowerCase()
     : browsePath.filterQuery === pinnedDirectoryName;
   const browseFilterQuery = pinnedDirectoryMatches ? "" : browsePath.filterQuery;
   const { visibleEntries: visibleBrowseEntries } = filterFilesystemBrowseEntries(
-    current?.result?.entries
-      .filter((e) => e.isDir)
-      .map((e) => ({ name: e.name, fullPath: e.path })) ?? [],
+    browseState.data?.entries ?? [],
     browseFilterQuery,
   );
   const gt = useGT();
@@ -842,9 +786,10 @@ function FolderBrowser(props: {
   return (
     <>
       <SectionTitle>{gt("Browse folders")}</SectionTitle>
-      {error ? <ErrorBanner message={error} /> : null}
+      {!access.canReadFiles && !access.isPending ? <ErrorBanner message={access.error ?? gt("This connection cannot browse host folders.")} /> : null}
+      {browseState.error ? <ErrorBanner message={browseState.error} /> : null}
       <ListSection>
-        {!current ? (
+        {access.isPending || (browseState.isPending && browseState.data === null) ? (
           <View className="items-center py-5">
             <AppActivityIndicator colorClassName="accent-icon-muted" />
           </View>
@@ -965,22 +910,8 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
     setError(null);
     setIsSubmitting(true);
     try {
-      const api = projectHost(environment);
-      const project = await api.setupCreateProject({ name: trimmedName });
-      if (publishes && environment.canPublish) {
-        try {
-          const result = await api.githubPublishRepository(
-            projectContext(project.path, solus.account.organizationId),
-            { name: trimmedName, private: true, protocol: "https" },
-          );
-          for (const step of [result.repository, result.remote, result.push]) {
-            if (step.status === "failed") throw new Error(step.error);
-          }
-        } catch (cause) {
-          Dialog.alert(gt("Project created"), errorMessage(cause));
-        }
-      }
-      await solus.threads.load(environment.environmentId);
+      const { project, publishError } = await createProject(environment.environmentId, trimmedName, publishes && environment.canPublish);
+      if (publishError) Dialog.alert(gt("Project created"), errorMessage(publishError));
       openNewTaskDraft(
         {
           environmentId: environment.environmentId,
@@ -1120,20 +1051,7 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
     setIsSubmitting(true);
     const originRoute = getActiveRoute(navigation);
     try {
-      const api = projectHost(environment);
-      const directory = await api.listDirectory(resolved.path);
-      if (directory.error) throw new Error(directory.error);
-      const lookup = () =>
-        findExistingAddProject({
-          projects: getSolusDirectory().projects,
-          environmentId: environment.environmentId,
-          path: directory.currentPath,
-        });
-      if (!lookup()) {
-        await api.trackRecentProject(directory.currentPath);
-        await solus.threads.load(environment.environmentId);
-      }
-      const project = lookup();
+      const project = await addLocalProject(environment.environmentId, resolved.path);
       if (project)
         openNewTaskDraft(
           { environmentId: environment.environmentId, projectId: project.id, title: project.title },
@@ -1232,17 +1150,8 @@ export function AddProjectDestinationScreen(props: {
     const originRoute = getActiveRoute(navigation);
     setIsSubmitting(true);
     try {
-      const api = projectHost(environment);
-      const existing = findExistingAddProject({
-        projects: getSolusDirectory().projects,
-        environmentId: environment.environmentId,
-        path: resolved.path,
-      });
-      const project = existing
-        ? await api.setupAdoptProject({ cloneUrl: remoteUrl, path: existing.workspaceRoot })
-        : await api.setupCloneProject({ cloneUrl: remoteUrl, destination: resolved.path });
+      const project = await cloneProject(environment.environmentId, remoteUrl, resolved.path);
       const projectId = ProjectId.make(project.path);
-      await solus.threads.load(environment.environmentId);
       openNewTaskDraft(
         {
           environmentId: environment.environmentId,

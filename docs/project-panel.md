@@ -10,9 +10,17 @@ The project panel is the rail at the right of a conversation on desktop and web.
 | `git` | `git.branch`, `git.commit` (commit and push), `git.changes`, `git.pullRequestAction` (create a pull request, publish, or sync), `git.discard`, `git.conflicts` (merge conflict alert), `git.pullRequest` (the linked pull request and its actions), `git.otherPullRequests` (other linked pull requests, behind Show N more), `git.setup` (repository setup) |
 | `servers` | None. Its own card lists running web and API servers. |
 | `goal` | `goal.objective`, `goal.details` (cost and time), `goal.budget` (token budget bar) |
+| `agents` (desktop) | `agents.running`, `agents.previous` |
 | `webhooks` | None. The section lists one row per webhook, so it has no row kinds to choose. |
 
 Goal shows only while a goal is set, and Webhooks only when the project has webhooks.
+
+The desktop Agents section and the Agents card on Threads read the same session tree. They show the parent, fork source, recent forks, provider sub-agents, and direct child sessions. While agents run, earlier agents are under Previous agents.
+
+- Select a sub-agent to open its transcript. Expand Workflow progress to see the Claude workflow's phases, members, and member states.
+- Use Stop on a running child session or a supported provider sub-agent. Claude supplies task controls for its sub-agents and workflows. Codex supplies a turn control for a native child.
+- Select a remote child to open it on its runner when the client has a connection. Otherwise, the parent's host can relay a paged, read-only text transcript when the reader has access to the child on both hosts.
+- Select Merge back on a fork source to queue a prompt in the source session with excerpts from the fork's completed work. The prompt uses conversation text and preserves any unsent draft in the source session.
 
 A section shows while it is on and at least one of its rows is on. When the last row of a section is off, the section hides. When the Environment section is hidden, the panel's header buttons (refresh, choose, collapse) and the window drag band stay in a bar with no card.
 
@@ -46,7 +54,7 @@ The logic is in `packages/workspace-ui/src/components/project-panel/lib/panel-it
 
 ## Clients
 
-Desktop and web share this panel. The mobile app has no project panel, so it has no surface for this setting and no change.
+Desktop and web share this panel. The Agents section and its visibility controls are available on desktop. The mobile app has no project panel.
 
 
 Environment menus use the full row as their position anchor. Their arrows point down, and the menus open directly below the row, aligned with its left edge, with a small gap. The Open in menu matches the full row width. The Git action menus and branch picker use the same downward chevrons, position, and full row width. Window collision handling still keeps the menu on screen.

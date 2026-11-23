@@ -6,6 +6,8 @@
  * component state — see `trigger.ts`.
  */
 
+import { githubOcticonPaths } from "@solus/client-core/github-octicons";
+
 export type RefKind =
   | "plan"
   | "doc"
@@ -19,7 +21,7 @@ export interface KindSpec {
   key: RefKind;
   slug: string;
   label: string;
-  /** 14×14 stroked glyph, drawn at 13px / 1.4 stroke in every row. */
+  /** SVG path for the leading icon. */
   icon: string;
 }
 
@@ -30,11 +32,11 @@ export const GLYPH = {
   folder:
     "M1.8 3.6a1.2 1.2 0 011.2-1.2h2.2l1.2 1.4h4.6a1.2 1.2 0 011.2 1.2v5a1.2 1.2 0 01-1.2 1.2H3a1.2 1.2 0 01-1.2-1.2z",
   plan: "M2 3.6l1.4 1.4L6 2.4M8 3.6h4M2 9.6l1.4 1.4L6 8.4M8 9.6h4",
-  pr: "M4 3.2a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M4 13.4a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M10.4 3.2a1.4 1.4 0 100-2.8 1.4 1.4 0 000 2.8M4 3.4v7.2M10.4 3.4v2.6a2.6 2.6 0 01-2.6 2.6H6",
+  pr: githubOcticonPaths.pullRequest,
   session:
     "M12 8.2a1.8 1.8 0 01-1.8 1.8H5.4L2.6 12.4V3.6a1.8 1.8 0 011.8-1.8h5.8A1.8 1.8 0 0112 3.6z",
-  task: "M2.4 3.6a1.2 1.2 0 011.2-1.2h6.8a1.2 1.2 0 011.2 1.2v6.8a1.2 1.2 0 01-1.2 1.2H3.6a1.2 1.2 0 01-1.2-1.2z M4.9 7l1.6 1.6 2.9-3.2",
-  automation: "M7.7 1.9L3.5 8h3.1l-.6 4.1L10.5 6H7.3z",
+  task: githubOcticonPaths.issueOpened,
+  automation: "M1.75 2.9a1.15 1.15 0 0 1 1.15-1.15h2.37A1.15 1.15 0 0 1 6.42 2.9v2.37a1.15 1.15 0 0 1-1.15 1.15H2.9a1.15 1.15 0 0 1-1.15-1.15z M4.08 6.42v2.33a1.17 1.17 0 0 0 1.17 1.17h2.33 M7.58 8.73a1.15 1.15 0 0 1 1.15-1.15h2.37a1.15 1.15 0 0 1 1.15 1.15v2.37a1.15 1.15 0 0 1-1.15 1.15H8.73a1.15 1.15 0 0 1-1.15-1.15z",
   host: "M2.4 2.8a1 1 0 011-1h7.2a1 1 0 011 1v2.2a1 1 0 01-1 1H3.4a1 1 0 01-1-1z M2.4 9a1 1 0 011-1h7.2a1 1 0 011 1v2.2a1 1 0 01-1 1H3.4a1 1 0 01-1-1z M4.4 3.9h.7 M4.4 10.1h.7",
   person:
     "M7 7.2a2.4 2.4 0 100-4.8 2.4 2.4 0 000 4.8M2.6 12.2a4.4 4.4 0 018.8 0",

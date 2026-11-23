@@ -246,13 +246,13 @@ export function shouldRecedeRow(
 }
 
 export interface SidebarTask {
-  /** Stable renderer identity for this row: the tab of a mounted session, or
+  /** Identifies the row model: the tab of a mounted session, or
    *  `session:<id>` for a session with no conversation open here. */
   id: string
   /** The session a row stands for when no conversation of it is open on this
    *  client; selecting the row opens it. Absent on a mounted session's row. */
   sessionId?: string
-  /** Navigation key. */
+  /** Identifies the list entry across opening and closing its session. */
   key: string
   title: string
   automationId?: string

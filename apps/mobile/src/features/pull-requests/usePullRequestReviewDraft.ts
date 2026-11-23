@@ -1,6 +1,7 @@
+import { solus } from "../../solus/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import { msg } from "gt-react-native";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
 import * as Atom from "effect/reactivity/Atom";
 import * as Schema from "effect/Schema";
@@ -76,7 +77,8 @@ async function persist() {
 }
 export function usePullRequestReviewDraft(params: PullRequestParams) {
   const snapshot = useAtomValue(state);
-  const key = pullRequestReviewKey(params);
+  const scope = useSyncExternalStore(solus.account.changes.subscribe, solus.sessionCache.scope);
+  const key = JSON.stringify([scope, pullRequestReviewKey(params)]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads review drafts from disk and persists them when AppState leaves active and on unmount
   useEffect(() => {
     void load();

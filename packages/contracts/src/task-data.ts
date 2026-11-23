@@ -13,6 +13,7 @@ export interface TaskProviderEvent {
   at: number
   actor: string | null
   text: string
+  link?: { url: string; label: string }
 }
 export interface TaskProviderPullRequest {
   url: string
@@ -51,7 +52,7 @@ export interface TaskTemplate {
 }
 export interface TaskExternalIssue {
   details: TaskDetails
-  inspection: TaskProviderData
+  inspection?: TaskProviderData
   readOnly: boolean
 }
 export type TaskInvolvement = 'all' | 'authored' | 'assigned' | 'mentioned'

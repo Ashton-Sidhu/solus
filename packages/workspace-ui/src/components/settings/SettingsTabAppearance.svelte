@@ -14,10 +14,16 @@
     IS_MAC_OS,
   } from "../../contexts/app/settings-display";
   import { getSettingsContext } from "../../contexts";
-  import { MIN_ASSISTANT_TEXT_OPACITY, type ConversationWidth, type SidebarView } from "@solus/contracts/settings";
+  import {
+    MAX_SIDEBAR_MOTION_MS,
+    MIN_ASSISTANT_TEXT_OPACITY,
+    type ConversationWidth,
+    type SidebarView,
+  } from "@solus/contracts/settings";
   import type { SkySceneChoice } from "../../lib/sky-scene";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
+  import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
   import FontFamilyPicker from "./FontFamilyPicker.svelte";
   import SettingsSelect from "./SettingsSelect.svelte";
@@ -69,7 +75,12 @@
     { value: "comfortable", label: "Comfortable" },
     { value: "full", label: "Full" },
   ];
+  const SIDEBAR_MOTION_STEP_MS = 25;
 
+  function commitSidebarMotionMs(value: number) {
+    if (!Number.isFinite(value)) return;
+    theme.setPersonal("sidebarMotionMs", value);
+  }
 
   const isVisible = (id: string) => settingVisible(searchQuery, settingItems, id);
 
@@ -123,7 +134,7 @@
   </SettingsRow>
 </SettingsSection>
 
-<SettingsSection {...settingsDefinitions["appearance.section-layout"]} visible={["conversation-width", "sidebar-view", "sidebar-places", "project-panel-items"].some(isVisible)}>
+<SettingsSection {...settingsDefinitions["appearance.section-layout"]} visible={["conversation-width", "sidebar-view", "sidebar-places", "sidebar-motion", "project-panel-items"].some(isVisible)}>
   <SettingsRow
     {...settingsDefinitions["appearance.conversation-width"]}
     visible={isVisible("conversation-width")}
@@ -179,6 +190,52 @@
         align="end"
         focusOnClose="anchor"
       />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    {...settingsDefinitions["appearance.sidebar-motion"]}
+    visible={isVisible("sidebar-motion")}
+  >
+    {#snippet control()}
+      <div
+        class="flex h-7 items-center overflow-hidden rounded-md border border-input bg-white shadow-xs/5 dark:bg-input/30"
+      >
+        <button
+          type="button"
+          onclick={() =>
+            commitSidebarMotionMs(theme.sidebarMotionMs - SIDEBAR_MOTION_STEP_MS)}
+          aria-label="Shorten sidebar animation"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >&minus;</button
+        >
+        <Input
+          type="number"
+          min={0}
+          max={MAX_SIDEBAR_MOTION_MS}
+          step={SIDEBAR_MOTION_STEP_MS}
+          value={String(theme.sidebarMotionMs)}
+          aria-label="Sidebar animation in milliseconds"
+          onchange={(event) => {
+            commitSidebarMotionMs(
+              Number((event.target as HTMLInputElement).value),
+            );
+            (event.target as HTMLInputElement).value = String(
+              theme.sidebarMotionMs,
+            );
+          }}
+          class="h-auto w-10 rounded-none border-0 bg-transparent p-0 text-center text-xs font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span class="mr-1 text-xs text-(--solus-text-tertiary)">ms</span>
+        <button
+          type="button"
+          onclick={() =>
+            commitSidebarMotionMs(theme.sidebarMotionMs + SIDEBAR_MOTION_STEP_MS)}
+          aria-label="Lengthen sidebar animation"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >+</button
+        >
+      </div>
     {/snippet}
   </SettingsRow>
 

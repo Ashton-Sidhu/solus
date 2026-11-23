@@ -33,3 +33,32 @@ export interface ToolItem {
   /** The provider child's own transcript, kept off the parent's feed. */
   children?: TranscriptModel
 }
+
+/** A provider can reuse a call ID. Only ambiguous IDs need an ordered search. */
+export class ToolRowIndex {
+  private readonly toolRows = new Map<string, string | null>()
+
+  add(toolId: string, rowId: string): void {
+    const prior = this.toolRows.get(toolId)
+    this.toolRows.set(toolId, prior === undefined || prior === rowId ? rowId : null)
+  }
+
+  /** The newest tool item for a provider tool id; `runningOnly` for in-flight updates. */
+  find(model: Pick<TranscriptModel, 'order' | 'items'>, toolId: string, runningOnly = false): string | undefined {
+    const rowId = this.toolRows.get(toolId)
+    if (rowId === undefined) return undefined
+    if (rowId !== null) {
+      const item = model.items.get(rowId)
+      return item?.kind === 'tool' && item.toolId === toolId && (!runningOnly || item.status === 'running') ? rowId : undefined
+    }
+    for (let index = model.order.length - 1; index >= 0; index -= 1) {
+      const id = model.order[index]
+      const item = id ? model.items.get(id) : undefined
+      if (item?.kind === 'tool' && item.toolId === toolId && (!runningOnly || item.status === 'running')) return id
+    }
+    for (const [id, item] of model.items) {
+      if (item.kind === 'tool' && item.toolId === toolId && (!runningOnly || item.status === 'running')) return id
+    }
+    return undefined
+  }
+}

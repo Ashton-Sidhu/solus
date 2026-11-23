@@ -103,8 +103,7 @@ interface Wanted {
   shownNumbers: Set<number>
   review: Set<number>
   needsReview: boolean
-  /** Heads with no open pull request whose lookup is due: new in the
-   *  interest, or a turn of their session ended. By head key. */
+  /** Heads with no open pull request whose lookup is due (`wantHead`). By head key. */
   heads: Map<string, PullRequestHead>
   /** A client holds this repository open, so it hears every change. */
   clientsListening: boolean
@@ -120,6 +119,8 @@ interface RepositorySync {
   linkedHeads: Set<string>
   /** When each head was last looked up on the code host, by head key. */
   headsLookedUpAt: Map<string, number>
+  /** A person's refresh: the next tick looks up every head with no open pull request. */
+  headsRefreshDue: boolean
   nextAt: number
   /** When the open pull requests are next read by number; 0 reads them on
    *  the next pass. */
@@ -192,8 +193,9 @@ export interface PrSyncDeps {
   /** The default branch of the repository a checkout is in. A machine reads
    *  it from Git; a session on it is not looked up by branch. */
   defaultBranch?: (checkout: string) => Promise<string>
-  /** The head a session's branch pushes to (`pushHeadFor`). */
-  pushHead?: (host: CodeHost, scope: string, branch: string) => Promise<PullRequestHead>
+  /** The head a session's branch pushes to (`pushHeadFor`); null for a branch
+   *  never published, which has no pull request to look up. */
+  pushHead?: (host: CodeHost, scope: string, branch: string) => Promise<PullRequestHead | null>
   /** Interest can appear with no event this server hears, so the clock reads
    *  it each `TASK_INTEREST_MS` also while nothing is wanted. The Solus API
    *  sets this: its runners report sessions, and it hears no turn end. */
@@ -209,9 +211,10 @@ export interface PrSyncDeps {
  * them; the repositories of one account share that request. A closed pull
  * request is read by number less often, because it can open again, and only
  * while a client shows it or it changed in the last day. A branch
- * with no open pull request is looked up by its name when it first joins the
- * interest, when a turn of its session ends, and on a person's refresh, never
- * on a clock. A merged or missing pull request is not read again by number,
+ * with no open pull request is looked up by its name, in one query, as t3code
+ * looks it up: when a turn of its session ends, the first time a client shows
+ * it, and on a person's refresh; never on a clock, and never at startup. A
+ * branch the checkout never published is not looked up at all. A merged or missing pull request is not read again by number,
  * and its answer is written to the task and session links, so a restart does
  * not ask again either. The pull requests waiting on the viewer come from
  * every list read's review-requested search; PR sync asks for them only when a
@@ -241,7 +244,7 @@ export class PrSync {
   /** Scopes with no code host, until when they are not asked again. */
   private readonly noCodeHostUntil = new Map<string, number>()
   /** The head of each scope and branch, and when to resolve it again. */
-  private readonly pushHeads = new Map<string, { head: Promise<PullRequestHead>; until: number }>()
+  private readonly pushHeads = new Map<string, { head: Promise<PullRequestHead | null>; until: number }>()
   /** A session link or a session's turn changed since sessions were last
    *  settled; a tick with no reads settles only then. */
   private settleDue = true
@@ -487,6 +490,7 @@ export class PrSync {
     sync.numbersAt = 0
     sync.closedNumbersAt = 0
     sync.headsLookedUpAt.clear()
+    sync.headsRefreshDue = true
     void this.tick()
   }
 
@@ -506,7 +510,7 @@ export class PrSync {
     let sync = this.repositories.get(key)
     if (!sync) {
       sync = {
-        host, records: new Map(), byHead: new Map(), linkedHeads: new Set(), headsLookedUpAt: new Map(),
+        host, records: new Map(), byHead: new Map(), linkedHeads: new Set(), headsLookedUpAt: new Map(), headsRefreshDue: false,
         nextAt: 0, numbersAt: 0, closedNumbersAt: 0, reread: new Set(), checks: new Map(), checksInFlight: false, needsReview: null,
       }
       this.repositories.set(key, sync)
@@ -602,21 +606,27 @@ export class PrSync {
       heads: new Map(),
       clientsListening: !!clients,
     }
-    /** A matched pull request is read by number; a head with no open one is
-     *  looked up when it is new in the interest or its session's turn ended.
-     *  A turn end reads its matched pull request now, past the minute cadence
-     *  and the detail cache: the agent may have merged or closed it. */
-    const wantHead = (head: PullRequestHead, turnEnded: boolean): void => {
+    /** A matched pull request is read by number. A head with no open one is
+     *  looked up as t3code looks it up (`GitManager`): when its session's turn
+     *  ends, the moment an agent can have pushed or opened one, or the first
+     *  time a client shows it. Being new to this process is no reason: a
+     *  restart sends no sweep. The Solus API hears no turn end, so there a
+     *  head new to the interest is looked up. A turn end also reads its
+     *  matched pull request now, past the minute cadence and the detail cache:
+     *  the agent may have merged or closed it. */
+    const wantHead = (head: PullRequestHead, turnEnded: boolean, shown: boolean): void => {
       const number = sync.byHead.get(head.key)
       const record = number === undefined ? undefined : sync.records.get(number)
       if (number !== undefined) wanted.numbers.add(number)
       if (number !== undefined && turnEnded && record?.result === 'found' && record.pullRequest.state !== 'merged') sync.reread.add(number)
       if (record?.result === 'found' && record.pullRequest.state === 'open') return
-      if (!sync.headsLookedUpAt.has(head.key) || turnEnded) wanted.heads.set(head.key, head)
+      const isNew = !sync.headsLookedUpAt.has(head.key)
+      if (turnEnded || (isNew && (shown || sync.headsRefreshDue || this.deps.pollsForInterest))) wanted.heads.set(head.key, head)
     }
     for (const { head, sessions } of task?.heads.values() ?? []) {
-      wantHead(head, sessions.some(({ sessionId }) => endedTurns.has(sessionId)))
+      wantHead(head, sessions.some(({ sessionId }) => endedTurns.has(sessionId)), false)
     }
+    sync.headsRefreshDue = false
     for (const interests of clients?.owners.values() ?? []) {
       for (const interest of interests) {
         if (interest.kind === 'pull-request') {
@@ -627,7 +637,7 @@ export class PrSync {
           wanted.shownNumbers.add(interest.number)
           wanted.review.add(interest.number)
         } else if (interest.kind === 'head') {
-          wantHead(interest.head, false)
+          wantHead(interest.head, false, true)
           const number = sync.byHead.get(interest.head.key)
           if (number !== undefined) wanted.shownNumbers.add(number)
         } else wanted.needsReview = true
@@ -896,11 +906,11 @@ export class PrSync {
     for (const [key, { until }] of this.pushHeads) {
       if (until <= this.now()) this.pushHeads.delete(key)
     }
-    const headFor = (host: CodeHost, scope: string, branch: string, turnEnded: boolean): Promise<PullRequestHead> => {
+    const headFor = (host: CodeHost, scope: string, branch: string, turnEnded: boolean): Promise<PullRequestHead | null> => {
       const key = `${scope}\0${branch}`
       const known = this.pushHeads.get(key)
       if (known && !turnEnded) return known.head
-      const head = this.pushHead(host, scope, branch).catch(() => new PullRequestHead(host.repo, branch))
+      const head = this.pushHead(host, scope, branch).catch((): PullRequestHead | null => new PullRequestHead(host.repo, branch))
       this.pushHeads.set(key, { head, until: this.now() + PUSH_HEAD_MS })
       return head
     }
@@ -911,6 +921,8 @@ export class PrSync {
       const host = await hostFor(projectScope)
       if (!host) continue
       const head = await headFor(host, projectScope, branch, this.endedTurns.has(sessionId))
+      // A branch never published has no pull request to look up.
+      if (!head) continue
       const heads = interestFor(host).heads
       const owners = heads.get(head.key) ?? { head, sessions: [] }
       owners.sessions.push({ sessionId, branch })

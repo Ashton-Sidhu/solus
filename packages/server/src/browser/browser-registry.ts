@@ -56,6 +56,8 @@ import {
   htmlDragExpression,
   isHtmlDragSourceExpression,
   selectOptionsExpression,
+  settleExpression,
+  snapshotChangesExpression,
   visiblePointExpression,
   webVitalsExpression,
 } from './page-script'
@@ -93,6 +95,16 @@ const NO_SURFACE: BrowserProblem = {
 
 const WAIT_POLL_MS = 200
 const DEFAULT_WAIT_TIMEOUT_MS = 5000
+
+/** How long a click or a typed field waits for its element to show and to be
+ *  on top. A page that is still rendering gets this long, as a person's
+ *  second look would. */
+const ACTION_WAIT_MS = 2000
+
+/** How long the page's content must stay unchanged after `load` to count as
+ *  settled, and the most a navigation waits for that. */
+const SETTLE_QUIET_MS = 500
+const SETTLE_TIMEOUT_MS = 3000
 
 /** How long after an agent's last verb a page still counts as in use. A turn
  *  is verbs with model round trips between them, and `running` is zero for most
@@ -602,35 +614,10 @@ export class BrowserRegistry {
 
     return this.withDriver(record, async (driver) => {
       stage('hosted', record.page.hostKind)
-
-      const structure = parseJson(
-        structureSchema,
-        await driver.evaluate(elementSnapshotExpression(options.maxElements ?? DEFAULT_MAX_ELEMENTS)),
-      ) ?? { title: '', url: '', elements: [] }
-      stage('structure', `${structure.elements.length} elements`)
-      const snapshot: BrowserSnapshot = {
-        browserPageId,
-        url: structure.url || record.page.url,
-        title: structure.title || record.page.title,
-        viewport: record.page.viewport,
-        appearance: record.page.appearance,
-        elements: structure.elements,
-        console: driver.consoleEntries().slice(-BROWSER_RING_LIMIT),
-        network: driver.networkEntries().slice(-BROWSER_RING_LIMIT),
-        capturedAt: Date.now(),
-      }
-      // Read before the screenshot: the capture wakes a throttled guest and can
-      // take seconds, and a page that painted something in the meantime would make
-      // the timings describe a moment after the one being described.
-      if (options.vitals !== false) {
-        const vitals = parseJson(vitalsSchema, await driver.evaluate(webVitalsExpression()))
-        if (vitals && Object.keys(vitals).length > 0) snapshot.vitals = vitals
-        stage('vitals', vitals ? Object.keys(vitals).join(',') : 'none')
-      }
-      if (options.screenshot !== false) {
-        snapshot.screenshot = await driver.captureScreenshot()
-        stage('screenshot', `${Math.round(snapshot.screenshot.length / 1024)}kb`)
-      }
+      // A document replaced during the capture leaves nothing to compare, so
+      // the snapshot is read again, once, from the new document.
+      let snapshot = await this.readSnapshot(record, driver, options, stage)
+      if (snapshot.changedDuringCapture === 'navigation') snapshot = await this.readSnapshot(record, driver, options, stage)
       const capture: BrowserCaptureSpanInput = {
         page: record.page,
         startedAt,
@@ -641,6 +628,75 @@ export class BrowserRegistry {
       if (snapshot.vitals) capture.vitals = snapshot.vitals
       emitBrowserCapture(capture)
       return snapshot
+    })
+  }
+
+  /**
+   * One snapshot: the structure, the timings, the picture, and then whether
+   * the page changed while they were read. The structure read starts a watch on
+   * the page's content, and the read after the screenshot ends it, so a picture
+   * that may not match its elements says so instead of passing as the truth.
+   */
+  private async readSnapshot(
+    record: PageRecord,
+    driver: BrowserSurfaceDriver,
+    options: BrowserSnapshotOptions,
+    stage: (name: string, detail: string) => void,
+  ): Promise<BrowserSnapshot> {
+    const structure = parseJson(
+      structureSchema,
+      await driver.evaluate(elementSnapshotExpression(options.maxElements ?? DEFAULT_MAX_ELEMENTS)),
+    ) ?? { title: '', url: '', elements: [] }
+    stage('structure', `${structure.elements.length} elements`)
+    const snapshot: BrowserSnapshot = {
+      browserPageId: record.page.browserPageId,
+      url: structure.url || record.page.url,
+      title: structure.title || record.page.title,
+      viewport: record.page.viewport,
+      appearance: record.page.appearance,
+      elements: structure.elements,
+      console: driver.consoleEntries().slice(-BROWSER_RING_LIMIT),
+      network: driver.networkEntries().slice(-BROWSER_RING_LIMIT),
+      capturedAt: Date.now(),
+    }
+    if (structure.loading) snapshot.loading = true
+    if (structure.visibleText) snapshot.visibleText = structure.visibleText
+    // Read before the screenshot: the capture wakes a throttled guest and can
+    // take seconds, and a page that painted something in the meantime would make
+    // the timings describe a moment after the one being described.
+    if (options.vitals !== false) {
+      const vitals = parseJson(vitalsSchema, await driver.evaluate(webVitalsExpression()))
+      if (vitals && Object.keys(vitals).length > 0) snapshot.vitals = vitals
+      stage('vitals', vitals ? Object.keys(vitals).join(',') : 'none')
+    }
+    if (options.screenshot !== false) {
+      snapshot.screenshot = await driver.captureScreenshot()
+      stage('screenshot', `${Math.round(snapshot.screenshot.length / 1024)}kb`)
+    }
+    if (structure.watching) {
+      const changes = await driver.evaluate(snapshotChangesExpression())
+        .then((raw) => parseJson(changesSchema, raw))
+        // A document torn down mid-read throws rather than answering.
+        .catch(() => null)
+      if (!changes) snapshot.changedDuringCapture = 'navigation'
+      else if (changes.changes > 0 || changes.url !== structure.url) snapshot.changedDuringCapture = 'content'
+      stage('changes', snapshot.changedDuringCapture ?? 'none')
+    }
+    return snapshot
+  }
+
+  /**
+   * Wait for a page to load and stop changing, up to a bound, and say what it
+   * shows. A navigation returns at `load`, and an app is rarely ready then.
+   */
+  async settle(browserPageId: string): Promise<BrowserSettleResult> {
+    const record = this.require(browserPageId)
+    return this.withDriver(record, async (driver) => {
+      const read = async () => parseJson(settleSchema, await driver.evaluate(settleExpression(SETTLE_QUIET_MS, SETTLE_TIMEOUT_MS)))
+      // A redirect replaces the document under the first read; the second
+      // reads the page the redirect reached.
+      const settled = await read().catch(() => null) ?? await read().catch(() => null)
+      return settled ?? { settled: false, waitedMs: 0, loading: true, url: record.page.url, title: record.page.title, visibleText: '' }
     })
   }
 
@@ -861,14 +917,14 @@ export class BrowserRegistry {
       const point = op.ref
         ? await this.pointOf(driver, op.ref)
         : { x: record.page.viewport.width / 2, y: record.page.viewport.height / 2 }
-      if (!point) return { ok: false, message: `No element matches ${op.ref}` }
+      if (!point) return { ok: false, message: notFound(op.ref ?? '') }
       await driver.scrollAt(point.x, point.y, op.deltaY)
       return { ok: true }
     }
 
     if (op.kind === 'hover') {
       const point = parseJson(pointSchema, await driver.evaluate(visiblePointExpression(op.ref, true)))
-      if (!point) return { ok: false, message: `No visible element matches ${op.ref}` }
+      if (!point) return { ok: false, message: notFound(op.ref) }
       await driver.dispatchMouse('move', point.x, point.y)
       return { ok: true }
     }
@@ -880,21 +936,43 @@ export class BrowserRegistry {
     }
 
     if (op.kind === 'drag') return this.drag(driver, op.ref, op.toRef)
+    return this.clickOrType(driver, op)
+  }
 
-    const point = await this.pointOf(driver, op.ref)
-    if (!point) return { ok: false, message: `No visible element matches ${op.ref}` }
-
-    if (op.kind === 'click') {
-      await driver.clickAt(point.x, point.y)
-      return { ok: true }
-    }
+  /** A click on an element, or a click that focuses a field and then types. */
+  private async clickOrType(
+    driver: BrowserSurfaceDriver,
+    op: Extract<BrowserInteractOp, { kind: 'click' | 'type' }>,
+  ): Promise<BrowserInteractResult> {
+    const point = await this.actionablePoint(driver, op.ref)
+    if (!point) return { ok: false, message: notFound(op.ref) }
+    // Still covered after the wait: the click goes where a person's would, and
+    // the result says where that was.
+    const result: BrowserInteractResult = point.coveredBy
+      ? { ok: true, message: `${op.ref} was covered by ${point.coveredBy}, so the click landed on ${point.coveredBy}.` }
+      : { ok: true }
 
     // Type: clear first when asked, then click to focus so the guest sees a real
     // caret placement rather than a programmatic value assignment.
-    if (op.clear) await driver.evaluate(clearFieldExpression(op.ref))
+    if (op.kind === 'type' && op.clear) await driver.evaluate(clearFieldExpression(op.ref))
     await driver.clickAt(point.x, point.y)
-    await driver.insertText(op.text)
-    return { ok: true }
+    if (op.kind === 'type') await driver.insertText(op.text)
+    return result
+  }
+
+  /**
+   * The point a click on `ref` uses, once the element exists and is on top,
+   * or after `ACTION_WAIT_MS` whatever covers it then. Waiting here is what a
+   * page that is still rendering needs, and an agent would otherwise have to
+   * remember to wait before every click.
+   */
+  private async actionablePoint(driver: BrowserSurfaceDriver, ref: string): Promise<z.output<typeof pointSchema>> {
+    const deadline = Date.now() + ACTION_WAIT_MS
+    for (;;) {
+      const point = await this.pointOf(driver, ref)
+      if ((point && !point.coveredBy) || Date.now() >= deadline) return point
+      await delay(WAIT_POLL_MS)
+    }
   }
 
   /**
@@ -907,7 +985,7 @@ export class BrowserRegistry {
    */
   private async drag(driver: BrowserSurfaceDriver, ref: string, toRef: string): Promise<BrowserInteractResult> {
     const from = parseJson(pointSchema, await driver.evaluate(visiblePointExpression(ref, true)))
-    if (!from) return { ok: false, message: `No visible element matches ${ref}` }
+    if (!from) return { ok: false, message: notFound(ref) }
     const to = parseJson(pointSchema, await driver.evaluate(visiblePointExpression(toRef, false)))
     if (!to) {
       return { ok: false, message: `${toRef} is not on screen while ${ref} is. Scroll or resize so both show, then drag again.` }
@@ -1284,7 +1362,7 @@ export class BrowserRegistry {
   private async pointOf(
     driver: BrowserSurfaceDriver,
     ref: string,
-  ): Promise<{ x: number; y: number } | null> {
+  ): Promise<z.output<typeof pointSchema>> {
     const parsed = parseJson(pointSchema, await driver.evaluate(elementRectExpression(ref)))
     return parsed ?? null
   }
@@ -1536,7 +1614,13 @@ function labelFor(request: BrowserOpenRequest): string {
  * that redefined `JSON.stringify`. Each shape is parsed before the registry
  * treats it as a value.
  */
-const pointSchema = z.object({ x: z.number(), y: z.number() }).nullable()
+const pointSchema = z.object({ x: z.number(), y: z.number(), coveredBy: z.string().optional() }).nullable()
+
+/** Why a drive verb found nothing, with the way out: refs belong to the page
+ *  as the last snapshot saw it. */
+function notFound(ref: string): string {
+  return `No visible element matches ${ref}. The page may have re-rendered: take a new browser_snapshot and use its refs.`
+}
 
 const selectOutcomeSchema = z.union([z.object({ error: z.string() }), z.object({ selected: z.array(z.string()) })])
 
@@ -1557,7 +1641,21 @@ const elementSchema = z.object({
   source: z.object({ file: z.string(), line: z.number(), column: z.number() }).optional(),
   disabled: z.boolean().optional(),
   value: z.string().optional(),
+  coveredBy: z.string().optional(),
 })
+
+const changesSchema = z.object({ changes: z.number(), url: z.string() })
+
+const settleSchema = z.object({
+  settled: z.boolean(),
+  waitedMs: z.number(),
+  loading: z.boolean(),
+  url: z.string(),
+  title: z.string(),
+  visibleText: z.string(),
+})
+
+export type BrowserSettleResult = z.output<typeof settleSchema>
 
 /** Every member optional and non-negative: a metric that has not happened is
  *  absent, and a negative timing is a page that lied about its own clock. */
@@ -1595,6 +1693,9 @@ const annotationStateSchema = z.object({
 const structureSchema = z.object({
   title: z.string().default(''),
   url: z.string().default(''),
+  loading: z.boolean().optional(),
+  visibleText: z.string().optional(),
+  watching: z.boolean().optional(),
   // One malformed entry must not cost the whole snapshot; the rest still
   // describes the view.
   elements: z.array(elementSchema).catch([]).default([]),

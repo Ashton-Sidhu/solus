@@ -71,7 +71,7 @@
 <div class="text-workspace-chrome @container relative min-h-0 flex-1">
   <GuideRail items={railItems} {scrollEl} />
 
-  <div bind:this={scrollEl} class="h-full overflow-y-auto">
+  <div bind:this={scrollEl} class="h-full overflow-y-auto overscroll-contain">
     {#if guide.sections.length > 0}
       <div class="mx-auto flex w-full max-w-[92rem] flex-col 2xl:max-w-[104rem]">
         <!-- Guide overview: a large title with PR identity + summary, given room
@@ -129,6 +129,7 @@
         <div class="flex flex-col">
           {#each mainSections as section, i (section.id)}
             <GuideSection
+              {scrollEl}
               {section}
               {patchByPath}
               {loadDiffFiles}
@@ -157,6 +158,7 @@
             <div class="lowsig-body">
               {#each lowSignalSections as section (section.id)}
                 <GuideSection
+                  {scrollEl}
                   {section}
                   {patchByPath}
                   {loadDiffFiles}

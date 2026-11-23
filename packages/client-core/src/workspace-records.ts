@@ -28,6 +28,9 @@ function sessionListFilters(filter: SessionRecordListFilter | undefined) {
 /** Adapts the established UI records while their storage requests use the versioned HTTP contract. */
 export function workspaceRecordMethods(client: SolusApiClient): RecordMethods {
   // The last version each record was seen at, so a write can name it in If-Match.
+  // The newest list and archive pages can be revalidated independently. The host
+  // hashes the complete authorized answer, including its next cursor and indexing flag.
+  const pages = new Map<string, { revision: string; records: SessionRecord[]; nextCursor: string | null; indexing: boolean }>()
   const workVersions = new Map<string, string>()
   const rememberWork = (work: WorkspaceWork): Work => { workVersions.set(work.id, work.version); return workRecord(work) }
   const workVersion = async (id: string) => workVersions.get(id) ?? (await client.request('getWork', { id })).version
@@ -61,24 +64,40 @@ export function workspaceRecordMethods(client: SolusApiClient): RecordMethods {
       const records = new Map<string, SessionRecord>()
       let cursor: string | undefined
       let indexing = false
+      let completeRevision: string | undefined
       let order: 'activity' | undefined = 'activity'
       const filters = sessionListFilters(filter)
       for (;;) {
-        let page
+        const query = { ...filters, limit: 200, cursor, order }
+        const key = JSON.stringify(query)
+        const saved = pages.get(key)
+        const disk = !cursor && filter?.limit === undefined && filter?.knownRevision
+        const known = disk || saved?.revision
+        let revision: string | undefined
+        let response
         try {
-          page = await client.request('listSessions', { query: { ...filters, limit: 200, cursor, order } })
+          const input = { query, onEntityTag: (tag: string) => { revision = tag } }
+          response = known ? await client.request('listSessions', { ...input, ifNoneMatch: known }) : await client.request('listSessions', input)
         } catch (error) {
-          // A host older than `order` refuses it. It pages by creation, so every page is read.
           if (order && cursor === undefined && error instanceof WorkspaceRequestError && error.status === 400) { order = undefined; continue }
           throw error
         }
-        for (const session of page.items) records.set(session.id, sessionRecord(session))
+        if (!response && disk) return { records: [], indexing: false, unchanged: true, revision: disk }
+        const page = response ? { records: response.items.map(sessionRecord), nextCursor: response.nextCursor, indexing: response.indexing } : saved
+        if (!page) throw new Error('The host confirmed a session list that is no longer cached.')
+        if (response && revision) {
+          pages.delete(key)
+          pages.set(key, { ...page, revision })
+          if (pages.size > 4) pages.delete(pages.keys().next().value!)
+        }
+        if (!cursor && !page.nextCursor && filter?.limit === undefined) completeRevision = response ? revision : saved?.revision
+        for (const record of page.records) records.set(record.sessionId, record)
         indexing ||= page.indexing
         cursor = page.nextCursor ?? undefined
         if (!cursor || (order && filter?.limit !== undefined && records.size >= filter.limit)) break
       }
       const sorted = [...records.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.sessionId.localeCompare(b.sessionId))
-      return { records: filter?.limit === undefined ? sorted : sorted.slice(0, filter.limit), indexing }
+      return { records: filter?.limit === undefined ? sorted : sorted.slice(0, filter.limit), indexing, ...(completeRevision && { revision: completeRevision }) }
     },
     async sessionRecordGet(sessionId) {
       try { return sessionRecord(await client.request('getSession', { id: sessionId })) }

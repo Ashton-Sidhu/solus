@@ -186,6 +186,7 @@ export type CodexHistoryItem = {
   text?: string
   content?: Array<{ type?: string; text?: string; url?: string; path?: string }>
   command?: string
+  path?: string
   aggregatedOutput?: string
   result?: unknown
   error?: unknown
@@ -604,7 +605,9 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     content: text,
     toolName,
     toolId: item.id,
-    toolInput: codexToolInputFromArguments(item.arguments),
+    toolInput: item.type === 'imageView' && item.path
+      ? JSON.stringify({ path: item.path })
+      : codexToolInputFromArguments(item.arguments),
     isSubagent: isCodexSubagent || undefined,
     subagentType: isCodexSubagent ? 'codex' : undefined,
     toolImages: storeToolResultImages(mcpResultContentSchema.safeParse(item.result).data?.content ?? item.contentItems),
@@ -749,6 +752,8 @@ export function codexToolNameForItem(item: { type?: string; name?: string; serve
       return item.namespace ? `${item.namespace}.${item.tool}` : item.tool || item.name || 'Tool'
     case 'webSearch':
       return 'WebSearch'
+    case 'imageView':
+      return 'view_image'
     case 'imageGeneration':
       return 'ImageGeneration'
     case 'collabAgentToolCall':

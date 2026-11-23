@@ -359,6 +359,10 @@
       "types": "./src/state/usageProgress.ts",
       "default": "./src/state/usageProgress.ts"
     },
+    "./state/server-projection": {
+      "types": "./src/state/serverConfigProjection.ts",
+      "default": "./src/state/serverConfigProjection.ts"
+    },
     "./state/server": {
       "types": "./src/state/server.ts",
       "default": "./src/state/server.ts"

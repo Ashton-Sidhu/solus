@@ -25,14 +25,17 @@ test('hidden Git rows do not read the host, and closing them releases details', 
   const connections: string[] = []
   let subscriptions = 0
   const api = asHostApi({})
+  // The store keeps each checkout's answer: a Git section that mounts again reads none.
+  const probed = new Set<string>()
+  const connected = new Set<string>()
   useGitSectionReads({
     get active() { return active },
     get cwd() { return cwd },
     serverId: 'host-a', api, readiness: 'local-only',
     context: () => ({}) as IpcContext,
     repository: {
-      refresh: async (_api, _serverId, path) => { probes.push(path); return null },
-      refreshGithubConnection: async (_api, _serverId, _ctx, path) => { connections.push(path) },
+      ensure: (_api, _serverId, path) => { if (!probed.has(path)) { probed.add(path); probes.push(path) } },
+      ensureGithubConnection: (_api, _serverId, _ctx, path) => { if (!connected.has(path)) { connected.add(path); connections.push(path) } },
     },
     environment: { watchDetails: () => { subscriptions++; return () => { subscriptions-- } } },
   })

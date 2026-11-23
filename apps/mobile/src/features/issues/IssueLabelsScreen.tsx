@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 
 import { m } from "../../i18n/messages";
 import * as Dialog from "../../components/ui/Dialog";
+import { useDebouncedValue } from "../../state/queries";
 import { issueEnvironment, refreshIssueLists } from "../../state/issues";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -30,9 +31,12 @@ export function IssueLabelsScreen({ route }: StaticScreenProps<IssueParams>) {
   const target = issueTarget(route.params);
   const detail = useEnvironmentQuery(issueEnvironment.detail(target)).data;
   const access = useIssueAccess(route.params, detail);
-  const result = useEnvironmentQuery(issueEnvironment.candidates(target));
-  const update = useAtomCommand(issueEnvironment.update, { reportFailure: false });
   const [query, setQuery] = useState("");
+  const needle = useDebouncedValue(query.trim(), 200);
+  const result = useEnvironmentQuery(
+    issueEnvironment.candidates({ ...target, input: { ...target.input, query: needle } }),
+  );
+  const update = useAtomCommand(issueEnvironment.update, { reportFailure: false });
   // The atom carries a closed sheet's picks to the next one; this sheet's own live here.
   const [stored, setStored] = useAtom(issueLabelPicksFamily(issueParamsKey(route.params)));
   // Picks against an older read are dropped once, when the sheet opens.
@@ -46,10 +50,16 @@ export function IssueLabelsScreen({ route }: StaticScreenProps<IssueParams>) {
   const draft = current.draft;
   const allowed = access?.labels === true;
   const applied = new Set(detail?.labels.map((label) => label.name));
-  const needle = query.trim().toLowerCase();
+  const filter = query.trim().toLowerCase();
   // Host order, not applied-first: re-sorting on toggle would move the row out from under a tap.
-  const candidates = (result.data?.labels ?? []).filter((label) =>
-    `${label.name} ${label.description ?? ""}`.toLowerCase().includes(needle),
+  const labels = new Map<string, IssueLabelCandidate>(
+    (result.data?.labels ?? []).map((label) => [label.name, label]),
+  );
+  for (const label of detail?.labels ?? []) {
+    if (!labels.has(label.name)) labels.set(label.name, { ...label, description: null });
+  }
+  const candidates = [...labels.values()].filter((label) =>
+    `${label.name} ${label.description ?? ""}`.toLowerCase().includes(filter),
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- picks are sent when the sheet leaves the navigation stack, however it is dismissed
   useEffect(

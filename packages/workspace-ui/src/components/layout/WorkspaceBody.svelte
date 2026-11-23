@@ -38,7 +38,7 @@
   import SidePanel from "./SidePanel.svelte";
   import SettingsDialog from "../settings/SettingsDialog.svelte";
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
-  import FrameExpandButton from "./FrameExpandButton.svelte";
+  import FramePanelButton from "./FramePanelButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
   import SessionSplitDropZone from "./SessionSplitDropZone.svelte";
   import Pane from "../ui/Pane.svelte";
@@ -74,6 +74,8 @@
   } from "./lib/workspace-body";
   import { ComposerDock } from "../input/lib/composer-dock.svelte";
   import { hasSessionStarted } from "../../lib/sessionUtils";
+  import { isDarkSkyScene } from "../../lib/sky-scene";
+  import { useSkyScene } from "../../lib/sky-scene.svelte";
   import {
     canExpandProjectRail,
     isProjectRailOpen,
@@ -101,12 +103,21 @@
     onScreenshot,
   }: Props = $props();
 
-  const sidebarComponent = afterPaint().then(() => import("../session/SessionSidebar.svelte"));
+  let hasLoadedSidebar = $state(false);
+  const sidebarComponent = afterPaint()
+    .then(() => import("../session/SessionSidebar.svelte"))
+    .then((module) => {
+      hasLoadedSidebar = true;
+      return module;
+    });
   const projectPanelComponent = afterPaint().then(() => import("../project-panel/ProjectPanel.svelte"));
 
   const session = getWorkspaceContext();
   const shell = getClientShellContext();
   const settings = getSettingsContext();
+  const sidebarSky = useSkyScene(() => settings.skySceneChoice);
+  const sidebarSkyScene = $derived(settings.showsSidebarSky ? sidebarSky.current : null);
+  const isSidebarSkyDark = $derived(sidebarSkyScene !== null && isDarkSkyScene(sidebarSkyScene));
   const environmentStore = getSessionEnvironmentStore();
   const router = session.router;
   useArtifactsAutoOpen(session, () => settings.autoOpenArtifacts);
@@ -387,7 +398,7 @@
   // this body owns the transient sidebar state and mirrors both here. When
   // this body is inactive on mobile, report the panels as open so those
   // headers don't offer to expand chrome that isn't on screen.
-  frameChrome.expandSidebar = toggleSidebar;
+  frameChrome.toggleSidebar = toggleSidebar;
   // Full-page views never host a split chat, so this only ever means the lead.
   frameChrome.toggleProjectPanelFromFrame = () => toggleProjectPanel();
   $effect(() => {
@@ -691,19 +702,6 @@
   bind:clientWidth={workspaceBodyWidth}
 >
   <OuterScrollbar target={active ? outerScrollTarget : null} />
-  {#if !shell.hasInsetTitlebar && leadingRef?.name !== "settings"}
-    <!-- With no window buttons in the corner, the corner over the places
-         column is empty, so the frame toggle takes it: centred on the place
-         icons, on the line of the conversation band or a page's chrome row.
-         Under the drawer and its scrim, which carry their own collapse. -->
-    <div
-      class="no-drag absolute left-0 z-20 flex w-(--solus-places-column-w) items-center justify-center {showLeadingBand
-        ? 'top-1 h-[2.875rem]'
-        : 'top-0 h-(--solus-chrome-row-h)'}"
-    >
-      <FrameExpandButton variant="sidebar" size="header" />
-    </div>
-  {/if}
   {#if isDrawerOpen}
     <!-- Over the conversation, under the drawer: a press beside the list puts
          it away. Escape does the same from the keyboard. -->
@@ -748,10 +746,9 @@
           isElevated={false}
           minWidth={SIDEBAR_MIN_WIDTH}
           maxWidth={SIDEBAR_MAX_WIDTH}
-          onAction={toggleSidebar}
-          actionAriaLabel="Collapse sidebar"
           background="color-mix(in oklch, var(--card) 99%, var(--foreground))"
         >
+          {#snippet headerLeading()}<div></div>{/snippet}
           <SessionSidebarSkeleton />
         </SidePanel>
       {:then module}
@@ -760,7 +757,7 @@
           open={sidebarShowsList}
           managedWidth
           staysAsColumn
-          onToggleCollapse={toggleSidebar}
+          skyScene={sidebarSkyScene}
         />
       {:catch}
         <p role="alert">Could not load this panel.</p>
@@ -844,23 +841,6 @@
                             draft={leadingDraft}
                             showNewSessionAction={bandOffersNewSession}
                           />
-                        {/if}
-                        <!-- Frame-level session-expand affordance. Rendered once here so
-                 every view shows it in the identical top-left spot instead of
-                 each page placing its own. Self-gates via frameChrome (hidden
-                 unless the sidebar is collapsed); the lead inset var —
-                 published on the collapsed primary-column — clears the mac
-                 traffic lights. Conversations rely on it too now: the chrome
-                 row that used to carry their sidebar toggle is gone, and the
-                 capsule is centred, so nothing collides at the left edge.
-                 Without an inset titlebar the toggle sits in the window's
-                 corner, over the places column (see the body's first child). -->
-                        {#if shell.hasInsetTitlebar && leadingRef?.name !== "settings"}
-                          <div
-                            class="no-drag absolute top-[var(--solus-titlebar-control-top)] left-(--solus-chrome-control-left) z-20 flex"
-                          >
-                            <FrameExpandButton variant="sidebar" size="header" />
-                          </div>
                         {/if}
                         <!-- Pages, artifacts, and reviews render through the leading Pane
                  below. The conversation pool stays mounted underneath (hidden
@@ -1002,6 +982,19 @@
       </div>
     </Resizable.Pane>
   </Resizable.PaneGroup>
+  {#if active && leadingRef?.name !== "settings"}
+    <!-- Electron applies drag and no-drag regions in DOM order. Keep this
+         fixed control after the pane title bars so they cannot cover its hit area. -->
+    <div
+      class="no-drag absolute top-(--solus-sidebar-toggle-top) left-(--solus-sidebar-toggle-left) z-41 flex"
+    >
+      <FramePanelButton
+        variant="sidebar"
+        size="header"
+        onDarkSky={hasLoadedSidebar && sidebarShowsList && isSidebarSkyDark}
+      />
+    </div>
+  {/if}
 </div>
 
 {#if homeSessionMenu}
@@ -1181,12 +1174,27 @@
        column: a 4px inset and a 1px border on each side. Less, and the card
        clips the column's hairline. */
     --solus-places-column-w: calc(2.75rem + 10px);
+    --solus-sidebar-toggle-left: calc(
+      (var(--solus-places-column-w) - var(--solus-titlebar-control-size)) / 2
+    );
+    --solus-sidebar-toggle-top: calc(
+      5px + (var(--solus-chrome-row-h) - var(--solus-titlebar-control-size)) / 2
+    );
+    --solus-sidebar-toggle-end: calc(
+      var(--solus-sidebar-toggle-left) + var(--solus-titlebar-control-size)
+    );
+    --solus-sidebar-brand-left: calc(var(--solus-sidebar-toggle-end) + 0.375rem);
+  }
+  .workspace-body.has-inset-titlebar {
+    --solus-sidebar-toggle-left: calc(
+      var(--solus-traffic-light-end) + var(--solus-titlebar-control-gap)
+    );
+    --solus-sidebar-toggle-top: var(--solus-titlebar-control-top);
   }
   .workspace-body.sidebar-collapsed .content-column {
     padding-left: var(--solus-pane-gutter);
-    /* The column's own distance from the window edge. The frame toggle is
-       placed in the column but measured against the traffic lights, which
-       are placed in the window. */
+    /* The column's distance from the window edge, for reserving space under
+       the fixed frame controls. */
     --solus-column-window-left: calc(
       var(--solus-places-column-w) + var(--solus-pane-gutter)
     );
@@ -1205,16 +1213,12 @@
        and the header read as one row whether or not the column has a gutter.
        Headers beside it begin after the complete control + gap, never at the
        toggle's own x. */
-    --solus-chrome-control-left: max(
+    --solus-chrome-lead-inset: max(
       0.625rem,
       calc(
-        var(--solus-traffic-light-end) + var(--solus-titlebar-control-gap) -
+        var(--solus-sidebar-toggle-end) + var(--solus-titlebar-control-gap) -
           var(--solus-column-window-left, 0px)
       )
-    );
-    --solus-chrome-lead-inset: calc(
-      var(--solus-chrome-control-left) + var(--solus-titlebar-control-size) +
-        var(--solus-titlebar-control-gap)
     );
     --solus-page-top-inset: var(--solus-titlebar-height);
   }

@@ -9,6 +9,7 @@ import {
   artifactTitle,
   artifactTooltip,
   fileRouteParams,
+  workPagePreview,
 } from '@solus/workspace-ui/components/session/artifacts/lib/artifact-list'
 import { newestAddedKey } from '@solus/workspace-ui/contexts/sessions/session-artifacts'
 import { openArtifact } from '@solus/workspace-ui/components/session/artifacts/lib/artifact-open'
@@ -119,5 +120,23 @@ describe('newest added artifact', () => {
     const after: SessionArtifacts = { own: [work('w1', 1), file('/r/a', 4)], children: [{ sessionId: 'c', title: 'c', items: [pr(3, 6)] }] }
     expect(newestAddedKey(before, after)).toBe('pull-request:github.com/acme/app#3')
     expect(newestAddedKey(after, before)).toBeNull()
+  })
+})
+
+describe('the picture of a written work', () => {
+  test("the document's opening heading heads the picture, and the text under it starts after it", () => {
+    // WHY: the stored preview keeps the heading as its first line; run together
+    // with the text, the card read "Mirror branch merge report Outcome Merge commit: …".
+    const preview = 'Mirror branch merge report\n\n Outcome\nMerge commit: 73fa867 on solus/mirror.'
+    expect(workPagePreview('Mirror branch merge report', preview)).toEqual({
+      heading: 'Mirror branch merge report',
+      paragraphs: ['Outcome', 'Merge commit: 73fa867 on solus/mirror.'],
+    })
+  })
+
+  test('a document that opens with a paragraph keeps all of it under the work title', () => {
+    const paragraph = 'This report covers the mirror for readers and the repository for hosts, with every path from the root.'
+    expect(workPagePreview('Mirror report', paragraph)).toEqual({ heading: 'Mirror report', paragraphs: [paragraph] })
+    expect(workPagePreview('Empty', undefined)).toEqual({ heading: 'Empty', paragraphs: [] })
   })
 })

@@ -459,6 +459,12 @@ export class WorkspaceLifecycleStore {
     return running
   }
 
+  /** The turn snapshot read in progress for a session, if one runs. */
+  pendingTurnSnapshots(sessionId: string): Promise<void> | undefined {
+    const held = this.turnSnapshotReads.get(sessionId)
+    return held?.queued ?? held?.running
+  }
+
   private async readTurnSnapshots(sessionId: string): Promise<void> {
     const session = this.deps.sessions.byId[sessionId]
     if (!session?.agentSessionId) return

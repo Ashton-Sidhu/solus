@@ -180,6 +180,7 @@ describe('cost', () => {
     }
     let now = Date.now()
     const sync = new PrSync({ publish: () => {}, now: () => now })
+    for (const index of names.keys()) await sync.turnEnded(`matched-session-${index}`)
     await sync.tick()
     expect(hosts.map(({ host }) => host.branchLookups)).toEqual(names.map((_, index) => [[`matched-${index}`]]))
 
@@ -290,6 +291,7 @@ describe('closed pull requests', () => {
     const sync = new PrSync({ publish: () => {}, now: () => now })
 
     // The lookup finds the closed pull request; then someone opens it again.
+    await sync.turnEnded('closed-reopened-session')
     await sync.tick()
     host.known.set(1, pullRequest(1, { headRef: 'again', state: 'open', updatedAt: later(1) }))
     now += 15 * 60_000 + 1
@@ -555,11 +557,13 @@ describe('merges made outside Solus', () => {
 })
 
 describe('branch discovery', () => {
-  test('unmatched branches are looked up together once, then only on a turn end of their session or a refresh', async () => {
+  test('a restart looks up no branch; turn ends look them up together, then only on a turn end of their session or a refresh', async () => {
     // WHY: a branch's pull request is opened by its agent, so the turn end is
     // when one can appear. A clock that asked about every branch, each minute
     // and later each five minutes, spent the account's quota on branches that
-    // have none.
+    // have none, and a startup that asked about every live branch sent a burst
+    // on each restart. t3code looks a branch up when its status is read or a
+    // turn ends, never as a sweep.
     const { scope, host, pullRequest } = codeHost('stored-worktrees')
     let now = Date.now()
     for (let index = 0; index < 12; index++) await worktreeSession(`stored-worktree-${index}`, `topic-${index}`, scope)
@@ -568,23 +572,28 @@ describe('branch discovery', () => {
     const sync = new PrSync({ publish: (change) => { published.push(change) }, now: () => now, sessionCheckout: () => scope })
 
     await sync.tick()
-    expect(host.branchLookups).toHaveLength(1)
-    expect(new Set(host.branchLookups[0])).toEqual(new Set(Array.from({ length: 12 }, (_, index) => `topic-${index}`)))
+    expect(host.branchLookups).toHaveLength(0)
+
+    // Each turn end looks up its own session's branch.
+    for (let index = 0; index < 12; index++) await sync.turnEnded(`stored-worktree-${index}`)
+    await sync.tick()
+    expect(new Set(host.branchLookups.flat())).toEqual(new Set(Array.from({ length: 12 }, (_, index) => `topic-${index}`)))
     expect(await sessionLinks('stored-worktree-0')).toEqual([expect.objectContaining({ number: 1, source: 'branch' })])
     expect(await sessionLinks('stored-worktree-1')).toEqual([])
+    const afterTurns = host.branchLookups.length
 
     // An hour of ticks asks about no branch again.
     for (let tick = 0; tick < 60; tick++) {
       now += 60_001
       await sync.tick()
     }
-    expect(host.branchLookups).toHaveLength(1)
+    expect(host.branchLookups).toHaveLength(afterTurns)
 
     // The agent of one session opens a pull request; its turn end asks about its branch alone.
     host.known.set(2, pullRequest(2, { headRef: 'topic-1' }))
     await sync.turnEnded('stored-worktree-1')
     await sync.tick()
-    expect(host.branchLookups.slice(1)).toEqual([['topic-1']])
+    expect(host.branchLookups.slice(afterTurns)).toEqual([['topic-1']])
     expect(await sessionLinks('stored-worktree-1')).toEqual([expect.objectContaining({ number: 2, source: 'branch' })])
     expect(published).toContainEqual(expect.objectContaining({ repo: scope, listChanged: true }))
 
@@ -593,15 +602,16 @@ describe('branch discovery', () => {
       now += 60_001
       await sync.tick()
     }
-    expect(host.branchLookups).toHaveLength(2)
+    expect(host.branchLookups).toHaveLength(afterTurns + 1)
 
-    // A person's refresh asks about the ten branches that still have none.
+    // A person's refresh asks about the ten branches that still have none, in one lookup.
     sync.refresh({ repo: { host: 'github.com', owner: 'owner', repo: 'stored-worktrees' }, provider: providers.get('stored-worktrees')! })
     await sync.tick()
-    expect(host.branchLookups).toHaveLength(3)
-    expect(host.branchLookups[2]).toHaveLength(10)
-    expect(host.branchLookups[2]).not.toContain('topic-0')
-    expect(host.branchLookups[2]).not.toContain('topic-1')
+    expect(host.branchLookups).toHaveLength(afterTurns + 2)
+    const refreshed = host.branchLookups.at(-1)!
+    expect(refreshed).toHaveLength(10)
+    expect(refreshed).not.toContain('topic-0')
+    expect(refreshed).not.toContain('topic-1')
   })
 
   test('a branch whose pull request closed is looked up again on a turn end, and the new open one wins', async () => {
@@ -610,6 +620,7 @@ describe('branch discovery', () => {
     host.known.set(3, pullRequest(3, { headRef: 'retry', state: 'closed' }))
     const sync = new PrSync({ publish: () => {}, sessionCheckout: () => scope })
 
+    await sync.turnEnded('reopened-session')
     await sync.tick()
     host.known.set(4, pullRequest(4, { headRef: 'retry' }))
     await sync.turnEnded('reopened-session')
@@ -638,6 +649,7 @@ describe('branch discovery', () => {
     let now = Date.now()
     const sync = new PrSync({ publish: () => {}, now: () => now })
 
+    await sync.turnEnded('pr-sync-branch-0')
     await sync.tick()
     now += 60_001
     await sync.tick()
@@ -660,6 +672,7 @@ describe('branch discovery', () => {
     let now = Date.now()
     const sync = new PrSync({ publish: () => {}, now: () => now })
 
+    await sync.turnEnded('pr-sync-solo')
     await sync.tick()
     expect(await sessionLinks('pr-sync-solo')).toEqual([expect.objectContaining({ number: 9, source: 'branch', repository: scope })])
 
@@ -683,13 +696,16 @@ describe('branch discovery', () => {
     host.known.set(4, pullRequest(4, { headRef: 'fix-2', headRepo: { owner: 'me', repo: 'fork-heads', isFork: true } }))
     await worktreeSession('pr-sync-fork', 'fix', '/work/fork-heads')
 
-    await new PrSync({
+    const sync = new PrSync({
       publish: () => {},
       liveCheckouts: async () => [{ projectScope: '/work/fork-heads', branch: 'fix', sessionId: 'pr-sync-fork' }],
       codeHost: async () => ({ repo: repoOf('fork-heads'), provider: providers.get('fork-heads')! }),
       pushHead: async () => new PullRequestHead(mine, 'fix-2'),
       defaultBranch: async () => 'main',
-    }).tick()
+      sessionCheckout: () => null,
+    })
+    await sync.turnEnded('pr-sync-fork')
+    await sync.tick()
 
     expect(host.branchLookups).toEqual([['fix-2']])
     expect((await sessionLinks('pr-sync-fork')).map((link) => link.number)).toEqual([4])
@@ -730,6 +746,50 @@ describe('branch discovery', () => {
     await sync.tick()
     expect(resolves).toBe(3)
     expect(host.branchLookups.length).toBeGreaterThan(0)
+  })
+
+  test('a branch the checkout never published costs no lookup, on a turn end or when a client shows it', async () => {
+    // WHY: most live branches are worktree branches an agent has not pushed.
+    // Each turn end asked GitHub twice about every one of them, and a branch
+    // with no remote has no pull request. t3code checks this locally first
+    // (`isUnpublishedBranch`); so does `pushHeadFor`, answering null.
+    const { host } = codeHost('unpushed-branch')
+    let published = false
+    const sync = new PrSync({
+      publish: () => {},
+      liveCheckouts: async () => [{ projectScope: '/work/unpushed-branch', branch: 'agent-work', sessionId: 'pr-sync-unpushed' }],
+      codeHost: async () => ({ repo: repoOf('unpushed-branch'), provider: providers.get('unpushed-branch')! }),
+      pushHead: async () => published ? new PullRequestHead(repoOf('unpushed-branch'), 'agent-work') : null,
+      defaultBranch: async () => 'main',
+      sessionCheckout: () => null,
+    })
+
+    await sync.turnEnded('pr-sync-unpushed')
+    await sync.tick()
+    expect(host.branchLookups).toEqual([])
+
+    // The agent pushes; its next turn end looks the branch up.
+    published = true
+    await sync.turnEnded('pr-sync-unpushed')
+    await sync.tick()
+    expect(host.branchLookups).toEqual([['agent-work']])
+  })
+
+  test('a branch a client shows is looked up the first time it is shown, not on each tick', async () => {
+    // WHY: the client shows a branch when its status is on screen, which is
+    // when t3code reads its pull request. A restart sends no sweep, so this is
+    // what answers a branch no turn has ended on.
+    const { host } = codeHost('shown-branch')
+    let now = Date.now()
+    const sync = new PrSync({ publish: () => {}, now: () => now })
+    sync.setInterest('shown-branch-client', { repo: repoOf('shown-branch'), provider: providers.get('shown-branch')! },
+      [{ kind: 'head', head: new PullRequestHead(repoOf('shown-branch'), 'shown') }])
+    await sync.tick()
+    for (let tick = 0; tick < 5; tick++) {
+      now += 60_001
+      await sync.tick()
+    }
+    expect(host.branchLookups).toEqual([['shown']])
   })
 
   test('a session on the default branch is not looked up by branch', async () => {
@@ -1079,6 +1139,8 @@ describe('turn ends', () => {
     host.known.set(2, pullRequest(2, { headRef: 'other' }))
     const announced: string[] = []
     const sync = new PrSync({ publish: (change) => { announced.push(...change.pullRequests.map(({ number, state }) => `${number}:${state}`)) }, sessionCheckout: () => scope, checkoutState: async () => 'same' })
+    await sync.turnEnded('merged-by-agent-session')
+    await sync.turnEnded('other-turn-session')
     await sync.tick()
     // A pane read the detail while it was open.
     await prIndex.pullRequest(repo, provider, 1).read()

@@ -36,6 +36,49 @@ afterEach(() => {
 })
 
 describe('session digests', () => {
+  test('a workflow keeps its phases and finished members across partial snapshots and Stop', async () => {
+    const run = harness()
+    run.send({ type: 'background_task_started', taskId: 'task-1', toolUseId: 'tool-1', lineageTask: { kind: 'workflow', title: 'Audit' } })
+    run.send({ type: 'background_task_progress', taskId: 'task-1', workflow: {
+      phases: [{ index: 0, title: 'Read' }],
+      agents: [{ index: 0, label: 'Reader', phaseIndex: 0, state: 'completed', attempt: 1 }],
+    } })
+    run.send({ type: 'background_task_progress', taskId: 'task-1', workflow: {
+      phases: [],
+      agents: [
+        { index: 0, label: 'Reader', state: 'running', attempt: 1 },
+        { index: 1, label: 'Reviewer', phaseIndex: 0, state: 'queued' },
+      ],
+    } })
+    run.send({ type: 'background_task_settled', taskId: 'task-1', status: 'stopped' })
+    await run.digests.settled()
+    expect(run.last().subagents).toMatchObject([{
+      id: 'tool-1', title: 'Audit', status: 'stopped', canStop: true,
+      workflow: {
+        phases: [{ index: 0, title: 'Read' }],
+        agents: [
+          { index: 0, phaseIndex: 0, label: 'Reader', state: 'completed' },
+          { index: 1, phaseIndex: 0, label: 'Reviewer', state: 'queued' },
+        ],
+      },
+    }])
+  })
+
+  test('a detached child stays running after its parent fails and keeps its eventual report', async () => {
+    const run = harness()
+    run.send({ type: 'user_message', text: 'Delegate' })
+    run.send({ type: 'tool_call', toolName: 'spawnAgent', index: 0, toolId: 'spawn', isSubagent: true })
+    run.send({ type: 'background_task_started', taskId: 'child', toolUseId: 'spawn' })
+    run.send({ type: 'turn_settled', turnId: 'root', outcome: 'failed', settledAt: START + 1 })
+    await run.digests.settled()
+    expect(run.last().subagents[0]).toMatchObject({ status: 'running', canStop: true })
+    run.send({
+      type: 'tool_result', toolUseId: 'spawn', parentToolUseId: 'spawn', isSubagentReport: true, content: 'Child finished',
+    })
+    run.send({ type: 'background_task_settled', taskId: 'child', status: 'completed' })
+    await run.digests.settled()
+    expect(run.last().subagents[0]).toMatchObject({ status: 'completed', detail: 'Child finished' })
+  })
   test('a turn is written when it starts and when it settles, not for each tool call', async () => {
     // WHY: each write tells every reader of the session, and of each session
     // above it, to read the tree again; one write per tool call would flood them.
@@ -111,7 +154,7 @@ describe('session digests', () => {
     expect(run.last().subagents).toEqual([
       { id: 'claude-agent', title: 'Audit the auth module', status: 'completed', startedAt: START, endedAt: START + 30_000, detail: 'Found two issues.' },
       // A background sub-agent outlives its launch and the turn, until it reports.
-      { id: 'codex-agent', title: 'Run the tests', status: 'running', startedAt: START, endedAt: null, detail: '' },
+      { id: 'codex-agent', title: 'Run the tests', status: 'running', startedAt: START, endedAt: null, detail: '', canStop: true },
     ])
 
     // With no turn running, the report is written at once.
@@ -167,5 +210,25 @@ describe('session digests', () => {
     await run.digests.settled()
     expect(run.last().turns.map((turn) => turn.id)).toEqual(['old', 'new'])
     expect(run.last().lastReply).toBe('Done earlier.')
+  })
+
+  test('a prompt sent to every client but its sender starts a turn, and the turn keeps its outcome', async () => {
+    // WHY: the host sends a client's prompt with `except`. A digest that read
+    // only untargeted events had no turn, so every started session read "Idle".
+    const run = harness()
+    run.digests.observe('session-1', { type: 'user_message', text: 'Fix it', clientPromptId: 'prompt-1' }, { except: undefined })
+    run.digests.observe('session-1', { type: 'user_message', text: 'Echo', clientPromptId: 'prompt-1' }, { only: 'client-1' })
+    run.send({ type: 'turn_settled', turnId: 'prompt-1', outcome: 'completed', settledAt: START + 1_000 })
+    await run.digests.settled()
+    expect(run.last().turns).toEqual([expect.objectContaining({ id: 'prompt-1', settled: true, outcome: 'completed' })])
+  })
+
+  test('a steer joins the running turn, which then settles once with its outcome', async () => {
+    const run = harness()
+    run.send({ type: 'user_message', text: 'Fix it', clientPromptId: 'prompt-1' })
+    run.send({ type: 'user_message', text: 'Also the tests', delivery: 'steer' })
+    run.send({ type: 'turn_settled', turnId: 'prompt-1', outcome: 'failed', settledAt: START + 1_000 })
+    await run.digests.settled()
+    expect(run.last().turns).toEqual([expect.objectContaining({ id: 'prompt-1', settled: true, outcome: 'failed' })])
   })
 })

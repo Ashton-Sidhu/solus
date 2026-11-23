@@ -9,6 +9,7 @@
   import * as Select from "../ui/select";
   import { ArrowUp as ArrowUpIcon, Download as DownloadIcon, RotateCw as ReloadIcon, MessageSquare as CommentsIcon, MessageSquarePlus as PinIcon } from "@lucide/svelte";
   import { Button } from "../ui/button";
+  import { PAGE_PILL_GROUP } from "../../lib/page-chrome";
   import { downloadPayload } from "../work/lib/work-export";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import { ARTIFACT_WIDTH_OPTIONS, artifactWidthFor } from "./lib/artifact-viewport";
@@ -232,9 +233,23 @@
         {title}
       </button>
     {/if}
-    <!-- The pane's own tools share one geometry (`.artifact-tool`) with the
-         header verbs beside them, so the row reads as one strip at every
-         display size rather than three controls of three heights. -->
+    {#if canSendComments}
+      <Button
+        size="sm"
+        class="h-8 shrink-0 gap-1 rounded-full px-2.5 text-workspace-chrome pointer-coarse:tap-area"
+        title={`Send the open comments to an agent (${comboHint("artifact.send-comments")})`}
+        disabled={sendingComments}
+        data-testid="artifact-shell-send-comments"
+        onclick={sendCommentsToAgent}
+      >
+        <ArrowUpIcon size={14} strokeWidth={2} />
+        Send {openCommentCount} to agent
+      </Button>
+    {/if}
+    <!-- The pane's own tools share one pill, like the pull request header's
+         groups: save, comment and the comment list, then width and reload.
+         Every button inside shares one geometry (`.artifact-tool`). -->
+    <div class={PAGE_PILL_GROUP} role="group" aria-label="Artifact actions">
     {#if content.trim()}
       <button
         type="button"
@@ -279,19 +294,6 @@
         <span class="text-workspace-chrome tabular-nums">{openCommentCount}</span>
       </button>
     {/if}
-    {#if canSendComments}
-      <Button
-        size="sm"
-        class="h-[1.625rem] shrink-0 gap-1 rounded-full px-2.5 text-workspace-chrome pointer-coarse:tap-area"
-        title={`Send the open comments to an agent (${comboHint("artifact.send-comments")})`}
-        disabled={sendingComments}
-        data-testid="artifact-shell-send-comments"
-        onclick={sendCommentsToAgent}
-      >
-        <ArrowUpIcon size={14} strokeWidth={2} />
-        Send {openCommentCount} to agent
-      </Button>
-    {/if}
     <Select.Root type="single" value={widthChoice} onValueChange={(next) => (widthChoice = next)}>
       <Select.Trigger
         aria-label="Render width"
@@ -317,6 +319,7 @@
     >
       <ReloadIcon size={15} strokeWidth={1.5} />
     </button>
+    </div>
     <WorkHeaderActions
       onStartRename={onRename ? startRename : undefined}
       {copied}
@@ -368,7 +371,7 @@
 </div>
 
 <style>
-  /* The same raised pills as WorkHeaderActions' verbs and overflow: 1.625rem on
+  /* One button inside a header pill, the same as PAGE_PILL_ICON_BTN: 1.75rem on
      a desktop display, a 2.5rem touch target on mobile. `:global` because the Select trigger is a child component and a
      scoped class would not reach it; the titlebar ancestor keeps it local. */
   .workspace-titlebar :global(.artifact-tool) {
@@ -377,16 +380,13 @@
     align-items: center;
     justify-content: center;
     gap: 0.25rem;
-    width: 1.625rem;
-    height: 1.625rem;
+    width: 1.75rem;
+    height: 1.75rem;
     padding: 0;
     border-radius: 9999px;
     border: none;
-    background: var(--background);
-    color: var(--foreground);
-    box-shadow:
-      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
-      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
+    background: transparent;
+    color: color-mix(in oklch, var(--foreground) 75%, transparent);
     cursor: pointer;
     white-space: nowrap;
     transition:
@@ -399,6 +399,7 @@
   }
   .workspace-titlebar :global(.artifact-tool:hover) {
     background: var(--wash-1);
+    color: var(--foreground);
   }
   /* An armed tool or an open list reads as pressed. */
   .workspace-titlebar :global(.artifact-tool.is-active) {

@@ -31,6 +31,7 @@ export interface ConversationMeta {
   /** Prompts this device holds that the host has not taken yet: the run host stays as it is. */
   hasUnsentPrompts: boolean
   hasOlder: boolean
+  historyError: string | null
   loadingOlder: boolean
   /** The agent session on another host that started this one. */
   startedBy: SessionStarterFromHost | null
@@ -44,8 +45,6 @@ export interface ConversationMeta {
   pendingVideos: ConversationController['pendingVideos']
   pendingImages: ConversationController['pendingImages']
   uploading: number
-  /** The text of a prompt that did not go because an upload failed; the composer takes it back. */
-  unsentText: string | null
   /** The picked provider differs from the thread's: the next prompt hands off (plans/021). */
   handoffPending: boolean
   /** The host refused a prompt: another host continued the session (`SESSION_DIVERGED`). */
@@ -57,7 +56,7 @@ export interface ConversationMeta {
   /** The run host answered that it has no copy of the session. */
   hostHasNoCopy: boolean
   /** What the next prompt runs with. */
-  run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode; worktreeBaseBranch: string | null; checkoutBranch: string | null; checkoutWorktree: string | null }
+  run: { workingDirectory: string; title: ConversationController['run']['title']; provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode; worktreeBaseBranch: string | null; checkoutBranch: string | null; checkoutWorktree: string | null }
   /** What the next prompt may choose: Auto before the host starts the
    *  session, and the permission modes the agent's host reports. */
   runOptions: {
@@ -228,8 +227,9 @@ export class ConversationStore {
       queued: model.queued,
       queue: this.controller.queue,
       hasUnsentPrompts: this.controller.hasUnsentPrompts,
-      hasOlder: model.olderCursor !== null,
-      loadingOlder: this.controller.loadingOlder,
+      hasOlder: model.history.hasMoreHistory,
+      historyError: model.history.error,
+      loadingOlder: model.history.loading,
       startedBy: this.controller.startedBy,
       pendingPlan: model.pendingPlan(),
       setupStep: setupActivityLabel(model.activeSetupCard()),
@@ -238,13 +238,14 @@ export class ConversationStore {
       pendingImages: this.controller.pendingImages,
       pendingVideos: this.controller.pendingVideos,
       uploading: this.controller.uploading,
-      unsentText: this.controller.unsentText,
       handoffPending: isHandoffPending(this.controller.threadProvider, this.controller.run.provider),
       isSessionDiverged: this.controller.isSessionDiverged,
       cloudRead: this.controller.cloudRead,
       showsHostConversation: this.controller.showsHostConversation,
       hostHasNoCopy: this.controller.hostHasNoCopy,
       run: {
+        workingDirectory: this.controller.run.workingDirectory,
+        title: this.controller.run.title,
         provider: this.controller.run.provider,
         model: this.controller.run.preferredModel,
         reasoningEffort: this.controller.run.reasoningEffort,

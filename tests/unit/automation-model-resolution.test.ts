@@ -25,12 +25,12 @@ afterAll(() => {
 
 /** Records the run request the control plane hands the provider, which is where
  *  the model an automation really uses becomes observable. */
-function backend(defaultModel: string) {
+function backend(defaultModel: string, provider: 'claude-code' | 'codex' = 'claude-code') {
   const requests: AgentRunRequest[] = []
   const emitter = new EventEmitter() as EventEmitter & Pick<AgentBackend, 'id' | 'metadata' | 'permissions' | 'startRun' | 'getPendingHandles' | 'shutdown'>
   let handle: RunHandle
-  emitter.id = 'claude-code'
-  emitter.metadata = { id: 'claude-code', label: 'Claude Code', models: [], defaultModel }
+  emitter.id = provider
+  emitter.metadata = { id: provider, label: provider, models: [], defaultModel }
   emitter.permissions = {}
   emitter.startRun = (request: AgentRunRequest) => {
     requests.push(request)
@@ -105,4 +105,23 @@ describe('automation model resolution', () => {
 
     expect(fake.requests[0]?.model).toBe('claude-sonnet-5')
   })
+  test('a Codex automation sends its saved effort and Fast Mode to the provider', async () => {
+    const fake = backend('gpt-6.2-sol', 'codex')
+    const plane = new SessionRuntime(new Map([['codex', fake.value as never]]))
+    planes.push(plane)
+
+    const session = await plane.dispatch.startUnattendedSession({
+      prompt: 'sync the docs',
+      startedBy: { kind: 'automation', automationId: 'automation-1', runId: 'run-1' },
+      provider: 'codex',
+      modelId: 'gpt-6.2-sol',
+      reasoningEffort: 'high',
+      fastMode: true,
+      cwd,
+    })
+    await session.done.catch(() => {})
+
+    expect(fake.requests[0]).toMatchObject({ reasoningEffort: 'high', fastMode: true })
+  })
+
 })

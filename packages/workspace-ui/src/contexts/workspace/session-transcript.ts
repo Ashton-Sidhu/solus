@@ -1,4 +1,5 @@
 import { isArtifactRenderTool } from '@solus/contracts/agent-tools'
+import { stripSessionReferenceContext } from '@solus/contracts/injected-context'
 import { measureOpenStep } from '../../lib/mount-timing'
 import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import type { AgentId, AutomationTrigger, IpcContext, Message, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session, SessionProgress } from '@solus/contracts/types'
@@ -324,9 +325,9 @@ export function materializeSessionTranscript(
       timestamp: msgTimestamp,
     }
     if (m.role === 'user') {
-      const attached = splitSentAttachments(m.content, serverId)
+      const attached = splitSentAttachments(stripSessionReferenceContext(m.content), serverId)
+      msg.content = attached.text
       if (attached.attachments.length) {
-        msg.content = attached.text
         msg.attachments = attached.attachments
       }
     }

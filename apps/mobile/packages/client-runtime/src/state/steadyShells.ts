@@ -14,9 +14,9 @@ import type { EnvironmentShellState, EnvironmentShellStatus } from "./shell.ts";
  */
 const STEADY_SHELL_RELEASE_WINDOW_MS = 2_000;
 
-export interface SteadyShellInput {
+export interface SteadyShellInput<S = OrchestrationV2ShellSnapshot> {
   readonly environmentId: EnvironmentId;
-  readonly snapshot: OrchestrationV2ShellSnapshot | null;
+  readonly snapshot: S | null;
   /**
    * The snapshot's server sequence. It moves with new server data and with nothing else, and
    * it comes from the snapshot itself: a second atom could be one update behind the rows.
@@ -31,8 +31,8 @@ export interface SteadyShellInput {
   readonly rowActions: number;
 }
 
-interface SteadyShell {
-  readonly shown: OrchestrationV2ShellSnapshot | null;
+interface SteadyShell<S> {
+  readonly shown: S | null;
   readonly shownSequence: number | null;
   readonly shownGeneration: number;
   /** The rows were shown while live, so each live change shows at once. */
@@ -43,13 +43,13 @@ interface SteadyShell {
   readonly rowActions: number;
 }
 
-export interface SteadyShellsState {
-  readonly shells: ReadonlyMap<EnvironmentId, SteadyShell>;
+export interface SteadyShellsState<S = OrchestrationV2ShellSnapshot> {
+  readonly shells: ReadonlyMap<EnvironmentId, SteadyShell<S>>;
   /** When held rows show at the latest; null while none wait. */
   readonly releaseAt: number | null;
 }
 
-export const EMPTY_STEADY_SHELLS_STATE: SteadyShellsState = { shells: new Map(), releaseAt: null };
+export const EMPTY_STEADY_SHELLS_STATE: SteadyShellsState<never> = { shells: new Map<EnvironmentId, SteadyShell<never>>(), releaseAt: null };
 
 /**
  * Decides which snapshot of each environment a thread list shows. New server rows wait for
@@ -57,20 +57,20 @@ export const EMPTY_STEADY_SHELLS_STATE: SteadyShellsState = { shells: new Map(),
  * environment that has one: at once when no other owes its rows, else when the window ends.
  * Returns `previous` itself when nothing changes.
  */
-export function stepSteadyShells(
-  previous: SteadyShellsState,
-  inputs: ReadonlyArray<SteadyShellInput>,
+export function stepSteadyShells<S>(
+  previous: SteadyShellsState<S>,
+  inputs: ReadonlyArray<SteadyShellInput<S>>,
   now: number,
   windowMs = STEADY_SHELL_RELEASE_WINDOW_MS,
-): SteadyShellsState {
-  const shells = new Map<EnvironmentId, SteadyShell>();
-  const waiting: Array<SteadyShellInput> = [];
+): SteadyShellsState<S> {
+  const shells = new Map<EnvironmentId, SteadyShell<S>>();
+  const waiting: Array<SteadyShellInput<S>> = [];
   let othersOweRows = false;
   const show = (
-    input: SteadyShellInput,
+    input: SteadyShellInput<S>,
     caughtUp: boolean,
-    current: SteadyShell | undefined,
-  ): SteadyShell => ({
+    current: SteadyShell<S> | undefined,
+  ): SteadyShell<S> => ({
     shown: input.snapshot,
     shownSequence: input.serverSequence,
     shownGeneration: input.generation,
@@ -79,7 +79,7 @@ export function stepSteadyShells(
     rowActions:
       input.status === "live" || current === undefined ? input.rowActions : current.rowActions,
   });
-  const keep = (input: SteadyShellInput, next: SteadyShell, current: SteadyShell | undefined) => {
+  const keep = (input: SteadyShellInput<S>, next: SteadyShell<S>, current: SteadyShell<S> | undefined) => {
     othersOweRows ||= input.status === "synchronizing" && input.connecting && !next.caughtUp;
     const same =
       current !== undefined &&
@@ -158,7 +158,7 @@ export function createSteadyShellAtoms<E>(input: {
     return Date.now();
   };
   // Outlives the atom's rebuilds, and its unmount while no list is on screen.
-  let state = EMPTY_STEADY_SHELLS_STATE;
+  let state: SteadyShellsState = EMPTY_STEADY_SHELLS_STATE;
   const stateAtom = Atom.make((get) => {
     const inputs: Array<SteadyShellInput> = [];
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {

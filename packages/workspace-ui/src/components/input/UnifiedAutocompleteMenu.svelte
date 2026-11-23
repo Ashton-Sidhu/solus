@@ -207,12 +207,13 @@
 {/if}
 
 {#snippet glyph(path: string)}
+  {@const isOcticon = path === GLYPH.pr || path === GLYPH.task}
   <svg
     width="13"
     height="13"
-    viewBox="0 0 14 14"
-    fill="none"
-    stroke="currentColor"
+    viewBox={isOcticon ? "-1.6 -1.6 19.2 19.2" : "0 0 14 14"}
+    fill={isOcticon ? "currentColor" : "none"}
+    stroke={isOcticon ? "none" : "currentColor"}
     stroke-width="0.875"
     stroke-linecap="round"
     stroke-linejoin="round"

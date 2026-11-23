@@ -1,4 +1,5 @@
-import { Building2 as OrganizationIcon } from "@lucide/svelte";
+import { Building2 as OrganizationIcon, LibraryBig as LibraryIcon, Workflow as WorkflowIcon } from "@lucide/svelte";
+import { GitPullRequestIcon, IssueOpenedIcon } from "@solus/workspace-ui/components/ui/octicons";
 import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
 import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
 import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
@@ -113,6 +114,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
     id: "workspace",
     label: "Open workspace",
     group: "View",
+    icon: LibraryIcon,
     hint: comboHint("global.toggle-workspace"),
     keywords: ["works", "documents", "folio"],
     run: () => session.toggleFolio("palette"),
@@ -121,6 +123,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
     id: "tasks",
     label: "Open tasks",
     group: "View",
+    icon: IssueOpenedIcon,
     keywords: ["board", "todo", "issues"],
     run: () => session.openTasks(),
   },
@@ -128,6 +131,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
     id: "pull-requests",
     label: "Open pull requests",
     group: "View",
+    icon: GitPullRequestIcon,
     keywords: ["pr", "review", "github"],
     run: () => session.openPrs(),
   },
@@ -143,6 +147,7 @@ export function webPaletteCommands(deps: WebPaletteDeps): Command[] {
     id: "automations",
     label: "Open automations",
     group: "View",
+    icon: WorkflowIcon,
     keywords: ["schedule", "recurring", "cron"],
     run: () => session.openAutomations(),
   },

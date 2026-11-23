@@ -19,7 +19,8 @@ import { getSessionRecord } from '../../data/sessions/session-records'
 import { readTranscript, readTranscriptPage } from '../../data/sessions/transcript-reads'
 import { readerMirrorScope } from '../../data/sessions/mirror-scope'
 import { turnDiffsOfPage } from '../../data/sessions/turn-diffs'
-import { deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
+import { resumeHistoryPage } from '../../data/sessions/history-blocks'
+import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
 import { MAX_SESSION_TOOL_INPUTS } from '@solus/contracts/session-history'
 import { appVersion } from '../../platform/paths'
 import { registerWorkspaceProjectHandlers } from '../handlers/workspace-project-handlers'
@@ -101,21 +102,28 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     return options?.deferToolInputs ? deferSessionToolInputs(messages) : messages
   })
   server.register('loadSessionPage', async ([input], ctx) => {
-    const request = z.object({ sessionId: z.string().min(1), turnLimit: z.number().int().min(1).max(100), before: z.string().max(16384).optional() }).parse(input)
+    const request = z.object({ sessionId: z.string().min(1), turnLimit: z.number().int().min(1).max(100), before: z.string().max(16384).optional(),
+      deferArtifactHtml: z.boolean().optional(), knownHistoryBlocks: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(128).optional(),
+    }).parse(input)
     const cursor = readActivityPageCursor(request.before)
     const scope = await readerMirrorScope(ctx.principal, request.sessionId)
     const page = await readTranscriptPage(scope, request.sessionId, request.turnLimit, cursor.before)
-    const turnDiffs = await turnDiffsOfPage(scope, request.sessionId, page, cursor.before)
-    const { messages, before } = mergePageActivity(page, await sessionActivity(scope, request.sessionId, pageWindow(page, cursor.at)), cursor.at)
-    return { messages: deferSessionToolInputs(messages), before, turnDiffs }
+    const [turnDiffs, activity] = await Promise.all([
+      turnDiffsOfPage(scope, request.sessionId, page, cursor.before),
+      sessionActivity(scope, request.sessionId, pageWindow(page, cursor.at)),
+    ])
+    const { messages, before } = mergePageActivity(page, activity, cursor.at)
+    const full = { messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(messages) : messages), before, turnDiffs }
+    return request.knownHistoryBlocks ? resumeHistoryPage(full, request.knownHistoryBlocks) : full
   })
   server.register('loadSessionToolInputs', async ([request], ctx) => {
     if (request.keys.length > MAX_SESSION_TOOL_INPUTS || request.keys.some(key => !/^[a-f0-9]{64}$/.test(key))) throw new Error('Invalid session tool input keys')
     return selectSessionToolInputs(await readTranscript(await readerMirrorScope(ctx.principal, request.sessionId), request.sessionId), request.keys)
   })
-  server.register('watchSession', async ([{ sessionId }], ctx) => {
+  server.register('watchSession', async ([{ sessionId, afterEvent }], ctx) => {
     const record = await getSessionRecord(recordScopeOf(ctx.principal), sessionId)
     if (!record) throw new Error('Session not found')
+    if (afterEvent !== undefined) return { resumed: false }
     deps.presence.watch(ctx.clientId, record.sessionId)
     return {}
   })

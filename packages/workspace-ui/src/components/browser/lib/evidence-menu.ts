@@ -1,5 +1,6 @@
 import TaskIcon from '../../ui/TaskIcon.svelte'
-import { Camera, GitPullRequest } from '@lucide/svelte'
+import { Camera } from '@lucide/svelte'
+import { GitPullRequestIcon } from '../../ui/octicons'
 import type { BrowserEvidenceOptions, BrowserEvidenceTarget } from '@solus/contracts/browser-types'
 import type { Task } from '@solus/contracts/task-types'
 
@@ -53,7 +54,7 @@ export function evidenceChoices(
       id: `pr-${options.pullRequest.number}`,
       label: `Pull request #${options.pullRequest.number}`,
       detail: options.branch,
-      icon: GitPullRequest,
+      icon: GitPullRequestIcon,
       target: { kind: 'pr', number: options.pullRequest.number, cwd: checkout },
     })
   }

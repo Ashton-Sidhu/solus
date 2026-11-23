@@ -41,6 +41,10 @@ export class SessionWatchers {
     // tail on the host and replays only blocks that have already been published.
     this.rt.flushPendingSession(sessionId, true)
 
+    const after = input.afterEvent
+    if (after !== undefined && (!input.attachRuntime || this.watches.get(sessionId)?.has(clientId) ||
+        !this.rt.activeSessions.has(sessionId) || this.rt.turnLogPosition(sessionId, after) < 0)) return { resumed: false }
+
     let clients = this.watches.get(sessionId)
     if (!clients) {
       clients = new Set()
@@ -53,11 +57,13 @@ export class SessionWatchers {
     log.info('session_watched', { sessionId, clientId, watchers: clients.size })
     const pendingQuestions = pendingAsyncQuestions(sessionId).map(({ questionId, questions, responseMode }) => ({ questionId, questions, responseMode }))
     const pending = pendingQuestions.length ? { pendingQuestions } : {}
-    const setupRuntime = this.replaySetup(sessionId, clientId)
+    const setupRuntime = after === undefined ? this.replaySetup(sessionId, clientId) : null
     if (!input.attachRuntime) return pending
     const agentSessionId = this.rt.agentSessionIdFor(sessionId)
     // Same order a separate bind would follow: drained, joined, then replayed.
-    return { runtime: setupRuntime ?? (agentSessionId ? this.attachRuntime(sessionId, agentSessionId, clientId) : null), ...pending }
+    const runtime = setupRuntime ?? (agentSessionId ? this.attachRuntime(sessionId, agentSessionId, clientId, undefined, after) : null)
+    if (after !== undefined && !runtime) this.dropWatch(sessionId, clientId)
+    return { runtime, ...pending, ...(after !== undefined && { resumed: runtime !== null }) }
   }
 
   /**
@@ -163,7 +169,7 @@ export class SessionWatchers {
   /** Join a watching client to a session's live runtime: replay the turn so far
    *  to that client alone and read the run config back. Null when nothing is
    *  running for the session any more. */
-  private attachRuntime(sessionId: string, agentSessionId: string, clientId: string, rateLimitBehavior?: SessionRunInput['rateLimitBehavior']): RuntimeSessionInfo | null {
+  private attachRuntime(sessionId: string, agentSessionId: string, clientId: string, rateLimitBehavior?: SessionRunInput['rateLimitBehavior'], afterEvent?: string): RuntimeSessionInfo | null {
     const session = this.rt.activeSessions.get(sessionId)
     if (!session) return null
 
@@ -190,10 +196,12 @@ export class SessionWatchers {
     // Buffered delivery drains first. Paragraph delivery replays only published
     // blocks; its pending tail is sent once when complete.
     this.rt.flushPendingSession(sessionId, true)
-    const replayed = new Set<NormalizedEvent>()
-    for (const event of this.rt.turnLog.get(sessionId) ?? []) {
-      replayed.add(event)
-      this.rt.publish(sessionId, event, { only: clientId })
+    const events = this.rt.turnLog.get(sessionId) ?? []
+    const position = afterEvent === undefined ? -1 : this.rt.turnLogPosition(sessionId, afterEvent)
+    if (afterEvent !== undefined && position < 0) return null
+    const replayed = new Set(events)
+    for (let index = position + 1; index < events.length; index++) {
+      this.rt.publish(sessionId, events[index], { only: clientId })
     }
 
     // Pending input outlives the turn that raised it, so it is replayed on its own
@@ -242,6 +250,7 @@ export class SessionWatchers {
       rateLimitInfo,
       handoffFrom: session.handoffFrom,
       backgroundWorkRunning,
+      ...(backgroundWorkRunning && { backgroundTaskIds: Array.from(session.backgroundTaskIds ?? []) }),
     }
   }
 

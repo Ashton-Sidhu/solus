@@ -27,15 +27,14 @@
   const canWriteGit = $derived(hosts.get(serverId)?.me.may("host.git.write") ?? true);
   const showInit = $derived(!!status && !status.isRepository);
 
-  // One repository-status read per checkout — cheap, and the manual Git
-  // refresh (ProjectPanel's header button) forces a fresh one the same way.
-  let requestedFor: string | null = null;
+  // One repository-status read per checkout, kept by the store across tab
+  // switches; the manual Git refresh (ProjectPanel's header button) reads it again.
   $effect(() => {
     if (!active || !cwd || cwd === "~" || !api) return;
-    const key = `${serverId}\0${cwd}`;
-    if (requestedFor === key) return;
-    requestedFor = key;
-    untrack(() => { void repositorySetupStore.refresh(api, serverId, cwd); });
+    const hostId = serverId;
+    const checkout = cwd;
+    const hostApi = api;
+    untrack(() => repositorySetupStore.ensure(hostApi, hostId, checkout));
   });
 
   const initError = $derived(repositorySetupStore.initErrorFor(serverId, cwd));

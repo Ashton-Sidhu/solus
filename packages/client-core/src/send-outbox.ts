@@ -101,13 +101,13 @@ export class SendOutbox {
 
   /** Queue (or re-queue) one prompt for a host. Same id replaces in place —
    *  an edit before delivery is the same message, not a second one. */
-  enqueue(serverId: string, record: Omit<OutboxRecord, 'attempts' | 'lastError'>): void {
+  enqueue(serverId: string, record: Omit<OutboxRecord, 'attempts' | 'lastError'>): boolean {
     const records = this.entriesFor(serverId)
     const entry: OutboxRecord = { ...record, attempts: 0, lastError: null }
     const at = records.findIndex((candidate) => candidate.clientPromptId === record.clientPromptId)
     if (at >= 0) records[at] = entry
     else records.push(entry)
-    this.#write(serverId, records)
+    return this.#write(serverId, records)
   }
 
   entriesFor(serverId: string): OutboxRecord[] {
@@ -204,10 +204,13 @@ export class SendOutbox {
     this.#write(serverId, records)
   }
 
-  #write(serverId: string, records: OutboxRecord[]): void {
+  #write(serverId: string, records: OutboxRecord[]): boolean {
     try {
       this.storage().setItem(KEY_PREFIX + serverId, JSON.stringify(records))
-    } catch {}
+      return true
+    } catch {
+      return false
+    }
   }
 }
 

@@ -4,7 +4,7 @@ A review guide is a walkthrough of a change that an agent writes for the
 person who decides if the change should land. To review this session, send `/review-guide` in the conversation.
 Add a focus if needed, for example `/review-guide focus on the migration tests`.
 Claude or Codex reads the before and after Git trees for this session’s completed turns.
-The guide appears inside the reply on desktop, web, and mobile. Each file reference names a captured turn. The client reads that turn’s Git patch from the session host when it opens the guide. You can ask
+The guide appears inside the reply on desktop, web, and mobile. Use the preview’s expand control to open the guide. Press Escape or use the close control to return. Each file reference names a captured turn. The client reads that turn’s Git patch from the session host when it opens the guide. You can ask
 follow-up questions or run the command again with a different focus.
 
 Working-tree, branch, and pull request guides use the structured sections below.

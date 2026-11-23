@@ -64,7 +64,7 @@
     type CommentReplyTarget,
   } from "./lib/comment-reply";
   import PrActivityRail from "./PrActivityRail.svelte";
-  import { mergeReadiness, type MergeAction, type MergeReadiness } from "./lib/merge-readiness";
+  import type { MergeAction, MergeReadiness } from "./lib/merge-readiness";
   import { isFailing, orderedChecks } from "../prs/lib/checks";
   import { observeContainerWidth } from "../../lib/pane-width";
   import { isRailFolded } from "./lib/rail-rows";
@@ -94,7 +94,8 @@
     addressCommentsReady = true,
     onAddressComments,
     onFixChecks,
-    onReadiness,
+    readiness,
+    showRailPrimaryAction,
     onFeedbackCount,
     onJump,
     onOpenCommit,
@@ -126,11 +127,8 @@
     /** Prepare the PR checkout and put the failing checks in a new composer:
      *  one check from its row in the rail, or all of them from the status card. */
     onFixChecks?: (checks: CheckItem[]) => Promise<void>;
-    /** The tab's reading of whether the pull request can land, handed up as
-     *  it changes. The pane's chrome band draws the merge control from it
-     *  once the rail has folded; reviewers are read here, so the pane cannot
-     *  take the reading itself. */
-    onReadiness?: (readiness: MergeReadiness | null) => void;
+    readiness: MergeReadiness | null;
+    showRailPrimaryAction: boolean;
     /** The unresolved threads and conversation comments, handed up for the
      *  pane's ⋯ menu, which offers to draft fixes for them. */
     onFeedbackCount?: (count: number) => void;
@@ -150,7 +148,7 @@
     getCtx?: () => IpcContext;
     getApi: () => HostApi;
     serverId: string;
-    /** The shared detail masthead — refs and the content tabs.
+    /** The shared detail masthead with the repository and pull request link.
      *  Rendered by the host above this tab's title so the same row appears
      *  whichever tab is showing. */
     masthead?: import("svelte").Snippet;
@@ -392,30 +390,6 @@
   const feedbackCount = $derived(
     unresolvedCount + visibleConversationCount(comments),
   );
-  const approvedReviewCount = $derived(
-    reviewers.reduce(
-      (count, reviewer) => count + (reviewer.state === "APPROVED" ? 1 : 0),
-      0,
-    ),
-  );
-  // Headline, sub-line, the blocked question, and the move all come from one
-  // table so they cannot drift apart (see lib/merge-readiness). Read once
-  // here: the rail's status card states it, and the pane's band acts on it.
-  const readiness = $derived(
-    detail
-      ? mergeReadiness({
-          detail,
-          checks,
-          checksLoadFailed: pullRequests.checks.loadFailedFor(serverId, feedCtx()),
-          unresolvedCount,
-          approvedReviewCount,
-          openedTime,
-        })
-      : null,
-  );
-  $effect(() => {
-    onReadiness?.(readiness);
-  });
   $effect(() => {
     onFeedbackCount?.(feedbackCount);
   });
@@ -856,9 +830,7 @@
       </div>
     {/if}
     {#if masthead}
-      <!-- Same centred measure and gutters as the content row below, so the
-           status pill and the tabs line up with the title and the right rail
-           instead of floating out at the pane's edges on wide windows. -->
+      <!-- Match the content gutters so the repository link lines up with the title. -->
       <div
         class="mx-auto w-full max-w-[1386px] px-[52px] pt-[38px]"
       >
@@ -889,12 +861,6 @@
       <main
         class="flex min-w-0 max-w-[896px] flex-[1_1_520px] flex-col text-chrome-dense"
       >
-        <!-- Masthead, Linear-style: no chrome in the header at all — a quiet
-             mono eyebrow, the title at full measure, one line of plain-text
-             facts. Actions live with the merge-readiness status in the right
-             rail (prActions below); once the rail folds into this column the
-             merge control moves up to the pane's chrome band, so it is
-             reachable at every width. -->
         <header>
           <!-- Identity the way the host writes it, when no masthead above
                already carries it: the repository in quiet type, the number as
@@ -1334,6 +1300,7 @@
 {#snippet prActions(readiness: MergeReadiness)}
   <PrActions
     {readiness}
+    showPrimaryAction={showRailPrimaryAction}
     onAgentAction={runAgentAction}
     {detail}
     {feedbackCount}

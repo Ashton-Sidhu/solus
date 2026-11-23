@@ -91,11 +91,6 @@ export const generalSettings = [
     keywords: ["metadata"],
   },
   {
-    id: "sidebar-motion",
-    ...settingsDefinitions["general.sidebar-motion"],
-    keywords: ["motion", "speed", "duration", "slide", "fade", "ms"],
-  },
-  {
     id: "projects-base",
     ...settingsDefinitions["general.projects-base"],
     keywords: ["directory", "base", "start", "open", "picker", "path"],
@@ -155,6 +150,11 @@ export const appearanceSettings: SettingItem[] = [
     id: "sidebar-places",
     ...settingsDefinitions["appearance.sidebar-places"],
     keywords: ["places", "column", "pin", "apps", "hide", "order", "reorder", "workspace", "automations", "insights", "tasks"],
+  },
+  {
+    id: "sidebar-motion",
+    ...settingsDefinitions["appearance.sidebar-motion"],
+    keywords: ["motion", "speed", "duration", "slide", "fade", "ms"],
   },
   {
     id: "project-panel-items",

@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { HISTORY_PREFETCH_SCREENS } from "@solus/client-core/session-history-page";
+  import { shouldReadOlderHistory } from "./lib/history-prefetch";
   import { provideTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import { createArtifactRevisionIndexer } from "./lib/artifact-revisions";
+  import { provideTurnDiffReader } from "./lib/inline-review-context";
   import { provideArtifactRevisions } from "./lib/artifact-revisions-context";
   import TranscriptItem from "./TranscriptItem.svelte";
   import ConversationTurn from "./ConversationTurn.svelte";
@@ -98,6 +99,8 @@
     surfaceVisible = true,
     bandAbove = true,
     showActions = true,
+    keepTranscriptVisible = false,
+    onReady,
     viewState = new ConversationViewState(),
   }: {
     tabId: string;
@@ -105,6 +108,8 @@
     surfaceVisible?: boolean;
     bandAbove?: boolean;
     showActions?: boolean;
+    keepTranscriptVisible?: boolean;
+    onReady?: () => void;
     /** The pool hands back what the reader left open and where they were.
      *  A split-pane view keeps its own. */
     viewState?: ConversationViewState;
@@ -139,6 +144,20 @@
     indexArtifactRevisions(transcript.segments.flatMap((segment) => segment.artifacts)),
   );
   provideArtifactRevisions(() => artifactRevisions);
+  const guideSessionId = $derived(sess?.id);
+  const guideApi = $derived(sess ? serverConnections.apiFor(runHost(sess.run)) : undefined);
+  const guideReadiness = $derived(guideSessionId ? serversStore.readinessFor(runHost(sess!.run)).readiness : undefined);
+  const guideReader = $derived.by(() => {
+    const api = guideApi;
+    const id = guideSessionId;
+    const organization = serversStore.activeOrganizationId;
+    if (!api || !id || guideReadiness !== "ready") return undefined;
+    return (index: number) => {
+      const ctx = session.ctxFor(tabId);
+      return ctx.session.sessionId === id && organization === serversStore.activeOrganizationId ? api.diff(ctx, { scope: { kind: "turn", index } }) : Promise.resolve(null);
+    };
+  });
+  provideTurnDiffReader(() => guideReader);
   // Only a handoff the host made before its new provider has a thread (plan
   // acceptance) is still open; a send-time handoff names its model itself.
   const activeHandoffDivider = $derived(
@@ -201,7 +220,7 @@
   // message. Only the shell knows, so it tells us rather than us guessing from a
   // viewport width that is equally narrow in a desktop split.
   const reservesBandRoom = $derived(
-    bandAbove && isVisible && !forceVisible,
+    bandAbove && (isVisible || keepTranscriptVisible) && !forceVisible,
   );
   // 46px of band plus the gap under it.
   const CRUMB_OFFSET = CONVERSATION_BREADCRUMB_OFFSET;
@@ -264,7 +283,23 @@
     scroll: () => scrollEl,
     follower: () => endFollow,
     openingSearch: () => searchNavigation.opening,
+    pendingRowData: () => (sess ? session.lifecycle.pendingTurnSnapshots(sess.id) : undefined),
+    hasOlderHistory: () => hasOlderTurnsToLoad && !historyError,
+    loadOlderHistory: () => session.lifecycle.expandHistory(tabId),
     onSettled: () => backfillShortTranscript(),
+  });
+  const showsCloudPane = $derived(
+    !!sess && sess.messages.length === 0 && (isHostAway || !!cloudRead?.view),
+  );
+  let hasSettled = $state(false);
+  const hidesTranscript = $derived(
+    waitingForHistory || (arrival.pending && !(hasSettled && keepTranscriptVisible)),
+  );
+  $effect(() => {
+    if (!isVisible || !tab || !sess) return;
+    const settled = !waitingForHistory && !arrival.pending;
+    if (settled) hasSettled = true;
+    if (showsCloudPane || settled) untrack(() => onReady?.());
   });
   async function jumpToEnd() {
     requestInputFocus({ tabId });
@@ -310,10 +345,13 @@
   }
 
   // Infinite scroll reads the next page while the reader is still a few
-  // screens from the top, so it arrives before they reach it. The scroll
-  // position is anchored across the insert so the previously-visible messages
-  // stay put rather than jumping when content is added above them.
-  const nearTop = (el: HTMLElement) => el.scrollTop <= el.clientHeight * HISTORY_PREFETCH_SCREENS;
+  // screens from the top, so it arrives before they reach it; a reader at the
+  // end reads none (`shouldReadOlderHistory`). The scroll position is anchored
+  // across the insert so the previously-visible messages stay put rather than
+  // jumping when content is added above them.
+  const nearTop = (el: HTMLElement) => shouldReadOlderHistory({
+    scrollTop: el.scrollTop, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, atEnd: endFollow?.atEnd ?? false,
+  });
   // `force` is a tap on the button at the top of the thread rather than a
   // scroll that arrived there, so it does not ask where the scroller is.
   async function maybeLoadOlder(opts?: { force?: boolean }) {
@@ -677,7 +715,7 @@
 
 <!-- A host that is away has nothing to load: the pane stays empty rather than
      a skeleton that never ends. Its state is in the composer's place. -->
-{#if tab && sess && sess.messages.length === 0 && (isHostAway || cloudRead?.view)}
+{#if tab && showsCloudPane}
   {#if cloudRead?.view}<SessionCloudRead {tabId} view={cloudRead.view} placement="pane" />{:else}<div class="h-full"></div>{/if}
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -692,7 +730,7 @@
     aria-busy={waitingForHistory || arrival.pending}
   >
     <div class="cv-root relative min-h-0 flex-1">
-      {#if waitingForHistory || arrival.pending}
+      {#if hidesTranscript}
         <div class="pointer-events-none absolute inset-0">
           <ConversationLoading />
         </div>
@@ -734,8 +772,8 @@
           bind:this={readingColumnEl}
           bind:clientWidth={readingColumnWidth}
           class="w-full"
-          class:opacity-0={waitingForHistory || arrival.pending}
-          inert={waitingForHistory || arrival.pending}
+          class:opacity-0={hidesTranscript}
+          inert={hidesTranscript}
           style="max-width:var(--solus-reading-max);margin-inline:auto;--transcript-gutter:{Math.max(0, (transcriptWidth - readingColumnWidth) / 2)}px{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"

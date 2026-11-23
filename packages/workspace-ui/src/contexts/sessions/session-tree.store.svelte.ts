@@ -1,7 +1,8 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionTree } from '@solus/contracts/session-digest'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { EMPTY_SESSION_TREE_VIEW, SessionTreeWatch, type SessionTreeView } from '@solus/client-core/session-tree-watch'
+import { localApi } from '@solus/client-core/local-api'
+import { EMPTY_SESSION_TREE_VIEW, readSessionTreeWithRelations, SessionTreeWatch, type SessionTreeView } from '@solus/client-core/session-tree-watch'
 
 interface Followed {
   serverId: string
@@ -29,12 +30,19 @@ class SessionTreeStore {
       // The session moved to another host: follow it there.
       held.watch.stop()
       this.followed.delete(sessionId)
+      this.views.delete(sessionId)
       held = undefined
     }
     if (!held) {
       const watch = new SessionTreeWatch({
         // Through the host's current connection, also after a reconnect.
-        api: { sessionTree: (id) => serverConnections.apiFor(serverId).sessionTree(id) },
+        api: {
+          sessionTree: (id) => {
+            const platform = localApi.getPlatform?.()
+            const api = serverConnections.apiFor(serverId)
+            return platform && platform !== 'web' ? readSessionTreeWithRelations(api, id) : api.sessionTree(id)
+          },
+        },
         events: serverConnections.eventsFor(serverId),
         sessionId,
         onChange: (view) => this.views.set(sessionId, view),
@@ -62,13 +70,16 @@ class SessionTreeStore {
     return this.views.get(sessionId)?.tree ?? null
   }
 
-  viewFor(sessionId: string): SessionTreeView {
-    return this.views.get(sessionId) ?? EMPTY_SESSION_TREE_VIEW
+  viewFor(sessionId: string, serverId?: string): SessionTreeView {
+    const view = this.views.get(sessionId)
+    if (serverId !== undefined && this.followed.get(sessionId)?.serverId !== serverId) return EMPTY_SESSION_TREE_VIEW
+    return view ?? EMPTY_SESSION_TREE_VIEW
   }
 
   /** Read a held session's tree again: the retry after a failed read. */
-  reload(sessionId: string): void {
-    void this.followed.get(sessionId)?.watch.refresh()
+  reload(sessionId: string, serverId?: string): void {
+    const held = this.followed.get(sessionId)
+    if (held && (serverId === undefined || held.serverId === serverId)) void held.watch.refresh()
   }
 
   private watchReadiness(): void {

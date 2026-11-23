@@ -5,6 +5,8 @@ import type { HostThreads } from './thread-directory'
 /** Device copies use the same bounded SQLite response store as PRs. A scope
  * change ends every read and write opened by the previous account. */
 export class MobileSessionCache {
+  private readonly historyReads = new Map<string, Promise<SessionHistoryPage | null>>()
+
   constructor(private readonly storage: PullRequestCache, readonly scope: () => string) {}
 
   forHost(hostId: string) {
@@ -21,10 +23,22 @@ export class MobileSessionCache {
       directory: () => read<HostThreads>(['directory']),
       clearDirectory: () => write(['directory'],null),
       saveDirectory: (directory: HostThreads) => write(['directory'], {
-        ...directory, threads: directory.threads.slice(0, 200), unlisted: [],
+        ...directory, revision: directory.threads.length > 200 ? undefined : directory.revision, threads: directory.threads.slice(0, 200), unlisted: [],
       }),
-      history: (sessionId: string) => read<SessionHistoryPage>(['history', sessionId]),
-      saveHistory: (sessionId: string, page: SessionHistoryPage | null) => write(['history', sessionId], page),
+      history: (sessionId: string) => {
+        const id = JSON.stringify([scope, hostId, sessionId])
+        const pending = this.historyReads.get(id)
+        if (pending) return pending
+        const result = read<SessionHistoryPage>(['history', sessionId]).finally(() => {
+          if (this.historyReads.get(id) === result) this.historyReads.delete(id)
+        })
+        this.historyReads.set(id, result)
+        return result
+      },
+      saveHistory: (sessionId: string, page: SessionHistoryPage | null) => {
+        this.historyReads.delete(JSON.stringify([scope, hostId, sessionId]))
+        return write(['history', sessionId], page)
+      },
     }
   }
 }

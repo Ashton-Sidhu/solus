@@ -4,7 +4,6 @@ import type { Message } from '@solus/contracts/types'
 import {
   TOOL_CALL_FACTS,
   TOOL_OUTPUT_PLACES,
-  TOOL_STRIP_IMAGE_LIMIT,
   hasToolStrip,
   openLineAudio,
   openLineLeftOut,
@@ -37,11 +36,7 @@ describe('the rule for the visible outputs of a tool call', () => {
     expect(unplaced).toEqual([])
   })
 
-  test('tool images, audio, and left-out notes go to the strip; the strip shows the thumbnails first', () => {
-    // WHY: the maintainer's rule is that only the final output of a turn goes
-    // to its image gallery. What a tool returned is work: it shows under the
-    // row that folds it, so a folded turn still shows that it exists.
-    expect(TOOL_OUTPUT_PLACES.toolImages).toBe('strip')
+  test('the folded row keeps audio and left-out chips', () => {
     expect(TOOL_OUTPUT_PLACES.toolAudio).toBe('strip')
     expect(TOOL_OUTPUT_PLACES.toolLeftOut).toBe('strip')
     const speech = call('t1', {
@@ -49,9 +44,7 @@ describe('the rule for the visible outputs of a tool call', () => {
       toolAudio: [{ assetId: asset('b', 'mp3'), mimeType: 'audio/mpeg' }],
       toolLeftOut: ['Panel "saturation": past the 5 MB limit', 'Panel "errors": past the 5 MB limit'],
     })
-    const chart = call('t2', { toolImages: [image('a')] })
-    const strip = toolStrip([speech, chart])
-    expect(strip.thumbnails.map((entry) => [entry.toolId, entry.image.href, entry.image.label])).toEqual([['t2', `asset://${asset('a')}`, 'grafana image 1']])
+    const strip = toolStrip([speech])
     expect(strip.chips).toEqual([
       { kind: 'audio', key: `audio:t1:${asset('b', 'mp3')}`, toolId: 't1', server: 'elevenlabs', format: 'MP3' },
       { kind: 'left-out', key: 'left-out:t1', toolId: 't1', count: 2 },
@@ -68,8 +61,8 @@ describe('the rule for the visible outputs of a tool call', () => {
     expect(threadTurnImages([mobileTool])).toEqual([])
   })
 
-  test('a running call gives no thumbnail and no chip, so the stream does no work for them', () => {
-    const running = call('t1', { toolStatus: 'running', toolImages: [image('a')], toolLeftOut: ['x'] })
+  test('a running call gives no chip, so the stream does no work for it', () => {
+    const running = call('t1', { toolStatus: 'running', toolLeftOut: ['x'] })
     expect(hasToolStrip(toolStrip([running]))).toBe(false)
   })
 
@@ -95,33 +88,17 @@ describe('the rule for the visible outputs of a tool call', () => {
     expect(openLineLeftOut(running)).toEqual([])
   })
 
-  test('a browser capture shows once, as its capture card outside the folds', () => {
-    // WHY: browser_snapshot also returns a scaled copy of the page to the agent.
-    // The capture card already shows the page, so the copy would show it twice.
-    expect(toolStrip([call('t1', { toolName: 'mcp__solus__browser_snapshot', toolImages: [image('a')] })]).thumbnails).toEqual([])
-    expect(toolStrip([call('t2', { toolName: 'device_screenshot', toolImages: [image('a')] })]).thumbnails).toHaveLength(1)
-  })
-
-  test('an artifact preview screenshot stays out of the strip', () => {
-    // WHY: render_artifact with preview returns a screenshot for the agent to check the page.
-    // The person sees the page in the artifact card, so the screenshot would show it twice.
-    expect(toolStrip([call('t1', { toolName: 'mcp__solus__render_artifact', toolImages: [image('a')] })]).thumbnails).toEqual([])
-    expect(toolStrip([call('t2', { toolName: 'render_artifact', toolImages: [image('b')] })]).thumbnails).toEqual([])
-  })
-
-  test('many images: the strip shows the limit in call order, and the +N tile opens the rest', () => {
-    const tools = [0, 1, 2].map((index) => call(`t${index}`, {
-      toolImages: Array.from({ length: 4 }, (_, n) => image(String.fromCharCode(97 + index * 4 + n))),
-    }))
-    // The same picture from a later call is shown once.
-    tools.push(call('t3', { toolImages: [image('a')] }))
-    const strip = toolStrip(tools)
-    expect(strip.thumbnails).toHaveLength(TOOL_STRIP_IMAGE_LIMIT)
-    expect(strip.thumbnails.map((entry) => entry.toolId)).toEqual(['t0', 't0', 't0', 't0', 't1', 't1'])
-    expect(strip.images).toHaveLength(12)
-    expect(strip.moreCount).toBe(6)
-    // The tile opens the viewer on the first image past the limit.
-    expect(strip.images[strip.thumbnails.length].label).toBe('grafana image 7')
+  test('image-only calls add no strip below a folded turn or tool group', () => {
+    expect(TOOL_OUTPUT_PLACES.toolImages).toBe('tool-detail')
+    const images = { toolImages: [image('a')] }
+    const tools = [
+      call('chart', images),
+      call('browser', { ...images, toolName: 'mcp__solus__browser_snapshot' }),
+      call('device', { ...images, toolName: 'device_screenshot' }),
+      call('preview', { ...images, toolName: 'mcp__solus__render_artifact' }),
+    ]
+    expect(hasToolStrip(toolStrip(tools))).toBe(false)
+    for (const tool of tools) expect(hasToolStrip(toolStrip([tool]))).toBe(false)
   })
 })
 

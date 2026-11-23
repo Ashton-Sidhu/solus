@@ -164,9 +164,8 @@
      them keeps the same gap it keeps to the header beside it. */
   --solus-traffic-light-end: 0px;
   --solus-chrome-row-h: 2.5rem;
-  /* The frame toggle is the header's raised pill (`PAGE_SOFT_ICON_BTN`,
-     size-6.5). Its slot is that size, so it centres on the titlebar row and
-     the header beside it starts one gap after its visible edge. */
+  /* The sidebar toggle's slot matches its 26px button. This centres it in
+     the title bar and leaves room for the header beside it. */
   --solus-titlebar-control-size: 1.625rem;
   --solus-titlebar-control-gap: 0.75rem;
   --solus-titlebar-control-top: max(
@@ -202,6 +201,7 @@
   --solus-surface-active: rgba(0, 0, 0, 0.06);
   /* Input */
   --solus-input-bg: transparent;
+  --solus-form-input-bg: #fff;
   --solus-input-border: #dddad2;
   --solus-input-focus-border: rgba(217, 119, 87, 0.45);
   --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
@@ -558,6 +558,7 @@
   --solus-surface-active: #ffffff1f;
   /* Input */
   --solus-input-bg: transparent;
+  --solus-form-input-bg: color-mix(in oklab, var(--input) 30%, transparent);
   --solus-input-border: #ffffff1f;
   --solus-input-focus-border: rgba(217, 119, 87, 0.45);
   --solus-input-focus-ring: rgba(217, 119, 87, 0.12);

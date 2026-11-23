@@ -144,8 +144,7 @@ export function createTaskPageCommands(input: TaskPageCommandsInput) {
     },
 
     /** Copy the task's address on its provider. A draft has none. */
-    async copyLink(): Promise<void> {
-      const url = task().url
+    async copyLink(url: string | null | undefined): Promise<void> {
       if (!url) return
       await copyText(url)
       toasts.success('Link copied')

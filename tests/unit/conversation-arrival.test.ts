@@ -12,9 +12,10 @@ interface Arrival {
   open(): () => void
 }
 
-function fixture(savedPosition = false, frameHeights: () => Promise<boolean> = async () => false) {
+function fixture(savedPosition = false, frameHeights: () => Promise<boolean> = async () => false, rowData?: Promise<unknown>,
+  history: { scrollHeight: number, hasOlder: () => boolean, loadOlder: () => Promise<void> } = { scrollHeight: 1000, hasOlder: () => false, loadOlder: async () => {} }) {
   const frames: FrameRequestCallback[] = []
-  const scroll = { scrollTop: 0, scrollHeight: 1000, clientHeight: 400 }
+  const scroll = { scrollTop: 0, scrollHeight: history.scrollHeight, clientHeight: 400 }
   const settled = Promise.withResolvers<void>()
   const restore = Promise.withResolvers<boolean>()
   const viewState = {
@@ -33,7 +34,8 @@ function fixture(savedPosition = false, frameHeights: () => Promise<boolean> = a
     `${executable}\nreturn new ConversationArrival(options);`)
   const arrival: Arrival = create(() => Promise.resolve(), (callback: FrameRequestCallback) => frames.push(callback), settleScroll, waitForFrameHeightsIn, {
     viewState, scroll: () => scroll, follower: () => ({ jump, release, atEnd: true }),
-    openingSearch: () => false, onSettled,
+    openingSearch: () => false, pendingRowData: () => rowData,
+    hasOlderHistory: history.hasOlder, loadOlderHistory: () => history.loadOlder().then(() => { scroll.scrollHeight += 600 }), onSettled,
   })
   return { arrival, viewState, jump, release, onSettled, settleScroll, settled, restore, waitForFrameHeightsIn,
     async frame() {
@@ -127,5 +129,69 @@ test('rows wait for an HTML frame in view to report its height, then settle agai
   await Promise.resolve()
   // The frames that reported moved the end, so the place is settled again.
   expect(f.settleScroll).toHaveBeenCalledTimes(2)
+  expect(f.arrival.pending).toBe(false)
+})
+
+test('rows stay hidden until the turn snapshots read lands, then settle at the end', async () => {
+  // WHY: each turn's changes card comes from a separate snapshot read. A card
+  // that mounted after the rows showed grew its turn, and following the end
+  // snapped the conversation down under the reader.
+  const snapshots = Promise.withResolvers<void>()
+  const f = fixture(false, async () => false, snapshots.promise)
+  f.arrival.open()
+  await f.frame()
+  expect(f.jump).not.toHaveBeenCalled()
+  expect(f.arrival.pending).toBe(true)
+  snapshots.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(f.jump).toHaveBeenCalledTimes(1)
+  f.settled.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(f.arrival.pending).toBe(false)
+})
+
+test('a snapshot read that never lands does not hold the conversation', async () => {
+  // WHY: a slow or gone host must not keep the rows hidden; the cards then
+  // move the rows when they land, which is the old behavior.
+  const f = fixture(false, async () => false, new Promise<void>(() => {}))
+  f.arrival.open()
+  await f.frame()
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  expect(f.jump).toHaveBeenCalledTimes(1)
+  f.settled.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(f.arrival.pending).toBe(false)
+})
+
+test('a first page shorter than the view reads older history before the rows show', async () => {
+  // WHY: a short first page showed at the top, read the older page after it
+  // showed, and the view then snapped down to the end under the reader.
+  const page = Promise.withResolvers<void>()
+  let older = true
+  const f = fixture(false, async () => false, undefined, {
+    scrollHeight: 300, hasOlder: () => older, loadOlder: () => page.promise.then(() => { older = false }),
+  })
+  f.arrival.open()
+  await f.frame()
+  expect(f.jump).not.toHaveBeenCalled()
+  expect(f.arrival.pending).toBe(true)
+  page.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(f.jump).toHaveBeenCalledTimes(1)
+  f.settled.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(f.arrival.pending).toBe(false)
+})
+
+test('an older page that fails to load does not hold the conversation', async () => {
+  const loadOlder = mock(() => Promise.reject(new Error('gone')))
+  const f = fixture(false, async () => false, undefined, { scrollHeight: 300, hasOlder: () => true, loadOlder })
+  f.arrival.open()
+  await f.frame()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(loadOlder).toHaveBeenCalledTimes(1)
+  expect(f.jump).toHaveBeenCalledTimes(1)
+  f.settled.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
   expect(f.arrival.pending).toBe(false)
 })

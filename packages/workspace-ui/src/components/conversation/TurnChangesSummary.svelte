@@ -34,6 +34,7 @@
     <DiffSummaryCard
       {tabId}
       {scope}
+      totals={{ files: snapshot.filesChanged, additions: snapshot.additions, deletions: snapshot.deletions }}
       agentWindow={turnWindow(turns, turnIdx)}
       onOpenDiff={(filePath) => session.showDiff(tabId, scope, filePath)}
       onOpenFile={(filePath) =>

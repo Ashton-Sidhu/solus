@@ -1,46 +1,31 @@
-import type { AssetResource, EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useMemo } from "react";
+import type { EnvironmentId } from "@t3tools/contracts";
+import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
+import { appAtomRegistry } from "../../state/atom-registry";
+import { useEnvironmentQuery } from "../../state/query";
+import { checkoutAssetUrl } from "../../solus/checkout-files";
 
-import { useAssetUrlState, useRefreshAssetUrl } from "../../state/assets";
-import {
-  isAbsolutePath,
-  isAudioPreviewFile,
-  isVideoPreviewFile,
-  resolveWorkspaceFilePath,
-} from "./filePath";
-
-export function useWorkspaceFileAssetUrlState(props: {
-  readonly cwd: string | null;
-  readonly environmentId: EnvironmentId | null;
-  readonly relativePath: string | null;
-  readonly threadId: ThreadId | null;
-  readonly draftCwd?: string | null;
-}) {
-  const absolutePath =
-    props.cwd !== null && props.relativePath !== null
-      ? resolveWorkspaceFilePath(props.cwd, props.relativePath)
+export function useWorkspaceFileAssetUrlState(
+  environmentId: EnvironmentId | null,
+  cwd: string | null,
+  path: string | null,
+  accountKey: string,
+) {
+  const atom =
+    environmentId && cwd && path
+      ? checkoutAssetUrl({ environmentId, accountKey, input: { cwd, path } })
       : null;
-
-  const relativePath = props.relativePath;
-  const draftCwd = props.draftCwd ?? null;
-  const resource = useMemo<AssetResource | null>(() => {
-    if (absolutePath === null || relativePath === null) return null;
-    if (props.threadId !== null) {
-      return {
-        _tag:
-          isVideoPreviewFile(absolutePath) ||
-          isAudioPreviewFile(absolutePath) ||
-          isAbsolutePath(relativePath)
-            ? "media-file"
-            : "workspace-file",
-        threadId: props.threadId,
-        path: absolutePath,
-      };
-    }
-    if (draftCwd === null) return null;
-    return { _tag: "draft-workspace-file", cwd: draftCwd, path: relativePath };
-  }, [absolutePath, relativePath, props.threadId, draftCwd]);
-  const state = useAssetUrlState(props.environmentId, resource);
-  const refresh = useRefreshAssetUrl(props.environmentId, resource);
-  return { ...state, resource, refresh };
+  const result = useEnvironmentQuery(atom);
+  return {
+    uri: result.data,
+    failed: result.error !== null,
+    refresh: result.refresh,
+    resolve: async () => {
+      if (!atom) return null;
+      const signed = await executeAtomQuery(appAtomRegistry, atom, {
+        refresh: true,
+        reportFailure: false,
+      });
+      return signed._tag === "Success" ? signed.value : null;
+    },
+  };
 }

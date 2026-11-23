@@ -23,7 +23,7 @@ import type { PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecut
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
 import type { SessionArtifacts } from './session-artifacts'
-import type { SessionTree } from './session-digest'
+import type { SessionMergeBackPrompt, SessionTree } from './session-digest'
 import type { SessionChange, SessionChanged } from './session-state'
 import type { ListMySessionsResponse, SessionTurnDiff } from './session-repositories'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
@@ -412,7 +412,9 @@ export interface SolusAPI {
   sessionArtifactsList(sessionId: string): Promise<SessionArtifacts>
   /** A session and every session below it, the session first: each one's
    *  record, digest, and artifacts (docs/plans/session-digests.md). */
-  sessionTree(sessionId: string): Promise<SessionTree>
+  sessionTree(sessionId: string, includeRelations?: boolean): Promise<SessionTree>
+  sessionLineageHistory(parentSessionId: string, childSessionId: string, before?: string, turnLimit?: number): Promise<SessionHistoryPage>
+  sessionMergeBackPrompt(sessionId: string): Promise<SessionMergeBackPrompt>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
   listPlans(projectPath?: string, allProjects?: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]>
@@ -838,6 +840,7 @@ export interface SolusAPI {
   /** Stop the background tasks a session's agent left running, without
    *  interrupting its turn. False when there is nothing to stop. */
   stopBackgroundTasks(sessionId: string): Promise<boolean>
+  stopSessionSubagent(sessionId: string, toolId: string): Promise<boolean>
   /** Stop the worktree setup that runs now and start its prompt in the project
    *  folder instead. False when no worktree setup runs. */
   continueSetupLocally(sessionId: string): Promise<boolean>
@@ -1155,7 +1158,8 @@ export interface SolusAPI {
   tasksGet(id: string, read?: TaskReadOptions): Promise<TaskDetails | TaskProviderData>
   tasksReact(id: string, targetId: string, content: TaskReactionContent, add: boolean): Promise<void>
   tasksTemplates(source: TaskSource): Promise<TaskTemplate[]>
-  tasksResolve(url: string): Promise<TaskExternalIssue>
+  /** Resolve an issue URL. Clients that load history separately request details only. */
+  tasksResolve(url: string, options?: { detailsOnly?: boolean }): Promise<TaskExternalIssue>
   /** The attachments of a task on a host that does not read the task itself. */
   tasksAttachments(id: string): Promise<TaskAttachments>
   /** Create a task on the provider. */
@@ -1277,6 +1281,10 @@ export interface SolusAPI {
   diff(ctx: IpcContext, request: DiffRequest): Promise<DiffResult | null>
   diffFileContents(ctx: IpcContext, request: DiffFileContentsRequest): Promise<DiffFileContentsResult | null>
   diffStats(ctx: IpcContext, request: DiffRequest): Promise<ChangedFileStat[]>
+  /** `diffStats` for several scopes of one checkout in one call, answered in
+   *  request order: the turn cards of a conversation ask together. At most
+   *  `DIFF_STATS_BATCH_LIMIT` requests. */
+  diffStatsBatch(ctx: IpcContext, requests: DiffRequest[]): Promise<ChangedFileStat[][]>
   listTurnSnapshots(ctx: IpcContext): Promise<TurnSnapshot[]>
   gitRunAction(ctx: IpcContext, request: GitActionRequest): Promise<GitActionResult>
   gitDiscard(ctx: IpcContext): Promise<GitDiscardResult>

@@ -54,6 +54,15 @@ export class RepositorySetupStore {
     return this.publishResultByKey[hostKey(serverId, cwd)] ?? null
   }
 
+  /** Read a checkout's repository status once per client: a Git section that
+   *  mounts again on a tab switch reads what is held. `refresh` reads again,
+   *  as the manual Git refresh, Initialize Git, and Publish do. */
+  ensure(api: HostApi, serverId: string, cwd: string): void {
+    const key = hostKey(serverId, cwd)
+    if (key in this.statusByKey || this.inflight.has(key)) return
+    void this.refresh(api, serverId, cwd)
+  }
+
   async refresh(api: HostApi, serverId: string, cwd: string): Promise<GitRepositoryStatus | null> {
     const key = hostKey(serverId, cwd)
     const existing = this.inflight.get(key)
@@ -69,6 +78,12 @@ export class RepositorySetupStore {
       })
     this.inflight.set(key, pending)
     return pending
+  }
+
+  /** Read the GitHub connection once per client (`refreshGithubConnection`). */
+  ensureGithubConnection(api: HostApi, serverId: string, ctx: IpcContext, cwd: string): void {
+    if (hostKey(serverId, cwd) in this.githubConnectedByKey) return
+    void this.refreshGithubConnection(api, serverId, ctx, cwd)
   }
 
   /**

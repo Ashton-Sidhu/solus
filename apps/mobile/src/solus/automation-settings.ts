@@ -57,7 +57,8 @@ export function automationEditPatch(
     name: string;
     enabled: boolean;
     trigger: AutomationTrigger;
-    action: Pick<AutomationAction, "prompt" | "modelId" | "agentProvider" | "cwd" | "useWorktree">;
+    action: Pick<AutomationAction, "prompt" | "modelId" | "agentProvider" | "cwd" | "useWorktree"> &
+      Partial<Pick<AutomationAction, "reasoningEffort" | "fastMode">>;
   },
 ) {
   const { action } = edit;
@@ -72,6 +73,12 @@ export function automationEditPatch(
       ...(action.modelId !== saved.action.modelId && { modelId: action.modelId }),
       ...(action.agentProvider !== saved.action.agentProvider && {
         agentProvider: action.agentProvider,
+      }),
+      ...(action.reasoningEffort !== undefined && action.reasoningEffort !== saved.action.reasoningEffort && {
+        reasoningEffort: action.reasoningEffort,
+      }),
+      ...(action.fastMode !== undefined && action.fastMode !== (saved.action.fastMode ?? false) && {
+        fastMode: action.fastMode,
       }),
       ...(action.cwd !== saved.action.cwd && { cwd: action.cwd }),
       ...(!!action.useWorktree !== !!saved.action.useWorktree && {

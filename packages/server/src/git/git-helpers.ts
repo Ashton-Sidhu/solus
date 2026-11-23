@@ -415,6 +415,26 @@ async function primaryRemoteUrlOf(cwd: string): Promise<string | null> {
  * the default push remote, its remote, then `origin`, under its own name.
  * Null when no remote is known.
  */
+/**
+ * Whether `branch` was never published from this checkout, so no pull request
+ * can come from it: it has no upstream, the repository tracks some remote
+ * branch, and no remote has a branch of this name. A repository that tracks
+ * no remote branch at all cannot tell, and is not called unpublished. This is
+ * t3code's rule (`GitManager.isUnpublishedBranch`): a local check that saves
+ * a code host lookup for every worktree branch an agent has not pushed.
+ */
+export async function isUnpublishedBranch(cwd: string, branch: string): Promise<boolean> {
+  if (!branch) return false
+  const git = (args: string[]) => runAsync('git', ['-c', 'safe.directory=*', ...args], cwd).then((out) => out.trim(), () => null)
+  const upstream = await git(['for-each-ref', '--format=%(upstream)', `refs/heads/${branch}`])
+  if (upstream === null || upstream.startsWith('refs/remotes/')) return false
+  const [anyRemoteBranch, sameName] = await Promise.all([
+    git(['for-each-ref', '--count=1', '--format=%(refname)', 'refs/remotes']),
+    git(['for-each-ref', '--count=1', '--format=%(refname)', `refs/remotes/*/${branch}`]),
+  ])
+  return !!anyRemoteBranch && sameName === ''
+}
+
 export async function resolvePushHead(cwd: string, branch: string): Promise<PullRequestHead | null> {
   const remotes = await remoteUrlsOf(cwd)
   if (!remotes.size) return null

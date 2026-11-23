@@ -6,6 +6,7 @@ import { privateProviderInstances } from '../../seats/provider-instances'
 import { requireActingScope } from '../../../vault/acting-scope'
 import { restoreAsyncQuestionAnswers } from '../../../data/sessions/async-questions'
 import { sameHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
+import { historyFileRevision, ProviderHistoryPages } from '../history-page-cache'
 import { historyPageTurnId, loadCodexHistoryPage } from './codex-history-page'
 import { BaseAgentBackend } from '../base-backend'
 import type { AgentToolImage } from '../tools/agent-tool'
@@ -271,6 +272,8 @@ type CodexRunHandle = RunHandle & {
   client: CodexAppServerClient
   threadId: string | null
   turnId: string | null
+  startedTurnId?: string
+  shouldRetryInterruptOnStart?: boolean
   permissionMode: PermissionMode
   interrupted: boolean
   normalizer: CodexTurnNormalizer
@@ -885,9 +888,33 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private requestTurnInterrupt(handle: CodexRunHandle): void {
-    if (!handle.threadId || !handle.turnId) return
-    handle.client.request('turn/interrupt', { threadId: handle.threadId, turnId: handle.turnId }, 10_000)
-      .catch((err) => log.warn('turn_interrupt_failed', { error: err.message }))
+    const { threadId, turnId } = handle
+    if (!threadId || !turnId) return
+    const hadStarted = handle.startedTurnId === turnId
+    handle.client.request('turn/interrupt', { threadId, turnId }, 10_000).catch((error: Error) => {
+      // turn/start can return its id before the app-server activates the turn.
+      // The rejection and turn/started may reach us in either order.
+      if (!hadStarted && error.message === 'no active turn to interrupt' && this.activeRuns.get(threadId) === handle) {
+        if (handle.startedTurnId === turnId) this.requestTurnInterrupt(handle)
+        else handle.shouldRetryInterruptOnStart = true
+        return
+      }
+      log.warn('turn_interrupt_failed', { sessionId: threadId, turnId, error: error.message })
+    })
+  }
+
+  private onTurnStarted(handle: CodexRunHandle, turnId: string): void {
+    if (handle.turnId && handle.turnId !== turnId) return
+    handle.startedTurnId = turnId
+    // compact/start returns no turn id. Capture it here so Stop can interrupt it.
+    if (handle.isCompaction && !handle.turnId) {
+      handle.turnId = turnId
+      this.turnOwners.set(turnId, handle)
+      if (handle.interrupted) this.requestTurnInterrupt(handle)
+    } else if (handle.shouldRetryInterruptOnStart && handle.turnId === turnId) {
+      handle.shouldRetryInterruptOnStart = false
+      this.requestTurnInterrupt(handle)
+    }
   }
 
   /**
@@ -1189,11 +1216,27 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return messages
   }
 
+  private readonly historyPages = new ProviderHistoryPages()
+
+  /** Only a materialized, idle thread has a stable on-disk snapshot. Resolve its
+   * path through this reader so a changed seat or import cannot hit another file. */
+  private async historyFile(client: CodexAppServerClient, threadId: string) {
+    if (this.isSessionRunning(threadId)) return null
+    try {
+      const { thread } = await client.request<CodexThreadReadResponse, { threadId: string; includeTurns: boolean }>('thread/read', { threadId, includeTurns: false })
+      if (thread.id !== threadId || !thread.path || (thread.status?.type !== 'idle' && thread.status?.type !== 'notLoaded')) return null
+      const revision = await historyFileRevision(thread.path)
+      return revision ? { path: thread.path, revision } : null
+    } catch {
+      return null
+    }
+  }
+
   /** Only the turns the page can hold are listed, newest first: a long thread
    *  is not listed whole to open its last turns. */
-  async loadSessionPage(sessionId: string, _projectPath: string | undefined, turnLimit: number, before?: string) {
+  async loadSessionPage(sessionId: string, _projectPath: string | undefined, turnLimit: number, before?: string, cachePage = false) {
     const beforeTurnId = historyPageTurnId(before)
-    return this.readHistoryPage(sessionId, (client) => loadCodexTurnWindow(client, sessionId, beforeTurnId, turnLimit), turnLimit, before)
+    return this.readHistoryPage(sessionId, (client) => loadCodexTurnWindow(client, sessionId, beforeTurnId, turnLimit), turnLimit, before, cachePage)
   }
 
   /** Only the first turn's items are read; the turn list itself is a summary. */
@@ -1201,7 +1244,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return (await this.readHistoryPage(sessionId, async (client) => (await loadCodexTurns(client, sessionId)).slice(0, 1), 1)).messages
   }
 
-  private async readHistoryPage(sessionId: string, readTurns: (client: CodexAppServerClient) => Promise<CodexTurnHistory[]>, turnLimit: number, before?: string) {
+  private async readHistoryPage(sessionId: string, readTurns: (client: CodexAppServerClient) => Promise<CodexTurnHistory[]>, turnLimit: number, before?: string, cachePage = false) {
     const startedAt = performance.now()
     let stage = 'reader'
     let stageStartedAt = startedAt
@@ -1221,10 +1264,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     try {
       const client = await this.readerFor(sessionId, { startSeatClient: true })
       nextStage('turns')
-      const turns = await this.readLoadedThread(client, sessionId, () => readTurns(client), () => { resumed = true })
+      const source = cachePage ? this.historyFile(client, sessionId) : null
+      const [file, turns] = await Promise.all([source, this.readLoadedThread(client, sessionId, () => readTurns(client), () => { resumed = true })])
       turnCount = turns.length
       nextStage('items')
-      const page = await loadCodexHistoryPage(sessionId, turns, async (params) => {
+      const cacheable = file && turns.every(turn => (turn.itemsView === 'summary' || turn.itemsView === 'notLoaded') && turn.id && ['completed', 'failed', 'interrupted'].includes(turn.status ?? ''))
+      const key = cacheable ? JSON.stringify([sessionId, file.path, turnLimit, before, turns.map(turn => [turn.id, turn.status, turn.completedAt])]) : null
+      const cached = key && file ? this.historyPages.read(key, file.revision) : null
+      const page = cached ?? await loadCodexHistoryPage(sessionId, turns, async (params) => {
         const requestedAt = performance.now()
         itemRequests++
         try {
@@ -1233,6 +1280,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           itemRequestMs += performance.now() - requestedAt
         }
       }, turnLimit, before)
+      if (!cached && key && file && !this.isSessionRunning(sessionId) && file.revision === await historyFileRevision(file.path)) {
+        this.historyPages.save(key, file.revision, page)
+      }
       messageCount = page.messages.length
       nextStage('children')
       await reconcileCodexSubagentHistory(page.messages, (threadId) => this.readThreadTurns(client, threadId))
@@ -1426,12 +1476,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const handle = this.activeRuns.get(sessionId)
     this.rememberSessionRouting(params, sessionId)
     if (handle) this.nativeChildren.observeRootRunEvent(msg, { sessionId, client, normalizer: handle.normalizer }, handle.threadId)
-    // compact/start returns no turn id. Capture it from the provider event so
-    // Stop can interrupt the compaction, including Stop before turn/started.
-    if (handle?.isCompaction && !handle.turnId && msg.method === 'turn/started' && msg.params.threadId === handle.threadId) {
-      handle.turnId = msg.params.turn.id
-      this.turnOwners.set(handle.turnId, handle)
-      if (handle.interrupted) this.requestTurnInterrupt(handle)
+    if (msg.method === 'turn/started' && handle?.threadId === msg.params.threadId && handle.client === client) {
+      this.onTurnStarted(handle, msg.params.turn.id)
     }
     if (msg.method === 'item/started' && params?.item?.type === 'commandExecution' && optionalString(params?.threadId) === sessionId) {
       this.runningCommands.set(params.item.id, {
@@ -1860,6 +1906,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (command) return command.threadId === sessionId && this.stopCommand(taskId, command)
     const childStop = this.nativeChildren.taskToStop(sessionId, taskId)
     return !!childStop && this.stopChild(childStop)
+  }
+
+  async stopNativeSubagent(sessionId: string, toolId: string): Promise<boolean> {
+    const { active, detached } = this.nativeChildren.stopsForTool(sessionId, toolId)
+    const stopped = await Promise.all([
+      ...active.map(async (turn) => await this.requestInterrupt(turn) === 'sent'),
+      ...detached.map((child) => this.stopChild(child)),
+    ])
+    return stopped.some(Boolean)
   }
 
   /** Terminate a command's terminal. It ends with no wake: the person stopped

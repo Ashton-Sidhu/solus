@@ -1424,9 +1424,9 @@ export class WorkspaceContext implements SurfaceContext {
     if (closedTabIndex !== -1) this.tabOrder.splice(closedTabIndex, 1)
     removePersistedTab(tabId, this.activeTabId)
     track('tab_closed', { via })
-    // Closing the last tab lands on the draft you would have opened next, so no
-    // surface has to describe a workspace with nothing in it.
-    if (this.tabOrder.length === 0 && this.router.destination.name !== 'draft') {
+    // Only the conversation needs a replacement. Other pages can stay open
+    // with no tabs; closing the page then returns to the workspace's home.
+    if (this.tabOrder.length === 0 && this.showsConversation) {
       this.drafts.openSessionDraft({ via })
     }
   }

@@ -1,3 +1,12 @@
+import { prepareDraftCheckout, type DraftAttachmentSource } from "../../solus/draft-checkout";
+import { StackActions, type StaticScreenProps } from "@react-navigation/native";
+import { useSessionController } from "../../solus/use-session-controller";
+import { solus, useSolusWorkspace } from "../../solus/runtime";
+import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
+import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
+import { getComposerDraftSnapshot, retargetNewTaskDraft } from "../../state/use-composer-drafts";
+import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
+import { ProjectId } from "@t3tools/contracts";
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { Button } from "../../components/ui/Button";
@@ -10,7 +19,7 @@ import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
 import {
   AuthSourceControlWriteScope,
   resolveEnvironmentMachineKind,
-  type EnvironmentId,
+  EnvironmentId,
 } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
 import {
@@ -19,7 +28,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
-import { T, useGT, useMessages, Var } from "gt-react-native";
+import { useGT, useMessages } from "gt-react-native";
 import { m } from "../../i18n/messages";
 import { useRef, useState, type ReactNode } from "react";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
@@ -44,18 +53,13 @@ import { filterNewTaskBranches } from "./new-task-context-presentation";
 import { useDebouncedValue, usePaginatedBranches } from "../../state/queries";
 import { setPendingConnectionError } from "../../state/use-remote-environment-registry";
 
-import { useEnvironmentPresentation } from "../../state/presentation";
-import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { ConnectionStatusDot } from "../connection/ConnectionStatusDot";
-import {
-  ConnectionDiagnosisDetails,
-  useConnectionDiagnosis,
-} from "../connection/ConnectionDiagnosisDetails";
 import { environmentStatusText } from "../connection/environmentStatusText";
 
 const BRANCH_SEARCH_DEBOUNCE_MS = 150;
 
 function EnvironmentPickerRow(props: {
+  environment: ReturnType<typeof useSolusWorkspace>["environments"][number];
   environmentId: EnvironmentId;
   title: string;
   selected: boolean;
@@ -66,13 +70,13 @@ function EnvironmentPickerRow(props: {
   const gt = useGT();
   const messages = useMessages();
   const [expanded, setExpanded] = useState(false);
-  const { presentation } = useEnvironmentPresentation(props.environmentId);
-  const { diagnosis, state } = useConnectionDiagnosis(props.environmentId, presentation);
-  const { onReconnectEnvironment } = useRemoteConnections();
-  const connection = presentation?.connection;
-  const status =
-    diagnosis?.headline ??
-    (connection ? environmentStatusText({ ...connection, error: null }, messages) : gt("Offline"));
+  const environment = props.environment;
+  const connection = {
+    phase: environment.connectionState,
+    error: environment.connectionError,
+    traceId: environment.connectionErrorTraceId,
+  };
+  const status = environmentStatusText(connection, messages);
   return (
     <View className={cn("bg-grouped-card", !props.isLast && "border-b border-border-subtle")}>
       <View className="flex-row items-center">
@@ -85,7 +89,7 @@ function EnvironmentPickerRow(props: {
           className="min-h-16 flex-1 flex-row items-center gap-3 px-4 py-3 active:bg-subtle"
         >
           <EnvironmentMachineSymbol
-            kind={resolveEnvironmentMachineKind(presentation?.serverConfig ?? null)}
+            kind={resolveEnvironmentMachineKind(null)}
             size={20}
             tintColorClassName="accent-icon-muted"
           />
@@ -94,7 +98,7 @@ function EnvironmentPickerRow(props: {
               {props.title}
             </Text>
             <View className="flex-row items-center gap-1.5">
-              <ConnectionStatusDot state={connection?.phase ?? "offline"} pulse={false} size={6} />
+              <ConnectionStatusDot state={connection.phase} pulse={false} size={6} />
               <Text className="shrink text-xs text-foreground-muted" numberOfLines={2}>
                 {status}
               </Text>
@@ -124,22 +128,13 @@ function EnvironmentPickerRow(props: {
       </View>
       {expanded ? (
         <View className="gap-3 px-4 pb-4">
-          {diagnosis ? (
-            <ConnectionDiagnosisDetails hostLabel={props.title} diagnosis={diagnosis} />
-          ) : (
-            <Text className="text-sm text-foreground-muted">{status}</Text>
-          )}
-          {state.retryAt ? (
-            <Text className="text-sm text-foreground-muted">
-              <T>
-                Next reconnect at <Var>{new Date(state.retryAt).toLocaleTimeString()}</Var>
-              </T>
-            </Text>
-          ) : null}
+          <Text className="text-sm text-foreground-muted">
+            {environment.connectionError ?? status}
+          </Text>
           {connection?.phase !== "connected" ? (
             <Button
               label={gt("Reconnect now")}
-              onPress={() => onReconnectEnvironment(props.environmentId)}
+              onPress={() => void solus.connections.retry(props.environmentId)}
             />
           ) : null}
         </View>
@@ -187,10 +182,16 @@ function PickerSurface(props: { readonly children: ReactNode }) {
   );
 }
 
-export function NewTaskEnvironmentPickerRouteScreen() {
+export function NewTaskEnvironmentPickerRouteScreen({
+  route,
+}: StaticScreenProps<
+  { draftId: string; environmentId: string; source?: DraftAttachmentSource } | undefined
+>) {
   const gt = useGT();
   const flow = useNewTaskFlow();
   const navigation = useNavigation();
+  const directory = useSolusWorkspace();
+  const selectDetail = useSelectWorkspaceDetail();
   const insets = useSafeAreaInsets();
   return (
     <View className="flex-1 bg-sheet" collapsable={false}>
@@ -206,19 +207,73 @@ export function NewTaskEnvironmentPickerRouteScreen() {
           showsVerticalScrollIndicator={false}
         >
           <PickerSurface>
-            {flow.environments.map((environment, index) => (
+            {directory.environments.map((environment, index) => (
               <EnvironmentPickerRow
                 key={String(environment.environmentId)}
+                environment={environment}
                 environmentId={environment.environmentId}
-                isLast={index === flow.environments.length - 1}
-                disabled={flow.switchingToEnvironmentId !== null}
+                isLast={index === directory.environments.length - 1}
+                disabled={
+                  environment.connectionState !== "connected" ||
+                  flow.switchingToEnvironmentId !== null
+                }
                 onPress={() => {
                   void Haptics.selectionAsync();
+                  if (route.params) {
+                    const { draftId, environmentId } = route.params;
+                    if (environment.environmentId === environmentId) {
+                      navigation.goBack();
+                      return;
+                    }
+                    const stamp = getComposerDraftSnapshot(draftId).project;
+                    const source = directory.projects.find(
+                      (p) => p.environmentId === environmentId && p.id === stamp?.projectId,
+                    );
+                    const projects = directory.projects.filter(
+                      (p) =>
+                        p.environmentId === environment.environmentId && !isChat(p.workspaceRoot),
+                    );
+                    const projectId =
+                      stamp && isChat(stamp.projectId)
+                        ? ProjectId.make(NEW_CHAT_DIRECTORY)
+                        : resolveEnvironmentProjectMatch(projects, source ?? null)?.id;
+                    if (projectId) {
+                      const target = { environmentId: environment.environmentId, projectId };
+                      try {
+                        const threadId =
+                          route.params.source &&
+                          prepareDraftCheckout(
+                            route.params.source,
+                            target.environmentId,
+                            projectId,
+                          );
+                        retargetNewTaskDraft(draftId, target);
+                        selectDetail({
+                          name: "Thread",
+                          params: { ...(threadId && { threadId }), draft: { ...target, draftId } },
+                        });
+                      } catch (error) {
+                        Dialog.alert(gt("Could not switch machine"), String(error));
+                      }
+                    } else {
+                      navigation.dispatch(
+                        StackActions.replace("NewTaskProject", {
+                          draftId,
+                          environmentId: environment.environmentId,
+                          source: route.params.source,
+                        }),
+                      );
+                    }
+                    return;
+                  }
                   void flow.switchEnvironment(environment.environmentId).then((switched) => {
                     if (switched) navigation.goBack();
                   });
                 }}
-                selected={flow.selectedEnvironmentId === environment.environmentId}
+                selected={
+                  (route.params?.environmentId ?? flow.selectedEnvironmentId) ===
+                  environment.environmentId
+                }
                 title={environment.environmentLabel}
               />
             ))}
@@ -229,7 +284,94 @@ export function NewTaskEnvironmentPickerRouteScreen() {
   );
 }
 
-export function NewTaskBranchPickerRouteScreen() {
+export function NewTaskBranchPickerRouteScreen({
+  route,
+}: StaticScreenProps<{ environmentId: string; threadId: string } | undefined>) {
+  return route.params ? <HostBranchPicker {...route.params} /> : <FlowBranchPicker />;
+}
+
+function HostBranchPicker(props: { environmentId: string; threadId: string }) {
+  const controller = useSessionController(props);
+  const directory = useSolusWorkspace();
+  const navigation = useNavigation();
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false),
+    pending = useRef(false);
+  const cwd = controller?.run.workingDirectory;
+  const gt = useGT();
+  const normalizedQuery = sanitizeNewRefName(query);
+  const debouncedQuery = useDebouncedValue(normalizedQuery, BRANCH_SEARCH_DEBOUNCE_MS);
+  const read = usePaginatedBranches({
+    environmentId: EnvironmentId.make(props.environmentId),
+    cwd: cwd ?? null,
+    query: debouncedQuery,
+  });
+  const rows = read.refs;
+  const base = controller?.run.worktreeBaseBranch;
+  return (
+    <BranchPickerScreen
+      title={base ? gt("Base branch") : gt("Branch")}
+      project={
+        directory.projects.find(
+          (p) => p.environmentId === props.environmentId && p.workspaceRoot === cwd,
+        ) ?? null
+      }
+      branches={filterNewTaskBranches(rows, query)}
+      selectedBranchName={
+        base ?? controller?.checkoutBranch ?? rows.find((b) => b.current)?.name ?? null
+      }
+      query={query}
+      onQueryChange={setQuery}
+      loading={debouncedQuery !== normalizedQuery || (read.isPending && !read.data)}
+      error={controller ? read.error : gt("Session unavailable")}
+      refreshing={read.isFetchingNextPage}
+      hasMore={read.data?.nextCursor != null}
+      onRefresh={read.refresh}
+      onLoadMore={read.loadNext}
+      selectionDisabled={
+        busy ||
+        !controller?.mayDrive ||
+        !controller.canChooseStart ||
+        !solus.connections.may(props.environmentId, "host.git.write")
+      }
+      onSelect={async (branch) => {
+        if (
+          !controller?.mayDrive ||
+          !controller.canChooseStart ||
+          controller.run.workingDirectory !== cwd ||
+          !cwd ||
+          pending.current ||
+          !solus.connections.may(props.environmentId, "host.git.write")
+        )
+          return;
+        pending.current = true;
+        setBusy(true);
+        void Haptics.selectionAsync();
+        const release = navigation.addListener("beforeRemove", (event) => event.preventDefault());
+        try {
+          if (base) controller.chooseWorktreeBase(branch.name);
+          else {
+            const error = await controller.chooseCheckoutBranch(
+              { name: branch.name, remoteOnly: !!branch.isRemote },
+              { create: false, cwd },
+            );
+            if (error) {
+              Dialog.alert("Could not switch branch", error);
+              return;
+            }
+          }
+        } finally {
+          release();
+          pending.current = false;
+          setBusy(false);
+        }
+        if (navigation.isFocused()) navigation.goBack();
+      }}
+    />
+  );
+}
+
+function FlowBranchPicker() {
   const gt = useGT();
   const flow = useNewTaskFlow();
   const canWriteSourceControl = useEnvironmentScope(

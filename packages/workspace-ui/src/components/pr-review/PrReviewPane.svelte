@@ -17,6 +17,8 @@
     getAgentContext,
   } from "../../contexts";
   import { copyText, toasts } from "../../lib/toasts";
+  import { PAGE_PILL_GROUP } from "../../lib/page-chrome";
+  import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { HostApi } from "@solus/client-core/host-api";
@@ -41,16 +43,14 @@
   import PrDetailChrome from "./PrDetailChrome.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
-  import PrDetailMasthead from "./PrDetailMasthead.svelte";
+  import PrIdentityLink from "./PrIdentityLink.svelte";
   import PrPanelHeader from "./PrPanelHeader.svelte";
   import PrOverflowMenu from "./PrOverflowMenu.svelte";
   import PrViewTabs from "./PrViewTabs.svelte";
   import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import PrReviewButton from "./PrReviewButton.svelte";
   import PrPrimaryAction from "./PrPrimaryAction.svelte";
-  import type { MergeAction, MergeReadiness } from "./lib/merge-readiness";
-  import { isRailFoldedInPane } from "./lib/rail-rows";
-  import { observeContainerWidth } from "../../lib/pane-width";
+  import { mergeReadiness, type MergeAction } from "./lib/merge-readiness";
   import { isFailing, orderedChecks } from "../prs/lib/checks";
   import PrStackMenu from "./PrStackMenu.svelte";
   import PageComposer from "../page-composer/PageComposer.svelte";
@@ -58,7 +58,6 @@
   import { reviewLensStore, type LensSubject } from "../review/review-lens.store.svelte";
   import { lensTabState } from "../review/lib/lens-surface";
   import { prLensAdapter, prLensSubject, prLensSubjectKey } from "./lib/pr-lens";
-  import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import { setCodeHostMentions } from "../mentions/lib/code-host-mentions";
   import { githubMediaRepository } from "@solus/contracts/github-media";
   import { setGithubMediaLocation } from "../github-markdown/lib/github-media.svelte";
@@ -177,6 +176,9 @@
         // when the last read is not recent.
         .then((detail) => {
           if (detail.capabilities.viewedFiles) void detail.viewedFiles.load();
+          if (!headless && detail.state === "open" && !activityFeedRef) {
+            void detail.loadReviewers().catch(() => {});
+          }
         })
         .catch((error) => {
           if (target.number === number) surfaceError = prSurfaceError(error);
@@ -354,7 +356,10 @@
     if (isFirstSight) return;
     untrack(() => {
       loadThreads(true);
-      activityFeedRef?.refresh();
+      if (activityFeedRef) activityFeedRef.refresh();
+      else if (!headless && reviewDetail?.state === "open") {
+        void reviewDetail.loadReviewers({ force: true }).catch(() => {});
+      }
     });
   });
 
@@ -408,7 +413,7 @@
           .get(api, serverId, projectCtx())
           .get(target.number)
           .loadDetail({ force: true })
-          .then(() => {});
+          .then((detail) => detail.state === "open" ? detail.loadReviewers({ force: true }) : undefined);
         await Promise.all([detailRefresh, onRefreshTarget?.()]);
       }
       loadInterdiff(true);
@@ -425,13 +430,16 @@
 
   // A submitted review creates threads and flips the viewer's review state —
   // reload so the result is visible without a manual refresh. The feed's
-  // refresh() covers detail/reviewers and re-triggers loadThreads; when the
-  // Activity tab was never mounted, reload the shared threads directly.
+  // refresh() covers reviewers and threads. If Activity has not mounted,
+  // refresh the records the header uses directly.
   function onReviewSubmitted() {
     review.drafts.clear();
     loadInterdiff(true);
     if (activityFeedRef) activityFeedRef.refresh();
-    else loadThreads(true);
+    else {
+      loadThreads(true);
+      void indexedPullRequest.loadReviewers({ force: true }).catch(() => {});
+    }
   }
 
   useScope("pr-review", { active: () => !headless });
@@ -458,19 +466,20 @@
   // Popped-out mode redirects the Diff tab to Activity + pane (effect below);
   // mounting the inline panel there would keep a full hidden duplicate of the
   // popped-out diff (a second CodeView and parsed patch) alive for the tab's life.
-  // The pull request's move, in the chrome band once Activity's rail has
-  // folded under the title and its status card with it. The fold is the
-  // pane's own width (the rail's rung, less the content gutter), so the band
-  // answers it whether or not Activity is mounted; the reading is Activity's,
-  // handed up as it changes, because the reviewers it needs are read there.
-  let paneEl = $state<HTMLElement | null>(null);
-  let paneWidth = $state(0);
-  $effect(() => {
-    if (!paneEl) return;
-    return observeContainerWidth(paneEl, (width) => (paneWidth = width));
-  });
-  const railFolded = $derived(isRailFoldedInPane(paneWidth));
-  let readiness = $state<MergeReadiness | null>(null);
+  // The header and Activity use the same readiness. It also loads when the
+  // pull request opens directly on Diff, Guide, Map, or Lens.
+  const readiness = $derived(
+    reviewDetail
+      ? mergeReadiness({
+          detail: reviewDetail,
+          checks: pullRequests.checks.summaryFor(serverId, projectCtx(), target.number),
+          checksLoadFailed: pullRequests.checks.loadFailedFor(serverId, projectCtx()),
+          unresolvedCount: review.unresolvedCount,
+          approvedReviewCount: reviewDetail.reviewers?.filter((reviewer) => reviewer.state === "APPROVED").length,
+          openedTime: formatTimeAgoFromTimestamp(new Date(reviewDetail.createdAt).getTime()),
+        })
+      : null,
+  );
   const indexedPullRequest = $derived(
     pullRequests.projects.get(getApi(), serverId, prCtx()).get(target.number),
   );
@@ -797,41 +806,34 @@
 <svelte:window onkeydown={onWindowKeydown} />
 
 {#snippet detailMasthead()}
-  <PrDetailMasthead
+  <PrIdentityLink
     repo={targetRepo ? `${targetRepo.owner}/${targetRepo.repo}` : null}
     number={target.number}
     onOpenPage={prUrl ? openPr : undefined}
-    tab={sub === "guide" || sub === "map" || sub === "lens" ? sub : "activity"}
-    diffOpen={diffPoppedOut}
-    guideStatus={visibleGuideStatus}
-    {lensState}
-    tabsDisabled={!pr}
-    onSelect={select}
   />
 {/snippet}
 
-<!-- The panel keeps all three views inside itself, so Diff is a peer of the
-     other two here rather than a toggle that opens a pane beside them. -->
-{#snippet panelTabs()}
+{#snippet viewTabs()}
   <PrViewTabs
     tab={sub === "diff" ? null : sub}
-    diffOpen={sub === "diff"}
+    diffOpen={embedded ? sub === "diff" : diffPoppedOut}
     guideStatus={visibleGuideStatus}
     {lensState}
     tabsDisabled={!pr}
-    diffHint="Read the change"
+    diffHint={embedded ? "Read the change" : "Open the change beside this review"}
+    changeCounts={reviewDetail ?? undefined}
+    home={embedded ? "band" : "toolbar"}
     onSelect={select}
   />
 {/snippet}
 
-{#snippet checkoutButton()}
-  <PrCheckoutButton {preparingComposer} disabled={!pr} onclick={() => void openPrComposer()} />
-{/snippet}
-
-<!-- The merge control, last of the band's verbs, only while the rail has no
-     column to hold its status card. -->
-{#snippet mergeButton()}
-  {#if railFolded && readiness}
+{#snippet headerActions()}
+  <div class={PAGE_PILL_GROUP} role="group" aria-label="Review and checkout">
+    {@render reviewButton()}
+    <PrCheckoutButton {preparingComposer} disabled={!pr} onclick={() => void openPrComposer()} />
+    <PrStackMenu pullRequest={reviewDetail} {serverId} {projectCtx} onOpen={onOpenPullRequest} />
+  </div>
+  {#if readiness}
     <PrPrimaryAction
       number={target.number}
       pullRequest={indexedPullRequest}
@@ -869,6 +871,8 @@
 {#snippet overflowMenu()}
   <PrOverflowMenu
     detail={reviewDetail}
+    inHeader={!headless}
+    number={embedded ? target.number : undefined}
     hostName={target.host}
     headRef={pr?.headRef ?? summary?.headRef}
     {prUrl}
@@ -889,32 +893,17 @@
   />
 {/snippet}
 
-<section bind:this={paneEl} class="flex h-full min-h-0 flex-col bg-background">
+<section class="flex h-full min-h-0 flex-col bg-background">
   {#if embedded}
     <PrPanelHeader
-      number={target.number}
       {fullScreen}
       {onToggleFullScreen}
       onClose={exit}
-      tabs={panelTabs}
+      tabs={viewTabs}
       menu={overflowMenu}
-    >
-      <!-- The band keeps the actions you take in the moment — Review, which
-           submits a verdict with the pending drafts, and Check out, which
-           gives the pull request a worktree and a session composer. Refresh
-           and the external host page live in the overflow, and the check
-           state is read on Activity. -->
-      {#snippet actions()}
-        <PrStackMenu pullRequest={reviewDetail} {serverId} {projectCtx} onOpen={onOpenPullRequest} />
-        {@render reviewButton()}
-        {@render checkoutButton()}
-        {@render mergeButton()}
-      {/snippet}
-    </PrPanelHeader>
+      actions={headerActions}
+    />
   {:else if !headless}
-    <!-- The sub page band every record shares: the way back, this review's
-         switcher, its verbs, the queue stepper, and the pane controls. The
-         tabs live down in the masthead where they belong to the content. -->
     <PrDetailChrome
       number={target.number}
       {serverId}
@@ -922,17 +911,11 @@
       onExit={exit}
       {onToggleMaximize}
       {maximized}
+      tabs={viewTabs}
     >
-      {#snippet actions()}
-        <PrStackMenu pullRequest={reviewDetail} {serverId} {projectCtx} onOpen={onOpenPullRequest} />
-        {@render reviewButton()}
-        {@render checkoutButton()}
-        {@render mergeButton()}
-        <!-- The same overflow the panel band carries, so the pull request's
-             occasional commands are one object in one place whichever shape
-             the review takes. -->
+      {#snippet toolbarActions()}
         {@render overflowMenu()}
-        <FrameExpandButton variant="projectPanel" size="header" />
+        {@render headerActions()}
       {/snippet}
     </PrDetailChrome>
   {/if}
@@ -952,13 +935,9 @@
         class="absolute inset-0 flex flex-col"
         class:hidden={sub !== "guide"}
       >
-        <!-- The guide reads full width: it is a narrative about the whole
-             change, not a column beside a rail. The masthead rides above it
-             so the same row appears whichever tab is showing. -->
+        <!-- Match the guide's reading gutters so the repository link starts
+             on the same edge as the text. -->
         {#if !headless && !embedded}
-          <!-- Match GuideView's measure and asymmetric reading gutters so
-               the status/refs begin on the title's left edge and the tabs
-               end on the guide content's right edge. -->
           <div
             class="mx-auto w-full max-w-[92rem] pt-[clamp(20px,1.8cqi,32px)] pr-8 pl-14 2xl:max-w-[104rem]"
           >
@@ -1081,7 +1060,8 @@
           onRefreshThreads={() => loadThreads(true)}
           {onRefreshTarget}
           onCommentComposerOpen={() => pageComposerRef?.foldComposer()}
-          onReadiness={(reading) => (readiness = reading)}
+          {readiness}
+          showRailPrimaryAction={headless}
           onFeedbackCount={(count) => (activityFeedbackCount = count)}
           menu={headless ? overflowMenu : undefined}
           onJump={jumpToDiff}

@@ -7,7 +7,9 @@ import { mayWorkLocallyDuringSetup } from "@solus/contracts/setup-card";
 import { RequestActionButton } from "@solus-mobile/features/threads/RequestActionButton";
 import { compactionDividerText } from "@solus/contracts/context-compaction";
 import { handoffDividerText } from "@solus-mobile/features/conversation/lib/provider-handoff";
-import { threadKey } from "@solus-mobile/features/threads/thread-directory";
+import { rememberSession } from "./session-record";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { useOpenLinkedThreadRead } from "../features/threads/useOpenLinkedThread";
 import { useTranscriptItem } from "@solus-mobile/features/threads/use-transcript-items";
 import {
   toolFullDetail,
@@ -56,25 +58,23 @@ function AgentCard({
   item: Extract<TranscriptItem, { kind: "agent" }>;
 }) {
   const navigation = useNavigation();
+  const openLinked = useOpenLinkedThreadRead();
   const [loading, setLoading] = useState(false);
   const open = async () => {
     if (loading) return;
     setLoading(true);
     const hostId = store.controller.hostId;
     try {
-      if (!solus.threads.thread(hostId, item.sessionId)) {
-        const connection = solus.connections.connection(hostId);
-        const record = await connection?.api.sessionRecordGet(item.sessionId);
-        if (!record) throw new Error("This session is unavailable on this host.");
-        solus.threads.rememberSearchResult({
-          hostId,
-          hostLabel: solus.registry.host(hostId)?.label ?? hostId,
-          key: threadKey(hostId, record.sessionId),
-          record,
-        });
+      const head = solus.cloudSessions.headFor(item.sessionId);
+      const childHost = head?.lastRunServerId ?? head?.lastRunHostId ?? hostId;
+      if (childHost !== hostId && solus.connections.state(childHost)?.readiness !== "ready") {
+        openLinked({environmentId: EnvironmentId.make(childHost), threadId: ThreadId.make(item.sessionId)},
+          {viaEnvironmentId: EnvironmentId.make(hostId), label: solus.registry.host(childHost)?.label ?? childHost}, item.title);
+        return;
       }
+      await rememberSession(childHost, item.sessionId);
       navigation.dispatch(
-        StackActions.push("Thread", { environmentId: hostId, threadId: item.sessionId }),
+        StackActions.push("Thread", { environmentId: childHost, threadId: item.sessionId }),
       );
     } catch (error) {
       Alert.alert("Could not open session", error instanceof Error ? error.message : String(error));
@@ -239,9 +239,6 @@ export function ConversationCard({
               )}
             </View>
           )}
-          {item.attachments.map((a) => a.kind === "file" && !a.video && (
-            <ConversationMedia key={a.key} store={store} label={a.name} source={{path:a.hostPath}} file />
-          ))}
         </View>
       );
     case "assistant":
@@ -281,7 +278,7 @@ export function ConversationCard({
         </AppText>
       );
     case "plan":
-      return <PlanCard store={store} plan={item} />;
+      return <PlanCard store={store} plan={item} history />;
     case "worktree_offer":
       return <WorktreeOfferCard store={store} offer={item} />;
     case "setup":

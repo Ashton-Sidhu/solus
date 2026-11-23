@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
@@ -29,12 +29,14 @@ interface FakeCodexRequestParams {
 class FakeCodexClient extends EventEmitter {
   requests: Array<{ method: string; params: FakeCodexRequestParams }> = []
   readError: Error | null = null
+  historyPath: string | null = null
   summaryOnly = false
   paginated = false
   repeatCursor = false
 
   async request(method: string, params: FakeCodexRequestParams) {
     this.requests.push({ method, params })
+    if (method === 'thread/read') return { thread: { id: params.threadId, status: {type: 'idle'}, path: this.historyPath } }
     if (method === 'thread/resume') { this.readError = null; return { thread: {} } }
     if (method === 'thread/turns/list' && this.readError) throw this.readError
     if (method === 'thread/items/list') {
@@ -99,6 +101,7 @@ afterAll(async () => {
 beforeEach(() => {
   client.requests = []
   client.readError = null
+  client.historyPath = null
   client.summaryOnly = false
   client.paginated = false
   client.repeatCursor = false
@@ -200,4 +203,21 @@ test('history profiling preserves reads and reports the failing stage', async ()
   expect(success?.stages?.map((entry) => entry.stage)).toEqual(['reader', 'turns', 'items', 'children', 'answers'])
   expect(logs.findLast((entry) => entry.msg === 'codex_history_page_profile' && entry.sessionId === 'profile-failure'))
     .toMatchObject({ succeeded: false, failedStage: 'turns', itemRequests: 0 })
+})
+
+test('a validated idle Codex page reads its items once and a file append invalidates it', async () => {
+  const path = join(dataDir, 'rollout.jsonl')
+  writeFileSync(path, '{}')
+  client.summaryOnly = true
+  client.historyPath = path
+  const backend = new CodexBackend()
+  const read = () => backend.loadSessionPage('cached', undefined, 10, undefined, true)
+  const first = await read()
+  expect(first.messages.length).toBeGreaterThan(0)
+  expect(await read()).toEqual(first)
+  const itemReads = () => client.requests.filter(call => call.method === 'thread/items/list').length
+  expect(itemReads()).toBe(1)
+  appendFileSync(path, '\n{}')
+  await read()
+  expect(itemReads()).toBe(2)
 })

@@ -179,6 +179,7 @@ export type RawThreadFeedEntry =
       readonly createdAt: string;
       readonly runId: RunId | null;
       readonly toolStatus?: "running" | "completed" | "error";
+      readonly viewedImagePath?: string;
       readonly render: () => import("react").ReactNode;
     }
   | {
@@ -890,7 +891,7 @@ export function formatItemFullDetail(
   );
 }
 
-export function toFeedActivity(
+function toFeedActivity(
   row: OrchestrationV2ProjectedTurnItem,
   attemptId: RunAttemptId | null,
   resolve: MessageResolver,
@@ -982,7 +983,7 @@ function isEmptyMessage(entry: RawThreadFeedEntry): boolean {
  * `onRestart` hears each entry after which no group is open, with the grouped
  * length so far: the entries before it group the same whatever follows.
  */
-export function groupAdjacentActivities(
+function groupAdjacentActivities(
   entries: ReadonlyArray<RawThreadFeedEntry>,
   childrenByRun: ReadonlyMap<RunId, ReadonlySet<string>>,
   onRestart?: (entryIndex: number, groupedLength: number) => void,
@@ -2175,6 +2176,15 @@ function appendPresentedFeedEntry(
 ): void {
   if (entry.type !== "activity-group") {
     result.push(entry);
+    if (entry.type === "conversation-card" && entry.viewedImagePath) {
+      result.push({
+        type: "viewed-images",
+        id: `${entry.id}:viewed-images`,
+        createdAt: entry.createdAt,
+        runId: entry.runId,
+        paths: [entry.viewedImagePath],
+      });
+    }
     return;
   }
   if (
@@ -2467,8 +2477,13 @@ function liveToolActivitySummary(
   );
 }
 
+/** Native host cards and messages use the same ordered feed and restart cache as T3 rows. */
+export type ThreadFeedSourceRow =
+  | (OrchestrationV2ProjectedTurnItem & { readonly hostTime?: string; readonly hostTool?: { readonly hasDetail: boolean; readonly load?: () => Promise<OrchestrationV2TurnItem> } })
+  | { readonly hostEntries: ReadonlyArray<RawThreadFeedEntry>; readonly item?: never };
+
 interface ThreadFeedBuild {
-  readonly rows: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
+  readonly rows: ReadonlyArray<ThreadFeedSourceRow>;
   readonly locale: string | undefined;
   readonly attempts: ReadonlyArray<OrchestrationV2RunAttempt> | undefined;
   readonly nodes: ReadonlyArray<OrchestrationV2ExecutionNode> | undefined;
@@ -2553,7 +2568,7 @@ function firstChangedIndex<T>(previous: ReadonlyArray<T>, next: ReadonlyArray<T>
 }
 
 export function buildThreadFeed(
-  visibleTurnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  visibleTurnItems: ReadonlyArray<ThreadFeedSourceRow>,
   options?: {
     readonly anchoredMessages?: ReadonlyArray<LocalThreadMessage>;
     readonly attempts?: ReadonlyArray<OrchestrationV2RunAttempt>;
@@ -2594,6 +2609,7 @@ export function buildThreadFeed(
   const foldedAnswerRunIdByMessageId = new Map<string, RunId | null>();
   const delegatedChildrenByRun = new Map<RunId, Set<string>>();
   for (const { item } of visibleTurnItems) {
+    if (!item) continue;
     if (item.type === "user_input_request" && item.questionAnswer) {
       foldedAnswerRunIdByMessageId.set(`async-answer:${item.questionAnswer.requestId}`, item.runId);
     } else if (item.type === "subagent" && item.origin === "app_owned" && item.runId !== null) {
@@ -2633,6 +2649,7 @@ export function buildThreadFeed(
   const compactPromptRunIds = new Set<RunId>();
   const compactedRunIds = new Set<RunId>();
   for (const { item } of visibleTurnItems) {
+    if (!item) continue;
     if (item.runId === null) continue;
     if (item.type === "user_message" && isCompactionCommandMessage({ role: "user", ...item })) {
       compactPromptRunIds.add(item.runId);
@@ -2642,6 +2659,13 @@ export function buildThreadFeed(
   }
   for (let index = restart?.row ?? 0; index < visibleTurnItems.length; index += 1) {
     const row = visibleTurnItems[index]!;
+    if ("hostEntries" in row) {
+      for (const entry of row.hostEntries) {
+        entries.push(entry);
+        entryRows.push(index);
+      }
+      continue;
+    }
     const item = row.item;
     if (turnItemIsWorkspacePreparation(item) && !item.deferredWork) continue;
     if (item.type === "todo_list" || item.type === "checkpoint") continue;
@@ -2674,7 +2698,7 @@ export function buildThreadFeed(
       }
       continue;
     }
-    const createdAt = DateTime.formatIso(item.startedAt ?? item.updatedAt);
+    const createdAt = row.hostTime ?? DateTime.formatIso(item.startedAt ?? item.updatedAt);
     const render =
       item.type === "dynamic_tool" && item.status === "completed"
         ? htmlRenderFromToolItem(item)
@@ -2710,7 +2734,7 @@ export function buildThreadFeed(
       continue;
     }
     if (item.type === "user_message" || item.type === "assistant_message") {
-      const updatedAt = DateTime.formatIso(item.updatedAt);
+      const updatedAt = row.hostTime ?? DateTime.formatIso(item.updatedAt);
       const entry: RawThreadFeedEntry = {
         type: "message",
         id: item.messageId,
@@ -2738,7 +2762,7 @@ export function buildThreadFeed(
           sourceThreadId: row.sourceThreadId,
           createdAt,
           updatedAt,
-          projectedItem: row,
+          ...(row.hostTime === undefined && { projectedItem: row }),
         },
       };
       projectedEntriesCache.set(row, { attemptId, locale, entries: [entry] });
@@ -2746,9 +2770,13 @@ export function buildThreadFeed(
       entryRows.push(index);
       continue;
     }
-    const activity = toFeedActivity(row, attemptId, resolve);
+    const projectedActivity = toFeedActivity(row, attemptId, resolve);
+    const activity = row.hostTool === undefined ? projectedActivity : {
+      ...projectedActivity, createdAt, fetchesDetail: false, loadHostDetail: row.hostTool.load,
+      canExpand: !!row.hostTool.load || (row.hostTool.hasDetail && projectedActivity.canExpand),
+    };
     const rowEntries: RawThreadFeedEntry[] = [
-      { type: "activity", id: activity.id, createdAt, runId: item.runId, activity },
+      { type: "activity", id: row.hostTool ? row.sourceItemId : activity.id, createdAt, runId: item.runId, activity },
     ];
     // The card follows its tool activity: a feed restart resumes after a row's last entry.
     const app = item.type === "dynamic_tool" ? mcpAppFromToolItem(item) : undefined;
@@ -2829,11 +2857,13 @@ export function buildThreadFeed(
     // Anchored messages shift entries away from their rows; such a build is not reused.
     anchoredMessages.length > 0
       ? undefined
-      : (entryIndex, groupedLength) =>
+      : (entryIndex, groupedLength) => {
+          if (entryRows[entryIndex] === entryRows[entryIndex + 1]) return;
           restarts.push({
             row: entryRows[entryIndex]! + 1,
             feedLength: prefix.length + groupedLength,
-          }),
+          });
+        },
   );
   const feed = prefix.length === 0 ? grouped : prefix.concat(grouped);
   if (cache) {

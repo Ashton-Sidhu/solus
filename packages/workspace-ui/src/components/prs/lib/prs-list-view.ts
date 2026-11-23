@@ -9,11 +9,11 @@
  * (branch, checks), its meta column (diff size) and its verbs.
  */
 import {
-  GitMerge as GitMergeIcon,
-  GitPullRequest as GitPullRequestIcon,
-  GitPullRequestClosed as GitPullRequestClosedIcon,
-  GitPullRequestDraft as GitPullRequestDraftIcon,
-} from '@lucide/svelte'
+  GitMergeIcon,
+  GitPullRequestIcon,
+  GitPullRequestClosedIcon,
+  GitPullRequestDraftIcon,
+} from '../../ui/octicons'
 import type { PrStackMembership, PullRequest } from '@solus/contracts/providers'
 import type { PrGuideStatus, ReviewLensJob } from '@solus/contracts/review'
 import { z } from 'zod'

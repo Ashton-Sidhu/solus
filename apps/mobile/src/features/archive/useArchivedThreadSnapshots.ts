@@ -5,26 +5,21 @@ import {
   makeArchivedThreadsEnvironmentKey,
 } from "@t3tools/client-runtime/state/threads";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 import { useMemo } from "react";
 
 import { appAtomRegistry } from "../../state/atom-registry";
-import { orchestrationEnvironment } from "../../state/orchestration";
-import { serverEnvironment } from "../../state/server";
-import { environmentThreadShells } from "../../state/threads";
+import { archivedSnapshotAtom } from "../../solus/archive";
 
-function archivedSnapshotAtom(environmentId: EnvironmentId) {
-  return orchestrationEnvironment.archivedShellSnapshot({
-    environmentId,
-    input: {},
-  });
-}
+// Solus sessions have no T3 hidden-tag setting.
+const hiddenTags = Atom.make(null);
 
 const archivedSnapshotsAtom = createArchivedThreadSnapshotsAtomFamily({
   getSnapshotAtom: archivedSnapshotAtom,
-  hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
-  hiddenThreadKeysAtom: environmentThreadShells.hiddenThreadKeysAtom,
-  liveThreadRefsAtom: environmentThreadShells.threadRefsAtom,
-  anyEnvironmentHidingAtom: environmentThreadShells.anyEnvironmentHidingAtom,
+  hiddenThreadTagsAtom: () => hiddenTags,
+  hiddenThreadKeysAtom: Atom.make(new Set<string>()),
+  liveThreadRefsAtom: Atom.make([]),
+  anyEnvironmentHidingAtom: Atom.make(false),
   labelPrefix: "mobile:archived-thread-snapshots",
 });
 
@@ -45,7 +40,7 @@ export function useArchivedThreadSnapshots(environmentIds: ReadonlyArray<Environ
   const result = useAtomValue(archivedSnapshotsAtom(environmentKey));
   const refresh = () => {
     for (const environmentId of environmentIds) {
-      appAtomRegistry.refresh(archivedSnapshotAtom(environmentId));
+      refreshArchivedThreadsForEnvironment(environmentId);
     }
   };
 

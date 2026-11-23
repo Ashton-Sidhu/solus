@@ -16,6 +16,18 @@ import { startOpeningEnvironmentThread } from "./threads";
 
 const loads = vi.hoisted(() => [] as string[]);
 
+vi.mock("../solus/runtime", async () => {
+  const { Atom } = await import("effect/reactivity");
+  return { navigationThreadsAtom: Atom.make({ holding: false, threads: [] }) };
+});
+vi.mock("../solus/session-detail", async () => {
+  const { Atom } = await import("effect/reactivity");
+  const family = Atom.family((key: string) => Atom.make(() => {
+    loads.push(key);
+    return null;
+  }));
+  return { sessionDetailAtom: (host: string, id: string) => family(host + ":" + id) };
+});
 vi.mock("../connection/runtime", () => ({ connectionAtomRuntime: {} }));
 vi.mock("../connection/catalog", () => ({ environmentCatalog: {} }));
 vi.mock("./shell", () => ({ environmentShell: {} }));

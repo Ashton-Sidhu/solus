@@ -215,6 +215,7 @@ import { registerFilesystemHandlers } from './transport/handlers/filesystem-hand
 import { registerCodeIntelHandlers } from './transport/handlers/code-intel-handlers'
 import { CodeIntelManager } from './code-intel/code-intel-manager'
 import { registerHistoryHandlers } from './transport/handlers/history-handlers'
+import { registerSessionLineageHandlers } from './transport/handlers/session-lineage-handlers'
 import { ensureBackgroundSessionTitle, type BackgroundSessionTitleRequest } from './execution/sessions/background-session-title'
 import { registerFolioHandlers } from './transport/handlers/folio-handlers'
 import { registerReviewHandlers } from './transport/handlers/review-handlers'
@@ -865,7 +866,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     announce: (sessionId) => void emitSessionDigestChanged(sessionId),
   })
   opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
-    if (!to) sessionDigests.observe(sessionId, event)
+    sessionDigests.observe(sessionId, event, to)
   })
   domainEventUnsubscribes.push(onTurnCheckpointed((checkpoint) => sessionDigests.checkpointed(checkpoint)))
   registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers, prSync })
@@ -1233,6 +1234,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerHostPairingHandlers(server, hostPairings)
   setHostPairingTools(hostPairings)
   const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts, fetch, hostPairings, readHostList)
+  registerSessionLineageHandlers(server, opts.sessionRuntime, remoteHosts, reachOf)
   domainEventUnsubscribes.push(onHostRecordRemoved(({ listing }) => remoteHosts.disconnect(listing.installationId)))
   setRemoteHosts(remoteHosts)
   registerIntegrationHandlers(server, {
@@ -1576,7 +1578,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       log.debug('session_event_bytes', details)
     }
     // The watchers are the session's room: each is checked on its first event, not on every token.
-    if (clients.length) events.publishToRoom({ kind: 'session', id: sessionId }, clients, 'session.eventReceived', { sessionId, event: projectedEvent })
+    if (clients.length) {
+      const cursor = opts.sessionRuntime.eventCursor(event)
+      events.publishToRoom({ kind: 'session', id: sessionId }, clients, 'session.eventReceived', { sessionId, event: projectedEvent, ...(cursor && { cursor }) })
+    }
   })
   opts.sessionRuntime.on('error', (sessionId: string, error: EnrichedError) => {
     const clients = opts.sessionRuntime.watchers.clientsWatching(sessionId)

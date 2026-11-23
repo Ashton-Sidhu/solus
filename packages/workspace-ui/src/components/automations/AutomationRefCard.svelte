@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { scheduleCardState } from "./lib/schedule-card";
   import { getWorkspaceContext } from "../../contexts";
-  import { Clock as ClockIcon } from "@lucide/svelte";
+  import { Workflow as WorkflowIcon } from "@lucide/svelte";
   import TranscriptCard from "../conversation/TranscriptCard.svelte";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import { triggerSummary } from "./lib/automation-format";
@@ -70,7 +70,7 @@
   failed={!!error || !!loadError}
   {skipMotion}
 >
-  {#snippet glyph()}<ClockIcon />{/snippet}
+  {#snippet glyph()}<WorkflowIcon />{/snippet}
   {#snippet rail()}
     <span class:text-destructive={!!error || !!loadError} aria-live="polite">
       {error || loadError || scheduleState}

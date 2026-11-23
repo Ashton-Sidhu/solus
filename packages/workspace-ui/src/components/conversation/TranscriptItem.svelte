@@ -29,7 +29,6 @@
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import ConversationArtifact from "./ConversationArtifact.svelte";
-  import { provideTurnDiffReader } from "./lib/inline-review-context";
   import { getArtifactRevisions, provideArtifactMessage } from "./lib/artifact-revisions-context";
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
   import McpAppCard from "./McpAppCard.svelte";
@@ -80,7 +79,6 @@
   // when it changes would mount every visible reply again, frames included.
   const rendersSettled = untrack(() => !(!skipMotion && !!sess?.isStreamingText));
   const artifactRevisions = getArtifactRevisions();
-  provideTurnDiffReader(index => session.apiFor(tabId).diff(session.ctxFor(tabId), { scope: { kind: "turn", index } }));
   provideArtifactMessage(() => "message" in item ? item.message.id : undefined);
   const markdownRenderers = {
     code: FencedBlock,
@@ -184,7 +182,7 @@
   {:else if notice === "resource-watch"}
     <ResourceWatchNoticeRow message={item.message} {skipMotion} />
   {:else}
-    <UserMessageBubble message={item.message} {skipMotion} {burst} {tabId} />
+    <UserMessageBubble message={item.message} {burst} {tabId} />
   {/if}
 {:else if item.kind === "assistant"}
   {@const displayContent = item.message.content}

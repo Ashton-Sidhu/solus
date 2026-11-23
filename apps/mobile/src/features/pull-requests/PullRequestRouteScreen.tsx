@@ -1,4 +1,3 @@
-import { solusPrActivity, solusPrDetail } from "../../solus/source-control";
 import {
   isFileDiffCollapsed,
   withFileDiffFold,
@@ -148,8 +147,8 @@ import { changeRequestTermKind } from "../../lib/changeRequestTerm";
 function usePullRequestActivityRows(params: PullRequestParams, filter: ActivityFilter) {
   const navigation = useNavigation();
   const messages = useMessages();
-  const result = useEnvironmentQuery(solusPrActivity(requestTarget(params)));
-  const detail = useEnvironmentQuery(solusPrDetail(requestTarget(params)));
+  const result = useEnvironmentQuery(composerPullRequests.activity(requestTarget(params)));
+  const detail = useEnvironmentQuery(composerPullRequests.detail(requestTarget(params)));
   const permissions = usePullRequestPermissions(params, detail.data);
   const filtered = result.data ? filterPullRequestActivity(result.data, filter) : null;
   const rows = (() => {
@@ -291,9 +290,7 @@ function PullRequestLabels(props: {
   const navigation = useNavigation();
   const gt = useGT();
   const connected = usePullRequestConnected(props.params.environmentId);
-  const canWrite = useAtomValue(
-    composerPullRequests.setLabels.permissionAtom(requestTarget(props.params).environmentId),
-  );
+  const canWrite = useAtomValue(composerPullRequests.setLabels.permissionAtom(requestTarget(props.params).environmentId));
   const editable =
     connected &&
     canWrite &&
@@ -529,7 +526,7 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
   const descriptionY = useRef(0);
   const pendingDescriptionJump = useRef(false);
   const pendingFilesJump = useRef(false);
-  const detailAtom = solusPrDetail(requestTarget(params));
+  const detailAtom = composerPullRequests.detail(requestTarget(params));
   const result = useEnvironmentQuery(detailAtom);
   const pullRefresh = usePullToRefresh(detailAtom);
   const { refresh: refreshDetail } = result;
@@ -565,7 +562,7 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
       }),
     );
   const stack = usePullRequestStack(params, pr);
-  const refreshActivity = useAtomRefresh(solusPrActivity(requestTarget(params)));
+  const refreshActivity = useAtomRefresh(composerPullRequests.activity(requestTarget(params)));
   const refreshGuide = useAtomRefresh(composerPullRequests.reviewGuide(requestTarget(params)));
 
   const refresh = () =>
@@ -948,9 +945,10 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
                               onSelect={selectSection}
                               role="tab"
                               size="compact"
+                              className="rounded-full border border-border-subtle"
                             />
                           ) : (
-                            <View style={{ height: 32 }} />
+                            <View style={{ height: 34 }} />
                           )}
                         </View>
                       ) : null}
@@ -1006,11 +1004,11 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
   const contentTopInset = useContentTopInset();
   const [toolbarHeight, setToolbarHeight] = usePullRequestToolbarHeight(insets.bottom);
   const commit = route.params.commit;
-  const detail = useEnvironmentQuery(solusPrDetail(requestTarget(route.params)));
+  const detail = useEnvironmentQuery(composerPullRequests.detail(requestTarget(route.params)));
   const terminology = sourceControlClients.get(
     (detail.data ?? route.params.initialSummary)?.provider,
   ).changeRequest;
-  const result = usePullRequestDiff(route.params, terminology);
+  const result = usePullRequestDiff(route.params, terminology, detail.data?.headSha);
   // Other screens open files with the link's params spread in; only the link's own entry follows it.
   const linkAnchor =
     route.params.path === "" &&
@@ -1049,9 +1047,9 @@ function PullRequestFileRouteContent({ route }: PullRequestFileRouteProps) {
     !result.isPending &&
     !result.withheldRefetching &&
     !result.error;
-  const activity = useEnvironmentQuery(solusPrActivity(requestTarget(route.params)));
+  const activity = useEnvironmentQuery(composerPullRequests.activity(requestTarget(route.params)));
   const baseData = useMemo(() => getCachedNativeReviewDiffData({ parsedDiff: parsed }), [parsed]);
-  const highlightFiles = usePullRequestDiffHighlightFiles(route.params, parsed, baseData.files);
+  const highlightFiles = usePullRequestDiffHighlightFiles(route.params, parsed, baseData.files, detail.data?.headSha);
   const data = useMemo(
     () =>
       annotatePullRequestDiff(

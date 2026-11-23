@@ -72,6 +72,7 @@ export type ProviderGroup = {
   readonly providerLabel: string;
   readonly models: ReadonlyArray<ModelOption>;
   readonly updateRequired?: ProviderUpdateRequired;
+  readonly statusNotice?: string | undefined;
   readonly subProviders?: ModelOption["providerSubProviders"];
 };
 

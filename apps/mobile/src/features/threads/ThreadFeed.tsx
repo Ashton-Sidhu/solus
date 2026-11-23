@@ -1,3 +1,5 @@
+import { useAtomValue } from "@effect/atom-react";
+import { mobileHost } from "../../state/mobile-host";
 import { THREAD_FEED_MAINTAIN_SCROLL_AT_END, THREAD_FEED_MAINTAIN_SCROLL_AT_END_THRESHOLD } from "./threadFeedEndFollow";
 import type { FilePreviewItem } from "../../components/ui/FilePreviewModal.types";
 import { MessageVideo } from "../../solus/MessageVideo";
@@ -58,6 +60,7 @@ import {
   type WorktreeSetupCardProps,
 } from "./worktree-setup-card";
 import * as Haptics from "expo-haptics";
+import { IosThreadFeedList } from "./IosThreadFeedList";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -102,7 +105,6 @@ import { ComposerContextSheet } from "../../components/ComposerContextSheet";
 import { writeComposerContextClipboard } from "../../lib/composerContextClipboard";
 import type { CodexArtifactTemplate } from "@t3tools/shared/codexArtifactTemplates";
 import { codexArtifactTemplatePresentationLabel } from "@t3tools/shared/codexArtifactTemplatesCopy";
-import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import {
   executeAtomQuery,
@@ -118,6 +120,8 @@ import {
   contextCompactionTokenCounts,
   resolveViewedImageAsset,
 } from "@t3tools/client-runtime/work-log/presentation";
+import { workspaceRelativeImagePath } from "@solus/client-core/viewed-workspace-image";
+import { hostPathBaseName, joinHostPath } from "@solus/contracts/host-path";
 import { splitCodexArtifactTemplateMarkdown } from "@t3tools/shared/codexMarkdownDirectives";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
 import { imageMimeType } from "@t3tools/shared/image";
@@ -182,7 +186,6 @@ import { inlineFilePreviewKind, isPdfFile } from "../../lib/filePreview";
 import { ThreadInlineFilePreview } from "./ThreadInlineFilePreview";
 import { flattenThemeColor, themeColorWithContrast } from "../../lib/mobileTheme";
 import { PresentationSource } from "../../components/ui/NativePresentation";
-import { NativeScrollViewMarker } from "../../native/NativeScrollViewMarker";
 import Animated, { FadeIn, FadeInDown, type SharedValue } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { FONT_FAMILIES } from "../../lib/fontFamilies";
@@ -277,9 +280,8 @@ import { resolveThreadFeedFixedItemSize } from "./thread-feed-item-size";
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ThreadMcpApp } from "./McpAppWebView";
-import { assetEnvironment, useAssetUrl, useRefreshAssetUrl } from "../../state/assets";
-import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
-import { readEnvironmentScope, usePreparedConnection } from "../../state/session";
+import { useAssetUrl, useRefreshAssetUrl } from "../../state/assets";
+import { readEnvironmentScope } from "../../state/session";
 import { environmentProjects, projectEnvironment } from "../../state/projects";
 import {
   agentWorkingDirectories,
@@ -304,7 +306,6 @@ import { useLinkedEnvironments } from "../../state/peerLinks";
 import { serverEnvironment } from "../../state/server";
 import { useModelMentions } from "../../state/model-mentions";
 import { composerDocumentAttachmentRecord } from "../../lib/composerContext";
-import * as Option from "effect/Option";
 import { appAtomRegistry } from "../../state/atom-registry";
 import {
   environmentThreadDetails,
@@ -398,6 +399,7 @@ export interface ThreadFeedProps {
   readonly onJumpedToMessage?: () => void;
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly keyboardOffset: number;
+  readonly keyboardStickyEnabled?: boolean;
   readonly sendingWithKeyboard?: boolean;
   readonly fitShortFeedToViewport?: boolean;
   readonly contentBottomInset?: number;
@@ -801,12 +803,11 @@ function MessageAttachmentFile(props: {
   const sourceIdentifier = useId();
   const navigation = useNavigation();
   const { selectedThread } = useThreadSelection();
-  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
-    refresh: true,
-    reportFailure: false,
-  });
-  const preparedConnection = usePreparedConnection(props.environmentId);
   const { attachment } = props;
+  const host = useAtomValue(mobileHost(props.environmentId));
+  const refresh = useRefreshAssetUrl(props.environmentId, {
+    _tag: "attachment", attachmentId: attachment.id, fileName: attachment.name, mimeType: attachment.mimeType
+  });
   const videoType = videoMimeType(attachment);
   const isPdf = isPdfFile(attachment);
   const fileTypeLabel = isPdf
@@ -814,9 +815,7 @@ function MessageAttachmentFile(props: {
     : (attachment.name.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toUpperCase() ??
       gt("File", { $context: "generic file type label" }));
   const sizeLabel = formatAttachmentSize(attachment.sizeBytes, messages);
-  const httpBaseUrl = Option.isSome(preparedConnection)
-    ? preparedConnection.value.httpBaseUrl
-    : null;
+  const httpBaseUrl = host?.canReadFiles ? host.httpBaseUrl : null;
   const openingRef = useRef<AbortController | null>(null);
   const [opening, setOpening] = useState(false);
 
@@ -846,23 +845,12 @@ function MessageAttachmentFile(props: {
       }
     };
     void (async () => {
-      const result = await createAssetUrl({
-        environmentId: props.environmentId,
-        input: {
-          resource: {
-            _tag: "attachment",
-            attachmentId: attachment.id,
-            fileName: attachment.name,
-            mimeType: attachment.mimeType,
-          },
-        },
-      });
+      const result = await settlePromise(refresh);
       if (controller.signal.aborted) return finish(null);
       if (result._tag === "Failure") {
-        const error = squashAtomCommandFailure(result);
-        return finish(errorDisplayMessage(error, m) ?? gt("The attachment is unavailable."));
+        return finish(errorDisplayMessage(squashAtomCommandFailure(result), m) ?? gt("The attachment is unavailable."));
       }
-      const url = resolveAssetUrl(httpBaseUrl, result.value.relativeUrl);
+      const url = result.value;
       if (url === null) return finish(gt("The attachment could not be opened."));
       const shared = await settlePromise(() =>
         downloadAndShareAttachment({
@@ -1287,15 +1275,7 @@ function MessageAttachmentUnknown(props: { readonly name: string }) {
 // LegendList only computes hook visibility when the list has a viewability config.
 const THREAD_MEDIA_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 0 };
 
-// The composer and overlays beside the feed keep UIKit from finding it on its own, so
-// register it with the screen controller. Header minimization observes this scroll view.
-function ThreadFeedScrollView(props: ComponentPropsWithRef<typeof Animated.ScrollView>) {
-  return (
-    <NativeScrollViewMarker style={{ flex: 1 }}>
-      <Animated.ScrollView {...props} />
-    </NativeScrollViewMarker>
-  );
-}
+const ThreadList = Platform.OS === "ios" ? IosThreadFeedList : KeyboardAwareLegendList;
 
 function ThreadMediaVisibility(props: {
   readonly rowId: string;
@@ -1855,7 +1835,7 @@ function ThreadAutomationMessageRow(props: {
           }}
         >
           <SymbolView
-            name="calendar.badge.clock"
+            name="workflow"
             size={14}
             weight="medium"
             tintColorClassName="accent-user-bubble-foreground-muted"
@@ -2723,7 +2703,9 @@ function renderFeedEntry(
                 {entry.pendingMessage &&
                 !entry.acknowledged &&
                 entry.id !== props.pendingFoldMessageId
-                  ? m(msg("Pending", { $context: "message not yet sent" }))
+                  ? entry.pendingMessage.hostQueue
+                    ? m(msg("Queued"))
+                    : m(msg("Pending", { $context: "message not yet sent" }))
                   : timestampLabel}
               </Text>
               {props.onEditPendingMessage !== null &&
@@ -3871,12 +3853,24 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     );
   };
   const renderViewedImage: MarkdownImageRenderer = (image) => {
-    const viewedImage = resolveViewedImageAsset(image.href, {
+    const root = props.workspaceRoot;
+    if (!root) return null;
+    const path = workspaceRelativeImagePath(image.href, root);
+    if (!path) return null;
+    if (props.hostImageRenderer) {
+      return props.hostImageRenderer({
+        ...image,
+        href: joinHostPath(root, path),
+        alt: image.alt ?? hostPathBaseName(path),
+      });
+    }
+    const href = `./${path.split("/").map(encodeURIComponent).join("/")}`;
+    const viewedImage = resolveViewedImageAsset(href, {
       threadId: props.threadId,
       workspaceRoot: props.workspaceRoot,
     });
     const media = viewedImage
-      ? resolveMarkdownMediaPreview(image.href, {
+      ? resolveMarkdownMediaPreview(href, {
           environmentId: props.environmentId,
           threadId: props.threadId,
           workspaceRoot: props.workspaceRoot,
@@ -4064,8 +4058,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const { contentInsetEndAdjustment } = props;
   const attachList = (list: LegendListRef | null) => {
     listRef.current = list;
-    const bottom = contentInsetEndAdjustment.get();
-    if (list && bottom > 0) list.reportContentInset({ bottom });
+    if (list && Platform.OS !== "ios") {
+      const bottom = contentInsetEndAdjustment.get();
+      if (bottom > 0) list.reportContentInset({ bottom });
+    }
   };
   const jumpIndex = jumpReady
     ? presentedFeed.findIndex((entry) => entry.type === "message" && entry.id === jumpToMessageId)
@@ -4492,14 +4488,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           className="flex-1"
           style={splitLayout && viewportWidth > 0 ? { width: viewportWidth } : undefined}
         >
-          {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- ThreadFeedScrollView is passed through the iOS-only spread below; the prop rejects undefined. */}
-          <KeyboardAwareLegendList
+          <ThreadList
             ref={attachList}
             dataKey={feedThreadKey}
             style={settling ? { flex: 1, opacity: 0 } : { flex: 1 }}
-            // RN 0.81+ drops inset-area touches (facebook/react-native#54123), making blank post-send space unscrollable.
-            applyWorkaroundForContentInsetHitTestBug
-            {...(Platform.OS === "ios" ? { ScrollViewComponent: ThreadFeedScrollView } : {})}
             contentInsetAdjustmentBehavior="never"
             automaticallyAdjustsScrollIndicatorInsets={usesNativeAutomaticInsets}
             scrollIndicatorInsets={{ top: anchorTopInset, bottom: 0 }}
@@ -4507,8 +4499,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             contentInsetEndAdjustment={props.contentInsetEndAdjustment}
             keyboardOffset={props.keyboardOffset}
             {...(usesNativeAutomaticInsets ? { contentInset: { top: anchorTopInset } } : {})}
-            freeze={props.freeze}
-            maintainScrollAtEnd={jumpReady ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
+            {...(Platform.OS === "ios"
+              ? { keyboardStickyEnabled: props.keyboardStickyEnabled ?? true }
+              : {
+                  freeze: props.freeze,
+                  keyboardLiftBehavior: "whenAtEnd" as const,
+                  applyWorkaroundForContentInsetHitTestBug: true,
+                })}
+            // Let the closing keyboard reveal the submitted row before following it.
+            maintainScrollAtEnd={jumpReady || props.sendingWithKeyboard ? false : THREAD_FEED_MAINTAIN_SCROLL_AT_END}
             maintainScrollAtEndThreshold={THREAD_FEED_MAINTAIN_SCROLL_AT_END_THRESHOLD}
             maintainVisibleContentPosition
             data={groupedFeed}
@@ -4540,7 +4539,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             // Android scrolls a tapped selectable message into view when it takes focus, which reads
             // as a user scroll and drops end following before the keyboard closes.
             scrollsChildToFocus={false}
-            keyboardLiftBehavior={props.sendingWithKeyboard ? "persistent" : "whenAtEnd"}
             // Seed the initial viewport before native onLayout.
             {...(viewportHeight > 0 && viewportWidth > 0
               ? { estimatedListSize: { height: viewportHeight, width: viewportWidth } }

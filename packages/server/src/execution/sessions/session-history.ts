@@ -84,7 +84,7 @@ export class SessionHistory {
     const page = await loadHistoryPage(
       JSON.stringify(lineage ? [lineage.sessionId] : [provider, sessionId]), segments,
       request.turnLimit, request.before,
-      (segment, turnLimit, before) => this.readProviderPage(segment, turnLimit, before),
+      (segment, turnLimit, before) => this.readProviderPage(segment, turnLimit, before, request.knownHistoryBlocks !== undefined),
     )
     const starting = request.before ? null : this.startingPrompt(sessionId, page.messages)
     if (starting) page.messages.push(starting)
@@ -167,10 +167,10 @@ export class SessionHistory {
     return prompt
   }
 
-  private async readProviderPage(segment: HistorySegment, turnLimit: number, before?: string): Promise<ProviderHistoryPage> {
+  private async readProviderPage(segment: HistorySegment, turnLimit: number, before?: string, cachePage?: boolean): Promise<ProviderHistoryPage> {
     const backend = this.rt.backendFor(segment.provider)
     if (!backend.loadSessionPage) throw new Error('This provider does not support history pages.')
-    return backend.loadSessionPage(segment.sessionId!, segment.projectPath, turnLimit, before)
+    return backend.loadSessionPage(segment.sessionId!, segment.projectPath, turnLimit, before, cachePage)
   }
 
   /** A session's history, newest `limit` rows when given, with the senders the host recorded on its prompts. */

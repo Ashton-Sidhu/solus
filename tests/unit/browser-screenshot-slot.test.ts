@@ -59,39 +59,41 @@ describe('one screenshot at a time per guest', () => {
 
     const first = driver.captureScreenshot()
     const second = driver.captureScreenshot()
-    await flush()
-    expect(guest.captures).toHaveLength(1)
-
-    guest.captures[0]()
-    await first
-    await flush()
-    expect(guest.captures).toHaveLength(2)
-    guest.captures[1]()
-    await second
+    // A headless screenshot is a warm-up copy and then the copy it keeps, so
+    // two screenshots are four copies, and each starts only when the one
+    // before it has answered.
+    for (let answered = 0; answered < 4; answered++) {
+      await flush()
+      await flush()
+      expect(guest.captures).toHaveLength(answered + 1)
+      guest.captures[answered]()
+    }
+    await Promise.all([first, second])
   })
 
   test('a new document lets the next capture go, and the old one answering late starts no third', async () => {
     const guest = fakeGuest()
-    const driver = await ChromiumBrowserDriver.attach(guest.contents, { kind: 'headless', releaseGuest: async () => {} })
+    const answers: (() => void)[] = []
+    const copy = () => new Promise<string>((resolve) => answers.push(() => resolve('shot')))
 
-    void driver.captureScreenshot()
-    const second = driver.captureScreenshot()
-    const third = driver.captureScreenshot()
+    void captureInTurn(guest.contents, 'Page.captureScreenshot', 1_000, copy)
+    const second = captureInTurn(guest.contents, 'Page.captureScreenshot', 1_000, copy)
+    const third = captureInTurn(guest.contents, 'Page.captureScreenshot', 1_000, copy)
     await flush()
     guest.navigate()
     await flush()
-    expect(guest.captures).toHaveLength(2)
+    expect(answers).toHaveLength(2)
 
-    guest.captures[0]()
+    answers[0]()
     await flush()
-    expect(guest.captures).toHaveLength(2)
+    expect(answers).toHaveLength(2)
 
-    guest.captures[1]()
-    await second
+    answers[1]()
+    expect(await second).toBe('shot')
     await flush()
-    expect(guest.captures).toHaveLength(3)
-    guest.captures[2]()
-    await third
+    expect(answers).toHaveLength(3)
+    answers[2]()
+    expect(await third).toBe('shot')
   })
 
   test('a capture that timed out keeps the guest until Chromium answers it', async () => {

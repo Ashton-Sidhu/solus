@@ -3,11 +3,11 @@
     Bot as SubagentIcon,
     Boxes as ArtifactsIcon,
     LayoutGrid as AppIcon,
-    ClipboardList as TaskIcon,
+    Activity as ActivityIcon,
+    LibraryBig as LibraryIcon,
     FileDiff as DiffIcon,
     FileText as DocumentIcon,
     FolderTree as FilesIcon,
-    GitPullRequest as PullRequestIcon,
     Globe as BrowserIcon,
     ListChecks as PlanIcon,
     Maximize as MaximizeIcon,
@@ -19,6 +19,7 @@
     Plus as PlusIcon,
     X as XIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon as PullRequestIcon, IssueOpenedIcon as TaskIcon } from "../ui/octicons";
   import { getWorkspaceContext } from "../../contexts";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import type { PaneEntry } from "../../contexts/workspace/routing/location";
@@ -46,8 +47,7 @@
   const session = getWorkspaceContext();
   const router = session.router;
 
-  // Every route has a glyph, so a lookup never falls through. A destination
-  // never sits in the strip; it takes the generic one.
+  // Every route has a glyph, so a lookup never falls through.
   const ICONS = {
     chat: ChatIcon,
     draft: ChatIcon,
@@ -66,13 +66,13 @@
     app: AppIcon,
     prReview: PullRequestIcon,
     prDiff: PullRequestIcon,
-    tasks: DocumentIcon,
-    prs: DocumentIcon,
-    insights: DocumentIcon,
+    tasks: TaskIcon,
+    prs: PullRequestIcon,
+    insights: ActivityIcon,
     reviewMode: DocumentIcon,
     settings: DocumentIcon,
-    folio: DocumentIcon,
-    automations: DocumentIcon,
+    folio: LibraryIcon,
+    automations: AutomationIcon,
     notifications: DocumentIcon,
   } satisfies { [Name in RouteRef["name"]]: typeof ChatIcon };
 

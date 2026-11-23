@@ -16,9 +16,11 @@
   interface Props {
     items: readonly RecentArtifact[];
     serverId: string;
+    /** Which still of an artifact the cards show. */
+    isDark: boolean;
     onOpen: (item: RecentArtifact) => void;
   }
-  let { items, serverId, onOpen }: Props = $props();
+  let { items, serverId, isDark, onOpen }: Props = $props();
 
   let open = $state(true);
 
@@ -67,12 +69,13 @@
         ? 'grid-rows-[1fr]'
         : 'grid-rows-[0fr]'}"
     >
-      <div class="min-h-0 overflow-hidden px-2 {open ? '' : 'invisible [transition:visibility_0s_380ms]'}">
-        <!-- Room around each card for its hover ring and focus outline, which the scroller would otherwise clip. -->
-        <Carousel.Content class="-ms-2.5 py-1">
+      <div class="min-h-0 overflow-hidden px-1 {open ? '' : 'invisible [transition:visibility_0s_380ms]'}">
+        <!-- Room on every side of each card for its hairline, hover ring, and focus outline (2px, offset 2px),
+             which the scroller would otherwise clip: the content starts 4px in, and the last card keeps 4px after it. -->
+        <Carousel.Content class="-ms-1.5 py-1.5">
           {#each items as item (recentArtifactKey(item.owned.artifact))}
-            <Carousel.Item class="basis-auto ps-2.5">
-              <RecentArtifactCard {item} {serverId} {now} onOpen={() => onOpen(item)} />
+            <Carousel.Item class="basis-auto ps-2.5 last:pe-1">
+              <RecentArtifactCard {item} {serverId} {isDark} {now} onOpen={() => onOpen(item)} />
             </Carousel.Item>
           {/each}
         </Carousel.Content>

@@ -757,3 +757,40 @@ Focused anchor, navigation, mounting, feed, and size-estimate tests pass (35).
 The mobile typecheck passes. A new recording is pending: the device-control
 service stopped responding during verification. The earlier video does not
 show these follow-up changes.
+
+### Native session loading and reconnect
+
+The mobile comparison used T3 Code `0591d32888dbd2f2f25915c245e6f1fe93dc4755` and the Solus backend. A row update at the same list position keeps the other row objects. Workspace consumers such as Settings subscribe to the host and project state. The directory can reuse a complete saved list when the host confirms its revision for the current caller.
+
+On a conversation open, the app can display the navigation prefetch, the account's saved page, or the first authorized host page while session details load. A matching page keeps the model already on screen. Claude and Codex can reuse bounded, file-validated provider pages. A changed file invalidates a saved page. On a live reconnect the host can replay the suffix after a confirmed event. A settled turn, lost cursor, or host restart uses normal history validation. The phone requests saved artifact HTML when the card needs it.
+
+| Measured operation | Comparison | Updated Solus |
+| --- | ---: | ---: |
+| Apply 200 text updates to a 1,000-message conversation | T3, 9.10 ms | 0.30 ms |
+| Build a conversation from 750 tool calls and their results | Solus before the tool lookup change, 79.67 ms | 6.80 ms |
+
+Both rows show median elapsed time inside Hermes on an iPhone 17 Pro simulator, after five warm-up runs. The text test applied the same chunks to each implementation, using each host's normal message shape, and checked the final text and message count. The tool test read the same 1,500 saved rows into each version of the Solus transcript model. These intervals cover client data processing. They exclude transport and native layout.
+
+The screen comparison used the upstream and Solus Release bundles on the same iPhone 17 Pro simulator with iOS 26.5, the same native shell, and separate local hosts. Each host had the same three conversations. Each measurement starts at the launch or navigation request and ends at the first video frame with readable list or message text. Conversation navigation used the system link to open a two-message thread in the running app. The table gives the median of three runs per case. Frames were sampled every 50 ms.
+
+| First readable content | Phone cache | T3 Code | Solus |
+| --- | --- | ---: | ---: |
+| Session list after app launch | Empty | 2.03 s | 1.86 s |
+| Session list after app launch | Saved | 2.03 s | 1.89 s |
+| Conversation after navigation | Empty | 0.49 s | 0.49 s |
+| Conversation after navigation | Saved | About 0.49 s | About 0.49 s |
+
+The app process restarted before each list measurement. Empty-cache runs cleared the phone's saved session rows and history before launch. Pairing and host caches were retained. These measurements cover the local iOS fixture. Physical devices, Android, and wide-area connections need separate measurements.
+
+#### After moving session navigation and feed updates onto upstream code
+
+The same fixture and video method above gave these medians with the migrated Release bundle.
+
+| First readable content | Phone cache | T3 Code | Updated Solus |
+| --- | --- | ---: | ---: |
+| Session list after app launch | Empty | 2.03 s | 1.83 s |
+| Session list after app launch | Saved | 2.03 s | 1.88 s |
+| Conversation after navigation | Empty | 0.49 s | 0.48 s |
+| Conversation after navigation | Saved | About 0.49 s | 0.48 s |
+
+The conversation differences are smaller than the 50 ms video sample interval. A separate check opened a session by tapping its row and verified the saved prompt and reply. Tests cover the shared navigation read, account changes, queued creations, hidden Home, multi-host reconnect, revoked rows, failed history reads, streaming, tool details, and attachments.

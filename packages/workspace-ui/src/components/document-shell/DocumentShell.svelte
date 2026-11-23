@@ -1106,11 +1106,11 @@
     outline-offset: 0.125rem;
     border-radius: 0.25rem;
   }
-  /* The header's own verbs are raised pills, like every action
+  /* The header's own verbs are raised pills, as tall as the grouped pills
      WorkHeaderActions puts beside them. */
   .doc-shell-header-btn {
     flex-shrink: 0;
-    height: 1.625rem;
+    height: 2rem;
     padding: 0 0.625rem;
     border-radius: 9999px;
     font-size: var(--text-workspace-chrome);
@@ -1134,7 +1134,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.625rem;
+    width: 2rem;
     padding: 0;
   }
   .doc-shell-header-btn--icon :global(svg) {
@@ -1145,8 +1145,8 @@
   /* The microphone is the input bar's control, so the header gives it the
      row's pill from here rather than changing it everywhere. */
   .doc-shell-voice :global(.rc-bar-mic) {
-    width: 1.625rem;
-    height: 1.625rem;
+    width: 2rem;
+    height: 2rem;
     border-radius: 9999px;
     background: var(--background);
     color: var(--foreground);

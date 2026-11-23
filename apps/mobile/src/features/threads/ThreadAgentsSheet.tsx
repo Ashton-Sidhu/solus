@@ -18,12 +18,15 @@ import { Atom } from "effect/reactivity";
 import * as Haptics from "expo-haptics";
 import { T, useGT, useMessages } from "gt-react-native";
 import { useMemo } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Alert, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SheetHeader } from "../../components/ui/SheetHeader";
 import { AppText as Text } from "../../components/ui/AppText";
-import { environmentThreadDetails } from "../../state/threads";
+import { sessionAgentsAtom } from "../../solus/session-work";
+import { useSyncExternalStore } from "react";
+import { solus } from "../../solus/runtime";
+import { rememberSession } from "../../solus/session-record";
 import { SubagentRow } from "./SubagentRow";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
 import { SubagentStopButton } from "./SubagentStopButton";
@@ -42,10 +45,11 @@ const EMPTY_TURN_SUBAGENTS_ATOM = Atom.make<ThreadTurnSubagents | null>(null).pi
 );
 
 export function useThreadTurnSubagents(target: AgentsTarget | null): ThreadTurnSubagents | null {
+  useSyncExternalStore(solus.account.changes.subscribe, solus.sessionCache.scope);
   return useAtomValue(
     target === null
       ? EMPTY_TURN_SUBAGENTS_ATOM
-      : environmentThreadDetails.turnSubagentsAtom(target),
+      : sessionAgentsAtom(target.environmentId, target.threadId),
   );
 }
 
@@ -71,10 +75,17 @@ export function ThreadAgentsSheet({ route }: StaticScreenProps<AgentsTarget>) {
     [messages, subagents],
   );
 
-  const openChildThread = (child: SubagentThreadTarget, title: string | null = null) => {
+  const openChildThread = async (child: SubagentThreadTarget, title: string | null = null) => {
     void Haptics.selectionAsync();
     if (child.linked !== undefined) {
       openLinkedRead(child, child.linked, title, { source: target, replace: true });
+      return;
+    }
+    try {
+      await rememberSession(child.environmentId, child.threadId);
+      if (!navigation.isFocused()) return;
+    } catch (error) {
+      Alert.alert("Could not open session", String(error));
       return;
     }
     if (
@@ -150,6 +161,8 @@ function AgentRow(props: {
   readonly onOpen: (child: SubagentThreadTarget, title: string | null) => void;
 }) {
   const { subagent } = props;
+  const navigation = useNavigation();
+  const toolId = subagent.origin === "provider_native" ? subagent.nativeTaskRef?.nativeId : null;
   const gt = useGT();
   const reach = useLinkedThreadReach(props.environmentId, [subagent]);
   const target = subagentThreadTarget(
@@ -165,13 +178,14 @@ function AgentRow(props: {
         environmentId={props.environmentId}
         subagent={subagent}
         canOpenRemote={target !== null}
+        canReadTranscript={!!toolId}
         elapsed={<AgentElapsed subagent={subagent} tickSeconds={props.tickSeconds} />}
       />
     </View>
   );
 
   const content =
-    target === null ? (
+    target === null && !toolId ? (
       <View
         accessible
         className="min-w-0 flex-1"
@@ -183,13 +197,24 @@ function AgentRow(props: {
       <Pressable
         accessibilityRole="link"
         accessibilityHint={
-          target.linked === undefined
-            ? gt("Opens this agent's thread")
-            : gt("Opens a read-only view of this agent's thread on {label}", {
-                label: target.linked.label,
-              })
+          toolId
+            ? gt("Opens this agent’s transcript")
+            : target?.linked === undefined
+              ? gt("Opens this agent's thread")
+              : gt("Opens a read-only view of this agent's thread on {label}", {
+                  label: target.linked.label,
+                })
         }
-        onPress={() => props.onOpen(target, subagent.title)}
+        onPress={() => {
+          if (target) props.onOpen(target, subagent.title);
+          else if (toolId)
+            navigation.navigate("ProviderAgentTranscript", {
+              environmentId: props.environmentId,
+              threadId: subagent.threadId,
+              toolId,
+              title: subagent.title,
+            });
+        }}
         className="min-w-0 flex-1 active:opacity-70"
       >
         {row}

@@ -17,8 +17,6 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { deriveThreadArrangementSizing } from "../../lib/layout";
-import { environmentServerConfigsAtom } from "../../state/server";
-import { threadListEnvironmentsAtom } from "../../state/presentation";
 import { steadyNavigationThreadShellsAtom, steadyShellsHoldingAtom } from "../../state/threads";
 import { sortSettledThreads } from "@t3tools/client-runtime/state/thread-sort";
 import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../../state/olderSettledShelf";
@@ -28,7 +26,8 @@ import {
   threadArrangementOpenAtom,
 } from "../../state/thread-order";
 import { queuedThreadKeysAtom } from "../../state/use-thread-outbox";
-import { useThreadListActions } from "../home/useThreadListActions";
+import { listActions } from "../../solus/list-actions";
+import { solusDirectoryAtom } from "../../solus/runtime";
 import {
   createThreadMovePlanner,
   threadDragAction,
@@ -184,13 +183,13 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
     fontScale,
   });
   const threads = useAtomValue(steadyNavigationThreadShellsAtom);
-  const configs = useAtomValue(environmentServerConfigsAtom);
-  const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
+  const { listHosts } = useAtomValue(solusDirectoryAtom);
+  const configs = listHosts.listControlEnvironmentIds;
   const queuedThreadKeys = useAtomValue(queuedThreadKeysAtom);
   const pendingOrder = useAtomValue(pendingThreadOrderAtom);
   const dropBusy = useAtomValue(threadDropBusyAtom);
   const holdingRows = useAtomValue(steadyShellsHoldingAtom);
-  const { moveThread } = useThreadListActions();
+  const { moveThread } = listActions;
   const { workingShelfEnabled } = useThreadListV2ShelfPreferences();
   const now = useThreadListNow(threads);
   const [expanded, setExpanded] = useState({ snoozed: false, settled: false });
@@ -239,13 +238,13 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
         section,
         reorderableEnvironmentIds:
           section === "pinned"
-            ? listEnvironments.pinReorderEnvironmentIds
+            ? configs
             : workingShelfEnabled
               ? new Set()
-              : listEnvironments.activeReorderEnvironmentIds,
+              : configs,
       });
     return { pinned: planner("pinned"), active: planner("active") };
-  }, [sections, threads, listEnvironments, workingShelfEnabled]);
+  }, [sections, threads, configs, workingShelfEnabled]);
   const rows = useMemo(() => {
     const result: Row[] = [];
     let offset = 0;
@@ -433,7 +432,7 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
                     insertionOffset,
                     dropBusy,
                     pendingOrder,
-                    listEnvironments,
+
                     planners,
                     configs,
                   }}
@@ -504,10 +503,10 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
                                 dropBusy ||
                                 pendingOrder !== null ||
                                 holdingRows ||
-                                (!listEnvironments.pinReorderEnvironmentIds.has(
+                                (!configs.has(
                                   thread.environmentId,
                                 ) &&
-                                  !listEnvironments.activeReorderEnvironmentIds.has(
+                                  !configs.has(
                                     thread.environmentId,
                                   ))
                               }

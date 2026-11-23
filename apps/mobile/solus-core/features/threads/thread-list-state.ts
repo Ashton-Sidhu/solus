@@ -2,7 +2,7 @@ import type { AttentionEntry } from "@solus/contracts/attention-types";
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
-import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from "@solus/contracts/session-state";
+import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionChange, type SessionState, type SessionView } from "@solus/contracts/session-state";
 import type { PinnedSession, SessionStatus } from "@solus/contracts/types";
 
 import { Listeners } from "../../lib/listeners";
@@ -237,6 +237,15 @@ export class ThreadListState {
       this.publish();
       throw error;
     }
+  }
+
+  /** Apply the host's answer before the next row move, even when the event arrives later. */
+  async setListControls(hostId: string, sessionId: string, change: Pick<SessionChange, "pinOrderKey" | "activeOrderKey" | "autoSettle">): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
+    const {view, state} = await connection.api.sessionUpdate(sessionId, change);
+    if (state) this.write(this.states, hostId, connection, sessionId, state);
+    if (view) this.write(this.views, hostId, connection, sessionId, view);
   }
 
   /** A read boundary belongs to one session on one host. Watch before writing

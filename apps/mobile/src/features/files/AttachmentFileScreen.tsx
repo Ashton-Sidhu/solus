@@ -32,6 +32,7 @@ export type AttachmentFileRouteParams = {
   readonly mimeType: string;
   readonly sizeBytes: string;
   readonly draftKey?: string;
+  readonly hostUploadId?: string;
   readonly htmlRender?: "1";
 };
 
@@ -103,9 +104,14 @@ export function AttachmentFileScreen(props: AttachmentFileScreenProps) {
     }
     handleBack();
   };
-  const removeFromDraft = () => {
-    if (!draftKey) return;
-    removeComposerDraftAttachment(draftKey, params.attachmentId);
+  const isDraftAttachment = !!(draftKey || params.hostUploadId);
+  const removeFromDraft = async () => {
+    if (params.hostUploadId && environmentId && params.threadId) {
+      const { solus } = await import("../../solus/runtime");
+      solus.openConversation(environmentId, params.threadId)?.controller.removeAttachment(params.hostUploadId);
+    } else if (draftKey) {
+      removeComposerDraftAttachment(draftKey, params.attachmentId);
+    }
     handleBack();
   };
 
@@ -171,7 +177,7 @@ export function AttachmentFileScreen(props: AttachmentFileScreenProps) {
           },
         } as const)
       : null,
-    draftKey
+    isDraftAttachment
       ? ({
           id: "remove",
           title: gt("Remove from draft"),
@@ -217,10 +223,10 @@ export function AttachmentFileScreen(props: AttachmentFileScreenProps) {
   };
   const subtitle =
     sizeBytes > 0
-      ? draftKey
+      ? isDraftAttachment
         ? gt("Draft attachment · {size}", { size: formatAttachmentSize(sizeBytes) })
         : gt("Attachment · {size}", { size: formatAttachmentSize(sizeBytes) })
-      : draftKey
+      : isDraftAttachment
         ? gt("Draft attachment")
         : gt("Attachment");
   const refresh = useRefreshAssetUrl(environmentId, resource);
@@ -248,7 +254,7 @@ export function AttachmentFileScreen(props: AttachmentFileScreenProps) {
             : undefined
         }
         onSave={() => void share()}
-        onRemove={draftKey ? removeFromDraft : null}
+        onRemove={isDraftAttachment ? removeFromDraft : null}
       />
     );
   }

@@ -5,10 +5,12 @@
   import {
     ChevronDown as CaretDownIcon,
     CircleAlert as CircleAlertIcon,
+    History,
     SquareTerminal as TerminalWindowIcon,
   } from "@lucide/svelte";
   import type { User, UserId } from "@solus/contracts/user";
   import type { Activity } from "@solus/contracts/activity";
+  import type { TaskProviderEvent } from "@solus/contracts/task-data";
   import type {
     TaskComment,
     TaskLink,
@@ -40,6 +42,13 @@
     comments: TaskComment[];
     /** The task's `task_changed` activity. */
     activity: Activity[];
+    providerEvents?: TaskProviderEvent[];
+    providerPending?: boolean;
+    providerError?: string | null;
+    providerLoadingMore?: boolean;
+    onRetryProvider?: () => void;
+    onLoadOlderProvider?: () => void;
+    onOpenExternal?: (url: string) => void;
     /** The task's current links, so a `linked` change can show the artifact
      *  it brought, collapsed, at the point in the story where it arrived. */
     links?: TaskLink[];
@@ -47,15 +56,15 @@
      *  no live frame nobody can see. */
     enabled?: boolean;
     sessions: TaskSessionLink[];
-    onOpenSession: (sessionId: string) => void;
+    onOpenSession?: (sessionId: string) => void;
     /** The reader on the task's host: their own comments and changes read "You". */
     currentUserId: UserId | null;
     /** The provider that owns the task, as a person reads it. */
     providerName: string;
     /** Send a comment that the provider did not take again. */
-    onRetry: (commentId: string) => Promise<void>;
+    onRetry?: (commentId: string) => Promise<void>;
     /** Discard a comment that the provider did not take. */
-    onDiscard: (commentId: string) => Promise<void>;
+    onDiscard?: (commentId: string) => Promise<void>;
     /** True where the section is a tab of its own. The strip above already says
      *  "Activity", so the band states the one thing it does not — which end of
      *  the feed is the newest. */
@@ -65,6 +74,13 @@
   let {
     comments,
     activity,
+    providerEvents,
+    providerPending,
+    providerError,
+    providerLoadingMore,
+    onRetryProvider,
+    onLoadOlderProvider,
+    onOpenExternal,
     links = [],
     enabled = true,
     sessions,
@@ -80,8 +96,8 @@
    *  row cannot send the same comment two times. */
   let busyCommentIds = $state(new SvelteSet<string>());
 
-  async function settle(commentId: string, command: (commentId: string) => Promise<void>) {
-    if (busyCommentIds.has(commentId)) return;
+  async function settle(commentId: string, command?: (commentId: string) => Promise<void>) {
+    if (!command || busyCommentIds.has(commentId)) return;
     busyCommentIds.add(commentId);
     try {
       await command(commentId);
@@ -117,7 +133,7 @@
     openArtifactWorkId = openArtifactWorkId === workId ? null : workId;
   }
 
-  const entries = $derived(activityFeed(comments, activity));
+  const entries = $derived(activityFeed(comments, activity, providerEvents));
   const shown = $derived(
     filter === "all" ? entries : entries.filter((e) => e.type === "comment"),
   );
@@ -187,6 +203,22 @@
     </DropdownMenu.Root>
   </div>
 
+  {#if filter === "all"}
+    {#if providerError}
+      <p role="alert" class="mb-2 text-destructive">{providerError}</p>
+      {#if !onLoadOlderProvider && onRetryProvider}
+        <Button variant="outline" size="sm" class="mb-3" onclick={onRetryProvider}>Try again</Button>
+      {/if}
+    {:else if providerPending}
+      <p class="mb-2 text-muted-foreground">Loading provider activity…</p>
+    {/if}
+    {#if onLoadOlderProvider}
+      <Button variant="outline" size="sm" class="mb-3"
+        disabled={providerPending || providerLoadingMore}
+        onclick={onLoadOlderProvider}
+      >{providerLoadingMore ? "Loading…" : providerError ? "Try again" : "Load older activity"}</Button>
+    {/if}
+  {/if}
   <ol class="relative flex flex-col gap-5" role="list">
     <span class="absolute top-2 bottom-2 left-[11px] w-px bg-border" aria-hidden="true"></span>
 
@@ -240,6 +272,28 @@
               </div>
             {/if}
           </div>
+        </li>
+      {:else if entry.type === "provider"}
+        {@const { event } = entry}
+        <li class="relative flex gap-2">
+          <span class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground" aria-hidden="true">
+            <History size={12} />
+          </span>
+          <p class="min-w-0 flex-1 pt-1 text-muted-foreground">
+            <span class="font-medium text-foreground">{event.actor ?? providerName}</span>
+            {event.text}
+            {#if event.link && onOpenExternal}
+              {@const { label, url } = event.link}
+              <a href={url} class="text-foreground underline underline-offset-2"
+                onclick={(event) => {
+                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  event.preventDefault();
+                  onOpenExternal?.(url);
+                }}
+              >{label}</a>
+            {/if}
+            <span title={new Date(entry.at).toLocaleString()}>· {relativeTime(entry.at)}</span>
+          </p>
         </li>
       {:else}
         {@const comment = entry.comment}
@@ -300,14 +354,14 @@
                   Not sent
                 </span>
               {/if}
-              {#if originSessionId && originSessionName}
+              {#if originSessionId && originSessionName && onOpenSession}
                 <button
                   type="button"
                   class="flex h-5 min-w-0 self-center cursor-pointer items-center gap-0.5 overflow-hidden rounded-md px-1.5 text-[11px] leading-none font-medium transition-[background-color,transform] duration-150 hover:bg-[color-mix(in_oklch,var(--primary)_20%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.96]"
                   style="background:color-mix(in oklch, var(--primary) 13%, transparent);color:color-mix(in oklch, var(--primary) 82%, var(--foreground))"
                   title="Open session: {originSessionName}"
                   aria-label="Open source session {originSessionName}"
-                  onclick={() => onOpenSession(originSessionId)}
+                  onclick={() => onOpenSession?.(originSessionId)}
                 >
                   <TerminalWindowIcon size={10} class="shrink-0" aria-hidden="true" />
                   <span class="max-w-48 truncate">{originSessionName}</span>
@@ -328,34 +382,40 @@
                 <span class="min-w-0 flex-1 text-[color-mix(in_oklch,var(--failure)_72%,var(--foreground))]">
                   {providerName} did not take this comment. {delivery.error}
                 </span>
-                <Button
-                  variant="outline"
-                  size="xs"
-                  disabled={busy}
-                  onclick={() => void settle(comment.id, onRetry)}
-                >
-                  {busy ? "Sending…" : "Retry"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  disabled={busy}
-                  onclick={() => void settle(comment.id, onDiscard)}
-                >
-                  Discard
-                </Button>
+                {#if onRetry}
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    disabled={busy}
+                    onclick={() => void settle(comment.id, onRetry)}
+                  >
+                    {busy ? "Sending…" : "Retry"}
+                  </Button>
+                {/if}
+                {#if onDiscard}
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={busy}
+                    onclick={() => void settle(comment.id, onDiscard)}
+                  >
+                    Discard
+                  </Button>
+                {/if}
               </div>
             {/if}
           </article>
         </li>
       {/if}
     {:else}
+      {#if filter === "comments" || (!providerPending && !providerError)}
       <li class="relative flex gap-2">
         <span class="size-[22px] shrink-0" aria-hidden="true"></span>
         <p class="min-w-0 flex-1 pt-1 text-muted-foreground">
           {filter === "comments" ? "No comments yet." : "No activity yet."}
         </p>
       </li>
+      {/if}
     {/each}
   </ol>
 </div>

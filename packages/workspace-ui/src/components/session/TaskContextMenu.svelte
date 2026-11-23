@@ -2,11 +2,10 @@
   import TaskIcon from "../ui/TaskIcon.svelte";
   import {
     ExternalLink as ArrowSquareOutIcon,
-    ChartBar as ChartBarIcon,
+    Activity as ActivityIcon,
     MessageCircleMore as ChatCircleDotsIcon,
     Check as CheckIcon,
     Copy as CopyIcon,
-    GitPullRequest as GitPullRequestIcon,
     ListChecks as ListChecksIcon,
     Moon as MoonIcon,
     Play as PlayIcon,
@@ -16,6 +15,7 @@
     Trash2 as TrashIcon,
     X as XIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import type { Task } from "@solus/contracts/task-types";
   import type { TaskStatusCategory } from "@solus/contracts/task-sources";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
@@ -323,7 +323,7 @@
     {/if}
     {#if hasLinkedSession && session.workspace}
       <ContextMenu.Item onSelect={openInInsights}>
-        <ChartBarIcon />
+        <ActivityIcon />
         Open in Insights
       </ContextMenu.Item>
     {/if}

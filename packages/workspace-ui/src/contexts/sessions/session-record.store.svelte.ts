@@ -51,11 +51,15 @@ export class SessionRecordStore {
   private queue: Promise<void> = Promise.resolve()
   private readonly unsubscribe: () => void
   private readonly unsubscribeLive: (() => void) | null = null
+  private readonly unsubscribeTree: (() => void) | null = null
   private readonly stopStatus: () => void
-  constructor(private readonly workspace: SurfaceContext, private readonly serverId: string, private readonly sessionId: string, options: { watch?: boolean } = {}) {
+  constructor(private readonly workspace: SurfaceContext, private readonly serverId: string, private readonly sessionId: string, private readonly options: { watch?: boolean; viaParentId?: string } = {}) {
     const events = serverConnections.eventsFor(serverId)
     this.unsubscribe = events.subscribe('session.transcriptChanged', (event) => {
       if (event.sessionId === sessionId) this.loadSoon(200)
+    })
+    if (options.viaParentId) this.unsubscribeTree = events.subscribe('session.digestChanged', (event) => {
+      if (event.sessionId === options.viaParentId) this.loadSoon(250)
     })
     if (options.watch) {
       // A watched session streams every provider event; the page re-reads the
@@ -109,7 +113,7 @@ export class SessionRecordStore {
         const meta = this.meta
         const before = this.olderCursor
         if (!meta || before === null) return
-        const page = await readSessionRecordPage(this.workspace, this.serverId, meta, { turnLimit: OLDER_HISTORY_TURNS, before, pendingMessages: this.pendingMessages })
+        const page = await readSessionRecordPage(this.workspace, this.serverId, meta, { turnLimit: OLDER_HISTORY_TURNS, before, pendingMessages: this.pendingMessages, viaParentId: this.options.viaParentId })
         if (this.disposed || this.olderCursor !== before) return
         if (page.before === before) throw new Error('History paging made no progress.')
         if (this.olderPages.length === 0) this.boundary = before
@@ -127,6 +131,7 @@ export class SessionRecordStore {
     this.disposed = true
     this.unsubscribe()
     this.unsubscribeLive?.()
+    this.unsubscribeTree?.()
     this.stopStatus()
     if (this.timer) clearTimeout(this.timer)
     if (this.unsubscribeLive) void serverConnections.apiFor(this.serverId).unwatchSession(this.sessionId).catch(() => {})
@@ -163,11 +168,12 @@ export class SessionRecordStore {
    * shorter history is honest, a gap is not.
    */
   private async readNewest(meta: SessionMeta): Promise<SessionRecordPage> {
-    let page = await readSessionRecordPage(this.workspace, this.serverId, meta, { turnLimit: this.newestTurns })
+    const read = () => readSessionRecordPage(this.workspace, this.serverId, meta, { turnLimit: this.newestTurns, viaParentId: this.options.viaParentId })
+    let page = await read()
     if (this.boundary === null) return page
     for (let widened = 0; page.before !== this.boundary && page.before !== null && widened < MAX_WIDEN_TURNS; widened++) {
       this.newestTurns++
-      page = await readSessionRecordPage(this.workspace, this.serverId, meta, { turnLimit: this.newestTurns })
+      page = await read()
     }
     if (page.before !== this.boundary) {
       this.olderPages.splice(0)

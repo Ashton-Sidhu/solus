@@ -7,6 +7,7 @@ import {
   snapshotViewportLabel,
   viewportLabel,
   type BrowserInteractOp,
+  type BrowserInteractResult,
   type BrowserDiscoveredTarget,
   type BrowserOpenRequest,
   type BrowserOrientation,
@@ -27,8 +28,9 @@ import { agentReadablePath } from '../data/assets/attachment-store'
 import { attachEvidence, stopAndFileRecording } from './browser-evidence'
 import { browserRecorder } from './browser-recorder'
 import { browserProfiles, profileForOpen } from './browser-profiles'
-import { browserRegistry } from './browser-registry'
+import { browserRegistry, type BrowserSettleResult } from './browser-registry'
 import type { BrowserDialogAnswer } from './surface-driver'
+import { refSelector, waitConditionExpression } from './page-script'
 import { discoverBrowserTargets } from './target-scanner'
 import { currentPersonKey } from '../vault/acting-scope'
 
@@ -305,7 +307,10 @@ export const browserCloseAgentTool = browserTool({
 
 export const browserNavigateAgentTool = browserTool({
   name: 'browser_navigate',
-  description: 'Move a browser page: go to a URL, go back or forward, or reload.',
+  description:
+    'Move a browser page: go to a URL, go back or forward, or reload. It returns when the page has loaded '
+    + 'and its content has stopped changing, or after 3 seconds, and says which, with the text on screen. '
+    + 'An app can still be starting then: wait for what you expect with browser_wait_for before a snapshot.',
   inputFields: {
     browserPageId: z.string(),
     action: z.enum(['goto', 'back', 'forward', 'reload']),
@@ -318,7 +323,7 @@ export const browserNavigateAgentTool = browserTool({
       input.browserPageId,
       input.action === 'goto' ? { kind: 'goto', url: input.url ?? '' } : { kind: input.action },
     )
-    return ok(`Navigated ${input.browserPageId} (${input.action}).`)
+    return ok(describeSettle(input.browserPageId, input.action, await browserRegistry().settle(input.browserPageId)))
   },
 })
 
@@ -363,7 +368,10 @@ export const browserSnapshotAgentTool = browserTool({
     'See a browser page: a screenshot you see in the result, the interactive elements with '
     + 'their refs and Svelte source locations, and the console and network history the page has '
     + 'accumulated, plus the page\'s Web Vitals (TTFB, FCP, LCP, CLS) so a layout that looks right '
-    + 'but paints slowly is visible too. This is how you verify a UI change at a viewport instead of guessing. The user '
+    + 'but paints slowly is visible too. It also gives the text on screen, says when the page is still loading '
+    + 'or changed during the capture, and names what covers an element. When it says so, the picture can be '
+    + 'wrong: wait for the page with browser_wait_for and take the snapshot again. '
+    + 'This is how you verify a UI change at a viewport instead of guessing. The user '
     + 'sees the screenshot in the conversation as soon as you take it, so report what you found '
     + 'rather than narrating the picture. Pass attach_to_task_id or attach_to_pr_number to file the '
     + 'capture where it will outlive this session — a UI change needs before/after images on its '
@@ -520,10 +528,10 @@ export const browserClickAgentTool = browserTool({
   description: 'Click an element in a browser page, named by a ref from browser_snapshot.',
   inputFields: {
     browserPageId: z.string(),
-    ref: z.string().describe('An element ref from browser_snapshot, e.g. [data-solus-browser-ref="e4"].'),
+    ref: z.string().describe('An element ref from browser_snapshot: e4, or [data-solus-browser-ref="e4"].'),
   },
   pageOf: (input) => input.browserPageId,
-  execute: async (input) => interact(input.browserPageId, { kind: 'click', ref: input.ref }),
+  execute: async (input) => interact(input.browserPageId, { kind: 'click', ref: refSelector(input.ref) }),
 })
 
 export const browserTypeAgentTool = browserTool({
@@ -537,7 +545,7 @@ export const browserTypeAgentTool = browserTool({
   },
   pageOf: (input) => input.browserPageId,
   execute: async (input) => {
-    const op: BrowserInteractOp = { kind: 'type', ref: input.ref, text: input.text }
+    const op: BrowserInteractOp = { kind: 'type', ref: refSelector(input.ref), text: input.text }
     if (input.clear !== undefined) op.clear = input.clear
     return interact(input.browserPageId, op)
   },
@@ -564,7 +572,7 @@ export const browserScrollAgentTool = browserTool({
   pageOf: (input) => input.browserPageId,
   execute: async (input) => {
     const op: BrowserInteractOp = { kind: 'scroll', deltaY: input.deltaY }
-    if (input.ref) op.ref = input.ref
+    if (input.ref) op.ref = refSelector(input.ref)
     return interact(input.browserPageId, op)
   },
 })
@@ -585,19 +593,34 @@ export const browserEvaluateAgentTool = browserTool({
 export const browserWaitForAgentTool = browserTool({
   name: 'browser_wait_for',
   description:
-    'Poll a JavaScript expression in a browser page until it is truthy. Use this instead of sleeping '
-    + 'after an interaction that loads or animates.',
+    'Wait until a browser page shows what you expect: some text, an element, a URL, or a JavaScript '
+    + 'expression that is truthy. Every condition you give must hold. Use this after a navigation or an '
+    + 'interaction that loads or animates, instead of sleeping, and before a snapshot of an app that starts up.',
   inputFields: {
     browserPageId: z.string(),
-    expression: z.string(),
+    text: z.string().optional().describe('Text the page must show. Case counts.'),
+    selector: z.string().optional().describe('A CSS selector that must match an element with a size.'),
+    urlIncludes: z.string().optional().describe('Text the page URL must contain.'),
+    expression: z.string().optional().describe('A JavaScript expression that must be truthy.'),
     timeoutMs: z.number().optional().describe('Default 5000.'),
   },
   deadlineMs: WAIT_DEADLINE_MS,
   pageOf: (input) => input.browserPageId,
   execute: async (input) => {
-    const op: BrowserInteractOp = { kind: 'waitFor', expression: input.expression }
+    const conditions: Parameters<typeof waitConditionExpression>[0] = {}
+    if (input.text !== undefined) conditions.text = input.text
+    if (input.selector !== undefined) conditions.selector = input.selector
+    if (input.urlIncludes !== undefined) conditions.urlIncludes = input.urlIncludes
+    if (input.expression !== undefined) conditions.expression = input.expression
+    const named = Object.entries(conditions).map(([name, value]) => `${name} ${JSON.stringify(value)}`)
+    if (!named.length) return fail('browser_wait_for needs text, selector, urlIncludes, or expression.')
+    const op: BrowserInteractOp = { kind: 'waitFor', expression: waitConditionExpression(conditions) }
     if (input.timeoutMs !== undefined) op.timeoutMs = input.timeoutMs
-    return interact(input.browserPageId, op)
+    const result = await browserRegistry().interact(input.browserPageId, op)
+    if (!result.ok && result.message?.startsWith('Timed out')) {
+      return fail(`Timed out after ${op.timeoutMs ?? 5000}ms waiting for ${named.join(', ')}.`)
+    }
+    return toolResult(result)
   },
 })
 
@@ -609,7 +632,7 @@ export const browserHoverAgentTool = browserTool({
     ref: z.string().describe('An element ref from browser_snapshot.'),
   },
   pageOf: (input) => input.browserPageId,
-  execute: async (input) => interact(input.browserPageId, { kind: 'hover', ref: input.ref }),
+  execute: async (input) => interact(input.browserPageId, { kind: 'hover', ref: refSelector(input.ref) }),
 })
 
 export const browserSelectAgentTool = browserTool({
@@ -624,7 +647,7 @@ export const browserSelectAgentTool = browserTool({
     values: z.array(z.string()).min(1).describe('One value or label, or more for a <select multiple>.'),
   },
   pageOf: (input) => input.browserPageId,
-  execute: async (input) => interact(input.browserPageId, { kind: 'select', ref: input.ref, values: input.values }),
+  execute: async (input) => interact(input.browserPageId, { kind: 'select', ref: refSelector(input.ref), values: input.values }),
 })
 
 export const browserDragAgentTool = browserTool({
@@ -638,7 +661,11 @@ export const browserDragAgentTool = browserTool({
     toRef: z.string().describe('The ref of the element to drop it on.'),
   },
   pageOf: (input) => input.browserPageId,
-  execute: async (input) => interact(input.browserPageId, { kind: 'drag', ref: input.ref, toRef: input.toRef }),
+  execute: async (input) => interact(input.browserPageId, {
+    kind: 'drag',
+    ref: refSelector(input.ref),
+    toRef: refSelector(input.toRef),
+  }),
 })
 
 export const browserUploadAgentTool = browserTool({
@@ -660,7 +687,7 @@ export const browserUploadAgentTool = browserTool({
     })
     const missing = paths.filter((path) => !isFile(path))
     if (missing.length) return fail(`These are not files on this host: ${missing.join(', ')}`)
-    await browserRegistry().setInputFiles(input.browserPageId, input.ref, paths)
+    await browserRegistry().setInputFiles(input.browserPageId, refSelector(input.ref), paths)
     return ok(`Gave ${paths.length === 1 ? paths[0] : `${paths.length} files`} to the file input.`)
   },
 })
@@ -691,7 +718,10 @@ export const browserDialogAgentTool = browserTool({
 })
 
 async function interact(browserPageId: string, op: BrowserInteractOp): Promise<AgentToolResult> {
-  const result = await browserRegistry().interact(browserPageId, op)
+  return toolResult(await browserRegistry().interact(browserPageId, op))
+}
+
+function toolResult(result: BrowserInteractResult): AgentToolResult {
   if (!result.ok) return fail(result.message ?? 'The browser page rejected that operation.')
   const done = result.value ? `ok — ${result.value}` : 'ok'
   return ok(result.message ? `${done}\n${result.message}` : done)
@@ -722,6 +752,9 @@ async function renderSnapshot(
     `viewport ${snapshot.viewport.width}×${snapshot.viewport.height} @${snapshot.viewport.deviceScaleFactor}x `
     + `(${viewportLabel(snapshot.viewport)}, ${snapshot.viewport.orientation}), appearance ${snapshot.appearance}`,
   ]
+  // First, because each one says the rest of the result may not be the page
+  // the agent wants to judge.
+  lines.push(...snapshotWarnings(snapshot), `visible text: ${snapshot.visibleText || '(none)'}`)
   let assetId: string | null = null
   let image: AgentToolImage | null = null
 
@@ -759,9 +792,10 @@ async function renderSnapshot(
   for (const element of snapshot.elements) {
     const source = element.source ? `  ${element.source.file}:${element.source.line}` : ''
     const identifier = element.identifier ? ` #${element.identifier}` : ''
+    const covered = element.coveredBy ? `  (covered by ${element.coveredBy})` : ''
     lines.push(
       `  ${element.ref} ${element.role}${identifier} "${element.label}" `
-      + `@${element.rect.x},${element.rect.y} ${element.rect.width}×${element.rect.height}${source}`,
+      + `@${element.rect.x},${element.rect.y} ${element.rect.width}×${element.rect.height}${source}${covered}`,
     )
   }
 
@@ -780,6 +814,50 @@ async function renderSnapshot(
   }
 
   return { text: lines.join('\n'), assetId, image }
+}
+
+/** The reasons a snapshot may not show the page as it is. */
+function snapshotWarnings(snapshot: BrowserSnapshot): string[] {
+  const warnings: string[] = []
+  if (snapshot.loading) warnings.push('state: the document is still loading.')
+  if (snapshot.changedDuringCapture === 'navigation') {
+    warnings.push('warning: the page navigated during this snapshot. The picture and the elements can be of different pages.')
+  }
+  if (snapshot.changedDuringCapture === 'content') {
+    warnings.push('warning: the page changed during this snapshot. The picture and the elements can differ; '
+      + 'wait for the page with browser_wait_for and take the snapshot again.')
+  }
+  const cover = commonCover(snapshot.elements)
+  if (cover) {
+    warnings.push(`warning: ${cover} covers most of the elements below. An overlay or a loading screen is in front of the page.`)
+  }
+  return warnings
+}
+
+/** What covers more than half of the elements, when one thing does: a
+ *  loading screen or a modal in front of the page, rather than one tooltip. */
+function commonCover(elements: BrowserSnapshot['elements']): string | null {
+  const counts = new Map<string, number>()
+  for (const element of elements) {
+    if (element.coveredBy) counts.set(element.coveredBy, (counts.get(element.coveredBy) ?? 0) + 1)
+  }
+  for (const [cover, count] of counts) if (count * 2 > elements.length) return cover
+  return null
+}
+
+/** What a navigation reached, in the words the next step needs. */
+function describeSettle(browserPageId: string, action: string, settle: BrowserSettleResult): string {
+  const lines = [
+    `Navigated ${browserPageId} (${action}). Now at ${settle.url} — ${settle.title || '(untitled)'}.`,
+    settle.settled
+      ? `The page loaded and stopped changing after ${settle.waitedMs}ms.`
+      : `The page was still ${settle.loading ? 'loading' : 'changing'} after ${settle.waitedMs}ms.`,
+    `visible text: ${settle.visibleText || '(none)'}`,
+  ]
+  if (!settle.settled || !settle.visibleText) {
+    lines.push('If the app is still starting, wait for what you expect with browser_wait_for before you take a snapshot.')
+  }
+  return lines.join('\n')
 }
 
 /**

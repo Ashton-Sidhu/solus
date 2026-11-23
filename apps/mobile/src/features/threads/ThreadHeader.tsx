@@ -12,12 +12,13 @@ import {
   threadTerminalMenu,
   useThreadGitMenuDefinition,
   type ThreadGitControlsProps,
+  type ThreadGitMenuProps,
 } from "./ThreadGitControls";
 
 export function ThreadHeader(props: {
   readonly title: string;
   readonly subtitle: string;
-  readonly gitControls: ThreadGitControlsProps;
+  readonly gitControls: ThreadGitControlsProps | (ThreadGitMenuProps & { readonly canOpenFiles: boolean });
   readonly onReturnToThread?: () => void;
   readonly draft?: boolean;
   readonly hasThreadCwd: boolean;
@@ -26,11 +27,10 @@ export function ThreadHeader(props: {
 }) {
   const gt = useGT();
   const m = useMessages();
-  const goBack = useWorkspaceBackNavigation();
-  const { toggleAuxiliaryPane, startNewTask } = useAdaptiveWorkspaceLayout();
+  const { toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { panes } = useWorkspacePaneState();
   const gitMenu = useThreadGitMenuDefinition(props.gitControls);
-  const terminalMenu = threadTerminalMenu(props.gitControls, m);
+  const terminalMenu = "canOpenTerminal" in props.gitControls ? threadTerminalMenu(props.gitControls, m) : null;
   const filesVisible = props.inspectorMode === "files" && panes.auxiliaryPaneVisible;
   const actions: AppBarAction[] = props.hasThreadCwd
     ? [
@@ -46,6 +46,20 @@ export function ThreadHeader(props: {
     : [];
   const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
 
+  return <ThreadNavigationHeader {...props} actions={actions} menus={menus} />;
+}
+
+export function ThreadNavigationHeader(props: {
+  readonly title: string;
+  readonly subtitle: string;
+  readonly draft?: boolean;
+  readonly onReturnToThread?: () => void;
+  readonly actions?: AppBarAction[];
+  readonly menus?: AppBarMenu[];
+}) {
+  const gt = useGT();
+  const goBack = useWorkspaceBackNavigation();
+  const { startNewTask } = useAdaptiveWorkspaceLayout();
   return (
     <AppBar
       title={props.title}
@@ -61,8 +75,8 @@ export function ThreadHeader(props: {
             }
           : undefined
       }
-      actions={actions}
-      menus={menus}
+      actions={props.actions}
+      menus={props.menus}
       hideBottomBorder
     />
   );

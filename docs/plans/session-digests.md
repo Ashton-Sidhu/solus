@@ -71,7 +71,10 @@ needs an open conversation, a checkout on the client, or a call to git.
    `boot-server.ts`) and each checkpoint (`onTurnCheckpointed`).
    - Every live `user_message` opens a turn, a child's report
      (`via: 'session-report'`) too; `turn_settled` ends it. A sub-agent's own
-     events (`parentToolUseId`) are not the turn's.
+     events (`parentToolUseId`) are not the turn's. A prompt sent to every
+     client but its sender (`except`) is live; an event sent to one client
+     alone (`only`) is a replay or an echo and is not read. A steer
+     (`delivery: 'steer'`) joins the running turn and opens none.
    - A sub-agent is a tool call that `isSubagentTool` names: Claude's `Task`
      and `Agent`, Codex's `spawnAgent` and `codex_subagent`. Its title is its
      description, else its prompt. A background sub-agent stays running until

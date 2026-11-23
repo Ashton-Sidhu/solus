@@ -56,6 +56,13 @@ export class SessionStatuses {
     return status !== undefined && isSessionBusyStatus(status)
   }
 
+  /** Stop settles the visible turn before the provider confirms that it ended. */
+  isStoppingProviderRun(sessionId: string): boolean {
+    const session = this.rt.activeSessions.get(sessionId)
+    return session?.status === 'interrupted' && !!session.agentSessionId
+      && this.rt.backendFor(session.backendId).isSessionRunning(session.agentSessionId)
+  }
+
   /** True while work outside the provider holds the session in 'background':
    *  the sessions it sent work to, until they report, and its live MCP tasks
    *  (docs/plans/mcp-first-class.md §12.5), until they end. */

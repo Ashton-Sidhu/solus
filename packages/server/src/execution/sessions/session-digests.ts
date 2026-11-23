@@ -6,6 +6,7 @@ import {
   digestLine,
   type DigestSubagent,
   type DigestTurn,
+  type DigestWorkflow,
   type SessionDigest,
 } from '@solus/contracts/session-digest'
 import type { NormalizedEvent } from '@solus/contracts/types'
@@ -35,12 +36,14 @@ interface LiveDigest {
   /** The last thing said in the open turn; it becomes `lastReply` when the turn settles. */
   reply: string | null
   timer: ReturnType<typeof setTimeout> | null
+  taskTools: Map<string, string>
 }
 
 /** The events a digest reads; every other event is passed by without a queue. */
 const READ_EVENTS = new Set<NormalizedEvent['type']>([
   'user_message', 'tool_call', 'tool_call_update', 'tool_call_complete', 'tool_result',
   'subagent_report', 'assistant_message', 'turn_settled',
+  'background_task_started', 'background_task_progress', 'background_task_settled',
 ])
 
 /**
@@ -62,9 +65,13 @@ export class SessionDigests {
     this.now = deps.now ?? Date.now
   }
 
-  /** Read one broadcast session event. */
-  observe(sessionId: string, event: NormalizedEvent): void {
-    if (!READ_EVENTS.has(event.type)) return
+  /** Read one session event. An event sent to one client alone is a replay or
+   *  an echo, not the session's own; one sent to every client but its sender is. */
+  observe(sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }): void {
+    if (to?.only || !READ_EVENTS.has(event.type)) return
+    if (event.type === 'background_task_progress' && !event.workflow) return
+    if (event.type === 'background_task_started' && !event.toolUseId && !event.lineageTask) return
+    if (event.type === 'background_task_settled' && !event.toolUseId && !this.live.has(sessionId) && !this.queues.has(sessionId)) return
     const at = this.now()
     this.enqueue(sessionId, (live) => apply(live, event, at))
   }
@@ -105,7 +112,7 @@ export class SessionDigests {
   private async liveDigest(sessionId: string): Promise<LiveDigest> {
     const held = this.live.get(sessionId)
     if (held) return held
-    const live: LiveDigest = { digest: await this.deps.load(sessionId) ?? emptyDigest(sessionId), reply: null, timer: null }
+    const live: LiveDigest = { digest: await this.deps.load(sessionId) ?? emptyDigest(sessionId), reply: null, timer: null, taskTools: new Map() }
     this.live.set(sessionId, live)
     return live
   }
@@ -142,6 +149,9 @@ function apply(live: LiveDigest, event: NormalizedEvent, at: number): When {
     case 'tool_call_complete': return subagentInputStreamed(live, event)
     case 'tool_result': return toolAnswered(live, event, at)
     case 'subagent_report': return subagentReported(live, event, at)
+    case 'background_task_started': return agentTaskStarted(live, event, at)
+    case 'background_task_progress': return agentTaskProgress(live, event, at)
+    case 'background_task_settled': return agentTaskSettled(live, event, at)
     case 'assistant_message': return replied(live, event)
     case 'turn_settled': return turnSettled(live, event)
     default: return 'none'
@@ -151,6 +161,8 @@ function apply(live: LiveDigest, event: NormalizedEvent, at: number): When {
 function turnStarted(live: LiveDigest, event: EventOf<'user_message'>, at: number): When {
   const { turns } = live.digest
   const previous = openTurn(live.digest)
+  // A steer joins the turn it was sent into: that turn settles once, with its outcome.
+  if (previous && event.delivery === 'steer') return 'none'
   if (previous) previous.settled = true
   turns.push({ id: event.clientPromptId ?? crypto.randomUUID(), startedAt: at, endedAt: at, settled: false, prompt: digestLine(event.text), toolCalls: [], changes: null })
   if (turns.length > DIGEST_TURNS) turns.splice(0, turns.length - DIGEST_TURNS)
@@ -165,11 +177,74 @@ function toolCalled(live: LiveDigest, event: EventOf<'tool_call'>, at: number): 
   if (turn) countToolCall(turn, at)
   const isSubagent = isSubagentTool(event)
   if (isSubagent) {
-    const { subagents } = live.digest
-    subagents.push({ id: event.toolId, title: subagentTitle(event.toolInput), status: 'running', startedAt: at, endedAt: null, detail: '' })
-    if (subagents.length > DIGEST_SUBAGENTS) subagents.splice(0, subagents.length - DIGEST_SUBAGENTS)
+    const agent = addSubagent(live.digest, event.toolId, subagentTitle(event.toolInput), at)
+    if (event.toolName === 'spawnAgent') agent.canStop = true
   }
   return turn || isSubagent ? 'soon' : 'none'
+}
+
+function addSubagent(digest: SessionDigest, id: string, title: string, at: number): DigestSubagent {
+  const existing = subagentOf(digest, id)
+  if (existing) return existing
+  const agent: DigestSubagent = { id, title, status: 'running', startedAt: at, endedAt: null, detail: '' }
+  digest.subagents.push(agent)
+  if (digest.subagents.length > DIGEST_SUBAGENTS) digest.subagents.shift()
+  return agent
+}
+
+function agentTaskStarted(live: LiveDigest, event: EventOf<'background_task_started'>, at: number): When {
+  const id = event.toolUseId ?? event.taskId
+  const task = event.lineageTask
+  const agent = task ? addSubagent(live.digest, id, digestLine(task.title), at) : subagentOf(live.digest, id)
+  if (!agent) return 'none'
+  live.taskTools.set(event.taskId, id)
+  agent.canStop = true
+  if (task?.kind === 'workflow') {
+    agent.title = digestLine(task.title)
+    agent.workflow ??= { phases: [], agents: [] }
+  }
+  return 'soon'
+}
+
+function agentTaskProgress(live: LiveDigest, event: EventOf<'background_task_progress'>, at: number): When {
+  if (!event.workflow) return 'none'
+  const id = live.taskTools.get(event.taskId) ?? event.toolUseId ?? event.taskId
+  const agent = addSubagent(live.digest, id, digestLine(event.description ?? 'Workflow'), at)
+  live.taskTools.set(event.taskId, id)
+  agent.workflow = mergeWorkflow(agent.workflow, event.workflow)
+  return 'soon'
+}
+
+function mergeWorkflow(previous: DigestWorkflow | undefined, update: DigestWorkflow): DigestWorkflow {
+  const phases = new Map(previous?.phases.map((phase) => [phase.index, phase]))
+  for (const phase of update.phases) phases.set(phase.index, phase)
+  const agents = new Map(previous?.agents.map((agent) => [agent.index, agent]))
+  for (const agent of update.agents) {
+    const prior = agents.get(agent.index)
+    if (prior && (agent.attempt ?? prior.attempt ?? 1) <= (prior.attempt ?? 1)) {
+      if (prior.state === 'completed' || prior.state === 'failed') continue
+      if (prior.state === 'running' && agent.state === 'queued') continue
+    }
+    agents.set(agent.index, {
+      ...agent,
+      phaseIndex: agent.phaseIndex ?? prior?.phaseIndex,
+      phaseTitle: agent.phaseTitle ?? prior?.phaseTitle,
+    })
+  }
+  return {
+    phases: [...phases.values()].sort((a, b) => a.index - b.index).slice(0, 256),
+    agents: [...agents.values()].sort((a, b) => a.index - b.index).slice(0, 256),
+  }
+}
+
+function agentTaskSettled(live: LiveDigest, event: EventOf<'background_task_settled'>, at: number): When {
+  const id = live.taskTools.get(event.taskId) ?? event.toolUseId
+  live.taskTools.delete(event.taskId)
+  const agent = id ? subagentOf(live.digest, id) : undefined
+  const status = event.status === 'killed' ? 'stopped' : event.status
+  if (!agent || agent.status === status || (agent.status !== 'running' && status !== 'stopped')) return 'none'
+  endSubagent(agent, status, agent.detail, at)
+  return 'now'
 }
 
 /** Claude streams a call's input after the call: the sub-agent's title is in it. */
@@ -183,7 +258,8 @@ function subagentInputStreamed(live: LiveDigest, event: EventOf<'tool_call_updat
 /** A sub-agent started in the background answers its launch at once and reports later. */
 function toolAnswered(live: LiveDigest, event: EventOf<'tool_result'>, at: number): When {
   const subagent = subagentOf(live.digest, event.toolUseId)
-  if (!subagent || event.parentToolUseId || event.isAsyncLaunch) return 'none'
+  if (!subagent || (event.parentToolUseId && !event.isSubagentReport) || event.isAsyncLaunch || subagent.status === 'stopped'
+    || (subagent.workflow && !event.isError)) return 'none'
   endSubagent(subagent, event.isError ? 'failed' : 'completed', event.content, at)
   return 'soon'
 }
@@ -191,6 +267,7 @@ function toolAnswered(live: LiveDigest, event: EventOf<'tool_result'>, at: numbe
 function subagentReported(live: LiveDigest, event: EventOf<'subagent_report'>, at: number): When {
   const subagent = subagentOf(live.digest, event.toolUseId)
   if (!subagent) return 'none'
+  if (subagent.status === 'stopped') return 'none'
   endSubagent(subagent, event.isError ? 'failed' : 'completed', event.text, at)
   return 'soon'
 }
@@ -205,12 +282,16 @@ function turnSettled(live: LiveDigest, event: EventOf<'turn_settled'>): When {
   const turn = openTurn(live.digest)
   if (turn) {
     turn.settled = true
+    turn.outcome = event.outcome
     turn.endedAt = Math.max(turn.endedAt, event.settledAt)
   }
   if (live.reply) live.digest.lastReply = live.reply
   live.reply = null
-  for (const subagent of live.digest.subagents) {
-    if (event.outcome !== 'completed' && subagent.status === 'running') endSubagent(subagent, 'stopped', '', event.settledAt)
+  if (event.outcome !== 'completed') {
+    const tracked = new Set(live.taskTools.values())
+    for (const subagent of live.digest.subagents) {
+      if (subagent.status === 'running' && !tracked.has(subagent.id)) endSubagent(subagent, 'stopped', '', event.settledAt)
+    }
   }
   return 'now'
 }

@@ -2,7 +2,6 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import type { TaskDetails } from '@solus/contracts/task-types'
 import type { TaskSource } from '@solus/contracts/task-sources'
 import type {
-  TaskExternalIssue,
   TaskProviderData,
   TaskReactionContent,
   TaskTemplate
@@ -209,34 +208,5 @@ export class TaskTemplateStore {
     } finally {
       if (generation === this.#generation) this.pending = false
     }
-  }
-}
-
-/** Read an external issue without adding a personal source. */
-export class TaskUrlStore {
-  value: TaskExternalIssue | null = null
-  pending = false
-  error: string | null = null
-  #generation = 0
-  async open(api: Pick<SolusAPI, 'tasksResolve'>, url: string): Promise<void> {
-    const generation = ++this.#generation
-    this.pending = true
-    this.value = null
-    this.error = null
-    try {
-      const result = await api.tasksResolve(url)
-      if (generation === this.#generation) this.value = result
-    } catch (error) {
-      if (generation === this.#generation)
-        this.error = error instanceof Error ? error.message : String(error)
-    } finally {
-      if (generation === this.#generation) this.pending = false
-    }
-  }
-  close(): void {
-    this.#generation++
-    this.value = null
-    this.pending = false
-    this.error = null
   }
 }

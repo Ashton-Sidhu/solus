@@ -37,9 +37,7 @@ export function PullRequestLabelsScreen({ route }: StaticScreenProps<PullRequest
   const gt = useGT();
   const target = pullRequestTarget(route.params);
   const pr = useEnvironmentQuery(composerPullRequests.detail(target)).data;
-  const canWrite = useAtomValue(
-    composerPullRequests.setLabels.permissionAtom(target.environmentId),
-  );
+  const canWrite = useAtomValue(composerPullRequests.setLabels.permissionAtom(target.environmentId));
   const connected = usePullRequestConnected(route.params.environmentId);
   const allowed =
     connected &&

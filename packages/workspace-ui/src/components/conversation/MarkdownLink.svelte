@@ -9,7 +9,8 @@
   import { webLinkIcon } from "@solus/client-core/web-link-icon";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { Globe as GlobeIcon, MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon, Server as ServerIcon } from "@lucide/svelte";
+  import { Globe as GlobeIcon, MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, Server as ServerIcon } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { filePreviewMediaKind, parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
@@ -221,7 +222,7 @@
     {@attach warmPrLink}
     class={tokenClassName('pr')}
   ><span class="solus-token__icon">
-      <GitPullRequestIcon size={12} weight="bold" />
+      <GitPullRequestIcon size={12} />
 </span><span>{@render copyOpen()}{@render children?.()}{@render copyClose()}</span>
   </button>
 {:else if sessionParams}

@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { X as XIcon, Maximize as ArrowsOutIcon, Minimize as ArrowsInIcon } from "@lucide/svelte";
-  import { PAGE_ICON_BTN, PAGE_RAISED_ICON_BTN, PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import { PAGE_ICON_BTN, PAGE_PILL_GROUP, PAGE_PILL_ICON_BTN, PAGE_RAISED_ICON_BTN, PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import { Button } from "./button";
   import { comboHint, type BindingId } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { underStrip } from "./lib/pane-strip";
@@ -32,8 +33,9 @@
     closeTestId?: string;
     /** Draw the controls as raised pills, so the cluster continues a header
      *  row of pills instead of standing apart from it: `strong` beside a
-     *  work's full-ink pills, `soft` beside the quieter page-style pills. */
-    raised?: "strong" | "soft";
+     *  work's full-ink pills, `soft` beside the quieter page-style pills, and
+     *  `pill` joins them in one pill, like the header groups beside it. */
+    raised?: "strong" | "soft" | "pill";
   }
 
   let {
@@ -75,6 +77,43 @@
 >
   {#if trailing}{@render trailing()}{/if}
 
+  {#if raised === "pill"}
+    <div class={PAGE_PILL_GROUP} role="group" aria-label="Pane controls">
+      {#if onToggleMaximize}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="ghost"
+                size="icon-sm"
+                class="{PAGE_PILL_ICON_BTN} cursor-pointer"
+                onclick={onToggleMaximize}
+                aria-label={maximized ? "Restore panel size" : "Maximize panel"}
+              >
+                {#if maximized}
+                  <ArrowsInIcon class="size-4" strokeWidth={1.5} />
+                {:else}
+                  <ArrowsOutIcon class="size-4" strokeWidth={1.5} />
+                {/if}
+              </Button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={maximizeTooltip} />
+        </TooltipUI.Root>
+      {/if}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="{PAGE_PILL_ICON_BTN} cursor-pointer"
+        onclick={onClose}
+        aria-label={closeLabel}
+        data-testid={closeTestId}
+      >
+        <XIcon class="size-4" strokeWidth={1.5} />
+      </Button>
+    </div>
+  {:else}
   {#if onToggleMaximize}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -107,5 +146,6 @@
   >
     <XIcon size={16} strokeWidth={iconStroke} />
   </button>
+  {/if}
 </div>
 {/if}

@@ -75,16 +75,6 @@
   );
   const shell = getClientShellContext();
   const panelBg = $derived(background ?? `var(${panelColorVar})`);
-  // The height the header takes from the panel's flow, so a column under it
-  // can place itself against the window (`--side-panel-head-flow`). The
-  // untitled mac header is pulled up into the window's inset and pulls what
-  // follows up with it (the `--mac-left` rules below); any other header is
-  // its row.
-  const headFlow = $derived(
-    shell.hasInsetTitlebar && side === "left" && !title
-      ? "calc(var(--solus-titlebar-height) - var(--side-panel-window-inset) - 0.625rem)"
-      : "var(--solus-chrome-row-h, 2.5rem)",
-  );
   // Horizontal space the shell's gutter steals from a fixed-width root. A
   // managed root uses 100% because percentages already resolve against the
   // shell's content box; subtracting this again would double its right inset.
@@ -118,7 +108,6 @@
  ? 'border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] shadow-[0_1px_2px_rgba(42,38,24,0.03),0_8px_24px_-12px_rgba(42,38,24,0.08)] dark:shadow-none'
  : 'border border-[color-mix(in_srgb,var(--solus-text-primary)_8%,transparent)] shadow-[0_1px_2px_-1px_rgba(0,0,0,0.05)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none'}"
     style:--side-panel-bg={panelBg}
-    style:--side-panel-head-flow={headFlow}
   >
     {#if backdrop}
       <!-- Beneath the content, in the root's own stacking context, so the
@@ -357,6 +346,20 @@
         var(--solus-traffic-light-end) + 1.25rem -
           var(--side-panel-window-inset) - 1rem
       )
+    );
+  }
+
+  .side-panel-shell[data-slot="session-sidebar"] :global(.side-panel-leading) {
+    margin-left: max(
+      0px,
+      calc(var(--solus-sidebar-brand-left) - var(--side-panel-window-inset) - 0.625rem)
+    );
+  }
+
+  .side-panel-shell[data-slot="session-sidebar"] :global(.side-panel-header--mac-left .side-panel-leading) {
+    margin-left: max(
+      0px,
+      calc(var(--solus-sidebar-brand-left) - var(--side-panel-window-inset) - 1rem)
     );
   }
 

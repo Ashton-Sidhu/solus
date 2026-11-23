@@ -180,9 +180,9 @@ export interface RouteParams {
   /** A file tree is a view of one directory on one host. Keep that target in
    *  the route so a draft becoming a session cannot change or reload the pane. */
   files: { serverId: string; cwd: string; path?: string; line?: number }
-  /** A sub-agent's nested transcript hangs off a message, and messages belong
-   *  to the conversation. */
-  subagent: { sessionId: string; messageId: string; serverId?: string }
+  /** The conversation names a message. The session tree names the provider tool call. */
+  subagent: { sessionId: string; serverId?: string } &
+    ({ messageId: string; toolId?: never } | { toolId: string; messageId?: never })
   /** The running UI, at a chosen viewport. Naming a page deep-links it; an
    *  absent id follows whichever page the browser store last made active, which
    *  is how "an agent asked for a surface" lands somewhere. */
@@ -194,7 +194,7 @@ export interface RouteParams {
   /** The record of a session on a host that cannot open its transcript: the
    *  organization's workspace service while the runner is offline
    *  (docs/plans/cloud-service-model.md R8). Read-only. */
-  sessionRecord: { sessionId: string; serverId: string }
+  sessionRecord: { sessionId: string; serverId: string; viaParentId?: string }
 }
 
 export type RouteName = keyof RouteParams
@@ -629,13 +629,15 @@ export const ROUTES: RouteTable = {
   },
   subagent: {
     parse: (s) => {
-      const [sessionSegment, messageId] = s.split('/')
-      if (!sessionSegment || !messageId) return null
+      const [sessionSegment, segment, toolSegment] = s.split('/')
+      if (!sessionSegment || !segment) return null
       const { id, serverId } = parseScopedId(sessionSegment)
       if (!id) return null
-      return serverId ? { sessionId: id, messageId, serverId } : { sessionId: id, messageId }
+      const session = serverId ? { sessionId: id, serverId } : { sessionId: id }
+      if (!toolSegment || segment !== 'tool') return { ...session, messageId: segment }
+      try { return { ...session, toolId: decodeURIComponent(toolSegment) } } catch { return null }
     },
-    serialize: (p) => `${serializeScopedId(p.sessionId, p.serverId)}/${p.messageId}`,
+    serialize: (p) => `${serializeScopedId(p.sessionId, p.serverId)}/${p.toolId === undefined ? p.messageId : `tool/${encodeURIComponent(p.toolId)}`}`,
     placement: 'surface',
     defaultWeight: 0.6,
     component: () => import('../../../components/conversation/SubagentHostPane.svelte'),
@@ -678,10 +680,13 @@ export const ROUTES: RouteTable = {
   },
   sessionRecord: {
     parse: (s) => {
-      const { id, serverId } = parseScopedId(s)
-      return id && serverId ? { sessionId: id, serverId } : null
+      const [session, parent] = s.split('/')
+      const { id, serverId } = parseScopedId(session)
+      if (!id || !serverId) return null
+      if (!parent) return { sessionId: id, serverId }
+      try { return { sessionId: id, serverId, viaParentId: decodeURIComponent(parent) } } catch { return null }
     },
-    serialize: (p) => serializeScopedId(p.sessionId, p.serverId),
+    serialize: (p) => serializeScopedId(p.sessionId, p.serverId) + (p.viaParentId ? `/${encodeURIComponent(p.viaParentId)}` : ''),
     // Read like a conversation: the destination from the sidebar, a surface
     // from inside a page.
     placement: 'either',

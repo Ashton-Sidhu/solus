@@ -5,7 +5,7 @@
     Folder as FolderIcon,
     MessageCirclePlus as NewSessionIcon,
     Presentation as PresentationIcon,
-    RefreshCw as AutomationIcon,
+    Workflow as AutomationIcon,
   } from "@lucide/svelte";
   import type { PickerRecord } from "./lib/picker-records";
 

@@ -13,29 +13,23 @@ interface GitSectionReads {
   readonly readiness: GitReadiness
   context(): IpcContext
   environment: Pick<SessionEnvironmentStore, 'watchDetails'>
-  repository: Pick<RepositorySetupStore, 'refresh' | 'refreshGithubConnection'>
+  repository: Pick<RepositorySetupStore, 'ensure' | 'ensureGithubConnection'>
 }
 
-/** Visible Git rows own details; cache writes must not restart their subscription. */
+/** Visible Git rows own details; cache writes must not restart their subscription.
+ *  The repository status and GitHub connection are read once per checkout by
+ *  the store, so a Git section that mounts again on a tab switch reads none. */
 export function useGitSectionReads(reads: GitSectionReads): void {
-  let requestedSetupFor: string | null = null
   $effect(() => {
     if (!reads.active || !reads.cwd || reads.cwd === '~') return
     const { api, serverId, cwd } = reads
-    const key = `${serverId}\0${cwd}`
-    if (requestedSetupFor === key) return
-    requestedSetupFor = key
-    untrack(() => { void reads.repository.refresh(api, serverId, cwd) })
+    untrack(() => reads.repository.ensure(api, serverId, cwd))
   })
 
-  let requestedConnectionFor: string | null = null
   $effect(() => {
     if (!reads.active || reads.readiness !== 'local-only' || !reads.cwd || reads.cwd === '~') return
     const { api, serverId, cwd } = reads
-    const key = `${serverId}\0${cwd}`
-    if (requestedConnectionFor === key) return
-    requestedConnectionFor = key
-    untrack(() => { void reads.repository.refreshGithubConnection(api, serverId, reads.context(), cwd) })
+    untrack(() => reads.repository.ensureGithubConnection(api, serverId, reads.context(), cwd))
   })
 
   $effect(() => {

@@ -3,10 +3,10 @@ import type { ReadTurnDiff } from '@solus/client-core/inline-review-guide'
 
 const key = Symbol('conversation-turn-diff')
 
-export function provideTurnDiffReader(read: ReadTurnDiff): void {
+export function provideTurnDiffReader(read: () => ReadTurnDiff | undefined): void {
   setContext(key, read)
 }
 
-export function getTurnDiffReader(): ReadTurnDiff | undefined {
+export function getTurnDiffReader(): (() => ReadTurnDiff | undefined) | undefined {
   return getContext(key)
 }

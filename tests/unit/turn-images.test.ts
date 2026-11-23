@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { Message } from '@solus/contracts/types'
 import { toolResultImages } from '@solus/client-core/reply-images'
-import { galleryHrefs, hasGallerySlides, toolRowImages } from '@solus/workspace-ui/components/conversation/lib/turn-images'
+import { galleryHrefs, hasGallerySlides, toolGroupViewedImages, toolRowImages } from '@solus/workspace-ui/components/conversation/lib/turn-images'
 import { markdownAssetId } from '@solus/workspace-ui/components/conversation/lib/markdown-image'
 
 test('the viewer can browse images across replies in one turn, in carousel order', () => {
@@ -41,6 +41,28 @@ test('a tool row shows its images as asset references the host signs, and only w
   expect(markdownAssetId(images[0].href)).toBe(assetId)
   expect(toolRowImages({ ...tool, toolStatus: 'running' })).toEqual([])
   expect(toolResultImages(undefined)).toEqual([])
-  // Tool images stay in the tool row, out of the turn's gallery: the folded row's outputs strip shows them.
+  // The image stays in the tool details.
   expect(hasGallerySlides([tool])).toBe(false)
+})
+
+test('tool groups preview successful workspace image reads once in read order', () => {
+  const call = (toolName: string, path: string, toolStatus: Message['toolStatus'] = 'completed'): Message => ({
+    id: path, role: 'tool', content: '', timestamp: 1, toolName, toolInput: JSON.stringify({ path }), toolStatus,
+  })
+  const tools = [
+    call('Read', './docs/screen #1.png'),
+    call('view_image', '/repo/docs/screen #1.png'),
+    call('view_image', '/repo/second.jpg'),
+    call('device_screenshot', 'device.png'),
+    call('Read', 'missing.png', 'error'),
+    call('Read', 'unfinished.png', 'running'),
+    call('Read', 'docs/../outside/../../other.png'),
+    call('Read', '/repository/outside.png'),
+    call('Read', 'https://example.com/image.png'),
+    call('Read', 'docs/page.md'),
+  ]
+  expect(toolGroupViewedImages(tools, '/repo')).toEqual(['/repo/docs/screen #1.png', '/repo/second.jpg'])
+  expect(toolGroupViewedImages(tools, undefined)).toEqual([])
+  expect(toolGroupViewedImages([call('view_image', 'c:/repo/Demo.png'), call('Read', 'demo.png')], 'C:\\repo'))
+    .toEqual(['C:\\repo\\Demo.png'])
 })

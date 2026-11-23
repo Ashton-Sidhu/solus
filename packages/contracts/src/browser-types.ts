@@ -697,6 +697,9 @@ export interface BrowserElement {
   source?: { file: string; line: number; column: number }
   disabled?: boolean
   value?: string
+  /** What is on top of the element's centre, such as `div#splash`, when that
+   *  is not the element. A click there lands on the cover. */
+  coveredBy?: string
 }
 
 /**
@@ -740,6 +743,13 @@ export interface BrowserSnapshot {
   /** Absent when the guest reported no timings — a page that never navigated,
    *  or one whose performance timeline the caller asked to skip. */
   vitals?: BrowserWebVitals
+  /** The document had not finished loading when the snapshot read it. */
+  loading?: boolean
+  /** The text a person can read in the viewport, bounded. */
+  visibleText?: string
+  /** Set when the page changed between the structure read and the end of the
+   *  screenshot, so the picture and the elements can disagree. */
+  changedDuringCapture?: 'content' | 'navigation'
   capturedAt: number
 }
 

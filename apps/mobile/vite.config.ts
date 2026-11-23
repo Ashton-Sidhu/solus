@@ -10,6 +10,9 @@ const reactTests = [
   "src/features/threads/git/GitBranchesSheet.test.tsx",
   "src/features/threads/new-task-flow-provider.test.tsx",
   "src/features/threads/NewTaskRouteScreen.test.tsx",
+  "src/features/threads/ThreadHeader.test.tsx",
+  "src/features/threads/ThreadRouteScreen.test.tsx",
+  "src/features/threads/ProviderAgentTranscript.test.tsx",
   "src/features/layout/workspace/workspace-tabs-state.test.ts",
   "src/state/use-thread-pr.demand.test.tsx",
   "src/features/threads/git/GitBranchesSheet.occupancy.test.tsx",
@@ -59,6 +62,7 @@ const reactTests = [
   "src/features/connection/LinkedEnvironmentsSection.test.tsx",
   "src/features/devices/device-stream.browser.test.ts",
   "src/features/keyboard/keyboardControllerState.test.tsx",
+  "src/features/threads/IosThreadFeedList.test.tsx",
 ];
 
 const sourceRoot = `${normalizePath(NodeURL.fileURLToPath(new URL("./src", import.meta.url)))}/`;

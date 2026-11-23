@@ -3,7 +3,9 @@
 // session and the Solus sessions it started. While any run, settled ones fold
 // under "Previous agents"; once none run, the settled ones are the list. Per the renderer rules the .svelte holds markup and
 // thin handlers; the reading of each row lives here.
-import type { AgentConversationRef, AgentId, Message, SessionMeta } from '@solus/contracts/types'
+import type { AgentConversationRef, AgentId, Message, SessionMeta, SessionRecordStatus } from '@solus/contracts/types'
+import type { DigestSubagent, DigestTurn, DigestWorkflow, SessionTree } from '@solus/contracts/session-digest'
+import { nodeTitle } from '@solus/client-core/session-tree'
 import {
   subagentRow,
   type SubagentModelFallback,
@@ -69,8 +71,105 @@ export interface RailAgentContext {
   hostLabel: string | null
 }
 
-function tooltipFor(title: string, status: string, detail: string): string {
+export function railAgentTooltip(title: string, status: string, detail: string): string {
   return detail ? `${title}\n${status} · ${detail}` : `${title}\n${status}`
+}
+
+export type TreeAgentRow = {
+  key: string
+  id: string
+  title: string
+  provider: AgentId
+  tone: AgentLinkTone
+  status: string
+  detail: string
+  startedAt: number
+  endedAt: number | null
+} & (
+  | { kind: 'subagent'; canStop: boolean; workflow?: DigestWorkflow }
+  | { kind: 'session'; serverId: string; cwd: string; isRemote: boolean }
+)
+
+const SUBAGENT_STATUS = {
+  running: { tone: 'live', status: 'Running' },
+  completed: { tone: 'done', status: 'Completed' },
+  failed: { tone: 'failed', status: 'Failed' },
+  stopped: { tone: 'idle', status: 'Stopped' },
+} as const satisfies Record<DigestSubagent['status'], { tone: AgentLinkTone; status: string }>
+
+function childSessionStatus(status: SessionRecordStatus, lastTurn: DigestTurn | undefined): Pick<TreeAgentRow, 'tone' | 'status'> {
+  if (status === 'interrupted') return { tone: 'idle', status: 'Interrupted' }
+  if (status === 'running' || lastTurn?.settled === false) return SUBAGENT_STATUS.running
+  switch (lastTurn?.outcome) {
+    case 'completed': return SUBAGENT_STATUS.completed
+    case 'failed':
+    case 'dead': return SUBAGENT_STATUS.failed
+    case 'interrupted': return { tone: 'idle', status: 'Interrupted' }
+    default: return { tone: 'idle', status: 'Idle' }
+  }
+}
+
+/** Direct delegates and the session's own provider sub-agents. A child lists its own agents when opened. */
+export function treeAgentRows(tree: SessionTree | null, sessionId: string, serverId: string): TreeAgentRow[] {
+  const rows: TreeAgentRow[] = []
+  for (const { record, digest } of tree?.nodes ?? []) {
+    if (record.sessionId === sessionId) {
+      for (const subagent of digest?.subagents ?? []) {
+        rows.push({
+          key: `subagent:${subagent.id}`,
+          kind: 'subagent',
+          id: subagent.id,
+          title: subagent.title,
+          provider: record.provider,
+          detail: subagent.detail,
+          startedAt: subagent.startedAt,
+          endedAt: subagent.endedAt,
+          canStop: subagent.canStop === true,
+          workflow: subagent.workflow,
+          ...SUBAGENT_STATUS[subagent.status],
+        })
+      }
+    } else if (record.parentSessionId === sessionId) {
+      const lastTurn = digest?.turns.at(-1)
+      const state = childSessionStatus(record.status, lastTurn)
+      rows.push({
+        key: `session:${record.sessionId}`,
+        kind: 'session',
+        id: record.sessionId,
+        title: nodeTitle(record),
+        provider: record.provider,
+        serverId: record.runnerHostId ?? serverId,
+        isRemote: record.runnerHostId !== null,
+        cwd: record.cwd ?? '',
+        detail: digest?.lastReply ?? '',
+        startedAt: record.createdAt,
+        endedAt: state.tone === 'live' ? null : (lastTurn?.endedAt ?? record.lastActivityAt),
+        ...state,
+      })
+    }
+  }
+  return rows.sort((a, b) => b.startedAt - a.startedAt)
+}
+
+export function workflowPhases(workflow: DigestWorkflow) {
+  const phases = new Map<number, { title: string; agents: DigestWorkflow['agents'] }>()
+  const other: DigestWorkflow['agents'] = []
+  for (const phase of workflow.phases) phases.set(phase.index, { title: phase.title, agents: [] })
+  for (const agent of workflow.agents) {
+    if (agent.phaseIndex === undefined) {
+      other.push(agent)
+      continue
+    }
+    let phase = phases.get(agent.phaseIndex)
+    if (!phase) {
+      phase = { title: agent.phaseTitle || `Phase ${agent.phaseIndex + 1}`, agents: [] }
+      phases.set(agent.phaseIndex, phase)
+    }
+    phase.agents.push(agent)
+  }
+  const groups = [...phases].sort(([a], [b]) => a - b).map(([index, phase]) => ({ index, ...phase }))
+  if (other.length) groups.push({ index: -1, title: 'Agents', agents: other })
+  return groups
 }
 
 function subagentAgentRow(message: Message, now: number, context: RailAgentContext): RailAgentRow {
@@ -87,7 +186,7 @@ function subagentAgentRow(message: Message, now: number, context: RailAgentConte
     status: link.label,
     elapsedMs: row.elapsedMs,
     detail,
-    tooltip: tooltipFor(row.name, link.label, detail),
+    tooltip: railAgentTooltip(row.name, link.label, detail),
     ref: null,
     pending: false,
     startedAt: message.timestamp,
@@ -110,7 +209,7 @@ function sessionAgentRow(ref: AgentConversationRef, startedAt: number, now: numb
     status: link.label,
     elapsedMs: agentConversationElapsedMs(ref, now),
     detail: link.detail,
-    tooltip: tooltipFor(title, link.label, [link.detail, provenance].filter(Boolean).join(' · ')),
+    tooltip: railAgentTooltip(title, link.label, [link.detail, provenance].filter(Boolean).join(' · ')),
     ref,
     pending,
     startedAt,

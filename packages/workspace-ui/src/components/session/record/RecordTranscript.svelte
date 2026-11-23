@@ -137,7 +137,7 @@
         {:else if notice === "background-command"}
           <BackgroundCommandRow message={item.message} skipMotion />
         {:else}
-          <UserMessageBubble message={item.message} skipMotion />
+          <UserMessageBubble message={item.message} />
         {/if}
       {:else if item.kind === "assistant"}
         {#if item.message.content}

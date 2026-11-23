@@ -26,6 +26,7 @@
   import SaveFilePicker from "../pickers/SaveFilePicker.svelte";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import WorkPublishMenu from "../work/WorkPublishMenu.svelte";
+  import { PAGE_PILL_GROUP } from "../../lib/page-chrome";
   import { setCommentViewer } from "../comments/lib/comment-viewer";
   import { SINGLE_READER } from "../comments/lib/thread";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
@@ -249,6 +250,9 @@
         flushSave={() => shell?.flushSave() ?? Promise.resolve()}
       />
     {/if}
+    <!-- Comments, Bookmark and ⋯ share one pill, like the pull request
+         header's link group. -->
+    <div class={PAGE_PILL_GROUP} role="group" aria-label="Plan comments and more actions">
     <button
       type="button"
       onclick={() => (commentsRailOpen = !commentsRailOpen)}
@@ -302,6 +306,7 @@
         </DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
+    </div>
   {/snippet}
 
   {#snippet rail({ folded })}

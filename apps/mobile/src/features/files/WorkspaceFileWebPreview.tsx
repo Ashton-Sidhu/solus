@@ -15,15 +15,18 @@ import { isPdfPreviewUri } from "../../lib/pdfPreview";
 import { webViewDecelerationRate } from "../../lib/webViewDecelerationRate";
 import { useContentTopInset } from "../../components/ui/useBarInset";
 
-export function WorkspaceFileWebPreview(props: { readonly uri: string | null }) {
+export function WorkspaceFileWebPreview(props: {
+  readonly uri: string | null;
+  readonly pdf?: boolean;
+}) {
   const gt = useGT();
   if (props.uri === null) {
     return <FilePreviewLoading message={gt("Preparing preview...")} background="card" />;
   }
-  return <DocumentWebPreview key={props.uri} uri={props.uri} />;
+  return <DocumentWebPreview key={props.uri} uri={props.uri} pdf={props.pdf} />;
 }
 
-function DocumentWebPreview(props: { readonly uri: string }) {
+function DocumentWebPreview(props: { readonly uri: string; readonly pdf?: boolean }) {
   const headerInset = useContentTopInset();
   const gt = useGT();
   const [loadProgress, setLoadProgress] = useState(0);
@@ -35,7 +38,7 @@ function DocumentWebPreview(props: { readonly uri: string }) {
     return true;
   });
 
-  if (isPdfPreviewUri(props.uri)) {
+  if (props.pdf || isPdfPreviewUri(props.uri)) {
     return (
       <View className="flex-1" style={{ paddingTop: headerInset }}>
         <PdfPreview uri={props.uri} />

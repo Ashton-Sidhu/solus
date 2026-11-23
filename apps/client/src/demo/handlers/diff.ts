@@ -7,6 +7,7 @@ import type { DemoStore } from '../store'
 export function registerDiffHandlers(backend: DemoServer, store: DemoStore): void {
   backend.register('diff', (args) => store.diff(arg<IpcContext>(args, 0), arg<DiffRequest>(args, 1)))
   backend.register('diffStats', (args) => store.diffStats(arg<IpcContext>(args, 0), arg<DiffRequest>(args, 1)))
+  backend.register('diffStatsBatch', (args) => arg<DiffRequest[]>(args, 1).map((request) => store.diffStats(arg<IpcContext>(args, 0), request)))
   backend.register('listTurnSnapshots', (args) => store.turnSnapshots(arg<IpcContext>(args, 0)))
   backend.register('gitRefreshState', (args) => store.gitStatus(arg<string>(args, 0)))
   backend.register('worktreeListProject', () => store.worktrees())

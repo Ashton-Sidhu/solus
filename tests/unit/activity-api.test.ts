@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { Activity } from '@solus/contracts/activity'
-import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import type { Attribution, User } from '@solus/contracts/user'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
@@ -94,7 +94,7 @@ async function serviceHistory() {
   const ctx = { principal: alice.principal, clientId: 'alice-client' }
   return {
     load: async (limit?: number) => (await handlers.get('loadSession')!(['thread-1', undefined, undefined, undefined, limit, undefined], ctx)) as WireSessionLoadMessage[],
-    page: async (before?: string) => (await handlers.get('loadSessionPage')!([{ sessionId: 'thread-1', turnLimit: 1, before }], ctx)) as { messages: WireSessionLoadMessage[]; before: string | null },
+    page: async (before?: string, knownHistoryBlocks?: string[]) => (await handlers.get('loadSessionPage')!([{ sessionId: 'thread-1', turnLimit: 1, before, knownHistoryBlocks }], ctx)) as SessionHistoryPage,
   }
 }
 
@@ -142,6 +142,12 @@ describe('activity on the Solus API', () => {
       before = page.before ?? undefined
     } while (before)
     expect(pages).toEqual([['u3'], ['u2', 'a2', 'renamed'], ['u1', 'a1', 'stopped']])
+    const newest = await history.page(undefined, [])
+    const confirmed = await history.page(undefined, newest.historyBlocks!.map(({ hash }) => hash))
+    expect(confirmed.messages).toEqual([])
+    expect(confirmed.before).toBe(newest.before)
+    expect(confirmed.turnDiffs).toEqual(newest.turnDiffs)
+    expect(confirmed.historyBlocks).toEqual(newest.historyBlocks!.map(block => ({ ...block, reused: true })))
   })
 
   test('the record API answers a session\'s activity to a reader who may open it, and nothing to one who may not', async () => {

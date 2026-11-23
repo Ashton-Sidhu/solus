@@ -23,7 +23,7 @@ import { removeNotificationsFor } from '../notifications/store'
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { taskWriteError } from './providers/failures'
 import { taskAdapters } from './providers/registry'
-import type { ProviderTask, TaskHome } from './providers/types'
+import type { ProviderTask, ProviderTaskDetails, TaskHome } from './providers/types'
 import { taskSourceItems, tasks } from './schema'
 import { assetReferencesIn } from './task-assets'
 import { notifyTaskAssignments } from './task-assignment'
@@ -70,9 +70,12 @@ function refOf(taskId: string): TaskRef {
 /** Read one task from its provider with its comments, and write it over the host's copy. */
 async function fetchTask(taskId: string): Promise<Task> {
   const ref = refOf(taskId)
-  const answer = await taskAdapters().provider(ref.provider).fetch(ref)
+  return storeTaskDetails(await taskAdapters().provider(ref.provider).fetch(ref))
+}
+
+async function storeTaskDetails(answer: ProviderTaskDetails): Promise<Task> {
   const task = await storeProviderTask(answer.task, { detail: true })
-  await database().transaction((db) => storeProviderComments(db, taskId, answer.comments, answer.commentsTruncated))
+  await database().transaction((db) => storeProviderComments(db, task.id, answer.comments, answer.commentsTruncated))
   return task
 }
 
@@ -102,10 +105,10 @@ export async function taskDetails(scope: RecordScope, taskId: string): Promise<T
  * answer is that copy with `fromCache`. `personKey` is the person who reads:
  * they are told when the read shows that the task became theirs.
  */
-export async function getTask(scope: RecordScope, taskId: string, personKey?: string): Promise<TaskDetails> {
+export async function getTask(scope: RecordScope, taskId: string, personKey?: string, resolved?: ProviderTaskDetails): Promise<TaskDetails> {
   const before = await loadTask(taskId)
   try {
-    const task = await fetchTask(taskId)
+    const task = resolved ? await storeTaskDetails(resolved) : await fetchTask(taskId)
     if (!before || before.updatedAt !== task.updatedAt || before.category !== task.category) emitChanged(taskId)
     if (personKey && before && task.assignee && task.assignee !== before.assignee) {
       const assignment = { taskId, title: task.title, provider: task.providerId, assignee: task.assignee, updatedAt: task.updatedAt }

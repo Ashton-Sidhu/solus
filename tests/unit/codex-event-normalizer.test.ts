@@ -32,6 +32,21 @@ async function normalizeCodexFixture(
 }
 
 describe('normalizeCodexNotification', () => {
+  test('keeps the path of a viewed workspace image in live events and history', () => {
+    const item = { id: 'view-1', type: 'imageView', path: '/repo/docs/demo.png' }
+    const toolInput = JSON.stringify({ path: item.path })
+    const normalizer = new CodexTurnNormalizer({ planMode: false })
+    expect(normalizer.push({ method: 'item/started', params: { item } })).toMatchObject([
+      { type: 'tool_call', toolName: 'view_image', toolId: item.id, toolInput },
+    ])
+    expect(normalizer.push({ method: 'item/completed', params: { item } })).toMatchObject([
+      { type: 'tool_call_complete', toolId: item.id },
+    ])
+    expect(codexItemToMessage(item, 1)).toMatchObject({
+      role: 'tool', toolName: 'view_image', toolId: item.id, toolInput,
+    })
+  })
+
   test('keeps a native async question open without a provider callback', () => {
     const normalizer = new CodexTurnNormalizer({ planMode: false })
     const question = normalizer.push({ method: 'item/completed', params: {

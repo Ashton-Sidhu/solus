@@ -9,6 +9,7 @@
   import { statusDotColor } from "./lib/pr-status";
   import { reviewLensStore } from "../review/review-lens.store.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import FramePanelButton from "../layout/FramePanelButton.svelte";
 
   /**
    * The pull request's head: the sub page band every record shares, whose leaf
@@ -24,7 +25,8 @@
     serverId,
     projectCtx,
     onExit,
-    actions,
+    tabs,
+    toolbarActions,
     onToggleMaximize,
     maximized = false,
   }: {
@@ -35,8 +37,8 @@
     projectCtx: () => import("@solus/contracts/types").IpcContext;
     /** Esc, the page crumb, and the close control — back to the list. */
     onExit: () => void;
-    /** The review's own verbs, in the band's action slot. */
-    actions?: Snippet;
+    tabs: Snippet;
+    toolbarActions: Snippet;
     onToggleMaximize?: () => void;
     maximized?: boolean;
   } = $props();
@@ -189,11 +191,23 @@
   page="prs"
   onOpenPage={onExit}
   leafControl={switcher}
-  {actions}
   {onToggleMaximize}
   {maximized}
   maximizeLabel={`Maximize (${comboHint("pane.maximize")})`}
   restoreLabel={`Restore panel (${comboHint("pane.maximize")})`}
   onClose={onExit}
   closeLabel="Back to list (Esc)"
-/>
+>
+  {#snippet actions()}
+    <FramePanelButton variant="projectPanel" size="header" />
+  {/snippet}
+</SubPageCrumbLine>
+
+<div class="@container/band shrink-0 border-b border-[var(--hairline)]">
+  <div class="flex min-h-11 flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-1.5">
+    {@render tabs()}
+    <div class="ml-auto flex min-w-0 items-center gap-1.5">
+      {@render toolbarActions()}
+    </div>
+  </div>
+</div>

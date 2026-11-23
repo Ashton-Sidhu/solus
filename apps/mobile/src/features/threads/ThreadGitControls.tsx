@@ -100,10 +100,13 @@ type QuickActionIcon =
   | "arrow.up.circle";
 
 export type ThreadGitMenuProps = {
+  readonly draftKey?: string;
   readonly environmentId: EnvironmentId | string;
   readonly threadId: ThreadId | string;
   readonly currentBranch: string | null;
   readonly hasThread?: boolean;
+  readonly canWriteGit?: boolean;
+  readonly confirmDefaultBranchAction?: (input: GitActionRequestInput, branchName: string) => void;
   /** The project tracks repositories besides its folder, which then need not be one itself. */
   readonly tracksRepositories?: boolean;
   readonly gitStatus: VcsStatusResult | null;
@@ -132,10 +135,11 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const messages = useMessages();
   const openPullRequest = useOpenPullRequest();
   const environmentId = props.environmentId;
-  const canWriteSourceControl = useEnvironmentScope(
+  const environmentCanWrite = useEnvironmentScope(
     environmentId ? EnvironmentId.make(String(environmentId)) : null,
     AuthSourceControlWriteScope,
   );
+  const canWriteSourceControl = props.canWriteGit ?? environmentCanWrite;
   const threadId = props.threadId;
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
 
@@ -233,6 +237,10 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
         );
         return;
       }
+      if (props.confirmDefaultBranchAction) {
+        props.confirmDefaultBranchAction(input, branchName);
+        return;
+      }
       navigation.navigate("GitConfirm", {
         environmentId: String(environmentId),
         threadId: String(threadId),
@@ -263,6 +271,7 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
 
   const openReview = () => {
     navigation.navigate("ThreadReview", {
+      ...(props.draftKey && { draftKey: props.draftKey }),
       environmentId: EnvironmentId.make(String(environmentId)),
       threadId: ThreadId.make(String(threadId)),
     });
@@ -274,6 +283,7 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
       return;
     }
     navigation.navigate("GitOverview", {
+      ...(props.draftKey && { draftKey: props.draftKey }),
       environmentId: String(environmentId),
       threadId: String(threadId),
     });

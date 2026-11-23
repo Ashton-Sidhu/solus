@@ -1,19 +1,24 @@
 <script lang="ts">
-  import type { TaskProviderState } from '@solus/client-core/task-data';
-  import type { Task } from '../../../contexts/tasks/task.svelte';
-  import type { TaskReactionContent } from '@solus/contracts/task-data';
+  import type { Task as StoredTask } from '../../../contexts/tasks/task.svelte';
+  import type { Task, TaskComment } from '@solus/contracts/task-types';
+  import type { TaskProviderData, TaskReactionContent } from '@solus/contracts/task-data';
   import { parseTaskKey } from '@solus/contracts/task-sources';
   import { toasts } from '../../../lib/toasts';
   let {
     task,
-    enabled = true,
+    taskData,
+    comments,
+    value,
+    readOnly = false,
     onOpenExternal,
   }: {
     task: Task;
-    enabled?: boolean;
+    taskData?: StoredTask['data'];
+    comments: TaskComment[];
+    value?: TaskProviderData;
+    readOnly?: boolean;
     onOpenExternal: (url: string) => void;
   } = $props();
-  let provider = $state<TaskProviderState>({ value: null, pending: false, loadingMore: false, error: null });
   let busy = $state(false);
   const reactions: { content: TaskReactionContent; label: string }[] = [
     { content: 'THUMBS_UP', label: '👍' },
@@ -28,23 +33,15 @@
   const issueId = $derived(parseTaskKey(task.id)?.id ?? '');
   let targetId = $state('');
   const selectedTarget = $derived(targetId || issueId);
-  $effect(() => {
-    const store = task.data;
-    const off = store.subscribe(() => {
-      provider = store.current.provider;
-    });
-    provider = store.current.provider;
-    if (enabled && task.kind === 'issue') void store.loadProvider();
-    return off;
-  });
   async function react(content: TaskReactionContent) {
+    if (!taskData || readOnly) return;
     busy = true;
     try {
-      const previous = provider.value?.reactions.find(
+      const previous = value?.reactions.find(
         (reaction) =>
           reaction.targetId === selectedTarget && reaction.content === content,
       );
-      await task.data.react(
+      await taskData.react(
         selectedTarget,
         content,
         !previous?.viewerHasReacted,
@@ -59,40 +56,23 @@
   }
 </script>
 
-{#if task.kind === 'issue'}
-  <section
-    class="grid gap-3 border-t border-border/60 py-5"
-    aria-label="Provider history"
-  >
-    <div class="flex items-center gap-2">
-      <h2 class="min-w-0 flex-1 text-sm font-medium">Provider history</h2>
-      <button
-        type="button"
-        class="rounded-md p-2 text-workspace-chrome text-muted-foreground hover:bg-muted pointer-coarse:min-h-12"
-        disabled={provider.pending}
-        onclick={() => void task.data.loadProvider()}
-        >{provider.pending ? 'Refreshing…' : 'Refresh'}</button
-      >
-    </div>
-    {#if provider.error}<p class="text-sm text-destructive" role="alert">
-        {provider.error} Loaded history is retained.
-      </p>{/if}
-    {#if provider.value}
-      {#if provider.value.unavailableReason}<p
+{#if task.kind === 'issue' && value}
+  <section class="grid gap-3 border-t border-border/60 py-5" aria-label="Issue provider">
+      {#if value.unavailableReason}<p
           class="text-sm text-muted-foreground"
         >
-          {provider.value.unavailableReason}
+          {value.unavailableReason}
         </p>{/if}
-      {#if provider.value.author}<p class="text-sm text-muted-foreground">
-          Opened by {provider.value.author}
+      {#if value.author}<p class="text-sm text-muted-foreground">
+          Opened by {value.author}
         </p>{/if}
-      {#if provider.value.commentsTruncated}<p
+      {#if value.commentsTruncated}<p
           class="text-sm text-muted-foreground"
         >
           The provider returned only part of the comments. Open the provider to
           read all comments.
         </p>{/if}
-      {#if provider.value.capabilities.reactions}
+      {#if taskData && !readOnly && value.capabilities.reactions}
         <label class="grid gap-1 text-sm"
           >React to
           <select
@@ -101,7 +81,7 @@
             bind:value={targetId}
           >
             <option value="">Issue</option>
-            {#each task.details?.comments.filter((comment) => !comment.unsent && comment.providerCommentId) ?? [] as comment (comment.id)}
+            {#each comments.filter((comment) => !comment.unsent && comment.providerCommentId) as comment (comment.id)}
               <option value={comment.providerCommentId}
                 >Comment by {comment.externalAuthor ?? 'author'}: {comment.body.slice(
                   0,
@@ -113,7 +93,7 @@
         </label>
         <div class="flex flex-wrap gap-1">
           {#each reactions as reaction (reaction.content)}
-            {@const held = provider.value.reactions.find(
+            {@const held = value.reactions.find(
               (item) =>
                 item.targetId === selectedTarget &&
                 item.content === reaction.content,
@@ -130,9 +110,9 @@
           {/each}
         </div>
       {/if}
-      {#if provider.value.pullRequests.length}
+      {#if value.pullRequests.length}
         <h3 class="text-sm font-medium">Provider pull requests</h3>
-        {#each provider.value.pullRequests as pr (pr.url)}
+        {#each value.pullRequests as pr (pr.url)}
           <button
             type="button"
             class="rounded-md p-2 text-left text-sm hover:bg-muted"
@@ -144,33 +124,5 @@
           >
         {/each}
       {/if}
-      <ol class="grid gap-2 text-sm text-muted-foreground">
-        {#each provider.value.events as event (event.id)}
-          <li>
-            <span class="text-foreground">{event.actor ?? 'Provider'}</span>
-            {event.text} · {new Date(event.at).toLocaleString()}
-          </li>
-        {:else}
-          <li>
-            {provider.pending
-              ? 'Loading history…'
-              : 'No provider events loaded.'}
-          </li>
-        {/each}
-      </ol>
-      {#if provider.value.historyCursor}
-        <button
-          type="button"
-          class="justify-self-start rounded-md border border-border px-3 py-2 text-workspace-chrome hover:bg-muted"
-          disabled={provider.loadingMore || provider.pending}
-          onclick={() => void task.data.loadOlderHistory()}
-          >{provider.loadingMore
-            ? 'Loading…'
-            : provider.error
-              ? 'Retry older history'
-              : 'Load older history'}</button
-        >
-      {/if}
-    {/if}
   </section>
 {/if}

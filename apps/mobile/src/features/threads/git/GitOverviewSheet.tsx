@@ -1,15 +1,17 @@
+import { Linking } from "react-native";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { FilePreviewLoading } from "../../files/FilePreviewFeedback";
+import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
+import { useSessionController } from "../../../solus/use-session-controller";
+import { useCheckoutGit } from "../../../solus/CheckoutGit";
 import * as Dialog from "../../../components/ui/Dialog";
-import { useOpenPullRequest } from "../../../native/useOpenPullRequest";
 import {
   type GitActionRequestInput,
   buildMenuItems,
   getGitActionDisabledReason,
   requiresDefaultBranchConfirmation,
 } from "@t3tools/client-runtime/state/vcs";
-import type { ThreadRepositorySection } from "@t3tools/client-runtime/state/thread-repositories";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
-import { changeRequestTermKind } from "../../../lib/changeRequestTerm";
 import {
   CommonActions,
   StackActions,
@@ -17,7 +19,7 @@ import {
   type StaticScreenProps,
 } from "@react-navigation/native";
 import { useGT, useMessages } from "gt-react-native";
-import { use, useEffect, useState } from "react";
+import { use, useEffect } from "react";
 import { RefreshControl } from "../../../components/ui/RefreshControl";
 import { NativeScrollView } from "../../../native/NativeScrollViewMarker";
 
@@ -30,35 +32,14 @@ import { ScreenContent } from "../../../components/ui/ScreenContent";
 import { SheetPane } from "../../../components/ui/SheetPane";
 import { InspectorSheetContext } from "../../layout/workspace-inspector-sheet";
 import { AppText as Text } from "../../../components/ui/AppText";
-import { filesystemEnvironment } from "../../../state/filesystem";
-import { useEnvironmentQuery } from "../../../state/query";
-import {
-  gitRepositoryRouteParams,
-  gitRepositoryTargetFromRoute,
-  type GitRepositoryRouteParams,
-} from "../../../state/thread-git-target";
-import {
-  unpinRepositoryFromThread,
-  useThreadRepositoryPins,
-} from "../../../state/thread-repository-pins";
-import { useThreadSelection } from "../../../state/use-thread-selection";
-import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
-import { useSelectedThreadGitState } from "../../../state/use-selected-thread-git-state";
-import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-worktree";
-import { vcsEnvironment } from "../../../state/vcs";
+import { type GitRepositoryRouteParams } from "../../../state/thread-git-target";
 import { menuItemIconName, statusSummary } from "./gitSheetComponents";
-import { ThreadRepositoryRows } from "./ThreadRepositoryRows";
-import {
-  LinkedPullRequestRow,
-  linkedPullRequestKey,
-  useLinkedPullRequestLines,
-} from "../LinkedPullRequestList";
-import { useLinkedPullRequestActions } from "../useLinkedPullRequestActions";
 
 type GitOverviewSheetProps = StaticScreenProps<
   {
     readonly environmentId: string;
     readonly threadId: string;
+    readonly draftKey?: string;
   } & GitRepositoryRouteParams
 > & {
   readonly presentation?: "sheet" | "inspector";
@@ -67,16 +48,27 @@ type GitOverviewSheetProps = StaticScreenProps<
 export function GitOverviewSheet(props: GitOverviewSheetProps) {
   const navigation = useNavigation();
   const { environmentId, threadId } = props.route.params;
+  const gt = useGT();
+  const controller = useSessionController(props.route.params);
   const isBlankLink = environmentId.trim().length === 0 || threadId.trim().length === 0;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- pops the navigator when the route link names a blank environment or thread
   useEffect(() => {
     if (isBlankLink) navigation.goBack();
   }, [isBlankLink, navigation]);
   if (isBlankLink) return null;
-  return <GitOverviewSheetContent {...props} />;
+  return controller ? (
+    <GitOverviewSheetContent {...props} controller={controller} />
+  ) : (
+    <EmptyState
+      title={gt("Session unavailable")}
+      detail={gt("Open the session to view source control.")}
+    />
+  );
 }
 
-function GitOverviewSheetContent(props: GitOverviewSheetProps) {
+function GitOverviewSheetContent(
+  props: GitOverviewSheetProps & { controller: ConversationController },
+) {
   const gt = useGT();
   const m = useMessages();
   const navigation = useNavigation();
@@ -88,92 +80,17 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
     closeInspectorSheet ? closeInspectorSheet(present) : present();
   const environmentId = EnvironmentId.make(props.route.params.environmentId);
   const threadId = ThreadId.make(props.route.params.threadId);
-  const { selectedThread, selectedThreadProject, selectedEnvironmentRuntime } =
-    useThreadSelection();
-  const openPullRequest = useOpenPullRequest({
-    replace: presentation === "sheet",
-    context: selectedThread ?? undefined,
-  });
-  // A tracked repository instead of the thread's own folder: thread-only rows stay off for it.
-  const repository = gitRepositoryTargetFromRoute(props.route.params);
-  const repositoryParams = gitRepositoryRouteParams(repository);
-  const threadWorktree = useSelectedThreadWorktree();
-  const { selectedThreadWorktreePath } = threadWorktree;
-  const selectedThreadCwd = repository?.cwd ?? threadWorktree.selectedThreadCwd;
-  const threadRef = { environmentId, threadId };
-  const pinnedRepositories = useThreadRepositoryPins(threadRef);
-  const isPinnedRepository =
-    repository !== undefined &&
-    pinnedRepositories.some((pin) => pin.repositoryPath === repository.key);
-  const linkedPrLines = useLinkedPullRequestLines(selectedThread, selectedEnvironmentRuntime);
-  const linkedPrActions = useLinkedPullRequestActions({
-    thread: selectedThread,
-    project: selectedThreadProject,
-    runtime: selectedEnvironmentRuntime,
-  });
-  const gitState = useSelectedThreadGitState(repository);
-  const gitActions = useSelectedThreadGitActions(repository);
-  const { canWriteSourceControl, canChangeThreadBranch } = gitActions;
-
-  const gitStatus = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadCwd !== null
-      ? vcsEnvironment.status({
-          environmentId: selectedThread.environmentId,
-          input: { cwd: selectedThreadCwd },
-        })
-      : null,
-  );
-
-  const isRepo = gitStatus.data?.isRepo ?? true;
-  // A plain folder that tracks repositories has no branch of its own; its turns still have diffs.
-  const projectRepositoryCount = selectedThreadProject?.trackedFolders?.length ?? 0;
-  const trackedRepositoryCount = isRepo || repository !== undefined ? 0 : projectRepositoryCount;
-  // A worktree thread reaches tracked repositories only through its own task folder.
-  const taskFolderQuery = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadWorktreePath !== null && projectRepositoryCount > 0
-      ? filesystemEnvironment.taskFolder({
-          environmentId: selectedThread.environmentId,
-          input: { worktreePath: selectedThreadWorktreePath },
-        })
-      : null,
-  );
-  const taskFolder = taskFolderQuery.data?.taskFolder ?? null;
-  // Also for a project that tracks nothing: a thread can change a submodule.
-  const listsRepositories = repository === undefined && selectedThreadProject !== null;
-  const reachesTracked =
-    projectRepositoryCount > 0 && (selectedThreadWorktreePath === null || taskFolder !== null);
-  const currentBranchLabel =
-    repository !== undefined
-      ? repository.name
-      : trackedRepositoryCount > 0
-        ? // A task folder's plain project folder has no branch; its repositories are on the thread's.
-          ((taskFolder === null ? null : selectedThread?.branch) ??
-          selectedThreadProject?.title ??
-          gt("Repositories"))
-        : (gitStatus.data?.refName ?? selectedThread?.branch ?? gt("Detached HEAD"));
-  const currentStatusSummary =
-    repository !== undefined
-      ? gitStatus.data?.isRepo
-        ? `${gitStatus.data.refName ?? gt("Detached HEAD")} · ${statusSummary(gitStatus.data, m)}`
-        : statusSummary(gitStatus.data, m)
-      : taskFolder !== null && trackedRepositoryCount > 0
-        ? gt(
-            "{count, plural, one {{count} repository worktree} other {{count} repository worktrees}}",
-            { count: taskFolder.repositories.length },
-          )
-        : trackedRepositoryCount > 0
-          ? gt("{count, plural, one {{count} repository} other {{count} repositories}}", {
-              count: trackedRepositoryCount,
-            })
-          : statusSummary(gitStatus.data, m);
-  const currentWorktreePath = repository === undefined ? selectedThreadWorktreePath : null;
-  const gitOperationLabel = gitState.gitOperationLabel;
-  const busy = gitOperationLabel !== null;
-  const hasPrimaryRemote = gitStatus.data?.hasPrimaryRemote ?? false;
-  const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
-
-  const menuItems = isRepo ? buildMenuItems(gitStatus.data, busy, hasPrimaryRemote, m) : [];
-
+  const { controller } = props;
+  const git = useCheckoutGit(controller, controller.run.workingDirectory);
+  const currentBranchLabel = git.status?.refName ?? gt("Detached HEAD");
+  const currentStatusSummary = statusSummary(git.status, m);
+  const currentWorktreePath = controller.checkoutWorktree;
+  const busy = git.busy,
+    canWriteSourceControl = git.canWrite,
+    canChangeThreadBranch = git.canWrite && controller.canChooseStart;
+  const isRepo = !!git.status?.isRepo,
+    hasPrimaryRemote = !!git.status?.hasPrimaryRemote;
+  const menuItems = isRepo ? buildMenuItems(git.status, busy, hasPrimaryRemote, m) : [];
   const sheetMenuItems = menuItems.map((item) => ({
     item: {
       ...item,
@@ -185,7 +102,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
         : getGitActionDisabledReason(
             {
               item,
-              gitStatus: gitStatus.data,
+              gitStatus: git.status,
               isBusy: busy,
               hasOriginRemote: hasPrimaryRemote,
             },
@@ -193,75 +110,20 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
           ),
   }));
 
-  const term = changeRequestTermKind(
-    sourceControlClients.get(gitStatus.data?.sourceControlProvider?.kind).changeRequest,
-  );
-
-  const openExistingPr = async () => {
-    const prUrl = gitStatus.data?.pr?.state === "open" ? gitStatus.data.pr.url : null;
-    if (!prUrl) {
-      Dialog.alert(
-        gt("{term, select, mr {No open MR} cr {No open change request} other {No open PR}}", {
-          term,
-        }),
-        gt(
-          "{term, select, mr {This branch does not have an open merge request.} cr {This branch does not have an open change request.} other {This branch does not have an open pull request.}}",
-          { term },
-        ),
-      );
-      return;
-    }
-    if (!(await openPullRequest(prUrl))) {
-      Dialog.alert(
-        gt(
-          "{term, select, mr {Unable to open MR} cr {Unable to open change request} other {Unable to open PR}}",
-          { term },
-        ),
-        gt(
-          "{term, select, mr {The merge request could not be opened.} cr {The change request could not be opened.} other {The pull request could not be opened.}}",
-          { term },
-        ),
-      );
-    }
-  };
-
-  const runActionWithPrompt = async (input: GitActionRequestInput) => {
-    if (!canWriteSourceControl) return;
-    const confirmableAction =
-      input.action === "push" ||
-      input.action === "create_pr" ||
-      input.action === "commit_push" ||
-      input.action === "commit_push_pr"
-        ? input.action
-        : null;
-    const branchName = gitStatus.data?.refName;
+  const term = "pr";
+  const openExistingPr = () =>
+    git.status?.pr &&
+    Linking.openURL(git.status.pr.url).catch((error) =>
+      Dialog.alert(gt("Could not open pull request"), String(error)),
+    );
+  const runActionWithPrompt = (input: GitActionRequestInput) => {
     if (
-      branchName &&
-      confirmableAction &&
-      !input.featureBranch &&
-      requiresDefaultBranchConfirmation(input.action, isDefaultRef)
-    ) {
-      presentRoute(() =>
-        navigation.navigate("GitConfirm", {
-          environmentId: String(environmentId),
-          threadId: String(threadId),
-          ...repositoryParams,
-          confirmAction: confirmableAction,
-          branchName,
-          includesCommit: String(
-            input.action === "commit_push" || input.action === "commit_push_pr",
-          ),
-        }),
-      );
-      return;
-    }
-
-    // Close a sheet so the thread shows the action's progress.
-    if (!isInspector) navigation.goBack();
-    else closeInspectorSheet?.();
-    await gitActions.onRunSelectedThreadGitAction(input);
+      git.status?.refName &&
+      requiresDefaultBranchConfirmation(input.action, git.status.isDefaultRef)
+    )
+      git.confirm(input, git.status.refName);
+    else return git.perform(input);
   };
-
   const onPressMenuItem = async (item: (typeof menuItems)[number]) => {
     if (item.disabled) return;
     if (item.kind === "open_pr") {
@@ -274,7 +136,6 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
         navigation.navigate("GitCommit", {
           environmentId: String(environmentId),
           threadId: String(threadId),
-          ...repositoryParams,
         }),
       );
       return;
@@ -289,7 +150,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
   };
 
   const rowStatusDetail = (item: (typeof menuItems)[number]): string | undefined => {
-    const status = gitStatus.data;
+    const status = git.status;
     if (status == null) {
       return undefined;
     }
@@ -318,31 +179,10 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
     return undefined;
   };
 
-  const behindCount = gitStatus.data?.behindCount ?? 0;
+  const behindCount = git.status?.behindCount ?? 0;
 
-  const openRepository = (section: ThreadRepositorySection) => {
-    const params = {
-      environmentId: String(environmentId),
-      threadId: String(threadId),
-      repositoryCwd: section.cwd,
-      repositoryName: section.name,
-    };
-    // A sheet swaps in place, so closing the repository or running an action lands on the thread.
-    if (presentation === "sheet") {
-      navigation.dispatch(StackActions.replace("GitOverview", params));
-    } else {
-      presentRoute(() => navigation.dispatch(StackActions.push("GitOverview", params)));
-    }
-  };
-
-  // Background refreshes also report pending; using that query flag would stick the RefreshControl spinner.
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await gitActions.refreshSelectedThreadGitStatus();
-    setIsRefreshing(false);
-  };
-
+  const isRefreshing = git.refreshing;
+  const handleRefresh = git.refresh;
   const content = (
     <NativeScrollView
       nestedScrollEnabled
@@ -359,6 +199,16 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
         <RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />
       }
     >
+      {git.error ? (
+        <EmptyState
+          title={gt("Git unavailable")}
+          detail={git.error}
+          actionLabel={gt("Retry")}
+          onAction={git.refresh}
+        />
+      ) : !git.status ? (
+        <FilePreviewLoading message={gt("Loading repository status…")} />
+      ) : null}
       {sheetMenuItems.length > 0 || behindCount > 0 ? (
         <ListSection>
           {sheetMenuItems.map(({ item, disabledReason }) => (
@@ -384,112 +234,58 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
                   : gt("This connection cannot change source control.")
               }
               disabled={!canWriteSourceControl || busy || !isRepo}
-              onPress={() => void gitActions.onPullSelectedThreadBranch()}
+              onPress={() => void git.pull()}
             />
           ) : null}
         </ListSection>
       ) : null}
 
-      {listsRepositories ? (
-        <ThreadRepositoryRows
-          threadRef={threadRef}
-          projectId={selectedThreadProject.id}
-          threadCwd={selectedThreadCwd}
-          taskFolder={taskFolder}
-          reachesTracked={reachesTracked}
-          onTaskFolderChange={taskFolderQuery.refresh}
-          explainsEmpty={!isRepo}
-          onOpen={openRepository}
+      <ListSection>
+        <ListRow
+          icon="text.bubble"
+          label={gt("Review changes")}
+          description={gt("Inspect changes, uncommitted edits, and turn diffs")}
+          disabled={busy || !isRepo}
+          onPress={() => {
+            const params = { environmentId, threadId, draftKey: props.route.params.draftKey };
+            if (presentation === "sheet") {
+              navigation.dispatch(StackActions.replace("ThreadReview", params));
+            } else {
+              presentRoute(() =>
+                navigation.dispatch(CommonActions.navigate("ThreadReview", params)),
+              );
+            }
+          }}
         />
-      ) : null}
-
-      {repository === undefined || isPinnedRepository ? (
-        <ListSection>
-          {repository === undefined ? (
-            <>
-              <ListRow
-                icon="text.bubble"
-                label={gt("Review changes")}
-                description={
-                  trackedRepositoryCount > 0
-                    ? gt("Inspect turn diffs")
-                    : gt("Inspect changes, uncommitted edits, and turn diffs")
-                }
-                disabled={busy || !(isRepo || trackedRepositoryCount > 0)}
-                onPress={() => {
-                  const params = { environmentId, threadId };
-                  if (presentation === "sheet") {
-                    navigation.dispatch(StackActions.replace("ThreadReview", params));
-                  } else {
-                    presentRoute(() =>
-                      navigation.dispatch(CommonActions.navigate("ThreadReview", params)),
-                    );
-                  }
-                }}
-              />
-              <ListRow
-                icon="point.topleft.down.curvedto.point.bottomright.up"
-                label={gt("Branches & worktrees")}
-                description={
-                  canChangeThreadBranch
-                    ? gt("Switch branch, create branch, or move to a worktree")
-                    : gt("View branches and worktrees")
-                }
-                disabled={busy || !isRepo}
-                onPress={() =>
-                  presentRoute(() =>
-                    navigation.navigate("GitBranches", {
-                      environmentId: String(environmentId),
-                      threadId: String(threadId),
-                    }),
-                  )
-                }
-              />
-              {linkedPrActions.canLink ? (
-                <ListRow
-                  icon="link"
-                  label={gt(
-                    "{term, select, mr {Link merge request} cr {Link change request} other {Link pull request}}",
-                    { term: changeRequestTermKind(linkedPrActions.terminology) },
-                  )}
-                  description={gt(
-                    "{term, select, mr {Attach a merge request by URL or number} cr {Attach a change request by URL or number} other {Attach a pull request by URL or number}}",
-                    { term: changeRequestTermKind(linkedPrActions.terminology) },
-                  )}
-                  onPress={linkedPrActions.promptLink}
-                />
-              ) : null}
-            </>
-          ) : isPinnedRepository ? (
-            <ListRow
-              icon="pin.slash"
-              label={gt("Remove from this thread")}
-              description={gt("The repository stays tracked by the project")}
-              disabled={busy}
-              onPress={() => {
-                unpinRepositoryFromThread(threadRef, repository.key);
-                navigation.goBack();
-              }}
-            />
-          ) : null}
-        </ListSection>
-      ) : null}
-
-      {repository === undefined && linkedPrLines.length > 0 ? (
-        <ListSection title={gt("Linked {terms}", { terms: linkedPrActions.terminology.plural })}>
-          {linkedPrLines.map((line, index) => (
-            <LinkedPullRequestRow
-              key={linkedPullRequestKey(line)}
-              line={line}
-              separator={index < linkedPrLines.length - 1}
-              surfaceClassName="text-grouped-card"
-              openPullRequest={openPullRequest}
-              actions={linkedPrActions}
-            />
-          ))}
-        </ListSection>
-      ) : null}
-
+        {controller.canChooseStart ? (
+          <ListRow
+            icon="arrow.branch"
+            label={gt("Choose branch")}
+            disabled={!git.canWrite || busy || !isRepo}
+            onPress={() =>
+              presentRoute(() => navigation.navigate("NewTaskBranch", { environmentId, threadId }))
+            }
+          />
+        ) : null}
+        <ListRow
+          icon="point.topleft.down.curvedto.point.bottomright.up"
+          label={gt("Branches & worktrees")}
+          description={
+            canChangeThreadBranch
+              ? gt("Switch branch, create branch, or move to a worktree")
+              : gt("View branches and worktrees")
+          }
+          disabled={busy || !isRepo}
+          onPress={() =>
+            presentRoute(() =>
+              navigation.navigate("GitBranches", {
+                environmentId: String(environmentId),
+                threadId: String(threadId),
+              }),
+            )
+          }
+        />
+      </ListSection>
       {currentWorktreePath ? (
         <ListSection title={gt("Worktree")}>
           <Text selectable textRole="footnote" className="p-4 text-foreground-muted">

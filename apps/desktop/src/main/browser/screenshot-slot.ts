@@ -68,7 +68,10 @@ export function captureInTurn<T>(
     let gaveUp = false
     const timer = setTimeout(() => {
       gaveUp = true
-      reject(new Error(`The browser guest did not answer ${method} within ${timeoutMs}ms.`))
+      reject(new Error(
+        `The browser guest did not answer ${method} within ${timeoutMs}ms: the page is not producing frames. `
+        + 'Take the snapshot again. If it fails again, show the page in a pane (browser_open with show true).',
+      ))
     }, timeoutMs)
 
     const start = (): void => {

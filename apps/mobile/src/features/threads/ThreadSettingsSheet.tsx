@@ -286,7 +286,18 @@ type ThreadSettingsSubmenuPage =
   | { readonly kind: "descriptor"; readonly id: string }
   | { readonly kind: "runtime" };
 
+type PickerHost = {
+  readonly emptyMessage?: string | undefined;
+  readonly favoriteKeys: ReadonlySet<string>;
+  readonly canFavorite: (option: ModelOption) => boolean;
+  readonly setFavorite: (option: ModelOption, favorite: boolean) => Promise<void>;
+  readonly setHidden: (option: ModelOption, hidden: boolean) => Promise<void>;
+  readonly refresh: (force: boolean) => Promise<void>;
+  readonly runtimeDenial: (mode: RuntimeMode, selection: ModelSelection | null) => string | undefined;
+};
+
 type ThreadSettingsSessionProps = {
+  readonly pickerHost?: PickerHost;
   readonly environmentId: EnvironmentId | null;
   readonly projectId: ProjectId | null;
   readonly cwd: string | null;
@@ -302,7 +313,7 @@ type ThreadSettingsSessionProps = {
   readonly optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly onUpdateOptionSelections: (selections: ReadonlyArray<ProviderOptionSelection>) => void;
   readonly runtimeMode: RuntimeMode;
-  readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
+  readonly onUpdateRuntimeMode: (mode: RuntimeMode) => boolean | void;
 };
 
 /** The composer draft the sheet edits: the thread's own, or a queued message being edited. */
@@ -317,7 +328,9 @@ type ThreadSettingsSessionValue = {
   readonly providerInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly favoriteKeys: ReadonlySet<string>;
-  readonly favoritesLoaded: boolean;
+  readonly favoritesLoaded: (option: ModelOption) => boolean;
+  readonly refreshHostCatalog?: PickerHost["refresh"];
+  readonly catalogEmptyMessage?: string | undefined;
   readonly toggleFavorite: (option: ModelOption) => void;
   readonly toggleHidden: (option: ModelOption) => void;
   readonly pendingHiddenKeys: ReadonlySet<string>;
@@ -325,7 +338,7 @@ type ThreadSettingsSessionValue = {
   readonly setManageHidden: (value: boolean) => void;
   readonly runtimeMode: RuntimeMode;
   readonly runtimeModeChoices: ReadonlyArray<RuntimeModeChoice>;
-  readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
+  readonly onUpdateRuntimeMode: (mode: RuntimeMode) => boolean | void;
   readonly displayedDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly promptTraits: ReturnType<typeof getPromptControlledTraits>;
   readonly displayedModelSelection: ModelSelection | null;
@@ -371,8 +384,14 @@ function ThreadSettingsSessionProvider(
     new Map<string, { favorite: boolean; settings: ServerSettings; pending: boolean }>(),
   );
   const [pendingHiddenKeys, setPendingHiddenKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const providerGroups =
-    manageHidden && config
+  const providerGroups = props.pickerHost
+    ? manageHidden
+      ? props.providerGroups
+      : props.providerGroups.map((group) => ({
+          ...group,
+          models: group.models.filter((model) => !model.isHidden),
+        }))
+    : manageHidden && config
       ? groupByProvider(
           buildModelOptions(
             serverConfigForCwd(config, props.cwd),
@@ -386,8 +405,9 @@ function ThreadSettingsSessionProvider(
   const legacyFavorites = AsyncResult.isSuccess(preferences)
     ? (preferences.value.modelFavorites ?? EMPTY_MODEL_FAVORITES)
     : EMPTY_MODEL_FAVORITES;
-  const favoritesLoaded =
-    settings !== undefined && (settings.favorites !== null || AsyncResult.isSuccess(preferences));
+  const favoritesLoaded = (option: ModelOption) => props.pickerHost
+    ? props.pickerHost.canFavorite(option)
+    : settings !== undefined && (settings.favorites !== null || AsyncResult.isSuccess(preferences));
   const modelFavorites = resolveModelPreferences(settings ?? DEFAULT_SERVER_SETTINGS, {
     favorites: legacyFavorites,
   }).favorites;
@@ -395,6 +415,7 @@ function ThreadSettingsSessionProvider(
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the one-time legacy model favorites migration to server settings once per connection
   useEffect(() => {
     if (
+      props.pickerHost ||
       !props.environmentId ||
       !settings ||
       !AsyncResult.isSuccess(preferences) ||
@@ -411,15 +432,23 @@ function ThreadSettingsSessionProvider(
     legacyFavorites,
     preferences,
     props.environmentId,
+    props.pickerHost,
     saveSettings,
     settings,
   ]);
-  const favoriteKeys = new Set(
+  const favoriteKeys = props.pickerHost?.favoriteKeys ?? new Set(
     modelFavorites.map((favorite) => modelFavoriteKey(favorite.provider, favorite.model)),
   );
   const toggleFavorite = async (option: ModelOption) => {
     const environmentId = props.environmentId;
-    if (!favoritesLoaded || !environmentId) return;
+    if (!favoritesLoaded(option) || !environmentId) return;
+    const host = props.pickerHost;
+    if (host) {
+      await saveHostPreference(option, () =>
+        host.setFavorite(option, !favoriteKeys.has(option.key)),
+      );
+      return;
+    }
     const currentSettings = registry.get(environmentServerConfigsAtom).get(environmentId)?.settings;
     if (!currentSettings) return;
     const favorites = resolveModelPreferences(currentSettings, {
@@ -477,7 +506,27 @@ function ThreadSettingsSessionProvider(
       }
     }
   };
+  const savingHostPreference = useRef(false);
+  const saveHostPreference = async (option: ModelOption, save: () => Promise<void>) => {
+    if (savingHostPreference.current) return;
+    savingHostPreference.current = true;
+    setPendingHiddenKeys(new Set([option.key]));
+    void Haptics.selectionAsync();
+    try {
+      await save();
+    } catch (error) {
+      Dialog.alert(gt("Could not save model preference"), error instanceof Error ? error.message : String(error));
+    } finally {
+      savingHostPreference.current = false;
+      setPendingHiddenKeys(new Set());
+    }
+  };
   const toggleHidden = (option: ModelOption) => {
+    const host = props.pickerHost;
+    if (host) {
+      void saveHostPreference(option, () => host.setHidden(option, !option.isHidden));
+      return;
+    }
     if (
       !settings ||
       !props.environmentId ||
@@ -533,11 +582,18 @@ function ThreadSettingsSessionProvider(
     pendingModel ??
     props.providerGroups.flatMap((group) => group.models).find((option) => isApplied(option)) ??
     null;
-  const runtimeModeChoices = withManagedRuntimeModeLimits(
+  const compatibleChoices = withManagedRuntimeModeLimits(
     runtimeModeChoicesForSupportedModes(displayedModel?.supportedRuntimeModes),
     [config?.managedPolicy],
     messages,
   );
+  const runtimeModeChoices = compatibleChoices.map((choice) => {
+    const disabledReason = props.pickerHost?.runtimeDenial(
+      choice.mode,
+      pendingModel?.selection ?? props.selectedModel,
+    );
+    return disabledReason ? { ...choice, disabledReason } : choice;
+  });
   const compatibleRuntimeMode = compatibleRuntimeModeForChoices(
     props.runtimeMode,
     runtimeModeChoices,
@@ -634,7 +690,7 @@ function ThreadSettingsSessionProvider(
       ? ProviderInstanceId.make(providerFilter)
       : props.providerInstanceId;
   const workspaceScan =
-    props.cwd && scannedInstanceId ? { instanceId: scannedInstanceId, cwd: props.cwd } : null;
+    !props.pickerHost && props.cwd && scannedInstanceId ? { instanceId: scannedInstanceId, cwd: props.cwd } : null;
 
   const value = {
     environmentId,
@@ -653,6 +709,10 @@ function ThreadSettingsSessionProvider(
     reportedModelSelection: pendingModel ? null : (props.reportedModelSelection ?? null),
     favoriteKeys,
     favoritesLoaded,
+    ...(props.pickerHost ? {
+      refreshHostCatalog: props.pickerHost.refresh,
+      catalogEmptyMessage: props.pickerHost.emptyMessage,
+    } : {}),
     providerExpansionOverrides,
     hasLegacyModels,
     pendingModel,
@@ -766,7 +826,7 @@ function ThreadSettingsModelListRow(props: {
       isLast={props.isLast}
       onPress={onPress}
       isFavorite={session.favoriteKeys.has(props.option.key)}
-      favoritesLoaded={session.favoritesLoaded}
+      favoritesLoaded={session.favoritesLoaded(props.option)}
       onToggleFavorite={() => session.toggleFavorite(props.option)}
       onToggleHidden={
         session.manageHidden && props.option.canHide
@@ -913,7 +973,12 @@ function buildThreadSettingsCatalogItems(
             locale,
           )
         : null;
-    if (visibleModels.length === 0 && !updateRequiredNotice) {
+    const notice = updateRequiredNotice ?? (
+      session.providerFilter !== FAVORITES_PROVIDER_FILTER && session.searchQuery.trim() === ""
+        ? group.statusNotice
+        : undefined
+    );
+    if (visibleModels.length === 0 && !notice) {
       return [];
     }
     const isPrimary = driver !== undefined && PRIMARY_PROVIDER_DRIVERS.has(driver);
@@ -921,7 +986,7 @@ function buildThreadSettingsCatalogItems(
     const isNarrowed = session.providerFilter !== null || session.searchQuery.trim().length > 0;
     const collapsible = !isNarrowed;
     const collapsed = providerSectionIsCollapsed({
-      defaultExpanded: isPrimary || containsAppliedSelection,
+      defaultExpanded: isPrimary || containsAppliedSelection || visibleModels.length === 0,
       hasExpansionOverride: session.providerExpansionOverrides.has(group.providerKey),
       isNarrowed,
     });
@@ -943,12 +1008,12 @@ function buildThreadSettingsCatalogItems(
       },
       ...((collapsed ? null : subProviderCatalogItems(session, group, provider.models)) ??
         modelItems(provider.models)),
-      ...(!collapsed && updateRequiredNotice
+      ...(!collapsed && notice
         ? [
             {
               kind: "notice" as const,
               key: `notice:${group.providerKey}`,
-              text: updateRequiredNotice,
+              text: notice,
             },
           ]
         : []),
@@ -1069,6 +1134,10 @@ function ThreadSettingsMainContent(props: {
   const refreshProviderCatalog = createProviderCatalogRefreshRunner(refreshProvidersCommand);
   const registry = use(RegistryContext);
   const refreshModelCatalog = useEffectEvent(() => {
+    if (session.refreshHostCatalog) {
+      void session.refreshHostCatalog(false).catch(() => {});
+      return;
+    }
     const environmentId = session.environmentId;
     if (!environmentId) return;
     // An older server drops the field and probes every provider.
@@ -1085,6 +1154,12 @@ function ThreadSettingsMainContent(props: {
     if (!session.environmentId || isRefreshingProviders) return;
     setIsRefreshingProviders(true);
     const environmentId = session.environmentId;
+    if (session.refreshHostCatalog) {
+      void session.refreshHostCatalog(true).catch((error) => {
+        Dialog.alert(gt("Could not refresh models"), error instanceof Error ? error.message : String(error));
+      }).finally(() => setIsRefreshingProviders(false));
+      return;
+    }
     const workspaceScan = session.workspaceScan;
     void refreshProviderCatalog(environmentId)
       .then(async (result) => {
@@ -1143,7 +1218,7 @@ function ThreadSettingsMainContent(props: {
               ? gt("No favorite models")
               : hasActiveCatalogFilter
                 ? gt("No matching models")
-                : gt("No available models")}
+                : (session.catalogEmptyMessage ?? gt("No available models"))}
           </Text>
         </View>
       );
@@ -1227,8 +1302,7 @@ function ThreadSettingsChoiceContent(props: {
             selected: choice.mode === session.runtimeMode,
             onPress: () => {
               void Haptics.selectionAsync();
-              session.onUpdateRuntimeMode(choice.mode);
-              props.onSelected();
+              if (session.onUpdateRuntimeMode(choice.mode) !== false) props.onSelected();
             },
           })),
         }

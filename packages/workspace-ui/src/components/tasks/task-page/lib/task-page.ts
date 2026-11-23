@@ -14,6 +14,7 @@ import type { TaskStatusCategory } from '@solus/contracts/task-sources'
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { HostOperatingSystem, Work } from '@solus/contracts/types'
 import type { Activity } from '@solus/contracts/activity'
+import type { TaskProviderEvent } from '@solus/contracts/task-data'
 import type { UserId } from '@solus/contracts/user'
 import { sessionDisplayName } from '../../../../lib/sessionUtils'
 import { attributionName } from '../../../presence/lib/actor-name'
@@ -193,11 +194,14 @@ const FIELD_NAMES = {
  */
 export function taskFieldLocks(task: {
   providerId: TaskProviderId
-  canWrite(field: TaskField): boolean
-}) {
-  const lock = (field: TaskField): string | null => task.canWrite(field)
-    ? null
-    : `${PROVIDER_NAMES[task.providerId]} does not take a change of ${FIELD_NAMES[field]} for this task`
+  canWrite?(field: TaskField): boolean
+}, readOnly = false) {
+  const lock = (field: TaskField): string | null => {
+    if (readOnly) return 'Read-only issue'
+    return task.canWrite?.(field)
+      ? null
+      : `${PROVIDER_NAMES[task.providerId]} does not take a change of ${FIELD_NAMES[field]} for this task`
+  }
   return {
     title: lock('title'),
     body: lock('body'),
@@ -366,14 +370,15 @@ export function linkFilters(links: TaskLink[]): LinkFilter[] {
 
 // ── Activity ──
 
-/** The feed is comments and the task's activity merged by time. Comments have
+/** The feed is comments and activity merged by time. Comments have
  *  no mirrored activity — their `comment_threads` rows are already that log — so the merge
  *  happens here. */
 type ActivityEntry =
   | { type: 'comment'; at: number; key: string; comment: TaskComment }
   | { type: 'activity'; at: number; key: string; activity: Activity }
+  | { type: 'provider'; at: number; key: string; event: TaskProviderEvent }
 
-export function activityFeed(comments: TaskComment[], activity: Activity[]): ActivityEntry[] {
+export function activityFeed(comments: TaskComment[], activity: Activity[], providerEvents: TaskProviderEvent[] = []): ActivityEntry[] {
   const entries: ActivityEntry[] = [
     ...comments.map((comment): ActivityEntry => ({
       type: 'comment',
@@ -386,6 +391,12 @@ export function activityFeed(comments: TaskComment[], activity: Activity[]): Act
       at: entry.at,
       key: `a:${entry.id}`,
       activity: entry,
+    })),
+    ...providerEvents.map((event): ActivityEntry => ({
+      type: 'provider',
+      at: event.at,
+      key: `p:${event.id}`,
+      event,
     })),
   ]
   return entries.sort((left, right) => left.at - right.at || left.key.localeCompare(right.key))

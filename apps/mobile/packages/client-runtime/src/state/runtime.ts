@@ -1,6 +1,6 @@
 import { msg } from "gt-i18n";
 import { translatableMessage } from "../errors/translatable.ts";
-import type { QueryPersistence } from "./queryPersistence.ts";
+import { readPersistedQuery, type QueryPersistence } from "./queryPersistence.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
 import { followStreamInEnvironment } from "./environmentStreams.ts";
 import { reuseUnchanged } from "./serverConfigProjection.ts";
@@ -876,30 +876,17 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
                 Effect.tap((value) => onAnswer(target, value, get.registry)),
               );
         if (!options.persistence) return answer();
-        const persistence = options.persistence;
-        const cacheKey = queryPersistenceKey(options.label, target.input);
-        const previous = Option.flatMap(
-          get.self<AsyncResult.AsyncResult<A, unknown>>(),
-          AsyncResult.value,
-        );
-        return Effect.gen(function* () {
-          const cached = Option.isSome(previous)
-            ? previous
-            : yield* persistence.load(target.environmentId, cacheKey);
-          if (
-            Option.isSome(cached) &&
-            (connection === null || connection[0].phase !== "connected")
-          ) {
-            return cached.value;
-          }
-          if (Option.isNone(previous) && Option.isSome(cached)) yield* emit(cached.value);
-          // Readers must not wait on the disk: web saves one IndexedDB row per listed PR's stats.
-          // The save ends with the query, so a removed environment's cache stays cleared.
-          return yield* answer().pipe(
-            Effect.tap((value) =>
-              persistence.save(target.environmentId, cacheKey, value).pipe(Effect.forkScoped),
-            ),
-          );
+        return readPersistedQuery({
+          persistence: options.persistence,
+          environmentId: target.environmentId,
+          key: queryPersistenceKey(options.label, target.input),
+          previous: Option.flatMap(
+            get.self<AsyncResult.AsyncResult<A, unknown>>(),
+            AsyncResult.value,
+          ),
+          connected: connection !== null && connection[0].phase === "connected",
+          emit,
+          answer,
         });
       })
       .pipe(Atom.setIdleTTL(idleTtlMs));

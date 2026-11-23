@@ -26,7 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useNavigation } from "@react-navigation/native";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
-import { AppText as Text } from "../../components/ui/AppText";
+import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { Chip } from "../../components/ui/Chip";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -53,6 +53,7 @@ import { issueListFiltersAtom } from "./issueListFilters";
 import { issueViewMatches } from "./issueSavedViews";
 import { SavedViewsMenu } from "../layout/workspace/SavedViewsMenu";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { solus } from "../../solus/runtime";
 
 const DEFAULT_ISSUE_LIST_INPUT = { state: "open", involvement: "all", limit: 50 } as const;
 const STATES = {
@@ -147,6 +148,14 @@ export function IssuesScreen(
   };
   const capable = environments;
   const connected = capable.filter((environment) => environment.connectionState === "connected");
+  const [openingUrl, setOpeningUrl] = useState(false);
+  const [issueUrl, setIssueUrl] = useState("");
+  const [issueHostId, setIssueHostId] = useState<EnvironmentId | null>(null);
+  const urlHosts = connected.filter(({ environmentId }) => solus.connections.may(environmentId, "host.use"));
+  const issueHost = urlHosts.find(({ environmentId }) => environmentId === issueHostId) ?? urlHosts[0];
+  const address = URL.canParse(issueUrl.trim()) ? new URL(issueUrl.trim()) : null;
+  const canOpenUrl = !!issueHost && address?.protocol === "https:" &&
+    !address.username && !address.password && !address.port;
   const targets = connected
     .map((environment) => ({ environmentId: environment.environmentId, input: listInput }))
     .sort((left, right) => left.environmentId.localeCompare(right.environmentId));
@@ -221,6 +230,24 @@ export function IssuesScreen(
         scope: item.scope,
         issueKey: item.key,
         initialSummary: item,
+      },
+    });
+  };
+  const openIssueUrl = () => {
+    if (!canOpenUrl || !address || !issueHost) return;
+    Keyboard.dismiss();
+    setOpeningUrl(false);
+    setIssueUrl("");
+    selectDetail({
+      name: "Issue",
+      params: {
+        environmentId: issueHost.environmentId,
+        projectId: "~",
+        tracker: "external",
+        host: address.hostname,
+        scope: address.hostname,
+        issueKey: address.href,
+        issueUrl: address.href,
       },
     });
   };
@@ -443,6 +470,51 @@ export function IssuesScreen(
                 }}
               />
             </ScrollView>
+            <View className="gap-2 px-4 pb-2">
+              <View className="self-start">
+                <Chip
+                  icon="link"
+                  label={gt("Open issue URL")}
+                  selected={openingUrl}
+                  disabled={urlHosts.length === 0}
+                  onPress={() => setOpeningUrl(!openingUrl)}
+                />
+              </View>
+              {openingUrl ? (
+                <>
+                  {urlHosts.length > 1 ? (
+                    <View className="flex-row flex-wrap gap-2">
+                      {urlHosts.map((host) => (
+                        <Chip
+                          key={host.environmentId}
+                          label={host.environmentLabel}
+                          selected={issueHost?.environmentId === host.environmentId}
+                          onPress={() => setIssueHostId(host.environmentId)}
+                        />
+                      ))}
+                    </View>
+                  ) : null}
+                  <View className="flex-row items-center gap-2">
+                    <AppTextInput
+                      autoFocus
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="url"
+                      returnKeyType="go"
+                      maxLength={2048}
+                      accessibilityLabel={gt("Issue URL")}
+                      placeholder={gt("Paste a GitHub, Jira or Linear issue URL")}
+                      placeholderTextColorClassName="accent-foreground-muted"
+                      className="min-w-0 flex-1 rounded-xl px-3 py-2 text-foreground"
+                      value={issueUrl}
+                      onChangeText={setIssueUrl}
+                      onSubmitEditing={openIssueUrl}
+                    />
+                    <Button label={gt("Open")} disabled={!canOpenUrl} onPress={openIssueUrl} />
+                  </View>
+                </>
+              ) : null}
+            </View>
             {notices.map((notice) => (
               <Text key={notice} selectable className="px-4 py-1.5 text-sm text-foreground-muted">
                 {notice}

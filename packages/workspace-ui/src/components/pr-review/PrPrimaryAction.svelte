@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Tooltip from "../ui/tooltip";
   import {
     ChevronDown as CaretDownIcon,
     Check as CheckIcon,
@@ -50,11 +51,7 @@
     readiness: MergeReadiness | null;
     /** The moves that open a session rather than write to the host. */
     onAgentAction: (move: MergeAction) => Promise<void>;
-    /** The status card's full width, or the chrome band's pill once the rail
-     *  has folded. In the band it takes the quiet grammar of Review and Check
-     *  out beside it — the same pill, a glyph, a short label in the move's
-     *  colour — and drops the label at the same rung they do, so the band row
-     *  keeps the tabs and every verb on one line. */
+    /** A full-width button in Review Mode or a pill in the PR header. */
     layout?: "card" | "band";
   } = $props();
 
@@ -137,7 +134,7 @@
   bind:this={triggerEl}
   data-testid="pr-primary-action"
   class="flex min-w-0 items-stretch overflow-hidden transition-[scale] duration-150 active:scale-[0.985] {layout === 'band'
-      ? 'h-6.5 rounded-full bg-background text-workspace-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] pointer-coarse:h-10'
+      ? 'no-drag pointer-events-auto h-8 rounded-full bg-background text-workspace-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] pointer-coarse:h-10'
       : 'h-[34px] w-full rounded-[10px]'} {layout === 'band'
     ? !action
       ? 'text-muted-foreground'
@@ -164,70 +161,83 @@
               ? 'text-(--solus-art-negative) shadow-[shadow:var(--elev-ring)]'
               : 'text-muted-foreground shadow-[shadow:var(--elev-ring)]'}"
 >
-  <Button
-    type="button"
-    variant="ghost"
-    class="inline-flex h-full min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-none border-0 bg-transparent text-inherit shadow-none hover:text-inherit disabled:opacity-100 {layout === 'band'
-      ? 'font-normal px-2.5 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:px-3.5 @max-[56rem]/band:px-[5.5px] @max-[56rem]/band:pointer-coarse:px-[12.5px]'
-      : 'font-medium px-3.5 hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)]'} {action?.move || hasMenu ? 'cursor-pointer' : 'cursor-default'}"
-    disabled={!!running || !action || (!action.move && !hasMenu)}
-    aria-haspopup={!action?.move && hasMenu ? "menu" : undefined}
-    aria-expanded={!action?.move && hasMenu ? menuOpen : undefined}
-    aria-label={action ? `#${number}: ${action.title}` : `#${number}`}
-    title={action?.title}
-    onclick={activate}
-  >
-    {#if running}
-      <CircleNotchIcon size={13} class="shrink-0 animate-spin [animation-duration:0.9s]" aria-hidden="true" />
-    {:else if layout === "band" && action}
-      <!-- The glyph is what survives once the label drops, so it names the
-           move, not the pull request. -->
-      {#if action.glyph === "merge" || action.glyph === "auto-merge"}
-        <GitMergeIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {:else if action.glyph === "ready"}
-        <CircleCheckIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {:else if action.glyph === "update"}
-        <RefreshIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {:else if action.glyph === "conflict"}
-        <TriangleAlertIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {:else if action.glyph === "checks"}
-        <HammerIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {:else if action.glyph === "closed"}
-        <CircleXIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {:else if action.glyph === "blocked"}
-        <CircleAlertIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {:else}
-        <ClockIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {/if}
-    {/if}
-    {#if action}
-      {#if layout === "band"}
-        <span class="min-w-0 truncate @max-[56rem]/band:hidden">{running ? runningLabel : action.short}</span>
-      {:else}
-        <span class="min-w-0 truncate">{running ? runningLabel : action.label}</span>
-      {/if}
-    {/if}
-  </Button>
+  <Tooltip.Root disabled={menuOpen}>
+    <Tooltip.Trigger onclick={activate}>
+      {#snippet child({ props })}
+        <Button
+          {...props}
+          type="button"
+          variant="ghost"
+          class="inline-flex h-full min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-none border-0 bg-transparent text-inherit shadow-none hover:text-inherit disabled:pointer-events-auto disabled:opacity-100 {layout === 'band'
+            ? 'font-normal px-2.5 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:px-3.5 @max-[54rem]/band:px-2 @max-[54rem]/band:pointer-coarse:px-[12.5px]'
+            : 'font-medium px-3.5 hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)]'} {action?.move || hasMenu ? 'cursor-pointer' : 'cursor-default'}"
+          disabled={!!running || !action || (!action.move && !hasMenu)}
+          aria-haspopup={!action?.move && hasMenu ? "menu" : undefined}
+          aria-expanded={!action?.move && hasMenu ? menuOpen : undefined}
+          aria-label={action ? `#${number}: ${action.title}` : `#${number}`}
+        >
+          {#if running}
+            <CircleNotchIcon size={13} class="shrink-0 animate-spin [animation-duration:0.9s]" aria-hidden="true" />
+          {:else if layout === "band" && action}
+            <!-- The glyph is what survives once the label drops, so it names the
+                 move, not the pull request. -->
+            {#if action.glyph === "merge" || action.glyph === "auto-merge"}
+              <GitMergeIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {:else if action.glyph === "ready"}
+              <CircleCheckIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {:else if action.glyph === "update"}
+              <RefreshIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {:else if action.glyph === "conflict"}
+              <TriangleAlertIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {:else if action.glyph === "checks"}
+              <HammerIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {:else if action.glyph === "closed"}
+              <CircleXIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {:else if action.glyph === "blocked"}
+              <CircleAlertIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {:else}
+              <ClockIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+            {/if}
+          {/if}
+          {#if action}
+            {#if layout === "band"}
+              <span class="min-w-0 truncate @max-[54rem]/band:hidden">{running ? runningLabel : action.short}</span>
+            {:else}
+              <span class="min-w-0 truncate">{running ? runningLabel : action.label}</span>
+            {/if}
+          {/if}
+        </Button>
+      {/snippet}
+    </Tooltip.Trigger>
+    <Tooltip.Content side="bottom" value={running ? runningLabel : action?.title} />
+  </Tooltip.Root>
   {#if hasMenu && action?.move}
     <span class="my-1.5 w-px shrink-0 bg-current opacity-25" aria-hidden="true"></span>
-    <Button
-      type="button"
-      variant="ghost"
-      class="inline-flex h-full shrink-0 cursor-pointer items-center justify-center rounded-none border-0 bg-transparent px-0 text-inherit shadow-none hover:text-inherit pointer-coarse:tap-area {layout === 'band'
-        ? 'w-6 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)]'
-        : 'w-7 hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)]'}"
-      disabled={!!running}
-      aria-label="More ways to merge"
-      aria-haspopup="menu"
-      aria-expanded={menuOpen}
-      onclick={() => (menuOpen = !menuOpen)}
-    >
-      <CaretDownIcon
-        size={12}
-        class="shrink-0 transition-transform duration-150 {menuOpen ? 'rotate-180' : ''}"
-        aria-hidden="true"
-      />
-    </Button>
+    <Tooltip.Root disabled={menuOpen}>
+      <Tooltip.Trigger onclick={() => (menuOpen = !menuOpen)}>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            type="button"
+            variant="ghost"
+            class="inline-flex h-full shrink-0 cursor-pointer items-center justify-center rounded-none border-0 bg-transparent px-0 text-inherit shadow-none hover:text-inherit pointer-coarse:tap-area {layout === 'band'
+              ? 'w-7 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)]'
+              : 'w-7 hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)]'}"
+            disabled={!!running}
+            aria-label="More ways to merge"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <CaretDownIcon
+              size={12}
+              class="shrink-0 transition-transform duration-150 {menuOpen ? 'rotate-180' : ''}"
+              aria-hidden="true"
+            />
+          </Button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content side="bottom" value="More ways to merge" />
+    </Tooltip.Root>
   {/if}
 </div>
 

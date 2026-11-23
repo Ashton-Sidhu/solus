@@ -29,7 +29,7 @@ export function IssueEditScreen({ route }: StaticScreenProps<IssueEditParams>) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
-  const allowed = access?.edit === true;
+  const allowed = access?.edit === true && detail?.writableFields.includes(params.field) === true;
   const unchanged = draft === null || draft === original;
   const invalid = isTitle && value.trim().length === 0;
   const save = async () => {
@@ -70,7 +70,7 @@ export function IssueEditScreen({ route }: StaticScreenProps<IssueEditParams>) {
     >
       <TextInput
         multiline={!isTitle}
-        editable={!busy && original !== null}
+        editable={allowed && !busy && original !== null}
         autoFocus
         accessibilityLabel={isTitle ? gt("Issue title") : gt("Issue description")}
         placeholder={

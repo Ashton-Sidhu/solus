@@ -7,8 +7,6 @@ import {
   CircleX as FailureIcon,
   EyeOff as HideIcon,
   FilePenLine as DraftIcon,
-  GitPullRequest as GitPullRequestIcon,
-  GitPullRequestDraft as DraftOnlyIcon,
   Layers as AllIcon,
   MessageSquareCheck as ReviewIcon,
   Aperture as ApertureIcon,
@@ -16,6 +14,7 @@ import {
   User as UserIcon,
   Users as UsersIcon,
 } from '@lucide/svelte'
+import { GitPullRequestIcon, GitPullRequestDraftIcon as DraftOnlyIcon } from '../../ui/octicons'
 import type { PrMenuQualifiers } from '@solus/client-core/pr-host-query'
 import type { PrFilterChoice, PrFilterField, PullRequest } from '@solus/contracts/providers'
 import type { ListIcon } from '../../ui/list-page'

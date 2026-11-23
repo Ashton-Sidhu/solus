@@ -1,7 +1,7 @@
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { withActorScope } from '../../execution/seats/acting-identity'
 import { createLogger } from '../../logger'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
@@ -165,7 +165,14 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
   app.get(routes.listWorkActivity.path, async c => c.json(await operations.listWorkActivity(authority(c), id(c, 'workId'), query(c, routes.listWorkActivity.query))))
   app.delete(routes.deleteWork.path, async c => { query(c, routes.deleteWork.query); await operations.deleteWork(authority(c), id(c, 'workId'), version(c)); return c.body(null, 204) })
 
-  app.get(routes.listSessions.path, async c => c.json(await operations.listSessions(authority(c), query(c, routes.listSessions.query))))
+  app.get(routes.listSessions.path, async c => {
+    const page = await operations.listSessions(authority(c), query(c, routes.listSessions.query))
+    const json = JSON.stringify(page)
+    const tag = JSON.stringify(createHash('sha256').update(json).digest('hex'))
+    c.header('ETag', tag)
+    if (c.req.header('If-None-Match') === tag) return c.body(null, 304)
+    return c.body(json, 200, { 'Content-Type': 'application/json' })
+  })
   // Before `/sessions/:sessionId`, which would otherwise read `search` as an id.
   app.get(routes.searchSessions.path, async c => c.json(await operations.searchSessions(authority(c), query(c, routes.searchSessions.query))))
   app.post(routes.admitSession.path, limitBody(16 * 1024), async c => {

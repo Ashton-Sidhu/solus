@@ -1,5 +1,6 @@
+import { attachmentsRoot, uploadFolderName } from '@solus/server/data/assets/attachment-store'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises'
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IpcContext } from '@solus/contracts/types'
@@ -75,6 +76,34 @@ describe('signed URLs for host media files', () => {
     await writeFile(join(projectRoot, 'logo'), '<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>')
     await expect(createAssetUrl(ctx, { path: 'credentials' }, { secret, now })).rejects.toThrow('This asset type is not allowed.')
     await expect(createAssetUrl(ctx, { path: 'logo' }, { secret, now })).rejects.toThrow('This asset type is not allowed.')
+  })
+
+  test('serves a document uploaded for this session and refuses paths outside its upload folder', async () => {
+    const sessionId = crypto.randomUUID()
+    const folder = join(attachmentsRoot(), uploadFolderName(sessionId))
+    const path = join(folder, 'notes.md')
+    await mkdir(folder, { recursive: true })
+    try {
+      await writeFile(path, '# Notes')
+      ctx.session.sessionId = sessionId
+      const { relativeUrl } = await createAssetUrl(ctx, { path }, { secret, now })
+      const response = await serve(relativeUrl)
+      expect(await response.text()).toBe('# Notes')
+      expect(response.headers.get('Content-Disposition')).toContain('attachment')
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+      const outside = join(projectRoot, 'project.md')
+      await writeFile(outside, 'outside')
+      const link = join(folder, 'link.md')
+      await symlink(outside, link)
+      await expect(createAssetUrl(ctx, { path: link }, { secret, now })).rejects.toThrow('not allowed')
+      ctx.session.sessionId = 'another-session'
+      await expect(createAssetUrl(ctx, { path }, { secret, now })).rejects.toThrow('not allowed')
+      await rm(path)
+      await symlink(outside, path)
+      expect((await serve(relativeUrl)).status).toBe(404)
+    } finally {
+      await rm(folder, { recursive: true, force: true })
+    }
   })
 
   test('refuses any file that is not media, so a signed URL never serves source or secrets', async () => {

@@ -78,6 +78,14 @@ export function selectedProviderInstance(snapshot: ProviderInstancesSnapshot, pr
   return { instance, enabled: instance ? project?.enabled[instance.id] ?? instance.enabled : false }
 }
 
+/** The selected provider instance whose private catalog this project uses. */
+export function agentProjectInstance(metadata: AgentMetadata, cwd?: string) {
+  const { id: provider, instancePreferences: preferences } = metadata
+  if (!preferences || (provider !== 'codex' && provider !== 'claude-code')) return undefined
+  const instanceId = providerProjectOverride(preferences.projects, cwd)?.selected[provider] ?? preferences.selected
+  return preferences.instances.find((item) => item.id === instanceId)
+}
+
 /** Derive only the chosen project's catalog. The host facts remain unchanged. */
 export function agentForProject(metadata: AgentMetadata, cwd?: string): AgentMetadata {
   const preferences = metadata.instancePreferences
@@ -85,8 +93,7 @@ export function agentForProject(metadata: AgentMetadata, cwd?: string): AgentMet
   const project = providerProjectOverride(preferences.projects, cwd)
   const provider = metadata.id
   if (provider !== 'codex' && provider !== 'claude-code') return metadata
-  const instanceId = project?.selected[provider] ?? preferences.selected
-  const instance = preferences.instances.find((item) => item.id === instanceId)
+  const instance = agentProjectInstance(metadata, cwd)
   if (!instance) return { ...metadata, available: false, unavailableReason: 'The project provider instance is unavailable.' }
   const catalog = instanceModelCatalog(instance)
   // Profiles the provider reported live (Codex `model/list`) stay under the instance's catalog.

@@ -1,7 +1,25 @@
-import type { DeviceServiceState, ThreadId } from "@t3tools/contracts";
+import type { DeviceServiceState } from "@t3tools/contracts";
 
 /** Host identity is part of the selection because Android serials repeat across hosts. */
-export function threadDevicePreviews(state: DeviceServiceState | null, threadId: ThreadId) {
+export function threadDevicePreviews<
+  K extends DeviceServiceState["hosts"][number]["kind"],
+  S extends {
+    threadId: string;
+    hostId: string;
+    deviceId: string;
+    platform: "ios" | "android";
+  },
+>(
+  state: {
+    sessions: readonly S[];
+    devices: readonly Pick<
+      DeviceServiceState["devices"][number],
+      "hostId" | "id" | "name" | "version"
+    >[];
+    hosts: readonly { id: string; label: string; kind: K }[];
+  } | null,
+  threadId: string,
+) {
   return (state?.sessions ?? [])
     .filter((session) => session.threadId === threadId)
     .map((session) => {
@@ -14,16 +32,22 @@ export function threadDevicePreviews(state: DeviceServiceState | null, threadId:
         session,
         name: device?.name ?? (session.platform === "ios" ? "iOS Simulator" : "Android Emulator"),
         description: [device?.version, host?.label].filter(Boolean).join(" · "),
+        hostKind: host?.kind,
         serveSimOnly: host?.kind === "simlock",
       };
     });
 }
 
-export type ThreadDevicePreview = ReturnType<typeof threadDevicePreviews>[number];
+export type ThreadDevicePreview = ReturnType<
+  typeof threadDevicePreviews<
+    DeviceServiceState["hosts"][number]["kind"],
+    DeviceServiceState["sessions"][number]
+  >
+>[number];
 
-export function selectedThreadDevicePreview(
-  previews: ReadonlyArray<ThreadDevicePreview>,
-  selectedKey: string | null,
+export function selectedThreadDevicePreview<T extends { key: string }>(
+  previews: ReadonlyArray<T>,
+  selectedKey: string | null | undefined,
 ) {
   return previews.find((preview) => preview.key === selectedKey) ?? previews[0] ?? null;
 }

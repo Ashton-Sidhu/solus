@@ -34,7 +34,6 @@ import { onSessionPullRequestsChanged, readSessionPullRequests } from './session
 import { sessionsWithPendingAsyncQuestion } from './async-questions'
 import { SessionShelf, SessionViewer } from './session-states'
 import { personalResourceState } from '../personal-state/schema'
-import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { authorize } from '../../admission/access-policy'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
@@ -173,13 +172,17 @@ export class SessionApiOperations {
     requireScope(context, 'sessions:write')
     const resource = { kind: 'session', id: sessionId } as const
     await requireResource(this.shares, context, resource, 'read')
+    if (input.autoSettle !== undefined) await requireResource(this.shares, context, resource, 'edit')
     const changed: WorkspaceSessionChanged = {}
     if (input.settled === false && !await authorize(context.principal, 'edit', resource, { name: 'session.edit', resources: this.shares })) {
       await new SessionShelf(sessionId).unsettle()
-      changed.state = UNSETTLED_SESSION_STATE
+      changed.state = await new SessionShelf(sessionId).state()
     }
-    if (input.settled !== undefined || input.archived !== undefined || input.snoozedUntil !== undefined) {
+    if (input.autoSettle !== undefined) changed.state = await new SessionShelf(sessionId).setAutoSettle(input.autoSettle)
+    if (input.pinOrderKey !== undefined || input.activeOrderKey !== undefined || input.settled !== undefined || input.archived !== undefined || input.snoozedUntil !== undefined) {
       const viewer = new SessionViewer(sessionId, this.personKey(context))
+      if (input.pinOrderKey !== undefined) await viewer.reorder('pinned', input.pinOrderKey)
+      if (input.activeOrderKey !== undefined) await viewer.reorder('active', input.activeOrderKey)
       if (input.settled === true) await viewer.settle()
       if (input.settled === false) await viewer.unsettle()
       if (input.archived === true) await viewer.archive()

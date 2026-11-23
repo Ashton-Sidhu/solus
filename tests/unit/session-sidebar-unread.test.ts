@@ -5,7 +5,7 @@ import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/sess
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 type SessionRowHarness = {
-  buildSessionRow: (tabId: string, session: Session, tab: Tab, linkedTask: SidebarLinkedTask | undefined) => SidebarTask
+  buildSessionRow: (tabId: string, session: Session, tab: Tab, linkedTask: SidebarLinkedTask | undefined, key: string) => SidebarTask
   session: {
     sessionFor: (tabId: string) => Session | undefined
     environment: { environmentFor: () => { repoRoot: string; cwd: string; branch: string; isolated: boolean } }
@@ -34,13 +34,13 @@ describe('session sidebar unread state', () => {
     store.lifecycleNow = 10
     const chip = { taskId: 'task-1', title: 'Ship the release' }
 
-    const row = store.buildSessionRow(tab.id, linked, tab, chip)
+    const row = store.buildSessionRow(tab.id, linked, tab, chip, 'session:linked')
     expect(row.unread).toBe(true)
     expect(row.tabIds).toEqual([tab.id])
     expect(row.linkedTask).toEqual(chip)
 
     tab.hasUnread = false
-    expect(store.buildSessionRow(tab.id, linked, tab, undefined).unread).toBe(false)
+    expect(store.buildSessionRow(tab.id, linked, tab, undefined, 'session:linked').unread).toBe(false)
   })
 
   test('opening a row clears its snooze only when the row is woken', () => {

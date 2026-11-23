@@ -1,5 +1,6 @@
 import { threadKey } from "@solus-mobile/features/threads/thread-directory";
-import { useSolusDirectory } from "../../solus/runtime";
+import { useAtomValueWhileVisible } from "./home-route-visibility";
+import { solusDirectoryAtom } from "../../solus/runtime";
 import { useGT, useMessages } from "gt-react-native";
 
 import { useContentTopInset } from "../../components/ui/useBarInset";
@@ -133,7 +134,6 @@ interface HomeScreenProps {
   readonly onStartNewTask: () => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
   readonly onArchiveThread: (thread: EnvironmentThreadShell) => void;
-  readonly onDeleteThread: (thread: EnvironmentThreadShell) => void;
   readonly onSettleThread: (thread: EnvironmentThreadShell) => Promise<boolean>;
   readonly onSnoozeThread: (
     thread: EnvironmentThreadShell,
@@ -378,7 +378,6 @@ export function HomeScreen(props: HomeScreenProps) {
   const handleSetThreadAutoSettle = props.onSetThreadAutoSettle;
   const handleRegenerateThreadTitle = props.onRegenerateThreadTitle;
   const handleRenameThread = props.onRenameThread;
-  const handleDeleteThread = props.onDeleteThread;
   const handleUnsettleThread = props.onUnsettleThread;
   const [settledVisibleCount, setSettledVisibleCount] = useState(
     THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
@@ -402,18 +401,16 @@ export function HomeScreen(props: HomeScreenProps) {
     toggleWorkingShelf,
   } = useThreadListV2ShelfPreferences();
   const now = useThreadListNow(props.threads);
-  const { listHosts, unread } = useSolusDirectory();
+  const { listHosts, unread } = useAtomValueWhileVisible(solusDirectoryAtom, props.visible);
   const { settlementEnvironmentIds, snoozeEnvironmentIds, pinningEnvironmentIds } = listHosts;
   const listEnvironments = useAtomValue(threadListEnvironmentsAtom);
   const {
     providersByEnvironmentId,
     machineByEnvironmentId,
     snoozePresetsByEnvironmentId,
-    autoSettleOptOutEnvironmentIds,
-    pinReorderEnvironmentIds,
-    activeReorderEnvironmentIds,
-    titleRegenerationEnvironmentIds,
   } = listEnvironments;
+  const { listControlEnvironmentIds: autoSettleOptOutEnvironmentIds, listControlEnvironmentIds: pinReorderEnvironmentIds,
+    listControlEnvironmentIds: activeReorderEnvironmentIds, connectedEnvironmentIds: titleRegenerationEnvironmentIds } = listHosts;
   const resolveProviderInstance = useThreadRowProviderInstanceResolver(providersByEnvironmentId);
   const pendingOrder = usePendingThreadOrder();
   const {
@@ -569,7 +566,6 @@ export function HomeScreen(props: HomeScreenProps) {
         searchQuery={threadSearch.query}
         onSelectThread={selectThread}
         onOpenThreadPullRequests={handleOpenThreadPullRequests}
-        onDeleteThread={handleDeleteThread}
         onArchiveThread={props.onArchiveThread}
         onRenameThread={handleRenameThread}
         onRegenerateThreadTitle={handleRegenerateThreadTitle}

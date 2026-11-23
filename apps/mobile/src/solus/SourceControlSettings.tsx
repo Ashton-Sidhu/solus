@@ -164,7 +164,7 @@ function LinearSettings({ hostId }: { hostId: string }) {
               autoCorrect={false}
               accessibilityLabel="Linear API key"
               placeholder="Personal API key"
-              className="px-4 py-3 text-foreground"
+              className="mx-4 my-3 min-h-10 rounded-xl px-3 py-2"
               value={key}
               onChangeText={setKey}
             />
@@ -270,7 +270,7 @@ function JiraSettings({
                   placeholder="Site address"
                   autoCapitalize="none"
                   keyboardType="url"
-                  className="px-4 py-3 text-foreground"
+                  className="mx-4 my-3 min-h-10 rounded-xl px-3 py-2"
                 />
                 <AppTextInput
                   value={email}
@@ -279,7 +279,7 @@ function JiraSettings({
                   placeholder="Email"
                   autoCapitalize="none"
                   keyboardType="email-address"
-                  className="px-4 py-3 text-foreground"
+                  className="mx-4 mb-3 min-h-10 rounded-xl px-3 py-2"
                 />
                 <AppTextInput
                   value={token}
@@ -289,7 +289,7 @@ function JiraSettings({
                   secureTextEntry
                   autoCapitalize="none"
                   autoCorrect={false}
-                  className="px-4 py-3 text-foreground"
+                  className="mx-4 mb-3 min-h-10 rounded-xl px-3 py-2"
                 />
                 <SettingsRow
                   label="Connect with API token"

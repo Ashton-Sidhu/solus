@@ -38,6 +38,14 @@ than five minutes ago, because GitHub's raw CDN keeps the file for about that
 long. Thus a model released today shows in the picker within minutes, and an
 open costs no download most of the time.
 
+The mobile picker also refreshes the selected host when you pull down the list.
+Favorites and hidden models belong to the provider instance selected for the
+project. On mobile, use the star and **Manage hidden models** in the picker. On
+desktop and web, use the model's actions in the provider instance settings.
+
+Scheduled tasks can save a reasoning effort and, for supported Codex models,
+Fast Mode. These choices apply when the host starts the task.
+
 A model works only if the provider CLI installed on the host accepts its ID.
 The list does not install or update Claude Code or Codex. When a downloaded list
 is different from the list in effect, the host checks for Claude Code and Codex

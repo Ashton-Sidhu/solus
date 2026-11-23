@@ -7,18 +7,18 @@
     FileDiff as ChangesIcon,
     FileText as FilesIcon,
     GitBranch as BranchIcon,
-    GitPullRequest as PullRequestsIcon,
     Image as ImagesIcon,
     Layers as WorksIcon,
-    Repeat as AutomationsIcon,
+    Workflow as AutomationsIcon,
     Search as SearchIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon as PullRequestsIcon } from "../../ui/octicons";
   import type { SessionArtifactKind } from "@solus/contracts/session-artifacts";
   import { formatElapsed } from "@solus/client-core/elapsed-time";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { ChangeKind } from "@solus/client-core/change-breakdown";
-  import { changeTotals, type OwnedArtifact } from "@solus/client-core/session-overview";
-  import { getSessionEnvironmentStore, getWorkspaceContext } from "../../../contexts";
+  import { changeTotals, isInScope, type OwnedArtifact } from "@solus/client-core/session-overview";
+  import { getClientShellContext, getSessionEnvironmentStore, getSettingsContext, getWorkspaceContext } from "../../../contexts";
   import { sessionArtifactsStore } from "../../../contexts/sessions/session-artifacts.store.svelte";
   import { sessionTreeStore } from "../../../contexts/sessions/session-tree.store.svelte";
   import { artifactKey } from "../../../contexts/sessions/session-artifacts";
@@ -28,7 +28,8 @@
   import { agentConversationMeta } from "../../conversation/agent-conversation/agent-conversation-meta.store.svelte";
   import { openAgentSession } from "../../conversation/agent-conversation/lib/agent-conversation";
   import { diffSummaryStore } from "../../conversation/diff-summary.store.svelte";
-  import type { RailAgentRow } from "../../project-panel/lib/rail-agents";
+  import { treeAgentRows, type RailAgentRow } from "../../project-panel/lib/rail-agents";
+  import AgentsSection from "../../project-panel/AgentsSection.svelte";
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import { paneActions } from "../../ui/lib/pane-actions.svelte";
   import { FILTER_SEARCH_INPUT } from "../../ui/list-page/filter-styles";
@@ -63,6 +64,7 @@
 
   const session = getWorkspaceContext();
   const environment = getSessionEnvironmentStore();
+  const settings = getSettingsContext();
   const pane = paneActions(() => paneId);
 
   const serverId = $derived(params.serverId ?? session.serverIdForSession(params.sessionId));
@@ -82,7 +84,8 @@
   $effect(() => sessionTreeStore.retain(serverId, params.sessionId));
 
   // A running turn and a running agent count up; nothing ticks when the session is at rest.
-  const ticks = $derived(overview.live || overview.hasLiveAgent);
+  const desktopLineage = getClientShellContext().supportsNativeSettings;
+  const ticks = $derived(overview.live || (!desktopLineage && overview.hasLiveAgent));
   $effect(() => {
     if (!ticks) return;
     return liveActivityClock.subscribe((value) => {
@@ -105,6 +108,7 @@
 
   // Keep the index's record of each started session (its title and provider) while a row lists it.
   $effect(() => {
+    if (desktopLineage) return;
     const keys = overview.startedSessionKeys;
     if (!keys) return;
     const releases = keys.split("\n").map((key) => {
@@ -151,10 +155,20 @@
   const changesTree = $derived(changeTree(treeChanges));
   // A small change, or a search, shows its files at once; a larger one opens on its folders.
   const changeTreesOpen = $derived(treeChanges.length <= OPEN_TREE_FILE_LIMIT || overview.query.trim().length > 0);
-  const runningAgents = $derived(overview.agents.filter((row) => row.tone === "live").length);
+  const runningAgents = $derived(desktopLineage ? 0 : overview.agents.filter((row) => row.tone === "live").length);
 
   const showsChanges = $derived(overview.changes.length > 0);
-  const showsAgents = $derived(overview.agents.length > 0);
+  const showsAgents = $derived.by(() => {
+    if (!desktopLineage) return overview.agents.length > 0;
+    if (overview.agentScope !== "all" && overview.agentScope !== params.sessionId) return false;
+    const { tree, stale } = sessionTreeStore.viewFor(params.sessionId, serverId);
+    const query = overview.query.trim().toLowerCase();
+    return stale
+      || !!tree?.relations?.some((row) => row.title.toLowerCase().includes(query))
+      || treeAgentRows(tree, params.sessionId, serverId).some((row) =>
+        row.title.toLowerCase().includes(query) && isInScope(overview.scope, row.startedAt),
+      );
+  });
   const cardCount = $derived([showsChanges, showsAgents].filter(Boolean).length + overview.linkCards.length);
   const filterOptions = $derived(agentFilterOptions(params.sessionId, overview.agentChoices));
   const LINK_ICONS = {
@@ -293,7 +307,7 @@
       <!-- What the session made, pinned and latest first, as a card of its own: the whole session's, whatever the scope. -->
       {#if overview.recent.length > 0}
         <div class="px-3.5 pt-4">
-          <RecentArtifactsRow items={overview.recent} {serverId} onOpen={(item) => openLinked(item.owned)} />
+          <RecentArtifactsRow items={overview.recent} {serverId} isDark={settings.isDark} onOpen={(item) => openLinked(item.owned)} />
         </div>
       {/if}
       <!-- The agent filter: the whole tree, this session, or one session it started. It narrows the timeline and every card. -->
@@ -346,7 +360,19 @@
               <ChangeTree tree={changesTree} counted={changesCounted} startsOpen={changeTreesOpen} onOpen={tabId || overview.agentChoices.length > 0 ? openChange : undefined} />
             </ArtifactCard>
           {/if}
-          {#if showsAgents}
+          {#if showsAgents && desktopLineage}
+            {#key params.sessionId}
+              <AgentsSection
+                sessionId={params.sessionId}
+                {serverId}
+                {tabId}
+                active
+                surface="threads"
+                query={overview.query}
+                turnWindow={overview.scope}
+              />
+            {/key}
+          {:else if showsAgents}
             <ArtifactCard icon={AgentsIcon} title="Agents" count={overview.agents.length}>
               {#snippet summary()}
                 {#if runningAgents > 0}

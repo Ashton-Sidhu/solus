@@ -1,3 +1,16 @@
+import {
+  WeeklyScheduleFields,
+  OnceScheduleFields,
+  formatRunAtDate,
+  formatRunAtTime,
+  formatTime,
+  repeatLabel,
+} from "./components/ScheduledTaskTimeFields";
+import {
+  ScheduledTaskDetails,
+  ScheduledTaskEditor,
+  PickerRow,
+} from "./components/ScheduledTaskEditor";
 import { ScheduledTaskListView } from "./components/ScheduledTaskListView";
 import { FormField, SelectRow } from "./components/ScheduledTaskFields";
 import { msg, T, useGT, useLocale, useMessages, Var } from "gt-react-native";
@@ -24,7 +37,6 @@ import {
   scheduledTaskThreadMode,
 } from "@t3tools/contracts";
 import { useSelectWorkspaceDetail } from "../layout/workspace/useSelectWorkspaceDetail";
-import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -47,7 +59,6 @@ import { useRef, useState, type ReactNode } from "react";
 import { useFocusEffect, useNavigation, usePreventRemove } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { AppState, Platform, Pressable, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "../../components/ui/Button";
 import { AppText as Text } from "../../components/ui/AppText";
@@ -58,7 +69,6 @@ import {
 } from "../../components/EnvironmentMachineSymbol";
 import { Menu } from "../../components/ui/Menu";
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
-import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
 import { webhookAddress } from "@t3tools/client-runtime/webhook-address";
@@ -75,7 +85,6 @@ import { resolveNewTaskBranchLabel } from "../threads/new-task-context-presentat
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { ScheduledTaskPromptField } from "./components/ScheduledTaskPromptField";
 import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
-import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
 import {
@@ -110,15 +119,6 @@ type ScheduledTaskRoutes = {
   SettingsScheduledTaskThread: undefined;
 };
 
-const DAYS = [1, 2, 3, 4, 5, 6, 0].map((index) => ({ index }));
-
-// 2024-01-07 was a Sunday, so day index 0 to 6 maps onto Sunday to Saturday.
-function weekdayLabel(index: number, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" }).format(
-    Date.UTC(2024, 0, 7 + index),
-  );
-}
-
 const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
   new_thread: msg("New thread each run"),
   continue: msg("One thread, same conversation"),
@@ -149,55 +149,6 @@ function describeSchedule(
     ? resolve(msg("{days} at {time}", { days, time }))
     : resolve(msg("{days} at {time} {zone}", { days, time, zone }));
 }
-
-function formatTime(value: string): string {
-  const [hours, minutes] = value.split(":").map(Number);
-  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return value;
-  const time = new Date();
-  time.setHours(hours ?? 9, minutes ?? 0, 0, 0);
-  return time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function formatRunAtDate(value: Date): string {
-  return value.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
-}
-
-function formatRunAtTime(value: Date): string {
-  return value.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function timePickerValue(value: string): Date {
-  const [hours, minutes] = value.split(":").map(Number);
-  const time = new Date();
-  time.setHours(
-    Number.isInteger(hours) ? (hours ?? 9) : 9,
-    Number.isInteger(minutes) ? (minutes ?? 0) : 0,
-    0,
-    0,
-  );
-  return time;
-}
-
-function isWeekdays(weekdays: ReadonlyArray<number>): boolean {
-  const days = new Set(weekdays);
-  return days.size === 5 && [1, 2, 3, 4, 5].every((day) => days.has(day));
-}
-
-function repeatLabel(
-  weekdays: ReadonlyArray<number>,
-  resolve: MessageResolver,
-  locale: string,
-): string {
-  const days = new Set(weekdays);
-  if (days.size === 7) return resolve(msg("Every day"));
-  if (isWeekdays(weekdays)) return resolve(msg("Weekdays"));
-  return (
-    DAYS.filter((day) => days.has(day.index))
-      .map((day) => weekdayLabel(day.index, locale))
-      .join(", ") || resolve(msg("Choose days"))
-  );
-}
-
 
 function WebhookFilterRows(props: {
   readonly filters: ReadonlyArray<WebhookFilterDraft>;
@@ -298,47 +249,6 @@ function WebhookFilterRows(props: {
   );
 }
 
-function PickerRow(props: {
-  readonly label: string;
-  readonly value: string;
-  readonly onPress: () => void;
-  readonly disabled?: boolean;
-  readonly borderTop?: boolean;
-}) {
-  const gt = useGT();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={gt("{label}, {value}", { label: props.label, value: props.value })}
-      accessibilityState={{ disabled: props.disabled }}
-      disabled={props.disabled}
-      onPress={props.onPress}
-      className={
-        props.borderTop
-          ? "min-h-14 flex-row items-center gap-3 border-t border-border-subtle px-4 py-3 active:opacity-70 disabled:opacity-50"
-          : "min-h-14 flex-row items-center gap-3 px-4 py-3 active:opacity-70 disabled:opacity-50"
-      }
-    >
-      <Text textRole="body" className="text-foreground">
-        {props.label}
-      </Text>
-      <Text
-        textRole="footnote"
-        className="min-w-0 flex-1 text-right text-foreground-muted"
-        numberOfLines={1}
-      >
-        {props.value}
-      </Text>
-      <SymbolView
-        name="chevron.right"
-        size={14}
-        tintColorClassName="accent-chevron"
-        type="monochrome"
-      />
-    </Pressable>
-  );
-}
-
 export function SettingsScheduledTasksRouteScreen() {
   const gt = useGT();
   const [now, setNow] = useState(Date.now);
@@ -371,39 +281,41 @@ export function SettingsScheduledTasksRouteScreen() {
   };
 
   return (
-    <ScheduledTaskListView disabled={!visibleEnvironments.length} onNew={newTask} menu={environmentMenu}>
-        {visibleEnvironments.length > 0 ? (
-          visibleEnvironments.map((environment) => (
-            <EnvironmentTasks
-              key={environment.environmentId}
-              environment={environment}
-              now={now}
-              projectIds={
-                selectedProjectKey === null
-                  ? null
-                  : (selectedGroup?.members
-                      .filter(
-                        (member) => member.project.environmentId === environment.environmentId,
-                      )
-                      .map((member) => member.project.id) ?? [])
-              }
-              onEdit={(task) => {
-                startEditor({
-                  environmentId: environment.environmentId,
-                  environmentLabel: environment.label,
-                  draft: editDraft(task),
-                });
-                navigation.navigate("SettingsScheduledTaskEdit");
-              }}
-            />
-          ))
-        ) : (
-          <Text className="px-2 text-base text-foreground-muted">
-            {availableTargets.length === 0
-              ? gt("Connect an environment to view and create scheduled tasks.")
-              : gt("No environments match these filters. Change the filter above.")}
-          </Text>
-        )}
+    <ScheduledTaskListView
+      disabled={!visibleEnvironments.length}
+      onNew={newTask}
+      menu={environmentMenu}
+    >
+      {visibleEnvironments.length > 0 ? (
+        visibleEnvironments.map((environment) => (
+          <EnvironmentTasks
+            key={environment.environmentId}
+            environment={environment}
+            now={now}
+            projectIds={
+              selectedProjectKey === null
+                ? null
+                : (selectedGroup?.members
+                    .filter((member) => member.project.environmentId === environment.environmentId)
+                    .map((member) => member.project.id) ?? [])
+            }
+            onEdit={(task) => {
+              startEditor({
+                environmentId: environment.environmentId,
+                environmentLabel: environment.label,
+                draft: editDraft(task),
+              });
+              navigation.navigate("SettingsScheduledTaskEdit");
+            }}
+          />
+        ))
+      ) : (
+        <Text className="px-2 text-base text-foreground-muted">
+          {availableTargets.length === 0
+            ? gt("Connect an environment to view and create scheduled tasks.")
+            : gt("No environments match these filters. Change the filter above.")}
+        </Text>
+      )}
     </ScheduledTaskListView>
   );
 }
@@ -434,7 +346,6 @@ function SettingsScheduledTaskEditorScreen({ title }: { readonly title: string }
   } = useScheduledTaskEditor();
   const { availableTargets } = useSettingsEnvironmentFilter();
   const navigation = useNavigation();
-  const insets = useSafeAreaInsets();
   // Set once the save lands, so the removal guard lets the editor close.
   const saved = useRef(false);
   const ownerKey = editor ? `${voiceOwnerKey}:${editor.environmentId}` : null;
@@ -497,91 +408,75 @@ function SettingsScheduledTaskEditorScreen({ title }: { readonly title: string }
     ]);
   });
   return (
-    <SettingsScreen
-      title={title}
-      // Native Back pops before removal guards; a bar action lets the guard run first.
-      guardBack={preventRemove}
-    >
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        contentInsetAdjustmentBehavior="automatic"
-        showsVerticalScrollIndicator={false}
-        className="flex-1"
-        contentContainerClassName="gap-5 px-5 pt-4"
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
-      >
-        {editor ? (
-          <TaskForm
-            key={editor.environmentId}
-            environmentId={editor.environmentId}
-            environmentLabel={
-              availableTargets.find((target) => target.environmentId === editor.environmentId)
-                ?.label ?? editor.environmentLabel
-            }
-            availableTargets={availableTargets}
-            draft={editor.draft}
-            saving={saving}
-            setSaving={setSaving}
-            dictationPending={voiceInput.blocksSubmission}
-            promptField={
-              <ScheduledTaskPromptField
-                value={prompt}
-                onChange={setPrompt}
-                selection={selection}
-                onChangeSelection={setSelection}
-                disabled={saving}
-                voiceInput={voiceInput}
-              />
-            }
-            setDraft={(update) => {
-              if (!saving)
-                setEditor((current) =>
-                  current ? { ...current, draft: update(current.draft) } : current,
-                );
-            }}
-            setEnvironmentDraft={(update) => {
-              if (!saving)
-                setEditor((current) =>
-                  current && current.environmentId === editor.environmentId
-                    ? { ...current, draft: update(current.draft) }
-                    : current,
-                );
-            }}
-            onSaved={() => {
-              saved.current = true;
-              markScheduledTaskEditorSaved();
-              if (navigation.isFocused()) navigation.goBack();
-            }}
-            onChangeEnvironment={(target) => {
+    <ScheduledTaskEditor title={title} guardBack={preventRemove}>
+      {editor ? (
+        <TaskForm
+          key={editor.environmentId}
+          environmentId={editor.environmentId}
+          environmentLabel={
+            availableTargets.find((target) => target.environmentId === editor.environmentId)
+              ?.label ?? editor.environmentLabel
+          }
+          availableTargets={availableTargets}
+          draft={editor.draft}
+          saving={saving}
+          setSaving={setSaving}
+          dictationPending={voiceInput.blocksSubmission}
+          promptField={
+            <ScheduledTaskPromptField
+              value={prompt}
+              onChange={setPrompt}
+              selection={selection}
+              onChangeSelection={setSelection}
+              disabled={saving}
+              voiceInput={voiceInput}
+            />
+          }
+          setDraft={(update) => {
+            if (!saving)
               setEditor((current) =>
-                !current || target.environmentId === current.environmentId
-                  ? current
-                  : {
-                      environmentId: target.environmentId,
-                      environmentLabel: target.label,
-                      draft: {
-                        ...draftForEnvironment(target.environmentId),
-                        title: current.draft.title,
-                        prompt: current.draft.prompt,
-                        schedule: current.draft.schedule,
-                        enabled: current.draft.enabled,
-                      },
-                    },
+                current ? { ...current, draft: update(current.draft) } : current,
               );
-            }}
-          />
-        ) : (
-          <Text className="px-2 text-base text-foreground-muted">
-            {availableTargets.length === 0
-              ? gt("Connect an environment to create a scheduled task.")
-              : gt(
-                  "No environments match the current filters. Change the filters to create a task.",
-                )}
-          </Text>
-        )}
-      </ScrollView>
-    </SettingsScreen>
+          }}
+          setEnvironmentDraft={(update) => {
+            if (!saving)
+              setEditor((current) =>
+                current && current.environmentId === editor.environmentId
+                  ? { ...current, draft: update(current.draft) }
+                  : current,
+              );
+          }}
+          onSaved={() => {
+            saved.current = true;
+            markScheduledTaskEditorSaved();
+            if (navigation.isFocused()) navigation.goBack();
+          }}
+          onChangeEnvironment={(target) => {
+            setEditor((current) =>
+              !current || target.environmentId === current.environmentId
+                ? current
+                : {
+                    environmentId: target.environmentId,
+                    environmentLabel: target.label,
+                    draft: {
+                      ...draftForEnvironment(target.environmentId),
+                      title: current.draft.title,
+                      prompt: current.draft.prompt,
+                      schedule: current.draft.schedule,
+                      enabled: current.draft.enabled,
+                    },
+                  },
+            );
+          }}
+        />
+      ) : (
+        <Text className="px-2 text-base text-foreground-muted">
+          {availableTargets.length === 0
+            ? gt("Connect an environment to create a scheduled task.")
+            : gt("No environments match the current filters. Change the filters to create a task.")}
+        </Text>
+      )}
+    </ScheduledTaskEditor>
   );
 }
 
@@ -614,7 +509,6 @@ function TaskForm({
 }) {
   const gt = useGT();
   const m = useMessages();
-  const locale = useLocale();
   const { readEditor } = useScheduledTaskEditor();
   const navigation = useNavigation<NativeStackNavigationProp<ScheduledTaskRoutes>>();
   const tasks = useEnvironmentQuery(
@@ -662,8 +556,6 @@ function TaskForm({
     reportFailure: false,
   });
   const submissionPending = useRef(false);
-  const [timePickerOpen, setTimePickerOpen] = useState(false);
-  const [runAtPicker, setRunAtPicker] = useState<"date" | "time" | null>(null);
   const taskMissing =
     draft.task !== null &&
     tasks.data !== null &&
@@ -816,18 +708,17 @@ function TaskForm({
             <T>This environment is disconnected. Reconnect before saving.</T>
           </Text>
         ) : null}
-        <SettingsSection>
-          <SelectRow
-            label={gt("Runs on")}
-            value={environmentLabel}
-            valueIcon={
+        <ScheduledTaskDetails
+          host={{
+            value: environmentLabel,
+            valueIcon: (
               <EnvironmentMachineSymbol
                 kind={resolveEnvironmentMachineKind(config)}
                 size={18}
                 tintColorClassName="accent-foreground-muted"
               />
-            }
-            actions={
+            ),
+            actions:
               draft.task || saving || dictationPending
                 ? []
                 : availableTargets.map((target) => ({
@@ -838,38 +729,27 @@ function TaskForm({
                         resolveEnvironmentMachineKind(target.serverConfig)
                       ],
                     state: target.environmentId === environmentId ? "on" : undefined,
-                  }))
-            }
-            onSelect={(id) => {
+                  })),
+            onSelect: (id) => {
               const target = availableTargets.find((entry) => entry.environmentId === id);
               if (target) onChangeEnvironment(target);
-            }}
-          />
-        </SettingsSection>
-        <SettingsSection title={gt("Task", { $context: "section heading for a scheduled task" })}>
-          <FormField
-            label={gt("Name")}
-            disabled={saving}
-            value={draft.title}
-            placeholder={gt("Check for issues")}
-            onChange={(title) => setDraft((current) => ({ ...current, title }))}
-          />
-          {promptField}
-        </SettingsSection>
-
-        <SettingsSection title={gt("Context", { $context: "section heading: project and model" })}>
-          <SelectRow
-            label={gt("Project")}
-            value={
+            },
+          }}
+          name={{
+            disabled: saving,
+            value: draft.title,
+            onChange: (title) => setDraft((current) => ({ ...current, title })),
+          }}
+          project={{
+            value:
               projects.find((project) => project.id === draft.projectId)?.title ??
-              (projects.length ? gt("Choose project") : gt("No projects available"))
-            }
-            actions={projects.map((project) => ({
+              (projects.length ? gt("Choose project") : gt("No projects available")),
+            actions: projects.map((project) => ({
               id: project.id,
               title: project.title,
               state: project.id === draft.projectId ? "on" : undefined,
-            }))}
-            onSelect={(id) => {
+            })),
+            onSelect: (id) => {
               const project = projects.find((item) => item.id === id);
               if (!project) return;
               setEnvironmentDraft((current) => {
@@ -890,28 +770,23 @@ function TaskForm({
                   modelSelectionIsExplicit: keepsExplicitModel,
                 };
               });
-            }}
-          />
-          <PickerRow
-            label={gt("Model")}
-            borderTop
-            value={
+            },
+          }}
+          model={{
+            value:
               modelOptions.find(
                 (option) =>
                   option.selection.instanceId === shownSelection?.instanceId &&
                   option.selection.model === shownSelection?.model,
               )?.label ??
               shownSelection?.model ??
-              (modelOptions.length ? gt("Choose model") : gt("No models available"))
-            }
-            onPress={() => navigation.navigate("SettingsScheduledTaskModel")}
-            // The saved selection only seeds new threads; bound runs ignore it.
-            disabled={
-              saving || dictationPending || environmentUnavailable || draft.threadId !== null
-            }
-          />
-        </SettingsSection>
-
+              (modelOptions.length ? gt("Choose model") : gt("No models available")),
+            onPress: () => navigation.navigate("SettingsScheduledTaskModel"),
+            disabled:
+              saving || dictationPending || environmentUnavailable || draft.threadId !== null,
+          }}
+          prompt={promptField}
+        />
         <SettingsSection
           title={gt("Destination")}
           footer={
@@ -1052,8 +927,6 @@ function TaskForm({
               ]}
               selected={draft.schedule.mode}
               onSelect={(mode) => {
-                setTimePickerOpen(false);
-                setRunAtPicker(null);
                 setDraft((current) => ({
                   ...current,
                   prompt:
@@ -1073,95 +946,20 @@ function TaskForm({
             />
           </View>
           {draft.schedule.mode === "fixed_time" ? (
-            <>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  runAtZone
-                    ? gt("Time, {time} {zone}", {
-                        time: formatTime(draft.schedule.timeOfDay),
-                        zone: runAtZone,
-                      })
-                    : gt("Time, {time}", { time: formatTime(draft.schedule.timeOfDay) })
-                }
-                onPress={() => setTimePickerOpen((open) => !open)}
-                className="min-h-14 flex-row items-center gap-3 border-t border-border-subtle px-4 py-3 active:opacity-70"
-              >
-                <Text textRole="body" className="text-foreground">
-                  {gt("Time", { $context: "time of day" })}
-                </Text>
-                <Text
-                  textRole="footnote"
-                  className="min-w-0 flex-1 text-right text-foreground-muted"
-                >
-                  {formatTime(draft.schedule.timeOfDay)}
-                  {runAtZone ? ` ${runAtZone}` : ""}
-                </Text>
-                <SymbolView
-                  name="chevron.right"
-                  size={14}
-                  tintColorClassName="accent-chevron"
-                  type="monochrome"
-                />
-              </Pressable>
-              {timePickerOpen ? (
-                <DateTimePicker
-                  value={timePickerValue(draft.schedule.timeOfDay)}
-                  mode="time"
-                  display={Platform.OS === "ios" ? "spinner" : "default"}
-                  onDismiss={() => setTimePickerOpen(false)}
-                  onValueChange={(_, selected) => {
-                    const timeOfDay = `${String(selected.getHours()).padStart(2, "0")}:${String(selected.getMinutes()).padStart(2, "0")}`;
-                    setDraft((current) => ({
-                      ...current,
-                      schedule: { ...current.schedule, timeOfDay },
-                    }));
-                  }}
-                />
-              ) : null}
-              <SelectRow
-                label={gt("Repeat", { $context: "noun, which days a task repeats on" })}
-                value={repeatLabel(draft.schedule.weekdays, m, locale)}
-                borderTop
-                actions={[
-                  {
-                    id: "every_day",
-                    title: gt("Every day"),
-                    state: draft.schedule.weekdays.length === 7 ? "on" : undefined,
-                  },
-                  {
-                    id: "weekdays",
-                    title: gt("Weekdays"),
-                    state: isWeekdays(draft.schedule.weekdays) ? "on" : undefined,
-                  },
-                  ...DAYS.map((day) => ({
-                    id: String(day.index),
-                    title: weekdayLabel(day.index, locale),
-                    attributes: { keepsMenuPresented: true },
-                    state: draft.schedule.weekdays.includes(day.index)
-                      ? ("on" as const)
-                      : undefined,
-                  })),
-                ]}
-                onSelect={(id) => {
-                  setDraft((current) => {
-                    const weekdays =
-                      id === "every_day"
-                        ? DAYS.map((day) => day.index)
-                        : id === "weekdays"
-                          ? [1, 2, 3, 4, 5]
-                          : (() => {
-                              const day = DAYS.find((item) => String(item.index) === id);
-                              if (!day) return current.schedule.weekdays;
-                              return current.schedule.weekdays.includes(day.index)
-                                ? current.schedule.weekdays.filter((index) => index !== day.index)
-                                : [...current.schedule.weekdays, day.index];
-                            })();
-                    return { ...current, schedule: { ...current.schedule, weekdays } };
-                  });
-                }}
-              />
-            </>
+            <WeeklyScheduleFields
+              timeOfDay={draft.schedule.timeOfDay}
+              weekdays={draft.schedule.weekdays}
+              runAtZone={runAtZone}
+              onTimeChange={(timeOfDay) =>
+                setDraft((current) => ({
+                  ...current,
+                  schedule: { ...current.schedule, timeOfDay },
+                }))
+              }
+              onDaysChange={(weekdays) =>
+                setDraft((current) => ({ ...current, schedule: { ...current.schedule, weekdays } }))
+              }
+            />
           ) : draft.schedule.mode === "webhook" && webhookDenial !== undefined && draft.enabled ? (
             <Text className="border-t border-border-subtle px-4 py-3 text-sm text-foreground-muted">
               {gt("{reason} Switch the task to a timer, or turn it off, to save it.", {
@@ -1169,56 +967,15 @@ function TaskForm({
               })}
             </Text>
           ) : draft.schedule.mode === "once" ? (
-            (["date", "time"] as const).map((field) => {
-              const runAt = new Date(draft.schedule.runAt);
-              const label = field === "date" ? formatRunAtDate(runAt) : formatRunAtTime(runAt);
-              return (
-                <View key={field}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      field === "date"
-                        ? gt("Date, {date}", { date: label })
-                        : gt("Time, {time}", { time: label })
-                    }
-                    onPress={() => setRunAtPicker((open) => (open === field ? null : field))}
-                    className="min-h-14 flex-row items-center gap-3 border-t border-border-subtle px-4 py-3 active:opacity-70"
-                  >
-                    <Text textRole="body" className="text-foreground">
-                      {field === "date" ? gt("Date") : gt("Time", { $context: "time of day" })}
-                    </Text>
-                    <Text
-                      textRole="footnote"
-                      className="min-w-0 flex-1 text-right text-foreground-muted"
-                    >
-                      {label}
-                    </Text>
-                    <SymbolView
-                      name="chevron.right"
-                      size={14}
-                      tintColorClassName="accent-chevron"
-                      type="monochrome"
-                    />
-                  </Pressable>
-                  {runAtPicker === field ? (
-                    <DateTimePicker
-                      value={runAt}
-                      mode={field}
-                      display={Platform.OS === "ios" ? "spinner" : "default"}
-                      onDismiss={() => setRunAtPicker(null)}
-                      onValueChange={(_, selected) => {
-                        // Android shows a dialog that closes on pick; iOS stays inline.
-                        if (Platform.OS === "android") setRunAtPicker(null);
-                        setDraft((current) => ({
-                          ...current,
-                          schedule: { ...current.schedule, runAt: selected.toISOString() },
-                        }));
-                      }}
-                    />
-                  ) : null}
-                </View>
-              );
-            })
+            <OnceScheduleFields
+              runAt={new Date(draft.schedule.runAt)}
+              onChange={(selected) =>
+                setDraft((current) => ({
+                  ...current,
+                  schedule: { ...current.schedule, runAt: selected.toISOString() },
+                }))
+              }
+            />
           ) : draft.schedule.mode === "webhook" ? (
             <>
               <WebhookScheduleDetails

@@ -37,13 +37,13 @@ export function issueStatus(state: IssueState): {
   if (state.closeReason !== undefined && state.closeReason !== "completed")
     return {
       label,
-      icon: "slash.circle",
+      icon: "git.issue.skipped",
       tint: "accent-icon-muted",
       text: "text-foreground-muted",
     };
   return {
     label,
-    icon: "checkmark.circle",
+    icon: "git.issue.closed",
     tint: "accent-adaptive-violet-600-400",
     text: "text-adaptive-violet-600-400",
   };
@@ -53,9 +53,7 @@ export function issueStatus(state: IssueState): {
 export function useIssueAccess(params: IssueParams, detail: IssueDetail | null | undefined) {
   const messages = useMessages();
   const connected = usePullRequestConnected(params.environmentId);
-  const canWrite = useAtomValue(
-    issueEnvironment.update.permissionAtom(issueTarget(params).environmentId),
-  );
+  const canWrite = useAtomValue(issueEnvironment.update.permissionAtom(issueTarget(params).environmentId));
   if (!detail) return null;
   const access = issueWriteAccess(detail, connected && canWrite, messages);
   return {

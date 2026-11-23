@@ -166,7 +166,9 @@ export function sourceChoiceGroups(
         detail: detail ? `${SOURCE_KIND_SHORT_NAMES[kind]} · ${detail}` : SOURCE_KIND_SHORT_NAMES[kind],
         searchText: `${SOURCE_KIND_NAMES[kind]} ${label} ${detail ?? ''}`.toLowerCase(),
       }))
-      .filter((choice) => !held.has(choice.sourceKey)),
+      // A key once: the host can name one repository in two spellings (a
+      // project's remote and GitHub's own), and the key ignores case.
+      .filter((choice, index, all) => !held.has(choice.sourceKey) && all.findIndex((other) => other.sourceKey === choice.sourceKey) === index),
   })
 
   const { github, jira } = options
@@ -180,7 +182,7 @@ export function sourceChoiceGroups(
 
   return [
     group('github-repo', [
-      ...projectRepositories.map((repository) => ({ repository, detail: 'Your project' })),
+      ...projectRepositories.map((repository) => ({ repository, detail: repository.isFork ? 'Your project, a fork' : 'Your project' })),
       ...github.repositories.filter((repository) => !isProjectRepository(repository)).map((repository) => ({ repository, detail: undefined })),
     ].map(({ repository, detail }) => ({
       source: { kind: 'github-repo', owner: repository.owner, repo: repository.repo },
@@ -241,31 +243,6 @@ export function connectionProviderNames(notes: readonly SourceConnectionNote[]):
   return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
 }
 
-// ── Your projects' repositories ──
-
-/** A repository of one of the person's projects, offered as a source in one step. */
-export interface ProjectSourceOffer {
-  source: TaskSource
-  sourceKey: string
-  label: string
-  /** The project is a fork's checkout; the offer starts not selected. */
-  isFork: boolean
-}
-
-/**
- * The repositories of the person's recent projects that are not sources yet:
- * what the Tasks page offers a person with no source. They are ordinary
- * sources once added, so they sync, show on the strip, and can be removed.
- */
-export function projectSourceOffers(options: TaskSourceOptions | null, configured: readonly TaskSource[]): ProjectSourceOffer[] {
-  const held = new Set(configured.map(taskSourceKey))
-  return (options?.github.projectRepositories ?? []).flatMap((repository) => {
-    const source: TaskSource = { kind: 'github-repo', owner: repository.owner, repo: repository.repo }
-    const sourceKey = taskSourceKey(source)
-    return held.has(sourceKey) ? [] : [{ source, sourceKey, label: `${repository.owner}/${repository.repo}`, isFork: !!repository.isFork }]
-  })
-}
-
 /** The choices of a group that a search text keeps. */
 export function matchingChoices(group: SourceChoiceGroup, query: string): SourceChoice[] {
   const needle = query.trim().toLowerCase()
@@ -307,4 +284,50 @@ export function manualSourceChoice(
 export function manualSourceKey(query: string): string | null {
   const source = parseManualTaskSource(query)
   return source ? taskSourceKey(source) : null
+}
+
+// ── The first-source setup ──
+
+/** A repository of one of the person's projects, on the first-source setup. */
+export interface ProjectSourceRow {
+  source: TaskSource
+  sourceKey: string
+  label: string
+  isFork: boolean
+  isAdded: boolean
+}
+
+/** A project on the task host, as the setup reads it from the project list
+ *  the client holds already: no provider has to answer first. */
+export interface SetupProject {
+  /** The project's repository: the upstream of a fork's checkout. */
+  repositoryKey: string | null
+  lastUsedAt: string
+  /** The checkout's own `origin`; it differs from `repositoryKey` in a fork. */
+  originKey: string | null
+}
+
+/** The setup's grid of three columns holds two rows of repositories. */
+export const MAX_SETUP_PROJECT_ROWS = 6
+
+/**
+ * The GitHub repositories of the person's projects, the project used most
+ * recently first, once each. A repository stays listed once added, marked as
+ * added, so a person adds several and can take one back.
+ */
+export function projectSourceRows(projects: readonly SetupProject[], configured: readonly TaskSource[]): ProjectSourceRow[] {
+  const held = new Set(configured.map(taskSourceKey))
+  const rows: ProjectSourceRow[] = []
+  for (const project of [...projects].sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))) {
+    const [host, owner, repo, ...rest] = (project.repositoryKey ?? '').split('/')
+    if (host !== 'github.com' || !owner || !repo || rest.length > 0) continue
+    const source: TaskSource = { kind: 'github-repo', owner, repo }
+    const sourceKey = taskSourceKey(source)
+    // Two checkouts of one repository, or two spellings of it: the key ignores case.
+    if (rows.some((row) => row.sourceKey === sourceKey)) continue
+    const isFork = project.originKey !== null && project.originKey !== project.repositoryKey
+    rows.push({ source, sourceKey, label: `${owner}/${repo}`, isFork, isAdded: held.has(sourceKey) })
+    if (rows.length === MAX_SETUP_PROJECT_ROWS) break
+  }
+  return rows
 }

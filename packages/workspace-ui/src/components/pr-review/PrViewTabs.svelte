@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Tooltip from "../ui/tooltip";
   import type { ReviewGuideStatus } from "@solus/contracts/review";
   import type { LensTabState } from "../review/lib/lens-surface";
   import {
@@ -11,13 +12,11 @@
   } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { PAGE_PILL_GROUP } from "../../lib/page-chrome";
   /**
    * Which view of the change you are reading: Activity · Map · Guide · Lens · Diff.
    *
-   * Its own component because it has two homes — inside the masthead when the
-   * review is a page (where it belongs to the content beneath it), and in the
-   * panel's chrome row when the review is docked beside the list (where the
-   * content is too short to carry a row of its own).
+   * The page toolbar and the docked panel use the same view tabs.
    *
    * Where the five labels are wider than the row can spare, the group folds
    * into one switcher: the current view as a pill with a caret, and every
@@ -25,11 +24,8 @@
    * which one shows, so no tab is ever lost and the active one needs no
    * re-mount when the pane is dragged across the rung.
    *
-   * The rung is the home's. The panel band shares the row with the number,
-   * four verbs, the overflow, and the pane controls — about 22rem before a
-   * single tab — so there the group folds at 48rem, under the 56rem where
-   * the verbs drop their labels. The masthead's row holds only the identity
-   * link, which truncates, so the group keeps its labels down to 30rem.
+   * The page toolbar has more room because the pull request number and pane
+   * controls are in the row above.
    */
   let {
     tab,
@@ -40,6 +36,7 @@
     lensState = "absent",
     tabsDisabled = false,
     diffHint,
+    changeCounts,
     home = "band",
     onSelect,
   }: {
@@ -57,10 +54,13 @@
     /** The host target is still loading, so revision-backed tabs are not ready. */
     tabsDisabled?: boolean;
     diffHint?: string;
+    changeCounts?: { additions: number; deletions: number };
     /** Which row the group sits in, and so where it folds into the switcher. */
-    home?: "band" | "masthead";
+    home?: "band" | "toolbar";
     onSelect: (tab: "activity" | "map" | "guide" | "lens" | "diff") => void;
   } = $props();
+
+  const changeCountsId = $props.id();
 
   const TABS = [
     { id: "activity" as const, label: "Activity" },
@@ -114,14 +114,10 @@
   {/if}
 {/snippet}
 
-<!-- No track behind the group and no rule under it: the active tab, raised
-     as a pill like the header's actions, is the whole cue. Deliberately identical to the local review's tabs — reading a
-     pull request and reading a branch are the same job, and the control that
-     switches views should not change shape with where the change came from. -->
 <div
-  class="no-drag flex shrink-0 items-center gap-1 {home === 'band'
-    ? '@max-[48rem]/band:hidden'
-    : '@max-[30rem]/band:hidden'}"
+  class="{PAGE_PILL_GROUP} {home === 'band'
+    ? '@max-[54rem]/band:hidden'
+    : '@max-[44rem]/band:hidden'}"
   role="tablist"
   aria-label="Pull request views"
 >
@@ -133,10 +129,11 @@
       role="tab"
       aria-selected={isActive}
       aria-label={t.id === "guide" && guideStatus ? `Guide: ${guideStatus}` : t.label}
+      aria-describedby={t.id === "diff" && changeCounts ? changeCountsId : undefined}
       disabled={disabledFor(t.id)}
       title={titleFor(t.id)}
-      class="inline-flex items-center gap-1 h-6.5 cursor-pointer rounded-full px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:tap-area @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 {isActive
-        ? 'bg-background font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)]'
+      class="inline-flex h-7 cursor-pointer items-center gap-1 rounded-full px-2.5 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:tap-area {isActive
+        ? 'bg-[var(--wash-2)] font-medium text-foreground'
         : isUnread
           ? 'bg-transparent font-medium text-(--success) hover:bg-[var(--wash-1)]'
           : 'bg-transparent font-normal text-muted-foreground hover:bg-[var(--wash-1)] hover:text-foreground'}"
@@ -144,31 +141,46 @@
     >
       {t.label}
       {@render tabGlyph(t.id)}
+      {#if t.id === "diff" && changeCounts}
+        <span id={changeCountsId} class="sr-only">
+          {changeCounts.additions} additions, {changeCounts.deletions} deletions
+        </span>
+        <span
+          class="hidden items-center gap-1 font-mono font-normal tabular-nums @min-[68rem]/band:inline-flex"
+          aria-hidden="true"
+        >
+          <span class="text-(--solus-diff-added-text-vivid)">+{changeCounts.additions}</span>
+          <span class="text-(--solus-diff-removed-text-vivid)">−{changeCounts.deletions}</span>
+        </span>
+      {/if}
     </button>
   {/each}
 </div>
 
 <!-- The switcher: the active pill with a caret, standing in for the whole
      row under the home's rung. -->
-<button
-  bind:this={switcherEl}
-  type="button"
-  class="no-drag hidden h-6.5 shrink-0 cursor-pointer items-center gap-1 rounded-full bg-background px-2.5 text-workspace-chrome font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:tap-area {home === 'band'
-    ? '@max-[48rem]/band:inline-flex'
-    : '@max-[30rem]/band:inline-flex'}"
-  aria-label="Switch view"
-  aria-haspopup="menu"
-  aria-expanded={switcherOpen}
-  onclick={() => (switcherOpen = !switcherOpen)}
->
-  {current.label}
-  {@render tabGlyph(current.id)}
-  <CaretDownIcon
-    size={11}
-    class="shrink-0 opacity-45 transition-transform duration-150 {switcherOpen ? 'rotate-180' : ''}"
-    aria-hidden="true"
-  />
-</button>
+<Tooltip.Root disabled={switcherOpen}>
+  <Tooltip.Trigger
+    bind:ref={switcherEl}
+    type="button"
+    class="no-drag hidden h-8 shrink-0 cursor-pointer items-center gap-1 rounded-full bg-background px-2.5 text-workspace-chrome font-medium text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors duration-150 hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:tap-area {home === 'band'
+      ? '@max-[54rem]/band:inline-flex'
+      : '@max-[44rem]/band:inline-flex'}"
+    aria-label="Switch view"
+    aria-haspopup="menu"
+    aria-expanded={switcherOpen}
+    onclick={() => (switcherOpen = !switcherOpen)}
+  >
+    {current.label}
+    {@render tabGlyph(current.id)}
+    <CaretDownIcon
+      size={11}
+      class="shrink-0 opacity-45 transition-transform duration-150 {switcherOpen ? 'rotate-180' : ''}"
+      aria-hidden="true"
+    />
+  </Tooltip.Trigger>
+  <Tooltip.Content side="bottom" value="Switch pull request view" />
+</Tooltip.Root>
 
 <DropdownMenu.Root bind:open={switcherOpen}>
   <DropdownMenu.Content

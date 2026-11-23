@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     ArrowDown as ArrowDownIcon,
-    ChartBar as ChartBarIcon,
+    Activity as ActivityIcon,
     Files as FilesIcon,
     GitFork as GitForkIcon,
     GitBranchPlus as WorktreeIcon,
@@ -240,7 +240,7 @@
       actions.push({
         id: "insights",
         label: "Open session in insights",
-        icon: ChartBarIcon,
+        icon: ActivityIcon,
         shortcut: "",
         run: openSessionInsights,
       });

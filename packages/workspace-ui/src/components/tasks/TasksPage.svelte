@@ -1,6 +1,7 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
   import { localApi } from "@solus/client-core/local-api";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import {
@@ -15,9 +16,7 @@
   } from "@lucide/svelte";
   import { TASKS_AUTH_ERROR_PREFIX, type TaskCreateInput, type TaskMoveTarget } from "@solus/contracts/task-types";
   import type { Task } from "../../contexts/tasks/task.svelte";
-  import TaskSourceAdd from "./sources/TaskSourceAdd.svelte";
-  import ProjectSourceOffer from "./sources/ProjectSourceOffer.svelte";
-  import { projectSourceOffers } from "./sources/lib/task-source-setup";
+  import TaskSourceSetup from "./sources/TaskSourceSetup.svelte";
   import TaskSourceStrip from "./TaskSourceStrip.svelte";
   import TasksBulkBar from "./TasksBulkBar.svelte";
   import {
@@ -27,7 +26,9 @@
     taskSourcesStore,
     runtime,
     serversStore,
+    accountStore,
   } from "../../contexts";
+  import { taskHostId } from "../../contexts/tasks/task-sources.store.svelte";
   import { toasts } from "../../lib/toasts";
   import {
     useKeybinding,
@@ -56,7 +57,7 @@
   } from "../ui/list-page";
   import { isStackedPane } from "../../lib/pane-width";
   import PageEmpty from "../ui/PageEmpty.svelte";
-  import TaskUrlInspector from "./TaskUrlInspector.svelte";
+  import TaskUrlInspector, { type ResolvedIssueUrl } from "./TaskUrlInspector.svelte";
   import TaskComposer from "./TaskComposer.svelte";
   import TaskSavedViews from "./TaskSavedViews.svelte";
   import TasksList from "./TasksList.svelte";
@@ -105,12 +106,15 @@
   // The person has sources, but no connected machine runs agents, so no
   // machine can read GitHub or Jira.
   const hasNoHost = $derived(!hasNoSource && taskSourcesStore.host === null);
-  // A person with no source is offered their projects' repositories in one
-  // step; reading the choices is what lists them.
-  const projectOffers = $derived(hasNoSource ? projectSourceOffers(taskSourcesStore.options, configured) : []);
-  $effect(() => {
-    if (hasNoSource) untrack(() => void taskSourcesStore.loadOptions());
-  });
+  // A person with no source sets up their first sources here. The setup stays
+  // from the first add until they choose to see the tasks, so they add several
+  // and can take one back; adding one does not drop them into the list.
+  let isAddingSources = $state(false);
+  const isSettingUp = $derived(hasNoSource || isAddingSources);
+  function setupChanged() {
+    isAddingSources = true;
+    void store.load();
+  }
 
   // A new task is created on the provider, in one of the person's sources.
   const canCreate = $derived(sources.length > 0);
@@ -194,10 +198,13 @@
 
   let searchEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLDivElement | null>(null);
+  let pageEl = $state<HTMLDivElement | null>(null);
   let contentHeight = $state(0);
   let pageWidth = $state(0);
   let selectedKey = $state<string | null>(null);
   let openTaskId = $state<string | null>(null);
+  let externalIssue = $state.raw<ResolvedIssueUrl | null>(null);
+  let detailPane = $state<HTMLDivElement | null>(null);
   let taskContextMenu = $state<{
     task: Task;
     x: number;
@@ -263,7 +270,7 @@
   }
 
   const openTask = $derived(openTaskId ? (taskById(openTaskId) ?? null) : null);
-  const panelOpen = $derived(openTask !== null);
+  const panelOpen = $derived(openTask !== null || externalIssue !== null);
   const roomForSplit = $derived(pageWidth >= 1040);
   // The record rung, for the one decision a container query cannot make: the
   // virtualiser is told a row's height as a number. Same 30rem the stylesheet
@@ -273,14 +280,69 @@
   const splitList = $derived(panelOpen && roomForSplit && !boardPanel);
 
   function closePanel() {
+    const wasExternal = externalIssue !== null;
+    externalIssue = null;
     openTaskId = null;
     void tick().then(() => {
+      if (wasExternal) {
+        const trigger = pageEl?.querySelector<HTMLElement>("[data-task-url-trigger]");
+        if (trigger) {
+          trigger.focus();
+          return;
+        }
+      }
       const selectedRow = listEl?.querySelector<HTMLElement>(
         '[data-selected="true"]',
       );
       if (selectedRow) selectedRow.focus();
       else searchEl?.focus();
     });
+  }
+
+  function issueScope(): string {
+    const account = accountStore.state;
+    return JSON.stringify([
+      serversStore.activeOrganizationId,
+      account.kind,
+      account.kind === "signed-in" ? account.signedInAt : null,
+    ]);
+  }
+
+  $effect(() => {
+    if (externalIssue && (!open || externalIssue.scope !== issueScope())) {
+      externalIssue = null;
+    }
+  });
+
+  async function resolveIssue(address: string, hostId = taskHostId()): Promise<ResolvedIssueUrl> {
+    if (!hostId || serverConnections.readinessFor(hostId).readiness !== "ready") {
+      throw new Error("Connect the task host and try again.");
+    }
+    const scope = issueScope();
+    const api = serverConnections.apiFor(hostId);
+    const issue = await api.tasksResolve(address, { detailsOnly: true });
+    if (scope !== issueScope() || api !== serverConnections.apiFor(hostId)) {
+      throw new Error("The task host or account changed. Try again.");
+    }
+    return { address, hostId, issue, scope };
+  }
+
+  function openExternalIssue(issue: ResolvedIssueUrl) {
+    if (!open || issue.scope !== issueScope()) return;
+    openTaskId = null;
+    externalIssue = issue;
+    void tick().then(() => detailPane?.focus());
+  }
+
+  async function refreshExternalIssue() {
+    const current = externalIssue;
+    if (!current || current.scope !== issueScope()) return;
+    try {
+      const issue = await resolveIssue(current.address, current.hostId);
+      if (externalIssue === current && issue.scope === issueScope()) externalIssue = issue;
+    } catch (error) {
+      if (externalIssue === current) toastTaskError("refresh the issue", error);
+    }
   }
 
   function stepPanel(delta: number) {
@@ -407,6 +469,7 @@
 
   // A row opens its task page over the list.
   function onOpen(task: Task) {
+    externalIssue = null;
     selectedKey = task.id;
     openTaskId = task.id;
   }
@@ -573,14 +636,32 @@
 <!-- Where the person's tasks come from, and the one place to change it. With
      no source, the empty state adds the first one instead. -->
 {#snippet sourceStrip()}
-  <TaskUrlInspector />
-  <TaskSourceStrip
-    sourceKey={view.source?.sourceKey ?? null}
-    counts={view.sourceCounts}
-    allCount={view.allSourcesCount}
-    onSelect={selectViewSource}
-    onChanged={() => void store.load()}
-  />
+  <!-- The sources, then the one issue a person opens by its URL without
+       adding its source. -->
+  <div class="flex min-w-0 items-center gap-1">
+    <div class="min-w-0 flex-1">
+      <TaskSourceStrip
+        sourceKey={view.source?.sourceKey ?? null}
+        counts={view.sourceCounts}
+        allCount={view.allSourcesCount}
+        onSelect={selectViewSource}
+        onChanged={() => void store.load()}
+      />
+    </div>
+    <TaskUrlInspector {resolveIssue} onOpen={openExternalIssue} />
+  </div>
+{/snippet}
+
+<!-- GitHub, Jira and Linear own every task, so a person with no task source has
+     no tasks. The body is the source setup. -->
+{#snippet sourceSetup()}
+  <TaskSourceSetup onChanged={setupChanged} />
+{/snippet}
+
+{#snippet issueUrlOnly()}
+  <div class="flex justify-end">
+    <TaskUrlInspector {resolveIssue} onOpen={openExternalIssue} />
+  </div>
 {/snippet}
 
 {#snippet filterBar()}
@@ -633,6 +714,7 @@
   <div
     class="@container relative flex min-h-0 flex-1 overflow-hidden bg-(--solus-container-bg) focus:outline-none [--task-list-width:380px]"
     bind:clientWidth={pageWidth}
+    bind:this={pageEl}
     role="dialog"
     aria-label="Tasks"
     tabindex="-1"
@@ -650,17 +732,19 @@
       {refreshing}
       syncedAt={view.syncState.syncedAt}
       syncFromCache={view.syncState.fromCache}
-      primaryAction={canCreate && !splitList
-        ? {
-            label: "New task",
-            shortcut: comboHint("global.new-task"),
-            run: () => startNewTask(),
-          }
-        : undefined}
+      primaryAction={splitList
+        ? undefined
+        : isSettingUp
+          ? configured.length > 0
+            ? { label: "Show tasks", run: () => (isAddingSources = false) }
+            : undefined
+          : canCreate
+            ? { label: "New task", shortcut: comboHint("global.new-task"), run: () => startNewTask() }
+            : undefined}
       onClose={workspace ? close : undefined}
       toolbarFilters
-      scopes={!hasNoSource && !splitList ? sourceStrip : undefined}
-      filters={filterBar}
+      scopes={splitList ? undefined : isSettingUp ? issueUrlOnly : sourceStrip}
+      filters={isSettingUp ? undefined : filterBar}
       contentOwnsScroll
       bind:contentHeight
     >
@@ -673,7 +757,9 @@
         onkeydown={onBodyKeydown}
         role="presentation"
       >
-        {#if loadingTasks}
+        {#if isAddingSources}
+          {@render sourceSetup()}
+        {:else if loadingTasks}
           {#if view.boardLayout}
             <TaskBoardSkeleton />
           {:else}
@@ -714,36 +800,19 @@
             {/snippet}
           </PageEmpty>
         {:else if hasNoSource && tasks.length === 0}
-          <!-- GitHub, Jira and Linear own every task, so a person with no task
-               source has no tasks. The empty state is the source setup. -->
-          <PageEmpty icon={TaskIcon} title="No task source.">
-            {#if projectOffers.length > 0}
-              Read issues from the repositories of your projects, or add a
-              Project, a Jira board or a Linear team.
-            {:else}
-              Tasks come from GitHub, Jira and Linear. Add a repository, a
-              Project, a Jira board or a Linear team.
-            {/if}
-            {#snippet actions()}
-              <div class="flex w-full flex-col items-center gap-3">
-                {#if projectOffers.length > 0}
-                  <ProjectSourceOffer offers={projectOffers} onChanged={() => void store.load()} />
-                {/if}
-                <TaskSourceAdd look="invite" onChanged={() => void store.load()} />
-              </div>
-            {/snippet}
-          </PageEmpty>
+          {@render sourceSetup()}
         {:else if tasks.length === 0 && view.searched.length === 0}
           <PageEmpty icon={TaskIcon} title="No tasks yet.">
             {#if hasNoHost}
               No connected machine runs agents, so your task sources cannot be
               read. Connect a machine to see their tasks.
             {:else}
-              Your task sources list no task. Create one, then start a session
-              from it to give the agent its full context.
+              Your sources have no open tasks yet. Create one, then start a
+              session from it to give the agent its full context.
             {/if}
             {#snippet actions()}
-              {#if canCreate}
+              <!-- The header holds New task; a split list hides the header. -->
+              {#if canCreate && splitList}
                 <button
                   type="button"
                   class={PAGE_PRIMARY_BTN}
@@ -803,13 +872,16 @@
     </ListPage>
     </div>
 
-    {#if panelOpen && openTask}
+    {#if externalIssue || openTask}
       <!-- Full screen means over the crumb line too. The project and page
            crumbs raise their own triggers to z-40 so their menus clear the
            list, so a panel at z-20 covered the rows and left "my-workspace ⌄
            Tasks ⌄" painted across the task's own record bar. A panel that
            replaces the page outranks the page's chrome. -->
       <div
+        bind:this={detailPane}
+        tabindex="-1"
+        role="presentation"
         class="flex flex-col bg-background {boardPanel && roomForSplit
           ? 'absolute inset-y-0 right-0 z-10 w-[clamp(680px,72%,1400px)] shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'
           : roomForSplit
@@ -817,21 +889,36 @@
             : 'absolute inset-0 z-50'}"
         transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
       >
-        <TaskPage
-          params={{
-            taskId: openTask.id,
-            serverId: store.get(openTask.id).serverId ?? undefined,
-          }}
-          {paneId}
-          embedded
-          surfaceVisible={open}
-          onRequestClose={closePanel}
-          onOpenRoute={() => openTaskRoute(openTask)}
-          onRequestPrevious={view.flatVisibleIds.length > 1
-            ? () => stepPanel(-1)
-            : null}
-          onRequestNext={view.flatVisibleIds.length > 1 ? () => stepPanel(1) : null}
-        />
+        {#if externalIssue}
+          {#key externalIssue.address}
+            <TaskPage
+              params={{ taskId: externalIssue.issue.details.task.id }}
+              {paneId}
+              embedded
+              surfaceVisible={open}
+              onRequestClose={closePanel}
+              externalIssue={externalIssue.issue}
+              externalHostId={externalIssue.hostId}
+              onRefreshExternalIssue={refreshExternalIssue}
+            />
+          {/key}
+        {:else if openTask}
+          <TaskPage
+            params={{
+              taskId: openTask.id,
+              serverId: store.get(openTask.id).serverId ?? undefined,
+            }}
+            {paneId}
+            embedded
+            surfaceVisible={open}
+            onRequestClose={closePanel}
+            onOpenRoute={() => openTaskRoute(openTask)}
+            onRequestPrevious={view.flatVisibleIds.length > 1
+              ? () => stepPanel(-1)
+              : null}
+            onRequestNext={view.flatVisibleIds.length > 1 ? () => stepPanel(1) : null}
+          />
+        {/if}
       </div>
     {/if}
 

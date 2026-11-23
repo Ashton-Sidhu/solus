@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Settings as AutomationIcon } from "@lucide/svelte";
+  import { Workflow as AutomationIcon } from "@lucide/svelte";
   import SessionPinButton from "./SessionPinButton.svelte";
   import type { PinnedSession } from "@solus/contracts/types";
   import { groupKeyFor } from "../../contexts";

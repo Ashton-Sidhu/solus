@@ -69,18 +69,18 @@ vi.mock("@t3tools/client-runtime/state/runtime", () => ({
     ),
 }));
 vi.mock("../../state/atom-registry", () => ({ appAtomRegistry: { refresh: () => {} } }));
-vi.mock("../../state/projects", () => ({
-  projectEnvironment: {
-    listEntries: (query: Query) => query,
-    searchEntries: (query: Query) => query,
-  },
+vi.mock("../../solus/checkout-files", () => ({
+  listEntries: (query: Query) => query,
+  searchEntries: (query: Query) => query,
 }));
-vi.mock("../../connection/catalog", () => ({
-  environmentCatalog: { sessionGenerationAtom: () => ({}) },
+vi.mock("../../state/mobile-host", () => ({
+  fileAccountScope: "scope",
+  mobileHost: () => ({}),
 }));
 vi.mock("../../state/queries", () => ({ useDebouncedValue: (value: string) => value }));
 vi.mock("@effect/atom-react", () => ({
-  useAtomValue: (atom: Partial<Query>) => {
+  useAtomValue: (atom: Partial<Query> | "scope") => {
+    if (atom === "scope") return { key: "account" };
     const state = mocks.state;
     const query = atom.input?.query === undefined ? state.rootQuery : state.searchQuery;
     if (query.success) return query.success;
@@ -353,6 +353,7 @@ describe("file tree workspace state", () => {
       expect([...screen.current.loadingDirectories]).toEqual([]);
       screen.load();
       expect(screen.requests[1]!.query).toEqual({
+        accountKey: "account",
         environmentId: target.environmentId ?? firstTarget.environmentId,
         input: { cwd: target.cwd ?? firstTarget.cwd, directoryPath: "src" },
       });

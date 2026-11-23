@@ -1,4 +1,5 @@
-import { queueChatAttachment, isUploadImage, uploadImagePreview } from "../../solus/upload-images";
+import { hostQueuedRuns, hostQueueMessage } from "../../solus/queue-messages";
+import { isUploadImage, uploadImagePreview } from "../../solus/upload-images";
 import { resolveConversationImage } from "../../solus/ConversationMedia";
 import { solus } from "../../solus/runtime";
 import { isSessionBusyStatus } from "@solus/contracts/types";
@@ -15,13 +16,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
-import {
-  MessageId,
-  RunId,
-  type ChatAttachment,
-  type EnvironmentId,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { RunId, type ChatAttachment, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
@@ -102,7 +97,7 @@ function QueuedRunSender(props: {
   const sender =
     attribution === "automation"
       ? {
-          icon: "calendar.badge.clock" as const,
+          icon: "workflow" as const,
           label:
             tasks.data?.tasks.find((task) => task.id === scheduledTaskId)?.title ??
             gt("Automation"),
@@ -179,18 +174,23 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const busyRef = useRef(false);
   const queuedRuns = meta
-    ? meta.queue.entries.map((entry) => ({
-        run: { id: RunId.make(entry.queueId), freshContext: false },
-        text: entry.text,
-        messageId: MessageId.make(entry.clientPromptId ?? entry.queueId),
-        context: undefined,
-        message: null,
-        attachments: (entry.attachments ?? []).map((a) =>
-          queueChatAttachment(a, (path, refresh) =>
+    ? meta.queue.entries.map((entry) => {
+        const message = hostQueueMessage(
+          target.environmentId,
+          target.threadId,
+          entry,
+          (path, refresh) =>
             resolveConversationImage(store!, path, refresh).then((source) => source.uri),
-          ),
-        ),
-      }))
+        );
+        return {
+          run: { id: RunId.make(entry.queueId), freshContext: false },
+          text: entry.text,
+          messageId: message.messageId,
+          context: undefined,
+          message: null,
+          attachments: message.hostQueue.attachments,
+        };
+      })
     : (upstream?.queuedRuns ?? []);
 
   const hadQueuedRuns = useRef(queuedRuns.length > 0);
@@ -222,14 +222,7 @@ export function ThreadQueueSheet({ route }: StaticScreenProps<QueueTarget>) {
           ...(entry.context ? { context: entry.context } : {}),
         },
         store
-          ? Atom.make((get) => {
-              const read = () =>
-                store
-                  .metaSnapshotOf()
-                  .queue.entries.map((e) => ({ id: RunId.make(e.queueId), status: "queued" }));
-              get.addFinalizer(store.meta.subscribe(() => get.setSelf(read())));
-              return read();
-            })
+          ? hostQueuedRuns(store)
           : makeQueuedRunsAtom({
               threadId: target.threadId,
               snapshot: threadEnvironment.snapshotAtom(target.environmentId),

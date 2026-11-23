@@ -4,19 +4,10 @@ import {
   useNavigation,
   type StaticScreenProps,
 } from "@react-navigation/native";
-import {
-  isLinkedThreadWorking,
-  linkedThreadFailure,
-  type LinkedThreadFailure,
-  type LinkedThreadTarget,
-} from "@t3tools/client-runtime/linked-thread";
-import {
-  toolCallLines,
-  turnItemDetailRevision,
-  turnItemOutputText,
-} from "@t3tools/client-runtime/work-log/item-detail";
+import { type LinkedThreadTarget } from "@t3tools/client-runtime/linked-thread";
+import { toolCallLines, turnItemOutputText } from "@t3tools/client-runtime/work-log/item-detail";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { T, useGT, useLocale, useMessages } from "gt-react-native";
+import { T, useGT } from "gt-react-native";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type * as React from "react";
 import { AppState, Pressable, ScrollView, View } from "react-native";
@@ -27,46 +18,41 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { SelectableMarkdownText } from "../../native/SelectableMarkdownText";
-import { useEnvironments } from "../../state/environments";
+import { useLinkedSession } from "../../solus/use-linked-session";
 import {
-  buildThreadFeed,
-  createThreadFeedCache,
   formatItemFullDetail,
   type ThreadFeedActivity,
   type ThreadFeedEntry,
 } from "../../lib/threadActivity";
-import { useConnectLinkedEnvironment, useLinkedThreadView } from "../../state/linkedThread";
-import { peerLinkEnvironment } from "../../state/peerLinks";
-import { useEnvironmentQuery } from "../../state/query";
 import { useMarkdownPreviewStyles } from "../files/FileMarkdownPreview";
 import type { LinkedThreadRouteParams } from "./linkedThreadRoute";
 import { ReadOnlyComposerBar } from "./ReadOnlyComposerBar";
 import { ThreadInspectorHeader, type ThreadInspectorPresentation } from "./thread-inspector-header";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
 
-function ActivityRow(props: {
-  readonly activity: ThreadFeedActivity;
-  readonly target: LinkedThreadTarget;
-}) {
-  const { activity, target } = props;
+function ActivityRow(props: { readonly activity: ThreadFeedActivity }) {
+  const { activity } = props;
   const gt = useGT();
   const [open, setOpen] = useState(false);
   const row = activity.projectedItem;
-  // The stream leaves long output out; an open row reads its item in full through the link.
-  const fetched = useEnvironmentQuery(
-    open && activity.fetchesDetail
-      ? peerLinkEnvironment.threadItem({
-          environmentId: target.viaEnvironmentId,
-          input: {
-            environmentId: target.environmentId,
-            threadId: row.sourceThreadId,
-            itemId: row.sourceItemId,
-            revision: turnItemDetailRevision(row.item),
-          },
-        })
-      : null,
-  );
-  const fetchedItem = fetched.data?.item ?? null;
+  const [detail, setDetail] = useState<{ item?: typeof row.item; error?: string }>();
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let current = true;
+    if (open && activity.loadHostDetail)
+      void activity.loadHostDetail().then(
+        (item) => {
+          if (current) setDetail({ item });
+        },
+        (error) => {
+          if (current) setDetail({ error: String(error) });
+        },
+      );
+    return () => {
+      current = false;
+    };
+  }, [open, activity.loadHostDetail, attempt]);
+  const fetchedItem = detail?.item;
   const shownItem = fetchedItem ?? row.item;
   // A command or tool call reads as what was called, as on the thread screen; only an item with
   // no call to show falls back to its full detail.
@@ -89,17 +75,7 @@ function ActivityRow(props: {
       : fetchedItem
         ? formatItemFullDetail(row, fetchedItem)
         : (activity.getFullDetail() ?? activity.detail);
-  const output = !open
-    ? null
-    : !activity.fetchesDetail
-      ? turnItemOutputText(row.item)
-      : fetchedItem
-        ? (turnItemOutputText(fetchedItem) ?? gt("No output."))
-        : fetched.error
-          ? gt("Couldn't load output: {error}", { error: fetched.error })
-          : fetched.data
-            ? gt("Output is no longer available.")
-            : gt("Loading output…");
+  const output = open ? (detail?.error ?? turnItemOutputText(shownItem)) : null;
   return (
     <Pressable
       accessibilityRole="button"
@@ -128,13 +104,13 @@ function ActivityRow(props: {
           </Text>
         </View>
       ) : null}
-      {open && fetched.error ? (
+      {open && detail?.error ? (
         <View className="mt-1.5 self-start">
           <Button
             size="compact"
             tone="secondary"
             label={gt("Try again")}
-            onPress={fetched.refresh}
+            onPress={() => setAttempt((n) => n + 1)}
           />
         </View>
       ) : null}
@@ -146,17 +122,14 @@ function ActivityRow(props: {
  * One entry of the thread's feed, as the thread screen's own feed model has it. Only reading
  * rows are drawn: what needs the thread's environment (files, visuals, apps) is left out.
  */
-function LinkedThreadEntry(props: {
-  readonly entry: ThreadFeedEntry;
-  readonly target: LinkedThreadTarget;
-}) {
+function LinkedThreadEntry(props: { readonly entry: ThreadFeedEntry }) {
   const { entry } = props;
   const styles = useMarkdownPreviewStyles();
   if (entry.type === "activity-group") {
     return (
       <View className="gap-1.5">
         {entry.activities.map((activity) => (
-          <ActivityRow key={activity.id} activity={activity} target={props.target} />
+          <ActivityRow key={activity.id} activity={activity} />
         ))}
       </View>
     );
@@ -178,7 +151,7 @@ function LinkedThreadEntry(props: {
 }
 
 function FailureCard(props: {
-  readonly failure: LinkedThreadFailure;
+  readonly failure: { title: string; detail: string; retryable: boolean };
   readonly stale: boolean;
   readonly onRetry: () => void;
 }) {
@@ -255,125 +228,32 @@ export function LinkedThreadView(props: {
 }) {
   const { target } = props;
   const gt = useGT();
-  const m = useMessages();
-  const locale = useLocale();
   const navigation = useNavigation();
   const presentation = props.presentation ?? { onClose: () => navigation.goBack() };
   const inInspector = "onMaximize" in presentation;
   const insets = useSafeAreaInsets();
-  const via =
-    useEnvironments().environments.find(
-      (environment) => environment.environmentId === target.viaEnvironmentId,
-    )?.label ?? gt("this environment");
-  // The stream runs only while this screen is the one being looked at.
   const focused = useIsFocused();
   const appActive = useSyncExternalStore(subscribeAppState, appIsActive);
-  const { view, error, retry } = useLinkedThreadView(target, focused && appActive);
-  const projection = view?.thread.projection ?? null;
+  const view = useLinkedSession(target, focused && appActive);
   const label = target.label;
-  const failure = error === null ? null : linkedThreadFailure(error, { via, label }, m);
-  const [feedCache] = useState(() => createThreadFeedCache());
-  const feed =
-    projection === null
-      ? []
-      : buildThreadFeed(projection.visibleTurnItems, {
-          attempts: projection.attempts,
-          nodes: projection.nodes,
-          cache: feedCache,
-          resolve: m,
-          locale,
-        });
-  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  // Follows new items only while the reader is already at the end.
-  const atEnd = useRef(true);
-  const working = projection !== null && isLinkedThreadWorking(projection);
-  const connection = useConnectLinkedEnvironment(target);
-  const connectState = connection.state;
+  const via = view.connected ? gt("direct connection") : "Solus Cloud";
   const openThread = useOpenLinkedThread();
-  const shown = useRef(true);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records unmount, so a connect that resolves after the view is gone navigates nowhere
-  useEffect(() => {
-    shown.current = true;
-    return () => {
-      shown.current = false;
-    };
-  }, []);
-  const connect = async () => {
-    const outcome = await connection.connect();
-    if (outcome.type === "unreachable" || !shown.current) return;
-    // The read-only view gives way either way: the thread opens where the app is now connected,
-    // or the add-environment screen takes its place. In the inspector the thread replaces it there.
-    if (outcome.type === "connected") {
+  const connect = () => {
+    if (view.canOpen) {
       if (!inInspector) navigation.goBack();
       openThread({ environmentId: target.environmentId, threadId: target.threadId });
-      return;
-    }
-    if (inInspector) navigation.navigate("ConnectionsNew", { linked: target.environmentId });
-    else {
+    } else if (inInspector) navigation.navigate("ConnectionsNew", { linked: target.environmentId });
+    else
       navigation.dispatch(StackActions.replace("ConnectionsNew", { linked: target.environmentId }));
-    }
   };
   return (
     <View collapsable={false} className={inInspector ? "flex-1 bg-screen" : "flex-1 bg-sheet"}>
       <ThreadInspectorHeader
         {...presentation}
-        title={projection?.thread.title || target.title || gt("Thread on {label}", { label })}
+        title={view.title || target.title || gt("Thread on {label}", { label })}
       />
       <ScreenContent>
-        <ScrollView
-          ref={scroll}
-          nestedScrollEnabled
-          className="flex-1"
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerClassName="gap-3 px-5 pb-3 pt-3"
-          // An earlier page lands above what is being read without moving it.
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          scrollEventThrottle={64}
-          onScroll={({ nativeEvent }) => {
-            const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
-            atEnd.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
-          }}
-          onContentSizeChange={() => {
-            if (atEnd.current) scroll.current?.scrollToEnd({ animated: false });
-          }}
-        >
-          {view === null || projection === null ? (
-            failure === null ? (
-              <View className="flex-row items-center gap-2 pt-6">
-                <AppActivityIndicator size="small" />
-                <Text className="text-sm text-foreground-muted">
-                  {gt("Reading from {label}…", { label })}
-                </Text>
-              </View>
-            ) : (
-              <FailureCard failure={failure} stale={false} onRetry={retry} />
-            )
-          ) : (
-            <>
-              {view.thread.historyCursor !== null ? (
-                <View className="self-center">
-                  <Button
-                    size="compact"
-                    tone="text"
-                    label={gt("Load earlier")}
-                    loading={view.history.loading}
-                    disabled={view.history.loading}
-                    onPress={view.loadEarlier}
-                  />
-                </View>
-              ) : null}
-              {feed.length === 0 ? (
-                <Text className="text-sm text-foreground-muted">
-                  <T>Nothing in this thread yet.</T>
-                </Text>
-              ) : null}
-              {feed.map((entry) => (
-                <LinkedThreadEntry key={entry.id} entry={entry} target={target} />
-              ))}
-              {failure === null ? null : <FailureCard failure={failure} stale onRetry={retry} />}
-            </>
-          )}
-        </ScrollView>
+        <ReadOnlyThreadHistory view={view} label={label} />
         <View
           className="gap-2 px-3 pt-1.5"
           style={{ paddingBottom: Math.max(insets.bottom, 10) + 6 }}
@@ -381,46 +261,95 @@ export function LinkedThreadView(props: {
           <LinkedThreadComposer
             label={label}
             via={via}
-            working={working}
+            working={view.working}
             action={
-              <Button
-                tone="secondary"
-                label={gt("Connect to interact")}
-                loading={connectState.phase === "connecting"}
-                onPress={() => void connect()}
-              />
-            }
-            notice={
-              connectState.phase === "connecting" ? (
-                <Text
-                  accessibilityLiveRegion="polite"
-                  className="px-2 text-xs text-foreground-muted"
-                >
-                  {gt("Connecting to {environment}...", { environment: label })}
-                </Text>
-              ) : connectState.phase === "unreachable" ? (
-                <View
-                  accessibilityLiveRegion="polite"
-                  className="gap-1 rounded-2xl border border-danger-border bg-danger px-3.5 py-3"
-                >
-                  <Text className="font-t3-medium text-sm text-danger-foreground">
-                    {gt("{label} is not reachable from this device", {
-                      label: connectState.label,
-                    })}
-                  </Text>
-                  <Text className="text-sm text-danger-foreground">
-                    <T>
-                      Join a network it is on, such as its Tailscale network, and try again. You can
-                      keep reading here.
-                    </T>
-                  </Text>
-                </View>
-              ) : null
+              view.canOpen || !view.connected ? (
+                <Button
+                  tone="secondary"
+                  label={view.canOpen ? gt("Open session") : gt("Connect to interact")}
+                  onPress={connect}
+                />
+              ) : undefined
             }
           />
         </View>
       </ScreenContent>
     </View>
+  );
+}
+
+export function ReadOnlyThreadHistory({
+  view,
+  label,
+}: {
+  readonly view: Pick<
+    ReturnType<typeof useLinkedSession>,
+    "error" | "feed" | "ready" | "hasOlder" | "paging" | "retry" | "loadEarlier"
+  >;
+  readonly label: string;
+}) {
+  const gt = useGT();
+  const failure = view.error
+    ? { title: gt("Couldn’t read session"), detail: view.error, retryable: true }
+    : null;
+  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  // Follows new items only while the reader is already at the end.
+  const atEnd = useRef(true);
+  return (
+    <ScrollView
+      ref={scroll}
+      nestedScrollEnabled
+      className="flex-1"
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerClassName="gap-3 px-5 pb-3 pt-3"
+      // An earlier page lands above what is being read without moving it.
+      maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+      scrollEventThrottle={64}
+      onScroll={({ nativeEvent }) => {
+        const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+        atEnd.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
+      }}
+      onContentSizeChange={() => {
+        if (atEnd.current) scroll.current?.scrollToEnd({ animated: false });
+      }}
+    >
+      {!view.ready ? (
+        failure === null ? (
+          <View className="flex-row items-center gap-2 pt-6">
+            <AppActivityIndicator size="small" />
+            <Text className="text-sm text-foreground-muted">
+              {gt("Reading from {label}…", { label })}
+            </Text>
+          </View>
+        ) : (
+          <FailureCard failure={failure} stale={false} onRetry={view.retry} />
+        )
+      ) : (
+        <>
+          {view.hasOlder ? (
+            <View className="self-center">
+              <Button
+                size="compact"
+                tone="text"
+                label={gt("Load earlier")}
+                loading={view.paging}
+                disabled={view.paging}
+                onPress={view.loadEarlier}
+              />
+            </View>
+          ) : null}
+          {view.feed.length === 0 ? (
+            <Text className="text-sm text-foreground-muted">
+              <T>Nothing in this thread yet.</T>
+            </Text>
+          ) : null}
+          {view.feed.map((entry) => (
+            <LinkedThreadEntry key={entry.id} entry={entry} />
+          ))}
+          {failure === null ? null : <FailureCard failure={failure} stale onRetry={view.retry} />}
+        </>
+      )}
+    </ScrollView>
   );
 }
 

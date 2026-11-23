@@ -264,9 +264,12 @@ test('session events preserve untouched rows and request only the missing record
     ['c', { title: 'New' }],
   ]))
   expect(directory.threads()[0]?.record).toMatchObject({ sessionId: 'b', customTitle: 'Renamed', lastActivityAt: 5 })
+  const beforeStatus = directory.threads()
+  directory.applyRowChanges('h', new Map([['b', { status: { status: 'idle', at: 6 } }]]))
+  expect(directory.changedPositions(beforeStatus, [])).toEqual([0])
   expect(missing).toEqual(['c'])
   expect(answer.reads).toEqual([])
-  answer.records.push(record('c', 6))
+  answer.records.push(record('c', 7))
   expect(await directory.refreshRecords('h', missing)).toBe(true)
   expect(answer.reads).toEqual(['c'])
   expect(directory.threads().map(row => row.record.sessionId)).toEqual(['c', 'b', 'a'])

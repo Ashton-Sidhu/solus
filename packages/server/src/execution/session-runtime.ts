@@ -177,6 +177,22 @@ export class SessionRuntime extends EventEmitter {
    * this is the only place that history exists. Cleared when the turn settles.
    */
   turnLog = new Map<string, NormalizedEvent[]>()
+  private readonly turnEpochs = new WeakMap<NormalizedEvent[], string>()
+  private readonly eventCursors = new WeakMap<NormalizedEvent, string>()
+  private nextEvent = 0
+
+  eventCursor(event: NormalizedEvent): string | undefined {
+    return this.eventCursors.get(event)
+  }
+
+  /** A restart, a settled turn, a trimmed prefix, or a prompt with a private
+   * echo requires a fresh snapshot. Only an exact retained prefix can resume. */
+  turnLogPosition(sessionId: string, afterEvent: string): number {
+    const log = this.turnLog.get(sessionId)
+    const epoch = log && this.turnEpochs.get(log)
+    if (!log || !epoch || typeof afterEvent !== 'string' || !afterEvent.startsWith(epoch + '.')) return -1
+    return log.findIndex(event => this.eventCursors.get(event) === afterEvent)
+  }
   missingRunCounts = new Map<string, number>()
 
   /** The session owners. Each one keeps its own state and reads the maps above. */
@@ -562,6 +578,9 @@ export class SessionRuntime extends EventEmitter {
     }
     if (request.target.kind === 'session') {
       const sessionId = request.target.sessionId
+      if (this.statuses.isStoppingProviderRun(sessionId)) {
+        return this.scheduler.enqueueRequest(request, { sessionId, reason: 'busy', deviceId })
+      }
       const session = this.activeSessions.get(sessionId)
       if (session) {
         // A prompt on another provider hands the session off when it starts
@@ -607,7 +626,7 @@ export class SessionRuntime extends EventEmitter {
             // enqueuing work that would have no later event to drain it.
             const currentSession = this.activeSessions.get(sessionId)
             const hasQueuedAfterSteer = (this.scheduler.requestQueue.get(sessionId)?.length ?? 0) > 0
-            if ((!currentSession || !isSessionBusyStatus(currentSession.status)) && !hasQueuedAfterSteer) {
+            if ((!currentSession || !isSessionBusyStatus(currentSession.status)) && !hasQueuedAfterSteer && !this.statuses.isStoppingProviderRun(sessionId)) {
               // Legacy senders withheld their bubble for a steer verdict but
               // cannot match the normal confirmation without a prompt id.
               if (request.sourceClientId && wasRunningAtDispatch && !request.options.clientPromptId) {
@@ -673,6 +692,16 @@ export class SessionRuntime extends EventEmitter {
     this.restarts.restartRuns?.remove(sessionId)
     const stopped = await Promise.all(taskIds.map((taskId) => stopBackgroundTask(agentSessionId, taskId)))
     return stopped.some(Boolean)
+  }
+
+  async stopSessionSubagent(sessionId: string, toolId: string): Promise<boolean> {
+    const session = this.activeSessions.get(sessionId)
+    if (!session?.agentSessionId) return false
+    const backend = this.backendFor(session.backendId)
+    if (backend.stopNativeSubagent) return backend.stopNativeSubagent(session.agentSessionId, toolId)
+    const taskId = session.lineageTaskIds?.get(toolId)
+    if (!taskId || !session.backgroundTaskIds?.has(taskId)) return false
+    return await backend.stopBackgroundTask?.(session.agentSessionId, taskId) ?? false
   }
 
   /**
@@ -866,6 +895,10 @@ export class SessionRuntime extends EventEmitter {
     // duplicate it for the next joiner. Only the broadcast stream is the turn.
     // Progress is live only (docs/plans/mcp-first-class.md §5): a client that joins sees the call running, with no old number.
     if (!to && event.type !== 'tool_progress') this._recordTurnEvent(sessionId, event)
+    if (to && (!to.only || (event.type === 'user_message' && !this.eventCursors.has(event)))) {
+      const log = this.turnLog.get(sessionId)
+      if (log) this.turnEpochs.delete(log)
+    }
     this.emit('event', sessionId, event, to)
   }
 
@@ -875,11 +908,11 @@ export class SessionRuntime extends EventEmitter {
   private _recordTurnEvent(sessionId: string, event: NormalizedEvent): void {
     // The input so far of a streaming call comes again whole with the next one.
     if (event.type === 'tool_call_update' && event.inputPartial) return
-    const turnEvents = this.turnLog.get(sessionId)
-    if (!turnEvents) {
-      this.turnLog.set(sessionId, [event])
-      return
-    }
+    let turnEvents = this.turnLog.get(sessionId)
+    if (!turnEvents) this.turnLog.set(sessionId, turnEvents = [])
+    let epoch = this.turnEpochs.get(turnEvents)
+    if (!epoch) this.turnEpochs.set(turnEvents, epoch = crypto.randomUUID())
+    this.eventCursors.set(event, epoch + '.' + ++this.nextEvent)
     turnEvents.push(event)
     if (turnEvents.length > TURN_LOG_MAX_EVENTS) {
       // Drop the oldest rather than the newest: a joiner seeing the turn's tail is

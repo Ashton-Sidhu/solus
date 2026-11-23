@@ -93,7 +93,7 @@ const RECORD_COLUMNS = sql.raw(RECORD_COLUMN_NAMES.map((name) => `session_record
  *  that joins the reader's `personal_resource_state` row as `reader_view`. */
 const RECORD_WITH_STATE_COLUMNS = sql.raw([
   ...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`),
-  'session_records.settled_at', 'session_records.settled_by',
+  'session_records.settled_at', 'session_records.settled_by', 'session_records.auto_settle_disabled_at', 'reader_view.active_order_key', 'reader_view.pin_order_key',
   'reader_view.settled_at AS view_settled_at', 'reader_view.archived_at', 'reader_view.snoozed_until', 'reader_view.snooze_note', 'reader_view.viewed_at',
 ].join(', '))
 
@@ -102,7 +102,10 @@ const STARTED = sql.raw('session_records.started_at IS NOT NULL')
 
 const recordWithStateRowSchema = recordRowSchema.extend({
   settled_at: z.number().nullable(),
+  auto_settle_disabled_at: z.number().nullable(),
   settled_by: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+  active_order_key: z.string().nullable(),
+  pin_order_key: z.string().nullable(),
   view_settled_at: z.number().nullable(),
   archived_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),

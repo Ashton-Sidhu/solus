@@ -112,6 +112,19 @@ function setup() {
 }
 
 describe('a Codex native child that outlives its root turn', () => {
+  test('Lineage Stop interrupts only the child named by a tool of this session', async () => {
+    const { backend, appServer, startRoot, spawnChild, childEnds, completeRoot } = setup()
+    startRoot('root-turn')
+    spawnChild('one')
+    spawnChild('two', 'other-child')
+    expect(await backend.stopNativeSubagent('other-root', 'one')).toBe(false)
+    expect(await backend.stopNativeSubagent(ROOT, 'one')).toBe(true)
+    expect(appServer.requests).toEqual([{ method: 'turn/interrupt', params: { threadId: CHILD, turnId: 'one-turn' } }])
+    childEnds('one', 'interrupted')
+    await completeRoot('root-turn', 'completed')
+    expect(await backend.stopNativeSubagent(ROOT, 'two')).toBe(true)
+    expect(appServer.requests.at(-1)).toEqual({ method: 'turn/interrupt', params: { threadId: 'other-child', turnId: 'two-turn' } })
+  })
   // WHY: Codex runs a native sub-agent on its own thread, so the root turn can
   // end first. The root settles at once and frees its queue; the child is the
   // session's background task, visible and stoppable, until it settles once.

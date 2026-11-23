@@ -9,6 +9,8 @@
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/known-host";
+  import { TaskDataStore, type TaskProviderState } from "@solus/client-core/task-data";
+  import type { TaskExternalIssue } from "@solus/contracts/task-data";
   import { setMarkdownImageContext } from "../../conversation/lib/markdown-image";
   import {
     useKeybinding,
@@ -61,6 +63,9 @@
     onRequestNext?: (() => void) | null;
     onOpenRoute?: () => void;
     onOpenSession?: (sessionId: string) => void;
+    externalIssue?: TaskExternalIssue;
+    externalHostId?: string;
+    onRefreshExternalIssue?: () => Promise<void>;
   }
 
   let {
@@ -73,6 +78,9 @@
     onRequestNext,
     onOpenRoute,
     onOpenSession,
+    externalIssue,
+    externalHostId,
+    onRefreshExternalIssue,
   }: Props = $props();
 
   const session = getSurfaceContext();
@@ -83,16 +91,35 @@
   const pane = paneActions(() => paneId);
 
   const taskId = $derived(params.taskId);
+  const externalTaskData = $derived.by(() => {
+    const hostId = externalHostId;
+    return hostId ? new TaskDataStore(taskId, () => serverConnections.apiFor(hostId)) : undefined;
+  });
   // Writes an agent recorded on another host that have not landed here yet
   // (ADR-0007). While any exist, this page is behind by exactly that much and
   // says so rather than passing stale state off as current.
-  const syncOps = $derived(taskId ? outbox.pendingOpsFor("tasks", taskId) : []);
+  const syncOps = $derived(!externalIssue && taskId ? outbox.pendingOpsFor("tasks", taskId) : []);
   const failedSyncCount = $derived(
     syncOps.filter((op) => op.state === "failed").length,
   );
-  const task = $derived(store.peek(taskId));
-  const details = $derived(store.get(taskId).details);
-  const links = $derived(details?.links ?? []);
+  const storedTask = $derived(externalIssue ? null : store.peek(taskId));
+  const task = $derived(externalIssue?.details.task ?? storedTask);
+  const taskData = $derived(externalTaskData ?? storedTask?.data);
+  let providerState = $state.raw<TaskProviderState | null>(null);
+  const bundledInspection = $derived(externalIssue?.inspection);
+  const providerInspection = $derived(providerState?.value ?? bundledInspection);
+  const providerPending = $derived(providerState?.pending ||
+    (!!taskData && task?.kind === "issue" && !providerInspection && !providerState?.error));
+  $effect(() => {
+    const data = taskData;
+    providerState = data?.current.provider ?? null;
+    return data?.subscribe(() => { providerState = data.current.provider; });
+  });
+  $effect(() => {
+    if (surfaceVisible && task?.kind === "issue" && !bundledInspection) void taskData?.loadProvider();
+  });
+  const details = $derived(externalIssue?.details ?? store.get(taskId).details);
+  const links = $derived(externalIssue ? [] : (details?.links ?? []));
   const linkedWorkIds = $derived(
     links.filter((link) => link.kind === "work").map((link) => link.targetKey),
   );
@@ -103,7 +130,7 @@
       (link) => link.kind === "work" && link.pinned === true && link.liveStatus === "artifact",
     ) ?? null,
   );
-  const sessions = $derived(store.get(taskId).sessions);
+  const sessions = $derived(externalIssue ? [] : store.get(taskId).sessions);
   // Title repair is housekeeping: it waits for the page's own detail read, so
   // its calls never queue ahead of what the reader opened the page to see.
   $effect(() => {
@@ -113,9 +140,9 @@
   // A task belongs to no project. The page reads files, images and pull
   // requests in the checkout of a GitHub issue's repository on the task's
   // host, else in the input bar's project.
-  const taskServerId = $derived(store.get(taskId).serverId);
+  const taskServerId = $derived(externalIssue ? null : store.get(taskId).serverId);
   const projectCwd = $derived(
-    session.projectRootOfTask(taskId) ?? session.tasksProjectCwd ?? undefined,
+    externalIssue ? undefined : (session.projectRootOfTask(taskId) ?? session.tasksProjectCwd ?? undefined),
   );
 
   // The pinned render is open by default, so its body is fetched as soon as the
@@ -164,9 +191,9 @@
   );
   $effect(() => {
     const serverId = taskServerId;
-    const linked = [...links, ...store.get(taskId).prLinks];
     const root = projectCwd;
     if (!serverId || !surfaceVisible) return;
+    const linked = [...links, ...store.get(taskId).prLinks];
     return untrack(() => prs.wantLinkedPrs(
       serverConnections.apiFor(serverId), serverId,
       session.ctxForEnvironment(root ?? "~", null), linked,
@@ -175,9 +202,9 @@
 
   // The provider decides which fields this task takes, and each source that
   // lists the task owns the columns it can move to.
-  const locks = $derived(task ? taskFieldLocks(task) : null);
+  const locks = $derived(externalIssue ? taskFieldLocks(externalIssue.details.task, true) : storedTask ? taskFieldLocks(storedTask) : null);
   const placements = $derived(task ? taskPlacementLabels(task, taskSourcesStore.sourceByKey) : []);
-  const moveGroups = $derived(task ? taskMoveGroups(task, taskSourcesStore.sourceByKey) : []);
+  const moveGroups = $derived(task && !externalIssue ? taskMoveGroups(task, taskSourcesStore.sourceByKey) : []);
   const assigneeTarget = $derived({ taskId });
   const labelCandidates = $derived(store.knownLabels);
 
@@ -192,7 +219,7 @@
   let loadingTaskId = $state<string | null>(null);
   $effect(() => {
     const id = taskId;
-    if (!id || !surfaceVisible) {
+    if (!id || !surfaceVisible || externalIssue) {
       loadedId = null;
       return;
     }
@@ -221,7 +248,7 @@
   // ── Prev/next follow the Tasks page's own ordering, so "next" is the row the
   // user actually saw underneath this one. ──
   const siblings = $derived(
-    sortTasks(store.tasks, DEFAULT_TASK_SORT),
+    externalIssue ? [] : sortTasks(store.tasks, DEFAULT_TASK_SORT),
   );
   const position = $derived(siblings.findIndex((t) => t.id === taskId));
   const previous = $derived(position > 0 ? siblings[position - 1] : null);
@@ -235,11 +262,16 @@
     if (refreshing) return;
     refreshing = true;
     try {
-      await commands.refresh();
+      if (externalIssue) {
+        if (!externalIssue.inspection) void externalTaskData?.loadProvider();
+        await onRefreshExternalIssue?.();
+      }
+      else await commands.refresh();
     } finally {
       refreshing = false;
     }
   }
+
 
   async function comment(body: string) {
     await commands.comment(body);
@@ -287,7 +319,7 @@
   const tabCounts = $derived({
     linked: links.length + prRows.length,
     sessions: sessions.length,
-    activity: (details?.comments?.length ?? 0) + (details?.activity?.length ?? 0),
+    activity: (details?.comments?.length ?? 0) + (details?.activity?.length ?? 0) + (providerInspection?.events.length ?? 0),
   });
 
   /** Sections are hidden, never unmounted: a tab that unmounts loses its
@@ -350,7 +382,7 @@
 {/snippet}
 
 {#snippet bottomBar()}
-  {#if task}
+  {#if task && !externalIssue}
     <TaskBottomBar
       {stacked}
       {tab}
@@ -371,10 +403,10 @@
       {locks}
       {placements}
       {moveGroups}
-      {labelCandidates}
-      assigneeCandidates={store.assigneeCandidates(assigneeTarget)}
-      assigneeCandidatesLoading={store.assigneeCandidatesLoading(assigneeTarget)}
-      assigneeCandidatesError={store.assigneeCandidatesError(assigneeTarget)}
+      labelCandidates={externalIssue ? [] : labelCandidates}
+      assigneeCandidates={externalIssue ? [] : store.assigneeCandidates(assigneeTarget)}
+      assigneeCandidatesLoading={!externalIssue && store.assigneeCandidatesLoading(assigneeTarget)}
+      assigneeCandidatesError={externalIssue ? null : store.assigneeCandidatesError(assigneeTarget)}
       onMove={(target) => void commands.move(target)}
       onSave={commands.save}
       onOpenExternal={(url) => void localApi.openExternal(url)}
@@ -414,9 +446,9 @@
       : null}
     {@const chromeOpenList = onRequestClose ?? (() => session.openTasks("click"))}
     <!-- The provider link is the task's only address. A draft has none. -->
-    {@const chromeCopyLink = task.url ? () => void commands.copyLink() : null}
+    {@const chromeCopyLink = task.url ? () => void commands.copyLink(task.url) : null}
     <!-- Only a draft can be deleted. An issue is closed or moved on its provider. -->
-    {@const chromeDelete = task.canDelete ? commands.deleteDraft : null}
+    {@const chromeDelete = storedTask?.canDelete ? commands.deleteDraft : null}
     {#if stacked}
       <TaskRecordBar
         {task}
@@ -451,7 +483,7 @@
          would be choosing between things you can already see. -->
     {#if stacked}
       <div class="shrink-0 border-b border-[var(--hairline)] px-[14px]">
-        <TaskTabStrip {tab} counts={tabCounts} onSelect={(next) => (tab = next)} />
+        <TaskTabStrip {tab} counts={tabCounts} readOnly={!!externalIssue} onSelect={(next) => (tab = next)} />
       </div>
     {/if}
 
@@ -474,6 +506,9 @@
                Every section below is wrapped rather than branched, so switching
                tabs hides a subtree instead of destroying it. -->
           <div class="flex flex-col" class:hidden={hiddenTab("overview")}>
+            {#if externalIssue}
+              <p class="mb-2 text-xs text-muted-foreground">Read-only issue</p>
+            {/if}
             <TaskHeader
               {task}
               {locks}
@@ -486,7 +521,14 @@
               detailsPanel={railFolded ? detailsPanel : undefined}
             />
 
-            <TaskProviderDetails {task} enabled={surfaceVisible && !hiddenTab("overview")} onOpenExternal={(url) => void localApi.openExternal(url)} />
+            <TaskProviderDetails
+              {task}
+              {taskData}
+              readOnly={!!externalIssue}
+              comments={details?.comments ?? []}
+              value={providerInspection}
+              onOpenExternal={(url) => void localApi.openExternal(url)}
+            />
 
             {#if prRows.length}
               <TaskPrList
@@ -506,6 +548,7 @@
                them, so nothing already on screen is pushed down. A failed read
                ends the wait and shows the sections as they are. -->
           {#if details || detailsSettled}
+          {#if !externalIssue}
           <div class="flex flex-col" class:hidden={hiddenTab("linked")}>
           {#if pinnedArtifact}
             <TaskPinnedArtifact
@@ -546,6 +589,7 @@
               onNewSession={canStartSession ? commands.startSession : null}
             />
           </div>
+          {/if}
 
           <div class="flex flex-col" class:hidden={hiddenTab("activity")}>
             {#if activityVisible || activityMountedFor === taskId}
@@ -554,14 +598,23 @@
                 {stacked}
                 comments={details?.comments ?? []}
                 activity={details?.activity ?? []}
+                providerEvents={providerInspection?.events}
+                {providerPending}
+                providerError={providerState?.error}
+                providerLoadingMore={providerState?.loadingMore}
+                onOpenExternal={(url) => void localApi.openExternal(url)}
+                onRetryProvider={taskData ? () => void taskData?.loadProvider() : undefined}
+                onLoadOlderProvider={!bundledInspection && providerInspection?.historyCursor
+                  ? () => void taskData?.loadOlderHistory()
+                  : undefined}
                 {links}
                 enabled={surfaceVisible && !hiddenTab("activity")}
                 {sessions}
-                onOpenSession={(sessionId) => void commands.openSession(sessionId)}
+                onOpenSession={externalIssue ? undefined : (sessionId) => void commands.openSession(sessionId)}
                 currentUserId={taskServerId ? presenceStore.currentUserId(taskServerId) : null}
                 providerName={PROVIDER_NAMES[task.providerId]}
-                onRetry={commands.retryComment}
-                onDiscard={commands.discardComment}
+                onRetry={externalIssue ? undefined : commands.retryComment}
+                onDiscard={externalIssue ? undefined : commands.discardComment}
               />
               {/key}
             {/if}
@@ -597,7 +650,7 @@
          composer floating in the middle of the phone with dead space beneath
          it. Outside the scroll region it is the page's own foot at every
          length, which is what the spec draws. -->
-    {#if stacked}
+    {#if stacked && !externalIssue}
       <div class="shrink-0 px-4 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">
         {@render bottomBar()}
       </div>

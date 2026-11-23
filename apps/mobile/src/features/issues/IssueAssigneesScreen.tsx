@@ -30,7 +30,7 @@ export function IssueAssigneesScreen({ route }: StaticScreenProps<IssueParams>) 
   const target = issueTarget(route.params);
   const detail = useEnvironmentQuery(issueEnvironment.detail(target)).data;
   const access = useIssueAccess(route.params, detail);
-  const result = useEnvironmentQuery(issueEnvironment.candidates(target));
+  const result = useEnvironmentQuery(issueEnvironment.editCandidates(target));
   const update = useAtomCommand(issueEnvironment.update, { reportFailure: false });
   const [query, setQuery] = useState("");
   // The atom carries a closed sheet's picks to the next one; this sheet's own live here.

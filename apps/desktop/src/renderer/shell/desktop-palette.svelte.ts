@@ -2,6 +2,7 @@ import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/devic
 import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
 import { mcpCommands, settingsOwnerCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
 import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
+import { GitPullRequestIcon } from "@solus/workspace-ui/components/ui/octicons";
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
 import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
 import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
@@ -11,11 +12,10 @@ import {
   Plus as PlusIcon,
   GitCompareArrows as GitDiffIcon,
   GitFork as GitForkIcon,
-  GitPullRequest as GitPullRequestIcon,
   Bell as BellIcon,
   List as ListBulletsIcon,
   Folders as FoldersIcon,
-  History as ClockCounterClockwiseIcon,
+  Workflow as WorkflowIcon,
   Settings2 as GearSixIcon,
   Keyboard as KeyboardIcon,
   GitBranch as GitBranchIcon,
@@ -575,7 +575,7 @@ export function createDesktopPalette(
         id: `automation:${a.id}`,
         label: a.name,
         group: "Automations",
-        icon: ClockCounterClockwiseIcon,
+        icon: WorkflowIcon,
         keywords: [a.name],
         run: () => session.openAutomations(a.id, "palette"),
       }),
@@ -584,7 +584,7 @@ export function createDesktopPalette(
       id: "open-automation",
       label: "Open automation…",
       group: "View",
-      icon: ClockCounterClockwiseIcon,
+      icon: WorkflowIcon,
       keywords: ["automation", "schedule", "cron", "open"],
       children: automationChildren,
     });

@@ -1,3 +1,9 @@
+import { useSessionController } from "../../solus/use-session-controller";
+import { useComposerDraft } from "../../state/use-composer-drafts";
+import { scopedThreadKey } from "../../lib/scopedEntities";
+import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
+import { solus, useSolusWorkspace } from "../../solus/runtime";
+import { useCheckoutReviewSections } from "../../solus/use-checkout-review-sections";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -29,17 +35,13 @@ import {
 import { PaneListItem } from "../../components/ui/PaneListItem";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { SheetPane } from "../../components/ui/SheetPane";
-import { useEnvironmentPresentation } from "../../state/presentation";
-import { useThreadDraftForThread } from "../../state/use-thread-composer-state";
 import { EnvironmentConnectionNotice } from "../connection/EnvironmentConnectionNotice";
-import { useRetryEnvironment } from "../connection/useRetryEnvironment";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   Inspector,
   useAdaptiveWorkspaceLayout,
   useWorkspacePaneState,
 } from "../layout/AdaptiveWorkspaceLayout";
-import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useReviewCacheForThread } from "./reviewState";
 import {
   isNativeReviewDiffDrawEvent,
@@ -51,7 +53,6 @@ import { useAppearanceCodeSurface } from "../settings/appearance/useAppearanceCo
 import { useReviewDiffData } from "./useReviewDiffData";
 import { useReviewDiffPrewarming } from "./useReviewDiffPrewarming";
 import { useReviewFileVisibility } from "./reviewFileVisibility";
-import { useReviewSections } from "./useReviewSections";
 import { useNativeReviewDiffBridge } from "./useNativeReviewDiffBridge";
 import { useReviewCommentSelectionController } from "./useReviewCommentSelectionController";
 import { resolveReviewAvailability } from "./reviewAvailability";
@@ -391,11 +392,25 @@ function ReviewFileNavigator({ files, sectionId, onSelectFile, ref }: ReviewFile
 }
 
 type ReviewSheetProps = StaticScreenProps<{
+  readonly draftKey?: string;
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
 }>;
 
 export function ReviewSheet(props: ReviewSheetProps) {
+  const controller = useSessionController(props.route.params);
+  if (!controller)
+    return <EmptyState title="Session unavailable" detail="Open the session to review changes." />;
+  return (
+    <SessionReview
+      key={scopedThreadKey(props.route.params.environmentId, props.route.params.threadId)}
+      {...props}
+      controller={controller}
+    />
+  );
+}
+
+function SessionReview(props: ReviewSheetProps & { controller: ConversationController }) {
   const gt = useGT();
   const reduceMotion = useReduceMotionEnabled();
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
@@ -405,12 +420,14 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const insets = useSafeAreaInsets();
   const { themeAppearance: selectedTheme } = useAppearancePreferences();
   const { environmentId, threadId } = props.route.params;
-  const environment = useEnvironmentPresentation(environmentId);
-  const retryEnvironment = useRetryEnvironment();
-  const isEnvironmentReady = environment.presentation?.connection.phase === "connected";
-  const { draftMessage, draftContext } = useThreadDraftForThread({ environmentId, threadId });
+  const environment = useSolusWorkspace().hostsById[environmentId];
+  const isEnvironmentReady = environment?.connectionState === "connected";
+  const { draftKey } = props.route.params;
+  const { text: draftMessage, context: draftContext } = useComposerDraft(
+    draftKey ?? scopedThreadKey(environmentId, threadId),
+  );
   const reviewCache = useReviewCacheForThread({ environmentId, threadId });
-  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const selectedThreadCwd = props.controller.run.workingDirectory;
   const topContentInset = useContentTopInset();
   const bottomContentInset = useSheetContentBottomInset();
 
@@ -421,12 +438,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     refreshSelectedSection,
     selectSection,
     isSelectedSectionPending,
-  } = useReviewSections({
-    enabled: isEnvironmentReady,
-    environmentId,
-    threadId,
-    reviewCache,
-  });
+  } = useCheckoutReviewSections(props.controller, reviewCache);
   useReviewDiffPrewarming({
     threadKey: reviewCache.threadKey,
     sections: reviewSections,
@@ -503,6 +515,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   });
   const { collapsedFileIds, toggleExpandedFile, toggleViewedFile, viewedFileIds } = fileVisibility;
   const commentSelection = useReviewCommentSelectionController({
+    draftKey,
     environmentId,
     threadId,
     selectedSection,
@@ -599,13 +612,13 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const hasAnyCachedDiff = reviewSections.some((section) => section.diff != null);
   const sectionMenu = buildReviewSectionMenu(reviewSections);
   const { showConnectionNotice, showSectionToolbar } = resolveReviewAvailability({
-    hasEnvironmentPresentation: environment.isReady,
+    hasEnvironmentPresentation: true,
     isEnvironmentConnected: isEnvironmentReady,
     hasCachedSelectedDiff,
     hasAnyCachedDiff,
   });
   const handleRetryEnvironment = () => {
-    void retryEnvironment(environmentId);
+    void solus.connections.retry(environmentId);
   };
   const handleReturnToThread = () => {
     if (navigation.canGoBack()) {
@@ -708,6 +721,8 @@ export function ReviewSheet(props: ReviewSheetProps) {
         />
       ) : null}
       <ReviewHeader
+        controller={props.controller}
+        draftKey={draftKey}
         environmentId={environmentId}
         threadId={threadId}
         title={headerTitleText}
@@ -732,16 +747,14 @@ export function ReviewSheet(props: ReviewSheetProps) {
             <View className="flex-1" style={{ paddingTop: topContentInset }}>
               <EnvironmentConnectionNotice
                 environmentLabel={
-                  environment.presentation?.entry.target.label ??
+                  environment?.environmentLabel ??
                   gt("Environment", { $context: "fallback name for a server" })
                 }
-                connection={
-                  environment.presentation?.connection ?? {
-                    phase: "available",
-                    error: null,
-                    traceId: null,
-                  }
-                }
+                connection={{
+                  phase: environment?.connectionState ?? "offline",
+                  error: environment?.connectionError ?? null,
+                  traceId: environment?.connectionErrorTraceId ?? null,
+                }}
                 resource="review"
                 onRetry={handleRetryEnvironment}
               />

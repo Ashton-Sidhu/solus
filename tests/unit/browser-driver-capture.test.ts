@@ -23,6 +23,7 @@ function fakeGuest() {
   const listeners = new Set<MessageListener>()
   const emit: FrameEmitter = (method, params) => { for (const listener of [...listeners]) listener({}, method, params) }
   let sessionId = 0
+  let surfaceCopies = 0
   const cdp = {
     isAttached: () => true,
     attach: () => {},
@@ -30,7 +31,8 @@ function fakeGuest() {
     off: (_event: 'message', listener: MessageListener) => { listeners.delete(listener) },
     sendCommand: async (method: string, params?: object) => {
       commands.push({ method, params })
-      if (method === 'Page.captureScreenshot') return { data: 'V0lORE9X' } // "WINDOW"
+      // The first copy of a surface is an old frame; later copies are current.
+      if (method === 'Page.captureScreenshot') return { data: surfaceCopies++ === 0 ? 'U1RBTEU=' : 'V0lORE9X' } // "STALE", "WINDOW"
       if (method === 'Runtime.evaluate') return { result: { value: 'null' } }
       // Each frame names the format it was asked in, so a capture's frame and a stream's differ.
       if (method === 'Page.startScreencast') {
@@ -107,5 +109,17 @@ describe('capturing a headless page', () => {
     const { driver, commands } = await attached('headless')
     expect(await driver.captureScreenshot()).toBe('data:image/png;base64,V0lORE9X')
     expect(commands.find((command) => command.method === 'Page.captureScreenshot')?.params).toMatchObject({ fromSurface: true })
+  })
+
+  test('the first copy wakes the surface and is discarded; the kept copy is taken after the page paints', async () => {
+    // WHY: a window that is never shown can answer with the last frame it drew.
+    // A snapshot showed an app's boot splash while its workspace was in the DOM.
+    const { driver, commands } = await attached('headless')
+    expect(await driver.captureScreenshot()).toBe('data:image/png;base64,V0lORE9X')
+    const steps = commands.map((command) => command.method === 'Runtime.evaluate'
+      && command.params && 'expression' in command.params && String(command.params.expression).includes('requestAnimationFrame')
+      ? 'paint'
+      : command.method)
+    expect(steps).toEqual(['Page.captureScreenshot', 'paint', 'Page.captureScreenshot'])
   })
 })

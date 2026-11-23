@@ -272,6 +272,19 @@ export class CodexNativeChildren {
     return { sessionId, threadId: taskId, turnId: child.turnId, client: child.client }
   }
 
+  /** A spawn tool can name more than one child. Every match belongs to this root. */
+  stopsForTool(sessionId: string, toolId: string) {
+    const active: ChildTurn[] = []
+    const detached: ChildStop[] = []
+    for (const [threadId, child] of this.children) {
+      if (child.sessionId !== sessionId || child.toolUseId !== toolId || !child.isWorking) continue
+      const stop = this.taskToStop(sessionId, threadId)
+      if (stop) detached.push(stop)
+      else if (child.turnId) active.push({ sessionId, threadId, turnId: child.turnId, client: child.client })
+    }
+    return { active, detached }
+  }
+
   /** Stop did not reach the child: its end settles as it really ends. */
   abandonStop(threadId: string): void {
     const child = this.children.get(threadId)

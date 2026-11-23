@@ -1,3 +1,5 @@
+import { attachmentUrl } from "../solus/attachment-resource";
+import { mobileHost, fileAccountScope } from "./mobile-host";
 import { useAtomMount, useAtomSubscribe, useAtomValue } from "@effect/atom-react";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
@@ -5,7 +7,6 @@ import {
   assetUrlStateFromResult,
   blockedAssetUrlState,
   createAssetEnvironmentAtoms,
-  createProjectFaviconUrlAtomFamily,
   EMPTY_ASSET_URL_ATOM,
   makeRevisionedAssetUrlFamily,
 } from "@t3tools/client-runtime/state/assets";
@@ -20,10 +21,8 @@ import { Atom, AsyncResult } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
-import { projectFaviconDatabaseCache } from "../lib/projectFaviconDatabaseCache";
 import { type AssetUrlState, deriveAssetUrlState } from "./asset-url-state";
 import { appAtomRegistry } from "./atom-registry";
-import { environmentProjectCloneListAtom } from "./projectClones";
 import { environmentSession, usePreparedConnection } from "./session";
 import { useEnvironmentPresentation } from "./presentation";
 import { useEnvironmentQuery } from "./query";
@@ -33,12 +32,7 @@ export type { AssetUrlFailureReason, AssetUrlState } from "./asset-url-state";
 
 export const assetEnvironment = createAssetEnvironmentAtoms(connectionAtomRuntime);
 
-export const projectFaviconUrlAtom = createProjectFaviconUrlAtomFamily({
-  imageCache: projectFaviconDatabaseCache,
-  createUrl: assetEnvironment.createUrl,
-  preparedConnection: environmentSession.preparedConnectionValueAtom,
-  projectClones: environmentProjectCloneListAtom,
-});
+export { projectFaviconUrlAtom } from "./project-favicons";
 
 const revisionedAssetUrl = makeRevisionedAssetUrlFamily(assetEnvironment.createUrl);
 
@@ -107,6 +101,8 @@ export function useRefreshAssetUrl(
     reportFailure: false,
   });
   return async () => {
+    if (environmentId && resource?._tag === "attachment")
+      return attachmentUrl(environmentId, resource.attachmentId, resource.fileName);
     if (environmentId === null || resource === null || httpBaseUrl === null) return null;
     const state = assetUrlStateFromResult(
       await createUrl({ environmentId, input: { resource } }),
@@ -125,6 +121,8 @@ export async function refreshAssetUrl(
   resource: AssetResource,
   signal?: AbortSignal,
 ): Promise<string | null> {
+  if (resource._tag === "attachment")
+    return attachmentUrl(environmentId, resource.attachmentId, resource.fileName);
   const connectionAtom = environmentSession.preparedConnectionValueAtom(environmentId);
   if (appAtomRegistry.get(connectionAtom)._tag === "None") return null;
   const atom = assetEnvironment.createUrl({ environmentId, input: { resource } });
@@ -148,6 +146,8 @@ export interface AuthorizedAssetUrl {
 }
 
 interface FreshAssetUrlKey {
+  readonly account: string;
+  readonly generation?: number;
   readonly environmentId: EnvironmentId | null;
   readonly resource: AssetResource;
   /** A reconnect changes the base URL, and any URL minted against the old one is unusable. */
@@ -171,7 +171,7 @@ const freshAssetUrlFamily = Atom.family((key: FreshAssetUrlKey) =>
       try: async (signal) =>
         key.environmentId === null
           ? null
-          : await refreshAssetUrl(key.environmentId, key.resource, signal).catch(() => null),
+          : await refreshAssetUrl(key.environmentId, key.resource, signal),
       catch: (cause) =>
         new AssetUrlUnavailableError({
           message: errorDisplayMessage(cause, m) ?? m(msg("The attachment is unavailable.")),
@@ -180,10 +180,13 @@ const freshAssetUrlFamily = Atom.family((key: FreshAssetUrlKey) =>
     }).pipe(
       Effect.flatMap((url) =>
         url
-          ? Effect.map(Clock.currentTimeMillis, (authorizedAt): AuthorizedAssetUrl => ({
-              url,
-              authorizedAt,
-            }))
+          ? Effect.map(
+              Clock.currentTimeMillis,
+              (authorizedAt): AuthorizedAssetUrl => ({
+                url,
+                authorizedAt,
+              }),
+            )
           : Effect.fail(
               new AssetUrlUnavailableError({
                 message: m(msg("Reconnect to this environment and try again.")),
@@ -197,6 +200,7 @@ const freshAssetUrlFamily = Atom.family((key: FreshAssetUrlKey) =>
 const noFreshAssetUrl = Atom.make(
   AsyncResult.initial<AuthorizedAssetUrl, AssetUrlUnavailableError>(),
 ).pipe(Atom.withLabel("fresh-asset-url:none"));
+const noAttachmentHost = Atom.make(null);
 const noSessionGeneration = Atom.make(0);
 
 /**
@@ -210,10 +214,21 @@ export function useFreshAssetUrl(
 ): AsyncResult.AsyncResult<AuthorizedAssetUrl, Error> {
   const connection = usePreparedConnection(environmentId);
   const httpBaseUrl = connection._tag === "Some" ? connection.value.httpBaseUrl : null;
+  const host = useAtomValue(
+    resource?._tag === "attachment" && environmentId ? mobileHost(environmentId) : noAttachmentHost,
+  );
+  const account = useAtomValue(fileAccountScope);
   const atom =
     resource === null
       ? noFreshAssetUrl
-      : freshAssetUrlFamily({ environmentId, resource, httpBaseUrl, revision });
+      : freshAssetUrlFamily({
+          environmentId,
+          resource,
+          httpBaseUrl: resource._tag === "attachment" ? (host?.canReadFiles ? host.httpBaseUrl : null) : httpBaseUrl,
+          revision,
+          account: account.key,
+          generation: host?.generation,
+        });
   // Minting fails at once while the environment is unreachable; mint again once a new session is
   // up instead of keeping the error until Retry.
   const sessionGeneration =

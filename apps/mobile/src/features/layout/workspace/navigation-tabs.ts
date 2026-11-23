@@ -30,7 +30,7 @@ export const NAVIGATION_TAB_ICONS = {
   threads: "text.bubble",
   pullRequests: PullRequestGlyph.pullRequest,
   issues: "git.issue",
-  usage: "chart.bar.xaxis",
+  usage: "waveform.path.ecg",
 } as const satisfies Readonly<Record<NavigationTab, AppSymbolName>>;
 
 export function useNavigationTabOrder() {

@@ -24,6 +24,7 @@ import type { NativeReviewDiffData } from "./nativeReviewDiffAdapter";
 import type { ReviewSectionItem } from "./reviewModel";
 
 export function useReviewCommentSelectionController(input: {
+  readonly draftKey?: string;
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
   readonly selectedSection: ReviewSectionItem | null;
@@ -55,6 +56,7 @@ export function useReviewCommentSelectionController(input: {
     }
 
     navigation.navigate("ThreadReviewComment", {
+      ...(input.draftKey && { draftKey: input.draftKey }),
       environmentId,
       threadId,
     });

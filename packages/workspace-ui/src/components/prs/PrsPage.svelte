@@ -1127,19 +1127,14 @@
          An if block would keep evaluating openTarget after closePanel clears the
          open key, so the mounted child could read .ctx from null mid-outro. -->
     {#each openPanel ? [openPanel] : [] as panel}
-      <!-- Out of the list's flow on purpose, not just when full screen: it
-           covers the room the list's width leaves rather than claiming its own.
-           In flow, this panel's arrival and departure were layout events — the
-           list had to travel with it, animating a width that can never reach the
-           compositor, in the same frames PrDetailPanel mounts in. Over the top,
-           the fly is transform and opacity alone and nothing relayouts, so both
-           directions cost one layout pass. -->
+      <!-- Position the panel over the list so its exit does not resize the list.
+           Show Activity and its comment button in the first frame. -->
       <div
         class="flex flex-col bg-background {panelFullScreen
           ? 'absolute inset-0 z-20'
           : 'absolute inset-y-0 right-0 z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong)]'}"
         style={panelFullScreen ? undefined : `width: ${panelWidth}px`}
-        transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
+        out:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
       >
         {#if !panelFullScreen}
           <DetailPanelResizeHandle

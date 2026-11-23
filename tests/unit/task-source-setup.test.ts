@@ -6,11 +6,12 @@ import {
   manualSourceKey,
   parseManualTaskSource,
   matchingChoices,
-  projectSourceOffers,
   sourceChoiceGroups,
   sourceConnectionNotes,
   connectionProviderNames,
   sourceHealthNote,
+  MAX_SETUP_PROJECT_ROWS,
+  projectSourceRows,
   sourceStripRows,
   taskSourceLabel,
   withTaskSource,
@@ -190,6 +191,19 @@ describe('what can be added', () => {
       .toEqual(['acme/tools', 'acme/app'])
   })
 
+  test('one repository in two spellings is offered once, and a fork says so', () => {
+    // WHY: a project's remote and GitHub can spell one repository in two cases;
+    // two rows with one key break the list. A fork's original repository has
+    // issues that are rarely the person's, so its row says what it is.
+    const spelled = { ...options, github: { ...options.github, projectRepositories: [{ owner: 'Acme', repo: 'App' }, { owner: 'berriai', repo: 'litellm', isFork: true }] } }
+
+    expect(groupOf(sourceChoiceGroups(spelled, []), 'github-repo').choices.map((choice) => [choice.label, choice.detail])).toEqual([
+      ['Acme/App', 'Repository · Your project'],
+      ['berriai/litellm', 'Repository · Your project, a fork'],
+      ['acme/site', 'Repository'],
+    ])
+  })
+
   test('a source the person has already is not offered again', () => {
     // WHY: adding it is refused, so offering it is a control that does nothing.
     const groups = sourceChoiceGroups(options, [BOARD, JIRA])
@@ -367,30 +381,35 @@ describe('a source that a person types or pastes', () => {
   })
 })
 
-describe('your projects\' repositories, offered in one step', () => {
-  const options: TaskSourceOptions = {
-    github: {
-      connected: true,
-      repositories: [],
-      projects: [],
-      projectRepositories: [{ owner: 'acme', repo: 'web' }, { owner: 'berriai', repo: 'litellm', isFork: true }],
-    },
-    jira: { connected: false, projects: [], boards: [] },
-  }
+describe('the first-source setup', () => {
+  const project = (repositoryKey: string | null, lastUsedAt: string, originKey: string | null = repositoryKey) => ({ repositoryKey, lastUsedAt, originKey })
 
-  test('lists each project repository that is not a source yet, and marks a fork', () => {
-    // WHY: a fork's checkout names the original repository, whose issues are
-    // rarely the person's, so the page starts it not selected.
-    expect(projectSourceOffers(options, []).map((offer) => [offer.label, offer.isFork])).toEqual([
-      ['acme/web', false],
-      ['berriai/litellm', true],
+  test('lists the GitHub repository of each project once, the newest first, keeps an added one listed, and marks a fork', () => {
+    // WHY: the setup reads the project list the client holds, so the
+    // repositories show at once. An added one stays as a row, so a person adds
+    // several and takes one back. Two checkouts of one repository are one row.
+    const projects = [
+      project('github.com/acme/web', '2026-01-01'),
+      project('github.com/berriai/litellm', '2026-03-01', 'github.com/me/litellm'),
+      project('github.com/Acme/Web', '2026-02-01'),
+      project('gitlab.com/acme/tools', '2026-04-01'),
+      project(null, '2026-05-01'),
+    ]
+    const web: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'web' }
+    expect(projectSourceRows(projects, [web]).map((row) => [row.label, row.isAdded, row.isFork])).toEqual([
+      ['berriai/litellm', false, true],
+      ['Acme/Web', true, false],
     ])
-    expect(projectSourceOffers(options, [{ kind: 'github-repo', owner: 'acme', repo: 'web' }]).map((offer) => offer.label)).toEqual(['berriai/litellm'])
-    expect(projectSourceOffers(null, [])).toEqual([])
   })
 
-  test('adds the chosen repositories in one write, skipping what is held and stopping at the limit', () => {
-    // WHY: one click adds them all; a held source or a full list must not lose the others.
+  test('holds at most two rows of three', () => {
+    const projects = Array.from({ length: 9 }, (_, index) => project(`github.com/acme/repo-${index}`, `2026-01-0${index + 1}`))
+    expect(projectSourceRows(projects, [])).toHaveLength(MAX_SETUP_PROJECT_ROWS)
+  })
+
+  test('adds several sources in one write, skipping what is held and stopping at the limit', () => {
+    // WHY: "Add all" adds every project at once; a held source or a full list
+    // must not lose the others.
     const web: TaskSource = { kind: 'github-repo', owner: 'acme', repo: 'web' }
     expect(withTaskSources({ taskSources: [REPO] }, [web, REPO])?.taskSources).toEqual([REPO, web])
     expect(withTaskSources({ taskSources: [REPO] }, [REPO])).toBeNull()

@@ -41,7 +41,7 @@ export const providerInstanceSchema = z.object({
   idleCompaction: z.enum(['default', 'onReturn', 'off']),
   customModels: z.array(customProviderModelSchema).max(100),
   hiddenModels: z.array(z.string().max(200)).max(500),
-  // No longer shown or applied. Kept on the wire because older hosts and clients parse it strictly.
+  // The person’s starred models for this provider instance.
   favoriteModels: z.array(z.string().max(200)).max(500),
   modelOrder: z.array(z.string().max(200)).max(500),
   /** The person's choice of picker group for a model, over the catalog's own legacy flag. */

@@ -6,7 +6,6 @@
     ChevronDown as CaretDownIcon,
     CloudUpload as CloudArrowUpIcon,
     GitCommitHorizontal as GitCommitIcon,
-    GitPullRequest as GitPullRequestIcon,
     Link as LinkIcon,
     FileDiff as FileDiffIcon,
     Search as MagnifyingGlassIcon,
@@ -15,6 +14,7 @@
     CircleAlert as WarningCircleIcon,
     X as XIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import {
     getSessionEnvironmentStore,
     getWorkspaceContext,

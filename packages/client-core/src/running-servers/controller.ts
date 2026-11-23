@@ -50,6 +50,8 @@ export class RunningServersController {
   private readonly checkoutRoots = new Map<string, string | null>()
   private refreshPending = false
   private refreshQueued = false
+  /** The last holder left this tick: the watch stops at the end of it unless another holder comes. */
+  private stopQueued = false
   private readonly models = new Map<string, RunningServers>()
   private renewing = false
   private recoveredForwards = false
@@ -90,28 +92,45 @@ export class RunningServersController {
 
   retain(): () => void {
     if (this.holders++ === 0) {
-      this.stopConnection = this.observeConnection(() => this.connect())
-      if (this.forwarding) this.forwardRenewalTimer = setInterval(() => void this.renewForwards(), FORWARD_RENEWAL_MS)
-      this.connect()
+      if (this.stopQueued) {
+        // A tab switch: the old surface left and this one came in the same
+        // tick. The watch stays; its paths may have changed.
+        this.stopQueued = false
+        this.queueRefresh()
+      } else {
+        this.stopConnection = this.observeConnection(() => this.connect())
+        if (this.forwarding) this.forwardRenewalTimer = setInterval(() => void this.renewForwards(), FORWARD_RENEWAL_MS)
+        this.connect()
+      }
     }
     let released = false
     return () => {
       if (released) return
       released = true
       if (--this.holders) return
-      this.epoch++
-      if (this.forwardRenewalTimer) clearInterval(this.forwardRenewalTimer)
-      this.forwardRenewalTimer = null
-      this.stopConnection?.()
-      this.stopConnection = null
-      this.stopEvents?.()
-      this.stopEvents = null
-      const source = this.source
-      this.source = null
-      this.inFlight = false
-      if (source?.ready) void source.api.runningServersUnwatch().catch(() => {})
-      this.set(RunningServersController.empty)
+      this.stopQueued = true
+      queueMicrotask(() => {
+        if (!this.stopQueued || this.holders) return
+        this.stopQueued = false
+        this.stop()
+      })
     }
+  }
+
+  /** The last holder left: stop the host's watch and the forward renewals. */
+  private stop(): void {
+    this.epoch++
+    if (this.forwardRenewalTimer) clearInterval(this.forwardRenewalTimer)
+    this.forwardRenewalTimer = null
+    this.stopConnection?.()
+    this.stopConnection = null
+    this.stopEvents?.()
+    this.stopEvents = null
+    const source = this.source
+    this.source = null
+    this.inFlight = false
+    if (source?.ready) void source.api.runningServersUnwatch().catch(() => {})
+    this.set(RunningServersController.empty)
   }
 
   retainCheckout(path: string | null): () => void {
@@ -126,9 +145,10 @@ export class RunningServersController {
       const count = this.checkoutPaths.get(path) ?? 0
       if (count > 1) this.checkoutPaths.set(path, count - 1)
       else this.checkoutPaths.delete(path)
-      if (count <= 1) this.checkoutRoots.delete(path)
+      // A checkout's root does not change: the root read stays for the next holder.
       release()
-      if (count <= 1) this.queueRefresh()
+      // The last holder's leave stops the watch; nothing is left to narrow.
+      if (count <= 1 && this.holders > 0) this.queueRefresh()
     }
   }
 

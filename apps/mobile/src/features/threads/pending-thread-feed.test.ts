@@ -1,3 +1,4 @@
+import { hostQueueMessage } from "../../solus/queue-messages";
 import { describe, expect, it } from "vite-plus/test";
 import {
   CommandId,
@@ -256,4 +257,33 @@ describe("pending timeline messages", () => {
     const working = appendPendingThreadMessages([thinking], [], [pending("queued")]);
     expect(appendTurn(working, { zen: false })).toBe(working);
   });
+});
+
+it("keeps a host-held prompt and its attachment visible until its echo, without a sending indicator", () => {
+  const pending = hostQueueMessage(
+    EnvironmentId.make("host"),
+    ThreadId.make("session"),
+    {
+      queueId: "queue",
+      clientPromptId: "prompt",
+      text: "later",
+      enqueuedAt: 500,
+      reason: "busy",
+      revision: 4,
+      imageRefs: [{ name: "image", mimeType: "image/png", hostPath: "/host/image" }],
+    },
+    async () => "signed",
+  );
+  const queued = appendPendingThreadMessages([], [], [pending]);
+  expect(queued[0]).toMatchObject({
+    id: "prompt",
+    pendingMessage: { hostQueue: { revision: 4 } },
+    message: {
+      text: "later",
+      attachments: [{ type: "image", name: "image", preview: { path: "/host/image" } }],
+    },
+  });
+  expect(createPendingTurnAppender()(queued, { zen: false })).toBe(queued);
+  const { pendingMessage: _pending, ...delivered } = queued[0]!;
+  expect(appendPendingThreadMessages([delivered], [delivered], [pending])).toEqual([delivered]);
 });

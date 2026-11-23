@@ -1,6 +1,7 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  import { ChevronDown as ChevronDownIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { ChevronDown as ChevronDownIcon } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { hoverIntent } from "../../lib/hover-intent";
   import { attentionLabel } from "../../lib/sessionUtils";

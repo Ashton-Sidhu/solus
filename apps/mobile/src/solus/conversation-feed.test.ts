@@ -131,6 +131,13 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
     prompt,
     tool,
     { ...tool, id: "edit", toolId: "edit", toolName: "Edit" },
+    {
+      ...tool,
+      id: "screenshot",
+      toolId: "screenshot",
+      toolName: "device_screenshot",
+      images: [{ assetId: `${"a".repeat(64)}.png`, mimeType: "image/png" }],
+    },
     { ...tool, id: "app", toolId: "app", toolName: "mcp__solus__calendar__agenda" },
     { kind: "assistant", id: "answer", text: "Done." },
     { ...prompt, id: "two" },
@@ -166,6 +173,7 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
     "one",
     "run-fold:runless:one",
     "work-toggle:work-group:local:session:read",
+    "screenshot",
     "app",
     "app:app",
     "answer",
@@ -177,6 +185,46 @@ it("folds tool calls under their own prompt, keeps interactive results visible a
     expect(ids).not.toContain("read");
     expect(ids).toContain("app:app");
   }
+});
+
+it("shows workspace image reads inside the turn fold while keeping tool output in its card", () => {
+  const read: Extract<TranscriptItem, { kind: "tool" }> = {
+    kind: "tool",
+    id: "read",
+    toolId: "read",
+    toolName: "view_image",
+    input: '{"path":"docs/screen.png"}',
+    status: "completed",
+    errorHead: null,
+    childCount: 0,
+    subagent: null,
+    report: null,
+  };
+  const images = [{ assetId: `${"a".repeat(64)}.png`, mimeType: "image/png" }];
+  const items: TranscriptItem[] = [
+    { kind: "user", id: "prompt", delivery: "sent", attachments: [], text: "Look", error: null },
+    read,
+    { ...read, id: "rich", toolId: "rich", toolName: "Read", input: '{"file_path":"/repo/rich.png"}', images },
+    { ...read, id: "shot", toolId: "shot", toolName: "device_screenshot", images },
+    { kind: "assistant", id: "reply", text: "Done" },
+  ];
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const feed = conversationFeed(
+    { item: (id) => byId.get(id), subscribeFeedItems: () => () => {} },
+    items.map((item) => item.id),
+    "session",
+    () => null,
+  ).get();
+  const collapsed = deriveThreadFeedPresentation(feed, null, new Set());
+  expect(collapsed.map((row) => row.id)).toEqual(["prompt", "run-fold:runless:prompt", "reply"]);
+  const expanded = deriveThreadFeedPresentation(
+    feed, null, new Set([RunId.make("runless:prompt")]),
+  );
+  expect(expanded.filter((row) => row.type === "viewed-images").map((row) => row.paths)).toEqual([
+    ["docs/screen.png"],
+    ["/repo/rich.png"],
+  ]);
+  expect(expanded.filter((row) => row.type === "conversation-card").map((row) => row.id)).toEqual(["rich", "shot"]);
 });
 
 it("keeps the arrival time of live messages across streaming updates and leaves unknown history times blank", () => {
@@ -339,11 +387,11 @@ it("keeps streaming the first answer while a follow-up waits in the queue", () =
 });
 
 it("keeps a sent video in the T3 message player and signs its host URL only for preview or playback", async () => {
-  const { isUploadVideo, messageMediaAttachments, composerUploadMedia, queueChatAttachment } = await import("./upload-images");
+  const { isUploadVideo, messageAttachments, composerUploadMedia, queueChatAttachment } = await import("./upload-images");
   const { splitAttachedFiles } = await import("@solus-mobile/features/conversation/lib/message-attachments");
   const { files } = splitAttachedFiles("[Attached file: /host/clip.MOV]\n\nLook");
   const sign = vi.fn(async (_path: string, refresh?: boolean) => refresh ? "fresh-url" : "poster-url");
-  const projected = messageMediaAttachments(files, sign)[0]!;
+  const projected = messageAttachments("session",files, sign)[0]!;
   expect(isUploadVideo(projected)).toBe(true);
   expect(sign).not.toHaveBeenCalled();
   if (!isUploadVideo(projected) || !("resolveUrl" in projected.videoPreview)) throw new Error("missing host video");
@@ -355,9 +403,18 @@ it("keeps a sent video in the T3 message player and signs its host URL only for 
   expect(isUploadVideo(queueChatAttachment({ ...clip, type: "file" }, sign))).toBe(true);
   expect(isUploadVideo(queueChatAttachment({ ...clip, type: "file", name: "paper.pdf", mimeType: "application/pdf" }, sign))).toBe(false);
   const draft = { ...clip, kind: "file" as const, localUri: "file:///picked.mov", dataUrl: null };
-  expect(composerUploadMedia([draft], [], [])).toMatchObject([{ type: "file", fileUri: draft.localUri, id: "clip" }]);
+  expect(composerUploadMedia("session",[draft], [], [])).toMatchObject([{ type: "file", fileUri: draft.localUri, id: "clip" }]);
 
   const item: TranscriptItem = { kind: "user", id: "u", text: "Look", attachments: files, delivery: "sent", error: null };
   const feed = conversationFeed({ item: () => item, subscribeFeedItems: () => () => {} }, ["u"], "session", () => null);
   expect(feed.get()).toMatchObject([{ type: "message", message: { attachments: [{ type: "file", name: "clip.MOV" }] } }]);
+});
+
+it("keeps a sent document in the T3 message and opens the upload from its original session", async () => {
+  const { splitAttachedFiles } = await import("@solus-mobile/features/conversation/lib/message-attachments");
+  const { files } = splitAttachedFiles("[Attached file: /uploads/notes.md]\n\nRead this");
+  const item: TranscriptItem = { kind: "user", id: "document", text: "Read this", attachments: files, sourceSessionId: "source", delivery: "sent", error: null };
+  const rows = conversationFeed({ item: () => item, subscribeFeedItems: () => () => {} }, [item.id], "current", () => null).get();
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ type: "message", message: { attachments: [{type:"file", id:"upload:source//uploads/notes.md", name:"notes.md"}] } });
 });

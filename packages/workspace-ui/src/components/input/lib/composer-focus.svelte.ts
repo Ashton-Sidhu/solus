@@ -116,7 +116,7 @@ export function useComposerFocus(options: ComposerFocusOptions) {
   });
 
   // "Reference in Prompt" from a session's menu: the focused pane's composer
-  // takes the chips, as it would take them from a drop.
+  // inserts the chips at its caret.
   $effect(() => {
     if (!options.active()) return;
     return onReferenceSessionsRequest((references) => {

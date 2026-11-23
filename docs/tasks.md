@@ -44,15 +44,21 @@ the source.
 
 ### Add a source
 
-Open the Tasks page. With no source, the page offers the GitHub repositories
-of your recent projects on the task host, each with a check box. Select **Add
-N repositories** to add them in one step. They are ordinary sources: they sync,
+Open the Tasks page. With no source, the page lists the GitHub repositories of
+your recent projects on the task host; select **Add** on each one you want,
+**Add all** to add every one, and **Added** to take one back. **GitHub**,
+**Jira** and **Linear** each open the add menu with that provider's choices,
+and the menu stays open, so you can add several. Selecting a provider that
+is not connected connects it in place (Jira signs in to your Atlassian site,
+Linear takes a personal API key), and then its menu opens; what you add there shows
+under **Added**. Adding does not leave the setup; **Show tasks**, at the top of the page where
+**New task** usually is, ends it. They are ordinary sources: they sync,
 show on the row of sources, and you can remove them. Solus does not read a
 project's repository until you add it, because your sources are yours on every
 device and the project list belongs to one host. A project that is a checkout
 of a fork (its `upstream` and `origin` remotes name different repositories) is
-named by the original repository, whose issues are rarely yours, so it starts
-not selected and shows **Fork**. On mobile, the task sources screen shows the
+named by the original repository, whose issues are rarely yours, so its row
+says it is a fork. On mobile, the task sources screen shows the
 same list with a switch for each repository.
 
 The empty page also shows **Add a task source**.
@@ -370,9 +376,14 @@ A bounded source read can return **Load more**. The host stores the continuation
 retains existing placements when it appends a page, and keeps both rows and cursor
 if that page fails. Refresh starts a new read from the first page.
 
-**Inspect issue URL** reads one GitHub, connected Jira-site or connected Linear
-workspace issue. It does not add a source. This inspection is read-only and has
-an **Open on provider** action. Unsupported hosts and non-issue URLs are refused.
+Use **Open issue URL** on the Tasks page or the mobile Issues list to read a
+GitHub issue or an issue from a connected Jira site or Linear workspace.
+The issue opens in the existing detail pane, or on the issue screen on a phone.
+The description and comments are available while provider activity loads.
+Activity combines comments, Solus changes, and provider events, including
+GitHub commit references. Use **Load older activity** when more events are available.
+The detail is read-only and leaves your task sources as they are. You can
+open the issue on its provider to make changes.
 
 The task composer lists GitHub repository templates and Linear team templates.
 GitHub Markdown templates fill the title, body, labels and assignees. Applying

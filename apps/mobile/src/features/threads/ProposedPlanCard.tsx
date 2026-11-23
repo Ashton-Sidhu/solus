@@ -1,3 +1,4 @@
+import { ProposedPlanView } from "./ProposedPlanView";
 import { useAtomValue } from "@effect/atom-react";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import {
@@ -5,18 +6,15 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { proposedPlanTitle, stripDisplayedPlanMarkdown } from "@t3tools/shared/proposedPlanText";
 import { useGT } from "gt-react-native";
 import { m } from "../../i18n/messages";
 import { useRef, useState, type ReactNode } from "react";
 import { View } from "react-native";
 
-import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { CopyTextButton } from "./CopyTextButton";
 
 export function ProposedPlanCard(props: {
   readonly environmentId: EnvironmentId;
@@ -58,14 +56,7 @@ export function ProposedPlanCard(props: {
   };
 
   return (
-    <View className="mb-3 gap-3 rounded-[20px] border border-border bg-card-alt p-4">
-      <View className="flex-row items-center gap-2">
-        <Text accessibilityRole="header" className="flex-1 font-t3-bold text-base text-foreground">
-          {proposedPlanTitle(props.markdown) ?? gt("Proposed plan")}
-        </Text>
-        <CopyTextButton accessibilityLabel={gt("Copy plan")} text={contents} />
-      </View>
-      {props.renderMarkdown(stripDisplayedPlanMarkdown(props.markdown))}
+    <ProposedPlanView markdown={props.markdown} renderMarkdown={props.renderMarkdown}>
       <View className="flex-row">
         <Button
           label={saving ? gt("Saving...") : gt("Save to workspace")}
@@ -85,6 +76,6 @@ export function ProposedPlanCard(props: {
           }
         />
       </View>
-    </View>
+    </ProposedPlanView>
   );
 }

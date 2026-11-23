@@ -8,9 +8,9 @@
     CircleDashed as NoChecksIcon,
     MessageSquare as RemarksIcon,
     GitMerge as ConflictIcon,
-    GitPullRequestClosed as ClosedIcon,
     EyeOff as StoppedIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestClosedIcon as ClosedIcon } from "../ui/octicons";
   import type { Message } from "@solus/contracts/types";
   import {
     pullRequestWatchWake,

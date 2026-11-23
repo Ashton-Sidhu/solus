@@ -41,69 +41,109 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const disabled = !canRespond || props.respondingApprovalId === props.approval.requestId;
   const [explanationOpen, setExplanationOpen] = useState(false);
   return (
+    <ApprovalCardView
+      title={props.approval.appName ?? props.approval.requestKind}
+      detail={props.approval.detail}
+      reason={props.approval.reason}
+      warning={warning}
+      canRespond={canRespond}
+      mayApprove={props.canOperateThread}
+      disabled={disabled}
+      options={options.map((option) => ({
+        id: option.decision,
+        label: option.label,
+        tone:
+          option.decision === "accept"
+            ? "primary"
+            : option.decision === "decline"
+              ? "danger"
+              : "secondary",
+        respond: () => props.onRespond(props.approval.requestId, option.decision),
+      }))}
+      explanation={
+        props.approval.fullAccessOverride ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: explanationOpen }}
+            onPress={() => setExplanationOpen((open) => !open)}
+          >
+            <Text className="font-t3-bold text-xs text-foreground-secondary underline">
+              {m(FULL_ACCESS_OVERRIDE_QUESTION)}
+            </Text>
+            {explanationOpen ? (
+              <Text className="mt-1 font-sans text-xs leading-normal text-foreground-muted">
+                {fullAccessOverrideExplanation(props.approval.fullAccessOverride, m)}
+              </Text>
+            ) : null}
+          </Pressable>
+        ) : null
+      }
+    />
+  );
+}
+
+export function ApprovalCardView(props: {
+  title: string;
+  detail?: string;
+  reason?: string;
+  warning?: string;
+  explanation?: React.ReactNode;
+  canRespond: boolean;
+  mayApprove: boolean;
+  disabled: boolean;
+  expiredReason?: string;
+  options: ReadonlyArray<{
+    id: string;
+    label: string;
+    tone: "primary" | "secondary" | "danger";
+    respond: () => Promise<unknown>;
+  }>;
+}) {
+  return (
     <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
       <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
         <T>Approval needed</T>
       </Text>
-      <Text className="font-t3-bold text-lg text-foreground">
-        {props.approval.appName ?? props.approval.requestKind}
-      </Text>
-      {props.approval.detail ? (
+      <Text className="font-t3-bold text-lg text-foreground">{props.title}</Text>
+      {props.detail ? (
         <Text className="font-sans text-sm leading-normal text-foreground-secondary">
-          {props.approval.detail}
+          {props.detail}
         </Text>
       ) : null}
-      {props.approval.reason ? (
+      {props.reason ? (
         <Text className="font-sans text-xs leading-normal text-warning-foreground">
-          {props.approval.reason}
+          {props.reason}
         </Text>
       ) : null}
-      {props.approval.fullAccessOverride ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ expanded: explanationOpen }}
-          onPress={() => setExplanationOpen((open) => !open)}
-        >
-          <Text className="font-t3-bold text-xs text-foreground-secondary underline">
-            {m(FULL_ACCESS_OVERRIDE_QUESTION)}
-          </Text>
-          {explanationOpen ? (
-            <Text className="mt-1 font-sans text-xs leading-normal text-foreground-muted">
-              {fullAccessOverrideExplanation(props.approval.fullAccessOverride, m)}
-            </Text>
-          ) : null}
-        </Pressable>
-      ) : null}
-      {!canRespond ? (
+      {props.explanation}
+      {!props.canRespond ? (
         <Text className="font-sans text-sm leading-5 text-foreground-muted">
-          <T>
-            The provider process for this request is no longer available. Interrupt or restart the
-            run to continue.
-          </T>
+          {props.expiredReason ?? (
+            <T>
+              The provider process for this request is no longer available. Interrupt or restart the
+              run to continue.
+            </T>
+          )}
         </Text>
       ) : null}
-      {warning ? (
-        <Text className="font-sans text-xs leading-normal text-warning-foreground">{warning}</Text>
+      {props.warning ? (
+        <Text className="font-sans text-xs leading-normal text-warning-foreground">
+          {props.warning}
+        </Text>
       ) : null}
       <View className="gap-2">
-        {options.map((option) => (
+        {props.options.map((option) => (
           <Button
-            key={option.decision}
+            key={option.id}
             label={option.label}
-            tone={
-              option.decision === "accept"
-                ? "primary"
-                : option.decision === "decline"
-                  ? "danger"
-                  : "secondary"
-            }
-            disabled={disabled || !props.canOperateThread}
-            onPress={() => void props.onRespond(props.approval.requestId, option.decision)}
+            tone={option.tone}
+            disabled={props.disabled || !props.canRespond || !props.mayApprove}
+            onPress={() => void option.respond()}
             fullWidth
           />
         ))}
       </View>
-      {!props.canOperateThread ? (
+      {!props.mayApprove ? (
         <Text className="font-sans text-xs text-foreground-muted">
           <T>This connection cannot respond to approvals.</T>
         </Text>

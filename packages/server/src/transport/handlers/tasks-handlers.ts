@@ -126,7 +126,8 @@ export function registerTasksHandlers(server: SolusServer, deps: { attachmentsOn
   }))
   server.register('tasksReact', ([id, targetId, content, add]) => reactToTask(id, targetId, content, add))
   server.register('tasksTemplates', ([source]) => taskTemplates(taskSourceSchema.parse(source)))
-  server.register('tasksResolve', ([url], ctx) => resolveTaskUrl(recordScopeOf(ctx.principal), url, readerOf(ctx).personKey))
+  server.register('tasksResolve', ([url, options], ctx) =>
+    resolveTaskUrl(recordScopeOf(ctx.principal), url, readerOf(ctx).personKey, options?.detailsOnly === true))
 
   server.register('tasksSearch', (args) => {
     const [sources, query, involvement] = args

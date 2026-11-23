@@ -1,5 +1,8 @@
-import { useGT } from "gt-react-native";
+import { ComposerInlineControl } from "../../components/ComposerToolbar";
+import { T, useGT } from "gt-react-native";
 import type { ReactNode } from "react";
+import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { Platform, Pressable, View } from "react-native";
 import { NativeScrollEdgeEffectsContext } from "../../native/NativeScrollViewMarker";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
@@ -56,49 +59,126 @@ export function NewTaskProjectHero(props: {
     </View>
   );
 }
+export function NewTaskScratchHero(props: {
+  disabled: boolean;
+  chooseProject: () => void;
+  environmentControl: ReactNode;
+  children?: ReactNode;
+}) {
+  const gt = useGT();
+  return (
+    <View className="items-center gap-2 px-6" testID="new-task-hero">
+      <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
+        <T>What should we work on?</T>
+      </Text>
+      <View className="flex-row flex-wrap items-center justify-center gap-x-1">
+        <ComposerInlineControl
+          accessibilityHint={gt("Opens the project picker")}
+          accessibilityLabel={gt("No project")}
+          chevronDirection="right"
+          disabled={props.disabled}
+          icon="folder"
+          label={gt("No project")}
+          onPress={props.chooseProject}
+        />
+        {props.environmentControl}
+      </View>
+      {props.children}
+    </View>
+  );
+}
+
+export function draftHeroContent(props: {
+  scratch: boolean;
+  title: string;
+  disabled: boolean;
+  chooseProject: () => void;
+  environmentControl: ReactNode;
+  notice?: ReactNode;
+}) {
+  return (
+    headerInset: number,
+    bottomInset: number,
+    viewportHeight: number,
+    heroLayoutHeight: number,
+  ) => (
+    <DraftViewport {...{ headerInset, bottomInset, viewportHeight, heroLayoutHeight }}>
+      {props.scratch ? (
+        <NewTaskScratchHero
+          disabled={props.disabled}
+          chooseProject={props.chooseProject}
+          environmentControl={props.environmentControl}
+        >
+          {props.notice}
+        </NewTaskScratchHero>
+      ) : (
+        <NewTaskProjectHero
+          disabled={props.disabled}
+          chooseProject={props.chooseProject}
+          title={props.title}
+        >
+          {props.environmentControl}
+          {props.notice}
+        </NewTaskProjectHero>
+      )}
+    </DraftViewport>
+  );
+}
+
 export function DraftViewport({
   headerInset,
   bottomInset,
   viewportHeight,
+  heroLayoutHeight,
   children,
 }: {
   headerInset: number;
   bottomInset: number;
   viewportHeight: number;
+  heroLayoutHeight: number;
   children: ReactNode;
 }) {
+  const { height } = useReanimatedKeyboardAnimation();
+  const keyboardInset = useAnimatedStyle(() => ({ bottom: bottomInset - height.value }));
+  // Keep the heading in place as the composer grows. The smaller scroll viewport
+  // still lets the user reach the project and host above a tall composer.
+  const heroLayout = useAnimatedStyle(() => ({
+    minHeight: Math.max(0, heroLayoutHeight + height.value),
+  }));
   return viewportHeight < SHORT_DRAFT_VIEWPORT_HEIGHT ? null : (
     <NativeScrollEdgeEffectsContext
       value={{ top: "hidden", bottom: "hidden", left: "hidden", right: "hidden" }}
     >
-      <View
+      <Animated.View
         collapsable={false}
-        style={{
-          position: "absolute",
-          top: headerInset,
-          bottom: bottomInset,
-          left: 0,
-          right: 0,
-          overflow: "hidden",
-        }}
+        style={[
+          {
+            position: "absolute",
+            top: headerInset,
+            left: 0,
+            right: 0,
+            overflow: "hidden",
+          },
+          keyboardInset,
+        ]}
       >
         <ScrollView
           alwaysBounceVertical={false}
           className="flex-1"
           contentInsetAdjustmentBehavior="never"
-          contentContainerClassName="grow items-center"
-          contentContainerStyle={{ paddingVertical: 24 }}
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           style={{ flex: 1 }}
           testID="new-task-hero-scroll"
         >
-          <View style={{ flexGrow: 1 }} />
-          {children}
-          <View style={{ flexGrow: 2 }} />
+          <Animated.View style={[{ alignItems: "center", paddingVertical: 24 }, heroLayout]}>
+            <View style={{ flexGrow: 1 }} />
+            {children}
+            <View style={{ flexGrow: 2 }} />
+          </Animated.View>
         </ScrollView>
-      </View>
+      </Animated.View>
     </NativeScrollEdgeEffectsContext>
   );
 }

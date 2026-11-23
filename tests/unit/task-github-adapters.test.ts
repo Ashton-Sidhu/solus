@@ -7,7 +7,8 @@ import { DatabaseSync } from './helpers/bun-sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-const { GitHubTaskProvider } = await import('@solus/server/data/tasks/providers/github')
+const { GitHubTaskProvider, githubIssueDetails, readIssueNode } = await import('@solus/server/data/tasks/providers/github')
+const { githubIssueEvent } = await import('@solus/server/data/tasks/task-inspection')
 const { GitHubRepoSource } = await import('@solus/server/data/tasks/sources/github-repo')
 const { GitHubProjectSource } = await import('@solus/server/data/tasks/sources/github-project')
 const { TaskProviderError, MAX_SOURCE_TASKS } = await import('@solus/server/data/tasks/providers/types')
@@ -190,6 +191,50 @@ describe('the identity of a GitHub task', () => {
 })
 
 describe('reading one issue', () => {
+  test('a commit reference preserves its actor, abbreviated SHA, message, and URL', () => {
+    expect(githubIssueEvent({
+      __typename: 'ReferencedEvent',
+      id: 'reference-1',
+      createdAt: '2025-09-22T12:00:00Z',
+      actor: { login: 'stainless-app' },
+      commit: {
+        abbreviatedOid: '8a81adf',
+        commitUrl: 'https://github.com/acme/app/commit/8a81adf',
+        messageHeadline: 'release: 0.1.0-alpha.1 (#5)',
+      },
+    })).toMatchObject({
+      at: Date.parse('2025-09-22T12:00:00Z'),
+      actor: 'stainless-app',
+      text: 'added a commit that references this issue',
+      link: {
+        label: 'release: 0.1.0-alpha.1 (#5) (8a81adf)',
+        url: 'https://github.com/acme/app/commit/8a81adf',
+      },
+    })
+  })
+
+  test('gets the issue and its comments by URL coordinates in one provider request', async () => {
+    const { run, graphqlCalls, restCalls } = fakeGithub(() => ({
+      repository: { issue: issueNode({
+        comments: {
+          totalCount: 1,
+          nodes: [{ id: 'IC_1', author: null, body: 'First comment', createdAt: '2026-08-01T09:00:00Z' }],
+        },
+      }) },
+    }))
+
+    const result = await run('resolve_github_issue', async ({ graphql }) =>
+      githubIssueDetails(await readIssueNode(graphql, { owner: 'acme', repo: 'app', number: 7 }, true)))
+
+    expect(result.task.title).toBe('Ship the thing')
+    expect(result.comments[0]?.body).toBe('First comment')
+    expect(graphqlCalls).toHaveLength(1)
+    expect(graphqlCalls[0]?.variables).toEqual({ owner: 'acme', repo: 'app', number: 7 })
+    expect(graphqlCalls[0]?.query).toContain('comments(first: 100)')
+    expect(graphqlCalls[0]?.query).not.toContain('timelineItems')
+    expect(restCalls).toHaveLength(0)
+  })
+
   test('gives the comments, says when there are more, and gives the epic with its description', async () => {
     // WHY: the agent gets the comments and the description of the epic as
     // context. Solus reads 100 comments, so it must say when the issue has more.

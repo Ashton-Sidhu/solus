@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
 import type { SessionDigest } from '@solus/contracts/session-digest'
+import type { Principal } from '@solus/server/admission/principal'
+import { asHostApi } from '@solus/client-core/host-api'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 
@@ -111,4 +114,112 @@ test('a new digest replaces the stored one, and a session delete removes it', as
   expect((await readSessionDigests('local', ['grandchild'])).get('grandchild')?.lastReply).toBe('Test again done.')
   await deleteSessionRecord('local', 'grandchild')
   expect((await readSessionDigests('local', ['grandchild'])).has('grandchild')).toBe(false)
+})
+
+test('fork links resolve the provider source to its saved Solus session in both directions', async () => {
+  const { appendActivity, newActivity } = await import('@solus/server/data/activity/activity')
+  const { registerSessionLineage, replaceSessionLineageThread } = await import('@solus/server/data/sessions/session-lineage')
+  const { sessionTreeRelations } = await import('@solus/server/data/sessions/session-tree-relations')
+  const { getSessionRecord } = await import('@solus/server/data/sessions/session-records')
+
+  registerSessionLineage({ sessionId: 'lead', providerSessionId: 'provider-lead', provider: 'codex', cwd: directory })
+  await appendActivity('local', newActivity(
+    { kind: 'session', id: 'child-b' }, { kind: 'system' }, { kind: 'forked', sourceSessionId: 'provider-lead' }, 1,
+  ))
+  await appendActivity('unrelated-organization', newActivity(
+    { kind: 'session', id: 'child-a' }, { kind: 'system' }, { kind: 'forked', sourceSessionId: 'provider-lead' }, 2,
+  ))
+  replaceSessionLineageThread({
+    sessionId: 'lead', provider: 'codex', sourceThreadId: 'provider-lead',
+    providerSessionId: 'moved-lead', cwd: directory,
+  })
+  const lead = await getSessionRecord('local', 'lead')
+  const fork = await getSessionRecord('local', 'child-b')
+  expect(await sessionTreeRelations('local', lead!)).toMatchObject([{ kind: 'fork', sessionId: 'child-b' }])
+  expect(await sessionTreeRelations('local', fork!)).toMatchObject([{ kind: 'fork-source', sessionId: 'lead' }])
+})
+
+test('read-only remote history requires an exact child link and independent read access', async () => {
+  const { INTERNAL_HANDLER_CTX, SolusServer } = await import('@solus/server/transport/server')
+  const { registerSessionLineageHandlers } = await import('@solus/server/transport/handlers/session-lineage-handlers')
+  const server = new SolusServer()
+  let dials = 0
+  server.register('getSessionInfo', () => null)
+  registerSessionLineageHandlers(server, { stopSessionSubagent: async () => false }, {
+    connectTo: async (_reach, hostId) => {
+      dials++
+      expect(hostId).toBe('host-b')
+      return {
+        hostId, installationId: hostId, label: 'Worker',
+        api: asHostApi({
+          loadSessionPage: async () => ({
+            before: 'older',
+            messages: [
+              { role: 'tool', timestamp: 1, content: 'Tool data' },
+              { role: 'assistant', timestamp: 2, content: 'Child answer', imageAttachmentRefs: [{ path: '/remote' }] },
+            ],
+          }),
+        }),
+        events: new HostEventSubscriber(),
+        onReconnected: () => () => {},
+        call: (_label, request) => request(),
+      }
+    },
+  }, () => ({ account: null, isOwner: true }))
+  await expect(server.handle('sessionLineageHistory', ['lead', 'remote-child'], INTERNAL_HANDLER_CTX)).rejects.toThrow('not a remote child')
+  expect(dials).toBe(0)
+  expect(await server.handle('sessionLineageHistory', ['child-b', 'remote-child'], INTERNAL_HANDLER_CTX)).toEqual({
+    before: 'older', messages: [{ role: 'assistant', timestamp: 2, content: 'Child answer', messageId: undefined }],
+  })
+  const { installTestIdentities } = await import('./helpers/acting-identities')
+  installTestIdentities()
+  const accessChecks: string[] = []
+  server.useResourceAccess({ standingFor: async (_principal, target) => {
+    accessChecks.push(target.id)
+    return { role: target.id === 'child-b' ? 'viewer' : 'none' }
+  } })
+  const principal: Principal = {
+    kind: 'guest', guestId: 'guest', displayName: 'Guest', deviceId: 'guest', expiresAt: 0,
+    deviceLabel: 'Guest', organizationId: 'local',
+    share: { resource: { kind: 'session', id: 'child-b' }, role: 'viewer', sharedByUserId: 'local:owner', linkSecretHash: 'test' },
+  }
+  await expect(server.handle('sessionLineageHistory', ['child-b', 'remote-child'], { clientId: 'test', principal })).rejects.toThrow('not shared')
+  expect(accessChecks).toEqual(['child-b', 'remote-child'])
+  expect(dials).toBe(1)
+})
+
+test('merge back includes completed fork work and omits inherited, failed, and unfinished messages', async () => {
+  const { INTERNAL_HANDLER_CTX, SolusServer } = await import('@solus/server/transport/server')
+  const { registerSessionLineageHandlers } = await import('@solus/server/transport/handlers/session-lineage-handlers')
+  const { writeSessionDigest } = await import('@solus/server/data/sessions/session-digests')
+  const server = new SolusServer()
+  registerSessionLineageHandlers(server, { stopSessionSubagent: async () => false }, {
+    connectTo: async () => { throw new Error('Unexpected remote connection') },
+  }, () => null)
+  server.register('getSessionInfo', () => null)
+  server.register('loadSessionPage', ([request]) => {
+    expect(request.sessionId).toBe('child-b')
+    return { before: null, messages: [
+      { role: 'user', timestamp: 0, content: 'Inherited prompt' },
+      { role: 'assistant', timestamp: 2, content: 'Failed finding' },
+      { role: 'assistant', timestamp: 6, content: 'Fork finding' },
+      { role: 'assistant', timestamp: 9, content: 'Unfinished finding' },
+    ] }
+  })
+  const digest = digestOf('child-b', 'Inspect')
+  const turn = digest.turns[0]!
+  await writeSessionDigest({
+    ...digest,
+    turns: [
+      { ...turn, id: 'failed', startedAt: 1, endedAt: 3, outcome: 'failed' },
+      { ...turn, id: 'completed', startedAt: 4, endedAt: 7, outcome: 'completed' },
+      { ...turn, id: 'open', startedAt: 8, endedAt: 9, settled: false },
+    ],
+  })
+  const result = await server.handle('sessionMergeBackPrompt', ['child-b'], INTERNAL_HANDLER_CTX)
+  expect(result.target).toMatchObject({ kind: 'fork-source', sessionId: 'lead' })
+  expect(result.prompt).toContain('Fork finding')
+  expect(result.prompt).not.toContain('Inherited prompt')
+  expect(result.prompt).not.toContain('Failed finding')
+  expect(result.prompt).not.toContain('Unfinished finding')
 })

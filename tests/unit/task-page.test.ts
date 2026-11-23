@@ -2,6 +2,7 @@ import { pullRequestFixture } from './__fixtures__/pull-request'
 import { linkedPrIdentity, type LinkedPr } from '@solus/workspace-ui/contexts/prs/linked-pr'
 import { describe, expect, test } from 'bun:test'
 import {
+  activityFeed,
   commentAuthorName,
   commentDelivery,
   commentSessionLink,
@@ -61,6 +62,21 @@ describe('an artifact on the task activity feed', () => {
     // tells the story of the task, and "linked Latency report" with nothing
     // under it sends the reader to the Linked table to find out what it was.
     expect(linkedArtifactForActivity(linked, [artifact])).toBe(artifact)
+  })
+
+  test('provider events appear in the same order as Solus events and comments', () => {
+    const assignment = { id: 'assign', at: 0, actor: 'Ada', text: 'self-assigned this issue' }
+    const commit = {
+      id: 'commit',
+      at: 3,
+      actor: 'stainless-app',
+      text: 'added a commit that references this issue',
+      link: { label: 'Release (8a81adf)', url: 'https://github.com/acme/app/commit/8a81adf' },
+    }
+    const comment = { id: 'c1', taskId: 't', body: 'Thanks', createdAt: 2 }
+    const feed = activityFeed([comment], [linked], [commit, assignment])
+    expect(feed.map((entry) => entry.key)).toEqual(['p:assign', 'a:e1', 'c:c1', 'p:commit'])
+    expect(feed.at(-1)).toMatchObject({ type: 'provider', event: { link: commit.link } })
   })
 
   test('a document, an unlinked work, and any other event get no card', () => {
@@ -549,6 +565,11 @@ describe('which fields the page lets the person edit', () => {
   test('a disabled editor says which provider does not take the field', () => {
     expect(taskFieldLocks(taskWith([])).dueDate)
       .toBe('GitHub does not take a change of the due date for this task')
+  })
+
+  test('opening an issue by URL locks every field even if the provider grants edits', () => {
+    const locks = taskFieldLocks({ providerId: 'github', canWrite: () => true }, true)
+    expect(Object.values(locks)).toEqual(Array(6).fill('Read-only issue'))
   })
 })
 

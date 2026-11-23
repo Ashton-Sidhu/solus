@@ -1,26 +1,18 @@
 import { resolveDefaultBranchActionDialogCopy } from "@t3tools/client-runtime/state/vcs";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
-import { resolveAutoFeatureBranchName } from "@t3tools/shared/git";
-import * as Arr from "effect/Array";
-import * as Result from "effect/Result";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useGT, useMessages } from "gt-react-native";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { View } from "react-native";
 
 import { SheetHeader } from "../../../components/ui/SheetHeader";
 import { FitSheet } from "../../../components/ui/FitSheet";
 import { SheetIntro } from "../../../components/ui/SheetIntro";
-import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
-import { useSelectedThreadGitState } from "../../../state/use-selected-thread-git-state";
-import { useThreadSelection } from "../../../state/use-thread-selection";
-import { useEnvironmentQuery } from "../../../state/query";
-import {
-  gitRepositoryTargetFromRoute,
-  type GitRepositoryRouteParams,
-} from "../../../state/thread-git-target";
-import { vcsEnvironment } from "../../../state/vcs";
-import { useReturnToThread } from "../thread-inspector-navigation";
+import type { GitRepositoryRouteParams } from "../../../state/thread-git-target";
+import type { ConversationController } from "@solus-mobile/features/conversation/conversation-controller";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { useCheckoutGit } from "../../../solus/CheckoutGit";
+import { useSessionController } from "../../../solus/use-session-controller";
 import { SheetActionButton } from "./gitSheetComponents";
 
 type GitConfirmSheetProps = StaticScreenProps<
@@ -32,47 +24,48 @@ type GitConfirmSheetProps = StaticScreenProps<
     readonly includesCommit?: string;
     readonly commitMessage?: string;
     readonly filePaths?: string;
+    readonly selectedPaths?: string[];
   } & GitRepositoryRouteParams
 >;
 
 export function GitConfirmSheet(props: GitConfirmSheetProps) {
+  const controller = useSessionController(props.route.params);
+  return controller ? (
+    <Confirmation params={props.route.params} controller={controller} />
+  ) : (
+    <EmptyState title="Session unavailable" detail="Reconnect to confirm the Git action." />
+  );
+}
+
+function Confirmation({
+  params,
+  controller,
+}: {
+  params: GitConfirmSheetProps["route"]["params"];
+  controller: ConversationController;
+}) {
   const gt = useGT();
   const messages = useMessages();
   const navigation = useNavigation();
-  const returnToThread = useReturnToThread();
-  const repository = gitRepositoryTargetFromRoute(props.route.params);
-  const gitState = useSelectedThreadGitState(repository);
-  const gitActions = useSelectedThreadGitActions(repository);
-  const { canWriteSourceControl, canCreateFeatureBranch } = gitActions;
-  const { selectedThread, selectedThreadProject } = useThreadSelection();
-  // The overview that opened this sheet already holds the repository's status subscription.
-  const repositoryStatus = useEnvironmentQuery(
-    repository !== undefined && selectedThread !== null
-      ? vcsEnvironment.status({
-          environmentId: selectedThread.environmentId,
-          input: { cwd: repository.cwd },
-        })
-      : null,
-  );
-  const terminology = sourceControlClients.get(
-    repository === undefined
-      ? selectedThreadProject?.repositoryIdentity?.provider
-      : repositoryStatus.data?.sourceControlProvider?.kind,
-  ).changeRequest;
-
-  const params = props.route.params;
-
-  const confirmAction = params.confirmAction as
-    | "push"
-    | "create_pr"
-    | "commit_push"
-    | "commit_push_pr"
-    | undefined;
+  const git = useCheckoutGit(controller, controller.run.workingDirectory);
+  const action = params.confirmAction;
+  const confirmAction =
+    action === "push" ||
+    action === "create_pr" ||
+    action === "commit_push" ||
+    action === "commit_push_pr"
+      ? action
+      : undefined;
   const branchName = params.branchName ?? "";
-  const includesCommit = params.includesCommit === "true";
-  const environmentId = params.environmentId ?? "";
-  const threadId = params.threadId ?? "";
-
+  const includesCommit = confirmAction?.startsWith("commit") === true;
+  const terminology = sourceControlClients.get(undefined).changeRequest;
+  const canWriteSourceControl =
+    !!confirmAction &&
+    !!git.status &&
+    git.status.refName === branchName &&
+    git.canWrite &&
+    !git.busy;
+  const canCreateFeatureBranch = canWriteSourceControl;
   const copy = useMemo(
     () =>
       confirmAction
@@ -89,55 +82,20 @@ export function GitConfirmSheet(props: GitConfirmSheetProps) {
     [branchName, confirmAction, includesCommit, messages, terminology],
   );
 
-  const continuePendingAction = async () => {
-    if (!canWriteSourceControl || !confirmAction) return;
-    returnToThread({ environmentId, threadId });
-    await gitActions.onRunSelectedThreadGitAction({
-      action: confirmAction,
-      ...(params.commitMessage ? { commitMessage: params.commitMessage } : {}),
-      ...(params.filePaths ? { filePaths: params.filePaths.split(",") } : {}),
-    });
-  };
-
-  const movePendingActionToFeatureBranch = useCallback(async () => {
-    if (!canCreateFeatureBranch || !confirmAction) return;
-    returnToThread({ environmentId, threadId });
-
-    if (includesCommit) {
-      await gitActions.onRunSelectedThreadGitAction({
-        action: confirmAction,
-        featureBranch: true,
-        ...(params.commitMessage ? { commitMessage: params.commitMessage } : {}),
-        ...(params.filePaths ? { filePaths: params.filePaths.split(",") } : {}),
-      });
+  const run = async (featureBranch: boolean) => {
+    if (!confirmAction || !canWriteSourceControl || (featureBranch && !canCreateFeatureBranch))
       return;
-    }
-
-    const branches =
-      gitState.selectedThreadBranches.length > 0
-        ? gitState.selectedThreadBranches
-        : await gitActions.refreshSelectedThreadBranches();
-    if (branches === null) return;
-    const newBranchName = resolveAutoFeatureBranchName(
-      Arr.filterMap(branches, (branch) =>
-        branch.isRemote ? Result.failVoid : Result.succeed(branch.name),
-      ),
+    const completed = await git.perform(
+      {
+        action: confirmAction,
+        featureBranch,
+        ...(params.commitMessage && { commitMessage: params.commitMessage }),
+        filePaths: params.selectedPaths ?? params.filePaths?.split(","),
+      },
+      branchName,
     );
-    const created = await gitActions.onCreateSelectedThreadBranch(newBranchName);
-    if (created === null) return;
-    await gitActions.onRunSelectedThreadGitAction({ action: confirmAction });
-  }, [
-    canCreateFeatureBranch,
-    confirmAction,
-    gitActions,
-    gitState.selectedThreadBranches,
-    includesCommit,
-    params,
-    returnToThread,
-    environmentId,
-    threadId,
-  ]);
-
+    if (completed && navigation.isFocused()) navigation.goBack();
+  };
   return (
     <FitSheet
       header={<SheetHeader title={gt("Confirm action")} onClose={() => navigation.goBack()} />}
@@ -154,14 +112,14 @@ export function GitConfirmSheet(props: GitConfirmSheetProps) {
           icon="arrow.right.circle"
           label={copy?.continueLabel ?? gt("Continue")}
           disabled={!canWriteSourceControl}
-          onPress={() => void continuePendingAction()}
+          onPress={() => void run(false)}
         />
         <SheetActionButton
           icon="arrow.branch"
           label={gt("Feature branch & continue")}
           disabled={!canCreateFeatureBranch}
           tone="primary"
-          onPress={() => void movePendingActionToFeatureBranch()}
+          onPress={() => void run(true)}
         />
       </View>
     </FitSheet>

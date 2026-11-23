@@ -21,6 +21,8 @@ const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 let screenshot = ''
+/** What the page's structure read answers; 'null' reads as an empty page. */
+let structure = 'null'
 
 class FakeDriver implements BrowserSurfaceDriver {
   readonly kind = 'headless' as const
@@ -29,7 +31,9 @@ class FakeDriver implements BrowserSurfaceDriver {
   async captureScreenshot(): Promise<string> { return screenshot }
   async startScreencast(): Promise<void> {}
   async stopScreencast(): Promise<void> {}
-  async evaluate(): Promise<string> { return 'null' }
+  async evaluate(expression: string): Promise<string> {
+    return expression.includes('data-solus-browser-ref') ? structure : 'null'
+  }
   async clickAt(): Promise<void> {}
   async insertText(): Promise<void> {}
   async pressKey(): Promise<void> {}
@@ -108,4 +112,31 @@ test('a Retina capture reaches the agent scaled down, and the stored capture kee
   expect([seen.width, seen.height]).toEqual([1568, 980])
   const stored = PNG.sync.read(Buffer.from(await Bun.file(join(dataDir, 'assets', assetId!)).arrayBuffer()))
   expect([stored.width, stored.height]).toEqual([2880, 1800])
+})
+
+test('a page behind a loading screen says so before anything else, in words', async () => {
+  // WHY: the picture of a loading screen and a list of the app's buttons
+  // disagree. The result names the cover and the text on screen, so the agent
+  // waits instead of trusting one of the two.
+  screenshot = `data:image/png;base64,${ONE_PIXEL_PNG.toString('base64')}`
+  const covered = (label: string, x: number) => ({
+    role: 'button', label, rect: { x, y: 7, width: 26, height: 26 }, ref: `[data-solus-browser-ref="e${x}"]`, coveredBy: 'div#solus-boot-shell',
+  })
+  structure = JSON.stringify({
+    title: 'Solus',
+    url: 'http://127.0.0.1:5188/draft/fixture',
+    loading: true,
+    visibleText: '',
+    elements: [covered('Collapse sidebar', 82), covered('New draft', 114)],
+  })
+  try {
+    const { result } = await snapshot()
+    const [, , state, cover, text] = result.text.split('\n')
+    expect(state).toBe('state: the document is still loading.')
+    expect(cover).toStartWith('warning: div#solus-boot-shell covers most of the elements below.')
+    expect(text).toBe('visible text: (none)')
+    expect(result.text).toContain('"Collapse sidebar" @82,7 26×26  (covered by div#solus-boot-shell)')
+  } finally {
+    structure = 'null'
+  }
 })

@@ -140,6 +140,15 @@ export function sessionIdOfThread(
   return reads.byThread.get(threadId) ?? threadId
 }
 
+/** All provider ids that can name a session as the source of a fork, including before a checkout move. */
+export function providerThreadsOf(sessionId: string, db: DatabaseSync = getDb()): string[] {
+  return threadBindingRowSchema.array().parse(db.prepare(`
+    SELECT provider_session_id, session_id FROM session_lineage_members WHERE session_id = ? AND provider_session_id IS NOT NULL
+    UNION
+    SELECT provider_session_id, session_id FROM session_thread_aliases WHERE session_id = ?
+  `).all(sessionId, sessionId)).map((row) => row.provider_session_id)
+}
+
 /** The thread a session runs on now: its lineage's active thread, else the
  *  session's own id. Undefined while a provider switch waits for its thread. */
 export function activeThreadOf(sessionId: string, db: DatabaseSync = getDb()): string | undefined {

@@ -23,6 +23,8 @@
     type WorkExportRequest,
   } from "./lib/work-export";
   import { toasts } from "../../lib/toasts";
+  import { PAGE_PILL_GROUP, PAGE_PILL_ICON_BTN } from "../../lib/page-chrome";
+  import { Button } from "../ui/button";
 
   interface Props {
     /** Flips the surface's toolbar row into its rename input. */
@@ -181,16 +183,10 @@
 <!-- The header's own actions are all unfilled and all on one geometry — type
      where a word is the clearest name for it, a glyph where one is not. The
      row carries no call to action: these are the work's controls, and the
-     surface under them is what the reader came for. -->
-<div class="wha-actions">
-<!-- History: every version of the work, persistent rather than buried in
-     the overflow — it is one of the four things the header always keeps. -->
-{#if workId}
-  <button type="button" class="wha-verb" data-testid="view-changes" onclick={() => (historyOpen = true)} title="See every version of this work">
-    History
-  </button>
-{/if}
-
+     surface under them is what the reader came for. Review and Share stand
+     alone; History and the ⋯ menu share one pill, like the pull request
+     header's link group. -->
+<div class="contents">
 <!-- Who else has this work open, and who edits it now. -->
 {#if workId}
   <WorkPresence serverId={shareServerId} {workId} />
@@ -206,17 +202,33 @@
   <!-- Labelled like the session band's Share, on this row's pill geometry.
        Below the rung it leaves for the ⋯ menu, which takes it over. -->
   <span class="inline-flex shrink-0 @max-[36rem]:hidden" bind:clientWidth={shareButtonWidth}>
-    <ShareButton serverId={shareServerId} resource={shareResource} {title} labelled class="inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-background pl-2.5 pr-3 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) max-md:h-10 max-md:pl-3 max-md:pr-3.5 [&_svg]:size-[15px] [&_svg]:stroke-[1.5]" />
+    <ShareButton serverId={shareServerId} resource={shareResource} {title} labelled class="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-background pl-2.5 pr-3 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) max-md:h-10 max-md:pl-3 max-md:pr-3.5 [&_svg]:size-[15px] [&_svg]:stroke-[1.5]" />
   </span>
+{/if}
+
+<div class={PAGE_PILL_GROUP} role="group" aria-label="History and more actions">
+<!-- History: every version of the work, persistent rather than buried in
+     the overflow — it is one of the four things the header always keeps. -->
+{#if workId}
+  <Button
+    variant="ghost"
+    size="xs"
+    class="h-7 shrink-0 cursor-pointer rounded-full px-2.5 text-workspace-chrome font-normal text-foreground hover:bg-[var(--wash-1)] pointer-coarse:tap-area max-md:h-10 max-md:px-3.5"
+    data-testid="view-changes"
+    onclick={() => (historyOpen = true)}
+    title="See every version of this work"
+  >
+    History
+  </Button>
 {/if}
 
 <!-- Layout, integration & destructive actions collapse into a single overflow menu. -->
   <DropdownMenu.Root bind:open={overflowOpen}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
-        <button {...props} type="button" class="wha-overflow" class:wha-overflow--open={overflowOpen} data-testid="work-actions-menu" title="More actions" aria-label="More actions">
-          <DotsThreeIcon size={15} strokeWidth={1.5} />
-        </button>
+        <Button {...props} variant="ghost" size="icon-sm" class="{PAGE_PILL_ICON_BTN} cursor-pointer max-md:size-10" data-testid="work-actions-menu" title="More actions" aria-label="More actions">
+          <DotsThreeIcon class="size-4" strokeWidth={1.5} />
+        </Button>
       {/snippet}
     </DropdownMenu.Trigger>
     <DropdownMenu.Content side="bottom" align="end" sideOffset={6} collisionPadding={8} class="w-auto min-w-56 whitespace-nowrap">
@@ -285,6 +297,7 @@
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 </div>
+</div>
 
 {#if workId && historyOpen}
   <!-- History brings the diff and Markdown renderers; load them on first open. -->
@@ -293,88 +306,3 @@
     <WorkHistoryDialog bind:open={historyOpen} {workId} {title} type={workType} currentContent={resolvedContent} />
   {/await}
 {/if}
-
-<style>
-  /* A header verb: a raised pill, the same as the shell's own
-     (Markdown/Editor) button, so the whole cluster reads as one row of pills.
-
-     Use the shared workspace rung so these actions match the shell title
-     and controls on desktop and touch clients. */
-  .wha-verb {
-    flex-shrink: 0;
-    height: 1.625rem;
-    padding: 0 0.625rem;
-    border-radius: 9999px;
-    font-family: inherit;
-    font-size: var(--text-workspace-chrome);
-    font-weight: 400;
-    background: var(--background);
-    color: var(--foreground);
-    box-shadow:
-      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
-      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
-    border: none;
-    cursor: pointer;
-    white-space: nowrap;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium);
-  }
-  .wha-verb:hover {
-    background: var(--wash-1);
-  }
-  .wha-verb:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-
-  /* Overflow (⋯) trigger — a verb like the rest, so it stays unfilled until hover. */
-  .wha-overflow {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    width: 1.625rem;
-    height: 1.625rem;
-    border-radius: 9999px;
-    background: var(--background);
-    color: var(--foreground);
-    box-shadow:
-      0 0 0 0.5px color-mix(in oklch, var(--foreground) 5%, transparent),
-      0 2px 10px color-mix(in oklch, var(--foreground) 7%, transparent);
-    border: none;
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium),
-      transform 80ms var(--ease-premium);
-  }
-  .wha-overflow:hover,
-  .wha-overflow--open {
-    background: var(--wash-1);
-  }
-  .wha-overflow:active {
-    transform: scale(0.96);
-  }
-  .wha-overflow:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-  .wha-actions {
-    display: contents;
-  }
-  /* Mobile: the header is the formatting strip, whose buttons are 40px touch
-     targets — these have to match it or they read as a second, smaller row. */
-  @media (max-width: 767px) {
-    .wha-verb {
-      height: 2.5rem;
-    }
-    .wha-verb {
-      padding: 0 0.875rem;
-    }
-    .wha-overflow {
-      width: 2.5rem;
-      height: 2.5rem;
-    }
-  }
-</style>

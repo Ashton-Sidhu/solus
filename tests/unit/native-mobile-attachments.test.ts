@@ -174,11 +174,46 @@ describe('native send while an attachment uploads', () => {
       onChange: () => {},
     })
     await controller.load()
-    return { api, controller, uploads }
+    return { api, controller, uploads, storage }
   }
   const userTexts = (controller: ConversationController) =>
     [...controller.model.items.values()].flatMap((item) => (item.kind === 'user' ? [item.text] : []))
   const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
+
+  test('a new draft can close once its local save succeeds, before host delivery', async () => {
+    const { api, controller, uploads, storage } = await uploadingConversation()
+    const attaching = controller.attach([photo])
+    const savedIds: string[] = []
+    const sending = controller.send('Describe the photo', {
+      onQueued: id => {
+        expect(storage.keys().some(key => storage.getItem(key)?.includes(id))).toBe(true)
+        expect(api.callsOf('prompt')).toHaveLength(0)
+        savedIds.push(id)
+      },
+    })
+    await settle()
+    expect(savedIds).toHaveLength(0)
+    uploads[0]!.resolve('/h/photo.jpg')
+    await Promise.all([sending, attaching])
+    expect(savedIds).toHaveLength(1)
+    expect(api.callsOf('prompt')).toHaveLength(1)
+  })
+
+  test('a failed local save keeps the attachment for retry and leaves the draft open', async () => {
+    const { api, controller, storage, uploads } = await uploadingConversation()
+    const attaching = controller.attach([photo])
+    await settle()
+    uploads[0]!.resolve('/h/photo.jpg')
+    await attaching
+    storage.setItem = () => { throw new Error('disk full') }
+    let queued = false
+    await expect(controller.send('Describe the photo', { onQueued: () => { queued = true } }))
+      .rejects.toThrow('local outbox')
+    expect(queued).toBe(false)
+    expect(api.callsOf('prompt')).toHaveLength(0)
+    expect(userTexts(controller)).toEqual([])
+    expect(controller.attachments.map(file => file.name)).toEqual(['photo.jpg'])
+  })
 
   test('the message shows at once; the prompt goes, naming the file, when the upload lands', async () => {
     const { api, controller, uploads } = await uploadingConversation()
@@ -186,7 +221,9 @@ describe('native send while an attachment uploads', () => {
     await settle()
     expect(controller.uploading).toBe(1)
 
-    const sending = controller.send('What is wrong here?')
+    let submittedId = ''
+    const sending = controller.send('What is wrong here?', { onSubmitted: id => { submittedId = id } })
+    expect(controller.model.items.get(submittedId)?.kind).toBe('user')
     await settle()
     expect(userTexts(controller)).toEqual(['What is wrong here?'])
     // The upload belongs to the sent message now, not to the composer.
@@ -234,7 +271,8 @@ describe('native send while an attachment uploads', () => {
     await settle()
     uploads[0]!.resolve('/h/photo.jpg')
     await settle()
-    const sending = controller.send('Review these')
+    let restoreDraft = false
+    const sending = controller.send('Review these', { onUploadFailed: () => { restoreDraft = true } })
     await settle()
     uploads[1]!.reject(new Error('offline'))
     await Promise.all([attaching, sending])
@@ -244,7 +282,6 @@ describe('native send while an attachment uploads', () => {
     expect(controller.attachments.map((attachment) => attachment.name)).toEqual(['photo.jpg'])
     const notices = [...controller.model.items.values()].flatMap((item) => (item.kind === 'notice' ? [item.text] : []))
     expect(notices.some((text) => text.includes('not sent'))).toBe(true)
-    expect(controller.takeUnsentText()).toBe('Review these')
-    expect(controller.takeUnsentText()).toBeNull()
+    expect(restoreDraft).toBe(true)
   })
 })

@@ -14,6 +14,10 @@ The list has three sections, in this order:
 
 A pull request that you opened is in Authored, also when it asks for your review. The list shows sections only when Involvement is **All** and the search field is empty. In all other conditions, the list is one flat group. You can collapse and expand each section.
 
+## Review header
+
+The desktop and web header keeps the merge action in one place as the pane changes width. A narrow pane uses compact buttons and a view menu. Wider panes show action labels and view tabs, then add link shortcuts and line counts. The status rail shows merge readiness and check results. On mobile, the horizontal toolbar groups its utility buttons and the Overview tab carries the merge controls.
+
 ## Sort
 
 The default sort is **Merge readiness**:

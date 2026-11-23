@@ -29,6 +29,7 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
       .replace(/^  import .*?;\n/gm, '')
       .replace('<script lang="ts">', `<script lang="ts">
         import { SvelteSet } from 'svelte/reactivity';
+        import { scrollGuideTo } from ${JSON.stringify(new URL('packages/workspace-ui/src/components/pr-review/guide/lib/guide-scroll.ts', root).href)};
         import Stub from ${JSON.stringify(stub)};
         import Button from ${JSON.stringify(button)};
         import DiffFileCardHeader from ${JSON.stringify(cardHeader)};
@@ -51,12 +52,19 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
         observe() { if (!this.active) observing++; this.active = true; }
         disconnect() { if (this.active) observing--; this.active = false; }
       };
-      let jumped = null;
-      HTMLElement.prototype.scrollIntoView = function () { jumped = this; };
+      const viewport = document.body.appendChild(document.createElement('div'));
+      window.matchMedia = () => ({ matches: true });
+      let scrollTop;
+      viewport.scrollTo = ({ top }) => { scrollTop = top; };
+      const originalRect = HTMLElement.prototype.getBoundingClientRect;
+      HTMLElement.prototype.getBoundingClientRect = function () {
+        return { ...originalRect.call(this), top: this === viewport ? 10 : 200 };
+      };
       const { mount, unmount, flushSync } = await import(${JSON.stringify(client)});
       const { default: Section } = await import(${JSON.stringify(section)});
       const files = Array.from({ length: 13000 }, (_, i) => ({ path: 'file-' + i + '.ts', additions: 0, deletions: 0 }));
-      const app = mount(Section, { target: document.body, props: {
+      const app = mount(Section, { target: viewport, props: {
+        scrollEl: viewport,
         section: { id: 'remaining', title: 'Remaining changes', explanation: '', files },
         patchByPath: new Map(),
       } });
@@ -68,7 +76,7 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
       assert.equal(document.querySelectorAll('li button').length, 40);
       document.querySelector('li button').click();
       flushSync();
-      assert.ok(jumped?.textContent.includes('file-0.ts'));
+      assert.equal(scrollTop, 166);
       const next = [...document.querySelectorAll('nav button')].find(button => button.textContent === 'Next files');
       const previous = [...document.querySelectorAll('nav button')].find(button => button.textContent === 'Previous files');
       assert.equal(previous.disabled, true);
@@ -85,7 +93,7 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
       assert.ok(document.querySelector('li button').textContent.includes('file-12920.ts'));
       await unmount(app);
       assert.equal(observing, 0);
-      assert.equal(document.body.children.length, 0);
+      assert.equal(viewport.children.length, 0);
       dom.window.close();
     `)
     const child = Bun.spawn([process.execPath, runner], { stdout: 'pipe', stderr: 'pipe' })

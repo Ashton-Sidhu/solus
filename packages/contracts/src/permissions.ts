@@ -419,7 +419,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   tasksForSession: 'read.transcript', metricsSessionSummary: 'read.transcript', setSessionReadState: 'read.transcript',
   togglePinnedSession: 'read.transcript', sessionSuggestions: 'read.transcript',
   // Sessions — reading the changes the agent made
-  listTurnSnapshots: 'read.diffs', diff: 'read.diffs', diffFileContents: 'read.diffs', diffStats: 'read.diffs',
+  listTurnSnapshots: 'read.diffs', diff: 'read.diffs', diffFileContents: 'read.diffs', diffStats: 'read.diffs', diffStatsBatch: 'read.diffs',
   // Sessions — driving: turns, the queue, typing, and sending or dismissing a suggestion
   prompt: 'drive.prompt', compactSession: 'drive.prompt', retry: 'drive.prompt', promptHeadlessSession: 'drive.prompt',
   sessionPrepare: 'drive.prompt',
@@ -440,6 +440,9 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // What a session produced is read with the session.
   sessionArtifactsList: 'read',
   sessionTree: 'read',
+  sessionLineageHistory: 'read.transcript',
+  sessionMergeBackPrompt: 'read.transcript',
+  stopSessionSubagent: 'drive.prompt',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
   pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
   // An app's linked session: the app is its host owner's, and the edge is the session's.

@@ -50,9 +50,9 @@ export interface SessionDropInsertion {
 }
 
 /**
- * Where the dropped sessions go in `text` and what is written there. A drop on
- * a chip lands after it, never inside its source, and each chip keeps a space
- * on both sides so it stays a token.
+ * Find a text position and format the session chips for insertion. An insertion
+ * inside an existing chip moves to the end of that chip. Spaces separate the
+ * inserted chips from the surrounding text.
  */
 export function sessionDropInsertion(
   text: string,
@@ -72,8 +72,8 @@ export function sessionDropInsertion(
 const promptTargets = new Set<(references: readonly SessionReference[]) => boolean>();
 
 /**
- * The keyboard way to do what a drop does: ask the composer that has the
- * keyboard to add the sessions' chips at its caret. False when none took them.
+ * Ask the composer that has the keyboard to add the sessions' chips at its
+ * caret. False when none took them.
  */
 export function referenceSessionsInPrompt(references: readonly SessionReference[]): boolean {
   for (const insert of promptTargets) if (insert(references)) return true;

@@ -25,6 +25,14 @@ export interface WorkArtifact {
   updatedAt?: number
   /** The start of its text, as the gallery previews it (`workPreview`). Absent from a host older than the field. */
   preview?: string
+  /** A small picture of an `artifact` work as it renders. Absent until the host took one, and on a host that cannot. */
+  stills?: ArtifactStills
+}
+
+/** The asset ids of an artifact's picture, one for each appearance, on the host that read the work. */
+export interface ArtifactStills {
+  light: string
+  dark: string
 }
 
 /** One file on the session's execution host. An image file is `image`. */

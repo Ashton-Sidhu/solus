@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { RepoRef } from '@solus/contracts/providers'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import { GitHubProvider } from '@solus/server/providers/github/provider'
+import { PullRequestHead } from '@solus/contracts/repository-key'
 
 /**
  * The two GitHub reads PR sync makes (docs/plans/pr-sync.md §3.2). Their cost
@@ -98,18 +99,29 @@ describe('PR sync reads', () => {
     await expect(provider.getPullRequests(repo, [7])).rejects.toThrow()
   })
 
-  test('the branches of one lookup are one request, and a branch with no pull request answers an empty list', async () => {
+  test('the branches of one lookup are one query, and a branch with no pull request answers an empty list', async () => {
+    // WHY: each lookup asked for the branch's ref and then, when the ref was
+    // gone (as for every branch never pushed), searched by name: two queries.
+    // t3code reads the base repository's pull requests by head name once and
+    // keeps the exact head itself; so does this.
     const queries: string[] = []
     const provider = new SyncProvider(client(async (query) => {
       if (!query.includes('PrSyncByHead')) return { repository: null }
       queries.push(query)
-      return { r0: { h0: { nodes: [row(8, '2026-08-05T00:00:00Z'), row(3, '2026-08-01T00:00:00Z')] }, h1: { nodes: [] } } }
+      const feature = row(8, '2026-08-05T00:00:00Z')
+      const older = { ...row(3, '2026-08-01T00:00:00Z'), headRefName: 'feature/8' }
+      const fork = { ...row(5, '2026-08-03T00:00:00Z'), headRefName: 'feature/8', headRepository: { nameWithOwner: 'stranger/app', name: 'app', owner: { login: 'stranger' } } }
+      return { r0: { h0: { nodes: [feature, fork, older] }, h1: { nodes: [] } } }
     }))
+    const feature = new PullRequestHead(repo, 'feature/8')
+    const idle = new PullRequestHead(repo, 'idle')
 
-    const found = await provider.getPullRequestsByHead(repo, ['feature/8', 'idle'])
+    const found = await provider.getPullRequestsByHead(repo, [feature, idle])
 
     expect(queries).toHaveLength(1)
-    expect(found.get('feature/8')?.map((pullRequest) => pullRequest.number)).toEqual([8, 3])
-    expect(found.get('idle')).toEqual([])
+    expect(queries[0]).not.toContain('PrSyncByHeadRef')
+    // Another fork's branch of the same name is not this head's.
+    expect(found.get(feature.key)?.map((pullRequest) => pullRequest.number)).toEqual([8, 3])
+    expect(found.get(idle.key)).toEqual([])
   })
 })

@@ -79,6 +79,34 @@ describe('an automation runs with the preferences captured with it', () => {
   })
 })
 
+test('the scheduler uses the saved Fast Mode choice after reading the task again', async () => {
+  const store = await import('@solus/server/data/automations/automations-store')
+  const runner = await import('@solus/server/execution/automations/automation-runner')
+  const saved = await store.createAutomation('Fast digest', { ...action, fastMode: true }, await hostAttribution())
+  const reloaded = await store.loadAutomation(saved.id)
+  expect(reloaded?.action.fastMode).toBe(true)
+
+  const { promise, resolve } = Promise.withResolvers<boolean | undefined>()
+  runner.setAutomationBackgroundSessionDispatcher(async (options) => {
+    resolve(options.fastMode)
+    return { sessionId: 'fast-digest-session', done: Promise.resolve({ output: 'ok' }) }
+  })
+  const finished = Promise.withResolvers<void>()
+  const unsubscribe = store.onAutomationsChanged((event) => {
+    if (event.kind === 'run-finished' && event.automation.id === saved.id) finished.resolve()
+  })
+  try {
+    await runner.triggerAutomationRun(reloaded!)
+    await finished.promise
+    expect(await promise).toBe(true)
+  } finally {
+    unsubscribe()
+  }
+
+  await store.updateAutomation(saved.id, { action: { fastMode: false } })
+  expect((await store.loadAutomation(saved.id))?.action.fastMode).toBe(false)
+})
+
 describe('retention ownership', () => {
   test('archived automations are cleaned up by the host retention', async () => {
     const store = await import('@solus/server/data/automations/automations-store')

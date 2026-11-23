@@ -4,7 +4,7 @@ export const PullRequestGlyph = {
   pullRequest: "arrow.triangle.pull",
   draft: "git.pull-request.draft",
   closed: "git.pull-request.closed",
-  merged: "arrow.triangle.merge",
+  merged: "git.pull-request.merged",
   stack: "square.3.layers.3d",
   conflicting: "exclamationmark.triangle",
 } as const satisfies Record<string, AppSymbolName>;

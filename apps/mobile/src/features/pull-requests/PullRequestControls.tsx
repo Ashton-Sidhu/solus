@@ -268,7 +268,6 @@ export function PullRequestActionToolbar(props: {
       title={gt("AI helpers")}
       accessibilityLabel={agentActionsLabel}
       disabled={agent.disabled}
-      separateBackground
     >
       {agentActions.map((action) =>
         chooseThread && !action.disabled ? (
@@ -294,7 +293,6 @@ export function PullRequestActionToolbar(props: {
       icon={{ type: "image", source: require("../../../assets/icons/file-diff.png") }}
       accessibilityLabel={gt("Changed files")}
       onPress={openFiles}
-      separateBackground
     />
   );
   // The vertical bar never overflows into a menu, and with a Live Activity it fits about three
@@ -347,10 +345,9 @@ export function PullRequestActionToolbar(props: {
     );
   return (
     <Toolbar placement="bottom">
-      {agentControl}
-      <Toolbar.Spacer flexible />
       {primaryControl}
       <Toolbar.Spacer flexible />
+      {agentControl}
       {filesControl}
     </Toolbar>
   );

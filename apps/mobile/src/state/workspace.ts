@@ -1,4 +1,4 @@
-import { useSolusDirectory } from "../solus/runtime";
+import { useSolusWorkspace } from "../solus/runtime";
 import { Atom } from "effect/reactivity";
 
 import { environmentShell, environmentShellSummaryAtom } from "./shell";
@@ -24,15 +24,15 @@ const hasSyncingConnectedEnvironmentAtom = Atom.make((get) =>
 ).pipe(Atom.withLabel("mobile:has-syncing-connected-environment"));
 
 export function useWorkspaceEnvironments() {
-  return useSolusDirectory().environments;
+  return useSolusWorkspace().environments;
 }
 
 export function useWorkspaceConnectionState() {
-  return useSolusDirectory().state;
+  return useSolusWorkspace().state;
 }
 
 export function useConnectionsReady() {
-  return !useSolusDirectory().state.isLoadingConnections;
+  return !useSolusWorkspace().state.isLoadingConnections;
 }
 
 export const workspaceStateAtom = Atom.make((get) =>
@@ -46,5 +46,5 @@ export const workspaceStateAtom = Atom.make((get) =>
 ).pipe(Atom.withLabel("mobile:workspace-state"));
 
 export function useWorkspaceState() {
-  return useSolusDirectory();
+  return useSolusWorkspace();
 }

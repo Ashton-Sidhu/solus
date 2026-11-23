@@ -50,6 +50,7 @@ const automationActionSchema = z.object({
   agentProvider: agentProviderSchema,
   modelId: z.string().nullable(),
   reasoningEffort: reasoningEffortSchema,
+  fastMode: z.boolean().optional(),
   cwd: z.string(),
   useWorktree: z.boolean().optional(),
   planRefs: z.array(z.object({

@@ -1,20 +1,23 @@
 import { useIsFocused, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId, ThreadId, TurnItemId } from "@t3tools/contracts";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
-import { mcpAppFromToolItem } from "@t3tools/shared/toolOutput";
 import { T, useGT } from "gt-react-native";
-import { useEffect, useRef, useState } from "react";
-import { View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { useAtomValue } from "@effect/atom-react";
+import { AppProvider, useListened } from "@solus-mobile/app/app-context";
+import type { ConversationStore } from "@solus-mobile/features/conversation/conversation-store";
+import type { McpAppHost } from "@solus/client-core/mcp-app-host";
+import { McpAppWebView } from "@solus-mobile/features/threads/McpAppWebView";
+import { useSavedMcpApp } from "@solus-mobile/features/threads/use-saved-mcp-app";
 import { AppText as Text } from "../../components/ui/AppText";
+import { Button } from "../../components/ui/Button";
 import { AppBar } from "../../components/ui/AppBar";
-import { orchestrationEnvironment } from "../../state/orchestration";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { useThreadShell, useThreadShells } from "../../state/entities";
+import { linkedSessionRecord } from "../../solus/session-record";
 import { useEnvironmentQuery } from "../../state/query";
-import { ThreadMcpApp } from "./McpAppWebView";
+import { mobileHost } from "../../state/mobile-host";
+import { useThreadSession } from "../../solus/use-thread-session";
+import { solus } from "../../solus/runtime";
 
 type McpAppFullscreenScreenProps = StaticScreenProps<{
   readonly environmentId: string;
@@ -23,37 +26,6 @@ type McpAppFullscreenScreenProps = StaticScreenProps<{
   readonly itemId: string;
   readonly revision?: string;
 }>;
-
-function useConversationThreadId(
-  environmentId: EnvironmentId,
-  threadId: ThreadId,
-  requested: string | undefined,
-): ThreadId {
-  const shells = useThreadShells();
-  return requested !== undefined && descendsFrom(shells, environmentId, requested, threadId)
-    ? ThreadId.make(requested)
-    : threadId;
-}
-
-function descendsFrom(
-  shells: ReadonlyArray<EnvironmentThreadShell>,
-  environmentId: EnvironmentId,
-  threadId: string,
-  ancestorId: ThreadId,
-): boolean {
-  const parents = new Map(
-    shells
-      .filter((shell) => shell.environmentId === environmentId)
-      .filter((shell) => shell.lineage.relationshipToParent === "fork")
-      .map((shell) => [shell.id as string, shell.lineage.parentThreadId]),
-  );
-  let current: string | null | undefined = threadId;
-  for (let depth = 0; depth < 64 && current != null; depth += 1) {
-    if (current === ancestorId) return true;
-    current = parents.get(current);
-  }
-  return false;
-}
 
 /** Resolve apps from stored tool calls so links cannot supply apps the call never produced. */
 export function McpAppFullscreenScreen({ route }: McpAppFullscreenScreenProps) {
@@ -76,7 +48,7 @@ export function McpAppFullscreenScreen({ route }: McpAppFullscreenScreenProps) {
   }
   return (
     <McpAppFullscreen
-      params={route.params}
+      key={JSON.stringify([environmentId, threadId, itemId])}
       environmentId={EnvironmentId.make(environmentId)}
       threadId={ThreadId.make(threadId)}
       itemId={TurnItemId.make(itemId)}
@@ -85,102 +57,94 @@ export function McpAppFullscreenScreen({ route }: McpAppFullscreenScreenProps) {
 }
 
 function McpAppFullscreen({
-  params,
   environmentId,
   threadId,
   itemId,
 }: {
-  readonly params: McpAppFullscreenScreenProps["route"]["params"];
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-  readonly itemId: TurnItemId;
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  itemId: TurnItemId;
 }) {
-  const gt = useGT();
   const navigation = useNavigation();
-  const insets = useSafeAreaInsets();
-  // Wait for focus before goBack; an exit under another screen must not pop that screen.
+  const session = useThreadSession({ environmentId, threadId });
+  const host = useAtomValue(mobileHost(environmentId));
+  const record = useEnvironmentQuery(
+    host && session.kind === "unavailable"
+      ? linkedSessionRecord({ environmentId, input: threadId })
+      : null,
+  );
+  const request = useMemo(
+    () => ({ sessionId: threadId, activityId: itemId.replace(/^activity:/, "") }),
+    [threadId, itemId],
+  );
+  const { app, reload } = useSavedMcpApp(host?.api, request);
+  const item =
+    session.kind === "ready" ? session.store.item("activity:" + request.activityId) : null;
+  const title = item?.kind === "mcp_app" ? item.app.title : "App";
+  const [exitRequested, setExitRequested] = useState(false);
+  const close = () => setExitRequested(true);
   const focused = useIsFocused();
-  const exitPending = useRef(false);
-  const onClose = () => {
-    if (navigation.isFocused()) {
-      navigation.goBack();
-      return;
-    }
-    if (exitPending.current) return;
-    exitPending.current = true;
-    const unsubscribe = navigation.addListener("focus", () => {
-      unsubscribe();
-      navigation.goBack();
-    });
-  };
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  const conversationThreadId = useConversationThreadId(
-    environmentId,
-    threadId,
-    params.conversationThreadId,
-  );
-  const detail = useEnvironmentQuery(
-    orchestrationEnvironment.turnItem({
-      environmentId,
-      input: {
-        threadId,
-        itemId,
-        ...(params.revision === undefined ? {} : { revision: params.revision }),
-      },
-    }),
-  );
-  const item = detail.data?.item;
-  // Keep one reference per app; refetches must not rebuild the host.
-  const derived = item?.type === "dynamic_tool" ? mcpAppFromToolItem(item) : undefined;
-  const [app, setApp] = useState(derived);
-  if (derived?.attachmentId !== app?.attachmentId) setApp(derived);
-  const conversation = useThreadShell(scopeThreadRef(environmentId, conversationThreadId));
-  const awaitingUser =
-    conversation?.hasPendingApprovals === true || conversation?.hasPendingUserInput === true;
-  // A request for the user is server state with no local handler to react in.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- closes the focused screen through the navigator when the server asks the user for input or approval
   useEffect(() => {
-    if (awaitingUser && focused && !exitPending.current) navigation.goBack();
-  }, [awaitingUser, focused, navigation]);
-
+    if (exitRequested && focused) navigation.goBack();
+  }, [exitRequested, focused, navigation]);
+  const hostRef = useRef<McpAppHost | null>(null);
+  const insets = useSafeAreaInsets();
   return (
-    <View className="flex-1 bg-screen">
-      <AppBar
-        title={app?.server ?? gt("App")}
-        onClose={onClose}
-        closeAccessibilityLabel={gt("Exit full screen")}
-      />
-      <View
-        className="flex-1"
-        style={{ paddingBottom: insets.bottom }}
-        onLayout={(event) =>
-          setSize({
-            width: Math.round(event.nativeEvent.layout.width),
-            height: Math.round(event.nativeEvent.layout.height - insets.bottom),
-          })
-        }
-      >
-        {app === undefined ? (
-          detail.data === undefined ? null : (
-            <Text className="m-6 text-sm text-foreground-muted">
-              <T>This app cannot be shown.</T>
-            </Text>
-          )
-        ) : size.width > 0 ? (
-          <ThreadMcpApp
-            environmentId={environmentId}
-            threadId={threadId}
-            conversationThreadId={conversationThreadId}
-            itemId={itemId}
-            revision={params.revision ?? (item == null ? "" : turnItemDetailRevision(item))}
-            app={app}
-            width={size.width}
-            height={size.height}
-            displayMode="fullscreen"
-            onExitFullscreen={onClose}
-          />
-        ) : null}
+    <AppProvider app={solus}>
+      <View className="flex-1 bg-screen">
+        <AppBar title={title} onClose={close} closeAccessibilityLabel="Exit full screen" />
+        {!host ? (
+          <Text className="m-6">Reconnect to the session to open this app.</Text>
+        ) : record.error ? (
+          <View className="m-6">
+            <Text accessibilityRole="alert">{record.error}</Text>
+            <Button label="Try again" onPress={record.refresh} />
+          </View>
+        ) : app.phase === "error" ? (
+          <View className="m-6">
+            <Text accessibilityRole="alert">{app.message}</Text>
+            <Button label="Try again" onPress={reload} />
+          </View>
+        ) : app.phase !== "ready" || session.kind !== "ready" ? (
+          <ActivityIndicator accessibilityLabel="Loading app" />
+        ) : (
+          <View className="flex-1" style={{ paddingBottom: insets.bottom }}>
+            <CloseOnInputRequest store={session.store} />
+            <McpAppWebView
+              snapshot={app.snapshot}
+              api={host.api}
+              store={session.store}
+              request={request}
+              title={title}
+              hostRef={hostRef}
+              displayMode="fullscreen"
+              availableDisplayModes={["inline", "fullscreen"]}
+              safeAreaInsets={insets}
+              onDisplayMode={(mode) => {
+                if (mode !== "fullscreen") close();
+                return mode;
+              }}
+              onHeight={(height) => session.store.mcpAppHeights.set(request.activityId, height)}
+              onModelContext={(text) => {
+                if (text) session.store.mcpAppContexts.set(request.activityId, text);
+                else session.store.mcpAppContexts.delete(request.activityId);
+              }}
+              onClose={close}
+            />
+          </View>
+        )}
       </View>
-    </View>
+    </AppProvider>
   );
+}
+
+function CloseOnInputRequest({ store }: { store: ConversationStore }) {
+  const navigation = useNavigation();
+  const focused = useIsFocused();
+  const meta = useListened(store.meta, store.metaSnapshotOf);
+  const waiting = !!(meta.questions.length || meta.permissions.length);
+  useEffect(() => {
+    if (focused && waiting) navigation.goBack();
+  }, [focused, waiting, navigation]);
+  return null;
 }

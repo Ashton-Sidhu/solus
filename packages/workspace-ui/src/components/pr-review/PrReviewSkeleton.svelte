@@ -2,8 +2,8 @@
   import { Skeleton } from "../ui/skeleton";
 
   /**
-   * The pull request review's silhouette: the chrome band, the masthead that
-   * carries the branch refs and view tabs, and the activity column beneath it.
+   * The pull request review's silhouette: the chrome band, the view toolbar,
+   * and the activity column beneath it.
    *
    * The review is the heaviest lazy module in the workspace and it opens onto a
    * worktree it may still be fetching, so this stands in for a real wait rather
@@ -38,8 +38,10 @@
         <Skeleton class="h-3 w-12 rounded-[0.1875rem] opacity-50" />
       </div>
       <div class="flex shrink-0 items-center gap-0.5">
-        <Skeleton class="mr-1.5 h-[26px] w-20 rounded-full opacity-45" />
-        {#each [0, 1, 2, 3] as index (index)}
+        {#if embedded}
+          <Skeleton class="mr-1.5 h-[26px] w-20 rounded-full opacity-45" />
+        {/if}
+        {#each (embedded ? [0, 1, 2, 3] : [0, 1]) as index (index)}
           <Skeleton
             class="size-[26px] rounded-full opacity-45"
             style="animation-delay:{110 + index * 55}ms"
@@ -48,6 +50,16 @@
       </div>
     </div>
   </div>
+  {#if !embedded}
+    <div class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-[var(--hairline)] px-3" aria-hidden="true">
+      <Skeleton class="h-8 w-24 rounded-full opacity-55 @min-[44rem]:w-64" />
+      <div class="flex shrink-0 items-center gap-1.5">
+        <Skeleton class="size-8 rounded-full opacity-45 @min-[60rem]:w-20" />
+        <Skeleton class="h-8 w-14 rounded-full opacity-45 @min-[54rem]:w-40" />
+        <Skeleton class="size-8 rounded-full opacity-45 @min-[54rem]:w-20" />
+      </div>
+    </div>
+  {/if}
 
   {/if}
 
@@ -56,17 +68,8 @@
       class="mx-auto w-full max-w-[92rem] pt-[clamp(20px,1.8cqi,32px)] pr-8 pl-14 2xl:max-w-[104rem]"
     >
       {#if !embedded}
-      <div class="flex items-center justify-between gap-6 pb-5">
-        <div class="flex min-w-0 items-center gap-2">
-          <Skeleton class="h-3 w-32 rounded-[0.1875rem] opacity-55" />
-          <span class="opacity-30">→</span>
-          <Skeleton class="h-3 w-16 rounded-[0.1875rem] opacity-45" />
-        </div>
-        <Skeleton class="h-[30px] w-56 shrink-0 rounded-full opacity-55" />
-      </div>
-
-      <Skeleton class="h-7 w-[54%] max-w-[34rem] rounded-md opacity-70" />
-
+        <Skeleton class="mb-5 h-3 w-32 rounded-[0.1875rem] opacity-55" />
+        <Skeleton class="h-7 w-[54%] max-w-[34rem] rounded-md opacity-70" />
       {/if}
 
       <div class="flex flex-col gap-5 pt-9">

@@ -1,7 +1,9 @@
 import { z } from 'zod'
-import { resumeHistoryPage } from '../../data/sessions/history-blocks'
+import { HistoryPageManifests, resumeHistoryPage } from '../../data/sessions/history-blocks'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { readSessionTree } from '../../data/sessions/session-digests'
+import { sessionTreeRelations } from '../../data/sessions/session-tree-relations'
+import { hostStarterOf } from '@solus/contracts/session-starter'
 import type { AgentId, ExchangeProgress, IpcContext, SessionMeta, SessionTitleChangedEvent } from '@solus/contracts/types'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
@@ -28,7 +30,7 @@ import type { HostEventPublisher } from '../events/host-event-publisher'
 import { projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
 import { storePromptImages } from '../../data/assets/transcript-images'
 import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
-import { MAX_SESSION_TOOL_INPUTS, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
+import { MAX_SESSION_TOOL_INPUTS, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { activityFor, historyWindow, mergePageActivity, mergeWindowActivity, pageWindow, readActivityPageCursor, type ActivityWindow } from '../../data/activity/activity'
 
 const log = createLogger('main', 'history-handlers')
@@ -75,9 +77,27 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
 
   // A session and the sessions below it (docs/plans/session-digests.md), read in
   // the session's own organization, as its artifacts are.
-  server.register('sessionTree', async (args) => {
-    const [sessionId] = args
-    return readSessionTree(await organizationOfSession(sessionId), sessionId)
+  server.register('sessionTree', async (args, ctx) => {
+    const [sessionId, includeRelations] = args
+    const scope = await organizationOfSession(sessionId)
+    const tree = await readSessionTree(scope, sessionId)
+    if (includeRelations !== true) return tree
+    const root = tree.nodes[0]?.record
+    if (!root || root.sessionId !== sessionId) return tree
+    const relations = await sessionTreeRelations(scope, root)
+    const visible = await Promise.all(relations.map((relation) =>
+      server.handle('getSessionInfo', [relation.sessionId], ctx).then(Boolean, () => false)))
+    const links = relations.filter((_, index) => visible[index])
+    const origin = hostStarterOf(root.startedBy)
+    if (origin && origin.sessionId !== sessionId && !links.some((link) => link.sessionId === origin.sessionId)) {
+      // The destination already shows these starter facts in its transcript.
+      // Opening that session uses the reader's own connection on its host.
+      links.unshift({
+        kind: 'parent', sessionId: origin.sessionId, title: origin.hostLabel,
+        runnerHostId: null, hostLabel: origin.hostLabel,
+      })
+    }
+    return { ...tree, relations: links }
   })
 
   // The collaboration plane's session records (docs/plans/cloud-service-model.md).
@@ -144,6 +164,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
+  const manifests = new HistoryPageManifests()
   server.register('loadSessionPage', async ([input], handlerCtx) => {
     const startedAt = Date.now()
     const request = z.object({
@@ -158,11 +179,23 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const profileStartedAt = performance.now()
     const cursor = readActivityPageCursor(request.before)
     const pageRequest = { ...request, before: cursor.before }
-    const page: SessionHistoryPage = isApiMode()
+    const mirrored = isApiMode()
+    const source = mirrored
       ? await readTranscriptPage(recordScopeOf(handlerCtx.principal), pageRequest.sessionId, pageRequest.turnLimit, pageRequest.before)
-      : await sessionRuntime.history.loadSessionPage(pageRequest).then((loaded) => ({ messages: projectSessionHistory(storePromptImages(loaded.messages)), before: loaded.before }))
+      : await sessionRuntime.history.loadSessionPage(pageRequest)
     const historyReadyAt = performance.now()
-    const { messages, before } = mergePageActivity(page, await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(page, cursor.at)), cursor.at)
+    const activity = await sessionActivityOf(handlerCtx, request.sessionId, pageWindow(source, cursor.at))
+    const key = request.knownHistoryBlocks && manifests.sourceKey(
+      mirrored ? 'mirror' : request.provider, request.sessionId, !!request.deferArtifactHtml, cursor.at, source, activity)
+    if (key && request.knownHistoryBlocks) {
+      const resumed = manifests.resume(key, request.knownHistoryBlocks)
+      if (resumed) {
+        recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: 0 })
+        return resumed
+      }
+    }
+    const page = mirrored ? source : { ...source, messages: projectSessionHistory(storePromptImages(source.messages)) }
+    const { messages, before } = mergePageActivity(page, activity, cursor.at)
     const activityReadyAt = performance.now()
     recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
     log.info('session_history_page_loaded', {
@@ -175,8 +208,9 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       before,
     }
     const result = request.knownHistoryBlocks ? resumeHistoryPage(full, request.knownHistoryBlocks) : full
+    if (key) manifests.remember(key, result, full.messages)
     const preparedAt = performance.now()
-    const bytes = serializedBytes(result)
+    const bytes = isDebugEnabled() ? serializedBytes(result) : undefined
     log.info('session_history_response_profile', {
       sessionId: request.sessionId, provider: request.provider, olderPage: !!request.before,
       messageCount: result.messages.length, bytes,

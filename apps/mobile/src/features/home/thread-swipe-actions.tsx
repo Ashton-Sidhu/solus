@@ -97,12 +97,12 @@ function fullActionStackHeight(labelLineHeight: number, fontScale: number) {
 
 function resolveSecondaryAction(input: {
   readonly close: () => void;
-  readonly onDelete: () => void;
+  readonly onDelete?: (() => void) | undefined;
   readonly secondaryAction: ThreadSwipeAction | null | undefined;
   readonly threadTitle: string;
   readonly resolve: MessageResolver;
 }): ThreadSwipeSecondaryAction | null {
-  if (input.secondaryAction === null) return null;
+  if (input.secondaryAction === null || (input.secondaryAction === undefined && !input.onDelete)) return null;
   if (input.secondaryAction === undefined) {
     return {
       accessibilityLabel: input.resolve(msg("Delete {title}", { title: input.threadTitle })),
@@ -111,7 +111,7 @@ function resolveSecondaryAction(input: {
       label: input.resolve(msg("Delete", { $context: "verb, swipe action that deletes a thread" })),
       onPress: () => {
         input.close();
-        input.onDelete();
+        input.onDelete?.();
       },
     };
   }
@@ -242,7 +242,7 @@ interface ThreadSwipeableProps {
   readonly fullSwipeWidth: number;
   /** The list animates item layout; collapse in one step so its transition moves siblings once. */
   readonly listAnimatesLayout?: boolean;
-  readonly onDelete: () => void;
+  readonly onDelete?: (() => void) | undefined;
   readonly onSwipeableClose?: (methods: SwipeableMethods) => void;
   readonly onSwipeableWillOpen?: (methods: SwipeableMethods) => void;
   readonly primaryAction: ThreadSwipeAction;
@@ -260,11 +260,11 @@ const COLLAPSED_ROW_STYLE = { height: 0, overflow: "hidden" } as const;
 export function ThreadSwipeable(props: ThreadSwipeableProps) {
   const m = useMessages();
   const swipeableRef = useRef<SwipeableMethods | null>(null);
-  const hasSecondaryAction = props.secondaryAction !== null;
+  const hasSecondaryAction = props.secondaryAction !== null && (props.secondaryAction !== undefined || !!props.onDelete);
   const actionsWidth = swipeActionsWidth(hasSecondaryAction);
   const fullSwipeThreshold = Math.max(actionsWidth + 44, props.fullSwipeWidth * 0.58);
   const fullSwipeAction =
-    props.fullSwipeAction ?? (props.secondaryAction === undefined ? "delete" : "primary");
+    props.fullSwipeAction ?? (props.secondaryAction === undefined && props.onDelete ? "delete" : "primary");
   const close = useCallback(() => swipeableRef.current?.close(), []);
   const gateEnabled = use(SwipeableScrollGateContext);
   const mountedRef = useRef(true);
@@ -434,7 +434,7 @@ export function ThreadSwipeable(props: ThreadSwipeableProps) {
     if (fullSwipeAction === "primary") commitPrimaryAction();
     else {
       swipeableRef.current?.close();
-      onDelete();
+      onDelete?.();
     }
   }, [commitPrimaryAction, content, fullSwipeAction, onDelete]);
   const handleRelease = useCallback(

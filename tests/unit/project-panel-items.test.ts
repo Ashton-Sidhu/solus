@@ -9,6 +9,7 @@ import {
   isGitActionRowShown,
   isPanelItemShown,
   isSectionShown,
+  projectPanelSections,
   withPanelItemShown,
 } from '../../packages/workspace-ui/src/components/project-panel/lib/panel-items'
 
@@ -78,9 +79,16 @@ describe('project panel items', () => {
 
   test('the empty state waits until the last section is hidden, and reset clears it', () => {
     const everySection = PROJECT_PANEL_SECTIONS.map((section) => section.id)
-    expect(allPanelItemsHidden(everySection)).toBe(true)
-    expect(allPanelItemsHidden(everySection.filter((id) => id !== 'webhooks'))).toBe(false)
-    expect(allPanelItemsHidden(['environment', 'git', 'goal', 'agents', 'git.timeline'])).toBe(false)
-    expect(allPanelItemsHidden([])).toBe(false)
+    expect(allPanelItemsHidden(everySection, true)).toBe(true)
+    expect(allPanelItemsHidden(everySection.filter((id) => id !== 'webhooks'), true)).toBe(false)
+    expect(allPanelItemsHidden(['environment', 'git', 'goal', 'agents', 'git.timeline'], true)).toBe(false)
+    expect(allPanelItemsHidden([], true)).toBe(false)
+  })
+
+  test('only desktop can choose Agents, and web can still hide every available section', () => {
+    const hidden = projectPanelSections(false).map((section) => section.id)
+    expect(hidden).not.toContain('agents')
+    expect(allPanelItemsHidden(hidden, false)).toBe(true)
+    expect(allPanelItemsHidden(hidden, true)).toBe(false)
   })
 })

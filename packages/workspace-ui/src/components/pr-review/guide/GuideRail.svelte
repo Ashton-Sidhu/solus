@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { requestInputFocus } from "../../../lib/inputFocus";
+  import { guideVisibleTop, guideScrollTop, scrollGuideTo } from "./lib/guide-scroll";
   import NavigationRail from "../../ui/navigation-rail/NavigationRail.svelte";
 
   let {
@@ -17,8 +17,16 @@
 
   let activeIndex = $state(0);
   let sectionTops: number[] = [];
+  let visibleTop = 0;
+  let jump: { id: string; destination: number } | null = null;
 
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function cancelJump() {
+    jump = null;
+  }
+
+  function destination(el: HTMLElement, node: HTMLElement) {
+    return Math.max(0, Math.min(guideScrollTop(el, node, 32), el.scrollHeight - el.clientHeight));
+  }
 
   function nodeFor(id: string): HTMLElement | null {
     return scrollEl?.querySelector(`[data-guide-section-id="${CSS.escape(id)}"]`) ?? null;
@@ -30,23 +38,36 @@
       sectionTops = [];
       return;
     }
+    visibleTop = guideVisibleTop(el);
     const containerTop = el.getBoundingClientRect().top;
     sectionTops = items.map((item) => {
       const node = nodeFor(item.id);
       return node ? el.scrollTop + node.getBoundingClientRect().top - containerTop : Infinity;
     });
+    // Diffs above the selected section replace their placeholders as they enter
+    // view. A smooth scroll keeps its original pixel destination through reflow.
+    if (jump) {
+      const node = nodeFor(jump.id);
+      if (node) {
+        const top = destination(el, node);
+        if (Math.abs(top - jump.destination) > 1) {
+          jump.destination = top;
+          el.scrollTo({ top, behavior: "instant" });
+        }
+      } else cancelJump();
+    }
     recompute();
   }
 
   function recompute() {
     const el = scrollEl;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+    const atBottom = el.clientHeight > 0 && el.scrollHeight > el.clientHeight && el.scrollHeight - el.scrollTop - el.clientHeight < 8;
     if (atBottom) {
       activeIndex = Math.max(0, items.length - 1);
       return;
     }
-    const marker = el.scrollTop + ACTIVE_LINE;
+    const marker = el.scrollTop + visibleTop + ACTIVE_LINE;
     let lo = 0;
     let hi = sectionTops.length - 1;
     let active = 0;
@@ -86,13 +107,29 @@
     untrack(rebuildSectionTops);
     const ro = new ResizeObserver(scheduleRebuild);
     ro.observe(el);
+    // The overview can wrap or finish rendering after the section sizes settle.
+    const overview = el.querySelector(".guide-intro");
+    if (overview) ro.observe(overview);
     const sectionResizeObserver = new ResizeObserver(scheduleRebuild);
     for (const item of items) {
       const node = nodeFor(item.id);
       if (node) sectionResizeObserver.observe(node);
     }
     el.addEventListener("scroll", schedule, { passive: true });
+    const transcript = el.closest("[data-conversation-tab-id]");
+    const controller = new AbortController();
+    const options = { signal: controller.signal, passive: true };
+    for (const event of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+      el.addEventListener(event, cancelJump, options);
+    }
+    transcript?.addEventListener("scroll", () => {
+      cancelJump();
+      visibleTop = guideVisibleTop(el);
+      schedule();
+    }, options);
     return () => {
+      controller.abort();
+      cancelJump();
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
       if (rebuildRaf) cancelAnimationFrame(rebuildRaf);
       ro.disconnect();
@@ -107,33 +144,12 @@
     untrack(rebuildSectionTops);
   });
 
-  function animateScrollTo(el: HTMLElement, target: number) {
-    const clamped = Math.max(0, Math.min(target, el.scrollHeight - el.clientHeight));
-    if (reduceMotion) {
-      el.scrollTop = clamped;
-      return;
-    }
-    const start = el.scrollTop;
-    if (Math.abs(start - clamped) < 1) return;
-    const startTime = performance.now();
-    const duration = 340;
-    const ease = (t: number) => 1 - (1 - t) ** 3;
-    const step = (now: number) => {
-      const t = Math.min((now - startTime) / duration, 1);
-      el.scrollTop = start + (clamped - start) * ease(t);
-      if (t < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  }
-
   function goTo(id: string) {
     const el = scrollEl;
     const node = nodeFor(id);
     if (!el || !node) return;
-    const target =
-      el.scrollTop + (node.getBoundingClientRect().top - el.getBoundingClientRect().top) - 32;
-    animateScrollTo(el, target);
-    requestInputFocus();
+    jump = { id, destination: destination(el, node) };
+    scrollGuideTo(el, node, 32);
   }
 </script>
 

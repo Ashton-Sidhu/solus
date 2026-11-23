@@ -1,110 +1,71 @@
-import { useFocusEffect } from "@react-navigation/native";
+import { hostQuery } from "./host-query";
 import { usesWindowFilter, visibleInWindow } from "@solus/client-core/organization-filter";
-import { EnvironmentId, type OrchestrationProjectShell } from "@t3tools/contracts";
-import type { ArchivedSnapshotEntry } from "@t3tools/client-runtime/state/threads";
-import { useCallback, useReducer, useState, useSyncExternalStore } from "react";
+import type {
+  EnvironmentId,
+  OrchestrationProjectShell,
+  OrchestrationV2ArchivedShellSnapshot,
+} from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
+import { mobileHost } from "../state/mobile-host";
 import { sessionShell } from "./session";
 import { solus } from "./runtime";
 
-async function readArchive(
-  hostId: string,
-  organizationId: string | null,
-): Promise<ArchivedSnapshotEntry> {
-  const connection = solus.connections.connection(hostId);
-  if (!connection) throw new Error("Host disconnected");
-  const { records } = await connection.api.sessionRecordList({
-    scope: "all",
-    includeWorktrees: true,
-  });
-  const filter = usesWindowFilter(hostId, solus.threads.managedHostIds());
-  const threads = records
-    .filter(
-      (record) =>
-        record.view?.archivedAt != null &&
-        visibleInWindow(record.organizationId, organizationId, filter),
-    )
-    .map((record) => sessionShell(record));
-  const projects = new Map<string, OrchestrationProjectShell>();
-  const knownProjects = new Map(
-    solus.threads
-      .projects()
-      .filter((row) => row.hostId === hostId)
-      .map(({ project }) => [project.path, project]),
-  );
-  for (const thread of threads) {
-    if (projects.has(thread.projectId)) continue;
-    const project = knownProjects.get(thread.projectId);
-    const createdAt = new Date(thread.createdAt.epochMilliseconds).toISOString();
-    projects.set(thread.projectId, {
-      id: thread.projectId,
-      title:
-        project?.folderName ??
-        (thread.projectId === "~"
-          ? "Home folder"
-          : thread.projectId.split("/").filter(Boolean).pop() || thread.projectId),
-      workspaceRoot: thread.projectId,
-      defaultModelSelection: null,
-      scripts: [],
-      createdAt: project?.addedAt ?? createdAt,
-      updatedAt: project?.lastUsedAt ?? createdAt,
+const readArchive = hostQuery(
+  async (hostId, _input: null): Promise<OrchestrationV2ArchivedShellSnapshot> => {
+    const api = solus.connections.connection(hostId)?.api;
+    if (!api) throw new Error("Host disconnected");
+    const organizationId = solus.account.organizationId;
+    const { records } = await api.sessionRecordList({
+      scope: "all",
+      includeWorktrees: true,
     });
-  }
-  return {
-    environmentId: EnvironmentId.make(hostId),
-    snapshot: { schemaVersion: 1, snapshotSequence: 0, threads, projects: [...projects.values()] },
-  };
-}
+    const filter = usesWindowFilter(hostId, solus.threads.managedHostIds());
+    const threads = records
+      .filter(
+        (record) =>
+          record.view?.archivedAt != null &&
+          visibleInWindow(record.organizationId, organizationId, filter),
+      )
+      .map((record) => sessionShell(record));
+    const projects = new Map<string, OrchestrationProjectShell>();
+    const knownProjects = new Map(
+      solus.threads
+        .projects()
+        .filter((row) => row.hostId === hostId)
+        .map(({ project }) => [project.path, project]),
+    );
+    for (const thread of threads) {
+      if (projects.has(thread.projectId)) continue;
+      const project = knownProjects.get(thread.projectId);
+      const createdAt = new Date(thread.createdAt.epochMilliseconds).toISOString();
+      projects.set(thread.projectId, {
+        id: thread.projectId,
+        title:
+          project?.folderName ??
+          (thread.projectId === "~"
+            ? "Home folder"
+            : thread.projectId.split("/").filter(Boolean).pop() || thread.projectId),
+        workspaceRoot: thread.projectId,
+        defaultModelSelection: null,
+        scripts: [],
+        createdAt: project?.addedAt ?? createdAt,
+        updatedAt: project?.lastUsedAt ?? createdAt,
+      });
+    }
+    return { schemaVersion: 1, snapshotSequence: 0, threads, projects: [...projects.values()] };
+  },
+  0,
+);
 
-export function useSolusArchive(connectedHosts: ReadonlySet<EnvironmentId>) {
-  const hostKey = [...connectedHosts].sort().join("\n");
-  const organizationId = useSyncExternalStore(
-    solus.account.changes.subscribe,
-    () => solus.account.organizationId,
+export const archivedSnapshotAtom = Atom.family((id: EnvironmentId) => {
+  const source = readArchive({ environmentId: id, input: null });
+  return Atom.readable(
+    (get) => {
+      const host = get(mobileHost(id));
+      if (host)
+        get.addFinalizer(host.events.subscribe("session.viewChanged", () => get.refresh(source)));
+      return get(source);
+    },
+    (refresh) => refresh(source),
   );
-  const [generation, refresh] = useReducer((value: number) => value + 1, 0);
-  const [result, setResult] = useState<{
-    hostKey: string;
-    organizationId: string | null;
-    snapshots: ArchivedSnapshotEntry[];
-    error: string | null;
-    isLoading: boolean;
-  } | null>(null);
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      const hostIds = hostKey ? hostKey.split("\n") : [];
-      setResult((previous) => previous && { ...previous, isLoading: true });
-      void Promise.allSettled(hostIds.map((id) => readArchive(id, organizationId))).then(
-        (reads) => {
-          if (!active) return;
-          const snapshots = reads.flatMap((read) =>
-            read.status === "fulfilled" ? [read.value] : [],
-          );
-          const errors = reads.flatMap((read, i) =>
-            read.status === "rejected" ? [hostIds[i] + ": " + String(read.reason)] : [],
-          );
-          setResult({
-            hostKey,
-            organizationId,
-            snapshots,
-            error:
-              errors.join("\n") ||
-              (hostIds.length ? null : "Connect to a host to see archived sessions."),
-            isLoading: false,
-          });
-        },
-      );
-      return () => {
-        active = false;
-      };
-    }, [hostKey, organizationId, generation]),
-  );
-  const current =
-    result?.hostKey === hostKey && result.organizationId === organizationId ? result : null;
-  return {
-    snapshots: current?.snapshots ?? [],
-    error: current?.error ?? null,
-    isLoading: current?.isLoading ?? true,
-    refresh,
-  };
-}
+});

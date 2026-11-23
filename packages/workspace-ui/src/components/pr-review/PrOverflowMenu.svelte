@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
+  import * as Tooltip from "../ui/tooltip";
+  import { PAGE_PILL_GROUP, PAGE_PILL_ICON_BTN, PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import {
     ExternalLink as ArrowSquareOutIcon,
     RotateCw as ArrowClockwiseIcon,
@@ -7,12 +8,12 @@
     Copy as CopyIcon,
     Ellipsis as DotsThreeIcon,
     ClipboardCheck as GuideIcon,
-    GitPullRequest as GitPullRequestIcon,
     Hammer as HammerIcon,
     Link as LinkIcon,
     Pen as PencilSimpleIcon,
     Undo2 as UndoIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import { tick } from "svelte";
   import type {
     PrLifecycleAction,
@@ -22,6 +23,7 @@
   import type { ReviewGuideStatus } from "@solus/contracts/review";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { copyText, toasts } from "../../lib/toasts";
+  import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import PrActionConfirm from "./PrActionConfirm.svelte";
   import { prMenuHostActions } from "./lib/merge-readiness";
@@ -39,6 +41,8 @@
    */
   let {
     detail,
+    inHeader = false,
+    number,
     hostName,
     headRef,
     prUrl,
@@ -56,6 +60,8 @@
     onRevert,
   }: {
     detail: PullRequest | null;
+    inHeader?: boolean;
+    number?: number;
     /** The code host, for the "Open on …" row. */
     hostName?: string;
     /** The head branch, for the copy row — the one ref you might want to type. */
@@ -90,6 +96,9 @@
   );
   const canOpenGuide = $derived(!!onOpenGuide && !!guideStatus && !generatingGuide);
   const guideOutdated = $derived(guideStatus === "outdated");
+  const openPageLabel = $derived(
+    `Open on ${hostName?.includes("github") ? "GitHub" : (hostName ?? "remote")}`,
+  );
 
   const showRevert = $derived(
     !!onRevert && !!detail && prMenuHostActions(detail, null).revert,
@@ -175,30 +184,75 @@
   }
 </script>
 
-<button
-  bind:this={triggerEl}
-  type="button"
-  class="{PAGE_SOFT_ICON_BTN} relative {open ? 'bg-[var(--wash-1)]! text-foreground!' : ''}"
-  aria-label={guideOutdated
-    ? "More pull request actions — guide is outdated"
-    : "More pull request actions"}
-  aria-haspopup="menu"
-  aria-expanded={open}
-  title={guideOutdated ? "Guide is outdated" : "More actions"}
-  onclick={() => (open = !open)}
+<div
+  class={inHeader ? PAGE_PILL_GROUP : "contents"}
+  role={inHeader ? "group" : undefined}
+  aria-label={inHeader ? "Pull request links and more actions" : undefined}
 >
-  <DotsThreeIcon class="size-[15px]" strokeWidth={1.5} />
-  {#if guideOutdated}
+  {#if number !== undefined}
     <span
-      class="absolute top-[3px] right-[3px] size-[5px] rounded-full bg-primary"
-      aria-hidden="true"
-    ></span>
+      class="inline-flex h-7 shrink-0 items-center gap-1.5 px-2 text-workspace-chrome tabular-nums text-foreground"
+      data-testid="pr-panel-number"
+    >
+      <GitPullRequestIcon class="hidden size-4 text-muted-foreground @min-[30rem]/band:block" aria-hidden="true" />
+      #{number}
+    </span>
   {/if}
-  <span
-    class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
-    aria-hidden="true"
-  ></span>
-</button>
+  {#if inHeader && prUrl}
+    {@const url = prUrl}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="{PAGE_PILL_ICON_BTN} hidden cursor-pointer @min-[60rem]/band:inline-flex"
+      aria-label="Copy pull request link"
+      title="Copy link"
+      onclick={() => void copy(url)}
+    >
+      <LinkIcon class="size-4" strokeWidth={1.5} aria-hidden="true" />
+    </Button>
+  {/if}
+  {#if inHeader && onOpenPage}
+    {@const openPage = onOpenPage}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      class="{PAGE_PILL_ICON_BTN} hidden cursor-pointer @min-[60rem]/band:inline-flex"
+      aria-label={openPageLabel}
+      title={openPageLabel}
+      onclick={() => void runAction(openPage)}
+    >
+      <ArrowSquareOutIcon class="size-4" strokeWidth={1.5} aria-hidden="true" />
+    </Button>
+  {/if}
+
+  <Tooltip.Root disabled={open}>
+    <Tooltip.Trigger onclick={() => (open = !open)}>
+      {#snippet child({ props })}
+        <Button
+          {...props}
+          bind:ref={triggerEl}
+          variant="ghost"
+          size={inHeader ? "icon-sm" : "icon-xs"}
+          class="relative cursor-pointer {inHeader ? PAGE_PILL_ICON_BTN : PAGE_SOFT_ICON_BTN}"
+          aria-label={guideOutdated
+            ? "More pull request actions — guide is outdated"
+            : "More pull request actions"}
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
+          <DotsThreeIcon class="size-4" strokeWidth={1.5} aria-hidden="true" />
+          {#if guideOutdated}
+            <span
+              class="absolute top-[3px] right-[3px] size-[5px] rounded-full bg-primary"
+              aria-hidden="true"
+            ></span>
+          {/if}
+        </Button>
+      {/snippet}
+    </Tooltip.Trigger>
+    <Tooltip.Content side="bottom" value={guideOutdated ? "More actions · Guide is outdated" : "More actions"} />
+  </Tooltip.Root>
+</div>
 
 <DropdownMenu.Root bind:open>
   <DropdownMenu.Content
@@ -235,7 +289,7 @@
       {@const openPage = onOpenPage}
       <DropdownMenu.Item onSelect={() => void runAction(openPage)}>
         <ArrowSquareOutIcon size={14} />
-        Open on {hostName?.includes("github") ? "GitHub" : (hostName ?? "remote")}
+        {openPageLabel}
       </DropdownMenu.Item>
     {/if}
     <DropdownMenu.Item

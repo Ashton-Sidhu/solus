@@ -13,27 +13,35 @@
   } from "@solus/client-core/recent-artifacts";
   import { HostMediaUrl } from "../../../lib/host-media-url.svelte";
   import FileIcon from "../../ui/file-icon/FileIcon.svelte";
-  import { artifactTitle, artifactTooltip } from "./lib/artifact-list";
+  import { artifactTitle, artifactTooltip, workPagePreview } from "./lib/artifact-list";
 
   /**
    * One item of the Threads surface's row: a small picture of it, its name,
    * and how long ago it was last opened, changed, or added. A written work
-   * shows the start of its text; an image shows itself; anything else shows
-   * its icon. A pin marks a pinned work.
+   * shows the start of its text; an artifact shows the host's still of its
+   * render, in the current appearance; an image shows itself; anything else,
+   * and an artifact before its still is taken, shows its icon. A pin marks a
+   * pinned work.
    */
   interface Props {
     item: RecentArtifact;
     /** The host that holds the session's files. */
     serverId: string;
+    /** Which still of an artifact to show. */
+    isDark: boolean;
     now: number;
     onOpen: () => void;
   }
-  let { item, serverId, now, onOpen }: Props = $props();
+  let { item, serverId, isDark, now, onOpen }: Props = $props();
 
   const artifact = $derived(item.owned.artifact);
   const title = $derived(artifactTitle(artifact));
   const age = $derived(recentArtifactAge(item, now));
-  const image = new HostMediaUrl(() => (artifact.kind === "image" ? { serverId, path: artifact.path } : null));
+  const image = new HostMediaUrl(() => {
+    if (artifact.kind === "image") return { serverId, path: artifact.path };
+    if (artifact.kind === "work" && artifact.stills) return { serverId, assetId: isDark ? artifact.stills.dark : artifact.stills.light };
+    return null;
+  });
 </script>
 
 <button
@@ -49,11 +57,17 @@
     class="relative block h-22 w-full overflow-hidden rounded-xl bg-(--solus-tx-card-bg) shadow-[shadow:var(--solus-tx-card-shadow)] transition-shadow duration-(--duration-base) ease-(--ease-premium) group-hover:shadow-[0_0_0_1px_color-mix(in_oklch,var(--foreground)_14%,transparent)]"
   >
     {#if artifact.kind === "work" && artifact.workType !== "artifact"}
-      <!-- The page itself, at a size that reads as a page: its title, then the start of its text. -->
-      <span class="flex h-full flex-col gap-1 px-2.5 pt-2">
-        <span class="line-clamp-1 text-[8px] leading-[1.3] font-semibold text-foreground">{title}</span>
-        <span class="line-clamp-6 text-[6.5px] leading-[1.45] text-muted-foreground">{artifact.preview ?? ""}</span>
+      {@const page = workPagePreview(title, artifact.preview)}
+      <!-- The page itself, at a size that reads as a page: its heading, then its paragraphs. Its foot fades where the card cuts it. -->
+      <span class="flex h-full flex-col gap-1 overflow-hidden px-2.5 pt-2 [mask-image:linear-gradient(to_bottom,black_75%,transparent)]">
+        <span class="line-clamp-1 shrink-0 text-[8px] leading-[1.3] font-semibold text-foreground">{page.heading}</span>
+        {#each page.paragraphs as paragraph, i (i)}
+          <span class="shrink-0 text-[6.5px] leading-[1.45] break-words text-muted-foreground">{paragraph}</span>
+        {/each}
       </span>
+    {:else if artifact.kind === "work" && image.url}
+      <!-- The top of the artifact, as it renders in the conversation. -->
+      <img src={image.url} alt="" class="h-full w-full object-cover object-top" loading="lazy" decoding="async" />
     {:else if artifact.kind === "work"}
       <span class="flex h-full items-center justify-center bg-[color-mix(in_oklab,var(--solus-art-6)_12%,transparent)] text-[color-mix(in_oklab,var(--solus-art-6)_72%,var(--foreground))]">
         <HtmlArtifactIcon size={22} strokeWidth={1.5} />

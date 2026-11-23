@@ -10,6 +10,7 @@ import { expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
   enabled: true,
+  connected: true,
   generate: vi.fn(),
   query: {
     data: null as { run: { _tag: "Running" | "Completed" | "Failed" } | null } | null,
@@ -36,11 +37,14 @@ vi.mock("@react-navigation/native", async () => {
   return { NavigationContext, useFocusEffect };
 });
 vi.mock("@effect/atom-react", () => ({
-  useAtomValue: (atom: unknown) =>
-    atom === "settings" ? { reviewGuidesEnabled: mocks.enabled } : true,
+  useAtomValue: () => true,
 }));
-vi.mock("../../../state/server", () => ({
-  serverEnvironment: { settingsValueAtom: () => "settings" },
+vi.mock("../../../state/workspace", () => ({
+  useWorkspaceEnvironments: () =>
+    ["environment", "other-environment"].map((environmentId) => ({
+      environmentId,
+      isEnabled: mocks.enabled,
+    })),
 }));
 vi.mock("../../../state/pull-requests", () => ({
   composerPullRequests: {
@@ -53,7 +57,7 @@ vi.mock("../../../state/query", () => ({
   useEnvironmentQuery: (number: number) => ({ ...(number === 1 ? mocks.query : mocks.otherQuery) }),
 }));
 vi.mock("../../../state/use-atom-command", () => ({ useAtomCommand: () => mocks.generate }));
-vi.mock("../usePullRequestConnected", () => ({ usePullRequestConnected: () => true }));
+vi.mock("../usePullRequestConnected", () => ({ usePullRequestConnected: () => mocks.connected }));
 vi.mock("../usePullRequestDiff", () => ({
   pullRequestTarget: (params: unknown) => params,
 }));
@@ -83,6 +87,7 @@ function createNavigation() {
 function setup() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.enabled = true;
+  mocks.connected = true;
   mocks.generate = vi.fn().mockResolvedValue(AsyncResult.success(undefined));
   mocks.query = { data: null, isPending: false, refresh: vi.fn() };
   mocks.otherQuery = { data: null, isPending: false, refresh: vi.fn() };
@@ -299,4 +304,16 @@ it("leaves generation running when hidden and accepts its completion without a r
   screen.render();
   expect(mocks.query.refresh).toHaveBeenCalledTimes(beforeHidden + 1);
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("opens the saved guide while offline and waits for the host before refreshing", () => {
+  using screen = setup();
+  mocks.connected = false;
+  screen.render();
+  expect(screen.current.enabled).toBe(true);
+  expect(screen.current.canWrite).toBe(false);
+  expect(mocks.query.refresh).not.toHaveBeenCalled();
+  mocks.connected = true;
+  screen.render();
+  expect(mocks.query.refresh).toHaveBeenCalledTimes(1);
 });

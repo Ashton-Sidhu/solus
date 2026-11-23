@@ -1,7 +1,7 @@
 // Frame-level chrome shared between the shells and the full-page sub-views
 // (Folio, Plans, Settings, Tasks, Pull requests) that host the frame's
 // affordances inline in their own headers. This is a one-way published
-// projection: readers (FrameExpandButton and page headers) must never write it.
+// projection: readers (FramePanelButton and page headers) must never write it.
 //
 // Two shells publish into it, and each owns a disjoint set of fields:
 //   - WorkspaceBody's mirror effect owns the sidebar / project-panel pair
@@ -16,7 +16,7 @@ class FrameChromeStore {
   /** False only when the rail is off screen and the column has room to show
    *  it, including a rail a narrow column hid on its own. */
   projectPanelOpen = $state(false)
-  expandSidebar = $state<(() => void) | null>(null)
+  toggleSidebar = $state<(() => void) | null>(null)
   toggleProjectPanelFromFrame = $state<(() => void) | null>(null)
   /** Opens the mobile navigation drawer — the surface carrying the section list
    *  and the task list. Null on every shell that has no drawer. */

@@ -6,7 +6,7 @@ import { activeSurface, makePane, type PaneEntry } from '@solus/workspace-ui/con
 import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 import { RouterStore } from '@solus/workspace-ui/contexts/workspace/routing/router.store.svelte'
 import type { ClientShellContext } from '@solus/workspace-ui/contexts/app/client-shell.svelte'
-import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
+import { folderLocation, runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 import type { RunConfig } from '@solus/contracts/types'
 
 // Run the production methods with a small mounted-workspace fixture. The full
@@ -15,7 +15,7 @@ const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/wo
 const parsed = ts.createSourceFile('workspace.ts', source, ts.ScriptTarget.Latest, true)
 const workspace = parsed.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === 'WorkspaceContext')
 if (!workspace) throw new Error('WorkspaceContext declaration missing')
-const selected = ['isSessionVisible', 'isSessionVisibleOnHost', 'showsConversation']
+const selected = ['isSessionVisible', 'isSessionVisibleOnHost', 'showsConversation', 'closeTab']
 const methods = workspace.members.filter((node) => node.name && selected.includes(node.name.getText(parsed)))
 if (methods.length !== selected.length) throw new Error('Workspace visibility methods missing')
 const fixtureCode = new Bun.Transpiler({ loader: 'ts' }).transformSync(`class Visibility {
@@ -39,9 +39,14 @@ interface VisibilityFixture {
   chatTabIn(paneId: string): string | null
   visibleSession(sessionId: string): boolean
   isSessionVisibleOnHost(serverId: string, sessionId: string): boolean
+  closeTab(tabId: string): void
 }
 
-const Visibility: new () => VisibilityFixture = new Function('findOpenTabForSession', `${fixtureCode}; return Visibility`)(findOpenTabForSession)
+const noop = () => {}
+const Visibility: new () => VisibilityFixture = new Function(
+  'findOpenTabForSession', 'runHost', 'removeDraft', 'disposeGitActions', 'removePersistedTab', 'track',
+  `${fixtureCode}; return Visibility`,
+)(findOpenTabForSession, runHost, noop, noop, noop, noop)
 
 function fixture(hasCompanionPanes = false): VisibilityFixture {
   const view = new Visibility()
@@ -78,6 +83,29 @@ describe('which mounted conversations are visible', () => {
     view.router.destination = { name: 'tasks', params: {} }
     expect(view.visibleSession('first')).toBe(false)
     expect(view.isSessionVisibleOnHost('host-a', 'first')).toBe(false)
+  })
+
+  test.each(['prs', 'chat'] as const)('closing the last session on %s opens a draft only for chat', (name) => {
+    const view = fixture()
+    delete view.tabs.companion
+    view.tabOrder = ['primary']
+    view.router.destination = { name, params: {} }
+    Object.assign(view.router, { closeSurfacesWhere: noop, dropStrip: noop })
+    Object.assign(view, {
+      sessionFor: () => undefined,
+      tabIdsForSession: () => [],
+      apiFor: () => ({ unwatchSession: async () => {} }),
+      lifecycle: { disposeSession: noop },
+      cloudTranscripts: { release: noop },
+      drafts: { openSessionDraft: () => {
+        view.router.destination = { name: 'draft', params: { draftId: 'new' } }
+      } },
+    })
+
+    view.closeTab('primary')
+
+    expect(view.tabOrder).toEqual([])
+    expect(view.router.destination.name).toBe(name === 'chat' ? 'draft' : 'prs')
   })
 
   test('wide layouts count a visible companion only on its own host', () => {

@@ -53,6 +53,8 @@ A phase stays registered until it ends, so a second Stop on a turn whose work ig
 
 ## A Codex turn that ignores Stop
 
+Codex can return a turn ID before the turn is active. If it refuses the interrupt with `no active turn to interrupt`, Solus retries when Codex reports `turn/started` for that turn. Prompts sent while the provider run is still stopping wait in the queue until the run exits.
+
 Stop sends `turn/interrupt` and starts a 15 s bound (`STOP_CONFIRM_TIMEOUT_MS` in `codex-backend.ts`). If Codex has not ended the turn by then, Solus settles the run as `interrupted`, so the session leaves its turn and its queue moves on. Nothing is killed at the bound. A second Stop before the bound is a force stop: Solus unloads only that thread from its app-server (`thread/unsubscribe`), which ends its turn and terminals; the app-server and its other threads keep running. A turn that ignored Stop is also force stopped when the next prompt starts a run on its thread, so the old turn cannot take that prompt. Events of a turn whose run Solus already settled are dropped, and `turn/start` refuses a turn that an earlier run started.
 
 ## Stop before the prompt reaches the host

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Activity as ActivityIcon, LibraryBig as LibraryIcon, Workflow as WorkflowIcon } from "@lucide/svelte";
   import { appsStore } from "../../contexts/apps/apps.store.svelte";
   import { getSettingsContext, serversStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -16,6 +17,7 @@
   } from "../../lib/sidebar-places";
   import type { PanelMenuAnchor } from "../project-panel/lib/panel-items";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { GitPullRequestIcon, IssueOpenedIcon } from "../ui/octicons";
 
   /** The choice of what the places column shows (docs/plans/sidebar-places-and-sky.md):
    *  a right-click in the column and the Settings row open this one. On a
@@ -103,6 +105,17 @@
           (shown) => settings.setPersonal("sidebarPlaces", withPlaceShown(layout, place.id, shown))
         }
       >
+        {#if place.id === "tasks"}
+          <IssueOpenedIcon />
+        {:else if place.id === "prs"}
+          <GitPullRequestIcon />
+        {:else if place.id === "insights"}
+          <ActivityIcon />
+        {:else if place.id === "automations"}
+          <WorkflowIcon />
+        {:else if place.id === "workspace"}
+          <LibraryIcon />
+        {/if}
         {place.label}
       </DropdownMenu.CheckboxItem>
     {/each}

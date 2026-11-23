@@ -12,6 +12,7 @@ export type SessionSettledBy = 'person' | 'pull-request' | 'task' | 'idle'
 /** What every person sees of a session: whether something other than a
  *  person found its work finished — its pull requests or its task. */
 export interface SessionState {
+  autoSettleDisabledAt?: number | undefined
   /** When the session became settled. Null while it is not settled. */
   settledAt: number | null
   settledBy: SessionSettledBy | null
@@ -20,6 +21,8 @@ export interface SessionState {
 /** One person's own view of a session. It changes that person's list, and
  *  nobody else's. */
 export interface SessionView {
+  pinOrderKey?: string | undefined
+  activeOrderKey?: string | undefined
   /** When this person last read the session, in epoch milliseconds. */
   viewedAt?: number | undefined
   /** When this person settled the session. */
@@ -48,9 +51,12 @@ export interface SessionChanged {
   view?: SessionView
 }
 
-/** A change to one session. Each field changes only the caller's own view;
- *  making a session active again also clears a shared settle. */
+/** List order, archive, snooze, and personal settle belong to the caller.
+ *  An editor can change automatic settlement and clear a shared settle. */
 export interface SessionChange {
+  autoSettle?: boolean | undefined
+  pinOrderKey?: string | undefined
+  activeOrderKey?: string | undefined
   /** Settle it in the caller's list, or make a settled one active again. */
   settled?: boolean
   /** Take it out of the caller's list, or return it. */

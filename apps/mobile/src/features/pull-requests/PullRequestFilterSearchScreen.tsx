@@ -1,3 +1,5 @@
+import { useHostQueryTargets } from "../../state/host-query-scope";
+import { composerPullRequests } from "../../state/pull-requests";
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { LegendList } from "@legendapp/list/react-native";
 import { useAtomValue } from "@effect/atom-react";
@@ -17,7 +19,6 @@ import { Platform } from "react-native";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SelectionRow } from "../../components/ui/SelectionRow";
-import { solusPrFilterOptions, sourceScope } from "../../solus/source-control";
 import { useDebouncedValue } from "../../state/queries";
 import { pullRequestFilterChoices, pullRequestLabelColors } from "./pullRequestList";
 import { PullRequestLabelDot } from "./PullRequestLabelDot";
@@ -42,7 +43,7 @@ const optionsFamily = Atom.family((key: string) => {
     readonly input: PullRequestFilterOptionsInput;
   }[] = JSON.parse(key);
   return Atom.make((get) => {
-    const results = targets.map((target) => get(solusPrFilterOptions(target)));
+    const results = targets.map((target) => get(composerPullRequests.filterOptions(target)));
     return {
       values: results.flatMap((result) => Option.toArray(AsyncResult.value(result))),
       waiting: results.some((result) => result.waiting),
@@ -64,10 +65,9 @@ export function PullRequestFilterSearchScreen({
   const sent = useDebouncedValue(typed, 250);
   // Until the search catches up with the typing, the host's answers are for older text.
   const settled = sent === typed;
-  const key = JSON.stringify(
+  const targets = useHostQueryTargets(
     environmentIds.map((id) => ({
       environmentId: EnvironmentId.make(id),
-      scope: sourceScope(id),
       input: {
         kind,
         ...(controls.projectId ? { projectId: ProjectId.make(controls.projectId) } : {}),
@@ -75,7 +75,7 @@ export function PullRequestFilterSearchScreen({
       },
     })),
   );
-  const hosted = useAtomValue(optionsFamily(key));
+  const hosted = useAtomValue(optionsFamily(JSON.stringify(targets)));
   const selectedLabels = controls.filters.labels?.flat() ?? [];
   const author = controls.filters.author;
   const selected = kind === "labels" ? selectedLabels : author ? [author] : [];

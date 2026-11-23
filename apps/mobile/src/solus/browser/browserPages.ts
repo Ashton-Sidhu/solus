@@ -1,3 +1,8 @@
+import {
+  browserTabTitleValue,
+  browserTabUrl,
+  latestTabBy,
+} from "../../features/browser/browserTabValues";
 // Adapted from T3 Code apps/mobile/src/features/browser/browserTabs.ts (MIT, see UPSTREAM.md).
 import { BROWSER_BLANK_URL, type BrowserPage } from "@solus/contracts/browser-types";
 
@@ -6,35 +11,27 @@ export function latestBrowserPage(
   pages: ReadonlyArray<BrowserPage>,
   sessionId: string,
 ): BrowserPage | null {
-  const used = pages
-    .filter((page) => page.agentUse?.sessionId === sessionId)
-    .reduce<BrowserPage | null>(
-      (latest, page) =>
-        latest === null || page.agentUse!.at > latest.agentUse!.at ? page : latest,
-      null,
-    );
+  const used = pages.filter((page) => page.agentUse?.sessionId === sessionId);
   return (
-    used ??
-    pages.reduce<BrowserPage | null>(
-      (latest, page) => (latest === null || page.createdAt > latest.createdAt ? page : latest),
-      null,
-    )
+    latestTabBy(used, (page) => page.agentUse!.at) ?? latestTabBy(pages, (page) => page.createdAt)
   );
 }
 
-export function browserPageUrl(page: BrowserPage) {
-  return page.url === BROWSER_BLANK_URL ? "" : page.url;
+function browserTab(page: BrowserPage) {
+  return {
+    navStatus:
+      page.url === BROWSER_BLANK_URL
+        ? { _tag: "Idle" as const }
+        : { _tag: "Success" as const, url: page.url, title: page.title },
+  };
 }
 
-export function browserPageTitle(page: BrowserPage) {
-  if (page.title.trim()) return page.title;
-  const url = browserPageUrl(page);
-  if (!url) return "New tab";
-  try {
-    return new URL(url).host || url;
-  } catch {
-    return url;
-  }
+export function browserPageUrl(page: BrowserPage) {
+  return browserTabUrl(browserTab(page));
+}
+
+export function browserPageTitle(page: BrowserPage, newTab = () => "New tab") {
+  return browserTabTitleValue(browserTab(page), () => (page.title.trim() ? page.title : newTab()));
 }
 
 /** What the viewer says about who is using the page. Solus has no control lease: a person and an agent share it. */

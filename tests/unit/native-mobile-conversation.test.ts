@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { MobileSessionCache } from '../../apps/mobile/solus-core/features/threads/session-cache'
 import { PullRequestCache, memoryPullRequestCacheDatabase } from '@solus/client-core/pull-request-cache'
+import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { HostRpcError, TransportDisconnectedError } from '@solus/client-core/rpc-error'
 import { REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
@@ -74,6 +75,28 @@ const texts = (controller: ConversationController) => controller.model.order.map
 })
 
 describe('native conversation: history and live events', () => {
+  test('a saved page shows its session link without the agent instruction', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const typed = 'Review [the earlier session](session://ref?sessionId=prior&provider=codex).'
+    const content = [
+      typed,
+      '',
+      '[Referenced Session: "the earlier session" (session_id: prior, provider: codex)]',
+      'Call read_session with session_id "prior" to read its transcript before responding.',
+    ].join('\n')
+    const saved = page([userRow(content, 'm1')])
+    await cache.saveHistory('thread-1', saved)
+    const pending = Promise.withResolvers<SessionHistoryPage>()
+    const { controller } = await open({ api: baseApi().on('loadSessionPage', () => pending.promise), sessionCache: cache })
+    const loading = controller.load()
+    await flushPromises()
+    expect(texts(controller)).toEqual([`user:${typed}`])
+    pending.resolve(saved)
+    await loading
+    expect(texts(controller)).toEqual([`user:${typed}`])
+    controller.close()
+  })
+
   test('opens the cached page before the host replies and removes it when the host denies access', async () => {
     const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
     await cache.saveHistory('thread-1', page([userRow('cached', 'm0')], 'older'))
@@ -92,6 +115,39 @@ describe('native conversation: history and live events', () => {
     expect(controller.phase).toMatchObject({ kind: 'error', noAccess: true })
     expect(texts(controller)).toEqual([])
     expect(await cache.history('thread-1')).toBeNull()
+    controller.close()
+  })
+
+  test('a completed navigation prefetch paints immediately while the session description is still pending', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const description = Promise.withResolvers<null>()
+    const api = baseApi().on('describeSession', () => description.promise)
+    const { controller, connection } = await open({ api, sessionCache: cache })
+    await prefetchSessionHistoryPage(connection.api, { ...controller.historySource, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true }, 3_000, cache.historyScope(connection.state.sessionGeneration))
+    const loading = controller.load()
+    expect(texts(controller)).toEqual(['user:hello', 'assistant:hi there'])
+    const painted = controller.model
+    description.resolve(null)
+    await loading
+    expect(controller.model).toBe(painted)
+    expect(api.callsOf('loadSessionPage')).toHaveLength(1)
+    expect((await cache.history('thread-1'))?.messages).toHaveLength(2)
+    controller.close()
+  })
+
+  test('a cold open shows the first authorized page while the host still describes the session', async () => {
+    const cache = new MobileSessionCache(new PullRequestCache(memoryPullRequestCacheDatabase()), () => 'account').forHost('inst-a')
+    const description = Promise.withResolvers<null>()
+    const api = baseApi().on('describeSession', () => description.promise)
+    const { controller } = await open({ api, sessionCache: cache })
+    const loading = controller.load()
+    await flushPromises()
+    expect(texts(controller)).toEqual(['user:hello', 'assistant:hi there'])
+    const firstModel = controller.model
+    description.resolve(null)
+    await loading
+    expect(controller.model).toBe(firstModel)
+    expect((await cache.history('thread-1'))?.messages).toHaveLength(2)
     controller.close()
   })
 
@@ -207,6 +263,22 @@ describe('native conversation: history and live events', () => {
     expect(texts(controller)).toEqual(['user:first ever', 'user:hello'])
     expect(api.callsOf('loadSessionPage')[1]?.[0]).toMatchObject({ before: 'cursor-1', turnLimit: 20 })
     expect(controller.model.olderCursor).toBeNull()
+  })
+
+  test('a failed older page keeps its rows and cursor until a retry succeeds', async () => {
+    const api = baseApi().on('loadSessionPage', (request: SessionHistoryPageRequest) => {
+      if (request.before) throw new Error('Host offline')
+      return page([userRow('newest', 'm1')], 'earlier')
+    })
+    const { controller } = await open({ api })
+    await controller.load()
+    await controller.loadOlder()
+    expect(controller.model.history).toMatchObject({ historyCursor: 'earlier', loading: false, error: 'Host offline' })
+    expect(texts(controller)).toEqual(['user:newest'])
+    api.on('loadSessionPage', () => page([userRow('older', 'm0')], null))
+    await controller.loadOlder()
+    expect(controller.model.history).toMatchObject({ historyCursor: null, loading: false, error: null })
+    expect(texts(controller)).toEqual(['user:older', 'user:newest'])
   })
 
   test('reads the first page while the session is described, and again only when the thread moved provider', async () => {
@@ -591,6 +663,20 @@ describe('native saved artifact bodies', () => {
     { role: 'tool', toolId: 'render', toolName: 'render_artifact', toolInput: '{"html_path":"/tmp/render.html"}', content: '', timestamp: 1 },
     { role: 'tool_result', toolResultForId: 'render', status: 'ok', content: '', artifactWorkRef: { workId: 'w', title: 'Chart', contentVersion: 2 }, timestamp: 2 },
   ])
+  test('a deferred render reads its original HTML if the saved work version is gone', async () => {
+    const rows = artifactPage()
+    rows.messages[0] = { ...rows.messages[0]!, toolInput: '{}', toolInputKey: 'a'.repeat(64) }
+    const api = baseApi().on('loadSessionPage', () => rows)
+      .on('loadWork', () => null).on('loadWorkRevisions', () => [])
+      .on('loadSessionToolInputs', () => [{ key: 'a'.repeat(64), toolInput: JSON.stringify({ html: '<p>Original</p>' }) }])
+    const { controller } = await open({ api })
+    await controller.load()
+    const id = controller.model.order.find(id => controller.model.items.get(id)?.kind === 'artifact')!
+    expect(api.callsOf('loadSessionToolInputs')).toHaveLength(0)
+    await controller.ensureArtifact(id)
+    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Original</p>' })
+    controller.close()
+  })
   test('an old card reads its saved revision, with one request shared by mounted readers', async () => {
     const api = baseApi().on('loadSessionPage', artifactPage)
       .on('loadWork', () => ({ id: 'w', content: 'latest', contentVersion: 3 }))
@@ -757,5 +843,46 @@ test('the watch RPC can answer before its replay reaches the socket', async () =
   transport.emitSession('thread-1', { type: 'pending_input_sync', pendingInputEvents: [] })
   transport.emitSession('thread-1', { type: 'text_chunk', text: 'After replay' })
   expect(texts(controller)).toEqual(['user:check', 'assistant:Reading', 'tool', 'assistant:After replay'])
+  controller.close()
+})
+
+test('a reset resumes a confirmed live turn without replacing its rows or fetching history', async () => {
+  const api = baseApi()
+  const { controller, transport } = await open({ api })
+  await controller.load()
+  const model = controller.model
+  transport.emit('session.eventReceived', { sessionId: 'thread-1', cursor: 'epoch.1', event: { type: 'text_chunk', text: 'first' } })
+  api.on('watchSession', () => {
+    transport.emit('session.eventReceived', { sessionId: 'thread-1', cursor: 'epoch.2', event: { type: 'text_chunk', text: ' second' } })
+    return { resumed: true }
+  })
+  await transport.accept(false)
+  await flushPromises()
+  expect(api.callsOf('watchSession').at(-1)?.[0]).toMatchObject({ afterEvent: 'epoch.1' })
+  expect(api.callsOf('loadSessionPage')).toHaveLength(1)
+  expect(controller.model).toBe(model)
+  expect(texts(controller).at(-1)).toBe('assistant:first second')
+  api.on('watchSession', () => ({ resumed: true }))
+  await transport.accept(false)
+  await flushPromises()
+  expect(api.callsOf('watchSession').at(-1)?.[0]).toMatchObject({ afterEvent: 'epoch.2' })
+  expect(api.callsOf('loadSessionPage')).toHaveLength(1)
+  transport.emit('session.eventReceived', { sessionId: 'thread-1', cursor: 'epoch.3', event: { type: 'text_chunk', text: ' third' } })
+  api.on('watchSession', () => ({ resumed: false }))
+  await transport.accept(false)
+  await flushPromises()
+  expect(api.callsOf('loadSessionPage')).toHaveLength(2)
+  expect(controller.model).not.toBe(model)
+  controller.close()
+})
+
+test('a draft reuses uploaded files on the same host and only carries device files across hosts', async () => {
+  const image = { id: 'image', name: 'photo.png', kind: 'image' as const, mimeType: 'image/png', hostPath: '/host/photo', size: 12, dataUrl: null, localUri: 'file:///picked.png' }
+  const { controller } = await open({ api: baseApi(), target: { hostId: 'inst-a', newSession: { sessionId: 'draft', provider: 'codex', workingDirectory: '/repo', attachments: [image] } } })
+  expect(controller.filesForDraftCheckout('inst-a')).toEqual({ uploaded: [image], picked: [] })
+  expect(controller.filesForDraftCheckout('inst-b')).toEqual({ uploaded: [], picked: [{ name: image.name, mimeType: image.mimeType, size: image.size, uri: image.localUri }] })
+  controller.attachments = [{ ...image, localUri: undefined }]
+  expect(() => controller.filesForDraftCheckout('inst-b')).toThrow('only copy')
+  expect(controller.attachments[0]?.id).toBe('image')
   controller.close()
 })

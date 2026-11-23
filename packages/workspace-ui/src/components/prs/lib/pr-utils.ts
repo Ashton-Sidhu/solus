@@ -1,13 +1,9 @@
 import { matchesPrLabels } from '@solus/client-core/pr-label-filters'
 import type { PrSort } from '@solus/contracts/pr-views'
 import { comparePrs } from '@solus/client-core/pr-sort'
-import {
-    GitBranch as GitBranchIcon,
-    GitMerge as GitMergeIcon,
-    GitPullRequest as GitPullRequestIcon,
-    CircleAlert as WarningCircleIcon,
-  } from "@lucide/svelte";
-  import type { PullRequest } from '@solus/contracts/providers'
+import { CircleAlert as WarningCircleIcon } from '@lucide/svelte'
+import type { PullRequest } from '@solus/contracts/providers'
+import { GitMergeIcon, GitPullRequestIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon } from '../../ui/octicons'
 import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
 import { matchesPrText } from './pr-search-query'
 
@@ -114,7 +110,7 @@ export function prStatusBadge(
 ): PrStatusBadge | null {
   if (!detail) return null
   if (detail.draft && detail.state === 'open') {
-    return { label: 'Draft', Icon: GitBranchIcon, tone: 'var(--solus-text-tertiary)' }
+    return { label: 'Draft', Icon: GitPullRequestDraftIcon, tone: 'var(--solus-text-tertiary)' }
   }
   if (hasMergeConflicts(detail)) {
     return { label: 'Merge conflicts', Icon: WarningCircleIcon, tone: 'var(--solus-art-negative)' }
@@ -123,7 +119,7 @@ export function prStatusBadge(
     return { label: 'Merged', Icon: GitMergeIcon, tone: 'var(--review)' }
   }
   if (detail.state === 'closed') {
-    return { label: 'Closed', Icon: GitPullRequestIcon, tone: 'var(--failure)' }
+    return { label: 'Closed', Icon: GitPullRequestClosedIcon, tone: 'var(--failure)' }
   }
   return { label: 'Open', Icon: GitPullRequestIcon, tone: 'var(--success)' }
 }

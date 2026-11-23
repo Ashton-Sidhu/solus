@@ -48,7 +48,7 @@ if (isEmbedded || allowStandalone) {
 }
 
 function boot() {
-document.documentElement.classList.add('solus-demo')
+document.documentElement.classList.add('solus-demo', 'is-mac-workspace')
 const fixtures = demoFixtures
 const backend = new DemoBackend()
 const store = new DemoStore(fixtures)
@@ -114,8 +114,7 @@ mount(App, { target: root })
 mount(WebToaster, { target: root })
 
 // The demo has no window frame of its own, so it draws the controls the desktop
-// app gets from macOS. `solus-demo` on the root is what reserved the corner for
-// them, one frame earlier, when the window context read it.
+// app gets from macOS. The root classes reserve the same corner for them.
 const windowControlsEl = document.createElement('div')
 document.body.appendChild(windowControlsEl)
 mount(DemoWindowControls, { target: windowControlsEl })

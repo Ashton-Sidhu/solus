@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { mergeProps } from "bits-ui";
+  import * as Tooltip from "../ui/tooltip";
   import type { Snippet } from "svelte";
-  import { MessageSquareCheck as ReviewIcon } from "@lucide/svelte";
+  import { ChevronDown, MessageSquareCheck as ReviewIcon } from "@lucide/svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
@@ -22,21 +24,31 @@
 <Popover.Root bind:open>
   <Popover.Trigger>
     {#snippet child({ props })}
-      <Button
-        {...props}
-        type="button"
-        variant="ghost"
-        size="xs"
-        class="h-6.5 shrink-0 gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome font-normal text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:tap-area @max-[56rem]/band:px-[5.5px] @max-[56rem]/band:pointer-coarse:px-[12.5px]"
-        aria-label={draftCount > 0 ? `Review, ${draftCount} pending comments` : "Review"}
-        title={hint ? `Submit a review (${hint} to approve)` : "Submit a review"}
-      >
-        <ReviewIcon class="size-[15px]" strokeWidth={1.5} aria-hidden="true" />
-        <span class="@max-[56rem]/band:hidden">Review</span>
-        {#if draftCount > 0}
-          <span class="tabular-nums text-muted-foreground">{draftCount}</span>
-        {/if}
-      </Button>
+      <Tooltip.Root disabled={open}>
+        <Tooltip.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <Button
+              {...mergeProps(tooltipProps, props)}
+              type="button"
+              variant="ghost"
+              size="xs"
+              class="h-7 shrink-0 gap-1.5 rounded-full px-2.5 text-workspace-chrome font-normal text-foreground hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:tap-area @max-[54rem]/band:px-[5px] @max-[54rem]/band:pointer-coarse:px-[12.5px]"
+              aria-label={draftCount > 0 ? `Review, ${draftCount} pending comments` : "Review"}
+            >
+              <ReviewIcon class="hidden size-4 @max-[54rem]/band:block" strokeWidth={1.5} aria-hidden="true" />
+              <span class="@max-[54rem]/band:hidden">Review</span>
+              {#if draftCount > 0}
+                <span class="tabular-nums text-muted-foreground">{draftCount}</span>
+              {/if}
+              <ChevronDown class="size-3 text-muted-foreground @max-[54rem]/band:hidden" aria-hidden="true" />
+            </Button>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content
+          side="bottom"
+          value={hint ? `Submit a review (${hint} to approve)` : "Submit a review"}
+        />
+      </Tooltip.Root>
     {/snippet}
   </Popover.Trigger>
   <Popover.Content

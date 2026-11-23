@@ -6,6 +6,7 @@
     LoaderCircle as SpinnerIcon,
   } from "@lucide/svelte";
   import { SubagentHistoryStore, type SubagentHistoryState } from "@solus/client-core/subagent-history-store";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { providerSubagentMessages } from "./lib/subagent-history";
   import { getSessionRecords, getSurfaceContext } from "../../contexts";
   import CopyButton from "../ui/CopyButton.svelte";
@@ -17,6 +18,7 @@
   import { subagentTranscriptText } from "./lib/tool-trace";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { runHost, workingPlace } from "../../contexts/workspace/run-location";
+  import { sessionTreeStore } from "../../contexts/sessions/session-tree.store.svelte";
 
   /**
    * A sub-agent's run, read as a conversation: the brief the main agent wrote,
@@ -26,9 +28,11 @@
    */
   interface Props {
     sessionId: string;
-    messageId: string;
+    serverId?: string;
+    messageId?: string;
+    requestedToolId?: string;
   }
-  let { sessionId, messageId }: Props = $props();
+  let { sessionId, serverId, messageId, requestedToolId }: Props = $props();
 
   const sessions = getSessionRecords();
   const surface = getSurfaceContext();
@@ -36,19 +40,24 @@
   const isUnderStrip = underStrip();
 
   const currentSession = $derived(sessions.byId[sessionId]);
+  $effect(() => {
+    if (requestedToolId && serverId && !currentSession) return sessionTreeStore.retain(serverId, sessionId);
+  });
+  const node = $derived(requestedToolId && serverId && !currentSession
+    ? sessionTreeStore.viewFor(sessionId, serverId).tree?.nodes[0] : undefined);
   const message = $derived(
-    currentSession?.messages.find((m) => m.id === messageId),
+    currentSession?.messages.find((m) => requestedToolId ? m.toolId === requestedToolId : m.id === messageId),
   );
 
   // A call without recorded child rows reads its provider history from the
   // host. The store is keyed on plain values, so an unrelated change to the
   // run does not start a new read.
-  const toolId = $derived(message?.toolId);
-  const provider = $derived(currentSession?.run.provider);
-  const projectPath = $derived(currentSession ? workingPlace(currentSession.run).path : undefined);
+  const toolId = $derived(requestedToolId ?? message?.toolId);
+  const provider = $derived((requestedToolId ? currentSession?.threadProvider : null) ?? currentSession?.run.provider ?? node?.record.provider);
+  const projectPath = $derived(currentSession ? workingPlace(currentSession.run).path : node?.record.projectPath);
   const history = $derived(
     toolId && provider
-      ? new SubagentHistoryStore(surface.apiForSession(sessionId), { sessionId, toolId, provider, projectPath })
+      ? new SubagentHistoryStore(requestedToolId && serverId ? serverConnections.apiFor(serverId) : surface.apiForSession(sessionId), { sessionId, toolId, provider, projectPath })
       : null,
   );
   let saved = $state<SubagentHistoryState | null>(null);
@@ -89,7 +98,7 @@
   const childMessages = $derived(message?.subMessages?.length ? message.subMessages : restored);
   // A live run keeps its own rows; only a restored run is given the read ones.
   const messages = $derived(
-    !message ? []
+    !message ? restored
       : message.subMessages?.length ? subagentConversation(message)
         : subagentConversation({ ...message, subMessages: restored }),
   );
@@ -144,13 +153,15 @@
       <span class="no-drag shrink-0">
         <CopyButton text={copyText} title="Copy transcript" />
       </span>
+    {:else if history}
+      <h2 class="m-0 min-w-0 flex-1 truncate leading-tight font-medium">Sub-agent</h2>
     {/if}
   </div>
 
-  {#if message}
+  {#if message || history}
     <div class="min-h-0 flex-1 overflow-y-auto" bind:this={scroller} onscroll={onScroll}>
       <div class="mx-auto flex w-full max-w-(--solus-reading-max) flex-col px-6 pt-4 pb-8">
-        {#if !message.subMessages?.length && history}
+        {#if !message?.subMessages?.length && history}
           <div class="mb-3 flex min-h-11 items-center gap-4 text-workspace-chrome text-(--solus-text-tertiary)">
             <button
               type="button"
@@ -173,11 +184,13 @@
           </div>
           {#if saved?.phase === "error"}
             <p role="alert" class="mb-3 text-(--solus-status-error)">{saved.error}</p>
+          {:else if !message && saved?.phase === "ready" && !messages.length}
+            <p class="mb-3 text-(--solus-text-tertiary)">No sub-agent activity is available.</p>
           {/if}
         {/if}
         <RecordTranscript
           {messages}
-          serverId={runHost(currentSession?.run) ?? ""}
+          serverId={serverId ?? runHost(currentSession?.run) ?? ""}
           planFor={() => undefined}
           workFor={() => undefined}
         />
@@ -194,7 +207,8 @@
     </div>
   {:else}
     <div class="px-4 py-6 text-(--solus-text-tertiary)">
-      This sub-agent is no longer available.
+      {requestedToolId && serverId && !currentSession && sessionTreeStore.viewFor(sessionId, serverId).loading
+        ? "Loading sub-agent…" : "This sub-agent is no longer available."}
     </div>
   {/if}
 </div>

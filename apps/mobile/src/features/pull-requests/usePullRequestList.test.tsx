@@ -69,10 +69,10 @@ vi.mock("../../state/pull-requests", async () => {
   };
 });
 
-vi.mock("../../solus/source-control", async () => {
-  const { composerPullRequests } = await import("../../state/pull-requests");
-  return { solusPrList: composerPullRequests.list, sourceScope: () => "test" };
-});
+vi.mock("../../state/host-query-scope", () => ({
+  useHostQueryTargets: (targets: readonly { environmentId: string }[]) =>
+    targets.map((target) => ({ ...target, scope: "account" })),
+}));
 
 import { usePullRequestList } from "./usePullRequestList";
 

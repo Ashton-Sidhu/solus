@@ -160,10 +160,11 @@ const EMPTY_THREAD_SEQUENCE_ATOM = Atom.make(0);
 export function appendReviewCommentToDraft(input: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
+  readonly draftKey?: string;
   readonly text: string;
   readonly attachments?: ReadonlyArray<DraftComposerImageAttachment>;
-}): void {
-  const threadKey = scopedThreadKey(input.environmentId, input.threadId);
+}): boolean {
+  const threadKey = input.draftKey ?? scopedThreadKey(input.environmentId, input.threadId);
   const upgraded = upgradeLegacyContextMessage(input.text);
   if (
     !insertComposerDraftContext(
@@ -175,7 +176,7 @@ export function appendReviewCommentToDraft(input: {
       m(msg("Too many context items")),
       m(msg("Remove some context from the draft and try again.")),
     );
-    return;
+    return false;
   }
   if (input.attachments && input.attachments.length > 0) {
     const rejectedCount = appendComposerDraftAttachments(threadKey, input.attachments, {
@@ -192,6 +193,7 @@ export function appendReviewCommentToDraft(input: {
       );
     }
   }
+  return true;
 }
 
 /** Resolve per call so callbacks created before editing still target the current draft. */

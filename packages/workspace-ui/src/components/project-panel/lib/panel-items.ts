@@ -46,6 +46,14 @@ export const PROJECT_PANEL_SECTIONS = [
       { id: "goal.budget", label: "Token budget" },
     ],
   },
+  {
+    id: "agents",
+    label: "Agents",
+    rows: [
+      { id: "agents.running", label: "Running agents" },
+      { id: "agents.previous", label: "Previous agents" },
+    ],
+  },
   { id: "webhooks", label: "Webhooks", rows: [] },
 ] as const
 
@@ -53,6 +61,10 @@ export type PanelSection = (typeof PROJECT_PANEL_SECTIONS)[number]
 export type PanelSectionId = PanelSection["id"]
 export type PanelRowId = PanelSection["rows"][number]["id"]
 export type ProjectPanelItemId = PanelSectionId | PanelRowId
+
+export function projectPanelSections(showDesktopSections: boolean): readonly PanelSection[] {
+  return showDesktopSections ? PROJECT_PANEL_SECTIONS : PROJECT_PANEL_SECTIONS.filter((section) => section.id !== "agents")
+}
 
 export function isPanelItemShown(hidden: readonly string[], id: ProjectPanelItemId): boolean {
   return !hidden.includes(id)
@@ -89,8 +101,8 @@ export function isSectionShown(hidden: readonly string[], id: PanelSectionId): b
 }
 
 /** True when the panel has no section to show: it shows an empty state instead. */
-export function allPanelItemsHidden(hidden: readonly string[]): boolean {
-  return PROJECT_PANEL_SECTIONS.every((section) => !isSectionShown(hidden, section.id))
+export function allPanelItemsHidden(hidden: readonly string[], showDesktopSections: boolean): boolean {
+  return projectPanelSections(showDesktopSections).every((section) => !isSectionShown(hidden, section.id))
 }
 
 /** How many rows of a section show, for the menu's count. */

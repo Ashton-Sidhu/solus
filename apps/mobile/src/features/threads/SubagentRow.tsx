@@ -44,6 +44,7 @@ export function SubagentRow(props: {
   readonly elapsed: ReactNode;
   /** The task runs in a linked environment this app is connected to. */
   readonly canOpenRemote?: boolean;
+  readonly canReadTranscript?: boolean;
 }) {
   const messages = useMessages();
   const presentation = resolveSubagentRowPresentation(
@@ -90,7 +91,7 @@ export function SubagentRow(props: {
             ) : null}
           </View>
           {props.elapsed}
-          {presentation.canOpenThread ? (
+          {presentation.canOpenThread || props.canReadTranscript ? (
             <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" />
           ) : null}
         </View>

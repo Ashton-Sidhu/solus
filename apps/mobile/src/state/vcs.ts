@@ -1,3 +1,4 @@
+import { listCheckoutRefs } from "../solus/checkout-refs";
 import {
   createVcsActionManager,
   createVcsEnvironmentAtoms,
@@ -5,5 +6,8 @@ import {
 
 import { connectionAtomRuntime } from "../connection/runtime";
 
-export const vcsEnvironment = createVcsEnvironmentAtoms(connectionAtomRuntime);
+export const vcsEnvironment = {
+  ...createVcsEnvironmentAtoms(connectionAtomRuntime),
+  listRefs: listCheckoutRefs,
+};
 export const vcsActionManager = createVcsActionManager(connectionAtomRuntime);

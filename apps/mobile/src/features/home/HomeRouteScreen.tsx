@@ -1,5 +1,5 @@
 import { listActions } from "../../solus/list-actions";
-import { useSolusDirectory } from "../../solus/runtime";
+import { useSolusWorkspace } from "../../solus/runtime";
 import { uuidv4 } from "../../lib/uuid";
 import { ThreadUndoNotice } from "./ThreadUndoNotice";
 import { use } from "react";
@@ -12,7 +12,8 @@ import { useGT, useMessages } from "gt-react-native";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { pickableProjectGroups } from "@t3tools/client-runtime/state/project-grouping";
 
-import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
+import { steadyNavigationThreadShellsAtom } from "../../state/threads";
+import { useLaunchingThreads, usePendingNewTasks } from "../../state/use-pending-new-tasks";
 import {
   useAdaptiveWorkspaceLayout,
   useWorkspacePaneState,
@@ -20,7 +21,7 @@ import {
 import { AndroidHomeFabLayout } from "./AndroidHomeFab";
 import { HomeScreen } from "./HomeScreen";
 import { useHomeListOptions } from "./home-list-options";
-import { runWhenHomeCovered, useHomeRouteVisible } from "./home-route-visibility";
+import { runWhenHomeCovered, useHomeRouteVisible, useAtomValueWhileVisible } from "./home-route-visibility";
 import {
   buildHomeProjectScopes,
   resolveHomeProjectFilterScope,
@@ -43,13 +44,13 @@ export function HomeRouteScreen() {
   const { primarySidebarSearchQuery } = useWorkspacePaneState();
   const selectDetail = useSelectWorkspaceDetail();
   const {
+    hostsById: savedConnectionsById,
     projects,
-    threads,
     environments: workspaceEnvironments,
     state: catalogState,
-  } = useSolusDirectory();
+  } = useSolusWorkspace();
   const visible = useHomeRouteVisible();
-  const { hostsById: savedConnectionsById } = useSolusDirectory();
+  const threads = useLaunchingThreads(useAtomValueWhileVisible(steadyNavigationThreadShellsAtom, visible));
   const navigation = useNavigation();
   const selectTab = useSelectWorkspaceTab();
   const workspace = useWorkspaceTabs();
@@ -87,7 +88,6 @@ export function HomeRouteScreen() {
 
   const {
     archiveThread,
-    confirmDeleteThread,
     settleThread,
     snoozeThread,
     unsnoozeThread,
@@ -186,7 +186,6 @@ export function HomeRouteScreen() {
           environments={environments}
           onAddConnection={() => openSettings(navigation, "SettingsEnvironmentNew")}
           onArchiveThread={archiveThread}
-          onDeleteThread={confirmDeleteThread}
           onSettleThread={settleThread}
           onSnoozeThread={snoozeThread}
           onUnsnoozeThread={unsnoozeThread}

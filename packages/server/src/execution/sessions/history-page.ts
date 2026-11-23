@@ -46,10 +46,12 @@ export async function loadHistoryPage(
       ? await read(segment, Math.max(1, turnLimit - turns), providerCursor)
       : { messages: [], before: null }
     messages = page.messages.concat(messages)
-    turns += page.messages.filter(startsHistoryTurn).length
-    for (const message of page.messages) bytes += Buffer.byteLength(JSON.stringify(message))
     if (page.before !== null) {
       return { messages, before: JSON.stringify({ scope, segment: index, prefix: prefix(index), before: page.before }) }
+    }
+    if (index > 0) {
+      turns += page.messages.filter(startsHistoryTurn).length
+      for (const message of page.messages) bytes += Buffer.byteLength(JSON.stringify(message))
     }
     if (segment.divider) messages.unshift(segment.divider)
     index--

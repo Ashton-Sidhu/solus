@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
   import { pullRequestCard, pullRequestGroupSummary } from "@solus/client-core/pull-request-card";
   import { pullRequestKey } from "@solus/client-core/reply-pull-requests";

@@ -254,6 +254,7 @@ export class SessionSidebarStore {
     session: Session,
     tab: Tab,
     linkedTask: SidebarLinkedTask | undefined,
+    key: string,
   ): SidebarTask {
     // A task of the reader's around it keeps it out of Shared with you: the task is theirs.
     // Whose the session is decides its section, listed or not (docs/plans/shared-with-you.md §2, rule 1).
@@ -270,7 +271,7 @@ export class SessionSidebarStore {
       : sessionListStore.listed(session.id)?.automationId
     const row: SidebarTask = {
       id: tabId,
-      key: tabId,
+      key,
       title: sessionTitle(session),
       automationId,
       automationName: this.automationName(automationId, serverId),
@@ -350,6 +351,9 @@ export class SessionSidebarStore {
       const session = this.session.sessionFor(tabId)
       const tab = this.session.tabs[tabId]
       if (!session || !tab) continue
+      // The first tab takes the listed row's key. Other tabs of the same
+      // session keep their own keys.
+      const key = mountedSessionIds.has(session.id) ? tabId : `session:${session.id}`
       mountedSessionIds.add(session.id)
       const linkedTask = this.session.tasksStore.taskForSession(session.id)
         ?? this.pendingTaskFor(session)
@@ -358,6 +362,7 @@ export class SessionSidebarStore {
         session,
         tab,
         linkedTask ? { taskId: linkedTask.id, title: linkedTask.title } : undefined,
+        key,
       ))
     }
 
@@ -596,7 +601,7 @@ export class SessionSidebarStore {
   /** The Completed shelf: settled sessions, newest first. */
   completedTasks: SidebarTask[] = $derived(
     this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => this.sectionOf(task) === 'completed'))
-      .toSorted((a, b) => b.completedAt - a.completedAt || a.id.localeCompare(b.id)),
+      .toSorted((a, b) => b.completedAt - a.completedAt || a.key.localeCompare(b.key)),
   )
 
   /** The pins at the top of the list, in pin order: each pin with the row that stands for
@@ -1435,12 +1440,12 @@ export class SessionSidebarStore {
     if (meta) await this.session.opening.resumeSession(meta)
   }
 
-  /** Close tabs and, when the active one goes, move forward: the next open
+  /** Close tabs and, when the leading conversation closes, move forward: the next open
    *  sidebar row below it, wrapping to the top. With none left, a draft in the
    *  closed conversation's project takes its place. */
   closeTabs(tabIds: string[], via: Via = 'click'): void {
     const activeTabId = this.session.activeTabId
-    const closesActiveTab = tabIds.includes(activeTabId)
+    const closesLeadingConversation = this.session.showsConversation && tabIds.includes(activeTabId)
     const openRows = [...this.pinnedRows, ...this.sessionRows, ...this.sharedRows, ...this.workingRows]
     const sidebarTasks = [
       ...openRows,
@@ -1453,19 +1458,19 @@ export class SessionSidebarStore {
     const openTabIds = openRows.flatMap((task) =>
       this.sessionsFor(task).flatMap((child) => child.tabId ? [child.tabId] : []),
     )
-    const nextTabId = closesActiveTab
+    const nextTabId = closesLeadingConversation
       ? nextOpenSidebarTabAfterClose(sidebarTabIds, openTabIds, tabIds, activeTabId)
       : null
     // Minted before the close so it inherits the closing conversation's
     // project; afterwards the source would be whatever tab the close landed on.
     // A fresh draft, so it is not linked to the closed session's task.
-    const fallbackDraft = closesActiveTab && !nextTabId && this.session.showsConversation
+    const fallbackDraft = closesLeadingConversation && !nextTabId
       ? this.session.drafts.createSessionDraft({ freshTask: true, sourceId: activeTabId, via })
       : null
 
     for (const tabId of tabIds) this.session.closeTab(tabId, via)
 
-    if (!closesActiveTab) return
+    if (!closesLeadingConversation) return
     if (nextTabId && this.session.tabs[nextTabId]) this.session.selectTab(nextTabId)
     else if (fallbackDraft) this.session.drafts.openDraft(fallbackDraft.id, via)
   }

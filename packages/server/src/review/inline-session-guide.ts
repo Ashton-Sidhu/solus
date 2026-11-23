@@ -19,7 +19,7 @@ export async function inlineSessionGuidePrompt(prompt: string, sessionId: string
     'Return one ```review-guide fence containing valid JSON with this shape:',
     '{"title":"…","summary":"…","sections":[{"title":"…","significance":"core","explanation":"What changed and what to verify (Markdown)","files":[{"turn":1,"path":"repo/relative/path"}]}]}',
     'Order sections as core, supporting, then low-signal. An optional attention object has kind (tradeoff, contract, product, risk, or accessibility) and note.',
-    'Each file names the numbered turn whose patch shows the change. Use its post-image path (original path for deletions). Include a path only once per section. Explain revisions or reversals and cite the relevant turns.',
+    'Each file names the numbered turn whose patch shows the change. Before replying, check each cited path against that turn’s Git diff. Copy the full repository-relative post-image path (original path for deletions). Include a path only once per section. Explain revisions or reversals and cite the relevant turns.',
     'Solus loads the actual diffs. Do not write HTML, copy patches, save a work, or call submit_review_guide.',
   ]
   if (!turns.length) return prefix + 'Tell the user that this session has no captured turn snapshots to review.'

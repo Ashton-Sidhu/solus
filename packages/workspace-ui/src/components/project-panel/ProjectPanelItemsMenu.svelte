@@ -1,9 +1,10 @@
 <script lang="ts">
   import { requestInputFocus } from "../../lib/inputFocus";
   import { getSettingsContext } from "../../contexts";
+  import { getClientShellContext } from "../../contexts/app/client-shell.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import {
-    PROJECT_PANEL_SECTIONS,
+    projectPanelSections,
     isPanelItemShown,
     shownRowCount,
     withPanelItemShown,
@@ -26,6 +27,7 @@
   let { open = $bindable(), anchor, side = "left", align = "start", focusOnClose = "input", onConfigureServerUrls }: Props = $props();
 
   const settings = getSettingsContext();
+  const sections = projectPanelSections(getClientShellContext().supportsNativeSettings);
   const hidden = $derived(settings.projectPanelHiddenItems);
 </script>
 
@@ -62,7 +64,7 @@
   >
     <!-- One submenu per section: the section itself, then each kind of row
          in it. The rows of a hidden section cannot show, so they wait. -->
-    {#each PROJECT_PANEL_SECTIONS as section (section.id)}
+    {#each sections as section (section.id)}
       {#if section.rows.length === 0}
         {@render checkbox(section.id, section.label, false)}
       {:else}

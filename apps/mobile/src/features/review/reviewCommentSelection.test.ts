@@ -1,3 +1,4 @@
+import { sessionPromptText } from "../../solus/review-prompt";
 import { describe, expect, it } from "vite-plus/test";
 import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
@@ -303,5 +304,16 @@ describe("review comment selection store", () => {
     setReviewSelectedSectionId("env:thread", "git:branch-range");
 
     expect(selectReviewCommentSelection(getReviewCommentSelection(), scope).target).toBeNull();
+  });
+});
+
+it("sends the selected lines and renders the saved Solus prompt as a T3 review comment", () => {
+  const block = formatReviewCommentContext(makeTarget(), "Please keep this change");
+  const draft = upgradeLegacyContextMessage("Look here\n" + block);
+  const saved = sessionPromptText(draft.text, { version: 1, records: draft.records });
+  expect(saved).toEqual("Look here\n" + block);
+  expect(parseReviewCommentMessageSegments(saved).at(-1)).toMatchObject({
+    kind: "review-comment",
+    comment: { filePath: "apps/demo/src/main.ts", text: "Please keep this change" },
   });
 });

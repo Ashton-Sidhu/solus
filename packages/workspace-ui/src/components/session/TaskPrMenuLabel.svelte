@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitPullRequest } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE } from "../prs/lib/pr-utils";
   import { taskPrMenuTitle } from "./lib/task-pr-menu";
   import type { TaskPrChoice } from "./lib/task-list";
@@ -8,7 +8,7 @@
   const badge = $derived(
     choice.requiredChecksFail ? REQUIRED_CHECKS_FAILING_BADGE : prStatusBadge(choice.pullRequest),
   );
-  const StateIcon = $derived(badge?.Icon ?? GitPullRequest);
+  const StateIcon = $derived(badge?.Icon ?? GitPullRequestIcon);
 </script>
 
 <!-- One line per pull request keeps a list of several short. The icon's color

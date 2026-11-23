@@ -471,12 +471,20 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
       if (this.kind === 'webview') return await this.captureScreencastFrame()
       this.refuseWhileInspected('Page.captureScreenshot')
       const params: CdpCommandParams = { format: 'png', captureBeyondViewport: false, fromSurface: true, optimizeForSpeed: true }
-      const reply = await captureInTurn(
+      const capture = () => captureInTurn(
         this.contents,
         'Page.captureScreenshot',
         SCREENSHOT_TIMEOUT_MS,
         () => this.cdp.sendCommand('Page.captureScreenshot', params),
       )
+      // A window that is never shown can stop presenting frames, and its
+      // surface then answers with the last one it drew: a snapshot showed the
+      // boot splash of an app whose workspace was already in the DOM. The first
+      // capture wakes the surface and is discarded; after two frames, the
+      // second is the page as it is now. T3 Code captures the same way.
+      await capture()
+      await this.waitForPaint()
+      const reply = await capture()
       const shot = screenshotResultSchema.safeParse(reply)
       if (shot.success) return `data:image/png;base64,${shot.data.data}`
     } catch {
@@ -521,6 +529,24 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
         this.contents.setBackgroundThrottling(true)
       }
     }
+  }
+
+  /**
+   * Wait until the page has drawn two frames, or for a second at most. Best
+   * effort: a page that does not answer still gets captured, as it was before.
+   */
+  private async waitForPaint(): Promise<void> {
+    await this.ask(
+      'Runtime.evaluate',
+      {
+        expression: 'new Promise(resolve => { const timer = setTimeout(() => resolve("late"), 1000); '
+          + 'requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve("painted"); })); })',
+        returnByValue: true,
+        awaitPromise: true,
+      },
+      evaluateResultSchema,
+      SCREENSHOT_TIMEOUT_MS,
+    ).catch(() => {})
   }
 
   /**

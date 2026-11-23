@@ -1,5 +1,6 @@
 import {
   isCompactionCommandMessage,
+  type ChatAttachment,
   type ThreadGuestMessage,
   type ThreadGuestShare,
 } from "@t3tools/contracts";
@@ -27,8 +28,16 @@ export interface GuestPendingFeedEntry {
   readonly message: ThreadGuestMessage;
 }
 
+export interface PendingFeedMessage extends QueuedThreadMessage {
+  readonly hostQueue?: {
+    readonly queueId: string;
+    readonly revision: number;
+    readonly attachments: readonly ChatAttachment[];
+  };
+}
+
 export type PendingThreadFeedEntry = ThreadFeedEntry & {
-  readonly pendingMessage?: QueuedThreadMessage;
+  readonly pendingMessage?: PendingFeedMessage;
   readonly acknowledged?: boolean;
 };
 
@@ -136,7 +145,7 @@ export function appendGuestPendingMessages(
 export function appendPendingThreadMessages(
   presentedFeed: ReadonlyArray<ThreadFeedEntry>,
   feed: ReadonlyArray<ThreadFeedEntry>,
-  queuedMessages: ReadonlyArray<QueuedThreadMessage>,
+  queuedMessages: ReadonlyArray<PendingFeedMessage>,
 ): ReadonlyArray<PendingThreadFeedEntry> {
   if (queuedMessages.length === 0) return presentedFeed;
   const deliveredIds = new Set(
@@ -160,7 +169,7 @@ export function appendPendingThreadMessages(
           id: pendingMessage.messageId,
           role: "user",
           text: pendingMessage.text,
-          attachments: [],
+          attachments: pendingMessage.hostQueue?.attachments ?? [],
           context: pendingMessage.context,
           createdAt: pendingMessage.createdAt,
           updatedAt: pendingMessage.createdAt,
@@ -209,6 +218,7 @@ export function createPendingTurnAppender() {
       last.message.role !== "user" ||
       last.pendingMessage === undefined ||
       last.pendingMessage.creation !== undefined ||
+      last.pendingMessage.hostQueue !== undefined ||
       isCompactionCommandMessage(last.message) ||
       feed.some(
         (entry) =>

@@ -1,3 +1,8 @@
+import { Atom } from "effect/reactivity";
+import { createNavigationThreads } from "./navigation-threads";
+import { appAtomRegistry } from "../state/atom-registry";
+import { mobileHostConnections, fileAccountScope } from "../state/mobile-host";
+import { keepEqual } from "@solus/client-core/keep-equal";
 import { AppState } from "react-native";
 import { useSyncExternalStore } from "react";
 import { hostReadinessCopy } from "@solus/client-core/host-readiness";
@@ -24,15 +29,26 @@ export function useSolusShellCachesRead() {
 }
 let loadError: string | null = null;
 const automationNames = new Map<string, ReadonlyMap<string, string>>();
+let automationRevision = 0;
+const rowActions = new Map<string, number>();
+export function noteSessionListAction(hostId: string) {
+  rowActions.set(hostId, (rowActions.get(hostId) ?? 0) + 1);
+  changed();
+}
 const rowReaders = new Map<string, (event: { sessionId: string }) => void>();
 export function refreshSessionRow(hostId: string, sessionId: string) {
   rowReaders.get(hostId)?.({ sessionId });
 }
 let revision = 0;
+let hostsRevision = 0;
+function hostsChanged() {
+  hostsRevision++;
+  changed();
+}
 const listeners = new Set<() => void>();
 function changed() {
   revision++;
-  for (const listener of listeners) listener();
+  for (const listener of [...listeners]) listener();
 }
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -42,6 +58,7 @@ const subscribe = (listener: () => void) => {
 };
 
 export function startSolus() {
+  appAtomRegistry.set(mobileHostConnections, solus.connections);
   let active = true;
   let localReady = false;
   let scope = "";
@@ -60,13 +77,16 @@ export function startSolus() {
       hosts.forEach(stop => stop());
       hosts.clear();
       restores.clear();
+      rowActions.clear();
       scope = nextScope;
+      appAtomRegistry.set(fileAccountScope, { key: scope, organizationId: solus.account.organizationId });
     }
     const saved = solus.registry.hosts();
     for (const [id, stop] of hosts) {
       if (!saved.some((host) => host.id === id)) {
         stop();
         hosts.delete(id);
+        rowActions.delete(id);
       }
     }
     for (const id of restores.keys()) {
@@ -88,6 +108,7 @@ export function startSolus() {
       if (!connection) continue;
       let generation: number | undefined;
       let automationRequest = 0;
+      let lastAutomationRows: ReturnType<typeof solus.threads.threads> | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let disposed = false;
       let readingRecords = false;
@@ -131,6 +152,7 @@ export function startSolus() {
         const request = ++automationRequest;
         void connection.api.automationList().then((automations) => {
           if (request !== automationRequest) return;
+          automationRevision++;
           automationNames.set(host.id, new Map(automations.map(({ id, name }) => [id, name])));
           changed();
         }, () => {
@@ -138,10 +160,14 @@ export function startSolus() {
         });
       };
       const readAutomationNames = () => {
-        if (automationRequest > 0) return;
-        if (solus.threads.threads().some(({ hostId, record }) =>
-          hostId === host.id && record.startedBy?.kind === "automation"
-        )) refreshAutomationNames();
+        if (automationRequest > 0 || connection.state.readiness !== "ready") return;
+        const rows = solus.threads.threads();
+        if (rows === lastAutomationRows) return;
+        const positions = lastAutomationRows && solus.threads.changedPositions(lastAutomationRows, []);
+        lastAutomationRows = rows;
+        const belongsToAutomation = ({ hostId, record }: (typeof rows)[number]) =>
+          hostId === host.id && record.startedBy?.kind === "automation";
+        if (positions ? positions.some(index => belongsToAutomation(rows[index]!)) : rows.some(belongsToAutomation)) refreshAutomationNames();
       };
       const ready = () => {
         const state = solus.connections.state(host.id);
@@ -189,21 +215,21 @@ export function startSolus() {
         disposed = true;
         automationRequest++;
         rowReaders.delete(host.id);
-        automationNames.delete(host.id);
+        if (automationNames.delete(host.id)) automationRevision++;
         clearTimeout(timer);
         stops.forEach((stop) => stop());
       });
       ready();
     }
     shellCachesRead = [...restores.values()].every(read => read === null);
-    changed();
+    hostsChanged();
   }
   const memoryWarning = AppState.addEventListener("memoryWarning", () => solus.releaseRecentConversations());
   const stops = [
     () => memoryWarning.remove(),
     solus.registry.changes.subscribe(reconcile),
     solus.account.changes.subscribe(reconcile),
-    solus.connections.changes.subscribe(changed),
+    solus.connections.changes.subscribe(hostsChanged),
     solus.threads.changes.subscribe(changed),
     solus.threadList.changes.subscribe(changed),
     watchAppLifecycle(solus.connections, refresh),
@@ -229,6 +255,7 @@ export function startSolus() {
     },
   );
   return () => {
+    appAtomRegistry.set(mobileHostConnections, null);
     active = false;
     stops.forEach((stop) => stop());
     hosts.forEach((stop) => stop());
@@ -237,12 +264,13 @@ export function startSolus() {
 
 const projectThreads = createSessionListProjection();
 
-function readDirectory() {
-  const environments: WorkspaceEnvironment[] = solus.registry.hosts().map((host) => {
+function readHosts() {
+  const environments = solus.registry.hosts().map((host): WorkspaceEnvironment & {supportsListControls: boolean} => {
     const state = solus.connections.state(host.id);
     return {
       environmentId: EnvironmentId.make(host.id),
       environmentLabel: host.label,
+      supportsListControls: solus.connections.connection(host.id)?.facts.value("capabilities")?.sessionListControls === true,
       displayUrl: host.routes[0]?.url ?? "",
       isRelayManaged: false,
       isEnabled: true,
@@ -256,7 +284,14 @@ function readDirectory() {
       connectionErrorTraceId: null,
     };
   });
-  const state = solusWorkspaceState(environments, solus.threads.stateOf, loaded || loadError !== null, loadError);
+  return {
+    environments,
+    hostsById: Object.fromEntries(environments.map((env) => [env.environmentId, env])),
+    listHosts: solusListHosts(environments),
+  };
+}
+
+function readProjects(environments: WorkspaceEnvironment[]) {
   const projects = solus.threads.projects().map(({ hostId, project }) => ({
     environmentId: EnvironmentId.make(hostId),
     id: ProjectId.make(project.path),
@@ -286,18 +321,72 @@ function readDirectory() {
       });
     }
   }
-  const facts = solus.threadList.facts();
+
   const projectPaths = new Map<string, Set<string>>();
   for (const project of projects) {
     const paths = projectPaths.get(project.environmentId);
     if (paths) paths.add(project.id);
     else projectPaths.set(project.environmentId, new Set([project.id]));
   }
-  const threads = projectThreads(solus.threads.threads(), facts, automationNames, projectPaths);
-  const hostsById = Object.fromEntries(environments.map((env) => [env.environmentId, env]));
-  return { projects, threads, environments, hostsById, state, unread: facts.unread, listHosts: solusListHosts(environments) };
+  return { projects, projectPaths };
 }
-let snapshot: ReturnType<typeof readDirectory>;
+
+let seenHostsRevision = -1;
+let hosts: ReturnType<typeof readHosts>;
+let projects: ReturnType<typeof readProjects>;
+let projectSource: ReturnType<typeof solus.threads.projects>;
+let workspace: ReturnType<typeof readHosts> & ReturnType<typeof readProjects> & {state: ReturnType<typeof solusWorkspaceState>};
+let workspaceRevision = -1;
+
+function getSolusWorkspace() {
+  if (workspaceRevision === revision) return workspace;
+  let hostChange = false;
+  if (seenHostsRevision !== hostsRevision) {
+    const next = readHosts();
+    hostChange = !hosts || keepEqual(next.environments, hosts.environments) !== hosts.environments;
+    if (hostChange) hosts = next;
+    seenHostsRevision = hostsRevision;
+  }
+  const source = solus.threads.projects();
+  if (hostChange || source !== projectSource) {
+    projectSource = source;
+    projects = readProjects(hosts.environments);
+  }
+  const nextState = solusWorkspaceState(hosts.environments, solus.threads.stateOf, loaded || loadError !== null, loadError);
+  const state = workspace ? keepEqual(nextState, workspace.state) : nextState;
+  if (!workspace || hosts.environments !== workspace.environments || projects.projects !== workspace.projects || state !== workspace.state) {
+    workspace = { ...hosts, ...projects, state };
+  }
+  workspaceRevision = revision;
+  return workspace;
+}
+
+export function useSolusWorkspace() {
+  return useSyncExternalStore(subscribe, getSolusWorkspace);
+}
+
+let projected: {
+  rows: ReturnType<typeof solus.threads.threads>;
+  facts: ReturnType<typeof solus.threadList.facts>;
+  projects: ReturnType<typeof readProjects>["projectPaths"];
+  automationRevision: number;
+} | undefined;
+
+function readDirectory() {
+  const workspace = getSolusWorkspace();
+  const facts = solus.threadList.facts();
+  const rows = solus.threads.threads();
+  const keys = projected && solus.threadList.changedKeys(projected.facts);
+  const changes = projected && keys && projected.projects === workspace.projectPaths && projected.automationRevision === automationRevision
+    ? solus.threads.changedPositions(projected.rows, keys) : undefined;
+  const threads = projectThreads(rows, facts, automationNames, workspace.projectPaths, changes);
+  projected = { rows, facts, projects: workspace.projectPaths, automationRevision };
+  if (directoryWorkspace === workspace && snapshot.threads === threads && snapshot.unread === facts.unread) return snapshot;
+  directoryWorkspace = workspace;
+  return { ...workspace, threads, unread: facts.unread };
+}
+let directoryWorkspace: ReturnType<typeof getSolusWorkspace> | undefined;
+let snapshot: ReturnType<typeof getSolusWorkspace> & { threads: ReturnType<typeof projectThreads>; unread: ReturnType<typeof solus.threadList.facts>["unread"] };
 let snapshotRevision = -1;
 export function getSolusDirectory() {
   if (snapshotRevision !== revision) {
@@ -309,3 +398,22 @@ export function getSolusDirectory() {
 export function useSolusDirectory() {
   return useSyncExternalStore(subscribe, getSolusDirectory);
 }
+
+export const solusDirectoryAtom = Atom.make((get) => {
+  get.addFinalizer(subscribe(() => get.setSelf(getSolusDirectory())));
+  return getSolusDirectory();
+});
+
+const navigationRows = createNavigationThreads();
+export const navigationThreadsAtom = Atom.make((get) => {
+  get.addFinalizer(subscribe(() => get.refreshSelf()));
+  const directory = getSolusDirectory();
+  const now = Date.now();
+  const navigation = navigationRows(directory.threads, directory.environments,
+    id => solus.threads.stateOf(id).kind, solus.sessionCache.scope(), now, rowActions);
+  if (navigation.releaseAt !== null) {
+    const timer = setTimeout(() => get.refreshSelf(), Math.max(0, navigation.releaseAt - now));
+    get.addFinalizer(() => clearTimeout(timer));
+  }
+  return navigation;
+});

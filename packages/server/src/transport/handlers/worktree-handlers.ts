@@ -2,6 +2,7 @@ import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { writeFile } from 'fs/promises'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import type { IpcContext, GitCheckoutBranchResult } from '@solus/contracts/types'
+import { DIFF_STATS_BATCH_LIMIT } from '@solus/contracts/git-types'
 import { discardChanges, syncWithOrigin, listBranches, listBranchRefs, listProjectWorktrees, getWorkingBranch, getDefaultBranch, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runGitAction } from '../../git/git-action-manager'
 import { checkoutBranch } from '../../git/checkout-branch'
@@ -151,6 +152,17 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const workTree = workTreeForCtx(ctx)
     const sid = ctx.session.sessionId ?? null
     return getDiffStats(workTree, repoRoot, request.scope, sid)
+  })
+
+  server.register('diffStatsBatch', async (args) => {
+    const ctx = withSessionCheckout(args[0])
+    const requests = args[1]
+    if (requests.length > DIFF_STATS_BATCH_LIMIT) throw new Error(`diffStatsBatch answers at most ${DIFF_STATS_BATCH_LIMIT} requests`)
+    const repoRoot = await checkoutRepoRoot(ctx)
+    if (!repoRoot) return requests.map(() => [])
+    const workTree = workTreeForCtx(ctx)
+    const sid = ctx.session.sessionId ?? null
+    return Promise.all(requests.map((request) => getDiffStats(workTree, repoRoot, request.scope, sid)))
   })
 
   server.register('listTurnSnapshots', async (args) => {

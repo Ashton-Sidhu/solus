@@ -1,5 +1,4 @@
-import { AuthFilesystemReadScope } from "@t3tools/contracts";
-import { readEnvironmentScope } from "../../state/session";
+import { fileAccountScope, mobileHost } from "../../state/mobile-host";
 import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
@@ -8,7 +7,7 @@ import {
 } from "@t3tools/shared/filePreview";
 
 import { appAtomRegistry } from "../../state/atom-registry";
-import { projectEnvironment } from "../../state/projects";
+import { readEntry } from "../../solus/checkout-files";
 import { isVideoPreviewFile } from "./filePath";
 import { prepareSourceFileDocument } from "./source-file-document";
 import { sourceHighlightAtom } from "./sourceHighlightingState";
@@ -22,7 +21,12 @@ function preloadKey(input: {
   readonly environmentId: EnvironmentId;
   readonly relativePath: string;
 }): string {
-  return JSON.stringify([input.environmentId, input.cwd, input.relativePath]);
+  return JSON.stringify([
+    appAtomRegistry.get(fileAccountScope).key,
+    input.environmentId,
+    input.cwd,
+    input.relativePath,
+  ]);
 }
 
 export function preloadWorkspaceFileContents(input: {
@@ -32,7 +36,7 @@ export function preloadWorkspaceFileContents(input: {
   readonly theme: HighlightScheme;
 }): void {
   if (
-    !readEnvironmentScope(input.environmentId, AuthFilesystemReadScope) ||
+    !appAtomRegistry.get(mobileHost(input.environmentId))?.canReadFiles ||
     isWorkspaceBrowserPreviewPath(input.relativePath) ||
     isWorkspaceImagePreviewPath(input.relativePath) ||
     isVideoPreviewFile(input.relativePath)
@@ -47,7 +51,8 @@ export function preloadWorkspaceFileContents(input: {
 
   const preload = executeAtomQuery(
     appAtomRegistry,
-    projectEnvironment.readFile({
+    readEntry({
+      accountKey: appAtomRegistry.get(fileAccountScope).key,
       environmentId: input.environmentId,
       input: { cwd: input.cwd, relativePath: input.relativePath },
     }),
@@ -58,7 +63,7 @@ export function preloadWorkspaceFileContents(input: {
     },
   )
     .then(async (result) => {
-      if (result._tag === "Success") {
+      if (result._tag === "Success" && result.value.kind === "text") {
         const document = prepareSourceFileDocument(result.value.contents);
         if (document.contents.length <= MAX_HIGHLIGHT_PRELOAD_CHARACTERS) {
           await executeAtomQuery(

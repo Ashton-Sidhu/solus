@@ -15,6 +15,8 @@
   {@const ConversationView = module.default}
   <ConversationView {...props} />
 {:catch error}
-  <RouteLoadError {error} compact onRetry={() => (attempt += 1)} />
+  <div {@attach props.surfaceVisible ? () => props.onReady?.() : undefined}>
+    <RouteLoadError {error} compact onRetry={() => (attempt += 1)} />
+  </div>
 {/await}
 {/key}

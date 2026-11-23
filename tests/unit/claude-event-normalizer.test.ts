@@ -20,6 +20,29 @@ async function normalizeClaudeFixture(name: string): Promise<{ events: Normalize
 describe('ClaudeTurnNormalizer', () => {
   afterEach(() => setSystemTime())
 
+  test('projects Claude workflow progress without script or filesystem data', () => {
+    const normalizer = new ClaudeTurnNormalizer()
+    const progress = {
+      type: 'system', subtype: 'task_progress', task_id: 'workflow',
+      workflow_progress: [
+        { type: 'workflow_phase', index: 0, title: 'Read' },
+        { type: 'workflow_agent', index: 1, label: 'Reader', state: 'start', phaseIndex: 0, scriptPath: '/tmp/script' },
+        { type: 'workflow_agent', index: 2, label: 'Reviewer', state: 'start', phaseIndex: 0, startedAt: 500 },
+      ],
+    }
+    expect(normalizer.push(progress)).toMatchObject([{
+      type: 'background_task_progress', taskId: 'workflow',
+      workflow: {
+        phases: [{ index: 0, title: 'Read' }],
+        agents: [
+          { index: 1, label: 'Reader', state: 'queued', phaseIndex: 0 },
+          { index: 2, label: 'Reviewer', state: 'running', phaseIndex: 0 },
+        ],
+      },
+    }])
+    expect(JSON.stringify(normalizer.push(progress))).not.toContain('/tmp/script')
+  })
+
   test('normalizes a main-thread turn without backend bookkeeping', async () => {
     setSystemTime(new Date('2026-01-01T00:00:00Z'))
     const { events, normalizer } = await normalizeClaudeFixture('claude-main-thread.jsonl')
@@ -256,7 +279,7 @@ describe('ClaudeTurnNormalizer', () => {
 
     expect(events).toEqual([
       { type: 'tool_call', toolName: 'Task', toolId: 'agent-async-1', index: 2, isSubagent: true, subagentType: 'claude' },
-      { type: 'background_task_started', taskId: 'task-async-1', toolUseId: 'agent-async-1' },
+      { type: 'background_task_started', taskId: 'task-async-1', toolUseId: 'agent-async-1', lineageTask: { kind: 'subagent', title: 'Design plan' } },
       {
         type: 'background_task_progress',
         taskId: 'task-async-1',

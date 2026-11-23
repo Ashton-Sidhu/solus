@@ -1,11 +1,11 @@
-import { DraftViewport, NewTaskProjectHero, SHORT_DRAFT_VIEWPORT_HEIGHT } from "./NewTaskHero";
+import { draftHeroContent, SHORT_DRAFT_VIEWPORT_HEIGHT } from "./NewTaskHero";
 import { T, useGT, useMessages, Var } from "gt-react-native";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { DraftEnvironmentControl } from "./DraftEnvironmentControl";
 import { DraftThreadHeader } from "./DraftThreadHeader";
 import { useComposerAttachmentActions } from "../../state/use-composer-attachment-actions";
 import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
-import { submittedThreadParams } from "./thread-route-state";
+import { finishDraftSubmission } from "./finish-draft-submission";
 import { ThreadScreenBinding, ThreadScreenFallback } from "./ThreadScreenHost";
 import { draftThreadShell } from "./draft-thread-shell";
 import { useRememberThreadProject } from "./useRememberThreadProject";
@@ -42,7 +42,6 @@ import {
 
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import { composerContextImportsAtom } from "../../state/use-composer-drafts";
-import { abortComposerDraftOperations } from "../../state/composerDraftOperations";
 import { composerContextSendBlockReason } from "../../lib/composerContext";
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
 
@@ -59,10 +58,8 @@ import { threadContextsOutsideEnvironment } from "@t3tools/shared/composerContex
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 
 import {
-  clearComposerDraftContent,
   getComposerDraftSnapshot,
   updateComposerDraftSettings,
-  scheduleUnusedComposerAttachmentCleanup,
 } from "../../state/use-composer-drafts";
 import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
 import { useProjectClone } from "../../state/projectClones";
@@ -696,24 +693,8 @@ export function NewTaskDraftScreen(props: {
       );
       return null;
     }
-    promptInputRef.current?.blur();
-    navigation.dispatch(
-      CommonActions.setParams(
-        submittedThreadParams(String(message.environmentId), String(message.threadId)),
-      ),
-    );
-    // The composer has moved to the submitted thread; a pick still converting
-    // would otherwise resurrect this draft.
-    abortComposerDraftOperations(draftKey);
-    const draftSnapshot = getComposerDraftSnapshot(draftKey);
-    // The queued message owns the attachments now, so the sweep is deferred
-    // until the write confirms it.
-    clearComposerDraftContent(draftKey, {
-      clearModelSelection: true,
-      clearWorkspaceSelection: true,
-      deferAttachmentCleanup: true,
-    });
-    scheduleUnusedComposerAttachmentCleanup(draftSnapshot.attachments);
+    finishDraftSubmission(navigation, promptInputRef.current, draftKey, draft.text,
+      message.environmentId, message.threadId);
     return message.messageId;
   }
 
@@ -765,33 +746,10 @@ export function NewTaskDraftScreen(props: {
       <T>The shared content is no longer in the inbox. You can continue editing this task draft.</T>
     </Text>
   ) : null;
-  const hero = flow.isScratchDraft ? (
-    <View className="items-center gap-2 px-6" testID="new-task-hero">
-      <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
-        <T>What should we work on?</T>
-      </Text>
-      <View className="flex-row flex-wrap items-center justify-center gap-x-1">
-        <ComposerInlineControl
-          accessibilityHint={gt("Opens the project picker")}
-          accessibilityLabel={gt("No project")}
-          chevronDirection="right"
-          disabled={isComposerInteractionLocked}
-          icon="folder"
-          label={gt("No project")}
-          onPress={chooseProject}
-        />
-        {environmentControl}
-      </View>
-      {shareUnavailableNotice}
-    </View>
-  ) : (
-    <NewTaskProjectHero title={selectedProjectLabel ?? selectedProject.title} disabled={isComposerInteractionLocked} chooseProject={chooseProject}>
-      {environmentControl}{shareUnavailableNotice}
-    </NewTaskProjectHero>
-  );
-  // The nested hero scroll view does not receive UIKit's automatic navigation inset in split columns.
-  const heroViewport = (headerInset: number, bottomInset: number, viewportHeight: number) =>
-    <DraftViewport {...{headerInset,bottomInset,viewportHeight}}>{hero}</DraftViewport>;
+  const heroViewport = draftHeroContent({
+    scratch: flow.isScratchDraft, title: selectedProjectLabel ?? selectedProject.title,
+    disabled: isComposerInteractionLocked, chooseProject, environmentControl, notice: shareUnavailableNotice,
+  });
 
   const contextProjectLabel = flow.isScratchDraft
     ? gt("No project")
@@ -1040,7 +998,6 @@ export function NewTaskDraftScreen(props: {
         queuedMessages={[]}
         dispatchingMessageId={null}
         serverConfig={selectedEnvironmentServerConfig}
-        usesAutomaticContentInsets
         onOpenConnectionEditor={() => navigation.navigate("Connections")}
         onChangeDraftMessage={flow.setPrompt}
         onPickDraftMedia={handlePickMedia}

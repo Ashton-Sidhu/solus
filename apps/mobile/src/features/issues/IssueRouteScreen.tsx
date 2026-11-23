@@ -1,21 +1,19 @@
-import { solusIssueDetail } from "../../solus/source-control";
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { issueEventSentence } from "@t3tools/client-runtime/issue-presentation";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { createIssueCommentPager } from "@t3tools/client-runtime/state/issues";
+import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import { visibleLinkedThreads } from "@t3tools/client-runtime/state/threads";
 import type {
   IssueComment,
-  IssueEvent,
-  IssueLinkedPullRequest,
   IssueReaction,
   IssueState,
   IssueSummary,
 } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { T, useGT, useMessages, Var } from "gt-react-native";
-import { useContext, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { Platform, Pressable, Share, View } from "react-native";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
@@ -42,6 +40,8 @@ import { useDeviceType, useNativeColumnLayoutMetrics } from "../../native/native
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { useEnvironmentServerConfig } from "../../state/entities";
 import { issueEnvironment, refreshIssueLists } from "../../state/issues";
+import { solusIssueActivity, type IssueProviderPullRequest, type ProviderIssueEvent } from "../../solus/source-control";
+import { hostQueryScope } from "../../state/host-query-scope";
 import { useEnvironmentQuery } from "../../state/query";
 import { environmentThreadShells } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -247,22 +247,25 @@ function IssueIdentity(props: {
 
 function LinkedPullRequests(props: {
   readonly params: IssueParams;
-  readonly links: ReadonlyArray<IssueLinkedPullRequest>;
+  readonly links: ReadonlyArray<IssueProviderPullRequest>;
+  readonly openOnTracker?: boolean;
 }) {
   const gt = useGT();
   const navigation = useNavigation();
   // Only a git host's tracker shares its host with the change request it links.
-  const sameHost = sourceControlClients.find(props.params.tracker) !== undefined;
+  const sameHost = !props.openOnTracker && sourceControlClients.find(props.params.tracker) !== undefined;
   return (
     <View className="gap-2">
       <PullRequestSectionHeading>
         <T>Linked pull requests</T>
       </PullRequestSectionHeading>
       {props.links.map((link) => {
-        const status = pullRequestStatus(link);
+        const status = link.state === "unknown"
+          ? { icon: "link" as const, tint: "accent-icon-muted", label: gt("Unknown status") }
+          : pullRequestStatus({ state: link.state, isDraft: link.isDraft });
         return (
           <Pressable
-            key={`${link.repository}#${link.number}`}
+          key={link.url}
             accessibilityRole="button"
             accessibilityLabel={gt("{status} pull request {number}, {title}", {
               status: status.label,
@@ -405,9 +408,10 @@ function IssueCommentCard(props: {
   );
 }
 
-function IssueEventRow({ event }: { readonly event: IssueEvent }) {
+function IssueEventRow({ event }: { readonly event: ProviderIssueEvent }) {
   const gt = useGT();
   const messages = useMessages();
+  const link = event.providerLink;
   return (
     <View className="flex-row items-center gap-2 px-1">
       <PullRequestAvatar actor={event.actor} size={18} />
@@ -415,7 +419,14 @@ function IssueEventRow({ event }: { readonly event: IssueEvent }) {
         <Text className="text-xs font-t3-medium">
           {event.actor?.login ?? gt("Someone", { $context: "an unknown person" })}
         </Text>{" "}
-        {issueEventSentence(event, messages)}
+        {event.providerText ?? issueEventSentence(event, messages)}
+        {link ? (
+          <Text
+            accessibilityRole="link"
+            className="text-xs text-foreground underline"
+            onPress={() => void tryOpenExternalUrl(link.url)}
+          >{" "}{link.label}</Text>
+        ) : null}
       </Text>
       <Text className="text-2xs text-foreground-tertiary">
         {relativeTime(event.createdAt, undefined, messages)}
@@ -476,13 +487,59 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
   );
   const [composerFocused, setComposerFocused] = useState(false);
   const connected = usePullRequestConnected(params.environmentId);
-  const detailAtom = solusIssueDetail({...target,input:{...target.input,taskId:params.initialSummary?.solusTaskId}});
+  const detailAtom = issueEnvironment.detail(target);
   const detailQuery = useEnvironmentQuery(detailAtom);
   const pullRefresh = usePullToRefresh(detailAtom);
   const registry = useContext(RegistryContext);
   const [pager] = useState(() => createIssueCommentPager(detailAtom));
   const { comments, nextCursor, loadingOlder, canLoadOlder } = useAtomValue(pager.view);
   const detail = detailQuery.data;
+  const providerTaskId = detail?.providerTaskId;
+  const activityQuery = useEnvironmentQuery(providerTaskId
+    ? solusIssueActivity({ environmentId: target.environmentId, input: { taskId: providerTaskId } })
+    : null);
+  const firstActivityPage = activityQuery.data;
+  const [history, setHistory] = useState<{
+    first: NonNullable<typeof firstActivityPage>;
+    later: NonNullable<typeof firstActivityPage>;
+    scope: string;
+  } | null>(null);
+  const historyRequest = useRef(0);
+  const [loadingActivity, setLoadingActivity] = useState(false);
+  const [olderActivityError, setOlderActivityError] = useState<string | null>(null);
+  const scopeOfHost = hostQueryScope(target.environmentId);
+  const activityPage = history?.first === firstActivityPage && history?.scope === scopeOfHost
+    ? history.later : firstActivityPage;
+  const historyCursor = activityPage?.historyCursor;
+  const loadOlderActivity = async () => {
+    if (!providerTaskId || !firstActivityPage || !activityPage || !historyCursor || loadingActivity) return;
+    const request = ++historyRequest.current;
+    setLoadingActivity(true);
+    setOlderActivityError(null);
+    try {
+      const result = await executeAtomQuery(registry, solusIssueActivity({
+        environmentId: target.environmentId,
+        input: { taskId: providerTaskId, cursor: historyCursor },
+        scope: scopeOfHost,
+      }), { reportFailure: false, reportDefect: false });
+      if (historyRequest.current !== request || hostQueryScope(target.environmentId) !== scopeOfHost) return;
+      if (AsyncResult.isFailure(result)) {
+        setOlderActivityError(gt("Older activity could not be loaded."));
+        return;
+      }
+      setHistory({
+        first: firstActivityPage,
+        scope: scopeOfHost,
+        later: {
+          historyCursor: result.value.historyCursor,
+          events: [...new Map([...result.value.events, ...activityPage.events].map((event) => [event.id, event])).values()],
+          providerPullRequests: [...new Map([...result.value.providerPullRequests, ...activityPage.providerPullRequests].map((pr) => [pr.url, pr])).values()],
+        },
+      });
+    } finally {
+      if (historyRequest.current === request) setLoadingActivity(false);
+    }
+  };
   const issue: IssueSummary | null = detail ?? params.initialSummary ?? null;
   const access = useIssueAccess(params, detail);
 
@@ -503,7 +560,7 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
             <IssueCommentCard params={params} comment={comment} canReact={access?.react === true} />
           ),
         })),
-        ...detail.events.map((event) => ({
+        ...(activityPage?.events ?? detail.events).map((event) => ({
           key: `e:${event.id}`,
           at: event.createdAt,
           content: <IssueEventRow event={event} />,
@@ -550,6 +607,9 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
         ? CHAT_CONTENT_MAX_WIDTH
         : undefined;
   const url = issue?.url;
+  const scope = detail?.scope ?? params.scope;
+  const linkedPullRequests = activityPage?.providerPullRequests ??
+    detail?.providerPullRequests ?? detail?.linkedPullRequests ?? [];
   return (
     <PullRequestMarkdownRepository
       params={{
@@ -562,15 +622,15 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
     >
       <View className="flex-1 bg-screen">
         <AppBar
-          title={issue?.displayKey ?? params.issueKey}
-          subtitle={connected ? params.scope : gt("{scope} · Offline", { scope: params.scope })}
+          title={issue?.displayKey ?? (params.issueUrl ? gt("Issue") : params.issueKey)}
+          subtitle={connected ? scope : gt("{scope} · Offline", { scope })}
           onBack={layout.usesSplitView ? undefined : returnToList}
           menus={[
             {
               title: gt("Issue actions"),
               icon: "ellipsis",
               items: [
-                ...(access?.edit
+                ...(access?.edit && detail?.writableFields.includes("title")
                   ? [
                       {
                         id: "edit-title",
@@ -579,6 +639,10 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
                         onPress: () =>
                           navigation.navigate("IssueEdit", { ...identity, field: "title" }),
                       },
+                    ]
+                  : []),
+                ...(access?.edit && detail?.writableFields.includes("body")
+                  ? [
                       {
                         id: "edit-description",
                         title: gt("Edit description"),
@@ -631,7 +695,14 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
             refreshControl={
               <RefreshControl
                 refreshing={pullRefresh.refreshing}
-                onRefresh={() => void pager.refresh(registry, pullRefresh.onRefresh)}
+                onRefresh={() => {
+                  historyRequest.current++;
+                  setHistory(null);
+                  setLoadingActivity(false);
+                  setOlderActivityError(null);
+                  activityQuery.refresh();
+                  void pager.refresh(registry, pullRefresh.onRefresh);
+                }}
               />
             }
             contentContainerStyle={{
@@ -652,6 +723,9 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
               )
             ) : (
               <View className="gap-5">
+                {params.issueUrl ? (
+                  <Text className="text-xs text-foreground-muted">{gt("Read-only issue")}</Text>
+                ) : null}
                 <IssueIdentity
                   issue={issue}
                   access={access}
@@ -689,10 +763,14 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
                         ) : undefined
                       }
                     />
-                    {detail.linkedPullRequests.length > 0 ? (
-                      <LinkedPullRequests params={params} links={detail.linkedPullRequests} />
+                    {linkedPullRequests.length > 0 ? (
+                      <LinkedPullRequests
+                        params={params}
+                        links={linkedPullRequests}
+                        openOnTracker={!!(activityPage?.providerPullRequests ?? detail.providerPullRequests)}
+                      />
                     ) : null}
-                    <LinkedThreads params={params} host={detail.host} />
+                    {!params.issueUrl ? <LinkedThreads params={params} host={detail.host} /> : null}
                     <View className="gap-3">
                       <PullRequestSectionHeading>
                         {detail.commentCount > 0
@@ -709,7 +787,24 @@ function IssueRoute({ params }: { readonly params: IssueParams }) {
                           onPress={() => void loadOlder()}
                         />
                       ) : null}
-                      {timeline.length === 0 ? (
+                      {historyCursor ? (
+                        <View className="items-start gap-2">
+                          {olderActivityError ? <Text className="text-sm text-danger-foreground">{olderActivityError}</Text> : null}
+                          <Button
+                            label={loadingActivity ? gt("Loading…") : olderActivityError ? gt("Try again") : gt("Load older activity")}
+                            disabled={loadingActivity || activityQuery.isPending}
+                            onPress={() => void loadOlderActivity()}
+                          />
+                        </View>
+                      ) : null}
+                      {activityQuery.isPending ? (
+                        <Text className="text-sm text-foreground-muted">{gt("Loading activity…")}</Text>
+                      ) : activityQuery.error ? (
+                        <View className="items-start gap-2">
+                          <Text className="text-sm text-danger-foreground">{activityQuery.error}</Text>
+                          <Button label={gt("Try again")} onPress={activityQuery.refresh} />
+                        </View>
+                      ) : timeline.length === 0 ? (
                         <Text className="text-sm text-foreground-muted">
                           <T>Nothing has happened here yet.</T>
                         </Text>

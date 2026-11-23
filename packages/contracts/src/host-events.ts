@@ -55,7 +55,7 @@ import { z } from 'zod'
  */
 export interface HostEventMap {
   'git.checkoutChanged': CheckoutChange
-  'session.eventReceived': { sessionId: string; event: WireNormalizedEvent }
+  'session.eventReceived': { sessionId: string; event: WireNormalizedEvent; cursor?: string }
   'session.errorReceived': { sessionId: string; error: EnrichedError }
   'session.indexChanged': SessionIndexUpdatedEvent
   'session.titleChanged': SessionTitleChangedEvent

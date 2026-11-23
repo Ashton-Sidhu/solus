@@ -1,5 +1,6 @@
 import type { Icon } from "@tabler/icons-react-native/types";
 /* Package-root imports eagerly register the entire Tabler icon set in Metro. */
+import IconActivity from "@tabler/icons-react-native/IconActivity";
 import IconAdjustmentsHorizontal from "@tabler/icons-react-native/IconAdjustmentsHorizontal";
 import IconAlarm from "@tabler/icons-react-native/IconAlarm";
 import IconAlignLeft from "@tabler/icons-react-native/IconAlignLeft";
@@ -70,12 +71,9 @@ import IconFolder from "@tabler/icons-react-native/IconFolder";
 import IconFolderOpen from "@tabler/icons-react-native/IconFolderOpen";
 import IconHeadphones from "@tabler/icons-react-native/IconHeadphones";
 import IconFolderPlus from "@tabler/icons-react-native/IconFolderPlus";
-import IconGitPullRequestClosed from "@tabler/icons-react-native/IconGitPullRequestClosed";
-import IconGitPullRequestDraft from "@tabler/icons-react-native/IconGitPullRequestDraft";
 import IconGitCommit from "@tabler/icons-react-native/IconGitCommit";
 import IconGitBranch from "@tabler/icons-react-native/IconGitBranch";
 import IconGitMerge from "@tabler/icons-react-native/IconGitMerge";
-import IconGitPullRequest from "@tabler/icons-react-native/IconGitPullRequest";
 import IconHammer from "@tabler/icons-react-native/IconHammer";
 import IconHome from "@tabler/icons-react-native/IconHome";
 import IconInfoCircle from "@tabler/icons-react-native/IconInfoCircle";
@@ -144,13 +142,12 @@ import IconX from "@tabler/icons-react-native/IconX";
 import type { AndroidSymbol, SFSymbol, SymbolViewProps } from "expo-symbols";
 import { StyleSheet, View } from "react-native";
 import { withUniwind } from "uniwind";
+import { githubOcticons } from "./GitHubOcticons";
 
 const ANDROID_ICON_BY_SF_SYMBOL = {
+  ...githubOcticons,
   plusminus: IconPlusMinus,
-  "git.pull-request.closed": IconGitPullRequestClosed,
-  "git.pull-request.draft": IconGitPullRequestDraft,
   "git.commit": IconGitCommit,
-  "git.issue": IconCircleDot,
   "arrow.branch": IconGitBranch,
   "arrow.left": IconArrowLeft,
   "arrow.right": IconArrowRight,
@@ -161,7 +158,6 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "arrow.right.circle": IconArrowRightCircle,
   "arrow.triangle.branch": IconGitBranch,
   "arrow.triangle.merge": IconGitMerge,
-  "arrow.triangle.pull": IconGitPullRequest,
   "square.3.layers.3d": IconStack2,
   "arrow.turn.left.up": IconArrowBackUp,
   "arrow.up": IconArrowUp,
@@ -182,6 +178,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   camera: IconCamera,
   car: IconCar,
   "chart.bar.xaxis": IconChartBar,
+  "waveform.path.ecg": IconActivity,
   checkmark: IconCheck,
   "checkmark.circle": IconCircleCheck,
   "checkmark.circle.fill": IconCircleCheck,
@@ -209,6 +206,7 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "doc.on.doc": IconCopy,
   "doc.text": IconFileText,
   "file.diff": IconFileDiff,
+  workflow: IconSitemap,
   ellipsis: IconDots,
   moon: IconMoon,
   "ellipsis.circle": IconDotsCircleHorizontal,
@@ -302,11 +300,10 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
 } satisfies Partial<
   Record<
     | SFSymbol
-    | "git.pull-request.closed"
-    | "git.pull-request.draft"
+    | keyof typeof githubOcticons
     | "git.commit"
-    | "git.issue"
     | "file.diff"
+    | "workflow"
     | "robot",
     Icon
   >
@@ -314,11 +311,10 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
 const SF_ICON_LOOKUP: Partial<
   Record<
     | SFSymbol
-    | "git.pull-request.closed"
-    | "git.pull-request.draft"
+    | keyof typeof githubOcticons
     | "git.commit"
-    | "git.issue"
     | "file.diff"
+    | "workflow"
     | "robot",
     Icon
   >

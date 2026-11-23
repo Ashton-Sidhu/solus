@@ -22,7 +22,7 @@ import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-g
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context";
-import { useSolusDirectory } from "../../solus/runtime";
+import { useSolusWorkspace } from "../../solus/runtime";
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsSection, SettingsSidebarContext } from "./components/SettingsSection";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -109,7 +109,7 @@ interface SettingsListSection {
 
 function LocalSettingsRouteScreen() {
   const gt = useGT();
-  const { environments } = useSolusDirectory();
+  const { environments } = useSolusWorkspace();
   return (
     <SettingsList
       connections={[
@@ -250,7 +250,7 @@ function useSettingsIndexSections(): SettingsListSection[] {
         page("SettingsAgentProfile", "person.crop.circle", gt("Agent profile")),
         page("SettingsProviderAccounts", "person.crop.circle", gt("Providers")),
         page("SettingsThreads", "text.bubble", gt("Sessions")),
-        page("SettingsScheduledTasks", "clock", gt("Scheduled tasks")),
+        page("SettingsScheduledTasks", "workflow", gt("Scheduled tasks")),
       ],
     },
     {

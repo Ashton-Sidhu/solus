@@ -14,11 +14,12 @@
   interface Props {
     tab: TaskTabId;
     counts: TaskTabCounts;
+    readOnly?: boolean;
     onSelect: (tab: TaskTabId) => void;
   }
-  let { tab, counts, onSelect }: Props = $props();
+  let { tab, counts, readOnly = false, onSelect }: Props = $props();
 
-  const tabs = $derived(taskTabs(counts));
+  const tabs = $derived(taskTabs(counts).filter(({ id }) => !readOnly || id === "overview" || id === "activity"));
 </script>
 
 <div

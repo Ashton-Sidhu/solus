@@ -1,6 +1,8 @@
+import { EMPTY_THREAD_HISTORY_META, applyHistoryPageMeta, type ThreadHistoryMeta } from "@t3tools/client-runtime/state/thread-history-merge"
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { McpAppReference } from '@solus/contracts/mcp-apps'
+import { stripSessionReferenceContext } from '@solus/contracts/injected-context'
 import type { ContextCompaction, PermissionOption, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolProgress, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { planKey } from '@solus/contracts/types'
@@ -11,7 +13,7 @@ import { AgentPlans } from './agent-plans'
 import { artifactFromCreated, artifactFromHistory, type ArtifactRender } from './artifacts'
 import type { AgentSwitch } from './provider-handoff'
 import type { PendingPermission, PendingQuestion, QueuedPrompt } from './pending-requests'
-import type { ToolItem } from './tool-item'
+import { ToolRowIndex, type ToolItem } from './tool-item'
 
 export { permissionForFeedback, type PendingPermission, type PendingQuestion, type QueuedPrompt } from './pending-requests'
 export type { ToolItem } from './tool-item'
@@ -88,6 +90,39 @@ export class TranscriptModel {
   status: SessionStatus = 'idle'
   /** Background work of the session runs on its host, held or not (`background_work`). */
   backgroundWorkRunning = false
+  backgroundTasks: readonly { taskId: string; description?: string }[] = []
+  agentRows: readonly (AgentItem | ToolItem)[] = []
+
+  readonly agentTurnIds = new Map<string, string | null>()
+  latestPromptId: string | null = null
+
+  private indexAgentTurn(item: TranscriptItem): void {
+    if (item.kind === 'user' && item.delivery === 'sent') this.latestPromptId = item.id
+    else if (item.kind === 'agent' || (item.kind === 'tool' && item.subagent))
+      this.agentTurnIds.set(item.id, this.latestPromptId)
+  }
+
+  private indexPageTurns(ids: readonly string[]): void {
+    for (const id of ids) {
+      const item = this.items.get(id)
+      if (item) this.indexAgentTurn(item)
+    }
+  }
+
+  private trackAgent(item: TranscriptItem): void {
+    if (item.kind !== 'agent' && !(item.kind === 'tool' && item.subagent)) return
+    const index = this.agentRows.findIndex(agent => agent.id === item.id)
+    if (index === -1) this.agentRows = [...this.agentRows, item]
+    else {
+      const previous = this.agentRows[index]
+      if (previous === item || (previous?.kind === 'tool' && item.kind === 'tool' && previous.report === item.report && previous.status === item.status)) return
+      const next = this.agentRows.slice()
+      next[index] = item
+      this.agentRows = next
+    }
+    this.metaChanged = true
+  }
+
   permissions: readonly PendingPermission[] = []
   questions: readonly PendingQuestion[] = []
   rateLimit: RateLimitInfo | null = null
@@ -95,11 +130,14 @@ export class TranscriptModel {
   /** Plans of sessions this conversation sent work to. */
   readonly agentPlans = new AgentPlans()
   /** Cursor for the next older page; null when the start of history is loaded. */
-  olderCursor: string | null = null
+  history: ThreadHistoryMeta = EMPTY_THREAD_HISTORY_META
+  get olderCursor(): string | null { return this.history.historyCursor }
 
   private nextId = 0
   /** Orchestration calls a card stands for: kept out of the feed unless they fail. */
   private readonly heldTools = new Set<string>()
+  /** Providers normally give each tool a unique id. A repeated id uses timeline order. */
+  private readonly toolRows = new ToolRowIndex()
   /** While a history page is read, the ids it places, in order. */
   private collecting: string[] | null = null
   /** History rows whose call an older page holds: a tool result or a child
@@ -129,7 +167,8 @@ export class TranscriptModel {
   static fromHistory(sessionId: string, page: SessionHistoryPage): TranscriptModel {
     const model = new TranscriptModel(sessionId)
     model.order = model.rowsToItems(page)
-    model.olderCursor = page.before
+    model.indexPageTurns(model.order)
+    model.history = { ...EMPTY_THREAD_HISTORY_META, historyCursor: page.before, hasMoreHistory: page.before !== null }
     model.orderChanged = true
     model.proseSinceUser = true
     return model
@@ -138,8 +177,15 @@ export class TranscriptModel {
   /** An older page goes before everything already shown. */
   prependHistory(page: SessionHistoryPage): void {
     const older = this.rowsToItems(page)
+    const latest = this.latestPromptId
+    // An earlier page can supply the missing prompt for the first agents already shown.
+    const unassigned = [...this.agentTurnIds].filter(([, prompt]) => prompt === null)
+    this.latestPromptId = null
+    this.indexPageTurns(older)
+    if (this.latestPromptId) for (const [id] of unassigned) this.agentTurnIds.set(id, this.latestPromptId)
+    this.latestPromptId = latest ?? this.latestPromptId
     this.order = [...older, ...this.order]
-    this.olderCursor = page.before
+    this.history = applyHistoryPageMeta(this.history, { nextCursor: page.before, hasMoreHistory: page.before !== null })
     this.orderChanged = true
     this.metaChanged = true
   }
@@ -159,7 +205,7 @@ export class TranscriptModel {
     this.collecting = ids
     for (const row of rows) {
       const callId = row.parentToolUseId ?? (row.role === 'tool_result' ? row.toolResultForId : undefined)
-      if (callId && page.before !== null && !this.findTool(callId)) {
+      if (callId && page.before !== null && !this.toolRows.find(this, callId)) {
         this.unresolvedRows.push(row)
         continue
       }
@@ -173,7 +219,11 @@ export class TranscriptModel {
       else {
         const results = row.role === 'tool' && row.toolId ? resultsByTool.get(row.toolId) : undefined
         const id = this.historyItem(results && !row.agentConversationResults ? { ...row, agentConversationResults: results } : row)
-        if (id) ids.push(id)
+        if (id) {
+          ids.push(id)
+          const item = this.items.get(id)
+          if (item) this.trackAgent(item)
+        }
       }
     }
     this.collecting = null
@@ -184,6 +234,7 @@ export class TranscriptModel {
   private place(item: TranscriptItem): void {
     if (this.collecting) {
       this.items.set(item.id, item)
+      this.trackAgent(item)
       this.collecting.push(item.id)
     } else {
       this.append(item)
@@ -207,7 +258,7 @@ export class TranscriptModel {
       // A [session report] or notice is the orchestrator's, not the person's: it settles a card.
       if (this.agentCards.applyUserRow(row.content, row.timestamp)) return null
       this.agentCards.closeTurn()
-      const { text, files } = splitAttachedFiles(row.content)
+      const { text, files } = splitAttachedFiles(stripSessionReferenceContext(row.content))
       this.items.set(id, { kind: 'user', id, text, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
       return id
     }
@@ -216,6 +267,7 @@ export class TranscriptModel {
       return id
     }
     if (row.role === 'tool' && row.toolId) {
+      this.toolRows.add(row.toolId, id)
       const toolName = row.toolName ?? 'Tool'
       const status = row.toolStatus === 'error' ? 'error' : row.toolStatus === 'running' ? 'running' : 'completed'
       this.items.set(id, {
@@ -253,10 +305,10 @@ export class TranscriptModel {
 
   private applyHistoryResult(row: WireSessionLoadMessage): void {
     if (!row.toolResultForId) return
-    const toolId = this.findTool(row.toolResultForId)
+    const toolId = this.toolRows.find(this, row.toolResultForId)
     const tool = toolId ? this.items.get(toolId) : undefined
     if (tool?.kind === 'tool') {
-      const render = artifactFromHistory(tool.toolName, tool.input, row)
+      const render = artifactFromHistory(tool.toolName, tool.input, row, tool.toolInputKey)
       if (render) this.place({ kind: 'artifact', id: this.mintId('r'), ...render })
     }
     this.patchToolById(row.toolResultForId, false, (tool) => ({
@@ -314,6 +366,7 @@ export class TranscriptModel {
           subagent: event.isSubagent ? event.subagentType ?? 'agent' : subagentFromToolName(event.toolName),
           report: null,
         }
+        this.toolRows.add(event.toolId, item.id)
         if (isAgentConversationTool(event.toolName)) {
           // The host's dispatch update draws the card; the call shows only if it fails.
           this.items.set(item.id, item)
@@ -394,6 +447,20 @@ export class TranscriptModel {
       }
       case 'status_change':
         this.setStatus(event.status)
+        return true
+      case 'background_task_started':
+      case 'background_task_progress': {
+        const previous = this.backgroundTasks.find(task => task.taskId === event.taskId)
+        const description = event.type === 'background_task_progress' ? event.description : previous?.description
+        if (!previous || (description && previous.description !== description)) {
+          this.backgroundTasks = [...this.backgroundTasks.filter(task => task !== previous), {taskId: event.taskId, ...(description && {description})}]
+          this.metaChanged = true
+        }
+        return true
+      }
+      case 'background_task_settled':
+        this.backgroundTasks = this.backgroundTasks.filter(task => task.taskId !== event.taskId)
+        this.metaChanged = true
         return true
       case 'background_work':
         this.setBackgroundWorkRunning(event.running)
@@ -566,7 +633,7 @@ export class TranscriptModel {
   }
 
   hasRunningTool(toolId: string): boolean {
-    return this.findTool(toolId, true) !== undefined
+    return this.toolRows.find(this, toolId, true) !== undefined
   }
 
   private completeTool(event: Extract<WireNormalizedEvent, { type: 'tool_call_complete' }>): void {
@@ -624,10 +691,15 @@ export class TranscriptModel {
     const item = this.items.get(clientPromptId)
     if (item?.kind !== 'user') return
     if (item.delivery === delivery && item.error === error) return
+    if (delivery === "sent" && item.delivery !== "sent") this.latestPromptId = item.id
     this.replace({ ...item, delivery, error })
   }
 
-  setBackgroundWorkRunning(running: boolean): void {
+  setBackgroundWorkRunning(running: boolean, taskIds?: readonly string[]): void {
+    if (taskIds || !running) {
+      this.backgroundTasks = running ? (taskIds ?? []).map(taskId => this.backgroundTasks.find(task => task.taskId === taskId) ?? {taskId}) : []
+      this.metaChanged = true
+    }
     if (this.backgroundWorkRunning === running) return
     this.backgroundWorkRunning = running
     this.metaChanged = true
@@ -877,21 +949,8 @@ export class TranscriptModel {
     this.metaChanged = true
   }
 
-  /** The newest tool item for a provider tool id; `runningOnly` for in-flight updates. */
-  private findTool(toolId: string, runningOnly = false): string | undefined {
-    for (let index = this.order.length - 1; index >= 0; index -= 1) {
-      const id = this.order[index]
-      const item = id ? this.items.get(id) : undefined
-      if (item?.kind === 'tool' && item.toolId === toolId && (!runningOnly || item.status === 'running')) return id
-    }
-    for (const [id, item] of this.items) {
-      if (item.kind === 'tool' && item.toolId === toolId && (!runningOnly || item.status === 'running')) return id
-    }
-    return undefined
-  }
-
   private patchToolById(toolId: string, runningOnly: boolean, patch: (tool: Extract<TranscriptItem, { kind: 'tool' }>) => Extract<TranscriptItem, { kind: 'tool' }>): void {
-    const id = this.findTool(toolId, runningOnly)
+    const id = this.toolRows.find(this, toolId, runningOnly)
     const item = id ? this.items.get(id) : undefined
     if (!id || item?.kind !== 'tool') return
     const next = patch(item)
@@ -968,12 +1027,15 @@ export class TranscriptModel {
     // Live messages arrive without a stored time. Keep their arrival time through later text updates.
     if ((item.kind === 'user' || item.kind === 'assistant' || item.kind === 'tool') && item.timestamp === undefined) item.timestamp = Date.now()
     this.items.set(item.id, item)
+    this.trackAgent(item)
+    this.indexAgentTurn(item)
     this.order = [...this.order, item.id]
     this.orderChanged = true
   }
 
   private replace(item: TranscriptItem, id = item.id): void {
     this.items.set(id, item)
+    this.trackAgent(item)
     this.changedItems.add(id)
   }
 

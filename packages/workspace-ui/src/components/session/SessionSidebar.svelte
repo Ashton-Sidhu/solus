@@ -74,23 +74,22 @@
     type SidebarSection,
   } from "./lib/sidebar-list-items";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
-  import { isDarkSkyScene } from "../../lib/sky-scene";
-  import { useSkyScene } from "../../lib/sky-scene.svelte";
+  import { isDarkSkyScene, type SkyScene } from "../../lib/sky-scene";
 
   interface Props {
     open?: boolean;
     managedWidth?: boolean;
     /** Closed, the places column stays on screen (`SidePanel`). */
     staysAsColumn?: boolean;
-    onToggleCollapse?: () => void;
     onSessionSelect?: () => void;
+    skyScene: SkyScene | null;
   }
   let {
     open = true,
     managedWidth = false,
     staysAsColumn = false,
-    onToggleCollapse,
     onSessionSelect,
+    skyScene,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -121,11 +120,7 @@
     });
   });
   onDestroy(() => automationWatches.forEach((stop) => stop()));
-  // The title bar's sky shows the scene the person chose, or the clock's.
-  // Dusk and night are dark in both themes. With the sky off the title bar is
-  // plain and the content keeps no room for it.
-  const sky = useSkyScene(() => theme.skySceneChoice);
-  const isOnDarkSky = $derived(theme.showsSidebarSky && isDarkSkyScene(sky.current));
+  const isOnDarkSky = $derived(skyScene !== null && isDarkSkyScene(skyScene));
   const canStartSession = $derived(hosts.runOn?.me.may("host.sessions.start") ?? true);
 
   let scrollEl: HTMLDivElement | undefined = $state();
@@ -552,10 +547,9 @@
 
   async function bulkComplete() {
     const rows = selectedTasks();
-    const onScreenRow = rows.find((task) =>
-      task.tabIds.includes(session.onScreenTabId),
-    );
-    const wasSelected = !!onScreenRow;
+    const onScreenRow = session.showsConversation
+      ? rows.find((task) => task.tabIds.includes(session.activeTabId))
+      : undefined;
     const next = onScreenRow
       ? nextTaskAfterLeaving(openRows, onScreenRow.id, selectedTaskIds)
       : null;
@@ -575,7 +569,12 @@
       }
     }
     selectedTaskIds.clear();
-    if (wasSelected) navigateAfterLifecycleMove(next);
+    if (
+      onScreenRow &&
+      (session.showsConversation || session.router.destination.name === "draft")
+    ) {
+      navigateAfterLifecycleMove(next);
+    }
     requestInputFocus();
   }
 
@@ -929,15 +928,12 @@
   isElevated={false}
   minWidth={SIDEBAR_MIN_WIDTH}
   maxWidth={SIDEBAR_MAX_WIDTH}
-  onAction={onToggleCollapse}
-  actionTooltip={`Collapse sidebar (${comboHint("global.toggle-sidebar")})`}
-  actionAriaLabel="Collapse sidebar"
   background="color-mix(in oklch, var(--card) 99%, var(--foreground))"
   headerOnDark={isOnDarkSky}
 >
   {#snippet backdrop()}
-    {#if theme.showsSidebarSky}
-      <SidebarSky scene={sky.current} />
+    {#if skyScene}
+      <SidebarSky scene={skyScene} />
     {/if}
   {/snippet}
   {#snippet headerLeading()}
@@ -951,8 +947,7 @@
        list fill the column beside them. -->
   <div
     class="flex min-h-0 flex-1"
-    style:margin-top={theme.showsSidebarSky ? `${SKY_HEADER_DROP_REM}rem` : undefined}
-    style:--sidebar-head-drop={theme.showsSidebarSky ? `${SKY_HEADER_DROP_REM}rem` : "0px"}
+    style:margin-top={skyScene ? `${SKY_HEADER_DROP_REM}rem` : undefined}
   >
   <SidebarPlaces />
   <!-- Closed, the list is clipped away beside the places column. The pane

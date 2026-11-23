@@ -5,7 +5,7 @@
     AlarmClock as AlarmIcon,
     Check as CheckIcon,
     Laptop as LaptopIcon,
-    Settings as AutomationIcon,
+    Workflow as AutomationIcon,
     Moon as MoonIcon,
     Pin as PinIcon,
     Sun as SunIcon,

@@ -60,6 +60,8 @@ export interface HostCapabilities {
    *  client learns the friendly name — and the only one that stays current when
    *  the machine is renamed. */
   name?: string
+  /** The sessions API accepts personal list order and shared auto-settle changes. */
+  sessionListControls?: boolean
   attachUpload?: boolean
   /** The host reads `PromptOptions.imageAttachmentRefs` from its own attachment
    *  store. Without it a client sends image bytes inline on every turn. */
@@ -2053,8 +2055,8 @@ export type NormalizedEvent =
   /** `awaitable`: the task holds its session only while the agent marks it as
    *  awaited (`background_wait`). Shells, Monitors, and Codex commands;
    *  absent for sub-agents, which always hold. */
-  | { type: 'background_task_started'; taskId: string; toolUseId?: string; awaitable?: boolean }
-  | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string }
+  | { type: 'background_task_started'; taskId: string; toolUseId?: string; awaitable?: boolean; lineageTask?: { kind: 'subagent' | 'workflow'; title: string } }
+  | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string; workflow?: import('./session-digest').DigestWorkflow }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
   /** Whether any background work of the session runs, held or not. Sent when
    *  that changes. A Claude shell or Monitor the agent did not mark runs while
@@ -2414,6 +2416,7 @@ export interface BackendSession {
    *  once it settles. Which of them hold the session in 'background' is
    *  `backgroundWorkHolds` (docs/background-work.md). */
   backgroundTaskIds?: Set<string>
+  lineageTaskIds?: Map<string, string>
   /** Tasks in flight that hold the session only while awaited: Claude's shells and Monitors. */
   awaitableTaskIds?: Set<string>
   /** Tasks the agent marked with `background_wait`: it acts on their result when they wake it. */
@@ -2431,6 +2434,7 @@ export interface RuntimeSessionInfo {
   queuedPrompts: QueuedPromptSnapshot[]
   rateLimitInfo: RateLimitInfo | null
   handoffFrom?: SessionHandoffLineage
+  backgroundTaskIds?: string[]
   /** Background work of the session runs, held or not (`background_work`). */
   backgroundWorkRunning?: boolean
 }
@@ -2442,9 +2446,12 @@ export interface WatchSessionInput {
   /** Also attach to the live runtime, as `bindRuntimeSession` would, so a
    *  client joining a session pays one round trip rather than two. */
   attachRuntime?: boolean
+  /** Resume the in-memory turn only if the host still holds this applied event. */
+  afterEvent?: string
 }
 
 export interface WatchSessionResult {
+  resumed?: boolean
   /** Set when `attachRuntime` was asked for: null means no live runtime. */
   runtime?: RuntimeSessionInfo | null
   /** Questions that remain open after their Codex turn has ended. */
@@ -2805,6 +2812,8 @@ export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessio
  *  host encodes it as the provider does, and `includeWorktrees` adds the
  *  project's worktree folders beneath it. */
 export interface SessionRecordListFilter {
+  /** The last complete page this reader still holds. */
+  knownRevision?: string
   provider?: AgentId
   projectPath?: string
   includeWorktrees?: boolean
@@ -2822,6 +2831,9 @@ export interface SessionRecordListFilter {
 /** One home's records. `indexing` is true while a machine's first index sweep
  *  runs: the list is not complete yet, so a client must not show it as final. */
 export interface SessionRecordList {
+  revision?: string
+  /** The reader supplied this revision and still owns all its rows. */
+  unchanged?: true
   records: SessionRecord[]
   indexing: boolean
 }
@@ -3569,6 +3581,7 @@ export interface AutomationAction {
   /** null → the agent's default model. */
   modelId: string | null
   reasoningEffort: ReasoningEffort
+  fastMode?: boolean
   cwd: string
   /**
    * When true, the run executes in a fresh git worktree branched off `cwd`

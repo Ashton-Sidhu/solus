@@ -6,13 +6,12 @@
     Archive as ArchiveIcon,
     AtSign as AtSignIcon,
     ArchiveRestore as ArchiveRestoreIcon,
-    ChartBar as ChartBarIcon,
+    Activity as ActivityIcon,
     Check as CheckIcon,
     GitFork as GitForkIcon,
     GitFork as TreeStructureIcon,
     MessagesSquare as ChatsIcon,
     Copy as CopyIcon,
-    GitPullRequest as GitPullRequestIcon,
     Link as LinkIcon,
     Moon as MoonIcon,
     Unlink as UnlinkIcon,
@@ -24,6 +23,7 @@
     Share as ShareIcon,
     X as XIcon,
   } from "@lucide/svelte";
+  import { GitPullRequestIcon } from "../ui/octicons";
   import { getSessionSidebarStore, getWorkspaceContext, sharesStore } from "../../contexts";
   import { sessionTitle } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
@@ -582,7 +582,7 @@
     {/if}
     {#if canOpenInsights}
       <ContextMenu.Item onSelect={openInInsights}>
-        <ChartBarIcon />
+        <ActivityIcon />
         Open in Insights
       </ContextMenu.Item>
     {/if}

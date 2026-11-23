@@ -126,7 +126,9 @@ The host scans every three seconds while a client watches. A client sends one
 watch when its first reader starts and one more each time the set of watched
 checkouts changes; checkouts that change in the same tick share one call. It
 sends no renewal. Readers and active forwards retain the watch. The last holder
-releases it, and disconnection removes it. Active forwards renew their tunnel
+releases it at the end of its tick, so a tab switch, which unmounts one Git
+section and mounts the next in one tick, moves the watch with one call. A
+checkout root read once is kept. Disconnection removes the watch. Active forwards renew their tunnel
 tickets every minute. Changes go through `runningServers.changed`; equal lists do
 not invalidate readers. Disconnect clears running claims. Reconnect reads again.
 Running state is not persisted.

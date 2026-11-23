@@ -1,3 +1,5 @@
+import { githubOcticonPaths } from '@solus/client-core/github-octicons'
+
 /*
  * Shared shape for the inline-token Tiptap nodes (plan / file / slash).
  * Variants differ only in icon and color class — the underlying styles
@@ -23,8 +25,7 @@ export function tokenClassName(variant: TokenVariant, mono = false): string {
 }
 
 /*
- * Tiptap's `renderHTML` returns vdom-like arrays; SVG icons ship as the same
- * shape. Each icon is a 24×24 stroked glyph styled by the surrounding class.
+ * Tiptap's `renderHTML` returns arrays for markup and SVG icons.
  *
  * ProseMirror creates elements via `createElement` by default (no SVG
  * namespace), so we use the `"<namespace> <tag>"` DOMOutputSpec convention to
@@ -75,22 +76,17 @@ export const TOKEN_ICONS = {
     ['path', { d: 'M16 17H8' }],
     ['path', { d: 'M10 9H8' }],
   ],
-  // git-pull-request
-  pr: [`${SVG_NS} svg`, { ...SVG_ATTRS },
-    ['circle', { cx: '6', cy: '6', r: '3' }],
-    ['path', { d: 'M6 9v12' }],
-    ['circle', { cx: '18', cy: '18', r: '3' }],
-    ['path', { d: 'M18 15V8a2 2 0 0 0-2-2h-4' }],
-    ['path', { d: 'm15 3-3 3 3 3' }],
+  pr: [`${SVG_NS} svg`, { viewBox: '-1.6 -1.6 19.2 19.2', fill: 'currentColor' },
+    ['path', { d: githubOcticonPaths.pullRequest }],
   ],
-  // square-check-big
-  task: [`${SVG_NS} svg`, { ...SVG_ATTRS },
-    ['path', { d: 'M21 10.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' }],
-    ['path', { d: 'm8 11 3 3 8-8' }],
+  task: [`${SVG_NS} svg`, { viewBox: '-1.6 -1.6 19.2 19.2', fill: 'currentColor' },
+    ['path', { d: githubOcticonPaths.issueOpened }],
   ],
-  // zap
+  // workflow
   automation: [`${SVG_NS} svg`, { ...SVG_ATTRS },
-    ['path', { d: 'M13 2 4 14h7l-1 8 9-12h-7z' }],
+    ['rect', { width: '8', height: '8', x: '3', y: '3', rx: '2' }],
+    ['path', { d: 'M7 11v4a2 2 0 0 0 2 2h4' }],
+    ['rect', { width: '8', height: '8', x: '13', y: '13', rx: '2' }],
   ],
   // at-sign
   person: [`${SVG_NS} svg`, { ...SVG_ATTRS },

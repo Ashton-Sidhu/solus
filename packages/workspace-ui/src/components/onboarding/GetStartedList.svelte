@@ -10,9 +10,9 @@
     Bot as AgentsIcon,
     ChevronRight as ChevronIcon,
     FolderGit2 as ProjectIcon,
-    GitPullRequest as GithubIcon,
     Server as MachineIcon,
   } from "@lucide/svelte";
+  import BrandIcon from "@iconify/svelte";
   import { onMount } from "svelte";
   import { cn } from "../../lib/utils";
   import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
@@ -21,9 +21,8 @@
   const ICONS = {
     machine: MachineIcon,
     agents: AgentsIcon,
-    github: GithubIcon,
     project: ProjectIcon,
-  } satisfies Record<GetStartedItemId, typeof ChevronIcon>;
+  } satisfies Record<Exclude<GetStartedItemId, "github">, typeof ChevronIcon>;
 
   let { class: className }: { class?: string } = $props();
 
@@ -45,14 +44,18 @@
     </summary>
     <div class="flex flex-wrap gap-1 pt-1">
       {#each items as item (item.id)}
-        {@const Icon = ICONS[item.id]}
         <button
           type="button"
           class="flex min-h-9 items-center gap-2 rounded-lg px-3 text-left hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-11"
           onclick={() => cloud.reopenAt(item.stage)}
           title={item.detail}
         >
-          <Icon size={16} class="shrink-0" />
+          {#if item.id === "github"}
+            <BrandIcon icon="simple-icons:github" width={16} height={16} class="shrink-0" aria-hidden="true" />
+          {:else}
+            {@const Icon = ICONS[item.id]}
+            <Icon size={16} class="shrink-0" />
+          {/if}
           <span>{item.label}</span>
         </button>
       {/each}

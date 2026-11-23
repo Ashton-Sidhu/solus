@@ -56,8 +56,6 @@ export class CloudHistory {
     this.follow()
     const copy: CloudRead = { sessionId, provider, turnDiffs: [], turnOfPrompt: new Map() }
     const model = new TranscriptModel(sessionId)
-    // The first page has no cursor; the model takes the page's own after it.
-    model.olderCursor = ''
     this.copies.set(model, copy)
     // Before the request: rows that arrive while it travels can be absent from its answer.
     this.setNewerRows(sessionId, false)

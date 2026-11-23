@@ -144,22 +144,28 @@ with a 304, which does not count against the quota.
 
 A tick:
 
-1. **Head lookups — shared GraphQL documents, only when due.** A branch in
-   interest is keyed by its head, the repository and branch it pushes to
-   (`PullRequestHead`, `resolvePushHead`); GitHub's `headRefName` matches the
-   name in every fork. A head that has no open pull request is read from its
-   own repository's ref:
-   `h0: ref(qualifiedName: "refs/heads/topic") { associatedPullRequests(first: 20, orderBy: CREATED_AT DESC) }`,
-   keeping the pull requests into the base repository. The reads of every
-   repository on one account share one `PrSyncByHeadRef` document (§11, item 4).
-   A head whose ref is gone (deleted after a merge) or not readable is read
-   from the base repository by name, `pullRequests(headRefName:, first: 50)`
-   in a `PrSyncByHead` document, and only rows of the exact head are kept. A
-   session on the default branch is not looked up. The head matches its open pull
-   request, or else its newest one. A lookup is due when the branch joins the
-   interest, when a turn of a session on that branch ends (§3.4), and on a
-   person's refresh. No clock looks a branch up (2026-10-14, after T3 Code's
-   on-demand lookups). A branch whose open pull request is matched is not looked up:
+1. **Head lookups — one query per lookup, in shared documents, only when due.**
+   A branch in interest is keyed by its head, the repository and branch it
+   pushes to (`PullRequestHead`, `resolvePushHead`); GitHub's `headRefName`
+   matches the name in every fork. A head that has no open pull request is
+   read from the base repository by name, as T3 Code reads it
+   (`PullRequestsByHead`): `h0: pullRequests(headRefName:, first: 50,
+   orderBy: CREATED_AT DESC)` in a `PrSyncByHead` document that the
+   repositories of one account share (§11, item 4). Only rows of the exact
+   head are kept, so another fork's branch of the same name is dropped, and a
+   branch deleted after its merge is still found. (Until 2026-11-23 a lookup
+   first read the head's ref, `PrSyncByHeadRef`, and read by name only when
+   the ref was gone: two queries for every branch never pushed.) A branch the
+   checkout never published is not looked up at all: no upstream, and no
+   remote branch of its name while the repository tracks some remote branch
+   (`isUnpublishedBranch`, T3 Code's rule); `pushHeadFor` answers null for it.
+   A session on the default branch is not looked up. The head matches its open
+   pull request, or else its newest one. A lookup is due when a turn of a
+   session on that branch ends (§3.4), the first time a client shows the
+   branch, and on a person's refresh. Being new to the process is no reason: a
+   restart sends no sweep of the live branches. The Solus API, which hears no
+   turn end, looks up a head when it joins the interest. No clock looks a
+   branch up (2026-10-14, after T3 Code's on-demand lookups). A branch whose open pull request is matched is not looked up:
    step 2 keeps that pull request fresh. A row reads no base branch rules: its
    access is the repository's. Before PR sync stores or publishes a row, it
    takes the merge methods, the default method, and
@@ -521,8 +527,9 @@ Tests: `pr-sync`, `github-pr-sync-reads`, `pr-checks-read`, `prs-store-sync`,
    requests (15 min), and check runs for a review pane (15 s or 10 s). The
    needs-review clock (5 min) and the lookup of unmatched branches (5 min)
    were removed the same day: needs-review comes from list reads (§3.2 step
-   5), and a branch is looked up when it joins the interest, at a turn end of
-   its session, or on a refresh.
+   5), and a branch is looked up at a turn end of its session, the first time
+   a client shows it, or on a refresh; since 2026-11-23 not when it only joins
+   the interest after a restart, and never when it was not published.
 
 ## 12. Where the build differs from this plan
 

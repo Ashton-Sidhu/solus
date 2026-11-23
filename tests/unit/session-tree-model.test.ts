@@ -4,8 +4,10 @@ import type { SessionRecord } from '@solus/contracts/types'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { childRows, childRowsIn, descendantsOf, mergedFileChanges, treeOwnedArtifacts, treeTimeline, treeTotals, turnChanges } from '@solus/client-core/session-tree'
 import { linkSections, scopedArtifacts } from '@solus/client-core/session-overview'
-import { SessionTreeWatch, type SessionTreeView } from '@solus/client-core/session-tree-watch'
+import { readSessionTreeWithRelations, SessionTreeWatch, type SessionTreeView } from '@solus/client-core/session-tree-watch'
+import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { stackedBarHeights, timelineBarText, timelineLayout } from '@solus/client-core/turn-timeline'
+import { treeAgentRows } from '@solus/workspace-ui/components/project-panel/lib/rail-agents'
 
 /**
  * Desktop, web, and the phone draw the Threads surface from a session tree
@@ -49,6 +51,29 @@ const tree: SessionTree = {
 }
 
 describe('session tree model', () => {
+  test('the Agents panel takes direct delegates and provider calls from the same tree', () => {
+    const withAgents = {
+      nodes: [
+        node(record('lead', null, { provider: 'claude-code' }), digest('lead', [], {
+          subagents: [
+            { id: 'tool', title: 'Check the files', status: 'failed', startedAt: 2, endedAt: 3, detail: 'Read failed' },
+          ],
+        })),
+        node(record('local-child', 'lead', { customTitle: 'Local delegate', status: 'interrupted' }), digest('local-child', [], {
+          turns: [{ id: 'open', startedAt: 1, endedAt: 2, settled: false, prompt: 'Work', toolCalls: [], changes: null }],
+        })),
+        node(record('remote-child', 'lead', { runnerHostId: 'remote', status: 'running', createdAt: 4 }), null),
+        node(record('grandchild', 'local-child'), null),
+      ],
+    }
+    const rows = treeAgentRows(withAgents, 'lead', 'local')
+    expect(rows).toMatchObject([
+      { kind: 'session', id: 'remote-child', serverId: 'remote', tone: 'live', endedAt: null },
+      { kind: 'subagent', id: 'tool', provider: 'claude-code', tone: 'failed', detail: 'Read failed' },
+      { kind: 'session', id: 'local-child', serverId: 'local', title: 'Local delegate', status: 'Interrupted' },
+    ])
+    expect(treeAgentRows(withAgents, 'local-child', 'local').map((row) => row.id)).toEqual(['grandchild'])
+  })
   test('a timeline from the digest lays out as the conversation drew it', () => {
     // WHY: buckets start at the turn's start, as the bars do, so each call lands in its bar.
     const timeline = treeTimeline(tree.nodes[0]!.digest, START + 60_000)
@@ -141,6 +166,40 @@ describe('agent filter model', () => {
     // A span with no calls is a dot; an agent call before the session's turn has no bar.
     expect(stackedBarHeights(layout.bars[3]!, layout.fullHeightCalls, 44)).toEqual({ own: 2, agents: 0 })
     expect(layout.bars.reduce((total, bar) => total + bar.agentCalls, 0)).toBe(2)
+  })
+})
+
+describe('desktop session relationships', () => {
+  const childTree: SessionTree = { nodes: [tree.nodes[1]!] }
+
+  test('an older host can still name the child session’s parent', async () => {
+    const result = await readSessionTreeWithRelations({
+      sessionTree: async (id, includeRelations) => {
+        expect([id, includeRelations]).toEqual(['child', true])
+        return childTree
+      },
+      getSessionInfo: async (id) => {
+        expect(id).toBe('lead')
+        return sessionMetaFromRecord(tree.nodes[0]!.record)
+      },
+    }, 'child')
+    expect(result.relations).toEqual([{ kind: 'parent', sessionId: 'lead', title: 'Session lead', runnerHostId: null }])
+  })
+
+  test('a host that declines the parent read leaves the link hidden', async () => {
+    const getSessionInfo = async () => { throw new Error('This session is not shared with you') }
+    expect(await readSessionTreeWithRelations({ sessionTree: async () => childTree, getSessionInfo }, 'child')).toEqual(childTree)
+  })
+
+  test('the current host’s relationship answer is authoritative, even when empty', async () => {
+    const answer: SessionTree = { ...childTree, relations: [] }
+    let parentReads = 0
+    const result = await readSessionTreeWithRelations({
+      sessionTree: async () => answer,
+      getSessionInfo: async () => { parentReads++; return null },
+    }, 'child')
+    expect(result).toBe(answer)
+    expect(parentReads).toBe(0)
   })
 })
 
